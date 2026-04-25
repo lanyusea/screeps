@@ -160,6 +160,17 @@ Every important choice should leave a trail:
 - Use the smallest channel and role set that still supports the workflow.
 - Do not add extra categories, roles, or channels unless we know why they exist.
 
+### 5.5 Autonomous progress reporting
+- Autonomous execution means no intermediate permission requests, not silent execution.
+- Process progress must still be posted into the relevant project channels:
+  - research findings and sources → `#research-notes`
+  - active task state and blockers → `#task-queue`
+  - implementation, verification, and file-change logs → `#dev-log`
+  - final direction-changing choices → `#decisions`
+- If any task remains in progress for more than 4 hours without a final conclusion, the bot must post a structured progress summary every 4 hours until the task concludes.
+- Each 4-hour summary must also be reflected in `docs/process/` so that long-running work can survive context compaction and remain usable as future blog material.
+- 4-hour summaries should include: current objective, work completed, evidence gathered, unresolved questions, blockers, next actions, and links/files changed.
+
 ---
 
 ## 6. Message templates

@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build/test output
+prod/coverage/
+
+# Local secrets
+.env
+*.local
+prod/screeps.json
+prod/.env
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

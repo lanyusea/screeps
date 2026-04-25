@@ -21,3 +21,7 @@ Use it for notes that you may later expand into a blog post, retrospective, or p
 - `2026-04-25-screeps-research-process.md`
 - `2026-04-25-screeps-dev-deploy-chain.md`
 - `2026-04-25-overmind-architecture-process-note.md`
+- `2026-04-25-autonomous-progress-reporting.md`
+- `2026-04-25-phase1-phase2-continuation.md`
+- `2026-04-26-mvp-skeleton-implementation.md`
+- `active-work-state.md`

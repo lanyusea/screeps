@@ -24,12 +24,15 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `ops/discord-project-spec.md`
 - `ops/discord-server-setup-guide.md`
 - `ops/discord-server-configuration.md`
+- `ops/mvp-skeleton-implementation-plan.md`
 
 ### Research
 - `research/phase-1-research-brief.md`
 - `research/2026-04-25-screeps-world-mechanics-and-api-constraints.md`
 - `research/2026-04-25-screeps-dev-deploy-chain.md`
 - `research/2026-04-25-overmind-architecture-patterns.md`
+- `research/2026-04-25-phase1-dev-chain-decision-brief.md`
+- `research/2026-04-25-technical-architecture-strategy.md`
 
 ### Process
 - `process/2026-04-25-discord-setup.md`
@@ -38,6 +41,10 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `process/2026-04-25-screeps-research-process.md`
 - `process/2026-04-25-screeps-dev-deploy-chain.md`
 - `process/2026-04-25-overmind-architecture-process-note.md`
+- `process/2026-04-25-autonomous-progress-reporting.md`
+- `process/2026-04-25-phase1-phase2-continuation.md`
+- `process/2026-04-26-mvp-skeleton-implementation.md`
+- `process/active-work-state.md`
 
 ## Rules
 
