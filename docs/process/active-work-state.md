@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T02:59:58+08:00
+Last updated: 2026-04-26T03:21:40+08:00
 
 ## Current active objective
 
@@ -119,6 +119,21 @@ Continue Screeps research/design/autonomous implementation while preserving dura
   - `npm test -- --runInBand`: passed, 12 suites / 41 tests
   - `npm run build`: passed
 
+### emergency-worker-recovery
+
+- Status: implemented and verified
+- Process note: `docs/process/2026-04-26-emergency-worker-recovery.md`
+- Codex-authored commit: `e7cb06eeb9f2e624ce396c15d36919d598955d4d` (`feat: add emergency worker recovery`)
+- Implemented:
+  - normal worker body selection now waits for the capacity-based normal body for non-emergency replacements
+  - zero-active-worker colonies can request a minimal emergency `WORK+CARRY+MOVE` worker when the normal body is unaffordable but 200 energy is available
+  - spawn planning avoids impossible emergency body requests below available energy
+  - behavior remains compatible with replacement planning, telemetry, and task flow
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 44 tests
+  - `npm run build`: passed
+
 ### next-runtime-validation
 
 - Status: recommended next autonomous slice
@@ -126,7 +141,7 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 - Durable roadmap: `docs/ops/roadmap.md`
 - Candidate next outputs:
   1. execute the Dockerized private-server smoke runbook with `screepers/screeps-launcher`, if required credentials/config can be supplied locally without committing secrets
-  2. if smoke setup still blocks on credentials/config, implement additional deterministic runtime hardening such as zero-creep/low-energy emergency recovery
+  2. if smoke setup still blocks on credentials/config, add lifecycle coverage around emergency-worker recovery through spawn execution and transition back to normal worker planning
   3. if production/test/build code changes are needed, invoke OpenAI Codex CLI from `/root/screeps` with PTY and require Codex to commit verified changes
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
