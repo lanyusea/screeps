@@ -87,10 +87,10 @@ def main():
     W, H = 1440, 900
     card_x, card_y = 54, 50
     card_w, card_h = 1332, 800
-    map_x, map_y = 96, 214
-    cell = 10.8
+    map_x, map_y = 86, 142
+    cell = 13.4
     map_size = cell * 50
-    side_x = 704
+    side_x = 875
 
     svg = []
     def add(s): svg.append(s)
@@ -104,7 +104,7 @@ def main():
     add('''<defs>
       <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="1" stdDeviation="1" flood-opacity=".03"/><feDropShadow dx="0" dy="16" stdDeviation="18" flood-opacity=".07"/></filter>
       <style>
-        .sans{font-family:Inter,Helvetica,Arial,sans-serif}.serif{font-family:Georgia,Times New Roman,serif}.mono{font-family:JetBrains Mono,IBM Plex Mono,Courier New,monospace}.kicker{font:700 10px Inter,Helvetica,Arial,sans-serif;letter-spacing:.28em;fill:#6b6359}.title{font:500 58px Inter,Helvetica,Arial,sans-serif;letter-spacing:-.045em;fill:#111}.titleAccent{font:500 58px Inter,Helvetica,Arial,sans-serif;letter-spacing:-.045em;fill:#cf4327}.body{font:400 14px Inter,Helvetica,Arial,sans-serif;fill:#5f5a54}.small{font:500 12px Inter,Helvetica,Arial,sans-serif;fill:#6b6359}.metricNum{font:500 42px Georgia,Times New Roman,serif;fill:#111}.metricLabel{font:700 10px Inter,Helvetica,Arial,sans-serif;letter-spacing:.22em;fill:#8a8379}.coord{font:500 8px JetBrains Mono,Courier New,monospace;fill:#8f887e}.caption{font:500 12px Inter,Helvetica,Arial,sans-serif;fill:#3e3a35}.legend{font:500 11px Inter,Helvetica,Arial,sans-serif;fill:#6b6359}
+        .sans{font-family:Inter,Helvetica,Arial,sans-serif}.serif{font-family:Georgia,Times New Roman,serif}.mono{font-family:JetBrains Mono,IBM Plex Mono,Courier New,monospace}.kicker{font:700 10px Inter,Helvetica,Arial,sans-serif;letter-spacing:.24em;fill:#6b6359}.body{font:400 13px Inter,Helvetica,Arial,sans-serif;fill:#5f5a54}.small{font:500 12px Inter,Helvetica,Arial,sans-serif;fill:#6b6359}.metricNum{font:500 32px Georgia,Times New Roman,serif;fill:#111}.metricLabel{font:700 9px Inter,Helvetica,Arial,sans-serif;letter-spacing:.18em;fill:#8a8379}.coord{font:500 8px JetBrains Mono,Courier New,monospace;fill:#8f887e}.caption{font:500 12px Inter,Helvetica,Arial,sans-serif;fill:#3e3a35}.legend{font:500 11px Inter,Helvetica,Arial,sans-serif;fill:#6b6359}.dense{font:500 12px Inter,Helvetica,Arial,sans-serif;fill:#3e3a35}.denseMuted{font:400 11px Inter,Helvetica,Arial,sans-serif;fill:#6b6359}
       </style>
     </defs>''')
     add('<rect width="100%" height="100%" fill="#efece5"/>')
@@ -115,11 +115,10 @@ def main():
     text(card_x+110, card_y+39, "Screeps room snapshot", "small")
     text(card_x+card_w-24, card_y+39, f"{SHARD}/{ROOM} · tick {gametime or 'unknown'}", "small", text_anchor="end")
 
-    text(96, 134, "Territory you can", "title")
-    text(96, 196, "read at a glance.", "titleAccent")
-    text(side_x, 122, "A warm editorial map for runtime-summary:", "body")
-    text(side_x, 146, "real terrain, current objects, and quiet operational context.", "body")
-    add(f'<path d="M{side_x} 174 H{card_x+card_w-72}" stroke="#111" stroke-opacity=".75"/>')
+    text(96, 112, f"{SHARD}/{ROOM}", "kicker")
+    text(96, 132, f"tick {gametime or 'unknown'} · official-client room feed", "small")
+    text(side_x, 112, "Runtime reading", "kicker")
+    add(f'<path d="M{side_x} 132 H{card_x+card_w-72}" stroke="#111" stroke-opacity=".75"/>')
 
     # Map panel
     add(f'<rect x="{map_x-18}" y="{map_y-18}" width="{map_size+36}" height="{map_size+36}" fill="#f3f0ea" stroke="#d8d0c4"/>')
@@ -157,38 +156,68 @@ def main():
         hostile = c in hostiles
         dot(c, "#cf4327" if hostile else "#fffaf0", 4.5, stroke="#cf4327" if hostile else "#111")
 
-    # Side metrics and notes
+    # Dense side metrics and notes
     metrics = [
-        ("OBJECTS", len(objects)),
-        ("CREEPS", counts.get("creep", 0)),
-        ("SOURCES", counts.get("source", 0)),
-        ("HOSTILES", len(hostiles)),
+        ("objects", len(objects)),
+        ("creeps", counts.get("creep", 0)),
+        ("sources", counts.get("source", 0)),
+        ("hostiles", len(hostiles)),
     ]
-    my = 242
+    my = 172
+    text(side_x, my, "Snapshot", "kicker")
+    my += 26
     for i, (label, value) in enumerate(metrics):
-        x = side_x + (i % 2) * 214
-        y = my + (i // 2) * 112
-        text(x, y, str(value), "metricNum")
-        text(x, y+28, label, "metricLabel")
-        add(f'<path d="M{x} {y+43} H{x+160}" stroke="#d7d0c5"/>')
+        x = side_x + (i % 2) * 170
+        y = my + (i // 2) * 30
+        text(x, y, label.upper(), "metricLabel")
+        text(x + 124, y, value, "dense", text_anchor="end")
+        add(f'<path d="M{x} {y+12} H{x+132}" stroke="#e0d9ce"/>')
 
-    status_y = 510
-    text(side_x, status_y, "Operational reading", "kicker")
+    status_y = 290
+    text(side_x, status_y, "Objects and status", "kicker")
     rows = [
         ("Spawn", f"{spawn.get('hits')}/{spawn.get('hitsMax')} at {spawn.get('x')},{spawn.get('y')}" if spawn else "not visible"),
         ("Controller", f"R{controller.get('level')} at {controller.get('x')},{controller.get('y')}" if controller else "not visible"),
         ("Alert", "No hostile creep visible" if not hostiles else f"{len(hostiles)} hostile creep(s) visible"),
-        ("Source", "Official-client websocket + terrain endpoint"),
+        ("Mineral", f"visible at {mineral.get('x')},{mineral.get('y')}" if mineral else "not visible"),
+        ("Feed", "websocket room objects + cached terrain"),
     ]
-    y = status_y + 38
+    y = status_y + 26
     for k, v in rows:
         text(side_x, y, k.upper(), "metricLabel")
-        text(side_x + 136, y, v, "body")
-        add(f'<path d="M{side_x} {y+18} H{card_x+card_w-72}" stroke="#e0d9ce"/>')
-        y += 48
+        text(side_x + 108, y, v, "dense")
+        add(f'<path d="M{side_x} {y+15} H{card_x+card_w-72}" stroke="#e0d9ce"/>')
+        y += 27
+
+    # Compact object mix table
+    y += 14
+    text(side_x, y, "Object mix", "kicker")
+    y += 24
+    mix = [
+        ("spawn", counts.get("spawn", 0)),
+        ("controller", counts.get("controller", 0)),
+        ("creep", counts.get("creep", 0)),
+        ("source", counts.get("source", 0)),
+        ("mineral", counts.get("mineral", 0)),
+        ("hostile", len(hostiles)),
+    ]
+    for idx, (name, value) in enumerate(mix):
+        x = side_x + (idx % 2) * 170
+        yy = y + (idx // 2) * 25
+        text(x, yy, name.upper(), "metricLabel")
+        text(x + 118, yy, value, "dense", text_anchor="end")
+    y += 86
+
+    add(f'<path d="M{side_x} {y} H{card_x+card_w-72}" stroke="#111" stroke-opacity=".65"/>')
+    text(side_x, y + 28, "summary cadence", "metricLabel")
+    text(side_x + 160, y + 28, "periodic snapshot", "dense")
+    text(side_x, y + 52, "alert treatment", "metricLabel")
+    text(side_x + 160, y + 52, "red emphasis + room crop", "dense")
+    text(side_x, y + 76, "delivery", "metricLabel")
+    text(side_x + 160, y + 76, "runtime-summary / runtime-alerts", "dense")
 
     # Bottom legend
-    ly = card_y + card_h - 62
+    ly = card_y + card_h - 44
     lx = 96
     legend = [("#e4ded2", "plain"), ("#b7b48e", "swamp"), ("#353632", "wall"), ("#2f8c5a", "spawn"), ("#d3a400", "source"), ("#fffaf0", "creep"), ("#cf4327", "hostile")]
     for color, label in legend:
