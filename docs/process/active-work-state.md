@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T05:23:37+08:00
+Last updated: 2026-04-26T07:44:52+08:00
 
 ## Current active objective
 
@@ -178,6 +178,24 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
   - `cd prod && npm run build`
+
+### worktree-pr-ci-gate
+
+- Status: CI workflow/runbook branch prepared and pushed for PR creation
+- Process note: `docs/process/2026-04-26-prod-ci-workflow.md`
+- Branch: `chore/add-prod-ci`
+- Implemented:
+  - `.github/workflows/prod-ci.yml` for PR/push/manual verification of `prod` typecheck, in-band Jest, and build on Node.js 22
+  - `docs/ops/github-actions-prod-ci.md` runbook documenting triggers, required checks, and branch-protection follow-up
+  - docs index and roadmap references for the new CI gate
+- Verification:
+  - `cd prod && npm run typecheck`: passed
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
+  - `cd prod && npm run build`: passed
+- Follow-up:
+  - create PR for `chore/add-prod-ci` after GitHub token/CLI access is available, or use the compare URL from the continuation report
+  - once merged, configure `main` branch protection to require the CI job before merge
+
 - Reporting channels in non-cron/manual context: `#task-queue`, `#dev-log`, and `#roadmap` as appropriate; final owner decisions go to `#decisions`.
 - Subagent completion rule: after every subagent completes, main agent must review the result and report relevant task status, dev/test details, roadmap impact, research findings, or decision items to the corresponding Discord channel(s).
 - 4-hour summary due only if a new task is started and remains active after 4 hours.

@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-25T21:30:55Z
+Last updated: 2026-04-25T23:44:52Z
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -14,7 +14,7 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm run build` — passing
 - Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
-- Latest documentation milestone: longer private-server observation note in `docs/process/2026-04-26-private-server-long-observation.md`
+- Latest documentation milestone: production CI workflow/runbook added on branch `chore/add-prod-ci`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority: continue high-throughput validation while keeping P0 agent communication/cron/Discord visibility healthy
 
@@ -196,8 +196,8 @@ Current access findings:
 Roadmap tasks:
 
 1. establish the canonical worktree path convention, e.g. `/root/screeps-worktrees/<topic>`;
-2. add CI configuration under `.github/workflows/` for `prod` typecheck, Jest, and build;
-3. add or update runbooks documenting the worktree/PR/CI lifecycle;
+2. add CI configuration under `.github/workflows/` for `prod` typecheck, Jest, and build — branch `chore/add-prod-ci` adds `.github/workflows/prod-ci.yml`;
+3. add or update runbooks documenting the worktree/PR/CI lifecycle — branch `chore/add-prod-ci` adds `docs/ops/github-actions-prod-ci.md`;
 4. configure branch protection on `main` after CI exists: require PR review/owner merge policy as desired and require the CI check to pass;
 5. use the GitHub API/CLI to create PRs, inspect PR review comments/discussions, wait at least 15 minutes after PR creation, monitor CI once available, and merge only after the configured gates are satisfied.
 
