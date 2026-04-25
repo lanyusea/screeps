@@ -181,7 +181,9 @@ Requirement:
 
 - all future code and documentation edits must happen in a git worktree, never directly in the `main` worktree;
 - each meaningful change must be pushed on a topic branch and submitted as a GitHub pull request;
-- changes should pass GitHub CI before merge;
+- at least 15 minutes must elapse between PR creation and merge so CodeRabbit can finish review;
+- all PR review comments/discussions must be resolved before merge; expect multiple follow-up commits when review finds issues;
+- changes should pass GitHub CI before merge once CI is configured; before the CI task is complete, PRs may still merge after the 15-minute CodeRabbit window and comment-resolution gate;
 - direct commits to `main` are forbidden for both code and docs.
 
 Current access findings:
@@ -197,7 +199,7 @@ Roadmap tasks:
 2. add CI configuration under `.github/workflows/` for `prod` typecheck, Jest, and build;
 3. add or update runbooks documenting the worktree/PR/CI lifecycle;
 4. configure branch protection on `main` after CI exists: require PR review/owner merge policy as desired and require the CI check to pass;
-5. use the GitHub API/CLI to create PRs, monitor CI, and merge only after green checks.
+5. use the GitHub API/CLI to create PRs, monitor CodeRabbit/review comments, wait at least 15 minutes after PR creation, monitor CI once available, and merge only after the configured gates are satisfied.
 
 Human-owned secret/action needed:
 
