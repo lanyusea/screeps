@@ -188,10 +188,10 @@ Requirement:
 
 Current access findings:
 
-- SSH git access is already configured for `git@github.com:lanyusea/screeps.git`; branch push via git should work.
-- GitHub CLI (`gh`) is not installed in this environment, and no GitHub API token is currently available to Hermes.
-- Without a GitHub API token or `gh` authentication, Hermes can push branches over SSH but cannot create PRs, inspect private/protected branch settings, enable auto-merge, or administer GitHub Actions settings.
-- The public GitHub API currently reports no GitHub Actions workflows for this repo, and the public branch listing reports `main` as unprotected; protection details require authenticated API access.
+- SSH git access is configured for `git@github.com:lanyusea/screeps.git`; branch push via git works.
+- GitHub CLI (`gh`) is installed and authenticated for account `lanyusea` with repo-capable scopes in this environment.
+- Hermes can create PRs, inspect PR status/checks, and push branches from worktrees; branch protection/admin changes still require owner-approved policy decisions.
+- Public/API checks from earlier runs found no GitHub Actions workflows and `main` appeared unprotected at that time; recheck before relying on those details.
 
 Roadmap tasks:
 
