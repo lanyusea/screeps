@@ -1,8 +1,10 @@
 import { getOwnedColonies } from '../colony/colonyRegistry';
 import { countCreepsByRole } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
-import { planSpawn } from '../spawn/spawnPlanner';
+import { planSpawn, type SpawnRequest } from '../spawn/spawnPlanner';
 import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+
+const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
 
 export function runEconomy(): void {
   const creeps = Object.values(Game.creeps);
@@ -14,17 +16,12 @@ export function runEconomy(): void {
     const spawnRequest = planSpawn(colony, roleCounts, Game.time);
 
     if (spawnRequest) {
-      const result = spawnRequest.spawn.spawnCreep(spawnRequest.body, spawnRequest.name, {
-        memory: spawnRequest.memory
-      });
-      telemetryEvents.push({
-        type: 'spawn',
-        roomName: colony.room.name,
-        spawnName: spawnRequest.spawn.name,
-        creepName: spawnRequest.name,
-        role: spawnRequest.memory.role,
-        result
-      });
+      for (const spawn of getSpawnAttemptOrder(spawnRequest, colony.spawns)) {
+        const result = attemptSpawn({ ...spawnRequest, spawn }, colony.room.name, telemetryEvents);
+        if (result !== ERR_BUSY_CODE) {
+          break;
+        }
+      }
     }
   }
 
@@ -35,4 +32,24 @@ export function runEconomy(): void {
   }
 
   emitRuntimeSummary(colonies, creeps, telemetryEvents);
+}
+
+function getSpawnAttemptOrder(spawnRequest: SpawnRequest, spawns: StructureSpawn[]): StructureSpawn[] {
+  return [spawnRequest.spawn, ...spawns.filter((spawn) => spawn !== spawnRequest.spawn && !spawn.spawning)];
+}
+
+function attemptSpawn(spawnRequest: SpawnRequest, roomName: string, telemetryEvents: RuntimeTelemetryEvent[]): ScreepsReturnCode {
+  const result = spawnRequest.spawn.spawnCreep(spawnRequest.body, spawnRequest.name, {
+    memory: spawnRequest.memory
+  });
+  telemetryEvents.push({
+    type: 'spawn',
+    roomName,
+    spawnName: spawnRequest.spawn.name,
+    creepName: spawnRequest.name,
+    role: spawnRequest.memory.role,
+    result
+  });
+
+  return result;
 }

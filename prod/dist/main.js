@@ -323,6 +323,7 @@ function getGameTime() {
 }
 
 // src/economy/economyLoop.ts
+var ERR_BUSY_CODE = -4;
 function runEconomy() {
   const creeps = Object.values(Game.creeps);
   const colonies = getOwnedColonies();
@@ -331,17 +332,12 @@ function runEconomy() {
     const roleCounts = countCreepsByRole(creeps, colony.room.name);
     const spawnRequest = planSpawn(colony, roleCounts, Game.time);
     if (spawnRequest) {
-      const result = spawnRequest.spawn.spawnCreep(spawnRequest.body, spawnRequest.name, {
-        memory: spawnRequest.memory
-      });
-      telemetryEvents.push({
-        type: "spawn",
-        roomName: colony.room.name,
-        spawnName: spawnRequest.spawn.name,
-        creepName: spawnRequest.name,
-        role: spawnRequest.memory.role,
-        result
-      });
+      for (const spawn of getSpawnAttemptOrder(spawnRequest, colony.spawns)) {
+        const result = attemptSpawn({ ...spawnRequest, spawn }, colony.room.name, telemetryEvents);
+        if (result !== ERR_BUSY_CODE) {
+          break;
+        }
+      }
     }
   }
   for (const creep of creeps) {
@@ -350,6 +346,23 @@ function runEconomy() {
     }
   }
   emitRuntimeSummary(colonies, creeps, telemetryEvents);
+}
+function getSpawnAttemptOrder(spawnRequest, spawns) {
+  return [spawnRequest.spawn, ...spawns.filter((spawn) => spawn !== spawnRequest.spawn && !spawn.spawning)];
+}
+function attemptSpawn(spawnRequest, roomName, telemetryEvents) {
+  const result = spawnRequest.spawn.spawnCreep(spawnRequest.body, spawnRequest.name, {
+    memory: spawnRequest.memory
+  });
+  telemetryEvents.push({
+    type: "spawn",
+    roomName,
+    spawnName: spawnRequest.spawn.name,
+    creepName: spawnRequest.name,
+    role: spawnRequest.memory.role,
+    result
+  });
+  return result;
 }
 
 // src/kernel/Kernel.ts
