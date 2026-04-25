@@ -33,6 +33,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `research/2026-04-25-overmind-architecture-patterns.md`
 - `research/2026-04-25-phase1-dev-chain-decision-brief.md`
 - `research/2026-04-25-technical-architecture-strategy.md`
+- `research/2026-04-26-local-validation-strategy.md`
 
 ### Process
 - `process/2026-04-25-discord-setup.md`

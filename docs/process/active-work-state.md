@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T01:20:28+08:00
+Last updated: 2026-04-26T01:23:57+08:00
 
 ## Current active objective
 
@@ -28,7 +28,7 @@ Continue Screeps research/design/autonomous implementation while reporting proce
 
 ### mvp-economy-loop
 
-- Status: implemented, verified, and reviewed for bounded MVP base
+- Status: implemented, verified, reviewed, and stabilized
 - Process note: `docs/process/2026-04-26-mvp-economy-loop.md`
 - Implemented:
   - owned colony detection
@@ -42,19 +42,33 @@ Continue Screeps research/design/autonomous implementation while reporting proce
   - kernel integration
 - Verification:
   - `npm run typecheck`: passed
-  - `npm test`: passed, 10 suites / 31 tests
+  - `npm test`: passed, 10 suites / 31 tests before lifecycle validation
   - `npm run build`: passed
 - Review: subagent re-review returned `APPROVED / PASS`.
 
-## Next active task
-
 ### local-validation-strategy
 
+- Status: deterministic mock lifecycle validation implemented; private-server validation remains future work
+- Research note: `docs/research/2026-04-26-local-validation-strategy.md`
+- Implemented:
+  - `prod/test/mvpEconomyLifecycle.test.ts`
+  - lifecycle coverage for spawn planning → harvest assignment → transfer transition → transfer execution
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test`: passed, 11 suites / 32 tests
+  - `npm run build`: passed
+
+## Next active task
+
+### private-server-smoke-prep
+
 - Status: pending next autonomous work item
-- Goal: prepare deterministic integration/private-server smoke validation path for the MVP economy loop.
+- Goal: prepare private-server smoke validation materials and/or investigate installing required runtime support.
+- Known blocker/risk: `hermes doctor` previously reported Docker not installed in the current environment, while Dockerized `screeps-launcher` is the preferred private-server path because official `screeps` currently expects Node 22+.
 - Candidate next outputs:
-  1. deterministic multi-tick test plan or first integration-test harness, and/or
-  2. Dockerized Screeps private server setup doc/script for smoke validation.
+  1. `docs/ops/private-server-smoke-test.md`
+  2. optional Docker/Compose config templates if environment supports them
+  3. smoke test checklist and manual configuration list
 - Reporting channels: `#research-notes`, `#task-queue`, `#dev-log`, `#roadmap`
 - 4-hour summary due if started and still active after 4 hours.
 
@@ -70,4 +84,5 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - 4-hour checkpoint cron created: `Screeps 4h active-task progress summary`.
 - 30-minute continuation cron created: `Screeps autonomous continuation worker`.
 - Initial `prod/` MVP skeleton implemented and verified.
-- First `prod/` MVP economy loop base implemented, verified, and reviewed.
+- First `prod/` MVP economy loop base implemented, verified, reviewed, and stabilized.
+- Deterministic mock lifecycle validation added and passing.
