@@ -166,10 +166,20 @@ Every important choice should leave a trail:
   - research findings and sources → `#research-notes`
   - active task state and blockers → `#task-queue`
   - implementation, verification, and file-change logs → `#dev-log`
+  - roadmap phase or milestone changes → `#roadmap`
   - final direction-changing choices → `#decisions`
+- Whenever a subagent completes a task, the main agent must review the result before accepting it and then report the relevant summary/decision items to the corresponding channel(s):
+  - `#task-queue` for task status, blockers, completion criteria, and next task candidates
+  - `#dev-log` for implementation, file, test, build, and commit results
+  - `#roadmap` for phase, milestone, priority, or blocker changes
+  - `#research-notes` for new factual findings or source-derived conclusions
+  - `#decisions` for final decision requests or direction-changing tradeoffs
+  - `#runtime-summary` / `#runtime-alerts` for runtime state or urgent runtime failures once a runtime exists
+- The main agent should avoid interrupting the owner for intermediate progress; only final decision requests should be treated as owner-interrupting.
 - If any task remains in progress for more than 4 hours without a final conclusion, the bot must post a structured progress summary every 4 hours until the task concludes.
 - Each 4-hour summary must also be reflected in `docs/process/` so that long-running work can survive context compaction and remain usable as future blog material.
 - 4-hour summaries should include: current objective, work completed, evidence gathered, unresolved questions, blockers, next actions, and links/files changed.
+- Scheduled/cron workers may only support one final delivery target. In that case, the worker should include labelled sections such as `#task-queue`, `#dev-log`, and `#research-notes` inside the single delivered response, with `#task-queue` as the default delivery target for continuation runs unless a per-channel fan-out is explicitly configured.
 
 ---
 

@@ -25,6 +25,8 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `ops/discord-server-setup-guide.md`
 - `ops/discord-server-configuration.md`
 - `ops/mvp-skeleton-implementation-plan.md`
+- `ops/private-server-smoke-test.md`
+- `ops/roadmap.md`
 
 ### Research
 - `research/phase-1-research-brief.md`
@@ -46,7 +48,16 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `process/2026-04-25-phase1-phase2-continuation.md`
 - `process/2026-04-26-mvp-skeleton-implementation.md`
 - `process/2026-04-26-hermes-config-and-continuation.md`
+- `process/2026-04-26-git-identity-history-rewrite.md`
+- `process/2026-04-26-codex-coding-boundary.md`
+- `process/2026-04-26-continuation-delivery-fix.md`
+- `process/2026-04-26-cron-channel-delivery-semantics.md`
+- `process/2026-04-26-private-server-smoke-prep.md`
 - `process/2026-04-26-mvp-economy-loop.md`
+- `process/2026-04-26-mvp-economy-loop-continuation.md`
+- `process/2026-04-26-deterministic-integration-hardening.md`
+- `process/2026-04-26-roadmap-refresh.md`
+- `process/2026-04-26-worker-replacement-planning.md`
 - `process/active-work-state.md`
 
 ## Rules
