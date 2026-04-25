@@ -10,12 +10,13 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
 - Branch: `main`
 - Current verification baseline:
   - `cd prod && npm run typecheck` — passing
-  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 45 tests
+  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 59 tests
   - `cd prod && npm run build` — passing
-- Latest production milestone: spawn busy retry hardening committed as `b7f002e feat: retry busy spawn attempts`
-- Latest documentation milestone: P0 agent operating-system contract in `docs/ops/agent-operating-system.md` and process note `docs/process/2026-04-26-agent-operations-restructure.md`
+- Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
+- Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, and observes owned bot creeps
+- Latest documentation milestone: parallel throughput and private-smoke note in `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - Active state file: `docs/process/active-work-state.md`
-- Current top priority: P0 agent communication/cron/Discord visibility health before further normal development slices
+- Current top priority: continue high-throughput validation while keeping P0 agent communication/cron/Discord visibility healthy
 
 ## Completed milestones
 

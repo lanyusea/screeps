@@ -151,25 +151,27 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 
 ### next-runtime-validation
 
-- Status: pinned private-server smoke partially advanced; server startup/auth/code-upload passed, room/tick bot validation still pending
+- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation
 - Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - Version-pin research note: `docs/process/2026-04-26-private-server-version-pin-research.md`
 - Pinned runtime retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
-- Current recommendation: private-server-first validation is still required before official MMO deployment. Dockerized `screepers/screeps-launcher` with explicit `version: 4.2.21` can now install and start the private server under launcher Node `12.22.12` when transitive dependency resolutions also include `body-parser: 1.20.3` and `path-to-regexp: 0.1.12`. The current remaining blocker is private-server room/map initialization: auth registration and code upload succeeded, but `/stats` still reported `totalRooms: 0`, so no owned-room bot tick validation was possible yet.
+- Parallel throughput/smoke note: `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
+- Current recommendation: private-server-first validation remains the release-quality path. Dockerized `screepers/screeps-launcher` with explicit `version: 4.2.21`, launcher Node `12.22.12`, and transitive dependency resolutions (`body-parser: 1.20.3`, `path-to-regexp: 0.1.12`) can initialize rooms when the map import avoids the Node 12 global-`fetch` path by using a pre-downloaded map file plus `utils.importMapFile('/screeps/maps/map-0b6758af.json')`.
 - Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
 - Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 45 tests
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests after two parallel Codex hardening commits
   - `cd prod && npm run build`: passed
   - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
-  - Pinned Dockerized runtime retry: `screeps@4.2.21` server started and returned healthy `/api/version`; auth registration and Basic-auth code upload succeeded; `GET /api/user/code?branch=default` round-tripped a `main` module of 11591 bytes; `/stats` showed ticking game time but `totalRooms: 0`, so room/spawn/tick bot behavior remains unvalidated
+  - Pinned Dockerized runtime smoke: pre-downloaded `map-0b6758af.json`, imported with `utils.importMapFile`, restarted/resumed simulation, registered local smoke user, uploaded `prod/dist/main.js`, placed `Spawn1` at `E1S1` `(20,20)`, and observed `/stats` with `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, plus owned `worker-E1S1-*` creeps in Mongo
+  - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
 - Candidate next outputs:
-  1. resolve private-server room/map initialization for the pinned Dockerized runtime (`screeps@4.2.21` plus `body-parser: 1.20.3` / `path-to-regexp: 0.1.12` resolutions), then place/create an owned spawn and observe the uploaded bot for several hundred ticks
-  2. if room initialization remains blocked in the pinned runtime, build or select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`
-  3. if private-server tooling remains blocked, add additional deterministic Jest lifecycle coverage via Codex while preserving the policy that official MMO deployment waits for private-server validation or an explicitly approved alternative
+  1. promote the `mapFile` / `utils.importMapFile` smoke fix into `docs/ops/private-server-smoke-test.md`
+  2. run a longer pinned private-server observation window and capture lifecycle/telemetry evidence
+  3. turn `scripts/screeps-runtime-monitor.py` into scheduled `#runtime-summary` / `#runtime-alerts` reporting after one more live-token smoke run
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`

@@ -61,6 +61,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `process/2026-04-26-worker-replacement-planning.md`
 - `process/2026-04-26-telemetry-mvp.md`
 - `process/2026-04-26-agent-operations-restructure.md`
+- `process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - `process/active-work-state.md`
 
 ## Rules

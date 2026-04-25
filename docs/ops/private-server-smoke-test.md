@@ -1,7 +1,7 @@
 # Private Server Smoke Test Runbook
 
 Date: 2026-04-26
-Status: pinned runtime retry partially passed; Docker/Compose verified; `screeps@4.2.21` server startup/auth/code-upload now works with added transitive pins; room/tick bot validation still pending
+Status: pinned runtime smoke passed through room/map initialization, code upload, spawn placement, and owned bot creeps; longer observation still recommended
 
 ## Purpose
 
@@ -77,7 +77,9 @@ Notes:
 - The launcher README says `STEAM_KEY` can be supplied as an environment variable.
 - The launcher default `version: latest` currently resolves to `screeps@4.3.0`, which is incompatible with the launcher's Node.js 12 runtime. A preflight `screeps-launcher apply` run passed with `version: 4.2.21`, whose npm engine metadata is `node >=10.13.0`.
 - A follow-up pinned runtime retry showed that current latest mods can still pull Node 18+ transitive dependencies; add `body-parser: 1.20.3` and `path-to-regexp: 0.1.12` to `pinnedPackages` for the Node 12 launcher path.
-- With those pins, `screeps@4.2.21` started, `/api/version` returned healthy, local auth registration worked, and code upload/round-trip succeeded. The remaining blocker is room/map initialization (`/stats` reported `totalRooms: 0`), not package install or HTTP startup.
+- With those pins, `screeps@4.2.21` started, `/api/version` returned healthy, local auth registration worked, and code upload/round-trip succeeded.
+- Do **not** rely on `serverConfig.map: random_1x1` in this Node 12 launcher path. The installed `screepsmod-admin-utils` import path uses global `fetch()`, which Node 12 does not provide, causing map import to fail and `/stats.totalRooms` to remain `0`.
+- Use a pre-downloaded map file instead, e.g. `serverConfig.mapFile: /screeps/maps/map-0b6758af.json`, then call `utils.importMapFile('/screeps/maps/map-0b6758af.json')` through the launcher CLI. This path initialized `totalRooms: 169` in the 2026-04-26 smoke run.
 - `screepsmod-mongo` requires MongoDB and Redis to be installed/running.
 - If Mongo-backed storage is used, run `system.resetAllData()` once from the launcher CLI, then restart the server.
 
@@ -122,6 +124,48 @@ Expected result:
 - Server listens on the configured HTTP/game port.
 - CLI is reachable.
 - The Steam client or local API tooling can connect.
+
+### Phase 1.5: map import for pinned Node 12 launcher runtime
+
+For the pinned Dockerized `screeps@4.2.21` path, avoid `serverConfig.map: random_1x1` because the installed admin-utils random import uses global `fetch()` and fails under Node 12.
+
+Use an untracked mounted map file:
+
+```bash
+mkdir -p maps
+python3 - <<'PY'
+import urllib.request
+from pathlib import Path
+url = 'https://maps.screepspl.us/maps/map-0b6758af.json'
+req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+with urllib.request.urlopen(req, timeout=30) as response:
+    Path('maps/map-0b6758af.json').write_bytes(response.read())
+PY
+```
+
+Local `config.yml` shape:
+
+```yaml
+serverConfig:
+  mapFile: /screeps/maps/map-0b6758af.json
+```
+
+After HTTP and CLI readiness:
+
+```js
+utils.importMapFile('/screeps/maps/map-0b6758af.json')
+```
+
+Then restart the Screeps service and resume simulation:
+
+```js
+system.resumeSimulation()
+```
+
+Expected result:
+
+- `/stats.totalRooms` is nonzero; the 2026-04-26 smoke observed `169` rooms.
+- Local user registration/upload should be done after map import, because map import can clear DB/user/code state.
 
 ### Phase 2: code upload/injection
 
@@ -192,22 +236,33 @@ The private-server smoke milestone is complete when:
 - first-room MVP economy behavior is observed at least through spawn/harvest/refill/upgrade or build,
 - failures and manual setup steps are documented with secrets redacted.
 
-## Current blocker
+## Current status
 
-The prior Docker/Compose blocker has been resolved in both the main Hermes context and a delegated subagent context. A Dockerized private-server smoke startup was attempted on 2026-04-26 and reached container startup, but the `screepers/screeps-launcher` image installs Node.js `12.22.12` while the default `version: latest` resolved to `screeps@4.3.0`, which requires Node.js `>=22.9.0`. Mongo and Redis reached healthy state, but the Screeps service restarted before stable HTTP/CLI/tick validation.
+The prior Docker/Compose blocker has been resolved in both the main Hermes context and a delegated subagent context.
 
-A follow-up pinned runtime retry on 2026-04-26 partially advanced the milestone: after adding `body-parser: 1.20.3` and `path-to-regexp: 0.1.12` to the launcher `pinnedPackages`, `screeps@4.2.21` installed, started, and returned healthy `/api/version`; a local smoke user could register; the bundled `prod/dist/main.js` uploaded and round-tripped through `/api/user/code`. This is still not a completed runtime smoke because room/map initialization was not confirmed and `/stats` reported `totalRooms: 0`, leaving owned-spawn and bot tick behavior unvalidated.
+A pinned runtime smoke on 2026-04-26 advanced through the previous blockers:
+
+- `screeps@4.2.21` installed and started under the Dockerized launcher with the transitive dependency pins above.
+- HTTP `/api/version` and launcher CLI were reachable.
+- The random-map path failed because `screepsmod-admin-utils` uses global `fetch()` under Node 12.
+- Switching to pre-downloaded `map-0b6758af.json` plus `utils.importMapFile('/screeps/maps/map-0b6758af.json')` initialized `/stats.totalRooms: 169`.
+- A local smoke user was registered after map import.
+- `prod/dist/main.js` uploaded and round-tripped through `/api/user/code`.
+- `Spawn1` was placed at `E1S1` `(20,20)` using token auth with both `X-Username` and `X-Token` headers.
+- `/api/user/overview` showed owned room `E1S1`; `/api/game/room-overview` showed owner `smoke`; `/stats` showed `ownedRooms: 1` and `activeUsers: 1`.
+- Mongo object inspection showed owned `Spawn1` and bot-created worker creeps named `worker-E1S1-*`.
 
 Pinned retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
+Parallel smoke note: `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
 
 Next executable options:
 
 1. Private-server-first validation remains required for local development before official MMO deployment.
-2. Continue this Dockerized smoke runbook by resolving room/map initialization for `version: 4.2.21` with the added transitive pins, then place/create an owned spawn and observe ticks.
-3. If room initialization remains blocked in the pinned runtime, fall back to selecting/building a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
-4. Use local, untracked config/secrets only. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.
-5. After private-server debugging passes, deploy the verified artifact to official Screeps: World MMO branch `main`, target shard `shardX`, room `E48S28`, then monitor runtime summaries/alerts. A temporary owner-approved official MMO deployment was performed on 2026-04-26 to validate the upload/placement chain; the private-server-first gate remains the normal policy for future releases.
-6. Continue deterministic coding work only if smoke setup remains blocked by private-server tooling, and preserve the policy that official MMO deployment waits for private-server validation or an explicitly approved alternative path.
+2. Run a longer pinned private-server observation window and capture lifecycle/telemetry evidence over several hundred ticks.
+3. Turn the runtime monitor script into scheduled `#runtime-summary` / `#runtime-alerts` reporting after one more live-token smoke.
+4. If this pinned runtime later exposes simulation incompatibilities, fall back to selecting/building a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
+5. Use local, untracked config/secrets only. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.
+6. Continue deterministic coding work in parallel Codex worktrees where tasks are independent.
 
 ## Sources checked
 
