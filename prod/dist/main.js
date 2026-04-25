@@ -165,6 +165,16 @@ function executeTask(creep, task, target) {
 var WORKER_PATTERN = ["work", "carry", "move"];
 var WORKER_PATTERN_COST = 200;
 var MAX_CREEP_PARTS = 50;
+var BODY_PART_COSTS = {
+  move: 50,
+  work: 100,
+  carry: 50,
+  attack: 80,
+  ranged_attack: 150,
+  heal: 250,
+  claim: 600,
+  tough: 10
+};
 function buildWorkerBody(energyAvailable) {
   if (energyAvailable < WORKER_PATTERN_COST) {
     return [];
@@ -173,6 +183,15 @@ function buildWorkerBody(energyAvailable) {
   const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / WORKER_PATTERN.length);
   const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize);
   return Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
+}
+function buildEmergencyWorkerBody(energyAvailable) {
+  if (energyAvailable < WORKER_PATTERN_COST) {
+    return [];
+  }
+  return [...WORKER_PATTERN];
+}
+function getBodyCost(body) {
+  return body.reduce((cost, part) => cost + BODY_PART_COSTS[part], 0);
 }
 
 // src/spawn/spawnPlanner.ts
@@ -185,7 +204,7 @@ function planSpawn(colony, roleCounts, gameTime) {
   if (!spawn) {
     return null;
   }
-  const body = buildWorkerBody(colony.energyAvailable);
+  const body = selectWorkerBody(colony, roleCounts);
   if (body.length === 0) {
     return null;
   }
@@ -195,6 +214,19 @@ function planSpawn(colony, roleCounts, gameTime) {
     name: `worker-${colony.room.name}-${gameTime}`,
     memory: { role: "worker", colony: colony.room.name }
   };
+}
+function selectWorkerBody(colony, roleCounts) {
+  const normalBody = buildWorkerBody(colony.energyCapacityAvailable);
+  if (canAffordBody(normalBody, colony.energyAvailable)) {
+    return normalBody;
+  }
+  if (roleCounts.worker === 0) {
+    return buildEmergencyWorkerBody(colony.energyAvailable);
+  }
+  return [];
+}
+function canAffordBody(body, energyAvailable) {
+  return body.length > 0 && getBodyCost(body) <= energyAvailable;
 }
 
 // src/telemetry/runtimeSummary.ts

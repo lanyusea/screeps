@@ -66,6 +66,47 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 124)).toBeNull();
   });
 
+  it('plans an emergency basic worker when zero active workers cannot afford the normal worker body', () => {
+    const spawn = { name: 'Spawn1', room, spawning: null } as StructureSpawn;
+    const colony: ColonySnapshot = {
+      room,
+      spawns: [spawn],
+      energyAvailable: 200,
+      energyCapacityAvailable: 400
+    };
+
+    expect(planSpawn(colony, { worker: 0 }, 125)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-125',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
+  it('waits for normal worker energy instead of using the emergency body for replacements', () => {
+    const spawn = { name: 'Spawn1', room, spawning: null } as StructureSpawn;
+    const colony: ColonySnapshot = {
+      room,
+      spawns: [spawn],
+      energyAvailable: 200,
+      energyCapacityAvailable: 400
+    };
+
+    expect(planSpawn(colony, { worker: 2 }, 125)).toBeNull();
+  });
+
+  it('does not plan an emergency body that costs more than available energy', () => {
+    const spawn = { name: 'Spawn1', room, spawning: null } as StructureSpawn;
+    const colony: ColonySnapshot = {
+      room,
+      spawns: [spawn],
+      energyAvailable: 199,
+      energyCapacityAvailable: 400
+    };
+
+    expect(planSpawn(colony, { worker: 0 }, 125)).toBeNull();
+  });
+
   it('does not plan when all spawns are busy', () => {
     const spawn = { name: 'Spawn1', room, spawning: {} as Spawning } as StructureSpawn;
     const colony: ColonySnapshot = {
