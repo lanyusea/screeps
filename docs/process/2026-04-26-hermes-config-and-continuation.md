@@ -58,7 +58,7 @@ Existing job remains:
 
 Roles:
 
-- 30-minute continuation worker: does bounded autonomous work.
+- 30-minute continuation worker: does bounded autonomous work. It was later tightened to a 10-minute interval because 30 minutes is too slow for active development recovery after gateway restarts or context interruptions.
 - 4-hour checkpoint worker: summarizes long-running tasks and preserves context.
 
 ## Caveats

@@ -82,7 +82,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Discord channel process reporting has been corrected: autonomous execution is visible, but final decision requests are reserved for real conclusions.
 - Canonical Discord spec updated in `docs/ops/discord-project-spec.md`.
 - 4-hour checkpoint cron created: `Screeps 4h active-task progress summary`.
-- 30-minute continuation cron created: `Screeps autonomous continuation worker`.
+- 30-minute continuation cron created and later tightened to a 10-minute interval: `Screeps autonomous continuation worker`.
 - Coding boundary clarified: future production/test/build code changes under `prod/` must be implemented via OpenAI Codex CLI, while Hermes orchestrates, verifies, documents, reports, and pushes.
 - Commit behavior clarified: Codex must commit after each completed coding task; documentation-only changes may be committed by Hermes directly.
 - Git identity configured globally and local history rewritten to `lanyusea's bot <lanyusea@gmail.com>`; local rewrite succeeded, remote force push was blocked by platform smart approval and still needs an approved force-push path.
