@@ -284,7 +284,7 @@ Longer observation note: `docs/process/2026-04-26-private-server-long-observatio
 Next executable options:
 
 1. Private-server-first validation remains required for local development before official MMO deployment.
-2. Run the new harness-generated plan end to end from a fresh ignored workspace and record the redacted observations.
+2. Run the new harness-generated plan end-to-end from a fresh ignored workspace and record the redacted observations.
 3. Turn the runtime monitor script into scheduled `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` reporting after one more live-token smoke.
 4. If this pinned runtime later exposes simulation incompatibilities, fall back to selecting/building a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 5. Use local, untracked config/secrets only. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.

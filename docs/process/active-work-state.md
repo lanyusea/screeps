@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T05:23:37+08:00
+Last updated: 2026-04-26T06:56:15+08:00
 
 ## Current active objective
 
@@ -166,12 +166,15 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - generated ignored workspace: `runtime-artifacts/private-server-smoke/`
   - safety boundary: no Docker start by default, no required network for `self-test`, no secret value printing, no automatic environment secret materialization; safe Steam-key source detection includes `/root/.secret/.env` when present
   - generated config: `version: 4.2.21`, `nodeVersion: Erbium`, the validated transitive pins, `screepsmod-auth` / `screepsmod-admin-utils` / `screepsmod-mongo`, and `serverConfig.mapFile: /screeps/maps/map-0b6758af.json`
+  - review hardening: exports `SMOKE_PASSWORD` for the embedded upload helper, uses an absolute `prod/dist/main.js` path so `--runtime-dir` can move outside the default depth, creates `.smoke-token` with initial `0600` permissions, supports `DEBUG=1` tracebacks, and adds function docstrings
 - Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
-  - `python3 scripts/screeps-private-smoke-harness.py self-test`: passed, 34 checks
+  - `python3 -m py_compile scripts/screeps-private-smoke-harness.py`: passed
+  - `python3 scripts/screeps-private-smoke-harness.py self-test`: passed, 37 checks
   - `python3 scripts/screeps-private-smoke-harness.py prepare --no-plan`: passed; generated only ignored runtime files and reported Steam key present via `/root/.secret/.env` without printing the value
   - `python3 scripts/screeps-private-smoke-harness.py prepare --download-map --no-plan`: passed; cached ignored `map-0b6758af.json`
+  - `python3 scripts/screeps-private-smoke-harness.py --runtime-dir runtime-artifacts/private-server-smoke-review prepare --no-plan`: passed; generated only ignored review workspace files
   - `git check-ignore`: confirmed generated private-smoke config, map cache, secret/token placeholders, volume paths, and node modules are covered by `runtime-artifacts/`
   - `cd prod && npm run typecheck`: passed
   - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests

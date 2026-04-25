@@ -14,6 +14,8 @@ The harness supports:
 
 Generated runtime files include `docker-compose.yml`, `config.yml`, `maps/`, `STEAM_KEY.example`, `volumes/`, and a local README/next-steps note. The generated config pins the validated launcher path: `screeps@4.2.21`, `nodeVersion: Erbium`, the known Node 12-compatible transitive package versions, the auth/admin-utils/mongo mods, and `serverConfig.mapFile: /screeps/maps/map-0b6758af.json`.
 
+Follow-up review hardening addressed automated PR feedback by exporting the read `SMOKE_PASSWORD` before the embedded upload helper runs, resolving the uploaded bundle path from an absolute repository path instead of assuming the default runtime directory depth, creating `.smoke-token` with `0600` permissions from the start, adding optional `DEBUG=1` tracebacks for unexpected harness exceptions, and adding function docstrings for review tooling.
+
 ## Safety boundaries
 
 - The harness does not start Docker by default.
@@ -35,7 +37,7 @@ git check-ignore runtime-artifacts/private-server-smoke/config.yml runtime-artif
 
 Results:
 
-- harness self-test passed, 34 checks;
+- harness self-test passed, 37 checks;
 - prepare created/updated the expected ignored runtime workspace without starting Docker;
 - generated runtime config, placeholder, map note, and volume paths are covered by `.gitignore`;
 - local `/root/.secret/.env` Steam-key presence is detected as a safe source path without printing the key;
@@ -50,9 +52,11 @@ cd prod && npm run typecheck && npm test -- --runInBand && npm run build
 
 Final verification completed:
 
-- `python3 scripts/screeps-private-smoke-harness.py self-test`: passed, 34 checks;
+- `python3 -m py_compile scripts/screeps-private-smoke-harness.py`: passed;
+- `python3 scripts/screeps-private-smoke-harness.py self-test`: passed, 37 checks;
 - `python3 scripts/screeps-private-smoke-harness.py prepare --no-plan`: passed; reported Steam key present via `/root/.secret/.env` without printing the value;
 - `python3 scripts/screeps-private-smoke-harness.py prepare --download-map --no-plan`: passed; cached ignored `map-0b6758af.json`;
+- `python3 scripts/screeps-private-smoke-harness.py --runtime-dir runtime-artifacts/private-server-smoke-review prepare --no-plan`: passed; generated only ignored review workspace files;
 - `git check-ignore` for generated runtime config, map cache, secret/token placeholders, Docker volumes, and `node_modules`: passed;
 - `cd prod && npm run typecheck`: passed;
 - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests;
@@ -62,7 +66,7 @@ Dependency note: `prod/node_modules` was absent in this worktree. A plain `npm c
 
 ## Follow-up
 
-1. Run the harness-generated plan end to end from a fresh ignored workspace with local secrets available.
+1. Run the harness-generated plan end-to-end from a fresh ignored workspace with local secrets available.
 2. Capture `/stats`, user overview, room overview/status, Mongo room-object summaries, and launcher log scans with tokens/passwords redacted.
 3. If the end-to-end run remains healthy, promote the harness plan from "manual continuation" toward a narrower live command that can execute selected non-secret steps automatically.
 4. Continue the separate runtime-monitor scheduling path only after one more live-token monitor smoke.
