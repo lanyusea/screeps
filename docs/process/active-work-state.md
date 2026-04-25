@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T03:46:00+08:00
+Last updated: 2026-04-26T04:05:34+08:00
 
 ## Current active objective
 
@@ -134,6 +134,21 @@ Continue Screeps research/design/autonomous implementation while preserving dura
   - `npm test -- --runInBand`: passed, 12 suites / 44 tests
   - `npm run build`: passed
 
+### spawn-busy-retry-hardening
+
+- Status: implemented and verified
+- Process note: `docs/process/2026-04-26-spawn-busy-retry.md`
+- Codex-authored commit: `b7f002e` (`feat: retry busy spawn attempts`)
+- Implemented:
+  - economy loop retries other idle colony spawns when the planned spawn returns `ERR_BUSY`
+  - spawn telemetry records each attempted outcome, including busy and retry-success results
+  - deterministic Jest coverage for the busy-spawn retry path and emitted runtime-summary events
+  - rebuilt `prod/dist/main.js`
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 45 tests
+  - `npm run build`: passed
+
 ### next-runtime-validation
 
 - Status: private-server smoke attempted; blocked on launcher/server Node version mismatch before runtime tick validation
@@ -143,7 +158,7 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 44 tests
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 45 tests
   - `cd prod && npm run build`: passed
   - Docker Compose startup: Mongo/Redis reached healthy; Screeps container restarted with `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
 - Candidate next outputs:
@@ -183,3 +198,4 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Roadmap refreshed in `docs/ops/roadmap.md`; `docs/README.md` index updated; `docs/ops/discord-project-spec.md` now explicitly requires main-agent review and channel-appropriate reporting after every subagent completion.
 - Worker replacement planning hardening implemented by Codex and verified: replacement-age workers no longer satisfy steady-state capacity, deterministic tests now cover replacement planning, and test count is now 37.
 - Telemetry MVP implemented and verified: stable `#runtime-summary ` JSON console summaries now emit on spawn events or every 20 ticks, including room energy, worker count, spawn status, task counts, and CPU used/bucket.
+- Spawn busy retry hardening implemented by Codex and verified: if a planned spawn returns `ERR_BUSY`, the economy loop retries other idle colony spawns in the same tick and telemetry records each attempt; deterministic test count is now 45.
