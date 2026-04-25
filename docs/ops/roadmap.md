@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T04:48:10+08:00
+Last updated: 2026-04-26T05:23:37+08:00
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -13,8 +13,8 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm test -- --runInBand` — passing, 12 suites / 59 tests
   - `cd prod && npm run build` — passing
 - Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
-- Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, and observes owned bot creeps
-- Latest documentation milestone: parallel throughput and private-smoke note in `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
+- Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
+- Latest documentation milestone: longer private-server observation note in `docs/process/2026-04-26-private-server-long-observation.md`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority: continue high-throughput validation while keeping P0 agent communication/cron/Discord visibility healthy
 
@@ -145,7 +145,7 @@ Current baseline:
 
 ### 7. Private-server smoke attempt
 
-Status: partially advanced; Docker/Compose can start a pinned `screeps@4.2.21` runtime, auth registration and code upload work, but owned-room/tick bot validation remains pending because room/map initialization is not yet confirmed.
+Status: pinned Dockerized path passed room/map initialization and bot tick validation; longer observation/automation remains useful before treating it as a reusable release gate.
 
 Artifacts:
 
@@ -154,6 +154,8 @@ Artifacts:
 - `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - `docs/process/2026-04-26-private-server-version-pin-research.md`
 - `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
+- `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
+- `docs/process/2026-04-26-private-server-long-observation.md`
 
 Current result:
 
@@ -163,8 +165,11 @@ Current result:
 - Redacted first failure: `screeps@4.3.0` requires Node.js `>=22.9.0`, while the launcher container installed Node.js `12.22.12`.
 - Follow-up finding: launcher `version: latest` generates `screeps: *`; explicit `version: 4.2.21` is Node 12-compatible.
 - Pinned runtime retry: adding `body-parser: 1.20.3` and `path-to-regexp: 0.1.12` to `pinnedPackages` avoided current Node 18+ transitive dependency drift; the server started and returned healthy `/api/version`.
-- Local smoke auth/code path now works: a local user could register, `prod/dist/main.js` uploaded through Basic auth, and `/api/user/code?branch=default` round-tripped the `main` module.
-- Remaining blocker: private-server room/map initialization. `/stats` reported ticking game time but `totalRooms: 0`, so owned-spawn and bot behavior were not yet validated.
+- Local smoke auth/code path works: a local user could register, `prod/dist/main.js` uploaded through Basic auth, and `/api/user/code?branch=default` round-tripped the `main` module.
+- Room/map initialization is resolved for the pinned launcher path by pre-downloading `map-0b6758af.json`, setting `serverConfig.mapFile`, importing with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`, restarting, and resuming simulation.
+- Follow-up observation reached `/stats` `gametime: 5267`, `totalRooms: 169`, `activeRooms: 1`, `ownedRooms: 1`, and one RCL 2 owned room.
+- Mongo room-object inspection showed owned `Spawn1` and three living bot-created `WORK/CARRY/MOVE` workers named `worker-E1S1-*`; post-restart log scanning found no current unhandled/type/reference/error hits.
+- Remaining work: automate the smoke harness and wire scheduled runtime-summary/runtime-alert monitoring after one more live-token monitor smoke, not unblock basic room initialization.
 
 ## Active blockers and decisions
 
@@ -189,26 +194,26 @@ Immediate operating change:
 - continuation/checkpoint workers remain subordinate to main-agent review and channel fanout;
 - if P0 health is abnormal, pause or defer new implementation work until corrected.
 
-### Blocker: private-server smoke needs compatible launcher/server runtime
+### Validation follow-up: automate private-server smoke and runtime monitoring
 
-Docker/Compose, package installation, HTTP startup, local auth, and code upload are no longer the primary blockers for the pinned launcher path. The active blocker is getting an initialized private-server world with an owned spawn so the uploaded bot can execute in-room:
+Docker/Compose, package installation, HTTP startup, local auth, code upload, room/map initialization, spawn placement, and bot tick validation are no longer the primary blockers for the pinned launcher path. The active follow-up is making this repeatable and observable:
 
-1. resolve `screeps@4.2.21` + `screepsmod-admin-utils` room/map initialization (`system.resetAllData()`, `utils.importMap('random_1x1')`, direct DB initialization, or another documented path);
-2. place/create an owned spawn for the local smoke user;
-3. observe runtime summaries and room behavior for several hundred ticks;
-4. if room initialization remains blocked, build/select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
+1. package the pinned launcher config, map-file import, restart/resume, local user registration, code upload, spawn placement, stats polling, and redacted Mongo observation into an executable local smoke harness;
+2. observe several additional windows or reruns to ensure the path is stable across fresh data resets;
+3. run one more live-token runtime-monitor smoke, then schedule `scripts/screeps-runtime-monitor.py` for hourly `#runtime-summary` images and `[SILENT]` no-alert `#runtime-alerts` checks;
+4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 
-Recommendation: finish the private-server room/tick validation before future release-quality official MMO deployment; if tooling research takes longer, continue deterministic Jest hardening in parallel.
+Recommendation: keep private-server-first validation as the release-quality gate before future official MMO deployment, but treat the next engineering step as smoke automation/runtime monitoring rather than resolving basic room initialization.
 
 ### Decision: next code priority
 
-Recommended next slice: resolve room/map initialization in the pinned Dockerized private-server runtime and observe the already-uploaded bot in an owned room. If that remains blocked, continue private-server toolchain work or emergency/runtime hardening under deterministic Jest coverage.
+Recommended next slice: automate the pinned private-server smoke harness and/or schedule the verified runtime monitor after one more live-token smoke. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
 
 Reason:
 
 - Worker replacement planning, telemetry MVP, and emergency worker recovery are now complete.
-- The first Dockerized private-server attempt exposed a real runtime/toolchain blocker before tick validation.
-- Resolving the private-server runtime path now reduces more deployment risk than adding another deterministic-only behavior slice, while deterministic Jest hardening remains the fallback if the smoke path cannot be unblocked quickly.
+- The first Dockerized private-server attempt exposed a real runtime/toolchain blocker before tick validation, but the pinned map-file import path now clears that blocker.
+- Automating the passing smoke and monitoring outputs now reduces more deployment risk than another manual-only observation, while deterministic Jest hardening remains the fallback if longer runtime observation reveals bot logic risks.
 
 ### Decision: MMO deployment gate
 
@@ -292,7 +297,7 @@ Follow-up candidates:
 
 ### Phase D — Private-server smoke execution
 
-Status: pending safe local credentials/config; Docker/Compose infrastructure is available.
+Status: passed for pinned Dockerized `screeps@4.2.21` path; automation/longer rerun hardening remains.
 
 Prerequisites:
 

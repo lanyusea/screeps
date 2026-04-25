@@ -251,15 +251,18 @@ A pinned runtime smoke on 2026-04-26 advanced through the previous blockers:
 - `Spawn1` was placed at `E1S1` `(20,20)` using token auth with both `X-Username` and `X-Token` headers.
 - `/api/user/overview` showed owned room `E1S1`; `/api/game/room-overview` showed owner `smoke`; `/stats` showed `ownedRooms: 1` and `activeUsers: 1`.
 - Mongo object inspection showed owned `Spawn1` and bot-created worker creeps named `worker-E1S1-*`.
+- A longer follow-up observation reached private `gametime: 5267`, one RCL 2 owned room, three live bot-created workers, and average tick time near 200 ms.
+- A post-restart log scan found no current `Unhandled`, `TypeError`, `ReferenceError`, or `Error:` hits in `runner.log`, `processor_*.log`, `main.log`, or `backend.log`; earlier random-map/global-`fetch` warnings remain in historical pre-fix log lines only.
 
 Pinned retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
 Parallel smoke note: `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
+Longer observation note: `docs/process/2026-04-26-private-server-long-observation.md`
 
 Next executable options:
 
 1. Private-server-first validation remains required for local development before official MMO deployment.
-2. Run a longer pinned private-server observation window and capture lifecycle/telemetry evidence over several hundred ticks.
-3. Turn the runtime monitor script into scheduled `#runtime-summary` / `#runtime-alerts` reporting after one more live-token smoke.
+2. Automate the pinned private-server smoke procedure so a fresh run can start the runtime, import the map file, upload code, place/verify a spawn, poll stats, and capture redacted Mongo observations.
+3. Turn the runtime monitor script into scheduled `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` reporting after one more live-token smoke.
 4. If this pinned runtime later exposes simulation incompatibilities, fall back to selecting/building a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 5. Use local, untracked config/secrets only. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.
 6. Continue deterministic coding work in parallel Codex worktrees where tasks are independent.
