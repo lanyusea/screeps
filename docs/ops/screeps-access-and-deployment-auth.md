@@ -45,9 +45,11 @@ Preferred handoff options:
 
 ## Suggested environment variables
 
+Current public MMO deployment target confirmed by user:
+
 ```bash
-SCREEPS_AUTH_TOKEN=...
-SCREEPS_BRANCH=default
+SCREEPS_AUTH_TOKEN=***
+SCREEPS_BRANCH=main
 SCREEPS_API_URL=https://screeps.com
 ```
 
@@ -83,9 +85,14 @@ Likely private-server inputs:
 6. We verify deploy with a harmless branch or limited release branch before touching the live active branch.
 7. After deployment is stable, document the exact command and keep secrets out of committed files.
 
+## Confirmed public MMO decisions
+
+- Auth token: present in local secret storage; do not paste or commit it.
+- Deployment branch: `main`.
+- First public room: `E48S28`.
+- Shard: user wrote `sharedX`; treat as pending exact shard spelling until verified as `shard0`, `shard1`, `shard2`, `shard3`, or another valid Screeps shard name.
+
 ## Open decisions
 
-- Which branch should be treated as production: `default`, `main`, or another branch name?
-- Should first public deployment go to a disposable/test branch before active play?
-- Which shard/room should be used for the first spawn?
+- Should first public deployment go to a disposable/test branch before active play, or deploy directly to `main` now that `main` is confirmed?
 - Whether private-server auth should use username/password, token, or direct local storage injection for the first smoke test.
