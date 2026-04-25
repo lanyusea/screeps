@@ -212,6 +212,30 @@ Every important choice should leave a trail:
 [Blockers] if any
 ```
 
+### Owner-created task follow-up thread
+
+Discord thread creation is a useful owner workflow, but it is not a guaranteed Hermes trigger by itself. Treat the thread as the human-facing task container, and use an explicit bot-wake message if the bot does not respond inside a newly created thread.
+
+Recommended format for the first message in an owner-created `#task-queue` thread:
+
+```text
+[Task ID] short-id
+[Goal] one sentence
+[Owner action needed] what the owner is expected to do
+[Done when] explicit acceptance criterion
+[Bot follow-up requested] yes
+```
+
+If mentioning the bot inside the new thread does not wake it, post a short message in the parent `#task-queue` channel or an already-working bot thread:
+
+```text
+@Hermes 请跟进这个 task thread: <thread link>
+Task ID: short-id
+Need: summarize current owner action, remind/check back as needed, and report blockers here.
+```
+
+When the bot is awakened from outside the thread, it should acknowledge the routing limitation, summarize the task, and continue follow-up in the best available delivery target. If the platform exposes the thread as a sendable target later, prefer replying in the original task thread.
+
 ### Dev log
 ```text
 [Change] what changed
