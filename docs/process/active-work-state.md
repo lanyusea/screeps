@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T03:21:40+08:00
+Last updated: 2026-04-26T03:46:00+08:00
 
 ## Current active objective
 
@@ -136,13 +136,20 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 
 ### next-runtime-validation
 
-- Status: recommended next autonomous slice
-- Current recommendation: private-server-first validation is required before official MMO deployment. Local secret storage now has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=sharedX`, and `SCREEPS_ROOM=E48S28`.
+- Status: private-server smoke attempted; blocked on launcher/server Node version mismatch before runtime tick validation
+- Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
+- Current recommendation: private-server-first validation is still required before official MMO deployment, but the current Dockerized `screepers/screeps-launcher` path resolved `screeps@4.3.0`, which requires Node.js `>=22.9.0`, while the launcher container installs Node.js `12.22.12`.
+- Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=sharedX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
 - Durable roadmap: `docs/ops/roadmap.md`
+- Latest verification:
+  - `cd prod && npm run typecheck`: passed
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 44 tests
+  - `cd prod && npm run build`: passed
+  - Docker Compose startup: Mongo/Redis reached healthy; Screeps container restarted with `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
 - Candidate next outputs:
-  1. execute the Dockerized private-server smoke runbook with `screepers/screeps-launcher`, if required credentials/config can be supplied locally without committing secrets
-  2. if smoke setup still blocks on credentials/config, add lifecycle coverage around emergency-worker recovery through spawn execution and transition back to normal worker planning
-  3. if production/test/build code changes are needed, invoke OpenAI Codex CLI from `/root/screeps` with PTY and require Codex to commit verified changes
+  1. research/pin a `screepers/screeps-launcher` / `screeps` package combination compatible with the launcher image Node runtime, if an older private-server runtime is acceptable for smoke validation
+  2. build or select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`
+  3. if private-server tooling remains blocked, add additional deterministic Jest lifecycle coverage via Codex while preserving the policy that official MMO deployment waits for private-server validation or an explicitly approved alternative
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`

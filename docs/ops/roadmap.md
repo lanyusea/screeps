@@ -141,42 +141,44 @@ Current baseline:
 - Tests: 11 suites / 37 tests pass.
 - Build: pass.
 
-### 7. Private-server smoke preparation
+### 7. Private-server smoke attempt
 
-Status: runbook prepared; Docker/Compose is available, but smoke execution still needs safe local credentials/config outside git.
+Status: attempted; Docker/Compose path starts dependencies, but the Screeps service is blocked by launcher/runtime version drift before tick validation.
 
 Artifacts:
 
 - `docs/ops/private-server-smoke-test.md`
 - `docs/process/2026-04-26-private-server-smoke-prep.md`
+- `docs/process/2026-04-26-private-server-smoke-attempt.md`
 
-Blocker:
+Current result:
 
 - Docker Engine is available on this host (`29.1.3`), and Docker Compose v2 is available (`v2.40.3`).
-- The cron environment did not expose `STEAM_KEY`, so the Dockerized private-server smoke test could not be executed without inventing or committing secret-bearing local config.
-- Current official private-server path expects Node.js 22+ for direct installation, while this host has Node.js 18; Dockerized `screepers/screeps-launcher` remains the preferred smoke-test route.
+- Local secret/config presence now includes `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` without printing secret values; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=sharedX`, and `SCREEPS_ROOM=E48S28`.
+- The Dockerized `screepers/screeps-launcher` attempt started Mongo/Redis successfully, but the Screeps container restarted before serving a stable runtime.
+- Redacted failure: `screeps@4.3.0` requires Node.js `>=22.9.0`, while the launcher container installed Node.js `12.22.12`.
 
 ## Active blockers and decisions
 
-### Blocker: private-server smoke needs local secret/config setup
+### Blocker: private-server smoke needs compatible launcher/server runtime
 
-Docker/Compose is available, so the infrastructure blocker is resolved. Smoke execution is now blocked only on safe local private-server inputs:
+Docker/Compose and required local secret presence are no longer the primary blocker. The active blocker is the private-server toolchain/runtime mismatch:
 
-1. provide `STEAM_KEY` or equivalent launcher config outside git;
-2. keep private-server config/admin credentials untracked;
-3. run the Dockerized smoke runbook and record redacted findings.
+1. either pin a `screepers/screeps-launcher` / `screeps` package combination compatible with the launcher image Node runtime;
+2. or build/select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`;
+3. then rerun the Dockerized smoke runbook and record redacted findings.
 
-Recommendation: execute private-server smoke as soon as credentials/config are available; otherwise continue deterministic hardening that reduces smoke-test risk.
+Recommendation: resolve the launcher/runtime mismatch before official MMO deployment; if tooling research takes longer, continue deterministic Jest hardening in parallel.
 
 ### Decision: next code priority
 
-Recommended next code slice if private-server smoke remains credential-blocked: emergency/runtime hardening for zero-creep or low-energy recovery.
+Recommended next slice: private-server toolchain compatibility research/retry. If that remains blocked, continue emergency/runtime hardening under deterministic Jest coverage.
 
 Reason:
 
-- Worker replacement planning and telemetry MVP are now complete.
-- Additional recovery hardening can be validated deterministically without private-server credentials.
-- It reduces risk before the first real runtime smoke.
+- Worker replacement planning, telemetry MVP, and emergency worker recovery are now complete.
+- The first Dockerized private-server attempt exposed a real runtime/toolchain blocker before tick validation.
+- Resolving the private-server runtime path now reduces more deployment risk than adding another deterministic-only behavior slice, while deterministic Jest hardening remains the fallback if the smoke path cannot be unblocked quickly.
 
 ### Decision: MMO deployment gate
 

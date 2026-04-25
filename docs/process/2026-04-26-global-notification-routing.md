@@ -4,7 +4,7 @@ Last updated: 2026-04-26T03:35:00+08:00
 
 ## User instruction
 
-Global notification/status messages should go to Discord home channel:
+The user explicitly requested that global notification/status reports use Discord home channel:
 
 ```text
 1497537021378564200
