@@ -142,8 +142,8 @@ Use Hermes cron jobs rather than putting Discord tokens in the repo.
 ### Alert job
 
 - schedule: every 5 minutes, or always-on websocket process in a future version
-- target: local by default, to avoid no-alert spam
-- behavior: run alert mode; if `alert: true`, send `MEDIA:` image paths to `discord:#runtime-alerts` via the messaging tool; if no alert, only update local baseline and produce local cron output
+- target: `discord:#runtime-alerts`
+- behavior: run alert mode; if `alert: true`, final cron response includes alert text plus `MEDIA:` image paths; if no alert, final response is exactly `[SILENT]` so the scheduler suppresses delivery
 
 This design avoids posting “no alert” messages repeatedly while still enabling image-based alert delivery.
 

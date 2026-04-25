@@ -98,7 +98,7 @@ Vision checks confirmed both summary and forced-alert images preserve the approv
 After code verification, create two Hermes cron jobs:
 
 1. Hourly summary job delivered to `discord:#runtime-summary`, final response includes `MEDIA:` paths.
-2. Frequent alert check job delivered locally; it uses the messaging tool to post to `discord:#runtime-alerts` only when `alert: true`, avoiding no-alert spam.
+2. Frequent alert check job delivered to `discord:#runtime-alerts`; it returns `[SILENT]` on no-alert runs and includes `MEDIA:` paths only when `alert: true`, avoiding no-alert spam.
 
 ## Notes
 
