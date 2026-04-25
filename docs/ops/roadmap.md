@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T02:59:58+08:00
+Last updated: 2026-04-26T04:29:43+08:00
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -10,10 +10,10 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
 - Branch: `main`
 - Current verification baseline:
   - `cd prod && npm run typecheck` — passing
-  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 41 tests
+  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 45 tests
   - `cd prod && npm run build` — passing
-- Latest production milestone: telemetry MVP committed as `4ffec6b feat: add runtime telemetry summaries`
-- Latest documentation milestone: telemetry process note and active-state refresh in progress under `docs/process/2026-04-26-telemetry-mvp.md` and `docs/process/active-work-state.md`
+- Latest production milestone: spawn busy retry hardening committed as `b7f002e feat: retry busy spawn attempts`
+- Latest documentation milestone: private-server version-pin research under `docs/process/2026-04-26-private-server-version-pin-research.md` and `docs/process/active-work-state.md`
 - Active state file: `docs/process/active-work-state.md`
 
 ## Completed milestones
@@ -143,7 +143,7 @@ Current baseline:
 
 ### 7. Private-server smoke attempt
 
-Status: attempted; Docker/Compose path starts dependencies, but the Screeps service is blocked by launcher/runtime version drift before tick validation.
+Status: attempted; Docker/Compose path starts dependencies, and a `screeps@4.2.21` launcher version pin now passes install preflight, but full private-server runtime tick validation remains pending.
 
 Artifacts:
 
@@ -157,6 +157,7 @@ Current result:
 - Local secret/config presence now includes `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` without printing secret values; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`.
 - The Dockerized `screepers/screeps-launcher` attempt started Mongo/Redis successfully, but the Screeps container restarted before serving a stable runtime.
 - Redacted failure: `screeps@4.3.0` requires Node.js `>=22.9.0`, while the launcher container installed Node.js `12.22.12`.
+- Follow-up finding: launcher `version: latest` generates `screeps: *`; an explicit `version: 4.2.21` install preflight passed in `screepers/screeps-launcher:latest`, and `screeps@4.2.21` declares `node >=10.13.0`.
 
 ## Active blockers and decisions
 
@@ -164,15 +165,15 @@ Current result:
 
 Docker/Compose and required local secret presence are no longer the primary blocker. The active blocker is the private-server toolchain/runtime mismatch:
 
-1. either pin a `screepers/screeps-launcher` / `screeps` package combination compatible with the launcher image Node runtime;
-2. or build/select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`;
-3. then rerun the Dockerized smoke runbook and record redacted findings.
+1. retry the Dockerized smoke runbook with explicit launcher `version: 4.2.21` and untracked local secrets/config;
+2. if the pinned runtime still fails after startup, build/select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`;
+3. record redacted runtime findings either way.
 
 Recommendation: resolve the launcher/runtime mismatch before official MMO deployment; if tooling research takes longer, continue deterministic Jest hardening in parallel.
 
 ### Decision: next code priority
 
-Recommended next slice: private-server toolchain compatibility research/retry. If that remains blocked, continue emergency/runtime hardening under deterministic Jest coverage.
+Recommended next slice: full private-server smoke retry using the verified `screeps@4.2.21` launcher version pin. If that remains blocked, continue private-server toolchain work or emergency/runtime hardening under deterministic Jest coverage.
 
 Reason:
 

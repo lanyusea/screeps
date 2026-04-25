@@ -1,7 +1,7 @@
 # Private Server Smoke Test Runbook
 
 Date: 2026-04-26
-Status: attempted; Docker/Compose verified, blocked by current launcher/server Node.js version mismatch before runtime tick validation
+Status: attempted; Docker/Compose verified; install-time launcher/server mismatch has a verified `screeps@4.2.21` pin candidate, full runtime tick validation still pending
 
 ## Purpose
 
@@ -53,6 +53,15 @@ Use this as a checklist, not as a committed secret-bearing config:
 
 ```yaml
 steamKey: ${STEAM_KEY}
+version: 4.2.21
+nodeVersion: Erbium
+pinnedPackages:
+  ssri: 8.0.1
+  cacache: 15.3.0
+  passport-steam: 1.0.17
+  minipass-fetch: 2.1.2
+  express-rate-limit: 6.7.0
+  psl: 1.10.0
 mods:
   - screepsmod-auth
   - screepsmod-admin-utils
@@ -64,6 +73,7 @@ serverConfig:
 Notes:
 
 - The launcher README says `STEAM_KEY` can be supplied as an environment variable.
+- The launcher default `version: latest` currently resolves to `screeps@4.3.0`, which is incompatible with the launcher's Node.js 12 runtime. A preflight `screeps-launcher apply` run passed with `version: 4.2.21`, whose npm engine metadata is `node >=10.13.0`.
 - `screepsmod-mongo` requires MongoDB and Redis to be installed/running.
 - If Mongo-backed storage is used, run `system.resetAllData()` once from the launcher CLI, then restart the server.
 
@@ -180,20 +190,26 @@ The private-server smoke milestone is complete when:
 
 ## Current blocker
 
-The prior Docker/Compose blocker has been resolved in both the main Hermes context and a delegated subagent context. A Dockerized private-server smoke startup was attempted on 2026-04-26 and reached container startup, but the `screepers/screeps-launcher` image currently installs Node.js `12.22.12` while the resolved `screeps@4.3.0` package requires Node.js `>=22.9.0`. Mongo and Redis reached healthy state, but the Screeps service restarted before stable HTTP/CLI/tick validation.
+The prior Docker/Compose blocker has been resolved in both the main Hermes context and a delegated subagent context. A Dockerized private-server smoke startup was attempted on 2026-04-26 and reached container startup, but the `screepers/screeps-launcher` image installs Node.js `12.22.12` while the default `version: latest` resolved to `screeps@4.3.0`, which requires Node.js `>=22.9.0`. Mongo and Redis reached healthy state, but the Screeps service restarted before stable HTTP/CLI/tick validation.
+
+A follow-up install preflight on 2026-04-26 verified a candidate path: set launcher `version: 4.2.21` and keep the README/default pinned package resolutions. `screeps@4.2.21` declares `node >=10.13.0`, and `docker run --rm -v "$TMP:/screeps" screepers/screeps-launcher:latest apply` completed successfully with that version pin. This is not a completed runtime smoke; it only clears the package-install mismatch for the next full startup attempt.
 
 Attempt note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
+Version-pin note: `docs/process/2026-04-26-private-server-version-pin-research.md`
 
 Next executable options:
 
 1. Private-server-first validation remains required for local development before official MMO deployment.
-2. Resolve the launcher/runtime mismatch by either pinning a compatible launcher/server package combination or selecting/building a Node.js 22.9+ private-server image/toolchain.
-3. Retry this Dockerized smoke runbook using local, untracked config/secrets after the runtime mismatch is resolved. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.
-4. After private-server debugging passes, deploy the verified artifact to official Screeps: World MMO branch `main`, target shard `shardX`, room `E48S28`, then monitor runtime summaries/alerts. A temporary owner-approved official MMO deployment was performed on 2026-04-26 to validate the upload/placement chain; the private-server-first gate remains the normal policy for future releases.
-5. Continue deterministic coding work only if smoke setup remains blocked by private-server tooling, and preserve the policy that official MMO deployment waits for private-server validation or an explicitly approved alternative path.
+2. Retry this Dockerized smoke runbook with `version: 4.2.21` in the untracked launcher `config.yml`.
+3. If the pinned runtime still fails after startup, fall back to selecting/building a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
+4. Use local, untracked config/secrets only. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.
+5. After private-server debugging passes, deploy the verified artifact to official Screeps: World MMO branch `main`, target shard `shardX`, room `E48S28`, then monitor runtime summaries/alerts. A temporary owner-approved official MMO deployment was performed on 2026-04-26 to validate the upload/placement chain; the private-server-first gate remains the normal policy for future releases.
+6. Continue deterministic coding work only if smoke setup remains blocked by private-server tooling, and preserve the policy that official MMO deployment waits for private-server validation or an explicitly approved alternative path.
 
 ## Sources checked
 
 - `https://github.com/screepers/screeps-launcher` README: Docker/Compose path, `config.yml`, `screepsmod-auth`, `screepsmod-admin-utils`, `screepsmod-mongo`, `screeps-launcher cli`, `system.resetAllData()`.
+- `https://github.com/screepers/screeps-launcher` source: `version` defaults to `latest`, `nodeVersion` defaults to `Erbium`, and launcher package generation writes the configured `version` as the `screeps` dependency.
 - `https://github.com/screeps/screeps` README: official private-server Node.js 22 LTS prerequisite and server module model.
+- npm metadata: `screeps@4.3.0` requires `node >=22.9.0`; `screeps@4.2.21` requires `node >=10.13.0`.
 - Existing project notes: `docs/research/2026-04-25-phase1-dev-chain-decision-brief.md` and `docs/research/2026-04-26-local-validation-strategy.md`.
