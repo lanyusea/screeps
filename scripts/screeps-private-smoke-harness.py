@@ -23,6 +23,7 @@ from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNTIME_DIR = ROOT / "runtime-artifacts" / "private-server-smoke"
+LOCAL_SECRET_ENV = Path("/root") / ".secret" / ".env"
 MAP_FILE = "map-0b6758af.json"
 MAP_URL = f"https://maps.screepspl.us/maps/{MAP_FILE}"
 MAP_CONTAINER_PATH = f"/screeps/maps/{MAP_FILE}"
@@ -149,6 +150,7 @@ def detect_steam_key(runtime_dir: Path, environ: dict[str, str] | None = None) -
         (runtime_dir / "STEAM_KEY", is_nonempty_steam_key_file),
         (runtime_dir / ".env", env_file_mentions_steam_key),
         (ROOT / ".env", env_file_mentions_steam_key),
+        (LOCAL_SECRET_ENV, env_file_mentions_steam_key),
     ]
     for path, probe in probes:
         if probe(path):
@@ -384,8 +386,10 @@ def build_readme(runtime_dir: Path, secret_presence: SecretPresence, map_cached:
 
         The generated `config.yml` uses `steamKeyFile: STEAM_KEY`. Before starting
         Docker, create `./STEAM_KEY` in this ignored directory or adapt the config
-        locally. The file should contain only the Steam Web API key. The harness never
-        writes an environment-provided `STEAM_KEY` value to disk and never prints it.
+        locally. If `/root/.secret/.env` contains `STEAM_KEY`, copy it without shell
+        tracing and without printing the value. The file should contain only the Steam
+        Web API key. The harness never writes an environment-provided `STEAM_KEY`
+        value to disk and never prints it.
 
         `STEAM_KEY.example` is a placeholder only.
 
@@ -540,8 +544,23 @@ def command_self_test(_: argparse.Namespace) -> int:
     checks += assert_not_contains(leak_probe, [sentinel, "STEAM_KEY=super-secret"])
 
     detected = detect_steam_key(DEFAULT_RUNTIME_DIR, {"STEAM_KEY": sentinel})
-    if not detected.present or detected.sources != ("STEAM_KEY environment variable",):
+    if not detected.present or "STEAM_KEY environment variable" not in detected.sources:
         raise AssertionError("STEAM_KEY presence detection failed without reading or printing value")
+    checks += 1
+
+    temp_env = DEFAULT_RUNTIME_DIR / ".env"
+    temp_env.parent.mkdir(parents=True, exist_ok=True)
+    existing_temp_env = temp_env.read_bytes() if temp_env.exists() else None
+    temp_env.write_text("STEAM_KEY=super-secret\n", encoding="utf-8")
+    try:
+        detected_file = detect_steam_key(DEFAULT_RUNTIME_DIR, {})
+    finally:
+        if existing_temp_env is None:
+            temp_env.unlink(missing_ok=True)
+        else:
+            temp_env.write_bytes(existing_temp_env)
+    if not detected_file.present or rel(temp_env) not in detected_file.sources:
+        raise AssertionError("STEAM_KEY .env presence detection failed")
     checks += 1
 
     safe_fragment = re.sub(r"[^A-Za-z0-9_.-]+", "-", rel(DEFAULT_RUNTIME_DIR))

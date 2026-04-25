@@ -63,7 +63,7 @@ Behavior:
 - `prepare` creates or updates ignored files under `runtime-artifacts/private-server-smoke/`: `docker-compose.yml`, `config.yml`, `maps/`, `STEAM_KEY.example`, `volumes/`, and `README.md`.
 - `prepare --download-map` optionally caches `maps/map-0b6758af.json` when network is available. The map can also be downloaded later by the printed plan.
 - `plan` prints the manual continuation commands to start Docker Compose, import the map file through the launcher CLI, restart and resume simulation, register/auth/upload code, place `Spawn1`, and collect redacted observations.
-- The harness may check whether `STEAM_KEY` exists in the environment or ignored local files, but it does not print or write secret values. The generated launcher config uses `steamKeyFile: STEAM_KEY`; create that ignored file locally before starting Docker.
+- The harness may check whether `STEAM_KEY` exists in the environment, ignored project runtime files, or local secret storage such as `/root/.secret/.env`, but it does not print or write secret values. The generated launcher config uses `steamKeyFile: STEAM_KEY`; create that ignored file locally before starting Docker.
 
 The repository-level `.gitignore` ignores `runtime-artifacts/`, so generated config, secret placeholders, map cache, runtime token files, and Docker volumes stay untracked.
 

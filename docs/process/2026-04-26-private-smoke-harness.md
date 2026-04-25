@@ -19,7 +19,7 @@ Generated runtime files include `docker-compose.yml`, `config.yml`, `maps/`, `ST
 - The harness does not start Docker by default.
 - `self-test` requires no Docker, no network, and no secrets.
 - `prepare` does not write an environment-provided `STEAM_KEY` to disk.
-- The harness may report whether a Steam key is present, but it must not print the value.
+- The harness may report whether a Steam key is present, including safe source paths such as `/root/.secret/.env`, but it must not print the value.
 - Runtime config, placeholder files, optional map cache, transient token files, and Docker volumes live under ignored `runtime-artifacts/private-server-smoke/`.
 - Production Screeps code under `prod/` was not changed.
 
@@ -35,9 +35,10 @@ git check-ignore runtime-artifacts/private-server-smoke/config.yml runtime-artif
 
 Results:
 
-- harness self-test passed, 33 checks;
-- prepare created the expected ignored runtime workspace without starting Docker;
+- harness self-test passed, 34 checks;
+- prepare created/updated the expected ignored runtime workspace without starting Docker;
 - generated runtime config, placeholder, map note, and volume paths are covered by `.gitignore`;
+- local `/root/.secret/.env` Steam-key presence is detected as a safe source path without printing the key;
 - no secret values were printed or committed.
 
 Full repository verification for this coding/docs slice is still the standard:
@@ -49,7 +50,10 @@ cd prod && npm run typecheck && npm test -- --runInBand && npm run build
 
 Final verification completed:
 
-- `python3 scripts/screeps-private-smoke-harness.py self-test`: passed, 33 checks;
+- `python3 scripts/screeps-private-smoke-harness.py self-test`: passed, 34 checks;
+- `python3 scripts/screeps-private-smoke-harness.py prepare --no-plan`: passed; reported Steam key present via `/root/.secret/.env` without printing the value;
+- `python3 scripts/screeps-private-smoke-harness.py prepare --download-map --no-plan`: passed; cached ignored `map-0b6758af.json`;
+- `git check-ignore` for generated runtime config, map cache, secret/token placeholders, Docker volumes, and `node_modules`: passed;
 - `cd prod && npm run typecheck`: passed;
 - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests;
 - `cd prod && npm run build`: passed, rebuilt `dist/main.js` at 11.3kb with no tracked diff.
