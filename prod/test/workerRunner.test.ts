@@ -24,6 +24,28 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('leaves worker untasked when it has no energy and no sources', () => {
+    const creep = {
+      memory: {},
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room: { find: jest.fn().mockReturnValue([]) }
+    } as unknown as Creep;
+
+    expect(() => runWorker(creep)).not.toThrow();
+    expect(creep.memory.task).toBeUndefined();
+  });
+
+  it('leaves worker untasked when it has energy and no spending targets or controller', () => {
+    const creep = {
+      memory: {},
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: { find: jest.fn().mockReturnValue([]) }
+    } as unknown as Creep;
+
+    expect(() => runWorker(creep)).not.toThrow();
+    expect(creep.memory.task).toBeUndefined();
+  });
+
   it('moves toward harvest target when not in range', () => {
     const source = { id: 'source1' } as Source;
     const creep = {
@@ -176,6 +198,39 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toBeUndefined();
   });
+
+  it.each([
+    { type: 'transfer', targetId: 'missing-transfer' as Id<AnyStoreStructure> },
+    { type: 'build', targetId: 'missing-site' as Id<ConstructionSite> },
+    { type: 'upgrade', targetId: 'missing-controller' as Id<StructureController> }
+  ] satisfies CreepTaskMemory[])(
+    'clears stale $type task in a controllerless room without executing it',
+    (task) => {
+      const creep = {
+        memory: { task },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(50),
+          getFreeCapacity: jest.fn().mockReturnValue(50)
+        },
+        room: { find: jest.fn().mockReturnValue([]) },
+        build: jest.fn(),
+        transfer: jest.fn(),
+        upgradeController: jest.fn(),
+        moveTo: jest.fn()
+      } as unknown as Creep;
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        getObjectById: jest.fn().mockReturnValue(null)
+      };
+
+      expect(() => runWorker(creep)).not.toThrow();
+
+      expect(creep.memory.task).toBeUndefined();
+      expect(creep.build).not.toHaveBeenCalled();
+      expect(creep.transfer).not.toHaveBeenCalled();
+      expect(creep.upgradeController).not.toHaveBeenCalled();
+      expect(creep.moveTo).not.toHaveBeenCalled();
+    }
+  );
 
   it('switches from harvest when creep is full', () => {
     const spawn = {
