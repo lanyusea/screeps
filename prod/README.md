@@ -4,7 +4,7 @@ This folder contains runnable production code for the Screeps: World bot.
 
 ## Current status
 
-MVP skeleton only:
+MVP economy-loop base is now implemented:
 
 - TypeScript source
 - Jest tests
@@ -12,6 +12,12 @@ MVP skeleton only:
 - dead creep memory cleanup
 - small kernel tick loop
 - Screeps-compatible exported `loop`
+- colony detection
+- worker body builder
+- worker spawn planning
+- worker role counting
+- worker harvest / transfer / build / upgrade task selection
+- worker task transition logic
 - bundled build output at `dist/main.js`
 
 Not implemented yet:
@@ -19,9 +25,11 @@ Not implemented yet:
 - deployment credentials
 - MMO upload
 - private server config
-- spawn planning
-- creep roles/tasks
-- room economy logic
+- deterministic private-server smoke test
+- advanced spawn queue priorities
+- multi-room logic
+- remote mining
+- combat / defense logic
 
 ## Setup
 

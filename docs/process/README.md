@@ -25,4 +25,5 @@ Use it for notes that you may later expand into a blog post, retrospective, or p
 - `2026-04-25-phase1-phase2-continuation.md`
 - `2026-04-26-mvp-skeleton-implementation.md`
 - `2026-04-26-hermes-config-and-continuation.md`
+- `2026-04-26-mvp-economy-loop.md`
 - `active-work-state.md`

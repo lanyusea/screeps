@@ -95,11 +95,12 @@ function selectWorkerTask(creep) {
 // src/creeps/workerRunner.ts
 function runWorker(creep) {
   if (!creep.memory.task) {
-    const task2 = selectWorkerTask(creep);
-    if (!task2) {
-      return;
-    }
-    creep.memory.task = task2;
+    assignNextTask(creep);
+    return;
+  }
+  if (shouldReplaceTask(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
     return;
   }
   const task = creep.memory.task;
@@ -112,6 +113,24 @@ function runWorker(creep) {
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target);
   }
+}
+function assignNextTask(creep) {
+  const task = selectWorkerTask(creep);
+  if (task) {
+    creep.memory.task = task;
+  }
+}
+function shouldReplaceTask(creep, task) {
+  var _a, _b;
+  if (!((_a = creep.store) == null ? void 0 : _a.getUsedCapacity) || !((_b = creep.store) == null ? void 0 : _b.getFreeCapacity)) {
+    return false;
+  }
+  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
+  const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  if (task.type === "harvest") {
+    return freeEnergyCapacity === 0;
+  }
+  return usedEnergy === 0;
 }
 function executeTask(creep, task, target) {
   switch (task.type) {

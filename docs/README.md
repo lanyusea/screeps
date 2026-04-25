@@ -45,6 +45,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `process/2026-04-25-phase1-phase2-continuation.md`
 - `process/2026-04-26-mvp-skeleton-implementation.md`
 - `process/2026-04-26-hermes-config-and-continuation.md`
+- `process/2026-04-26-mvp-economy-loop.md`
 - `process/active-work-state.md`
 
 ## Rules

@@ -2,11 +2,13 @@ import { selectWorkerTask } from '../tasks/workerTasks';
 
 export function runWorker(creep: Creep): void {
   if (!creep.memory.task) {
-    const task = selectWorkerTask(creep);
-    if (!task) {
-      return;
-    }
-    creep.memory.task = task;
+    assignNextTask(creep);
+    return;
+  }
+
+  if (shouldReplaceTask(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
     return;
   }
 
@@ -21,6 +23,28 @@ export function runWorker(creep: Creep): void {
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target as RoomObject);
   }
+}
+
+function assignNextTask(creep: Creep): void {
+  const task = selectWorkerTask(creep);
+  if (task) {
+    creep.memory.task = task;
+  }
+}
+
+function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
+  if (!creep.store?.getUsedCapacity || !creep.store?.getFreeCapacity) {
+    return false;
+  }
+
+  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
+  const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+
+  if (task.type === 'harvest') {
+    return freeEnergyCapacity === 0;
+  }
+
+  return usedEnergy === 0;
 }
 
 function executeTask(creep: Creep, task: CreepTaskMemory, target: Source | AnyStoreStructure | ConstructionSite | StructureController): ScreepsReturnCode {
