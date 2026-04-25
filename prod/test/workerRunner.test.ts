@@ -200,6 +200,7 @@ describe('runWorker', () => {
   });
 
   it.each([
+    { type: 'harvest', targetId: 'missing-source' as Id<Source> },
     { type: 'transfer', targetId: 'missing-transfer' as Id<AnyStoreStructure> },
     { type: 'build', targetId: 'missing-site' as Id<ConstructionSite> },
     { type: 'upgrade', targetId: 'missing-controller' as Id<StructureController> }
@@ -209,22 +210,24 @@ describe('runWorker', () => {
       const creep = {
         memory: { task },
         store: {
-          getUsedCapacity: jest.fn().mockReturnValue(50),
+          getUsedCapacity: jest.fn().mockReturnValue(task.type === 'harvest' ? 0 : 50),
           getFreeCapacity: jest.fn().mockReturnValue(50)
         },
         room: { find: jest.fn().mockReturnValue([]) },
+        harvest: jest.fn(),
         build: jest.fn(),
         transfer: jest.fn(),
         upgradeController: jest.fn(),
         moveTo: jest.fn()
       } as unknown as Creep;
-      (globalThis as unknown as { Game: Partial<Game> }).Game = {
-        getObjectById: jest.fn().mockReturnValue(null)
-      };
+      const getObjectById = jest.fn().mockReturnValue(null);
+      (globalThis as unknown as { Game: Partial<Game> }).Game = { getObjectById };
 
       expect(() => runWorker(creep)).not.toThrow();
 
+      expect(getObjectById).toHaveBeenCalledWith(task.targetId);
       expect(creep.memory.task).toBeUndefined();
+      expect(creep.harvest).not.toHaveBeenCalled();
       expect(creep.build).not.toHaveBeenCalled();
       expect(creep.transfer).not.toHaveBeenCalled();
       expect(creep.upgradeController).not.toHaveBeenCalled();

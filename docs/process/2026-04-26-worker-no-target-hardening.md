@@ -1,6 +1,6 @@
 # Worker no-target fallback hardening
 
-Date: 2026-04-26T07:11:23+08:00
+Date: 2026-04-26T07:20:20+08:00
 
 ## Objective
 
@@ -11,6 +11,7 @@ Add deterministic Jest coverage for real-runtime edge cases surfaced by private-
 Codex CLI implemented and committed the production/test slice in worktree `/root/screeps-worktrees/runtime-risk-hardening-20260426`.
 
 - Commit: `12a2c4a test: harden worker no-target fallbacks`
+- Review follow-up commit in this branch: `test: cover stale harvest worker tasks`
 - Changed files:
   - `prod/test/workerTasks.test.ts`
   - `prod/test/workerRunner.test.ts`
@@ -20,7 +21,7 @@ Codex CLI implemented and committed the production/test slice in worktree `/root
 - `selectWorkerTask` returns `null` without throwing when a zero-energy worker has no sources.
 - `selectWorkerTask` returns `null` without throwing when an energy-carrying worker has no energy sinks, construction sites, or owned controller.
 - `runWorker` leaves no task assigned and does not throw in both no-target task-selection cases.
-- `runWorker` clears stale `transfer`, `build`, and `upgrade` tasks in a controllerless/no-target room without calling `transfer`, `build`, `upgradeController`, or `moveTo`.
+- `runWorker` clears stale `harvest`, `transfer`, `build`, and `upgrade` tasks in a controllerless/no-target room without calling `harvest`, `transfer`, `build`, `upgradeController`, or `moveTo`.
 
 No production source change was required; the existing worker task selection and stale-target handling already matched the desired behavior. The slice makes that runtime safety contract explicit and regression-tested.
 
@@ -36,7 +37,7 @@ npm run build
 
 Result: passed.
 
-- Jest: 12 suites passed, 66 tests passed.
+- Jest: 12 suites passed, 67 tests passed.
 - Build: `prod/dist/main.js` built successfully and remained functionally unchanged because only tests changed.
 
 ## Follow-up

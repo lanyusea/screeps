@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T07:11:23+08:00
+Last updated: 2026-04-26T07:20:20+08:00
 
 ## Current active objective
 
@@ -163,7 +163,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests after two parallel Codex hardening commits
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 67 tests after the stale-harvest worker task coverage follow-up
   - `cd prod && npm run build`: passed
   - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
@@ -174,7 +174,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   1. automate the pinned private-server smoke harness and redacted observation capture
   2. run one more live-token runtime-monitor smoke, then schedule `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` jobs
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
-- Latest deterministic hardening slice: Codex commit `12a2c4a` (`test: harden worker no-target fallbacks`) added Jest coverage for no-source/no-controller/no-target worker fallback behavior. Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`.
+- Latest deterministic hardening slice: Codex commit `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up `test: cover stale harvest worker tasks` added Jest coverage for no-source/no-controller/no-target worker fallback behavior, including stale harvest targets. Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`.
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
