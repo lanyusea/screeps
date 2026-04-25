@@ -188,7 +188,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Discord channel process reporting was designed for interactive/autonomous visibility, but this cron invocation explicitly requires final-response-only delivery and forbids using `send_message` directly.
 - Canonical Discord spec updated in `docs/ops/discord-project-spec.md`.
 - 4-hour checkpoint cron created: `Screeps 4h active-task progress summary`.
-- 30-minute continuation cron created and later tightened to a 10-minute interval: `Screeps autonomous continuation worker`.
+- 30-minute continuation cron created, tightened to 10 minutes, and then to 5 minutes during P0/active-development periods: `Screeps autonomous continuation worker`.
 - Continuation worker delivery corrected from local-only output to Discord delivery after observing a successful run that did not appear in channels.
 - Discord visibility root-cause postmortem recorded in `docs/process/2026-04-26-discord-visibility-root-cause-postmortem.md`: scheduled Screeps continuation/checkpoint jobs should deliver to the named project channel `discord:#task-queue`; global/home notifications may use home channel `1497537021378564200`; avoid sending global notices to thread `1497579848594493560`.
 - Background terminal process completion notifications can bypass normal `send_message`/cron delivery routing and return to the invoking thread; future global/public long-running shell tasks should avoid `notify_on_complete=true` and instead poll/wait then report through the intended channel/cron delivery path.
