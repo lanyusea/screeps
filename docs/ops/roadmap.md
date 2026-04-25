@@ -183,7 +183,7 @@ Requirement:
 - each meaningful change must be pushed on a topic branch and submitted as a GitHub pull request;
 - at least 15 minutes must elapse between PR creation and merge;
 - all PR review comments/discussions must be resolved before merge; expect multiple follow-up commits when review finds issues;
-- changes should pass GitHub CI before merge once CI is configured; before the CI task is complete, PRs may still merge after the 15-minute wait and unresolved-comment gate;
+- changes should pass GitHub CI before merge once CI is configured; before the CI task is complete, PRs may still merge after the 15-minute wait and comment-resolution requirement;
 - direct commits to `main` are forbidden for both code and docs.
 
 Current access findings:
