@@ -131,11 +131,32 @@ Delivery: Discord home channel (`discord`).
 Behavior:
 
 - run frequently enough to catch broken automation quickly;
+- monitor continuation, checkpoint, runtime, and typed-channel reporter jobs;
 - report abnormal states to home;
 - remain concise when healthy;
 - never perform implementation work;
 - never modify production code;
 - if it changes docs, commit/push docs-only成果 as Hermes.
+
+### Typed-channel fanout reporters
+
+Purpose: prevent typed channels from going stale when the continuation worker only delivers one final response to `#task-queue`.
+
+Configured reporters:
+
+- `Screeps dev-log fanout reporter` → `discord:#dev-log`, every 20m;
+- `Screeps roadmap fanout reporter` → `discord:#roadmap`, every 20m;
+- `Screeps research-notes fanout reporter` → `discord:#research-notes`, every 20m.
+
+Behavior:
+
+- read recent continuation output, active-state docs, process/research docs, and git log;
+- compare against per-channel state under `/root/.hermes/screeps-reporters/`;
+- report only new channel-relevant changes;
+- return exactly `[SILENT]` when there is nothing new;
+- never implement code or create/modify cron jobs.
+
+These reporters are not authoritative decision-makers. They are narrow visibility bridges. The main agent remains accountable for reviewing subagent conclusions and routing final decisions, roadmap changes, blockers, and owner-facing escalations.
 
 ## Discord routing matrix
 
