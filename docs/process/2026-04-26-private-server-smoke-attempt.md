@@ -26,7 +26,7 @@ Local secret/config presence was checked without printing secret values:
 
 - `SCREEPS_AUTH_TOKEN`: present
 - `STEAM_KEY`: present
-- safe selectors: `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=sharedX`, `SCREEPS_ROOM=E48S28`
+- safe selectors: `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, `SCREEPS_ROOM=E48S28`
 - private server URL/username selectors are not yet defined locally.
 
 ## Attempted smoke setup

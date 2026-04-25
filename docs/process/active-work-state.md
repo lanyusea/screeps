@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T04:05:34+08:00
+Last updated: 2026-04-26T04:11:53+08:00
 
 ## Current active objective
 
@@ -154,7 +154,8 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 - Status: private-server smoke attempted; blocked on launcher/server Node version mismatch before runtime tick validation
 - Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - Current recommendation: private-server-first validation is still required before official MMO deployment, but the current Dockerized `screepers/screeps-launcher` path resolved `screeps@4.3.0`, which requires Node.js `>=22.9.0`, while the launcher container installs Node.js `12.22.12`.
-- Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=sharedX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
+- Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
+- Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed

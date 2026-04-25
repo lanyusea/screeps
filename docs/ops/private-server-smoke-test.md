@@ -189,7 +189,7 @@ Next executable options:
 1. Private-server-first validation remains required for local development before official MMO deployment.
 2. Resolve the launcher/runtime mismatch by either pinning a compatible launcher/server package combination or selecting/building a Node.js 22.9+ private-server image/toolchain.
 3. Retry this Dockerized smoke runbook using local, untracked config/secrets after the runtime mismatch is resolved. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.
-4. After private-server debugging passes, deploy the verified artifact to official Screeps: World MMO branch `main`, target shard `sharedX`, room `E48S28`, then monitor runtime summaries/alerts.
+4. After private-server debugging passes, deploy the verified artifact to official Screeps: World MMO branch `main`, target shard `shardX`, room `E48S28`, then monitor runtime summaries/alerts. A temporary owner-approved official MMO deployment was performed on 2026-04-26 to validate the upload/placement chain; the private-server-first gate remains the normal policy for future releases.
 5. Continue deterministic coding work only if smoke setup remains blocked by private-server tooling, and preserve the policy that official MMO deployment waits for private-server validation or an explicitly approved alternative path.
 
 ## Sources checked

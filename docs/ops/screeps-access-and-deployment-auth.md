@@ -76,7 +76,7 @@ Verified local secret state on 2026-04-26:
 - `STEAM_KEY`: present, value not printed.
 - `SCREEPS_BRANCH=main`.
 - `SCREEPS_API_URL=https://screeps.com`.
-- `SCREEPS_SHARD=sharedX`.
+- `SCREEPS_SHARD=shardX`.
 - `SCREEPS_ROOM=E48S28`.
 
 Likely private-server inputs:
@@ -101,9 +101,20 @@ Likely private-server inputs:
 - Auth token: present in local secret storage; do not paste or commit it.
 - Deployment branch: `main`.
 - First public room: `E48S28`.
-- Shard: `sharedX`, confirmed by user as a new server parallel to `shard0`/`shard1`/`shard2`/`shard3`.
+- Shard: `shardX`, verified against the official API. The earlier `sharedX` spelling is invalid for official API calls.
 
 ## Open decisions
 
-- Should first public deployment go to a disposable/test branch before active play, or deploy directly to `main` now that `main` is confirmed?
 - Whether private-server auth should use username/password, token, or direct local storage injection for the first smoke test.
+
+## Temporary official MMO link validation
+
+On 2026-04-26, the owner explicitly approved a temporary official MMO deployment to validate the upload/placement chain and occupy the initial room while preserving the normal private-server-first policy for future release-quality deployments.
+
+Result:
+
+- Created official code branch `main`.
+- Uploaded the current bundled `prod/dist/main.js` as module `main`.
+- Set `main` as `activeWorld`.
+- Placed `Spawn1` in `E48S28` on `shardX` at `(25,23)`.
+- Verified world status `normal`, user overview includes `shardX.rooms=[E48S28]`, and room owner is `lanyusea`.
