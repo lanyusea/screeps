@@ -184,9 +184,11 @@ The prior Docker/Compose blocker has been resolved in both the main Hermes conte
 
 Next executable options:
 
-1. Execute this Dockerized smoke runbook using local, untracked config/secrets.
-2. Upgrade or isolate Node 22+ in a disposable environment only if Dockerized launcher testing proves unsuitable.
-3. Continue deterministic coding work such as telemetry MVP only if smoke setup blocks on credentials/config.
+1. Private-server-first validation is now required for local development before official MMO deployment.
+2. Execute this Dockerized smoke runbook using local, untracked config/secrets. Verified secret prerequisites now include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.
+3. After private-server debugging passes, deploy the verified artifact to official Screeps: World MMO branch `main`, target shard `sharedX`, room `E48S28`, then monitor runtime summaries/alerts.
+4. Upgrade or isolate Node 22+ in a disposable environment only if Dockerized launcher testing proves unsuitable.
+5. Continue deterministic coding work only if smoke setup blocks on non-secret config or runtime issues.
 
 ## Sources checked
 

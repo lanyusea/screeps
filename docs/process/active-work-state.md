@@ -137,7 +137,7 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 ### next-runtime-validation
 
 - Status: recommended next autonomous slice
-- Current recommendation: Docker/Compose is available, but this cron environment did not have `STEAM_KEY`, so private-server smoke execution remains pending safe local credentials/config outside git.
+- Current recommendation: private-server-first validation is required before official MMO deployment. Local secret storage now has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=sharedX`, and `SCREEPS_ROOM=E48S28`.
 - Durable roadmap: `docs/ops/roadmap.md`
 - Candidate next outputs:
   1. execute the Dockerized private-server smoke runbook with `screepers/screeps-launcher`, if required credentials/config can be supplied locally without committing secrets

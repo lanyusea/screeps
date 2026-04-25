@@ -66,7 +66,18 @@ Exact names can be adjusted to the deploy tool we choose, but the principle is s
 
 ## Local/private-server authorization model
 
+User decision: local development must validate on a private server first. If private-server debugging passes, deploy the same verified artifact to the official Screeps: World MMO and monitor runtime summaries/alerts.
+
 For private-server validation we expect a Dockerized launcher/private-server path. The current environment already has Docker Engine and Docker Compose available, while direct npm installation is less attractive because the official `screeps` package currently expects Node.js 22+ and this host has Node 18.
+
+Verified local secret state on 2026-04-26:
+
+- `SCREEPS_AUTH_TOKEN`: present, value not printed.
+- `STEAM_KEY`: present, value not printed.
+- `SCREEPS_BRANCH=main`.
+- `SCREEPS_API_URL=https://screeps.com`.
+- `SCREEPS_SHARD=sharedX`.
+- `SCREEPS_ROOM=E48S28`.
 
 Likely private-server inputs:
 
@@ -90,7 +101,7 @@ Likely private-server inputs:
 - Auth token: present in local secret storage; do not paste or commit it.
 - Deployment branch: `main`.
 - First public room: `E48S28`.
-- Shard: user wrote `sharedX`; treat as pending exact shard spelling until verified as `shard0`, `shard1`, `shard2`, `shard3`, or another valid Screeps shard name.
+- Shard: `sharedX`, confirmed by user as a new server parallel to `shard0`/`shard1`/`shard2`/`shard3`.
 
 ## Open decisions
 
