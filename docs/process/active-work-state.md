@@ -1,10 +1,10 @@
 # Active Work State
 
-Last updated: 2026-04-26T04:48:10+08:00
+Last updated: 2026-04-26T04:56:00+08:00
 
 ## Current active objective
 
-Continue Screeps research/design/autonomous implementation while preserving durable process checkpoints. Scheduled final responses are delivered by the job runner; do not self-deliver via messaging tools in this cron context.
+P0: stabilize and monitor the Screeps agent operating system before continuing normal development. The main agent must preserve owner visibility through the home channel, delegate minimal tasks to subagents/Codex, review subagent conclusions, route summaries to typed Discord channels, and keep scheduled-worker health monitored. Canonical operating contract: `docs/ops/agent-operating-system.md`.
 
 ## Completed tasks
 

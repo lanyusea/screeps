@@ -13,8 +13,9 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm test -- --runInBand` — passing, 12 suites / 45 tests
   - `cd prod && npm run build` — passing
 - Latest production milestone: spawn busy retry hardening committed as `b7f002e feat: retry busy spawn attempts`
-- Latest documentation milestone: pinned private-server smoke retry under `docs/process/2026-04-26-pinned-private-server-smoke-retry.md` and `docs/process/active-work-state.md`
+- Latest documentation milestone: P0 agent operating-system contract in `docs/ops/agent-operating-system.md` and process note `docs/process/2026-04-26-agent-operations-restructure.md`
 - Active state file: `docs/process/active-work-state.md`
+- Current top priority: P0 agent communication/cron/Discord visibility health before further normal development slices
 
 ## Completed milestones
 
@@ -166,7 +167,27 @@ Current result:
 
 ## Active blockers and decisions
 
-### Blocker: private-server room/map initialization
+### P0: agent operating-system health and owner visibility
+
+Status: active top priority.
+
+Canonical contract: `docs/ops/agent-operating-system.md`.
+
+Requirement:
+
+- home channel remains the owner command/proactive-report surface;
+- main agent decomposes and delegates minimal subagent/Codex tasks;
+- subagent conclusions return to main agent for review;
+- main agent routes summaries to `#decisions`, `#roadmap`, `#task-queue`, `#research-notes`, `#dev-log`, `#runtime-summary`, and `#runtime-alerts` as appropriate;
+- monitoring scheduled-worker health and communication flow is higher priority than normal development slices.
+
+Immediate operating change:
+
+- dedicated P0 agent operations monitor checks cron/job/routing/git/active-state health;
+- continuation/checkpoint workers remain subordinate to main-agent review and channel fanout;
+- if P0 health is abnormal, pause or defer new implementation work until corrected.
+
+### Blocker: private-server smoke needs compatible launcher/server runtime
 
 Docker/Compose, package installation, HTTP startup, local auth, and code upload are no longer the primary blockers for the pinned launcher path. The active blocker is getting an initialized private-server world with an owned spawn so the uploaded bot can execute in-room:
 

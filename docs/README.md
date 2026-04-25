@@ -21,6 +21,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 ## Current documents
 
 ### Operations
+- `ops/agent-operating-system.md`
 - `ops/discord-project-spec.md`
 - `ops/discord-server-setup-guide.md`
 - `ops/discord-server-configuration.md`
@@ -59,6 +60,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `process/2026-04-26-roadmap-refresh.md`
 - `process/2026-04-26-worker-replacement-planning.md`
 - `process/2026-04-26-telemetry-mvp.md`
+- `process/2026-04-26-agent-operations-restructure.md`
 - `process/active-work-state.md`
 
 ## Rules

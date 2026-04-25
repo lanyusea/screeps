@@ -162,6 +162,7 @@ Every important choice should leave a trail:
 
 ### 5.5 Autonomous progress reporting
 - Autonomous execution means no intermediate permission requests, not silent execution.
+- The home channel is the owner-facing command and proactive-report surface for the main agent. Use it for owner instructions, owner-visible escalations, and P0 agent-operations anomalies.
 - Process progress must still be posted into the relevant project channels:
   - research findings and sources → `#research-notes`
   - active task state and blockers → `#task-queue`
@@ -175,11 +176,41 @@ Every important choice should leave a trail:
   - `#research-notes` for new factual findings or source-derived conclusions
   - `#decisions` for final decision requests or direction-changing tradeoffs
   - `#runtime-summary` / `#runtime-alerts` for runtime state or urgent runtime failures once a runtime exists
-- The main agent should avoid interrupting the owner for intermediate progress; only final decision requests should be treated as owner-interrupting.
+- The main agent should avoid interrupting the owner for intermediate progress; only final decision requests, owner-action blockers, runtime alerts, and P0 agent-operations failures should be treated as owner-interrupting.
 - If any task remains in progress for more than 4 hours without a final conclusion, the bot must post a structured progress summary every 4 hours until the task concludes.
 - Each 4-hour summary must also be reflected in `docs/process/` so that long-running work can survive context compaction and remain usable as future blog material.
 - 4-hour summaries should include: current objective, work completed, evidence gathered, unresolved questions, blockers, next actions, and links/files changed.
 - Scheduled/cron workers may only support one final delivery target. In that case, the worker should include labelled sections such as `#task-queue`, `#dev-log`, and `#research-notes` inside the single delivered response, with `#task-queue` as the default delivery target for continuation runs unless a per-channel fan-out is explicitly configured.
+
+### 5.6 Main-agent / subagent / monitoring operating model
+
+The channel contract is not enough by itself. The project also follows `docs/ops/agent-operating-system.md`.
+
+Priority rule:
+
+- **P0**: agent operating-system health and owner visibility.
+- **P1**: runtime safety and deployment correctness.
+- **P2**: active implementation/research slices.
+- **P3**: polish/documentation cleanup.
+
+Main-agent responsibilities:
+
+1. receive owner tasks in the home channel;
+2. decompose work into minimal research/development tasks;
+3. delegate to subagents or Codex where appropriate;
+4. pull subagent conclusions back into the main context;
+5. verify/review before accepting;
+6. route summaries to the typed Discord channels;
+7. maintain P0 monitoring of scheduled jobs, delivery targets, active-state freshness, and subagent communication.
+
+Subagent responsibilities:
+
+- perform one minimal research/development task;
+- return a clear final result and evidence to the main agent;
+- write or expose process detail if the task is long/complex;
+- avoid owning cross-channel decisions, roadmap, or task-queue state.
+
+If a spawned long-running agent has messaging access and a single obvious detail channel, it may post low-level progress to that one channel only, e.g. research → `#research-notes`, development → `#dev-log`. The main agent remains accountable for summary fanout and owner-facing status.
 
 ---
 
