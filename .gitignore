@@ -3,6 +3,8 @@ node_modules/
 
 # Build/test output
 prod/coverage/
+__pycache__/
+*.pyc
 
 # Local secrets
 .env

@@ -1,7 +1,7 @@
 # Private Server Smoke Test Runbook
 
 Date: 2026-04-26
-Status: pinned runtime smoke passed through room/map initialization, code upload, spawn placement, and owned bot creeps; longer observation still recommended
+Status: pinned runtime smoke passed through room/map initialization, code upload, spawn placement, and owned bot creeps; an executable prep/plan harness now makes the passing path repeatable without starting Docker by default
 
 ## Purpose
 
@@ -47,12 +47,32 @@ Optional depending on smoke depth:
 - `screepsmod-mongo` for Mongo-backed persistence.
 - `screepsmod-admin-utils` for server configuration helpers.
 
+## Executable harness
+
+The bounded automation entrypoint is:
+
+```bash
+python3 scripts/screeps-private-smoke-harness.py self-test
+python3 scripts/screeps-private-smoke-harness.py prepare
+python3 scripts/screeps-private-smoke-harness.py plan
+```
+
+Behavior:
+
+- `self-test` runs offline unit-style checks for the harness helpers/templates. It does not require Docker, network, or secrets.
+- `prepare` creates or updates ignored files under `runtime-artifacts/private-server-smoke/`: `docker-compose.yml`, `config.yml`, `maps/`, `STEAM_KEY.example`, `volumes/`, and `README.md`.
+- `prepare --download-map` optionally caches `maps/map-0b6758af.json` when network is available. The map can also be downloaded later by the printed plan.
+- `plan` prints the manual continuation commands to start Docker Compose, import the map file through the launcher CLI, restart and resume simulation, register/auth/upload code, place `Spawn1`, and collect redacted observations.
+- The harness may check whether `STEAM_KEY` exists in the environment or ignored local files, but it does not print or write secret values. The generated launcher config uses `steamKeyFile: STEAM_KEY`; create that ignored file locally before starting Docker.
+
+The repository-level `.gitignore` ignores `runtime-artifacts/`, so generated config, secret placeholders, map cache, runtime token files, and Docker volumes stay untracked.
+
 ## Candidate private-server config shape
 
 Use this as a checklist, not as a committed secret-bearing config:
 
 ```yaml
-steamKey: ${STEAM_KEY}
+steamKeyFile: STEAM_KEY
 version: 4.2.21
 nodeVersion: Erbium
 pinnedPackages:
@@ -70,6 +90,9 @@ mods:
   - screepsmod-mongo
 serverConfig:
   welcomeText: "Local Screeps MVP smoke server"
+  tickRate: 200
+  shardName: shardX
+  mapFile: /screeps/maps/map-0b6758af.json
 ```
 
 Notes:
@@ -261,7 +284,7 @@ Longer observation note: `docs/process/2026-04-26-private-server-long-observatio
 Next executable options:
 
 1. Private-server-first validation remains required for local development before official MMO deployment.
-2. Automate the pinned private-server smoke procedure so a fresh run can start the runtime, import the map file, upload code, place/verify a spawn, poll stats, and capture redacted Mongo observations.
+2. Run the new harness-generated plan end to end from a fresh ignored workspace and record the redacted observations.
 3. Turn the runtime monitor script into scheduled `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` reporting after one more live-token smoke.
 4. If this pinned runtime later exposes simulation incompatibilities, fall back to selecting/building a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 5. Use local, untracked config/secrets only. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.

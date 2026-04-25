@@ -151,19 +151,29 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 
 ### next-runtime-validation
 
-- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation
+- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation; executable safe-by-default prep/plan harness added
 - Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - Version-pin research note: `docs/process/2026-04-26-private-server-version-pin-research.md`
 - Pinned runtime retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
 - Parallel throughput/smoke note: `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - Longer observation note: `docs/process/2026-04-26-private-server-long-observation.md`
+- Harness process note: `docs/process/2026-04-26-private-smoke-harness.md`
 - Current recommendation: private-server-first validation remains the release-quality path. Dockerized `screepers/screeps-launcher` with explicit `version: 4.2.21`, launcher Node `12.22.12`, and transitive dependency resolutions (`body-parser: 1.20.3`, `path-to-regexp: 0.1.12`) can initialize rooms when the map import avoids the Node 12 global-`fetch` path by using a pre-downloaded map file plus `utils.importMapFile('/screeps/maps/map-0b6758af.json')`. A follow-up observation reached private `gametime: 5267`, `totalRooms: 169`, `ownedRooms: 1`, one RCL 2 room, and three live bot-created workers without post-restart log exceptions.
 - Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
+- Harness slice:
+  - script: `scripts/screeps-private-smoke-harness.py`
+  - commands: `self-test`, `prepare`, and `plan`
+  - generated ignored workspace: `runtime-artifacts/private-server-smoke/`
+  - safety boundary: no Docker start by default, no required network for `self-test`, no secret value printing, no automatic environment secret materialization
+  - generated config: `version: 4.2.21`, `nodeVersion: Erbium`, the validated transitive pins, `screepsmod-auth` / `screepsmod-admin-utils` / `screepsmod-mongo`, and `serverConfig.mapFile: /screeps/maps/map-0b6758af.json`
 - Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
+  - `python3 scripts/screeps-private-smoke-harness.py self-test`: passed, 33 checks
+  - `python3 scripts/screeps-private-smoke-harness.py prepare --no-plan`: passed; generated only ignored runtime files
+  - `git check-ignore`: confirmed generated private-smoke config, placeholder, map note, and volume paths are covered by `runtime-artifacts/`
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests after two parallel Codex hardening commits
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
   - `cd prod && npm run build`: passed
   - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
@@ -171,7 +181,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Longer pinned runtime observation: private `gametime: 5267`, one RCL 2 owned room, three live bot-created workers, average tick time about 200 ms, and no current post-restart `Unhandled`/`TypeError`/`ReferenceError`/`Error:` hits in launcher logs
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
 - Candidate next outputs:
-  1. automate the pinned private-server smoke harness and redacted observation capture
+  1. run the harness-generated pinned private-server smoke plan end to end from a fresh ignored workspace and capture redacted observations
   2. run one more live-token runtime-monitor smoke, then schedule `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` jobs
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
 - Verification target if code changes are made:
