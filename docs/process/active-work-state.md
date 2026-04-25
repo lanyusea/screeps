@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T05:23:37+08:00
+Last updated: 2026-04-26T05:41:14+08:00
 
 ## Current active objective
 
@@ -149,14 +149,31 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - `npm test -- --runInBand`: passed, 12 suites / 45 tests
   - `npm run build`: passed
 
+### private-smoke-harness
+
+- Status: implemented and self-tested; fresh full private-server rerun remains next
+- Process note: `docs/process/2026-04-26-private-smoke-harness.md`
+- Implemented:
+  - `scripts/screeps-private-smoke-harness.py`
+  - `prepare` command for ignored `runtime-artifacts/private-server-smoke/` config/Compose/map setup
+  - pinned launcher config for `screeps@4.2.21`, launcher `nodeVersion: Erbium`, documented transitive dependency pins, auth/admin-utils/mongo mods, and `/screeps/maps/map-0b6758af.json`
+  - local `STEAM_KEY` file support without printing the key value
+  - offline `self-test` coverage for rendering, redaction, path safety, map naming, and no-download behavior
+- Verification:
+  - `python3 scripts/screeps-private-smoke-harness.py self-test`: passed, 8 tests
+  - `cd prod && npm run typecheck`: passed
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
+  - `cd prod && npm run build`: passed
+
 ### next-runtime-validation
 
-- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation
+- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation; reusable harness now prepared and self-tested
 - Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - Version-pin research note: `docs/process/2026-04-26-private-server-version-pin-research.md`
 - Pinned runtime retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
 - Parallel throughput/smoke note: `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - Longer observation note: `docs/process/2026-04-26-private-server-long-observation.md`
+- Harness note: `docs/process/2026-04-26-private-smoke-harness.md`
 - Current recommendation: private-server-first validation remains the release-quality path. Dockerized `screepers/screeps-launcher` with explicit `version: 4.2.21`, launcher Node `12.22.12`, and transitive dependency resolutions (`body-parser: 1.20.3`, `path-to-regexp: 0.1.12`) can initialize rooms when the map import avoids the Node 12 global-`fetch` path by using a pre-downloaded map file plus `utils.importMapFile('/screeps/maps/map-0b6758af.json')`. A follow-up observation reached private `gametime: 5267`, `totalRooms: 169`, `ownedRooms: 1`, one RCL 2 room, and three live bot-created workers without post-restart log exceptions.
 - Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
 - Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
@@ -169,9 +186,10 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
   - Pinned Dockerized runtime smoke: pre-downloaded `map-0b6758af.json`, imported with `utils.importMapFile`, restarted/resumed simulation, registered local smoke user, uploaded `prod/dist/main.js`, placed `Spawn1` at `E1S1` `(20,20)`, and observed `/stats` with `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, plus owned `worker-E1S1-*` creeps in Mongo
   - Longer pinned runtime observation: private `gametime: 5267`, one RCL 2 owned room, three live bot-created workers, average tick time about 200 ms, and no current post-restart `Unhandled`/`TypeError`/`ReferenceError`/`Error:` hits in launcher logs
+  - Private smoke harness self-test: `python3 scripts/screeps-private-smoke-harness.py self-test` passed, 8 tests
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
 - Candidate next outputs:
-  1. automate the pinned private-server smoke harness and redacted observation capture
+  1. run the prepared pinned private-server smoke harness end to end and capture redacted observations
   2. run one more live-token runtime-monitor smoke, then schedule `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` jobs
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
 - Verification target if code changes are made:

@@ -30,6 +30,19 @@ Reasons:
 3. The launcher README explicitly supports Docker and Docker Compose.
 4. It can run the server with MongoDB/Redis-backed persistence when needed.
 
+## Automation helper
+
+Use the repository helper to prepare the pinned Dockerized harness without writing generated files into tracked source:
+
+```bash
+python3 scripts/screeps-private-smoke-harness.py self-test
+python3 scripts/screeps-private-smoke-harness.py prepare
+```
+
+By default, `prepare` writes only under ignored `runtime-artifacts/private-server-smoke/`: `config.yml`, `docker-compose.yml`, `maps/map-0b6758af.json`, and a local `STEAM_KEY` file if the configured Steam-key environment variable is present. The script prints paths, port selections, and next commands with secret values redacted. Use `prepare --help` for overrides such as `--workdir`, `--repo-root`, `--steam-key-env`, `--server-port`, `--username`, `--password`, `--map-url`, `--dry-run`, and `--no-download`.
+
+Generated harness files, cached maps, local secret files, Docker volumes, `node_modules`, and runtime logs must remain untracked. The helper does not start Docker unless the operator explicitly runs the printed `docker compose` commands from the generated work directory.
+
 ## Inputs and secrets required
 
 Do not commit any secrets to this repository.
