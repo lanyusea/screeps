@@ -10,9 +10,9 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
 - Branch: `main`
 - Current verification baseline:
   - `cd prod && npm run typecheck` — passing
-  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 59 tests
+  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 66 tests
   - `cd prod && npm run build` — passing
-- Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
+- Latest production/test milestone: Codex commit `12a2c4a test: harden worker no-target fallbacks` added deterministic no-source/no-controller/no-target worker fallback coverage
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
 - Latest documentation milestone: longer private-server observation note in `docs/process/2026-04-26-private-server-long-observation.md`
 - Active state file: `docs/process/active-work-state.md`
