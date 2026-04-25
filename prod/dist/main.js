@@ -197,15 +197,118 @@ function planSpawn(colony, roleCounts, gameTime) {
   };
 }
 
+// src/telemetry/runtimeSummary.ts
+var RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
+var RUNTIME_SUMMARY_INTERVAL = 20;
+var MAX_REPORTED_EVENTS = 10;
+var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "upgrade"];
+function emitRuntimeSummary(colonies, creeps, events = []) {
+  if (colonies.length === 0 && events.length === 0) {
+    return;
+  }
+  const tick = getGameTime();
+  if (!shouldEmitRuntimeSummary(tick, events)) {
+    return;
+  }
+  const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
+  const summary = {
+    type: "runtime-summary",
+    tick,
+    rooms: colonies.map((colony) => summarizeRoom(colony, creeps)),
+    ...reportedEvents.length > 0 ? { events: reportedEvents } : {},
+    ...events.length > MAX_REPORTED_EVENTS ? { omittedEventCount: events.length - MAX_REPORTED_EVENTS } : {},
+    ...buildCpuSummary()
+  };
+  console.log(`${RUNTIME_SUMMARY_PREFIX}${JSON.stringify(summary)}`);
+}
+function shouldEmitRuntimeSummary(tick, events) {
+  return events.length > 0 || tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
+}
+function summarizeRoom(colony, creeps) {
+  const colonyWorkers = creeps.filter((creep) => creep.memory.role === "worker" && creep.memory.colony === colony.room.name);
+  return {
+    roomName: colony.room.name,
+    energyAvailable: colony.energyAvailable,
+    energyCapacity: colony.energyCapacityAvailable,
+    workerCount: colonyWorkers.length,
+    spawnStatus: colony.spawns.map(summarizeSpawn),
+    taskCounts: countWorkerTasks(colonyWorkers)
+  };
+}
+function summarizeSpawn(spawn) {
+  if (!spawn.spawning) {
+    return {
+      name: spawn.name,
+      status: "idle"
+    };
+  }
+  return {
+    name: spawn.name,
+    status: "spawning",
+    creepName: spawn.spawning.name,
+    remainingTime: spawn.spawning.remainingTime
+  };
+}
+function countWorkerTasks(workers) {
+  var _a;
+  const counts = {
+    harvest: 0,
+    transfer: 0,
+    build: 0,
+    upgrade: 0,
+    none: 0
+  };
+  for (const worker of workers) {
+    const taskType = (_a = worker.memory.task) == null ? void 0 : _a.type;
+    if (isWorkerTaskType(taskType)) {
+      counts[taskType] += 1;
+    } else {
+      counts.none += 1;
+    }
+  }
+  return counts;
+}
+function isWorkerTaskType(taskType) {
+  return WORKER_TASK_TYPES.includes(taskType);
+}
+function buildCpuSummary() {
+  const gameWithOptionalCpu = Game;
+  const cpu = gameWithOptionalCpu.cpu;
+  if (!cpu) {
+    return {};
+  }
+  const summary = {};
+  if (typeof cpu.getUsed === "function") {
+    summary.used = cpu.getUsed();
+  }
+  if (typeof cpu.bucket === "number") {
+    summary.bucket = cpu.bucket;
+  }
+  return Object.keys(summary).length > 0 ? { cpu: summary } : {};
+}
+function getGameTime() {
+  return typeof Game.time === "number" ? Game.time : 0;
+}
+
 // src/economy/economyLoop.ts
 function runEconomy() {
   const creeps = Object.values(Game.creeps);
-  for (const colony of getOwnedColonies()) {
+  const colonies = getOwnedColonies();
+  const telemetryEvents = [];
+  for (const colony of colonies) {
     const roleCounts = countCreepsByRole(creeps, colony.room.name);
     const spawnRequest = planSpawn(colony, roleCounts, Game.time);
     if (spawnRequest) {
-      spawnRequest.spawn.spawnCreep(spawnRequest.body, spawnRequest.name, {
+      const result = spawnRequest.spawn.spawnCreep(spawnRequest.body, spawnRequest.name, {
         memory: spawnRequest.memory
+      });
+      telemetryEvents.push({
+        type: "spawn",
+        roomName: colony.room.name,
+        spawnName: spawnRequest.spawn.name,
+        creepName: spawnRequest.name,
+        role: spawnRequest.memory.role,
+        result
       });
     }
   }
@@ -214,6 +317,7 @@ function runEconomy() {
       runWorker(creep);
     }
   }
+  emitRuntimeSummary(colonies, creeps, telemetryEvents);
 }
 
 // src/kernel/Kernel.ts

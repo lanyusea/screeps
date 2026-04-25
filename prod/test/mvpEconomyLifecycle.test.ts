@@ -2,7 +2,11 @@ import { runEconomy } from '../src/economy/economyLoop';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../src/creeps/roleCounts';
 
 describe('MVP economy lifecycle', () => {
+  let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
+
   beforeEach(() => {
+    logSpy = jest.spyOn(console, 'log').mockImplementation();
+
     (globalThis as unknown as {
       FIND_SOURCES: number;
       FIND_CONSTRUCTION_SITES: number;
@@ -18,6 +22,10 @@ describe('MVP economy lifecycle', () => {
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { ERR_NOT_IN_RANGE: number }).ERR_NOT_IN_RANGE = -9;
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
   });
 
   it('covers spawn planning, harvest assignment, transfer transition, and transfer execution', () => {

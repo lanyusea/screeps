@@ -1,6 +1,16 @@
 import { runEconomy } from '../src/economy/economyLoop';
 
 describe('runEconomy', () => {
+  let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
+
+  beforeEach(() => {
+    logSpy = jest.spyOn(console, 'log').mockImplementation();
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
   it('spawns a worker request for an owned colony below target workers', () => {
     const room = { name: 'W1N1', energyAvailable: 300, energyCapacityAvailable: 300 } as Room;
     const spawn = {
