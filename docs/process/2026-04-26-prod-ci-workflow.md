@@ -12,7 +12,7 @@ The roadmap now requires repository changes to move through worktrees and pull r
 Added `.github/workflows/prod-ci.yml` with a narrow production verification job:
 
 1. check out the repository;
-2. set up Node.js 22.9.0;
+2. set up Node.js 20 for stable CI tooling;
 3. install `prod/` dependencies with `npm ci --no-audit --no-fund`;
 4. run `npm run typecheck`;
 5. run `npm test -- --runInBand`;
@@ -41,7 +41,7 @@ Results on this slice:
 - Typecheck: passed
 - Jest: passed, 12 suites / 59 tests
 - Build: passed
-- GitHub Actions first run: failed in `npm ci` with npm's `Exit handler never called`; workflow follow-up pinned Node to `22.9.0`, removed setup-node npm caching, and uses `npm ci --no-audit --no-fund` before rerunning CI.
+- GitHub Actions first two runs: failed in `npm ci` on the Node 22 runner path with npm's `Exit handler never called`; workflow follow-up moved the CI tooling lane to Node 20 while leaving Node 22.9+ private-server runtime validation as a separate gate.
 
 ## Follow-up
 
