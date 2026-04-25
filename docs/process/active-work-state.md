@@ -83,6 +83,8 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Canonical Discord spec updated in `docs/ops/discord-project-spec.md`.
 - 4-hour checkpoint cron created: `Screeps 4h active-task progress summary`.
 - 30-minute continuation cron created: `Screeps autonomous continuation worker`.
+- Coding boundary clarified: future production/test/build code changes under `prod/` must be implemented via OpenAI Codex CLI, while Hermes orchestrates, verifies, documents, reports, and commits.
+- Codex CLI availability verified: `/usr/local/bin/codex`, `codex-cli 0.125.0`.
 - Initial `prod/` MVP skeleton implemented and verified.
 - First `prod/` MVP economy loop base implemented, verified, reviewed, and stabilized.
 - Deterministic mock lifecycle validation added and passing.
