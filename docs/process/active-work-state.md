@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T01:57:07+08:00
+Last updated: 2026-04-26T02:16:05+08:00
 
 ## Current active objective
 
@@ -58,6 +58,20 @@ Continue Screeps research/design/autonomous implementation while preserving dura
   - `npm test`: passed, 11 suites / 32 tests
   - `npm run build`: passed
 
+### deterministic-integration-hardening
+
+- Status: implemented and verified
+- Process note: `docs/process/2026-04-26-deterministic-integration-hardening.md`
+- Codex-authored commit: `d4d1bc827a8dc7a2ffba09d03138243baebb1d75` (`test: harden deterministic economy lifecycle`)
+- Implemented:
+  - same-tick task reselection when a worker's target is missing
+  - stale/full transfer target detection so workers fall back to build/upgrade instead of wasting a tick transferring to a full sink
+  - deterministic lifecycle coverage for full transfer sink → build fallback → missing build target/no construction → upgrade fallback
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 11 suites / 33 tests
+  - `npm run build`: passed
+
 ### private-server-smoke-prep
 
 - Status: runbook prepared; execution blocked in current host environment
@@ -72,20 +86,20 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 
 ## Next active task
 
-### deterministic-integration-hardening
+### ready-for-next-direction
 
-- Status: pending next autonomous work item
-- Goal: improve local confidence while private-server runtime support is unavailable.
+- Status: idle / awaiting the next meaningful autonomous slice
+- Current recommendation: do not start private-server execution on this host until Docker/Compose or a Node 22+ disposable environment is available.
 - Candidate next outputs:
-  1. inspect current `prod/` tests and identify the smallest useful deterministic integration gap
+  1. design the next MVP behavior slice, likely worker replacement/spawn lifecycle modeling or source/container logistics planning
   2. if code/test changes are needed, invoke OpenAI Codex CLI from `/root/screeps` with PTY and require Codex to commit verified changes
-  3. prefer coverage that simulates more tick progression, memory persistence, spawn lifecycle, and upgrade/build fallback behavior without requiring Docker
+  3. keep deterministic tests bounded and local unless Docker/private-server support becomes available
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
   - `cd prod && npm run build`
 - Reporting channels in non-cron/manual context: `#task-queue`, `#dev-log`, and `#research-notes` as appropriate.
-- 4-hour summary due if started and still active after 4 hours.
+- 4-hour summary due only if a new task is started and remains active after 4 hours.
 
 ## Reporting rule
 
@@ -105,4 +119,5 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Initial `prod/` MVP skeleton implemented and verified.
 - First `prod/` MVP economy loop base implemented, verified, reviewed, and stabilized.
 - Deterministic mock lifecycle validation added and passing.
+- Deterministic integration hardening implemented by Codex and verified: stale/missing worker targets now reselect in the same tick, full transfer targets fall back to build/upgrade, and test count is now 33.
 - Private-server smoke prep runbook added; actual smoke execution awaits Docker/Compose or a Node 22+ disposable environment.
