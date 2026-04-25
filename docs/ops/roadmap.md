@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T05:23:37+08:00
+Last updated: 2026-04-25T21:30:55Z
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -172,6 +172,37 @@ Current result:
 - Remaining work: automate the smoke harness and wire scheduled runtime-summary/runtime-alert monitoring after one more live-token monitor smoke, not unblock basic room initialization.
 
 ## Active blockers and decisions
+
+### P0: repository change-control migration to worktree + PR + CI
+
+Status: active owner requirement, now part of the roadmap.
+
+Requirement:
+
+- all future code and documentation edits must happen in a git worktree, never directly in the `main` worktree;
+- each meaningful change must be pushed on a topic branch and submitted as a GitHub pull request;
+- changes should pass GitHub CI before merge;
+- direct commits to `main` are forbidden for both code and docs.
+
+Current access findings:
+
+- SSH git access is already configured for `git@github.com:lanyusea/screeps.git`; branch push via git should work.
+- GitHub CLI (`gh`) is not installed in this environment, and no GitHub API token is currently available to Hermes.
+- Without a GitHub API token or `gh` authentication, Hermes can push branches over SSH but cannot create PRs, inspect private/protected branch settings, enable auto-merge, or administer GitHub Actions settings.
+- The public GitHub API currently reports no GitHub Actions workflows for this repo, and the public branch listing reports `main` as unprotected; protection details require authenticated API access.
+
+Roadmap tasks:
+
+1. establish the canonical worktree path convention, e.g. `/root/screeps-worktrees/<topic>`;
+2. add CI configuration under `.github/workflows/` for `prod` typecheck, Jest, and build;
+3. add or update runbooks documenting the worktree/PR/CI lifecycle;
+4. configure branch protection on `main` after CI exists: require PR review/owner merge policy as desired and require the CI check to pass;
+5. use the GitHub API/CLI to create PRs, monitor CI, and merge only after green checks.
+
+Human-owned secret/action needed:
+
+- Provide a GitHub token to Hermes through a safe out-of-band/local secret path, not in Discord, if you want Hermes to create PRs, inspect branch protection, configure CI settings, enable auto-merge, and merge PRs itself.
+- Minimum practical scope for a classic PAT: `repo` for branch/PR/admin-on-repo operations, plus `workflow` for creating/updating GitHub Actions workflow files. If using a fine-grained token, grant this repository: Contents read/write, Pull requests read/write, Actions read/write, Checks/Commit statuses read, Metadata read, and Administration read/write only if Hermes should manage branch protection.
 
 ### P0: agent operating-system health and owner visibility
 
