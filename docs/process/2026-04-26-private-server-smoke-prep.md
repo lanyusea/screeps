@@ -10,11 +10,16 @@ Advance the `private-server-smoke-prep` task without changing production/test/bu
 
 - Re-read `docs/process/active-work-state.md`.
 - Confirmed the working tree was clean at start.
-- Checked local runtime availability:
+- Checked local runtime availability during the initial prep slice:
   - Node.js `v18.19.1`
   - npm `9.2.0`
-  - Docker not installed
-  - Docker Compose unavailable because Docker is not installed
+  - Docker not installed at that moment
+  - Docker Compose unavailable at that moment because Docker was not installed
+- Follow-up environment correction:
+  - Docker Engine is now available: server `29.1.3`
+  - Docker Compose v2 plugin is now available: `Docker Compose version v2.40.3`
+  - legacy `docker-compose` is also available: `1.29.2`
+  - a delegated Hermes subagent verified Docker and Compose from its isolated context
 - Re-checked upstream README facts for:
   - `screepers/screeps-launcher`
   - `screeps/screeps`
@@ -22,9 +27,9 @@ Advance the `private-server-smoke-prep` task without changing production/test/bu
 
 ## Key findings
 
-- The current worker cannot execute the Dockerized private-server smoke because `docker` is not installed.
+- The initial worker could not execute the Dockerized private-server smoke because `docker` was not installed; this blocker has since been resolved for both main and delegated-worker contexts.
 - Direct npm-based official private-server installation is not preferred in this host because the official `screeps` README currently lists Node.js 22 LTS or higher, while this host has Node 18.
-- `screepers/screeps-launcher` remains the preferred smoke-test path once Docker/Compose is available.
+- `screepers/screeps-launcher` remains the preferred smoke-test path now that Docker/Compose is available.
 - The runbook captures secret-handling rules, preflight verification, server startup, code upload/injection, room/tick validation, failure capture, and exit criteria.
 
 ## Verification
@@ -35,5 +40,5 @@ Documentation syntax/format was reviewed manually. No `prod/` files were changed
 
 Either:
 
-1. run the private-server smoke on a Docker-capable host, or
-2. continue strengthening deterministic integration tests while private-server runtime support remains unavailable.
+1. run the private-server smoke on the now Docker-capable host using local, untracked config/secrets, or
+2. continue strengthening deterministic integration/telemetry work if smoke setup blocks on credentials/config.

@@ -42,4 +42,4 @@ The first Codex run used `--full-auto` and verified the changes but could not co
 
 - Push the verified commits if network/auth permits.
 - Consider a future deterministic scenario for spawn lifecycle over actual spawning/worker replacement once the mock harness can represent `spawn.spawning` transitions more faithfully.
-- Private-server smoke execution remains blocked until Docker/Compose or a Node 22+ disposable environment is available.
+- Private-server smoke execution was blocked at the time of this slice, but a later follow-up verified Docker Engine and Docker Compose are now available in both main and delegated-worker contexts.

@@ -1,7 +1,7 @@
 # Private Server Smoke Test Runbook
 
 Date: 2026-04-26
-Status: prepared; not executed in the current environment
+Status: prepared; Docker/Compose verified, smoke execution pending local config/secrets-safe setup
 
 ## Purpose
 
@@ -13,14 +13,15 @@ The current autonomous worker environment has:
 
 - Node.js: `v18.19.1`
 - npm: `9.2.0`
-- Docker CLI: not installed (`docker: command not found`)
-- Docker Compose: not available because Docker is not installed
+- Docker Engine: available, server `29.1.3`
+- Docker Compose v2 plugin: available, `Docker Compose version v2.40.3`
+- legacy Docker Compose: available, `docker-compose version 1.29.2`
 
-The official `screeps` package README currently lists **Node.js 22 LTS or higher** as a prerequisite for direct npm/private-server installation. Because this worker is on Node 18 and has no Docker, the smoke test cannot be executed here without environment changes.
+The official `screeps` package README currently lists **Node.js 22 LTS or higher** as a prerequisite for direct npm/private-server installation. Because this worker is on Node 18, the Dockerized launcher remains preferred over mutating the system Node installation.
 
 ## Recommended path
 
-Prefer Dockerized `screepers/screeps-launcher` for this validation layer once Docker/Compose is available.
+Prefer Dockerized `screepers/screeps-launcher` for this validation layer.
 
 Reasons:
 
@@ -87,7 +88,7 @@ Expected result:
 
 ### Phase 1: server startup
 
-Once Docker is available in the execution environment:
+With Docker/Compose available in the execution environment:
 
 1. Create an untracked local smoke-test work directory.
 2. Add a local `config.yml` with secrets supplied by env/local values only.
@@ -179,13 +180,13 @@ The private-server smoke milestone is complete when:
 
 ## Current blocker
 
-This worker cannot execute the Dockerized smoke today because Docker is not installed. Direct npm install of the official private server is also not preferred on this host because the official package currently requires Node 22+, while this host has Node 18.
+The prior Docker/Compose blocker has been resolved in both the main Hermes context and a delegated subagent context. Direct npm install of the official private server is still not preferred on this host because the official package currently requires Node 22+, while this host has Node 18.
 
 Next executable options:
 
-1. Provide an environment with Docker/Compose and rerun this smoke runbook.
-2. Upgrade or isolate Node 22+ in a disposable environment for direct server testing.
-3. Continue improving deterministic integration tests while private-server runtime support is unavailable.
+1. Execute this Dockerized smoke runbook using local, untracked config/secrets.
+2. Upgrade or isolate Node 22+ in a disposable environment only if Dockerized launcher testing proves unsuitable.
+3. Continue deterministic coding work such as telemetry MVP only if smoke setup blocks on credentials/config.
 
 ## Sources checked
 

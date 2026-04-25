@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T02:37:37+08:00
+Last updated: 2026-04-26T02:48:00+08:00
 
 ## Current active objective
 
@@ -88,14 +88,17 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 
 ### private-server-smoke-prep
 
-- Status: runbook prepared; execution blocked in current host environment
+- Status: runbook prepared; Docker/Compose now verified in main and delegated-worker contexts; execution is unblocked pending smoke-test setup/secrets
 - Ops runbook: `docs/ops/private-server-smoke-test.md`
 - Process note: `docs/process/2026-04-26-private-server-smoke-prep.md`
 - Findings:
   - current host has Node.js `v18.19.1` and npm `9.2.0`
-  - Docker is not installed, so Docker Compose is unavailable
+  - Docker Engine is available: server `29.1.3`
+  - Docker Compose v2 plugin is available: `docker compose version` reports `v2.40.3`
+  - legacy `docker-compose` is also available: `1.29.2`
+  - delegated Hermes subagent context verified the same Docker/Compose availability
   - official `screeps` README currently lists Node.js 22 LTS or higher for direct private-server installation
-  - Dockerized `screepers/screeps-launcher` remains the preferred private-server smoke path once Docker/Compose is available
+  - Dockerized `screepers/screeps-launcher` remains the preferred private-server smoke path
 - Result: private-server smoke checklist, required inputs/secrets policy, startup/upload/tick-validation phases, failure capture, and exit criteria documented.
 
 ## Next active task
@@ -103,14 +106,14 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 ### telemetry-mvp
 
 - Status: recommended next autonomous coding slice after roadmap refresh reporting and worker replacement planning are complete
-- Current recommendation: do not start private-server execution on this host until Docker/Compose or a Node 22+ disposable environment is available.
+- Current recommendation: Docker/Compose is now available; private-server smoke may proceed as the next runtime-validation slice, with secrets kept out of git. Telemetry MVP remains a valid deterministic coding slice if smoke setup blocks on credentials/config.
 - Durable roadmap: `docs/ops/roadmap.md`
 - Candidate next outputs:
   1. add a bounded/non-spammy telemetry summary for meaningful events or cadence-limited ticks
-  2. include room name, energy available/capacity, worker count, spawn status, task counts, and CPU/bucket where available
-  3. keep telemetry output shape compatible with future `#runtime-summary` reports
-  4. if production/test/build code changes are needed, invoke OpenAI Codex CLI from `/root/screeps` with PTY and require Codex to commit verified changes
-  5. keep deterministic tests bounded and local unless Docker/private-server support becomes available
+  2. execute the Dockerized private-server smoke runbook with `screepers/screeps-launcher`, if required credentials/config can be supplied locally without committing secrets
+  3. include room name, energy available/capacity, worker count, spawn status, task counts, and CPU/bucket where available for telemetry work
+  4. keep telemetry output shape compatible with future `#runtime-summary` reports
+  5. if production/test/build code changes are needed, invoke OpenAI Codex CLI from `/root/screeps` with PTY and require Codex to commit verified changes
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
@@ -138,7 +141,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - First `prod/` MVP economy loop base implemented, verified, reviewed, and stabilized.
 - Deterministic mock lifecycle validation added and passing.
 - Deterministic integration hardening implemented by Codex and verified: stale/missing worker targets now reselect in the same tick, full transfer targets fall back to build/upgrade, and test count is now 33.
-- Private-server smoke prep runbook added; actual smoke execution awaits Docker/Compose or a Node 22+ disposable environment.
+- Private-server smoke prep runbook added; Docker/Compose availability was rechecked and fixed. Main and delegated-worker contexts now have Docker Engine `29.1.3`, Docker Compose v2 `v2.40.3`, and legacy `docker-compose` `1.29.2`.
 - Roadmap refreshed in `docs/ops/roadmap.md`; `docs/README.md` index updated; `docs/ops/discord-project-spec.md` now explicitly requires main-agent review and channel-appropriate reporting after every subagent completion.
 - Worker replacement planning hardening implemented by Codex and verified: replacement-age workers no longer satisfy steady-state capacity, deterministic tests now cover replacement planning, and test count is now 37.
-- Current recommended next coding slice is `telemetry-mvp`, implemented via Codex CLI with Hermes orchestration/verification/reporting.
+- Current recommended next slice is either Dockerized private-server smoke execution (runtime validation, if local secrets/config can be provided safely) or `telemetry-mvp` (Codex-authored code slice) if smoke setup blocks.

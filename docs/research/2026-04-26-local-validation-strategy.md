@@ -4,7 +4,7 @@ Date: 2026-04-26
 
 ## Context
 
-The first MVP economy-loop base now exists in `prod/`. It is still not validated in a real Screeps private server, and `hermes doctor` previously showed Docker is not installed in the current environment.
+The first MVP economy-loop base now exists in `prod`. It is still not validated in a real Screeps private server. An earlier `hermes doctor` pass showed Docker was not installed in the worker environment; a later follow-up resolved this, and Docker Engine `29.1.3` plus Docker Compose v2 `v2.40.3` are now available in both main and delegated-worker contexts.
 
 Therefore, validation is staged:
 
