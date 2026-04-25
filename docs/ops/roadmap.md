@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T04:29:43+08:00
+Last updated: 2026-04-26T04:48:10+08:00
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -13,7 +13,7 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm test -- --runInBand` — passing, 12 suites / 45 tests
   - `cd prod && npm run build` — passing
 - Latest production milestone: spawn busy retry hardening committed as `b7f002e feat: retry busy spawn attempts`
-- Latest documentation milestone: private-server version-pin research under `docs/process/2026-04-26-private-server-version-pin-research.md` and `docs/process/active-work-state.md`
+- Latest documentation milestone: pinned private-server smoke retry under `docs/process/2026-04-26-pinned-private-server-smoke-retry.md` and `docs/process/active-work-state.md`
 - Active state file: `docs/process/active-work-state.md`
 
 ## Completed milestones
@@ -143,37 +143,43 @@ Current baseline:
 
 ### 7. Private-server smoke attempt
 
-Status: attempted; Docker/Compose path starts dependencies, and a `screeps@4.2.21` launcher version pin now passes install preflight, but full private-server runtime tick validation remains pending.
+Status: partially advanced; Docker/Compose can start a pinned `screeps@4.2.21` runtime, auth registration and code upload work, but owned-room/tick bot validation remains pending because room/map initialization is not yet confirmed.
 
 Artifacts:
 
 - `docs/ops/private-server-smoke-test.md`
 - `docs/process/2026-04-26-private-server-smoke-prep.md`
 - `docs/process/2026-04-26-private-server-smoke-attempt.md`
+- `docs/process/2026-04-26-private-server-version-pin-research.md`
+- `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
 
 Current result:
 
 - Docker Engine is available on this host (`29.1.3`), and Docker Compose v2 is available (`v2.40.3`).
 - Local secret/config presence now includes `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` without printing secret values; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`.
-- The Dockerized `screepers/screeps-launcher` attempt started Mongo/Redis successfully, but the Screeps container restarted before serving a stable runtime.
-- Redacted failure: `screeps@4.3.0` requires Node.js `>=22.9.0`, while the launcher container installed Node.js `12.22.12`.
-- Follow-up finding: launcher `version: latest` generates `screeps: *`; an explicit `version: 4.2.21` install preflight passed in `screepers/screeps-launcher:latest`, and `screeps@4.2.21` declares `node >=10.13.0`.
+- The first Dockerized `screepers/screeps-launcher` attempt started Mongo/Redis successfully, but the Screeps container restarted before serving a stable runtime.
+- Redacted first failure: `screeps@4.3.0` requires Node.js `>=22.9.0`, while the launcher container installed Node.js `12.22.12`.
+- Follow-up finding: launcher `version: latest` generates `screeps: *`; explicit `version: 4.2.21` is Node 12-compatible.
+- Pinned runtime retry: adding `body-parser: 1.20.3` and `path-to-regexp: 0.1.12` to `pinnedPackages` avoided current Node 18+ transitive dependency drift; the server started and returned healthy `/api/version`.
+- Local smoke auth/code path now works: a local user could register, `prod/dist/main.js` uploaded through Basic auth, and `/api/user/code?branch=default` round-tripped the `main` module.
+- Remaining blocker: private-server room/map initialization. `/stats` reported ticking game time but `totalRooms: 0`, so owned-spawn and bot behavior were not yet validated.
 
 ## Active blockers and decisions
 
-### Blocker: private-server smoke needs compatible launcher/server runtime
+### Blocker: private-server room/map initialization
 
-Docker/Compose and required local secret presence are no longer the primary blocker. The active blocker is the private-server toolchain/runtime mismatch:
+Docker/Compose, package installation, HTTP startup, local auth, and code upload are no longer the primary blockers for the pinned launcher path. The active blocker is getting an initialized private-server world with an owned spawn so the uploaded bot can execute in-room:
 
-1. retry the Dockerized smoke runbook with explicit launcher `version: 4.2.21` and untracked local secrets/config;
-2. if the pinned runtime still fails after startup, build/select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`;
-3. record redacted runtime findings either way.
+1. resolve `screeps@4.2.21` + `screepsmod-admin-utils` room/map initialization (`system.resetAllData()`, `utils.importMap('random_1x1')`, direct DB initialization, or another documented path);
+2. place/create an owned spawn for the local smoke user;
+3. observe runtime summaries and room behavior for several hundred ticks;
+4. if room initialization remains blocked, build/select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 
-Recommendation: resolve the launcher/runtime mismatch before official MMO deployment; if tooling research takes longer, continue deterministic Jest hardening in parallel.
+Recommendation: finish the private-server room/tick validation before future release-quality official MMO deployment; if tooling research takes longer, continue deterministic Jest hardening in parallel.
 
 ### Decision: next code priority
 
-Recommended next slice: full private-server smoke retry using the verified `screeps@4.2.21` launcher version pin. If that remains blocked, continue private-server toolchain work or emergency/runtime hardening under deterministic Jest coverage.
+Recommended next slice: resolve room/map initialization in the pinned Dockerized private-server runtime and observe the already-uploaded bot in an owned room. If that remains blocked, continue private-server toolchain work or emergency/runtime hardening under deterministic Jest coverage.
 
 Reason:
 

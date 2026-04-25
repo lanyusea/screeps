@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T04:29:43+08:00
+Last updated: 2026-04-26T04:48:10+08:00
 
 ## Current active objective
 
@@ -151,10 +151,11 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 
 ### next-runtime-validation
 
-- Status: private-server smoke attempted; install-time launcher/server version-pin candidate verified; full runtime tick validation still pending
+- Status: pinned private-server smoke partially advanced; server startup/auth/code-upload passed, room/tick bot validation still pending
 - Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - Version-pin research note: `docs/process/2026-04-26-private-server-version-pin-research.md`
-- Current recommendation: private-server-first validation is still required before official MMO deployment. The current Dockerized `screepers/screeps-launcher` default `version: latest` path resolves `screeps@4.3.0`, which requires Node.js `>=22.9.0`, while the launcher container installs Node.js `12.22.12`; however, a bounded `screeps-launcher apply` preflight passed with explicit `version: 4.2.21`, whose npm engine metadata is compatible with Node.js 12.
+- Pinned runtime retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
+- Current recommendation: private-server-first validation is still required before official MMO deployment. Dockerized `screepers/screeps-launcher` with explicit `version: 4.2.21` can now install and start the private server under launcher Node `12.22.12` when transitive dependency resolutions also include `body-parser: 1.20.3` and `path-to-regexp: 0.1.12`. The current remaining blocker is private-server room/map initialization: auth registration and code upload succeeded, but `/stats` still reported `totalRooms: 0`, so no owned-room bot tick validation was possible yet.
 - Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
 - Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
 - Durable roadmap: `docs/ops/roadmap.md`
@@ -162,11 +163,12 @@ Continue Screeps research/design/autonomous implementation while preserving dura
   - `cd prod && npm run typecheck`: passed
   - `cd prod && npm test -- --runInBand`: passed, 12 suites / 45 tests
   - `cd prod && npm run build`: passed
-  - Docker Compose startup: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
+  - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
+  - Pinned Dockerized runtime retry: `screeps@4.2.21` server started and returned healthy `/api/version`; auth registration and Basic-auth code upload succeeded; `GET /api/user/code?branch=default` round-tripped a `main` module of 11591 bytes; `/stats` showed ticking game time but `totalRooms: 0`, so room/spawn/tick bot behavior remains unvalidated
 - Candidate next outputs:
-  1. retry a full Dockerized private-server smoke with explicit launcher `version: 4.2.21`, untracked local secrets/config, Mongo/Redis if needed, CLI reset, code injection/upload, and runtime tick observation
-  2. if the pinned runtime still fails after startup, build or select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`
+  1. resolve private-server room/map initialization for the pinned Dockerized runtime (`screeps@4.2.21` plus `body-parser: 1.20.3` / `path-to-regexp: 0.1.12` resolutions), then place/create an owned spawn and observe the uploaded bot for several hundred ticks
+  2. if room initialization remains blocked in the pinned runtime, build or select a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`
   3. if private-server tooling remains blocked, add additional deterministic Jest lifecycle coverage via Codex while preserving the policy that official MMO deployment waits for private-server validation or an explicitly approved alternative
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
@@ -202,4 +204,4 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Worker replacement planning hardening implemented by Codex and verified: replacement-age workers no longer satisfy steady-state capacity, deterministic tests now cover replacement planning, and test count is now 37.
 - Telemetry MVP implemented and verified: stable `#runtime-summary ` JSON console summaries now emit on spawn events or every 20 ticks, including room energy, worker count, spawn status, task counts, and CPU used/bucket.
 - Spawn busy retry hardening implemented by Codex and verified: if a planned spawn returns `ERR_BUSY`, the economy loop retries other idle colony spawns in the same tick and telemetry records each attempt; deterministic test count is now 45.
-- Private-server version-pin research completed: launcher source/config inspection confirmed `version: latest` becomes `screeps: *`; npm metadata identified `screeps@4.2.21` as Node 12-compatible; Dockerized `screeps-launcher apply` passed with `version: 4.2.21`; next runtime validation should retry full private-server smoke with that pin before falling back to a Node.js 22.9+ toolchain.
+- Private-server version-pin research completed: launcher source/config inspection confirmed `version: latest` becomes `screeps: *`; npm metadata identified `screeps@4.2.21` as Node 12-compatible; Dockerized `screeps-launcher apply` passed with `version: 4.2.21`; the follow-up pinned runtime retry started the server and uploaded code after adding `body-parser: 1.20.3` / `path-to-regexp: 0.1.12` resolutions, but room/map initialization remained unresolved (`totalRooms: 0`).
