@@ -83,6 +83,30 @@ Notes:
 - `screepsmod-mongo` requires MongoDB and Redis to be installed/running.
 - If Mongo-backed storage is used, run `system.resetAllData()` once from the launcher CLI, then restart the server.
 
+## Automated harness
+
+The pinned Dockerized flow is now packaged as a tracked local harness:
+
+```bash
+# Safe cron-friendly render/check path; does not start Docker or use secrets.
+python3 scripts/screeps-private-smoke.py self-test
+python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-smoke-harness
+
+# Full local private-server smoke after prod/dist/main.js is built and STEAM_KEY is available locally.
+python3 scripts/screeps-private-smoke.py run --work-dir /tmp/screeps-private-smoke-harness
+
+# Stop the local Docker Compose stack without deleting the work directory.
+python3 scripts/screeps-private-smoke.py down --work-dir /tmp/screeps-private-smoke-harness
+```
+
+Harness behavior:
+
+- renders `docker-compose.yml` and `config.yml` under an untracked marked work directory;
+- uses `screepers/screeps-launcher`, Mongo, Redis, `screeps@4.2.21`, Node `Erbium`, the documented transitive dependency pins, and `serverConfig.mapFile`;
+- keeps the map file in the work directory and imports it with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`;
+- uses only environment/local generated credentials for the local `smoke` user and writes a redacted JSON summary artifact to `artifacts/summary.json`;
+- refuses to use a non-empty unmarked work directory, so it does not overwrite arbitrary local data by default.
+
 ## Smoke test phases
 
 ### Phase 0: preflight

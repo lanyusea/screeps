@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T05:23:37+08:00
+Last updated: 2026-04-26T06:42:59+08:00
 
 ## Current active objective
 
@@ -171,9 +171,14 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Longer pinned runtime observation: private `gametime: 5267`, one RCL 2 owned room, three live bot-created workers, average tick time about 200 ms, and no current post-restart `Unhandled`/`TypeError`/`ReferenceError`/`Error:` hits in launcher logs
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
 - Candidate next outputs:
-  1. automate the pinned private-server smoke harness and redacted observation capture
+  1. run the full pinned private-server smoke harness (`scripts/screeps-private-smoke.py run`) in a suitable runtime window and capture the redacted summary artifact
   2. run one more live-token runtime-monitor smoke, then schedule `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` jobs
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
+- Latest automation slice:
+  - Process note: `docs/process/2026-04-26-private-server-smoke-harness.md`
+  - Added `scripts/screeps-private-smoke.py` with `self-test`, `plan`, `run`, and `down` modes for the pinned Dockerized smoke path.
+  - Updated `docs/ops/private-server-smoke-test.md` with harness usage and safety behavior.
+  - Verification: `python3 scripts/screeps-private-smoke.py self-test` passed, 8 checks; `python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-smoke-harness-check --repo-root /root/screeps-worktrees/automate-private-smoke-20260426` passed without starting Docker.
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`

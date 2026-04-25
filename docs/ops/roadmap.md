@@ -14,7 +14,7 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm run build` — passing
 - Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
-- Latest documentation milestone: longer private-server observation note in `docs/process/2026-04-26-private-server-long-observation.md`
+- Latest documentation/ops milestone: pinned private-server smoke harness added in `scripts/screeps-private-smoke.py`, with process note `docs/process/2026-04-26-private-server-smoke-harness.md`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority: continue high-throughput validation while keeping P0 agent communication/cron/Discord visibility healthy
 
@@ -231,7 +231,7 @@ Immediate operating change:
 
 Docker/Compose, package installation, HTTP startup, local auth, code upload, room/map initialization, spawn placement, and bot tick validation are no longer the primary blockers for the pinned launcher path. The active follow-up is making this repeatable and observable:
 
-1. package the pinned launcher config, map-file import, restart/resume, local user registration, code upload, spawn placement, stats polling, and redacted Mongo observation into an executable local smoke harness;
+1. run `scripts/screeps-private-smoke.py self-test` and `plan` for a fast render/redaction check, then run the full pinned smoke harness in a suitable local runtime window to capture a fresh redacted summary artifact;
 2. observe several additional windows or reruns to ensure the path is stable across fresh data resets;
 3. run one more live-token runtime-monitor smoke, then schedule `scripts/screeps-runtime-monitor.py` for hourly `#runtime-summary` images and `[SILENT]` no-alert `#runtime-alerts` checks;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
