@@ -100,4 +100,72 @@ describe('MVP economy lifecycle', () => {
 
     expect(fullWorker.transfer).toHaveBeenCalledWith(spawn, 'energy');
   });
+
+  it('falls back from stale transfer to build and then upgrade when targets dry up', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const fullSpawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const site = { id: 'site1' } as ConstructionSite;
+    const worker = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        name: 'W1N1',
+        controller,
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === 3) {
+            const structures = [fullSpawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return type === 2 ? [site] : [];
+        })
+      },
+      transfer: jest.fn().mockReturnValue(0),
+      build: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn().mockReturnValue(0)
+    } as unknown as Creep;
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 2,
+      rooms: {},
+      spawns: {},
+      creeps: { Worker1: worker },
+      getObjectById: jest.fn().mockReturnValue(fullSpawn)
+    };
+
+    runEconomy();
+
+    expect(worker.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect((worker as unknown as { transfer: jest.Mock }).transfer).not.toHaveBeenCalled();
+
+    (worker as unknown as { room: Room }).room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === 3) {
+          const structures = [fullSpawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    (Game.getObjectById as jest.Mock).mockReturnValue(null);
+
+    runEconomy();
+
+    expect(worker.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect((worker as unknown as { build: jest.Mock }).build).not.toHaveBeenCalled();
+  });
 });

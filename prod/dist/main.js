@@ -107,6 +107,12 @@ function runWorker(creep) {
   const target = Game.getObjectById(task.targetId);
   if (!target) {
     delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
+  if (shouldReplaceTarget(task, target)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
     return;
   }
   const result = executeTask(creep, task, target);
@@ -131,6 +137,9 @@ function shouldReplaceTask(creep, task) {
     return freeEnergyCapacity === 0;
   }
   return usedEnergy === 0;
+}
+function shouldReplaceTarget(task, target) {
+  return task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0;
 }
 function executeTask(creep, task, target) {
   switch (task.type) {

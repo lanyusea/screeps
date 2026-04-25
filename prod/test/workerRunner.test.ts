@@ -60,7 +60,9 @@ describe('runWorker', () => {
 
   it('clears invalid task targets', () => {
     const creep = {
-      memory: { task: { type: 'build', targetId: 'missing' as Id<ConstructionSite> } }
+      memory: { task: { type: 'build', targetId: 'missing' as Id<ConstructionSite> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: { find: jest.fn().mockReturnValue([]) }
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       getObjectById: jest.fn().mockReturnValue(null)
