@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T02:37:37+08:00
+Last updated: 2026-04-26T02:59:58+08:00
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -10,10 +10,10 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
 - Branch: `main`
 - Current verification baseline:
   - `cd prod && npm run typecheck` — passing
-  - `cd prod && npm test -- --runInBand` — passing, 11 suites / 37 tests
+  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 41 tests
   - `cd prod && npm run build` — passing
-- Latest production milestone: worker replacement planning hardening committed as `e458ddb feat: plan worker replacements before expiry`
-- Latest documentation milestone: roadmap refresh and subagent reporting rule in progress under `docs/ops/roadmap.md` and `docs/process/2026-04-26-roadmap-refresh.md`
+- Latest production milestone: telemetry MVP committed as `4ffec6b feat: add runtime telemetry summaries`
+- Latest documentation milestone: telemetry process note and active-state refresh in progress under `docs/process/2026-04-26-telemetry-mvp.md` and `docs/process/active-work-state.md`
 - Active state file: `docs/process/active-work-state.md`
 
 ## Completed milestones
@@ -143,7 +143,7 @@ Current baseline:
 
 ### 7. Private-server smoke preparation
 
-Status: runbook prepared; execution blocked in the current host environment.
+Status: runbook prepared; Docker/Compose is available, but smoke execution still needs safe local credentials/config outside git.
 
 Artifacts:
 
@@ -152,31 +152,31 @@ Artifacts:
 
 Blocker:
 
-- Current host has Node.js 18 and no Docker/Compose.
-- Current official private-server path expects Node.js 22+ for direct installation.
-- Dockerized `screepers/screeps-launcher` remains the preferred smoke-test route when Docker/Compose is available.
+- Docker Engine is available on this host (`29.1.3`), and Docker Compose v2 is available (`v2.40.3`).
+- The cron environment did not expose `STEAM_KEY`, so the Dockerized private-server smoke test could not be executed without inventing or committing secret-bearing local config.
+- Current official private-server path expects Node.js 22+ for direct installation, while this host has Node.js 18; Dockerized `screepers/screeps-launcher` remains the preferred smoke-test route.
 
 ## Active blockers and decisions
 
-### Blocker: private-server smoke cannot run on this host yet
+### Blocker: private-server smoke needs local secret/config setup
 
-Decision needed from owner if private-server validation should be unblocked soon:
+Docker/Compose is available, so the infrastructure blocker is resolved. Smoke execution is now blocked only on safe local private-server inputs:
 
-1. provide Docker/Compose on this host or another disposable host;
-2. provide a disposable Node.js 22+ environment; or
-3. explicitly defer private-server smoke and continue deterministic-only hardening.
+1. provide `STEAM_KEY` or equivalent launcher config outside git;
+2. keep private-server config/admin credentials untracked;
+3. run the Dockerized smoke runbook and record redacted findings.
 
-Recommendation: continue deterministic hardening until Docker/Compose or a disposable Node.js 22+ environment is available.
+Recommendation: execute private-server smoke as soon as credentials/config are available; otherwise continue deterministic hardening that reduces smoke-test risk.
 
 ### Decision: next code priority
 
-Recommended next code slice: spawn lifecycle / worker replacement hardening.
+Recommended next code slice if private-server smoke remains credential-blocked: emergency/runtime hardening for zero-creep or low-energy recovery.
 
 Reason:
 
-- It directly reduces the risk that the early economy collapses when workers age out or a spawn is busy.
-- It can be validated deterministically without private-server support.
-- It is a better prerequisite for live/private smoke than additional strategic features.
+- Worker replacement planning and telemetry MVP are now complete.
+- Additional recovery hardening can be validated deterministically without private-server credentials.
+- It reduces risk before the first real runtime smoke.
 
 ### Decision: MMO deployment gate
 
@@ -234,25 +234,33 @@ Follow-up candidates:
 
 ### Phase C — Early telemetry/logging MVP
 
-Status: recommended after Phase B.
+Status: completed for initial runtime summary slice.
 
 Owner: Codex CLI for `prod/` changes; Hermes for orchestration and reporting.
 
-Scope candidates:
+Completed:
 
-- Non-spammy console summary on meaningful events or a bounded cadence.
-- Include room name, energy available/capacity, worker count, spawn status, task counts, and CPU/bucket where available.
-- Keep the output shape compatible with future `#runtime-summary` reports.
+- Stable `#runtime-summary ` console prefix with JSON payload for future Discord `#runtime-summary` ingestion.
+- Cadence-limited summaries every 20 ticks when no meaningful event exists.
+- Immediate summaries for spawn attempts.
+- Bounded event payloads with `omittedEventCount` for suppressed events.
+- Room name, energy available/capacity, worker count, spawn status, task counts, and CPU used/bucket where available.
+- Codex commit: `4ffec6b feat: add runtime telemetry summaries`.
 
-Exit criteria:
+Verification:
 
-- Telemetry behavior is tested where practical.
-- Typecheck/tests/build pass.
-- Process note records the telemetry schema and intended runtime channel mapping.
+- `cd prod && npm run typecheck` — passed
+- `cd prod && npm test -- --runInBand` — passed, 12 suites / 41 tests
+- `cd prod && npm run build` — passed
+
+Follow-up candidates:
+
+- Feed `#runtime-summary` lines into Discord/runtime ingestion once a live/private runtime exists.
+- Add alert-level telemetry after private smoke reveals concrete failure modes.
 
 ### Phase D — Private-server smoke execution
 
-Status: blocked.
+Status: pending safe local credentials/config; Docker/Compose infrastructure is available.
 
 Prerequisites:
 

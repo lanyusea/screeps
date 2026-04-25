@@ -58,6 +58,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `process/2026-04-26-deterministic-integration-hardening.md`
 - `process/2026-04-26-roadmap-refresh.md`
 - `process/2026-04-26-worker-replacement-planning.md`
+- `process/2026-04-26-telemetry-mvp.md`
 - `process/active-work-state.md`
 
 ## Rules

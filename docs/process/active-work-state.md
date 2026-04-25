@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T02:48:00+08:00
+Last updated: 2026-04-26T02:59:58+08:00
 
 ## Current active objective
 
@@ -105,15 +105,29 @@ Continue Screeps research/design/autonomous implementation while preserving dura
 
 ### telemetry-mvp
 
-- Status: recommended next autonomous coding slice after roadmap refresh reporting and worker replacement planning are complete
-- Current recommendation: Docker/Compose is now available; private-server smoke may proceed as the next runtime-validation slice, with secrets kept out of git. Telemetry MVP remains a valid deterministic coding slice if smoke setup blocks on credentials/config.
+- Status: implemented and verified
+- Process note: `docs/process/2026-04-26-telemetry-mvp.md`
+- Codex-authored commit: `4ffec6be3134abafdfca888b0270bf458d61148b` (`feat: add runtime telemetry summaries`)
+- Implemented:
+  - stable `#runtime-summary ` console prefix with JSON payload
+  - cadence-limited summaries every 20 ticks when no meaningful event exists
+  - immediate spawn-attempt event summaries
+  - bounded event reporting with `omittedEventCount`
+  - room name, energy available/capacity, worker count, spawn status, task counts, and CPU used/bucket where available
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 41 tests
+  - `npm run build`: passed
+
+### next-runtime-validation
+
+- Status: recommended next autonomous slice
+- Current recommendation: Docker/Compose is available, but this cron environment did not have `STEAM_KEY`, so private-server smoke execution remains pending safe local credentials/config outside git.
 - Durable roadmap: `docs/ops/roadmap.md`
 - Candidate next outputs:
-  1. add a bounded/non-spammy telemetry summary for meaningful events or cadence-limited ticks
-  2. execute the Dockerized private-server smoke runbook with `screepers/screeps-launcher`, if required credentials/config can be supplied locally without committing secrets
-  3. include room name, energy available/capacity, worker count, spawn status, task counts, and CPU/bucket where available for telemetry work
-  4. keep telemetry output shape compatible with future `#runtime-summary` reports
-  5. if production/test/build code changes are needed, invoke OpenAI Codex CLI from `/root/screeps` with PTY and require Codex to commit verified changes
+  1. execute the Dockerized private-server smoke runbook with `screepers/screeps-launcher`, if required credentials/config can be supplied locally without committing secrets
+  2. if smoke setup still blocks on credentials/config, implement additional deterministic runtime hardening such as zero-creep/low-energy emergency recovery
+  3. if production/test/build code changes are needed, invoke OpenAI Codex CLI from `/root/screeps` with PTY and require Codex to commit verified changes
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
@@ -144,4 +158,4 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Private-server smoke prep runbook added; Docker/Compose availability was rechecked and fixed. Main and delegated-worker contexts now have Docker Engine `29.1.3`, Docker Compose v2 `v2.40.3`, and legacy `docker-compose` `1.29.2`.
 - Roadmap refreshed in `docs/ops/roadmap.md`; `docs/README.md` index updated; `docs/ops/discord-project-spec.md` now explicitly requires main-agent review and channel-appropriate reporting after every subagent completion.
 - Worker replacement planning hardening implemented by Codex and verified: replacement-age workers no longer satisfy steady-state capacity, deterministic tests now cover replacement planning, and test count is now 37.
-- Current recommended next slice is either Dockerized private-server smoke execution (runtime validation, if local secrets/config can be provided safely) or `telemetry-mvp` (Codex-authored code slice) if smoke setup blocks.
+- Telemetry MVP implemented and verified: stable `#runtime-summary ` JSON console summaries now emit on spawn events or every 20 ticks, including room energy, worker count, spawn status, task counts, and CPU used/bucket.
