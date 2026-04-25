@@ -13,8 +13,8 @@ This repository uses a pull-request-oriented workflow. Production bot changes un
   - pushes to `main` that touch `prod/**` or the workflow itself
   - manual `workflow_dispatch`
 - Runner: `ubuntu-latest`
-- Node.js: `22`
-- Dependency install: `npm ci` in `prod/`
+- Node.js: `22.9.0`
+- Dependency install: `npm ci --no-audit --no-fund` in `prod/`; the explicit patch version and no-audit/no-fund flags avoid npm/cache nondeterminism observed in the first CI run.
 
 ## Required checks
 
