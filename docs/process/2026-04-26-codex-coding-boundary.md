@@ -11,7 +11,10 @@ The user clarified that coding work must be implemented by Codex, not directly b
 For Screeps production/test/build code changes under `prod/`:
 
 - Implementation must be delegated to OpenAI Codex CLI.
-- Hermes main agent acts as orchestrator: prepares Codex prompts, verifies results, updates docs, reports to Discord, and handles Git after verification.
+- A Codex coding task is not complete until Codex has created a git commit for the verified code change.
+- Codex commits should use the configured identity `lanyusea's bot <lanyusea@gmail.com>`.
+- Hermes main agent acts as orchestrator: prepares Codex prompts, verifies results, updates docs, reports to Discord, and pushes after verification when appropriate.
+- Documentation-only changes may be authored and committed by Hermes directly.
 - Generic subagents may be used for research, planning, or code review, but must not directly author production code.
 - If Codex CLI is unavailable or blocked, the correct behavior is to report the blocker and preserve state, not to silently fall back to manual code editing.
 
