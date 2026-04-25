@@ -10,5 +10,5 @@
     "types": ["screeps", "jest"],
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts"]
 }

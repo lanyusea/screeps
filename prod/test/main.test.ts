@@ -3,7 +3,7 @@ import { loop } from '../src/main';
 describe('main loop entrypoint', () => {
   beforeEach(() => {
     (globalThis as unknown as { Memory: Memory }).Memory = {} as Memory;
-    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, rooms: {}, spawns: {}, time: 1 };
   });
 
   it('exports a callable Screeps loop', () => {

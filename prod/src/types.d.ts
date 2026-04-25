@@ -9,6 +9,13 @@ declare global {
 
   interface CreepMemory {
     role?: string;
-    task?: string;
+    colony?: string;
+    task?: CreepTaskMemory;
   }
+
+  type CreepTaskMemory =
+    | { type: 'harvest'; targetId: Id<Source> }
+    | { type: 'transfer'; targetId: Id<AnyStoreStructure> }
+    | { type: 'build'; targetId: Id<ConstructionSite> }
+    | { type: 'upgrade'; targetId: Id<StructureController> };
 }

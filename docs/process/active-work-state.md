@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T00:27:41+08:00
+Last updated: 2026-04-26T01:13:08+08:00
 
 ## Current active objective
 
@@ -44,10 +44,23 @@ Continue Screeps research/design/autonomous implementation while reporting proce
 
 ### mvp-economy-loop
 
-- Status: pending next autonomous work item
-- Goal: implement first single-room economic behavior: room detection, spawn planning, body builder, and minimal harvest/upgrade/build task flow.
+- Status: active; first bounded implementation slice verified
+- Goal: implement first single-room economic behavior: room detection, spawn planning, body builder, and minimal harvest/transfer/upgrade/build task flow.
+- Current process note: `docs/process/2026-04-26-mvp-economy-loop-continuation.md`
+- Implemented/verified so far:
+  - owned colony detection from `Game.rooms`
+  - worker body builder
+  - target worker spawn planning
+  - worker role counting by colony
+  - economy loop wiring into `Kernel.run()`
+  - worker task selection for harvest, transfer to spawn/extensions, build, and upgrade
+  - worker task execution for harvest/transfer/build/upgrade with move-on-not-in-range behavior
+- Latest verification run:
+  - `npm run typecheck` passed
+  - `npm test -- --runInBand` passed: 10 suites, 28 tests
+  - `npm run build` passed
 - Reporting channels: `#research-notes`, `#task-queue`, `#dev-log`
-- 4-hour summary due if started and still active after 4 hours.
+- 4-hour summary due if still active after 2026-04-26T05:13:08+08:00.
 
 ## Reporting rule
 
@@ -62,3 +75,4 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Phase-1 development-chain decision brief drafted.
 - Initial phase-2 architecture strategy drafted.
 - Initial `prod/` MVP skeleton implemented and verified.
+- `mvp-economy-loop` is now active; first implementation slice verified harvest/transfer/build/upgrade worker flow and spawn-planning primitives.
