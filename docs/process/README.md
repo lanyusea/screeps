@@ -16,3 +16,8 @@ Use it for notes that you may later expand into a blog post, retrospective, or p
 ## Current entries
 
 - `2026-04-25-discord-setup.md`
+- `2026-04-25-phase1-research.md`
+- `2026-04-25-git-archive-workflow.md`
+- `2026-04-25-screeps-research-process.md`
+- `2026-04-25-screeps-dev-deploy-chain.md`
+- `2026-04-25-overmind-architecture-process-note.md`

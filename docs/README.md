@@ -27,6 +27,17 @@ This directory is organized by purpose so research, decisions, operations, and b
 
 ### Research
 - `research/phase-1-research-brief.md`
+- `research/2026-04-25-screeps-world-mechanics-and-api-constraints.md`
+- `research/2026-04-25-screeps-dev-deploy-chain.md`
+- `research/2026-04-25-overmind-architecture-patterns.md`
+
+### Process
+- `process/2026-04-25-discord-setup.md`
+- `process/2026-04-25-phase1-research.md`
+- `process/2026-04-25-git-archive-workflow.md`
+- `process/2026-04-25-screeps-research-process.md`
+- `process/2026-04-25-screeps-dev-deploy-chain.md`
+- `process/2026-04-25-overmind-architecture-process-note.md`
 
 ## Rules
 
