@@ -1,4 +1,5 @@
 import { runEconomy } from '../src/economy/economyLoop';
+import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../src/creeps/roleCounts';
 
 describe('MVP economy lifecycle', () => {
   beforeEach(() => {
@@ -167,5 +168,56 @@ describe('MVP economy lifecycle', () => {
 
     expect(worker.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
     expect((worker as unknown as { build: jest.Mock }).build).not.toHaveBeenCalled();
+  });
+
+  it('plans a replacement before a colony worker expires without counting unrelated workers', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true, id: 'controller1' } as StructureController,
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      room,
+      structureType: 'spawn',
+      spawning: null,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) },
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    const makeWorker = (memory: CreepMemory, ticksToLive?: number): Creep =>
+      ({
+        memory,
+        ticksToLive,
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(50)
+        },
+        room: {
+          ...room,
+          find: jest.fn().mockReturnValue([])
+        }
+      }) as unknown as Creep;
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 10,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Healthy1: makeWorker({ role: 'worker', colony: 'W1N1' }, WORKER_REPLACEMENT_TICKS_TO_LIVE + 1),
+        Healthy2: makeWorker({ role: 'worker', colony: 'W1N1' }),
+        Expiring: makeWorker({ role: 'worker', colony: 'W1N1' }, WORKER_REPLACEMENT_TICKS_TO_LIVE),
+        Foreign: makeWorker({ role: 'worker', colony: 'W2N2' }, WORKER_REPLACEMENT_TICKS_TO_LIVE + 1),
+        Unassigned: makeWorker({ role: 'worker' }, WORKER_REPLACEMENT_TICKS_TO_LIVE + 1)
+      }
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-10', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
   });
 });

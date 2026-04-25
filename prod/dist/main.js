@@ -56,16 +56,23 @@ function getOwnedColonies() {
 }
 
 // src/creeps/roleCounts.ts
+var WORKER_REPLACEMENT_TICKS_TO_LIVE = 100;
 function countCreepsByRole(creeps, colonyName) {
   return creeps.reduce(
     (counts, creep) => {
-      if (creep.memory.colony === colonyName && creep.memory.role === "worker") {
+      if (isColonyWorker(creep, colonyName) && canSatisfyWorkerCapacity(creep)) {
         counts.worker += 1;
       }
       return counts;
     },
     { worker: 0 }
   );
+}
+function isColonyWorker(creep, colonyName) {
+  return creep.memory.colony === colonyName && creep.memory.role === "worker";
+}
+function canSatisfyWorkerCapacity(creep) {
+  return creep.ticksToLive === void 0 || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
 }
 
 // src/tasks/workerTasks.ts

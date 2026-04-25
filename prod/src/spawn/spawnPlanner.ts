@@ -1,9 +1,6 @@
 import { ColonySnapshot } from '../colony/colonyRegistry';
+import type { RoleCounts } from '../creeps/roleCounts';
 import { buildWorkerBody } from './bodyBuilder';
-
-export interface RoleCounts {
-  worker: number;
-}
 
 export interface SpawnRequest {
   spawn: StructureSpawn;
