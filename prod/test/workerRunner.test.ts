@@ -58,6 +58,110 @@ describe('runWorker', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(spawn);
   });
 
+  it('builds an existing build target and moves when not in range', () => {
+    const site = { id: 'site1' } as ConstructionSite;
+    const build = jest.fn().mockReturnValue(-9);
+    const moveTo = jest.fn();
+    const getObjectById = jest.fn().mockReturnValue(site);
+    const creep = {
+      memory: { task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      build,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('site1');
+    expect(build).toHaveBeenCalledWith(site);
+    expect(moveTo).toHaveBeenCalledWith(site);
+  });
+
+  it('upgrades an existing upgrade target and moves when not in range', () => {
+    const controller = { id: 'controller1' } as StructureController;
+    const upgradeController = jest.fn().mockReturnValue(-9);
+    const moveTo = jest.fn();
+    const getObjectById = jest.fn().mockReturnValue(controller);
+    const creep = {
+      memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      upgradeController,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('controller1');
+    expect(upgradeController).toHaveBeenCalledWith(controller);
+    expect(moveTo).toHaveBeenCalledWith(controller);
+  });
+
+  it('clears missing build targets and reassigns without building the stale target', () => {
+    const site = { id: 'site2' } as ConstructionSite;
+    const build = jest.fn();
+    const moveTo = jest.fn();
+    const creep = {
+      memory: { task: { type: 'build', targetId: 'missing' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { find: jest.fn((type) => (type === 2 ? [site] : [])) },
+      build,
+      moveTo
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(null);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('missing');
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site2' });
+    expect(build).not.toHaveBeenCalled();
+    expect(moveTo).not.toHaveBeenCalled();
+  });
+
+  it('clears missing upgrade targets and reassigns without upgrading the stale target', () => {
+    const controller = { id: 'controller2', my: true } as StructureController;
+    const upgradeController = jest.fn();
+    const moveTo = jest.fn();
+    const creep = {
+      memory: { task: { type: 'upgrade', targetId: 'missing' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller, find: jest.fn().mockReturnValue([]) },
+      upgradeController,
+      moveTo
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(null);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('missing');
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller2' });
+    expect(upgradeController).not.toHaveBeenCalled();
+    expect(moveTo).not.toHaveBeenCalled();
+  });
+
   it('clears invalid task targets', () => {
     const creep = {
       memory: { task: { type: 'build', targetId: 'missing' as Id<ConstructionSite> } },
