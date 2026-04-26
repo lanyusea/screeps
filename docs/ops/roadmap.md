@@ -14,7 +14,7 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm run build` — passing
 - Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
-- Latest documentation/ops milestone: production CI workflow/runbook merged from `origin/main`; pinned private-server smoke harness added and hardened in `scripts/screeps-private-smoke.py`, with process note `docs/process/2026-04-26-private-server-smoke-harness.md`
+- Latest documentation/ops milestone: production CI workflow/runbook exists on `main`; pinned private-server smoke harness added and hardened in `scripts/screeps-private-smoke.py`, with process note `docs/process/2026-04-26-private-server-smoke-harness.md`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority: continue high-throughput validation while keeping P0 agent communication/cron/Discord visibility healthy
 

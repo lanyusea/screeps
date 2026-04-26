@@ -198,6 +198,8 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
   - `cd prod && npm run build`: passed
   - this branch reran the same production gate after the smoke-harness review fixes
+- Follow-up:
+  - configure `main` branch protection to require the CI job before merge once the owner approves branch-protection settings
 - Reporting channels in non-cron/manual context: `#task-queue`, `#dev-log`, and `#roadmap` as appropriate; final owner decisions go to `#decisions`.
 - Subagent completion rule: after every subagent completes, main agent must review the result and report relevant task status, dev/test details, roadmap impact, research findings, or decision items to the corresponding Discord channel(s).
 - 4-hour summary due only if a new task is started and remains active after 4 hours.
