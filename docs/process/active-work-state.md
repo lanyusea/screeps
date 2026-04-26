@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T09:08:50+08:00
+Last updated: 2026-04-26T09:58:48+08:00
 
 ## Current active objective
 
@@ -166,6 +166,21 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - `npm test -- --runInBand`: passed, 12 suites / 60 tests
   - `npm run build`: passed
 
+### worker-no-target-hardening
+
+- Status: implemented and verified on `origin/main`
+- Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`
+- Codex-authored commit: `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up coverage for stale harvest worker tasks
+- Implemented:
+  - `selectWorkerTask` returns `null` without throwing when a worker has no sources
+  - `selectWorkerTask` returns `null` without throwing when an energy-carrying worker has no energy sinks, construction sites, or owned controller
+  - `runWorker` leaves no task assigned in both no-target task-selection cases
+  - `runWorker` clears stale harvest, transfer, build, and upgrade tasks without executing missing targets
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 67 tests
+  - `npm run build`: passed
+
 ### next-runtime-validation
 
 - Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation
@@ -180,7 +195,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 60 tests after transfer-result race hardening
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 68 tests after the transfer-result race hardening branch was refreshed on the latest no-target fallback coverage from `origin/main`
   - `cd prod && npm run build`: passed
   - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
@@ -189,8 +204,12 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
 - Candidate next outputs:
   1. automate the pinned private-server smoke harness and redacted observation capture
-  2. run one more live-token runtime-monitor smoke, then schedule `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` jobs
+  2. schedule the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
+- Latest deterministic hardening slice from `origin/main`: Codex commit `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up `test: cover stale harvest worker tasks` added Jest coverage for no-source/no-controller/no-target worker fallback behavior, including stale harvest targets. Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`.
+- Current PR refresh slice: transfer-result race hardening remains in this branch, including use of the Screeps global `ERR_FULL` constant and deterministic coverage proving the stale transfer task is cleared/reselected without moving toward the full target.
+- PR #7 conflict refresh note from `origin/main`: `docs/process/2026-04-26-pr7-conflict-refresh.md`; Codex merge commit `6a54b8d` brought `test/runtime-risk-hardening-20260426` up to `origin/main`, preserved latest CI/P0/runtime-monitor docs, passed prod verification with 12 suites / 67 tests, and pushed the branch. GitHub Actions `prod-ci` passed; CodeRabbit status was pending immediately after push.
+- Runtime monitor live-token smoke: `docs/process/2026-04-26-runtime-monitor-live-smoke.md`; `self-test` passed (8 tests), live summary rendered `runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass and `runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png` in the 09:32 repeat pass; live alert returned `alert: false` with no warnings at official ticks `108687` and `109202` for `shardX/E48S28`; repeat prod verification passed typecheck, 12 suites / 59 tests, and build.
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
@@ -231,6 +250,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Continuation worker delivery corrected from local-only output to Discord delivery after observing a successful run that did not appear in channels.
 - Discord visibility root-cause postmortem recorded in `docs/process/2026-04-26-discord-visibility-root-cause-postmortem.md`: scheduled Screeps continuation/checkpoint jobs should deliver to the named project channel `discord:#task-queue`; global/home notifications may use home channel `1497537021378564200`; avoid sending global notices to thread `1497579848594493560`.
 - Background terminal process completion notifications can bypass normal `send_message`/cron delivery routing and return to the invoking thread; future global/public long-running shell tasks should avoid `notify_on_complete=true` and instead poll/wait then report through the intended channel/cron delivery path.
+- P0 checkpoint on 2026-04-26T09:12:32+08:00 recorded `docs/process/2026-04-26-p0-routing-checkpoint-0912.md` and marked the older background-process routing note as superseded for scheduled-worker delivery. Current scheduled Screeps continuation/checkpoint target remains `discord:#task-queue`; home channel `1497537021378564200` is for global/home notifications, not routine scheduled project-progress delivery.
 - Coding boundary clarified: future production/test/build code changes under `prod/` must be implemented via OpenAI Codex CLI, while Hermes orchestrates, verifies, documents, reports, and pushes.
 - Commit behavior clarified: Codex must commit after each completed coding task; documentation-only changes may be committed by Hermes directly.
 - Git identity configured globally and local history rewritten to `lanyusea's bot <lanyusea@gmail.com>`; local rewrite succeeded, remote force push was blocked by platform smart approval and still needs an approved force-push path if remote history rewrite is still desired.

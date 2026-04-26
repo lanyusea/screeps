@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-25T23:44:52Z
+Last updated: 2026-04-26T01:58:48Z
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -10,10 +10,11 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
 - Branch: `main`
 - Current verification baseline:
   - `cd prod && npm run typecheck` — passing
-  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 60 tests
+  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 68 tests
   - `cd prod && npm run build` — passing
-- Latest production/test milestone: Codex commit `a95afdc test: handle full transfer result race` clears stale transfer tasks when `creep.transfer` returns `ERR_FULL`; verification now passes with 12 suites / 60 tests
+- Latest production/test milestones: Codex commits `a95afdc test: handle full transfer result race` and `83eb0d5 fix: use screeps err full constant` clear stale transfer tasks when `creep.transfer` returns the Screeps global `ERR_FULL`; latest main also includes `12a2c4a test: harden worker no-target fallbacks` plus stale-harvest follow-up coverage
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
+- Latest runtime-monitor milestone: live-token monitor smoke succeeded twice for `shardX/E48S28` at official ticks `108687` and `109202`; summary rendered PNGs and alert returned `alert: false` with no warnings
 - Latest documentation milestone: production CI workflow/runbook added on branch `chore/add-prod-ci`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority: continue high-throughput validation while keeping P0 agent communication/cron/Discord visibility healthy
@@ -123,6 +124,8 @@ Artifacts:
 - `docs/research/2026-04-26-local-validation-strategy.md`
 - `docs/process/2026-04-26-deterministic-integration-hardening.md`
 - `docs/process/2026-04-26-worker-replacement-planning.md`
+- `docs/process/2026-04-26-worker-no-target-hardening.md`
+- `docs/process/2026-04-26-transfer-result-hardening.md`
 
 Implemented validation coverage:
 
@@ -136,17 +139,20 @@ Implemented validation coverage:
 - Upgrade fallback.
 - Replacement-age worker exclusion from steady-state capacity.
 - Worker replacement planning before an expiring worker causes population collapse.
+- No-source/no-controller/no-spending-target worker fallback without retaining invalid tasks.
+- Stale harvest/transfer/build/upgrade task clearing without executing missing targets.
 
 Current baseline:
 
 - Typecheck: pass.
-- Tests: 12 suites / 60 tests pass.
+- Tests: 12 suites / 68 tests pass.
 - Build: pass.
 
 Recent additions:
 
 - Transfer execution race hardening: if `creep.transfer` returns `ERR_FULL`, the worker clears the stale transfer task and immediately reselects through the existing task priority instead of moving toward or retaining the full target.
 - Deterministic worker-runner coverage proves the full-target race falls back to build without same-tick movement toward the full sink.
+- Worker no-target fallback hardening from `origin/main`: no-source, no-spending-target, controllerless, and stale-task cases are now deterministic Jest coverage.
 
 ### 7. Private-server smoke attempt
 
@@ -174,7 +180,7 @@ Current result:
 - Room/map initialization is resolved for the pinned launcher path by pre-downloading `map-0b6758af.json`, setting `serverConfig.mapFile`, importing with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`, restarting, and resuming simulation.
 - Follow-up observation reached `/stats` `gametime: 5267`, `totalRooms: 169`, `activeRooms: 1`, `ownedRooms: 1`, and one RCL 2 owned room.
 - Mongo room-object inspection showed owned `Spawn1` and three living bot-created `WORK/CARRY/MOVE` workers named `worker-E1S1-*`; post-restart log scanning found no current unhandled/type/reference/error hits.
-- Remaining work: automate the smoke harness and wire scheduled runtime-summary/runtime-alert monitoring after one more live-token monitor smoke, not unblock basic room initialization.
+- Remaining work: automate the smoke harness and wire scheduled runtime-summary/runtime-alert monitoring using the now-repeat-smoked live-token monitor path, not unblock basic room initialization.
 
 ## Active blockers and decisions
 
@@ -193,10 +199,11 @@ Requirement:
 
 Current access findings:
 
-- SSH git access is configured for `git@github.com:lanyusea/screeps.git`; branch push via git works.
-- GitHub CLI (`gh`) is installed and authenticated for account `lanyusea` with `repo` scope as of this continuation run.
-- Hermes can create PRs and inspect PR checks/review status via `gh`; branch-protection administration should still be treated as a deliberate owner-approved operation.
-- The production CI workflow now runs on PRs; PR #9 showed the `Verify prod TypeScript, Jest, and bundle` check passing while CodeRabbit review was still pending at report time.
+- SSH git access is already configured for `git@github.com:lanyusea/screeps.git`; branch push via git should work.
+- GitHub CLI (`gh`) is installed and authenticated as `lanyusea`; PR creation and review/check inspection worked for PR #10.
+- Git operations use SSH, and the authenticated `gh` token currently reports scopes `admin:public_key`, `gist`, `read:org`, and `repo`.
+- Branch push via git works; branch `docs/runtime-monitor-live-smoke-20260426` was pushed and PR #10 was created from this environment.
+- The public branch listing previously reported `main` as unprotected; protection administration should still be verified before relying on automation to merge or manage branch protection.
 
 Roadmap tasks:
 
@@ -238,14 +245,14 @@ Docker/Compose, package installation, HTTP startup, local auth, code upload, roo
 
 1. package the pinned launcher config, map-file import, restart/resume, local user registration, code upload, spawn placement, stats polling, and redacted Mongo observation into an executable local smoke harness;
 2. observe several additional windows or reruns to ensure the path is stable across fresh data resets;
-3. run one more live-token runtime-monitor smoke, then schedule `scripts/screeps-runtime-monitor.py` for hourly `#runtime-summary` images and `[SILENT]` no-alert `#runtime-alerts` checks;
+3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded twice (`summary` PNGs rendered; `alert=false` with no warnings for `shardX/E48S28` at official ticks `108687` and `109202`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 
 Recommendation: keep private-server-first validation as the release-quality gate before future official MMO deployment, but treat the next engineering step as smoke automation/runtime monitoring rather than resolving basic room initialization.
 
 ### Decision: next code priority
 
-Recommended next slice: automate the pinned private-server smoke harness and/or schedule the verified runtime monitor after one more live-token smoke. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
+Recommended next slice: finish review/PR routing for the pinned private-server smoke harness and configure or verify the already live-smoked runtime monitor through dedicated scheduler jobs. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
 
 Reason:
 
