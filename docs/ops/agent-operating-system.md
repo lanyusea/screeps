@@ -110,6 +110,8 @@ The main agent must maintain an internal operations monitor that checks:
 
 If this monitoring detects an abnormal state, it must report to the dedicated P0 operations channel `discord:1497820688843800776` and preserve a durable process note if the issue is non-trivial.
 
+Owner decision on 2026-04-26: P0 monitoring/routing/scheduler health blocks normal development and non-P0 merges. If P0 health is known unhealthy, the main agent must repair or prove the P0 monitor and affected scheduled jobs before starting unrelated implementation slices.
+
 ## Priority model
 
 | Priority | Meaning | Examples |
