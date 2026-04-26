@@ -22,6 +22,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 
 ### Operations
 - `ops/agent-operating-system.md`
+- `ops/project-vision.md`
 - `ops/discord-project-spec.md`
 - `ops/discord-server-setup-guide.md`
 - `ops/discord-server-configuration.md`
@@ -66,6 +67,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `process/2026-04-26-typed-channel-fanout-reporters.md`
 - `process/2026-04-26-prod-ci-workflow.md`
 - `process/2026-04-26-p0-monitor-dedicated-channel.md`
+- `process/2026-04-26-project-vision-refresh.md`
 - `process/active-work-state.md`
 
 ## Rules
