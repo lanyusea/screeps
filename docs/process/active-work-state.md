@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T12:40:22+08:00
+Last updated: 2026-04-26T14:00:00+08:00
 
 ## Current active objective
 
@@ -277,3 +277,19 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Telemetry MVP implemented and verified: stable `#runtime-summary ` JSON console summaries now emit on spawn events or every 20 ticks, including room energy, worker count, spawn status, task counts, and CPU used/bucket.
 - Spawn busy retry hardening implemented by Codex and verified: if a planned spawn returns `ERR_BUSY`, the economy loop retries other idle colony spawns in the same tick and telemetry records each attempt; deterministic test count is now 45.
 - Private-server version-pin research completed: launcher source/config inspection confirmed `version: latest` becomes `screeps: *`; npm metadata identified `screeps@4.2.21` as Node 12-compatible; Dockerized `screeps-launcher apply` passed with `version: 4.2.21`; the follow-up pinned runtime retry started the server and uploaded code after adding `body-parser: 1.20.3` / `path-to-regexp: 0.1.12` resolutions, but room/map initialization remained unresolved (`totalRooms: 0`).
+
+
+## Goal-oriented six-domain PM contract
+
+Owner correction on 2026-04-26: the main agent is responsible for project management outcomes, not only process scheduling. Every active planning/reporting cycle must keep all six roadmap domains advancing concurrently through delegated subagent/Codex tasks:
+
+1. Agent OS / visibility — current estimate 88%; next delegated task: scheduler reliability/no-stall audit.
+2. Engineering governance — current estimate 75%; next delegated task: branch protection / required-check gate.
+3. Private-server validation — current estimate 85%; next delegated task: fresh live `scripts/screeps-private-smoke.py run` from a clean ignored workdir and redacted report.
+4. Runtime Monitor — current estimate 85%; next delegated task: verify scheduled summary/alert cadence and no-alert silence.
+5. Bot Capability — current estimate 80%; next delegated task: convert real private-smoke/runtime observations into deterministic Codex-owned hardening.
+6. Official MMO — current estimate 50%; next delegated task: keep the temporary official link validation subordinate to the private-server release gate and monitoring evidence.
+
+Roadmap snapshots must include each domain's next-point completion percentage. A six-hour development report job (`dfcaf65d7ea7`) sends to `discord:1497587260835758222:1497833662241181746` with exactly: past six hours completed, overall roadmap progress, and next six hours plan.
+
+If a roadmap target is achieved or the next target requires clarification, the main agent should proactively ask the owner rather than silently continuing process-only work.
