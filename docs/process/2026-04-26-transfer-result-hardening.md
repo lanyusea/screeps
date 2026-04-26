@@ -21,10 +21,11 @@ The resulting behavior keeps a full-carry worker from wasting a tick moving towa
 ## Commits
 
 - Codex-authored code commit: `a95afdc` (`test: handle full transfer result race`)
+- Codex-authored review-fix commit: `83eb0d5` (`fix: use screeps err full constant`)
 
 ## Verification
 
-Hermes re-ran the required verification after the Codex commit:
+Hermes re-ran the required verification after the Codex commits and review fix:
 
 - `cd prod && npm run typecheck`: passed
 - `cd prod && npm test -- --runInBand`: passed, 12 suites / 60 tests
@@ -32,4 +33,4 @@ Hermes re-ran the required verification after the Codex commit:
 
 ## Notes
 
-The first Codex implementation run completed and verified the code but could not commit under `--full-auto` because the worktree git metadata was outside the sandbox. A narrow Codex `--yolo` commit-only run then staged exactly `prod/src/creeps/workerRunner.ts`, `prod/test/workerRunner.test.ts`, and `prod/dist/main.js`, and created the real commit with author `lanyusea's bot <lanyusea@gmail.com>`.
+The first Codex implementation run completed and verified the code but could not commit under `--full-auto` because the worktree git metadata was outside the sandbox. A narrow Codex `--yolo` commit-only run then staged exactly `prod/src/creeps/workerRunner.ts`, `prod/test/workerRunner.test.ts`, and `prod/dist/main.js`, and created the real commit with author `lanyusea's bot <lanyusea@gmail.com>`. A later PR review recommended using the Screeps global `ERR_FULL` constant instead of a local numeric alias; Codex addressed that in `83eb0d5` and added the missing `ERR_FULL` shim to the lifecycle Jest harness.

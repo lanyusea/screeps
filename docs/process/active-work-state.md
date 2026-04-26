@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T08:46:46+08:00
+Last updated: 2026-04-26T09:08:50+08:00
 
 ## Current active objective
 
@@ -155,6 +155,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Process note: `docs/process/2026-04-26-transfer-result-hardening.md`
 - Pull request: https://github.com/lanyusea/screeps/pull/9
 - Codex-authored commit: `a95afdc` (`test: handle full transfer result race`)
+- Codex-authored review-fix commit: `83eb0d5` (`fix: use screeps err full constant`)
 - Implemented:
   - transfer task execution now treats `ERR_FULL` as a same-tick stale-target signal
   - full-carry workers clear the stale transfer task and immediately reselect through existing worker task priority
