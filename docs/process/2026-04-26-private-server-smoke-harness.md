@@ -28,7 +28,10 @@ The PR review follow-up hardened the automation path before merge:
 
 - redaction now catches common secret-key spellings and separators including `steamKey`, `steam_key`, `steam-key`, `X-Token`, `x_token`, `authorization`, `password`, and `token`;
 - generated Docker Compose output quotes the host `prod/dist` bind mount path;
+- the Docker Compose template now pins `screepers/screeps-launcher:v1.16.2` instead of the mutable `latest` tag;
+- Compose command selection verifies `docker compose version` before using the v2 plugin and falls back to legacy `docker-compose` when needed;
 - `run` fails fast if `system.resetAllData()`, `utils.importMapFile(...)`, `docker compose restart screeps`, or `system.resumeSimulation()` fails;
+- `run` also fails when register/upload/spawn API responses do not report success, or when `/stats` polling never returns a usable runtime sample;
 - after run-summary initialization, failures still write a redacted `artifacts/summary.json` with status, phase, and bounded command details;
 - `down` now propagates a non-zero exit status when Compose cleanup fails.
 
@@ -43,7 +46,7 @@ python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-sm
 
 Results after review hardening:
 
-- `self-test`: passed, 26 checks.
+- `self-test`: passed, 36 checks.
 - `plan`: passed; rendered `docker-compose.yml`, `config.yml`, and redacted summary in `/tmp/screeps-private-smoke-harness-check` without starting Docker.
 
 No `prod/` files changed in the harness hardening itself, but the PR update still reran the production TypeScript/Jest/build gate successfully:
@@ -65,6 +68,14 @@ A continuation slice rechecked PR #6 after automated review comments arrived:
   - `cd prod && npm run typecheck`: passed.
   - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests.
   - `cd prod && npm run build`: passed.
+
+## 2026-04-26 reconcile verification
+
+Codex reconciled PR #6 with current `origin/main` state after PR #7 landed, preserving the smoke harness while adding the main-branch worker no-target hardening tests and process notes.
+
+- Addressed current pre-merge feedback by adding targeted docstrings, pinning the launcher image tag, validating API success payloads, requiring at least one usable `/stats` sample, and checking the Docker Compose v2 plugin before falling back to `docker-compose`.
+- `python3 scripts/screeps-private-smoke.py self-test`: passed, 36 checks.
+- Full production verification is recorded in `docs/process/active-work-state.md` for this reconcile pass.
 
 ## Remaining follow-up
 

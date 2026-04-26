@@ -20,6 +20,19 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('selects no task when worker has no energy and no sources', () => {
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room: { find: jest.fn().mockReturnValue([]) }
+    } as unknown as Creep;
+    let task: CreepTaskMemory | null | undefined;
+
+    expect(() => {
+      task = selectWorkerTask(creep);
+    }).not.toThrow();
+    expect(task).toBeNull();
+  });
+
   it('selects transfer when worker has energy and spawn needs energy', () => {
     const spawn = {
       id: 'spawn1',
@@ -52,5 +65,18 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('selects no task when worker has energy and the room has no spending targets or controller', () => {
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: { find: jest.fn().mockReturnValue([]) }
+    } as unknown as Creep;
+    let task: CreepTaskMemory | null | undefined;
+
+    expect(() => {
+      task = selectWorkerTask(creep);
+    }).not.toThrow();
+    expect(task).toBeNull();
   });
 });

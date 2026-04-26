@@ -35,6 +35,8 @@ DEFAULT_SPAWN = "Spawn1"
 DEFAULT_USERNAME = "smoke"
 MARKER_FILE = ".screeps-private-smoke-harness"
 REDACTED = "<redacted>"
+LAUNCHER_IMAGE = "screepers/screeps-launcher:v1.16.2"
+STATS_FIELDS = ("gametime", "totalRooms", "activeRooms", "ownedRooms", "activeUsers")
 
 PINNED_PACKAGES = {
     "ssri": "8.0.1",
@@ -53,6 +55,7 @@ MAX_SUMMARY_OUTPUT_CHARS = 1200
 
 
 def normalize_secret_key(key: Any) -> str:
+    """Normalize user-controlled keys for separator-insensitive redaction."""
     if not isinstance(key, str):
         return ""
     return "".join(ch.lower() for ch in key if ch.isalnum())
@@ -62,12 +65,15 @@ SECRET_KEY_FINGERPRINTS = {normalize_secret_key(key) for key in SECRET_KEYS | {"
 
 
 def should_redact_key(key: Any) -> bool:
+    """Return true when a mapping key names a secret-bearing value."""
     normalized = normalize_secret_key(key)
     return normalized in SECRET_KEY_FINGERPRINTS or any(normalized.endswith(suffix) for suffix in SECRET_KEY_SUFFIXES)
 
 
 @dataclass
 class HarnessConfig:
+    """Resolved runtime settings for one private-server smoke invocation."""
+
     work_dir: Path
     repo_root: Path
     http_url: str
@@ -85,26 +91,32 @@ class HarnessConfig:
 
     @property
     def map_file(self) -> Path:
+        """Path where the selected private-server map file is stored."""
         return self.work_dir / "maps" / self.map_name
 
     @property
     def summary_file(self) -> Path:
+        """Path to the redacted JSON summary artifact."""
         return self.work_dir / "artifacts" / "summary.json"
 
     @property
     def compose_file(self) -> Path:
+        """Path to the generated Docker Compose file."""
         return self.work_dir / "docker-compose.yml"
 
     @property
     def launcher_config_file(self) -> Path:
+        """Path to the generated screeps-launcher config file."""
         return self.work_dir / "config.yml"
 
     @property
     def bot_bundle(self) -> Path:
+        """Path to the built Screeps bot bundle mounted into the container."""
         return self.repo_root / "prod" / "dist" / "main.js"
 
 
 def redact(value: Any) -> Any:
+    """Return a copy of nested JSON-like data with secret values redacted."""
     if isinstance(value, dict):
         return {k: (REDACTED if should_redact_key(k) else redact(v)) for k, v in value.items()}
     if isinstance(value, list):
@@ -113,6 +125,7 @@ def redact(value: Any) -> Any:
 
 
 def sha256_file(path: Path) -> str:
+    """Hash a file without loading the whole map artifact into memory."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -121,6 +134,7 @@ def sha256_file(path: Path) -> str:
 
 
 def ensure_safe_work_dir(work_dir: Path) -> None:
+    """Create or reuse only a marker-owned work directory."""
     work_dir.mkdir(parents=True, exist_ok=True)
     marker = work_dir / MARKER_FILE
     if not marker.exists() and any(work_dir.iterdir()):
@@ -131,9 +145,10 @@ def ensure_safe_work_dir(work_dir: Path) -> None:
 
 
 def render_compose(config: HarnessConfig) -> str:
+    """Render the pinned Docker Compose stack for the smoke server."""
     return f"""services:
   screeps:
-    image: screepers/screeps-launcher:latest
+    image: {LAUNCHER_IMAGE}
     restart: unless-stopped
     ports:
       - "21025:21025"
@@ -160,6 +175,7 @@ volumes:
 
 
 def render_launcher_config(config: HarnessConfig) -> str:
+    """Render the launcher config with the pinned Screeps runtime package."""
     pins = "\n".join(f"  {name}: {version}" for name, version in PINNED_PACKAGES.items())
     return f"""steamKey: ${{STEAM_KEY}}
 version: 4.2.21
@@ -178,12 +194,14 @@ serverConfig:
 
 
 def write_rendered_files(config: HarnessConfig) -> None:
+    """Write Compose and launcher files into the marker-owned work directory."""
     ensure_safe_work_dir(config.work_dir)
     config.compose_file.write_text(render_compose(config), encoding="utf-8")
     config.launcher_config_file.write_text(render_launcher_config(config), encoding="utf-8")
 
 
 def download_map(config: HarnessConfig, *, allow_network: bool) -> str:
+    """Download the selected map file unless a cached copy already exists."""
     if config.map_file.exists() and config.map_file.stat().st_size > 0:
         return "cached"
     if not allow_network:
@@ -195,16 +213,19 @@ def download_map(config: HarnessConfig, *, allow_network: bool) -> str:
 
 
 def run_command(args: list[str], *, cwd: Path, input_text: str | None = None, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    """Run an external command and capture output for the summary artifact."""
     return subprocess.run(args, cwd=cwd, input=input_text, text=True, capture_output=True, timeout=timeout, check=False)
 
 
 def text_tail(value: str, limit: int = MAX_SUMMARY_OUTPUT_CHARS) -> str:
+    """Keep only the trailing output needed for debugging summaries."""
     if len(value) <= limit:
         return value
     return value[-limit:]
 
 
 def command_summary(result: subprocess.CompletedProcess[str]) -> dict[str, Any]:
+    """Convert a completed command into a compact redaction-ready summary."""
     return {
         "returncode": result.returncode,
         "stdout_tail": text_tail(result.stdout or ""),
@@ -213,29 +234,75 @@ def command_summary(result: subprocess.CompletedProcess[str]) -> dict[str, Any]:
 
 
 def exception_summary(exc: Exception) -> dict[str, str]:
+    """Convert an exception into a compact redaction-ready summary."""
     return {"type": type(exc).__name__, "message": text_tail(str(exc), limit=600)}
 
 
 def record_failure(summary: dict[str, Any], phase: str, details: Any) -> None:
+    """Record the first failing phase in the run summary."""
     summary["status"] = "failed"
     summary["failure"] = {"phase": phase, "details": redact(details)}
 
 
 def require_success(summary: dict[str, Any], phase: str, result: subprocess.CompletedProcess[str]) -> None:
+    """Abort the run when a critical subprocess exits non-zero."""
     if result.returncode != 0:
         record_failure(summary, phase, command_summary(result))
         raise RuntimeError(f"{phase} failed with exit code {result.returncode}")
 
 
+def response_ok(value: Any) -> bool:
+    """Return true for Screeps API success markers."""
+    if value is True or value == 1:
+        return True
+    return isinstance(value, str) and value.lower() in {"1", "true", "ok"}
+
+
+def require_ok_response(summary: dict[str, Any], phase: str, response: dict[str, Any]) -> None:
+    """Abort the run when a Screeps API response does not report success."""
+    if response_ok(response.get("ok")):
+        return
+    record_failure(summary, phase, response)
+    raise RuntimeError(f"{phase} response did not report ok: 1")
+
+
+def usable_stats_sample(sample: dict[str, Any]) -> bool:
+    """Return true when a /stats sample contains runtime data."""
+    return "error" not in sample and any(sample.get(field) is not None for field in STATS_FIELDS)
+
+
+def require_usable_stats(summary: dict[str, Any], observations: list[dict[str, Any]]) -> None:
+    """Abort the run when stats polling never returns a usable sample."""
+    if any(usable_stats_sample(sample) for sample in observations):
+        return
+    record_failure(summary, "poll_stats", {"observations": observations})
+    raise RuntimeError("poll_stats did not return any usable samples")
+
+
 def docker_compose_base() -> list[str]:
+    """Return a working Compose command, preferring the Docker v2 plugin."""
     if shutil.which("docker"):
-        return ["docker", "compose"]
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "version"],
+                text=True,
+                capture_output=True,
+                timeout=20,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            result = None
+        if result is not None and result.returncode == 0:
+            return ["docker", "compose"]
     if shutil.which("docker-compose"):
         return ["docker-compose"]
+    if shutil.which("docker"):
+        raise RuntimeError("docker is available, but docker compose is unavailable and docker-compose was not found")
     raise RuntimeError("Neither docker compose nor docker-compose is available")
 
 
 def http_json(url: str, *, method: str = "GET", data: dict[str, Any] | None = None, headers: dict[str, str] | None = None, timeout: int = 20) -> dict[str, Any]:
+    """Send an HTTP request and decode the JSON response body."""
     body = None
     request_headers = {"Accept": "application/json"}
     if data is not None:
@@ -252,6 +319,7 @@ def http_json(url: str, *, method: str = "GET", data: dict[str, Any] | None = No
 
 
 def wait_for_http(config: HarnessConfig, seconds: int) -> dict[str, Any]:
+    """Poll the private server until its version endpoint responds."""
     deadline = time.time() + seconds
     last_error = "not attempted"
     while time.time() < deadline:
@@ -264,24 +332,34 @@ def wait_for_http(config: HarnessConfig, seconds: int) -> dict[str, Any]:
 
 
 def launcher_cli(config: HarnessConfig, js: str, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    """Run JavaScript inside the screeps-launcher administrative CLI."""
     return run_command(docker_compose_base() + ["exec", "-T", "screeps", "screeps-launcher", "cli"], cwd=config.work_dir, input_text=js + "\n", timeout=timeout)
 
 
 def basic_auth(config: HarnessConfig) -> str:
+    """Build a Basic auth header for the local smoke user."""
     raw = f"{config.username}:{config.password}".encode("utf-8")
     return "Basic " + base64.b64encode(raw).decode("ascii")
 
 
 def register_user(config: HarnessConfig) -> dict[str, Any]:
+    """Register the local smoke user through the private-server API."""
     payload = {"username": config.username, "email": config.username, "password": config.password}
     try:
         return http_json(f"{config.http_url}/api/register/submit", method="POST", data=payload)
     except urllib.error.HTTPError as exc:
-        # Existing user is acceptable for reruns; return redacted status.
-        return {"status": "register-http-error", "code": exc.code}
+        error: dict[str, Any] = {"ok": 0, "status": "register-http-error", "code": exc.code}
+        try:
+            body = exc.read().decode("utf-8")
+        except Exception:
+            body = ""
+        if body:
+            error["body_tail"] = text_tail(body)
+        return error
 
 
 def upload_code(config: HarnessConfig) -> dict[str, Any]:
+    """Upload the built bot bundle to the default private-server branch."""
     code = config.bot_bundle.read_text(encoding="utf-8")
     payload = {"branch": "default", "modules": {"main": code}}
     return http_json(
@@ -293,6 +371,7 @@ def upload_code(config: HarnessConfig) -> dict[str, Any]:
 
 
 def place_spawn(config: HarnessConfig) -> dict[str, Any]:
+    """Place the initial spawn for the local smoke user."""
     payload = {"room": config.room, "x": config.spawn_x, "y": config.spawn_y, "name": config.spawn_name}
     return http_json(
         f"{config.http_url}/api/game/place-spawn",
@@ -303,12 +382,13 @@ def place_spawn(config: HarnessConfig) -> dict[str, Any]:
 
 
 def poll_stats(config: HarnessConfig, seconds: int) -> list[dict[str, Any]]:
+    """Collect private-server /stats samples for the observation window."""
     observations: list[dict[str, Any]] = []
     deadline = time.time() + seconds
     while time.time() <= deadline:
         try:
             stats = http_json(f"{config.http_url}/stats")
-            observations.append({k: stats.get(k) for k in ("gametime", "totalRooms", "activeRooms", "ownedRooms", "activeUsers")})
+            observations.append({k: stats.get(k) for k in STATS_FIELDS})
         except Exception as exc:
             observations.append({"error": str(exc)[:160]})
         time.sleep(config.poll_interval_seconds)
@@ -316,12 +396,14 @@ def poll_stats(config: HarnessConfig, seconds: int) -> list[dict[str, Any]]:
 
 
 def write_summary(config: HarnessConfig, summary: dict[str, Any]) -> None:
+    """Persist a redacted JSON summary artifact."""
     redacted = redact(summary)
     config.summary_file.parent.mkdir(exist_ok=True)
     config.summary_file.write_text(json.dumps(redacted, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def plan(config: HarnessConfig) -> dict[str, Any]:
+    """Render local files and report the next run actions without Docker."""
     write_rendered_files(config)
     map_status = download_map(config, allow_network=False)
     summary = {
@@ -342,6 +424,7 @@ def plan(config: HarnessConfig) -> dict[str, Any]:
 
 
 def run_harness(config: HarnessConfig) -> dict[str, Any]:
+    """Execute the full private-server smoke path and write a summary."""
     if not config.bot_bundle.exists():
         raise SystemExit(f"Missing bot bundle: {config.bot_bundle}; run cd prod && npm run build first")
     write_rendered_files(config)
@@ -398,12 +481,16 @@ def run_harness(config: HarnessConfig) -> dict[str, Any]:
 
         summary["phase"] = "register_user"
         summary["registration"] = register_user(config)
+        require_ok_response(summary, "register_user", summary["registration"])
         summary["phase"] = "upload_code"
         summary["upload"] = upload_code(config)
+        require_ok_response(summary, "upload_code", summary["upload"])
         summary["phase"] = "place_spawn"
         summary["spawn"] = place_spawn(config)
+        require_ok_response(summary, "place_spawn", summary["spawn"])
         summary["phase"] = "poll_stats"
         summary["observations"] = poll_stats(config, config.observation_seconds)
+        require_usable_stats(summary, summary["observations"])
         summary["status"] = "passed"
         summary.pop("phase", None)
         return redact(summary)
@@ -416,6 +503,7 @@ def run_harness(config: HarnessConfig) -> dict[str, Any]:
 
 
 def down(config: HarnessConfig) -> dict[str, Any]:
+    """Stop the generated Docker Compose stack and return its exit status."""
     ensure_safe_work_dir(config.work_dir)
     result = run_command(docker_compose_base() + ["down"], cwd=config.work_dir, timeout=180)
     summary = {"mode": "down", "work_dir": str(config.work_dir), **command_summary(result)}
@@ -424,12 +512,14 @@ def down(config: HarnessConfig) -> dict[str, Any]:
 
 
 def exit_code_for_result(command: str, result: dict[str, Any]) -> int:
+    """Map command summaries to CLI process exit codes."""
     if command == "down":
         return int(result.get("returncode") or 0)
     return 0
 
 
 def self_test() -> dict[str, Any]:
+    """Run offline regression checks for rendering and failure handling."""
     import contextlib
     import io
     import tempfile
@@ -462,8 +552,9 @@ def self_test() -> dict[str, Any]:
         checks += 3
 
         compose = render_compose(cfg)
+        assert f"image: {LAUNCHER_IMAGE}" in compose
         assert f'"{repo.resolve() / "prod" / "dist"}:/bot:ro"' in compose
-        checks += 1
+        checks += 2
 
         secret_variants = {
             "steamKey": "a",
@@ -480,6 +571,42 @@ def self_test() -> dict[str, Any]:
             assert redacted["nested"][key] == REDACTED
         assert redacted["steam_key_present"] is True
         checks += len(secret_variants) + 1
+
+        summary: dict[str, Any] = {"status": "running"}
+        require_ok_response(summary, "upload_code", {"ok": 1})
+        try:
+            require_ok_response(summary, "upload_code", {"ok": 0, "error": "bad branch"})
+            raise AssertionError("require_ok_response should fail on ok: 0")
+        except RuntimeError as exc:
+            assert "upload_code" in str(exc)
+        assert summary["status"] == "failed"
+        assert summary["failure"]["phase"] == "upload_code"
+        stats_summary: dict[str, Any] = {"status": "running"}
+        require_usable_stats(stats_summary, [{"gametime": 12, "totalRooms": 1}])
+        try:
+            require_usable_stats(stats_summary, [{"error": "stats unavailable"}, {"gametime": None}])
+            raise AssertionError("require_usable_stats should fail without usable samples")
+        except RuntimeError as exc:
+            assert "poll_stats" in str(exc)
+        assert stats_summary["status"] == "failed"
+        assert stats_summary["failure"]["phase"] == "poll_stats"
+        checks += 8
+
+        original_which = shutil.which
+        original_subprocess_run = subprocess.run
+        try:
+            shutil.which = lambda name: f"/usr/bin/{name}" if name in {"docker", "docker-compose"} else None  # type: ignore[assignment]
+
+            def fake_compose_version(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+                """Simulate a Docker CLI without the compose v2 plugin."""
+                return subprocess.CompletedProcess(args, 1, "", "compose plugin missing")
+
+            subprocess.run = fake_compose_version  # type: ignore[assignment]
+            assert docker_compose_base() == ["docker-compose"]
+            checks += 1
+        finally:
+            shutil.which = original_which  # type: ignore[assignment]
+            subprocess.run = original_subprocess_run  # type: ignore[assignment]
 
         planned = plan(cfg)
         assert (cfg.work_dir / MARKER_FILE).exists()
@@ -502,16 +629,20 @@ def self_test() -> dict[str, Any]:
             calls: list[str] = []
 
             def fake_download_map(config: HarnessConfig, *, allow_network: bool) -> str:
+                """Write a local fake map so run_harness can hash it."""
                 config.map_file.write_text("{}", encoding="utf-8")
                 return "cached"
 
             def fake_docker_compose_base() -> list[str]:
+                """Return the preferred compose command for run-harness testing."""
                 return ["docker", "compose"]
 
             def fake_run_command(args: list[str], *, cwd: Path, input_text: str | None = None, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+                """Return successful command results until launcher setup fails."""
                 return subprocess.CompletedProcess(args, 0, "ok", "")
 
             def fake_launcher_cli(config: HarnessConfig, js: str, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+                """Fail the first launcher setup command for fail-fast coverage."""
                 calls.append(js)
                 return subprocess.CompletedProcess(["screeps-launcher", "cli"], 7, "", "reset failed")
 
@@ -567,6 +698,7 @@ def self_test() -> dict[str, Any]:
 
 
 def build_config(args: argparse.Namespace) -> HarnessConfig:
+    """Resolve CLI arguments and local environment into a harness config."""
     repo_root = Path(args.repo_root).expanduser().resolve()
     password = args.password or os.environ.get("SCREEPS_PRIVATE_SMOKE_PASSWORD") or secrets.token_urlsafe(24)
     return HarnessConfig(
@@ -588,6 +720,7 @@ def build_config(args: argparse.Namespace) -> HarnessConfig:
 
 
 def add_common(parser: argparse.ArgumentParser) -> None:
+    """Add shared smoke-harness CLI options to a subcommand parser."""
     parser.add_argument("--work-dir", default=str(DEFAULT_WORK_DIR))
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument("--http-url", default=DEFAULT_HTTP_URL)
@@ -604,6 +737,7 @@ def add_common(parser: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse CLI arguments, run the selected mode, and print JSON output."""
     root = argparse.ArgumentParser(description=__doc__)
     root.add_argument("--dry-run", action="store_true", help="alias for the plan subcommand")
     sub = root.add_subparsers(dest="command")
@@ -626,7 +760,6 @@ def main(argv: list[str] | None = None) -> int:
         root.error(f"unknown command: {command}")
     print(json.dumps(result, indent=2, sort_keys=True))
     return exit_code_for_result(command, result)
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

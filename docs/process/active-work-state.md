@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T08:37:54+08:00
+Last updated: 2026-04-26T10:30:04+08:00
 
 ## Current active objective
 
@@ -163,7 +163,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests after two parallel Codex hardening commits
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 67 tests after the stale-harvest worker task coverage follow-up
   - `cd prod && npm run build`: passed
   - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
@@ -172,15 +172,17 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
 - Candidate next outputs:
   1. run the full pinned private-server smoke harness (`scripts/screeps-private-smoke.py run`) in a suitable runtime window and capture the redacted summary artifact
-  2. run one more live-token runtime-monitor smoke, then schedule `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` jobs
+  2. schedule the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
 - Latest automation slice:
   - Process note: `docs/process/2026-04-26-private-server-smoke-harness.md`
   - Added `scripts/screeps-private-smoke.py` with `self-test`, `plan`, `run`, and `down` modes for the pinned Dockerized smoke path.
-  - PR review hardening now redacts secret-key variants including `steamKey`, `steam_key`, `steam-key`, `X-Token`, `x_token`, `authorization`, `password`, and `token`; quotes the generated `prod/dist` bind mount; fails fast on reset/import/restart/resume setup failures; writes a redacted failure summary after run-summary initialization; and propagates non-zero `down` failures.
+  - PR review hardening redacts secret-key variants, quotes the generated `prod/dist` bind mount, pins `screepers/screeps-launcher:v1.16.2`, verifies Docker Compose v2 before fallback to legacy `docker-compose`, fails fast on setup/API/stats failures, writes redacted failure summaries after run-summary initialization, and propagates non-zero `down` failures.
   - Updated `docs/ops/private-server-smoke-test.md` with harness usage and safety behavior.
-  - Verification: `python3 scripts/screeps-private-smoke.py self-test` passed, 26 checks; `python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-smoke-harness-check --repo-root /root/screeps-worktrees/automate-private-smoke-20260426` passed without starting Docker.
-  - 2026-04-26T08:37+08:00 continuation re-verification: resolved CodeRabbit's duplicate `docs/README.md` process-index comment on PR #6, reran `self-test`, reran `plan --work-dir /tmp/screeps-private-smoke-harness-cron-verify`, and reran the full `prod` typecheck/Jest/build gate successfully.
+  - Verification: `python3 scripts/screeps-private-smoke.py self-test` passed, 36 checks; this branch reran the full `prod` typecheck/Jest/build gate successfully after reconciling with `origin/main`.
+- Latest deterministic hardening slice: Codex commit `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up `test: cover stale harvest worker tasks` added Jest coverage for no-source/no-controller/no-target worker fallback behavior, including stale harvest targets. Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`.
+- PR #7 conflict refresh note: `docs/process/2026-04-26-pr7-conflict-refresh.md`; Codex merge commit `6a54b8d` brought `test/runtime-risk-hardening-20260426` up to `origin/main`, preserved latest CI/P0/runtime-monitor docs, passed prod verification with 12 suites / 67 tests, and pushed the branch. GitHub Actions `prod-ci` passed; CodeRabbit status was pending immediately after push.
+- Runtime monitor live-token smoke: `docs/process/2026-04-26-runtime-monitor-live-smoke.md`; `self-test` passed (8 tests), live summary rendered `runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass and `runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png` in the 09:32 repeat pass; live alert returned `alert: false` with no warnings at official ticks `108687` and `109202` for `shardX/E48S28`; repeat prod verification passed typecheck, 12 suites / 59 tests, and build.
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`: passed
   - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
@@ -219,6 +221,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Continuation worker delivery corrected from local-only output to Discord delivery after observing a successful run that did not appear in channels.
 - Discord visibility root-cause postmortem recorded in `docs/process/2026-04-26-discord-visibility-root-cause-postmortem.md`: scheduled Screeps continuation/checkpoint jobs should deliver to the named project channel `discord:#task-queue`; global/home notifications may use home channel `1497537021378564200`; avoid sending global notices to thread `1497579848594493560`.
 - Background terminal process completion notifications can bypass normal `send_message`/cron delivery routing and return to the invoking thread; future global/public long-running shell tasks should avoid `notify_on_complete=true` and instead poll/wait then report through the intended channel/cron delivery path.
+- P0 checkpoint on 2026-04-26T09:12:32+08:00 recorded `docs/process/2026-04-26-p0-routing-checkpoint-0912.md` and marked the older background-process routing note as superseded for scheduled-worker delivery. Current scheduled Screeps continuation/checkpoint target remains `discord:#task-queue`; home channel `1497537021378564200` is for global/home notifications, not routine scheduled project-progress delivery.
 - Coding boundary clarified: future production/test/build code changes under `prod/` must be implemented via OpenAI Codex CLI, while Hermes orchestrates, verifies, documents, reports, and pushes.
 - Commit behavior clarified: Codex must commit after each completed coding task; documentation-only changes may be committed by Hermes directly.
 - GitHub CLI is now confirmed installed and authenticated for account `lanyusea`; continuation workers can push worktree branches, create PRs, and inspect PR/check status through `gh`, while still observing the 15-minute PR wait/review-resolution gate before merge.

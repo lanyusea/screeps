@@ -102,10 +102,12 @@ python3 scripts/screeps-private-smoke.py down --work-dir /tmp/screeps-private-sm
 Harness behavior:
 
 - renders `docker-compose.yml` and `config.yml` under an untracked marked work directory;
-- uses `screepers/screeps-launcher`, Mongo, Redis, `screeps@4.2.21`, Node `Erbium`, the documented transitive dependency pins, and `serverConfig.mapFile`;
+- uses pinned `screepers/screeps-launcher:v1.16.2`, Mongo, Redis, `screeps@4.2.21`, Node `Erbium`, the documented transitive dependency pins, and `serverConfig.mapFile`;
 - keeps the map file in the work directory and imports it with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`;
 - uses only environment/local generated credentials for the local `smoke` user and writes a redacted JSON summary artifact to `artifacts/summary.json`;
 - fails fast on critical setup command failures (`system.resetAllData()`, map import, service restart, and `system.resumeSimulation()`) and preserves a redacted failure-phase summary after run-summary initialization;
+- fails the run when registration, code upload, or spawn placement does not return an API success payload, or when `/stats` polling never returns usable runtime data;
+- falls back to legacy `docker-compose` when the Docker CLI exists but the `docker compose` v2 plugin is unavailable;
 - returns a non-zero process status when `down` cannot stop the Compose stack successfully;
 - refuses to use a non-empty unmarked work directory, so it does not overwrite arbitrary local data by default.
 
