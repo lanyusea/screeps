@@ -117,7 +117,8 @@ Use for any repository change.
 3. Verify syntax/tests appropriate to the change.
 4. Commit with a Conventional Commit message.
 5. Push the branch and open a PR.
-6. Do not merge until project gates are satisfied: at least 15 minutes after PR creation, all review comments/discussions resolved, and CI green once configured.
+6. If the change creates or updates a PR, the task remains open until the PR is merged to `main` or explicitly closed as superseded with a PR comment. Continue resolving review comments/discussions on the same PR branch until this is true.
+7. Do not merge until project gates are satisfied: at least 15 minutes after PR creation, all review comments/discussions resolved, and CI green once configured.
 
 ## Recommended skill-to-task mapping
 

@@ -28,7 +28,7 @@ This repository builds and operates a Screeps: World bot. Use this file as the c
 
 - Do not edit or commit directly on `main`. Use a topic branch in a git worktree, normally under `~/screeps-worktrees/<topic>`.
 - Production/test/build code changes under `prod/` must be implemented through the Codex CLI coding agent when this project is being operated by Hermes. Hermes may edit docs/config directly, but Codex owns production code implementation commits.
-- A Codex coding task is not complete until the change is verified and committed.
+- A Codex coding task is not complete until the change is verified, committed, pushed, reviewed, and merged to `main` when it creates a PR. If a PR is superseded, close it with a PR comment explaining the replacement.
 - Preferred commit identity for Codex-authored coding commits: `lanyusea's bot <lanyusea@gmail.com>`.
 - Documentation-only and review-configuration changes may be authored directly by the orchestrating agent.
 - Never print or commit secrets. Screeps auth tokens, Steam keys, private-server credentials, and local selectors belong only in ignored/local env files.
