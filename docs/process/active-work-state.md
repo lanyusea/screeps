@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T07:44:52+08:00
+Last updated: 2026-04-26T08:46:46+08:00
 
 ## Current active objective
 
@@ -149,6 +149,21 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - `npm test -- --runInBand`: passed, 12 suites / 45 tests
   - `npm run build`: passed
 
+### transfer-result-race-hardening
+
+- Status: implemented and verified
+- Process note: `docs/process/2026-04-26-transfer-result-hardening.md`
+- Codex-authored commit: `a95afdc` (`test: handle full transfer result race`)
+- Implemented:
+  - transfer task execution now treats `ERR_FULL` as a same-tick stale-target signal
+  - full-carry workers clear the stale transfer task and immediately reselect through existing worker task priority
+  - deterministic Jest coverage proves a full target race falls back to build without moving toward the full sink
+  - rebuilt `prod/dist/main.js`
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 60 tests
+  - `npm run build`: passed
+
 ### next-runtime-validation
 
 - Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation
@@ -163,7 +178,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests after two parallel Codex hardening commits
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 60 tests after transfer-result race hardening
   - `cd prod && npm run build`: passed
   - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions

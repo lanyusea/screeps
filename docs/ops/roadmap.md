@@ -10,9 +10,9 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
 - Branch: `main`
 - Current verification baseline:
   - `cd prod && npm run typecheck` — passing
-  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 59 tests
+  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 60 tests
   - `cd prod && npm run build` — passing
-- Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
+- Latest production/test milestone: Codex commit `a95afdc test: handle full transfer result race` clears stale transfer tasks when `creep.transfer` returns `ERR_FULL`; verification now passes with 12 suites / 60 tests
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
 - Latest documentation milestone: production CI workflow/runbook added on branch `chore/add-prod-ci`
 - Active state file: `docs/process/active-work-state.md`
@@ -140,8 +140,13 @@ Implemented validation coverage:
 Current baseline:
 
 - Typecheck: pass.
-- Tests: 11 suites / 37 tests pass.
+- Tests: 12 suites / 60 tests pass.
 - Build: pass.
+
+Recent additions:
+
+- Transfer execution race hardening: if `creep.transfer` returns `ERR_FULL`, the worker clears the stale transfer task and immediately reselects through the existing task priority instead of moving toward or retaining the full target.
+- Deterministic worker-runner coverage proves the full-target race falls back to build without same-tick movement toward the full sink.
 
 ### 7. Private-server smoke attempt
 
