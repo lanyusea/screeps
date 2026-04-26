@@ -1,10 +1,10 @@
 # Active Work State
 
-Last updated: 2026-04-26T05:23:37+08:00
+Last updated: 2026-04-26T12:40:22+08:00
 
 ## Current active objective
 
-P0: stabilize and monitor the Screeps agent operating system before continuing normal development. The main agent must preserve owner visibility through the home channel, delegate minimal tasks to subagents/Codex, review subagent conclusions, route summaries to typed Discord channels, and keep scheduled-worker health monitored. Canonical operating contract: `docs/ops/agent-operating-system.md`.
+P0: stabilize and monitor the Screeps agent operating system before continuing normal development. The main agent must preserve owner visibility through the home channel, delegate minimal tasks to subagents/Codex, review subagent conclusions, route summaries to typed Discord channels, and keep scheduled-worker health monitored. Canonical operating contract: `docs/ops/agent-operating-system.md`. Dedicated P0 monitor output is routed to channel `1497820688843800776` via cron delivery target `discord:1497820688843800776`.
 
 ## Completed tasks
 
@@ -149,35 +149,102 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - `npm test -- --runInBand`: passed, 12 suites / 45 tests
   - `npm run build`: passed
 
+### transfer-result-race-hardening
+
+- Status: implemented, verified, PR-reviewed, and merged to `main`
+- Process note: `docs/process/2026-04-26-transfer-result-hardening.md`
+- Merge follow-up note: `docs/process/2026-04-26-pr9-merge-follow-up.md`
+- Conflict refresh note: `docs/process/2026-04-26-pr9-conflict-refresh.md`
+- Pull request: https://github.com/lanyusea/screeps/pull/9 (merged 2026-04-26T02:43:07Z as `b7e5c94`)
+- Codex-authored commit: `a95afdc` (`test: handle full transfer result race`)
+- Codex-authored review-fix commit: `83eb0d5` (`fix: use screeps err full constant`)
+- Implemented:
+  - transfer task execution now treats `ERR_FULL` as a same-tick stale-target signal
+  - full-carry workers clear the stale transfer task and immediately reselect through existing worker task priority
+  - deterministic Jest coverage proves a full target race falls back to build without moving toward the full sink
+  - rebuilt `prod/dist/main.js`
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 68 tests after merge to `main`
+  - `npm run build`: passed
+
+### worker-no-target-hardening
+
+- Status: implemented and verified on `origin/main`
+- Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`
+- Codex-authored commit: `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up coverage for stale harvest worker tasks
+- Implemented:
+  - `selectWorkerTask` returns `null` without throwing when a worker has no sources
+  - `selectWorkerTask` returns `null` without throwing when an energy-carrying worker has no energy sinks, construction sites, or owned controller
+  - `runWorker` leaves no task assigned in both no-target task-selection cases
+  - `runWorker` clears stale harvest, transfer, build, and upgrade tasks without executing missing targets
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 67 tests
+  - `npm run build`: passed
+
 ### next-runtime-validation
 
-- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation
+- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation; committed local harness now exists and awaits a fresh live run
 - Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - Version-pin research note: `docs/process/2026-04-26-private-server-version-pin-research.md`
 - Pinned runtime retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
 - Parallel throughput/smoke note: `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - Longer observation note: `docs/process/2026-04-26-private-server-long-observation.md`
+- Harness note: `docs/process/2026-04-26-private-server-smoke-harness.md`
 - Current recommendation: private-server-first validation remains the release-quality path. Dockerized `screepers/screeps-launcher` with explicit `version: 4.2.21`, launcher Node `12.22.12`, and transitive dependency resolutions (`body-parser: 1.20.3`, `path-to-regexp: 0.1.12`) can initialize rooms when the map import avoids the Node 12 global-`fetch` path by using a pre-downloaded map file plus `utils.importMapFile('/screeps/maps/map-0b6758af.json')`. A follow-up observation reached private `gametime: 5267`, `totalRooms: 169`, `ownedRooms: 1`, one RCL 2 room, and three live bot-created workers without post-restart log exceptions.
+- Harness status: PR #12 `scripts/screeps-private-smoke.py` is ready for a fresh live run; see `docs/process/2026-04-26-private-server-smoke-harness.md` for full details.
+  - Modes: offline `self-test`, secret-free `dry-run`, and live `run`.
+  - Hardening: unsafe workdir rejection before secret writes, stable password requirement for no-reset server reuse, empty no-reset password rejection, transient `/stats` retry, non-200/unusable `/stats` failure capture, room-specific spawn evidence for `already playing`, required user/room overview success probes, bounded Mongo summaries, docstrings, and expanded self-test coverage.
+  - Pins: `screepers/screeps-launcher:v1.16.2`, `mongo:8.2.7`, `redis:7.4.8`, plus the Node-12-compatible `screeps@4.2.21` dependency pins.
+  - Latest Codex commit: `d8c9197` (`fix: capture smoke harness report metadata`).
 - Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
 - Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests after two parallel Codex hardening commits
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 68 tests after refreshed PR #9 was merged with the latest no-target and stale-task fallback coverage from `origin/main`
   - `cd prod && npm run build`: passed
   - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
   - Pinned Dockerized runtime smoke: pre-downloaded `map-0b6758af.json`, imported with `utils.importMapFile`, restarted/resumed simulation, registered local smoke user, uploaded `prod/dist/main.js`, placed `Spawn1` at `E1S1` `(20,20)`, and observed `/stats` with `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, plus owned `worker-E1S1-*` creeps in Mongo
   - Longer pinned runtime observation: private `gametime: 5267`, one RCL 2 owned room, three live bot-created workers, average tick time about 200 ms, and no current post-restart `Unhandled`/`TypeError`/`ReferenceError`/`Error:` hits in launcher logs
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
+  - Private smoke harness self-test: `python3 scripts/screeps-private-smoke.py self-test` passed, 22 tests after PR #12 review fix `d8c9197`
+  - Private smoke harness dry-run: `python3 scripts/screeps-private-smoke.py dry-run` passed and wrote a redacted report without Docker, network, secrets, or a live server
+  - Current prod verification after harness addition: `npm run typecheck`, `npm test -- --runInBand` (12 suites / 68 tests), and `npm run build` all passed in `prod/`
 - Candidate next outputs:
-  1. automate the pinned private-server smoke harness and redacted observation capture
-  2. run one more live-token runtime-monitor smoke, then schedule `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` jobs
+  1. wait for PR #12 review state to refresh after `d8c9197`, then run the pinned private-server smoke harness live from a clean ignored work directory and capture the redacted report once the harness PR is accepted/merged
+  2. wire the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
+- Latest deterministic hardening slice on `main`: PR #9 transfer-result race hardening merged as `b7e5c94` on 2026-04-26T02:43:07Z after CI/CodeRabbit were green and review feedback was addressed.
+  - It includes Codex commit `a95afdc` plus review-fix commit `83eb0d5`, uses the Screeps global `ERR_FULL` constant, and verifies stale transfer tasks are cleared/reselected without moving toward a full target.
+  - Post-merge local verification passed typecheck, 12 suites / 68 tests, and build.
+  - Process notes: `docs/process/2026-04-26-transfer-result-hardening.md`, `docs/process/2026-04-26-pr9-conflict-refresh.md`, and `docs/process/2026-04-26-pr9-merge-follow-up.md`.
+- PR #7 conflict refresh note from `origin/main`: `docs/process/2026-04-26-pr7-conflict-refresh.md`; Codex merge commit `6a54b8d` brought `test/runtime-risk-hardening-20260426` up to `origin/main`, preserved latest CI/P0/runtime-monitor docs, passed prod verification with 12 suites / 67 tests, and pushed the branch. GitHub Actions `prod-ci` passed; CodeRabbit status was pending immediately after push.
+- Runtime monitor live-token smoke: `docs/process/2026-04-26-runtime-monitor-live-smoke.md`; `self-test` passed (8 tests), live summary rendered `runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass and `runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png` in the 09:32 repeat pass; live alert returned `alert: false` with no warnings at official ticks `108687` and `109202` for `shardX/E48S28`; repeat prod verification passed typecheck, 12 suites / 59 tests, and build.
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
   - `cd prod && npm run build`
+
+### worktree-pr-ci-gate
+
+- Status: CI workflow/runbook branch prepared and pushed for PR creation
+- Process note: `docs/process/2026-04-26-prod-ci-workflow.md`
+- Branch: `chore/add-prod-ci`
+- Implemented:
+  - `.github/workflows/prod-ci.yml` for PR/push/manual verification of `prod` typecheck, in-band Jest, build, and `dist/main.js` artifact existence on Node.js 20 CI tooling
+  - `docs/ops/github-actions-prod-ci.md` runbook documenting triggers, required checks, and branch-protection follow-up
+  - docs index and roadmap references for the new CI gate
+- Verification:
+  - `cd prod && npm run typecheck`: passed
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
+  - `cd prod && npm run build`: passed
+- Follow-up:
+  - create PR for `chore/add-prod-ci` after GitHub token/CLI access is available, or use the compare URL from the continuation report
+  - once merged, configure `main` branch protection to require the CI job before merge
+
 - Reporting channels in non-cron/manual context: `#task-queue`, `#dev-log`, and `#roadmap` as appropriate; final owner decisions go to `#decisions`.
 - Subagent completion rule: after every subagent completes, main agent must review the result and report relevant task status, dev/test details, roadmap impact, research findings, or decision items to the corresponding Discord channel(s).
 - 4-hour summary due only if a new task is started and remains active after 4 hours.
@@ -196,6 +263,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Continuation worker delivery corrected from local-only output to Discord delivery after observing a successful run that did not appear in channels.
 - Discord visibility root-cause postmortem recorded in `docs/process/2026-04-26-discord-visibility-root-cause-postmortem.md`: scheduled Screeps continuation/checkpoint jobs should deliver to the named project channel `discord:#task-queue`; global/home notifications may use home channel `1497537021378564200`; avoid sending global notices to thread `1497579848594493560`.
 - Background terminal process completion notifications can bypass normal `send_message`/cron delivery routing and return to the invoking thread; future global/public long-running shell tasks should avoid `notify_on_complete=true` and instead poll/wait then report through the intended channel/cron delivery path.
+- P0 checkpoint on 2026-04-26T09:12:32+08:00 recorded `docs/process/2026-04-26-p0-routing-checkpoint-0912.md` and marked the older background-process routing note as superseded for scheduled-worker delivery. Current scheduled Screeps continuation/checkpoint target remains `discord:#task-queue`; home channel `1497537021378564200` is for global/home notifications, not routine scheduled project-progress delivery.
 - Coding boundary clarified: future production/test/build code changes under `prod/` must be implemented via OpenAI Codex CLI, while Hermes orchestrates, verifies, documents, reports, and pushes.
 - Commit behavior clarified: Codex must commit after each completed coding task; documentation-only changes may be committed by Hermes directly.
 - Git identity configured globally and local history rewritten to `lanyusea's bot <lanyusea@gmail.com>`; local rewrite succeeded, remote force push was blocked by platform smart approval and still needs an approved force-push path if remote history rewrite is still desired.

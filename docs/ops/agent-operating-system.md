@@ -78,7 +78,7 @@ The main agent must maintain an internal operations monitor that checks:
 - git working tree is not unsafe for autonomous workers;
 - obvious routing contradictions have not reappeared.
 
-If this monitoring detects an abnormal state, it must report to the home channel and preserve a durable process note if the issue is non-trivial.
+If this monitoring detects an abnormal state, it must report to the dedicated P0 operations channel `discord:1497820688843800776` and preserve a durable process note if the issue is non-trivial.
 
 ## Priority model
 
@@ -103,7 +103,7 @@ For every meaningful task:
 6. Review and verify before accepting.
 7. Update durable docs if the result changes state.
 8. Fan out summaries to the corresponding Discord channels.
-9. Commit/push meaningful docs-only成果 as Hermes; Codex commits production/test/build work.
+9. Commit/push meaningful docs-only changes as Hermes; Codex commits production/test/build work.
 10. Resume/trigger scheduled continuation only after state is durable and safe.
 
 ## Scheduled worker roles
@@ -126,17 +126,25 @@ Delivery: `discord:#task-queue`.
 
 Purpose: monitor the health of the agent operating system itself.
 
-Delivery: Discord home channel (`discord`).
+Delivery: dedicated P0 operations channel `discord:1497820688843800776`.
 
 Behavior:
 
 - run frequently enough to catch broken automation quickly;
 - monitor continuation, checkpoint, runtime, and typed-channel reporter jobs;
-- report abnormal states to home;
+- report abnormal states to the dedicated P0 operations channel;
 - remain concise when healthy;
 - never perform implementation work;
 - never modify production code;
-- if it changes docs, commit/push docs-only成果 as Hermes.
+- if it changes docs, commit/push docs-only changes as Hermes.
+
+### P0 dedicated monitor channel
+
+- Status: live route updated on 2026-04-26.
+- Channel ID: `1497820688843800776`.
+- Cron job: `Screeps P0 agent operations monitor` (`75cedbb77150`).
+- Delivery target: `discord:1497820688843800776`.
+- Purpose: keep P0 health output separate from owner-task/home-channel conversation while still escalating to home if owner action is urgently required.
 
 ### Typed-channel fanout reporters
 
@@ -150,8 +158,8 @@ Configured reporters:
 
 Behavior:
 
-- read recent continuation output, active-state docs, process/research docs, and git log;
-- compare against per-channel state under `/root/.hermes/screeps-reporters/`;
+- read recent continuation output, active-state docs, roadmap, process/research docs, and git log/status;
+- compare against per-channel state under `~/.hermes/screeps-reporters/`;
 - report only new channel-relevant changes;
 - return exactly `[SILENT]` when there is nothing new;
 - never implement code or create/modify cron jobs.
@@ -163,7 +171,7 @@ These reporters are not authoritative decision-makers. They are narrow visibilit
 | Event | Primary target | Secondary/detail target | Owner interrupt? |
 | --- | --- | --- | --- |
 | New owner task | home channel | `#task-queue` when accepted | yes, if clarification/blocker needed |
-| P0 health anomaly | home channel | `#task-queue` / `#dev-log` as applicable | yes |
+| P0 health anomaly | `discord:1497820688843800776` | home only if owner action is urgently required | yes |
 | Subagent research result | main agent review first | `#research-notes` | no, unless decision needed |
 | Subagent development result | main agent review first | `#dev-log` | no, unless blocker/decision needed |
 | Decision needed/finalized | `#decisions` | home if owner action needed | yes |

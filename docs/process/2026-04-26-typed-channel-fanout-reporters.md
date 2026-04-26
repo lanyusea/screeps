@@ -38,7 +38,7 @@ Added three narrow reporter jobs:
   - deliver: `discord:#research-notes`
   - source: recent research/process docs and latest continuation output
 
-Each reporter keeps local state under `/root/.hermes/screeps-reporters/` and returns exactly `[SILENT]` when there is nothing new.
+Each reporter keeps local state under `~/.hermes/screeps-reporters/` and returns exactly `[SILENT]` when there is nothing new.
 
 ## Important boundary
 
@@ -64,4 +64,4 @@ Before the reporters' first scheduled run, the main agent manually posted a P0 s
 
 ## Follow-up
 
-The P0 operations monitor prompt was expanded so it also checks these reporter jobs. If any reporter becomes disabled, misrouted, failed, or stale after its first scheduled run, the monitor should report a P0 anomaly to the home channel.
+The P0 operations monitor prompt was expanded so it also checks these reporter jobs. If any reporter becomes disabled, misrouted, failed, or stale after its first scheduled run, the monitor should report a P0 anomaly to the dedicated P0 operations channel `discord:1497820688843800776`, escalating to home only when urgent owner action is required.

@@ -25,6 +25,7 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `ops/discord-project-spec.md`
 - `ops/discord-server-setup-guide.md`
 - `ops/discord-server-configuration.md`
+- `ops/github-actions-prod-ci.md`
 - `ops/mvp-skeleton-implementation-plan.md`
 - `ops/private-server-smoke-test.md`
 - `ops/roadmap.md`
@@ -63,6 +64,8 @@ This directory is organized by purpose so research, decisions, operations, and b
 - `process/2026-04-26-agent-operations-restructure.md`
 - `process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - `process/2026-04-26-typed-channel-fanout-reporters.md`
+- `process/2026-04-26-prod-ci-workflow.md`
+- `process/2026-04-26-p0-monitor-dedicated-channel.md`
 - `process/active-work-state.md`
 
 ## Rules

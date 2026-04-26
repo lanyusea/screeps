@@ -2,7 +2,8 @@ import { runWorker } from '../src/creeps/workerRunner';
 
 describe('runWorker', () => {
   beforeEach(() => {
-    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).ERR_NOT_IN_RANGE = -9;
+    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).ERR_NOT_IN_RANGE = -9;
+    (globalThis as unknown as { ERR_FULL: number }).ERR_FULL = -8;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
@@ -22,6 +23,28 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('leaves worker untasked when it has no energy and no sources', () => {
+    const creep = {
+      memory: {},
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room: { find: jest.fn().mockReturnValue([]) }
+    } as unknown as Creep;
+
+    expect(() => runWorker(creep)).not.toThrow();
+    expect(creep.memory.task).toBeUndefined();
+  });
+
+  it('leaves worker untasked when it has energy and no spending targets or controller', () => {
+    const creep = {
+      memory: {},
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: { find: jest.fn().mockReturnValue([]) }
+    } as unknown as Creep;
+
+    expect(() => runWorker(creep)).not.toThrow();
+    expect(creep.memory.task).toBeUndefined();
   });
 
   it('moves toward harvest target when not in range', () => {
@@ -177,6 +200,42 @@ describe('runWorker', () => {
     expect(creep.memory.task).toBeUndefined();
   });
 
+  it.each([
+    { type: 'harvest', targetId: 'missing-source' as Id<Source> },
+    { type: 'transfer', targetId: 'missing-transfer' as Id<AnyStoreStructure> },
+    { type: 'build', targetId: 'missing-site' as Id<ConstructionSite> },
+    { type: 'upgrade', targetId: 'missing-controller' as Id<StructureController> }
+  ] satisfies CreepTaskMemory[])(
+    'clears stale $type task in a controllerless room without executing it',
+    (task) => {
+      const creep = {
+        memory: { task },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(task.type === 'harvest' ? 0 : 50),
+          getFreeCapacity: jest.fn().mockReturnValue(50)
+        },
+        room: { find: jest.fn().mockReturnValue([]) },
+        harvest: jest.fn(),
+        build: jest.fn(),
+        transfer: jest.fn(),
+        upgradeController: jest.fn(),
+        moveTo: jest.fn()
+      } as unknown as Creep;
+      const getObjectById = jest.fn().mockReturnValue(null);
+      (globalThis as unknown as { Game: Partial<Game> }).Game = { getObjectById };
+
+      expect(() => runWorker(creep)).not.toThrow();
+
+      expect(getObjectById).toHaveBeenCalledWith(task.targetId);
+      expect(creep.memory.task).toBeUndefined();
+      expect(creep.harvest).not.toHaveBeenCalled();
+      expect(creep.build).not.toHaveBeenCalled();
+      expect(creep.transfer).not.toHaveBeenCalled();
+      expect(creep.upgradeController).not.toHaveBeenCalled();
+      expect(creep.moveTo).not.toHaveBeenCalled();
+    }
+  );
+
   it('switches from harvest when creep is full', () => {
     const spawn = {
       id: 'spawn1',
@@ -232,5 +291,44 @@ describe('runWorker', () => {
 
     expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
     expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('reselects a worker task without moving when transfer returns ERR_FULL', () => {
+    const site = { id: 'site1' } as ConstructionSite;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValueOnce(1).mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const creep = {
+      memory: { task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === 3) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return type === 2 ? [site] : [];
+        })
+      },
+      transfer: jest.fn().mockReturnValue(ERR_FULL),
+      moveTo: jest.fn(),
+      build: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(spawn)
+    };
+
+    runWorker(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.build).not.toHaveBeenCalled();
   });
 });

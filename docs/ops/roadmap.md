@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-25T21:30:55Z
+Last updated: 2026-04-26T03:01:39Z
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -10,11 +10,12 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
 - Branch: `main`
 - Current verification baseline:
   - `cd prod && npm run typecheck` — passing
-  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 59 tests
+  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 68 tests
   - `cd prod && npm run build` — passing
-- Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
-- Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
-- Latest documentation milestone: longer private-server observation note in `docs/process/2026-04-26-private-server-long-observation.md`
+- Latest production/test milestones: Codex commit `12a2c4a test: harden worker no-target fallbacks` plus review follow-up `test: cover stale harvest worker tasks` added deterministic no-source/no-controller/no-target worker fallback coverage, including stale harvest targets; refreshed PR #9 commits `a95afdc test: handle full transfer result race` and `83eb0d5 fix: use screeps err full constant` clear stale transfer tasks when `creep.transfer` returns the Screeps global `ERR_FULL`
+- Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room; a committed, review-hardened harness now automates that pinned path for fresh local reruns and passes 19 offline self-tests
+- Latest runtime-monitor milestone: live-token monitor smoke succeeded twice for `shardX/E48S28` at official ticks `108687` and `109202`; summary rendered PNGs and alert returned `alert: false` with no warnings
+- Latest documentation milestone: PR #9 merge follow-up recorded on branch `docs/pr9-merge-record-20260426`; production CI workflow/runbook added earlier on branch `chore/add-prod-ci`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority: continue high-throughput validation while keeping P0 agent communication/cron/Discord visibility healthy
 
@@ -123,6 +124,8 @@ Artifacts:
 - `docs/research/2026-04-26-local-validation-strategy.md`
 - `docs/process/2026-04-26-deterministic-integration-hardening.md`
 - `docs/process/2026-04-26-worker-replacement-planning.md`
+- `docs/process/2026-04-26-worker-no-target-hardening.md`
+- `docs/process/2026-04-26-transfer-result-hardening.md`
 
 Implemented validation coverage:
 
@@ -136,26 +139,36 @@ Implemented validation coverage:
 - Upgrade fallback.
 - Replacement-age worker exclusion from steady-state capacity.
 - Worker replacement planning before an expiring worker causes population collapse.
+- No-source/no-controller/no-spending-target worker fallback without retaining invalid tasks.
+- Stale harvest/transfer/build/upgrade task clearing without executing missing targets.
 
 Current baseline:
 
 - Typecheck: pass.
-- Tests: 11 suites / 37 tests pass.
+- Tests: 12 suites / 68 tests pass.
 - Build: pass.
 
-### 7. Private-server smoke attempt
+Recent additions:
 
-Status: pinned Dockerized path passed room/map initialization and bot tick validation; longer observation/automation remains useful before treating it as a reusable release gate.
+- Transfer execution race hardening: if `creep.transfer` returns `ERR_FULL`, the worker clears the stale transfer task and immediately reselects through the existing task priority instead of moving toward or retaining the full target.
+- Deterministic worker-runner coverage proves the full-target race falls back to build without same-tick movement toward the full sink.
+- Worker no-target fallback hardening from `origin/main`: no-source, no-spending-target, controllerless, and stale-task cases are now deterministic Jest coverage.
+
+### 7. Private-server smoke attempt and harness
+
+Status: pinned Dockerized path passed room/map initialization and bot tick validation; committed harness exists, and the next validation step is a fresh live harness run before treating it as a reusable release gate.
 
 Artifacts:
 
 - `docs/ops/private-server-smoke-test.md`
+- `scripts/screeps-private-smoke.py`
 - `docs/process/2026-04-26-private-server-smoke-prep.md`
 - `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - `docs/process/2026-04-26-private-server-version-pin-research.md`
 - `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
 - `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - `docs/process/2026-04-26-private-server-long-observation.md`
+- `docs/process/2026-04-26-private-server-smoke-harness.md`
 
 Current result:
 
@@ -169,7 +182,8 @@ Current result:
 - Room/map initialization is resolved for the pinned launcher path by pre-downloading `map-0b6758af.json`, setting `serverConfig.mapFile`, importing with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`, restarting, and resuming simulation.
 - Follow-up observation reached `/stats` `gametime: 5267`, `totalRooms: 169`, `activeRooms: 1`, `ownedRooms: 1`, and one RCL 2 owned room.
 - Mongo room-object inspection showed owned `Spawn1` and three living bot-created `WORK/CARRY/MOVE` workers named `worker-E1S1-*`; post-restart log scanning found no current unhandled/type/reference/error hits.
-- Remaining work: automate the smoke harness and wire scheduled runtime-summary/runtime-alert monitoring after one more live-token monitor smoke, not unblock basic room initialization.
+- Harness status: PR #12 `scripts/screeps-private-smoke.py` now supports offline `self-test`, `dry-run`, and live `run`. It writes a secret-free launcher config, keeps the actual Steam key and local auth password out of committed files and reports, rejects unsafe repo-local workdirs before writing secrets, retries transient `/stats` failures, requires room-specific Mongo spawn evidence for the `already playing` placement path, pins Docker image tags (`screepers/screeps-launcher:v1.16.2`, `mongo:8.2.7`, `redis:7.4.8`), signs in with the configured smoke email, uploads `prod/dist/main.js` without printing code contents, and writes a redacted JSON observation report.
+- Remaining work: run the harness live from a clean ignored work directory, then wire scheduled runtime-summary/runtime-alert monitoring using the now-repeat-smoked live-token monitor path. Basic room initialization is no longer the blocker.
 
 ## Active blockers and decisions
 
@@ -189,15 +203,16 @@ Requirement:
 Current access findings:
 
 - SSH git access is already configured for `git@github.com:lanyusea/screeps.git`; branch push via git should work.
-- GitHub CLI (`gh`) is not installed in this environment, and no GitHub API token is currently available to Hermes.
-- Without a GitHub API token or `gh` authentication, Hermes can push branches over SSH but cannot create PRs, inspect private/protected branch settings, enable auto-merge, or administer GitHub Actions settings.
-- The public GitHub API currently reports no GitHub Actions workflows for this repo, and the public branch listing reports `main` as unprotected; protection details require authenticated API access.
+- GitHub CLI (`gh`) is installed and authenticated as `lanyusea`; PR creation and review/check inspection worked for PR #10.
+- Git operations use SSH, and the authenticated `gh` token currently reports scopes `admin:public_key`, `gist`, `read:org`, and `repo`.
+- Branch push via git works; branch `docs/runtime-monitor-live-smoke-20260426` was pushed and PR #10 was created from this environment.
+- The public branch listing previously reported `main` as unprotected; protection administration should still be verified before relying on automation to merge or manage branch protection.
 
 Roadmap tasks:
 
 1. establish the canonical worktree path convention, e.g. `/root/screeps-worktrees/<topic>`;
-2. add CI configuration under `.github/workflows/` for `prod` typecheck, Jest, and build;
-3. add or update runbooks documenting the worktree/PR/CI lifecycle;
+2. add CI configuration under `.github/workflows/` for `prod` typecheck, Jest, and build — branch `chore/add-prod-ci` adds `.github/workflows/prod-ci.yml`;
+3. add or update runbooks documenting the worktree/PR/CI lifecycle — branch `chore/add-prod-ci` adds `docs/ops/github-actions-prod-ci.md`;
 4. configure branch protection on `main` after CI exists: require PR review/owner merge policy as desired and require the CI check to pass;
 5. use the GitHub API/CLI to create PRs, inspect PR review comments/discussions, wait at least 15 minutes after PR creation, monitor CI once available, and merge only after the configured gates are satisfied.
 
@@ -223,6 +238,7 @@ Requirement:
 Immediate operating change:
 
 - dedicated P0 agent operations monitor checks cron/job/routing/git/active-state health;
+- P0 monitor output now goes to dedicated channel `1497820688843800776` (`discord:1497820688843800776`) instead of the general home conversation; escalate to home only for urgent owner action;
 - live monitoring cadence: continuation every 5 minutes during P0/active-development periods, operations monitor every 15 minutes, 4-hour checkpoint every 240 minutes;
 - continuation/checkpoint workers remain subordinate to main-agent review and channel fanout;
 - if P0 health is abnormal, pause or defer new implementation work until corrected.
@@ -231,16 +247,16 @@ Immediate operating change:
 
 Docker/Compose, package installation, HTTP startup, local auth, code upload, room/map initialization, spawn placement, and bot tick validation are no longer the primary blockers for the pinned launcher path. The active follow-up is making this repeatable and observable:
 
-1. package the pinned launcher config, map-file import, restart/resume, local user registration, code upload, spawn placement, stats polling, and redacted Mongo observation into an executable local smoke harness;
-2. observe several additional windows or reruns to ensure the path is stable across fresh data resets;
-3. run one more live-token runtime-monitor smoke, then schedule `scripts/screeps-runtime-monitor.py` for hourly `#runtime-summary` images and `[SILENT]` no-alert `#runtime-alerts` checks;
+1. wait for PR #12 review state to refresh after latest harness hardening commit `d8c9197`, then merge through the PR gate and run the new pinned launcher harness live from a clean ignored work directory, archiving the redacted report in a process note;
+2. observe several additional windows or reruns to ensure the harness path is stable across fresh data resets;
+3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded twice (`summary` PNGs rendered; `alert=false` with no warnings for `shardX/E48S28` at official ticks `108687` and `109202`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 
 Recommendation: keep private-server-first validation as the release-quality gate before future official MMO deployment, but treat the next engineering step as smoke automation/runtime monitoring rather than resolving basic room initialization.
 
 ### Decision: next code priority
 
-Recommended next slice: automate the pinned private-server smoke harness and/or schedule the verified runtime monitor after one more live-token smoke. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
+Recommended next slice: finish PR #12 review acceptance/merge for the pinned private-server smoke harness, run the harness live, then configure or verify the already live-smoked runtime monitor through dedicated scheduler jobs. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
 
 Reason:
 

@@ -15,6 +15,7 @@ describe('MVP economy lifecycle', () => {
       STRUCTURE_SPAWN: StructureConstant;
       STRUCTURE_EXTENSION: StructureConstant;
       ERR_NOT_IN_RANGE: number;
+      ERR_FULL: number;
     }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
@@ -22,6 +23,7 @@ describe('MVP economy lifecycle', () => {
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { ERR_NOT_IN_RANGE: number }).ERR_NOT_IN_RANGE = -9;
+    (globalThis as unknown as { ERR_FULL: number }).ERR_FULL = -8;
   });
 
   afterEach(() => {

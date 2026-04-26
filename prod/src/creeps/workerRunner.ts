@@ -27,6 +27,12 @@ export function runWorker(creep: Creep): void {
   }
 
   const result = executeTask(creep, task, target);
+  if (task.type === 'transfer' && result === ERR_FULL) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
+
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target as RoomObject);
   }
