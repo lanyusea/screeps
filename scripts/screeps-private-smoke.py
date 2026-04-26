@@ -47,6 +47,14 @@ DEFAULT_SPAWN_NAME = "Spawn1"
 DEFAULT_SPAWN_X = 20
 DEFAULT_SPAWN_Y = 20
 STEAM_KEY_FILE_MODE = 0o644
+CONTAINER_WRITABLE_DIR_MODE = 0o1777
+CONTAINER_WRITABLE_SUBDIRS = (
+    "maps",
+    "bots",
+    "bots/mvpbot",
+    "mods",
+    "deps",
+)
 SECRET_KEYS = {
     "authorization",
     "password",
@@ -196,6 +204,39 @@ def assert_safe_work_dir(work_dir: Path) -> None:
     )
     if check.returncode != 0:
         raise SmokeError(f"work dir must be outside the repo or gitignored before writing secrets: {resolved}")
+
+
+def assert_path_inside_work_dir(work_dir: Path, path: Path) -> None:
+    """Raise unless a generated path resolves under the configured workdir."""
+    resolved_work_dir = work_dir.resolve()
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(resolved_work_dir)
+    except ValueError as exc:
+        raise SmokeError(f"generated path escapes smoke work dir: {resolved_path}") from exc
+
+
+def ensure_generated_dir(work_dir: Path, path: Path) -> None:
+    """Create and chmod one generated directory without following symlink escapes."""
+    assert_path_inside_work_dir(work_dir, path)
+    if path.exists() and path.is_symlink():
+        raise SmokeError(f"refusing to chmod symlinked smoke work dir path: {path}")
+    path.mkdir(parents=True, exist_ok=True)
+    if not path.is_dir():
+        raise SmokeError(f"generated smoke work dir path is not a directory: {path}")
+    path.chmod(CONTAINER_WRITABLE_DIR_MODE)
+
+
+def prepare_container_writable_work_dir(cfg: SmokeConfig) -> list[str]:
+    """Make only the generated smoke workdir tree writable by arbitrary container UIDs."""
+    assert_safe_work_dir(cfg.work_dir)
+    ensure_generated_dir(cfg.work_dir, cfg.work_dir)
+    prepared = ["."]
+    for relative in CONTAINER_WRITABLE_SUBDIRS:
+        path = cfg.work_dir / relative
+        ensure_generated_dir(cfg.work_dir, path)
+        prepared.append(relative)
+    return prepared
 
 
 def config_from_env(args: argparse.Namespace) -> SmokeConfig:
@@ -532,22 +573,30 @@ def request_shape(method: str, path: str, body: dict[str, Any] | None = None) ->
 def prepare_work_dir(cfg: SmokeConfig) -> dict[str, Any]:
     """Create launcher files and copy live-only secret/runtime inputs."""
     assert_safe_work_dir(cfg.work_dir)
-    cfg.work_dir.mkdir(parents=True, exist_ok=True)
-    (cfg.work_dir / "maps").mkdir(parents=True, exist_ok=True)
-    cfg.bot_main_path.parent.mkdir(parents=True, exist_ok=True)
+    if cfg.dry_run:
+        cfg.work_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.work_dir / "maps").mkdir(parents=True, exist_ok=True)
+        cfg.bot_main_path.parent.mkdir(parents=True, exist_ok=True)
+        container_writable_dirs: list[str] | str = "not-applied-dry-run"
+    else:
+        container_writable_dirs = prepare_container_writable_work_dir(cfg)
     cfg.config_path.write_text(build_launcher_config(cfg), encoding="utf-8")
     cfg.compose_path.write_text(build_compose_file(cfg), encoding="utf-8")
     if not cfg.dry_run:
+        cfg.config_path.chmod(STEAM_KEY_FILE_MODE)
+        cfg.compose_path.chmod(STEAM_KEY_FILE_MODE)
         steam_key = os.environ["STEAM_KEY"]
         cfg.steam_key_path.write_text(steam_key, encoding="utf-8")
         # Docker may run screeps-launcher as a different UID/GID than the host writer;
         # this generated gitignored file must be readable through the bind mount.
         cfg.steam_key_path.chmod(STEAM_KEY_FILE_MODE)
         shutil.copyfile(cfg.code_path, cfg.bot_main_path)
+        cfg.bot_main_path.chmod(STEAM_KEY_FILE_MODE)
     return {
         "work_dir": str(cfg.work_dir),
         "config": str(cfg.config_path),
         "compose": str(cfg.compose_path),
+        "container_writable_dirs": container_writable_dirs,
         "steam_key_file": "created" if not cfg.dry_run else "not-created-dry-run",
         "bot_package_main": str(cfg.bot_main_path) if not cfg.dry_run else "not-copied-dry-run",
     }
@@ -1227,8 +1276,8 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertEqual(persisted["report_path"], str(report_path))
         self.assertEqual(report["report_path"], str(report_path))
 
-    def test_live_prepare_sets_container_readable_steam_key_mode(self) -> None:
-        """Live preparation should make the generated Steam key readable in Docker."""
+    def test_live_prepare_sets_container_writable_workdir_and_steam_key_mode(self) -> None:
+        """Live preparation should make generated dirs writable and Steam key readable."""
         steam_key_was_set = "STEAM_KEY" in os.environ
         old_steam_key = os.environ.get("STEAM_KEY")
         try:
@@ -1247,6 +1296,10 @@ class SmokeSelfTest(unittest.TestCase):
                 )
                 details = prepare_work_dir(cfg)
                 steam_key_mode = cfg.steam_key_path.stat().st_mode & 0o777
+                directory_modes = {
+                    relative: (cfg.work_dir / relative).stat().st_mode & 0o7777
+                    for relative in (".", *CONTAINER_WRITABLE_SUBDIRS)
+                }
 
         finally:
             if steam_key_was_set:
@@ -1254,6 +1307,10 @@ class SmokeSelfTest(unittest.TestCase):
             else:
                 os.environ.pop("STEAM_KEY", None)
 
+        for relative, mode in directory_modes.items():
+            with self.subTest(relative=relative):
+                self.assertEqual(mode, CONTAINER_WRITABLE_DIR_MODE)
+        self.assertIn("deps", details["container_writable_dirs"])
         self.assertEqual(steam_key_mode, STEAM_KEY_FILE_MODE)
         self.assertEqual(steam_key_mode & 0o444, 0o444)
         self.assertEqual(steam_key_mode & 0o111, 0)
@@ -1278,6 +1335,7 @@ class SmokeSelfTest(unittest.TestCase):
                 os.environ.pop("STEAM_KEY", None)
 
         self.assertFalse(steam_key_exists)
+        self.assertEqual(report["prepare"]["container_writable_dirs"], "not-applied-dry-run")
         self.assertNotIn("dry-run-env-steam-key", encoded)
 
     def test_upload_code_accepts_common_success_payloads(self) -> None:
