@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T08:23:53+08:00
+Last updated: 2026-04-26T08:37:54+08:00
 
 ## Current active objective
 
@@ -180,6 +180,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - PR review hardening now redacts secret-key variants including `steamKey`, `steam_key`, `steam-key`, `X-Token`, `x_token`, `authorization`, `password`, and `token`; quotes the generated `prod/dist` bind mount; fails fast on reset/import/restart/resume setup failures; writes a redacted failure summary after run-summary initialization; and propagates non-zero `down` failures.
   - Updated `docs/ops/private-server-smoke-test.md` with harness usage and safety behavior.
   - Verification: `python3 scripts/screeps-private-smoke.py self-test` passed, 26 checks; `python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-smoke-harness-check --repo-root /root/screeps-worktrees/automate-private-smoke-20260426` passed without starting Docker.
+  - 2026-04-26T08:37+08:00 continuation re-verification: resolved CodeRabbit's duplicate `docs/README.md` process-index comment on PR #6, reran `self-test`, reran `plan --work-dir /tmp/screeps-private-smoke-harness-cron-verify`, and reran the full `prod` typecheck/Jest/build gate successfully.
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`: passed
   - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests

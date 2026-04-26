@@ -52,6 +52,20 @@ No `prod/` files changed in the harness hardening itself, but the PR update stil
 - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
 - `cd prod && npm run build`: passed
 
+## 2026-04-26 cron re-verification
+
+A continuation slice rechecked PR #6 after automated review comments arrived:
+
+- Confirmed PR: https://github.com/lanyusea/screeps/pull/6
+- Resolved CodeRabbit's duplicate `docs/README.md` process-index entry comment.
+- Re-ran harness offline checks from `/root/screeps-worktrees/automate-private-smoke-20260426`:
+  - `python3 scripts/screeps-private-smoke.py self-test`: passed, 26 checks.
+  - `python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-smoke-harness-cron-verify --repo-root /root/screeps-worktrees/automate-private-smoke-20260426`: passed and rendered redacted local files without starting Docker.
+- Re-ran production gate from the same worktree:
+  - `cd prod && npm run typecheck`: passed.
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests.
+  - `cd prod && npm run build`: passed.
+
 ## Remaining follow-up
 
 Run the full local smoke once a suitable runtime window is available:
