@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T07:02:07Z
+Last updated: 2026-04-26T08:36:00Z
 
 This roadmap is the durable explanatory counterpart to Discord `#roadmap` and the GitHub roadmap controls. **GitHub Issues, Milestones, and Project `screeps` are now the source of truth for active roadmap work**; this markdown file records the vision, current snapshot, decisions, and reporting behavior for main-agent/subagent work.
 
@@ -37,7 +37,7 @@ These percentages are explicit next-point estimates for the current roadmap snap
 
 | Domain | Next-point completion | Current next point |
 | --- | ---: | --- |
-| Agent OS / visibility | 88% | scheduler reliability audit and no-stall visibility proof |
+| Agent OS / visibility | 88% | follow up runtime-alert/P0-monitor scheduler-cadence gap and prove `next_run_at` advances normally |
 | Engineering governance | 75% | enforceable `main` branch protection / required checks |
 | Private-server validation | 85% | fresh live harness run and redacted report |
 | Runtime Monitor | 85% | reliable scheduled summary images plus no-alert silence |
