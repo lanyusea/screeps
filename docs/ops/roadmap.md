@@ -190,9 +190,10 @@ Requirement:
 Current access findings:
 
 - SSH git access is already configured for `git@github.com:lanyusea/screeps.git`; branch push via git should work.
-- GitHub CLI (`gh`) is not installed in this environment, and no GitHub API token is currently available to Hermes.
-- Without a GitHub API token or `gh` authentication, Hermes can push branches over SSH but cannot create PRs, inspect private/protected branch settings, enable auto-merge, or administer GitHub Actions settings.
-- The public GitHub API currently reports no GitHub Actions workflows for this repo, and the public branch listing reports `main` as unprotected; protection details require authenticated API access.
+- GitHub CLI (`gh`) is installed and authenticated as `lanyusea`; PR creation and review/check inspection worked for PR #10.
+- Git operations use SSH, and the authenticated `gh` token currently reports scopes `admin:public_key`, `gist`, `read:org`, and `repo`.
+- Branch push via git works; branch `docs/runtime-monitor-live-smoke-20260426` was pushed and PR #10 was created from this environment.
+- The public branch listing previously reported `main` as unprotected; protection administration should still be verified before relying on automation to merge or manage branch protection.
 
 Roadmap tasks:
 
