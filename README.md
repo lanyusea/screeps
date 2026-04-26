@@ -82,7 +82,7 @@ Move beyond single-room survival toward the competition vision: expansion scouti
 | --- | --- |
 | `prod/` | Runnable Screeps bot: TypeScript source, tests, build config, and bundled deploy artifact. |
 | `scripts/` | Local operations, validation, monitoring, and rendering scripts. |
-| `docs/` | Durable project documentation: vision, roadmap, runbooks, research notes, assets, and process history. |
+| `docs/` | Durable project documentation by lane: `docs/ops/` for runbooks, coordination, and roadmap; `docs/research/` for findings; `docs/process/` for decision trails and recovery notes; plus shared docs assets. |
 | `.github/` | GitHub Actions and repository automation configuration. |
 | `.gemini/` | Gemini/code-review configuration. |
 
