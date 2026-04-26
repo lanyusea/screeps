@@ -185,7 +185,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 
 ### next-runtime-validation
 
-- Status: pinned private-server smoke harness live rerun passed on PR #16; PR #16 remains open until merge/closure gates complete
+- Status: pinned private-server smoke harness live rerun passed, PR #16 merged to `main`, and post-merge cleanup completed
 - Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - Version-pin research note: `docs/process/2026-04-26-private-server-version-pin-research.md`
 - Pinned runtime retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
@@ -215,11 +215,14 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Private smoke harness dry-run: `python3 scripts/screeps-private-smoke.py dry-run` passed and wrote a redacted report without Docker, network, secrets, or a live server
   - Private smoke harness secure live rerun on alternate local ports `21125/21126`: passed with redacted report `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0633Z/private-smoke-report-20260426T063440Z.json`; reached `gametime: 31`, `totalRooms: 169`, one owned room, one bot-created worker, code upload/roundtrip success, and Mongo spawn/creep evidence
   - Current prod verification after harness live-rerun fixes: `npm run typecheck`, `npm test -- --runInBand` (12 suites / 68 tests), and `npm run build` all passed in `prod/`
+- PR #16 completion:
+  - Merged: <https://github.com/lanyusea/screeps/pull/16> at `2026-04-26T06:38:25Z`
+  - Merge commit: `b82d977a76f4f971c11dc0e1ca2cc010812a2315` (`fix: harden private smoke harness live run`)
+  - Post-merge cleanup: `/root/screeps` fast-forwarded to `b82d977`; local feature worktree/branch and remote feature branch removed; secure rerun stack stopped; the only remaining `screeps-private-smoke` containers are the intentional `screeps-private-smoke-pinned-*` observation stack.
 - Candidate next outputs:
-  1. finish PR #16 review/check/merge gates for the harness live-rerun fixes, then fast-forward `main`
-  2. after PR #16 merges, stop/clean any no-longer-needed smoke stacks or keep exactly one intentional observation stack documented
-  3. wire the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
-  4. continue deterministic Jest hardening for risks found during longer real-runtime observation
+  1. wire the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
+  2. observe several additional private-smoke rerun windows to ensure the harness path is stable across fresh data resets
+  3. continue deterministic Jest hardening for risks found during longer real-runtime observation
 - Latest deterministic hardening slice on `main`: PR #9 transfer-result race hardening merged as `b7e5c94` on 2026-04-26T02:43:07Z after CI/CodeRabbit were green and review feedback was addressed.
   - It includes Codex commit `a95afdc` plus review-fix commit `83eb0d5`, uses the Screeps global `ERR_FULL` constant, and verifies stale transfer tasks are cleared/reselected without moving toward a full target.
   - Post-merge local verification passed typecheck, 12 suites / 68 tests, and build.

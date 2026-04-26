@@ -82,6 +82,15 @@ Key observations:
 - `/stats` reached `gametime: 31`, `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, and one smoke-user creep on the secure rerun.
 - Mongo summary found one owned spawn and one bot-created `WORK/CARRY/MOVE` worker, `worker-E1S1-6`, in `E1S1` on the secure rerun.
 
-## Current status
+## Merge and cleanup status
 
-PR #16 remains open and must be merged or explicitly closed as obsolete before this task is complete. The 15-minute merge wait from PR creation has elapsed; remaining gates are PR checks/review-thread state and mergeability.
+PR #16 was merged to `main` on 2026-04-26 at `2026-04-26T06:38:25Z` as squash merge commit `b82d977a76f4f971c11dc0e1ca2cc010812a2315`.
+
+Post-merge controller cleanup completed:
+
+- Fast-forwarded `/root/screeps` `main` to `b82d977`.
+- Removed the local feature worktree `/root/screeps-worktrees/private-smoke-steam-key-perms` and local branch `fix/private-smoke-steam-key-perms-20260426`.
+- Deleted the remote feature branch after confirming the PR was merged.
+- Stopped and removed the secure rerun stack for `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0633Z`.
+
+The older intentional pinned observation stack remains running separately as `screeps-private-smoke-pinned-*` and is the only `screeps-private-smoke` Docker stack observed after cleanup.
