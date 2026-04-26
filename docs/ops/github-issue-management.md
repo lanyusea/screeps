@@ -49,6 +49,6 @@ Resolves #123
 
 If a PR touches multiple tracked problems, list every linked issue. A PR that only documents or enables issue-management policy should still link the policy issue.
 
-The normal project PR gates still apply: worktree branch, no direct `main` edits, at least 15 minutes after PR creation before merge, all discussions resolved, and green CI once configured.
+The normal project PR gates still apply: worktree branch, no direct `main` edits, at least 15 minutes after PR creation before merge, all discussions resolved, automated review口径 satisfied (CodeRabbit/Gemini no blocking findings; formal GitHub approval is not required), and green required checks once configured. Every active agent PR must be added to Project `screeps` and keep `Status`, `Evidence`, and `Next action` current until it is merged or explicitly closed.
 
 Before any agent reports a task complete, it must update the corresponding GitHub issue/PR/Project item status. At minimum, refresh `Status`, `Evidence`, and `Next action`; if blocked, update `blocked` / `Blocked by`. A task with stale GitHub state is not complete even if the local code/docs/tests are done.

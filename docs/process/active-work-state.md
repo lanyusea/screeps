@@ -1,10 +1,10 @@
 # Active Work State
 
-Last updated: 2026-04-26T17:36:00+08:00
+Last updated: 2026-04-26T17:59:00+08:00
 
 ## Current active objective
 
-P0: stabilize and monitor the Screeps agent operating system before continuing normal development, while preserving the updated project-vision priority contract: competition-map success means sufficiently large territory first, sufficiently many resources second, and sufficiently many enemy kills third. The main agent must preserve owner visibility through the home channel, delegate minimal tasks to subagents/Codex, review subagent conclusions, route summaries to typed Discord channels, and keep scheduled-worker health monitored. Canonical operating contract: `docs/ops/agent-operating-system.md`. Vision contract: `docs/ops/project-vision.md`. Dedicated P0 monitor output is routed to channel `1497820688843800776` via cron delivery target `discord:1497820688843800776`.
+P0: stabilize and monitor the Screeps agent operating system before continuing normal development, while preserving the updated project-vision priority contract: competition-map success means sufficiently large territory first, sufficiently many resources second, and sufficiently many enemy kills third. The main agent must preserve owner visibility through the home channel, delegate minimal tasks to subagents/Codex, review subagent conclusions, route summaries to typed Discord channels, and keep scheduled-worker health monitored. Canonical operating contract: `docs/ops/agent-operating-system.md`. Vision contract: `docs/ops/project-vision.md`. Dedicated P0 monitor output is routed to channel `1497820688843800776` via cron delivery target `discord:1497820688843800776`. Owner decisions on 2026-04-26: use the automated review口径 with no formal GitHub approval requirement, add every active agent PR to Project `screeps`, and let known P0 monitoring/routing/scheduler health block normal development and non-P0 merges until repaired/proven healthy.
 
 ## Completed tasks
 

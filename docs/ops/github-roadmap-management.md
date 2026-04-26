@@ -28,12 +28,28 @@ This gate applies to Hermes main-agent tasks, Codex coding tasks, delegated suba
 Before an agent reports a task complete, it must update the corresponding GitHub source-of-truth item:
 
 1. **Start / claim work** — set the issue or PR item in Project `screeps` to `In progress` when actual work starts, or `In review` when the work has moved to a PR/review gate.
-2. **Maintain next action** — keep `Next action` accurate enough that another agent can resume without reading local chat history.
-3. **Record evidence** — keep `Evidence` current with PR URL, commit, CI/check result, runtime artifact, redacted report, process note, or decision note.
-4. **Record blockers** — if progress is blocked, add the `blocked` label, fill `Blocked by`, and set `Next action` to the unblock step.
-5. **Close only after GitHub is current** — when the task is actually complete, update the issue/PR Project item to `Done` or ensure the linked PR closes the issue, then verify the Project item reflects the final status.
+2. **Track every active PR** — every PR opened by an agent must be added to Project `screeps` while active. At minimum, maintain `Status`, `Priority`, `Domain`, `Kind`, `Evidence`, and `Next action` until the PR is merged or explicitly closed as superseded.
+3. **Maintain next action** — keep `Next action` accurate enough that another agent can resume without reading local chat history.
+4. **Record evidence** — keep `Evidence` current with PR URL, commit, CI/check result, runtime artifact, redacted report, process note, or decision note.
+5. **Record blockers** — if progress is blocked, add the `blocked` label, fill `Blocked by`, and set `Next action` to the unblock step.
+6. **Close only after GitHub is current** — when the task is actually complete, update the issue/PR Project item to `Done` or ensure the linked PR closes the issue, then verify the Project item reflects the final status.
 
 A task is **not done** if its code/docs/tests are complete but its GitHub issue, PR, or Project item still shows stale status, stale evidence, or stale next action. The final report for any agent task should mention the GitHub issue/PR numbers whose state was updated.
+
+## Review and merge gate
+
+The owner decision on 2026-04-26 is to use the automated review口径 for this repository. A formal GitHub approving review is **not** required unless a later owner decision changes this contract.
+
+A PR may be merged only after all of these are true:
+
+1. The PR has waited at least 15 minutes after creation.
+2. Required checks are green, including `Verify prod TypeScript, Jest, and bundle` when applicable.
+3. Automated review signals have no blocking findings: CodeRabbit/Gemini are successful, have no critical unresolved feedback, or explicitly report no feedback.
+4. All GitHub review threads/discussions are resolved or verified as outdated/non-blocking.
+5. The linked issue and PR Project items have current `Status`, `Evidence`, and `Next action` fields.
+6. A QA/acceptance-check pass returns `PASS` for meaningful deliverables.
+
+If P0 monitoring/routing/scheduler health is known unhealthy, normal implementation and non-P0 merges are deferred until the P0 issue is repaired or the main agent has evidence that the affected automation is healthy again.
 
 ## Labels
 
