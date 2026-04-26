@@ -238,6 +238,7 @@ Requirement:
 Immediate operating change:
 
 - dedicated P0 agent operations monitor checks cron/job/routing/git/active-state health;
+- P0 monitor output now goes to dedicated channel `1497820688843800776` (`discord:1497820688843800776`) instead of the general home conversation; escalate to home only for urgent owner action;
 - live monitoring cadence: continuation every 5 minutes during P0/active-development periods, operations monitor every 15 minutes, 4-hour checkpoint every 240 minutes;
 - continuation/checkpoint workers remain subordinate to main-agent review and channel fanout;
 - if P0 health is abnormal, pause or defer new implementation work until corrected.
