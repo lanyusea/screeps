@@ -89,7 +89,7 @@ Live run behavior:
 
 1. Creates or reuses the ignored work directory after rejecting repo-local paths that are not gitignored.
 2. Writes a secret-free `config.yml` using `steamKeyFile: STEAM_KEY`.
-3. Writes Docker Compose for `screepers/screeps-launcher:latest`, `mongo:8`, and `redis:7`.
+3. Writes Docker Compose for `screepers/screeps-launcher:v1.16.2`, `mongo:8.2.7`, and `redis:7.4.8`.
 4. Writes the actual Steam key only to the ignored workdir `STEAM_KEY` file with mode `0600`.
 5. Downloads or copies `map-0b6758af.json`.
 6. Starts Docker Compose, waits for `/api/version`, runs `system.resetAllData()` by default, imports the map with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`, restarts the Screeps service, and resumes simulation.

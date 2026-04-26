@@ -33,6 +33,9 @@ DEFAULT_WORK_DIR = REPO_ROOT / "runtime-artifacts" / "screeps-private-smoke"
 DEFAULT_MAP_URL = "https://maps.screepspl.us/maps/map-0b6758af.json"
 MAP_FILENAME = "map-0b6758af.json"
 MAP_CONTAINER_PATH = f"/screeps/maps/{MAP_FILENAME}"
+SCREEPS_LAUNCHER_IMAGE = "screepers/screeps-launcher:v1.16.2"
+MONGO_IMAGE = "mongo:8.2.7"
+REDIS_IMAGE = "redis:7.4.8"
 DEFAULT_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 DEFAULT_HTTP_PORT = 21025
 DEFAULT_CLI_PORT = 21026
@@ -309,7 +312,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
     """Render the Docker Compose stack used for the private smoke."""
     return f"""services:
   screeps:
-    image: screepers/screeps-launcher:latest
+    image: {SCREEPS_LAUNCHER_IMAGE}
     volumes:
       - ./:/screeps
     ports:
@@ -332,7 +335,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
       retries: 12
 
   mongo:
-    image: mongo:8
+    image: {MONGO_IMAGE}
     volumes:
       - mongo-data:/data/db
     restart: "no"
@@ -344,7 +347,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
       retries: 12
 
   redis:
-    image: redis:7
+    image: {REDIS_IMAGE}
     volumes:
       - redis-data:/data
     restart: "no"
@@ -442,7 +445,7 @@ def build_signin_payload(cfg: SmokeConfig) -> dict[str, Any]:
     if cfg.password is None:
         raise SmokeError("smoke password is unavailable")
     return {
-        "email": cfg.username,
+        "email": cfg.email,
         "password": cfg.password,
     }
 
@@ -873,7 +876,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         "work_dir": str(cfg.work_dir),
         "server_url": cfg.server_url,
         "launcher": {
-            "image": "screepers/screeps-launcher:latest",
+            "image": SCREEPS_LAUNCHER_IMAGE,
             "version": "4.2.21",
             "nodeVersion": "Erbium",
             "map_container_path": MAP_CONTAINER_PATH,
@@ -1115,7 +1118,9 @@ class SmokeSelfTest(unittest.TestCase):
         compose = build_compose_file(cfg)
         self.assertIn('"127.0.0.1:21025:21025/tcp"', compose)
         self.assertIn('"127.0.0.1:21026:21026/tcp"', compose)
-        self.assertIn("screepers/screeps-launcher:latest", compose)
+        self.assertIn(f"image: {SCREEPS_LAUNCHER_IMAGE}", compose)
+        self.assertIn(f"image: {MONGO_IMAGE}", compose)
+        self.assertIn(f"image: {REDIS_IMAGE}", compose)
 
     def test_redaction_removes_secrets_and_code(self) -> None:
         """Report redaction should hide credentials and uploaded code."""
@@ -1148,6 +1153,13 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertIn("Spawn1", encoded)
         self.assertNotIn("super-secret-password", encoded)
         self.assertNotIn("module.exports.loop", encoded)
+
+    def test_signin_payload_uses_configured_email(self) -> None:
+        """Sign-in should use the registered email even when username differs."""
+        cfg = SmokeConfig(
+            **{**self.make_cfg().__dict__, "username": "smoke-user", "email": "smoke@example.test"}
+        )
+        self.assertEqual(build_signin_payload(cfg)["email"], "smoke@example.test")
 
     def test_required_env_only_applies_to_live_run(self) -> None:
         """Live-only prerequisites should not block dry-run validation."""
