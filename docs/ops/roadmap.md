@@ -1,8 +1,10 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T06:03:38Z
+Last updated: 2026-04-26T07:02:07Z
 
-This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
+This roadmap is the durable explanatory counterpart to Discord `#roadmap` and the GitHub roadmap controls. **GitHub Issues, Milestones, and Project `screeps` are now the source of truth for active roadmap work**; this markdown file records the vision, current snapshot, decisions, and reporting behavior for main-agent/subagent work.
+
+Active roadmap management contract: `docs/ops/github-roadmap-management.md`. Issue/PR template and defect-tracking contract: `docs/ops/github-issue-management.md`.
 
 ## Project vision and priority contract
 
