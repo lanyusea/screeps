@@ -18,7 +18,22 @@ Operational invariant:
 Any roadmap goal without a GitHub issue is not actionable.
 Any open roadmap issue without a milestone is not planned.
 Any active roadmap issue missing from Project screeps is a management defect.
+Any agent task whose GitHub issue/PR/Project state is not current is not complete.
 ```
+
+## Agent task completion gate
+
+This gate applies to Hermes main-agent tasks, Codex coding tasks, delegated subagent tasks, scheduled/cron workers, and any future automated agent that touches this project.
+
+Before an agent reports a task complete, it must update the corresponding GitHub source-of-truth item:
+
+1. **Start / claim work** — set the issue or PR item in Project `screeps` to `In progress` when actual work starts, or `In review` when the work has moved to a PR/review gate.
+2. **Maintain next action** — keep `Next action` accurate enough that another agent can resume without reading local chat history.
+3. **Record evidence** — keep `Evidence` current with PR URL, commit, CI/check result, runtime artifact, redacted report, process note, or decision note.
+4. **Record blockers** — if progress is blocked, add the `blocked` label, fill `Blocked by`, and set `Next action` to the unblock step.
+5. **Close only after GitHub is current** — when the task is actually complete, update the issue/PR Project item to `Done` or ensure the linked PR closes the issue, then verify the Project item reflects the final status.
+
+A task is **not done** if its code/docs/tests are complete but its GitHub issue, PR, or Project item still shows stale status, stale evidence, or stale next action. The final report for any agent task should mention the GitHub issue/PR numbers whose state was updated.
 
 ## Labels
 
@@ -47,7 +62,7 @@ Open roadmap issues are grouped into these GitHub Milestones:
 
 | Milestone | Purpose | Current issue mapping |
 | --- | --- | --- |
-| `P0: Change-control / CI / branch protection gate` | issue/PR linkage, branch protection, required checks, and governance | `#22`, `#26`, `#36` |
+| `P0: Change-control / CI / branch protection gate` | issue/PR linkage, branch protection, required checks, agent GitHub-status completion gate, and governance | `#22`, `#26`, `#36`, `#39` |
 | `P0: Agent OS / Discord visibility gate` | scheduler, continuation, checkpoint, Discord routing, P0 monitor, and owner-visible reports | `#27` |
 | `Phase B: Bot capability hardening gate` | spawn lifecycle, worker recovery, deterministic tests, and economy deadlock hardening | `#30`, `#31` |
 | `Phase C: Runtime telemetry / monitor gate` | runtime summary/alert scheduling, no-alert silence, monitor evidence, and alert-level telemetry | `#29`, `#32` |
@@ -124,6 +139,7 @@ When creating or triaging roadmap work:
 6. If blocked, add `blocked` and fill `Blocked by`.
 7. Link implementation PRs with closing keywords and keep PR items visible in the Project until merged/closed.
 8. Reflect durable decisions or recovery context in docs/process notes only after GitHub source-of-truth state is correct.
+9. Before any agent reports completion, verify its issue/PR/Project item state is current. If the Project item still has stale `Status`, `Evidence`, `Next action`, or blocker fields, the task is not complete.
 
 ## Verification commands
 
