@@ -211,9 +211,9 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Pinned Dockerized runtime smoke: pre-downloaded `map-0b6758af.json`, imported with `utils.importMapFile`, restarted/resumed simulation, registered local smoke user, uploaded `prod/dist/main.js`, placed `Spawn1` at `E1S1` `(20,20)`, and observed `/stats` with `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, plus owned `worker-E1S1-*` creeps in Mongo
   - Longer pinned runtime observation: private `gametime: 5267`, one RCL 2 owned room, three live bot-created workers, average tick time about 200 ms, and no current post-restart `Unhandled`/`TypeError`/`ReferenceError`/`Error:` hits in launcher logs
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
-  - Private smoke harness self-test: `python3 scripts/screeps-private-smoke.py self-test` passed, 27 tests after PR #16 harness live-rerun fixes
+  - Private smoke harness self-test: `python3 scripts/screeps-private-smoke.py self-test` passed, 30 tests after PR #16 permission-review fix
   - Private smoke harness dry-run: `python3 scripts/screeps-private-smoke.py dry-run` passed and wrote a redacted report without Docker, network, secrets, or a live server
-  - Private smoke harness live rerun on alternate local ports `21125/21126`: passed with redacted report `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0616Z/private-smoke-report-20260426T061745Z.json`; reached `gametime: 30`, `totalRooms: 169`, one owned room, one bot-created worker, code upload/roundtrip success, and Mongo spawn/creep evidence
+  - Private smoke harness secure live rerun on alternate local ports `21125/21126`: passed with redacted report `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0633Z/private-smoke-report-20260426T063440Z.json`; reached `gametime: 31`, `totalRooms: 169`, one owned room, one bot-created worker, code upload/roundtrip success, and Mongo spawn/creep evidence
   - Current prod verification after harness live-rerun fixes: `npm run typecheck`, `npm test -- --runInBand` (12 suites / 68 tests), and `npm run build` all passed in `prod/`
 - Candidate next outputs:
   1. finish PR #16 review/check/merge gates for the harness live-rerun fixes, then fast-forward `main`

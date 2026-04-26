@@ -247,7 +247,7 @@ Immediate operating change:
 
 Docker/Compose, package installation, HTTP startup, local auth, code upload, room/map initialization, spawn placement, and bot tick validation are no longer the primary blockers for the pinned launcher path. The active follow-up is making this repeatable and observable:
 
-1. finish PR #16 review/check/merge gates for the harness live-rerun fixes; the latest live rerun from `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0616Z` passed with one owned room and one bot-created worker;
+1. finish PR #16 review/check/merge gates for the harness live-rerun fixes; the latest secure live rerun from `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0633Z` passed with one owned room and one bot-created worker;
 2. observe several additional windows or reruns to ensure the harness path is stable across fresh data resets;
 3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded twice (`summary` PNGs rendered; `alert=false` with no warnings for `shardX/E48S28` at official ticks `108687` and `109202`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.

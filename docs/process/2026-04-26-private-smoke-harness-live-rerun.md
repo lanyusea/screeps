@@ -64,9 +64,10 @@ python3 scripts/screeps-private-smoke.py run \
 
 Result: `ok: true`.
 
-Redacted report path:
+Redacted report paths:
 
-- `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0616Z/private-smoke-report-20260426T061745Z.json`
+- Initial passing rerun before permission hardening: `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0616Z/private-smoke-report-20260426T061745Z.json`
+- Secure rerun after permission hardening: `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0633Z/private-smoke-report-20260426T063440Z.json`
 
 Key observations:
 
@@ -78,8 +79,8 @@ Key observations:
   - `system.resumeSimulation()` returned `OK`.
 - The harness registered the local `smoke` user, signed in, uploaded the current `prod/dist/main.js`, and verified the code round-trip hash matched the local artifact.
 - Spawn placement succeeded for `Spawn1` in `E1S1` at `(20,20)`.
-- `/stats` reached `gametime: 30`, `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, and one smoke-user creep.
-- Mongo summary found one owned spawn and one bot-created `WORK/CARRY/MOVE` worker, `worker-E1S1-5`, in `E1S1`.
+- `/stats` reached `gametime: 31`, `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, and one smoke-user creep on the secure rerun.
+- Mongo summary found one owned spawn and one bot-created `WORK/CARRY/MOVE` worker, `worker-E1S1-6`, in `E1S1` on the secure rerun.
 
 ## Current status
 
