@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T18:21:00+08:00
+Last updated: 2026-04-26T21:03:00+08:00
 
 ## Current active objective
 
@@ -283,6 +283,8 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - P0 scheduler cadence audit on 2026-04-26T19:48:19+08:00 recorded `docs/process/2026-04-26-scheduler-cadence-audit-1948.md`: runtime-alert job `1c093252ab70` was due at `19:48:49+08:00` and still had not advanced by `19:50:38+08:00`, with no new session after `session_cron_1c093252ab70_20260426_194332.json`; `last_status` and delivery metadata stayed healthy, while the continuation worker session was active. Classification remains intermittent scheduler dispatcher/cadence health, not runtime monitor command behavior, `[SILENT]` behavior, or Discord delivery routing.
 
 - P0 scheduler/finalization checkpoint on 2026-04-26T20:45:00+08:00 recorded `docs/process/2026-04-26-p0-cron-session-finalization-gap.md`: runtime-alert and typed fanout jobs recovered automatic sessions/output, but P0 monitor automatic session `session_cron_75cedbb77150_20260426_204342.json` advanced scheduling without refreshing `last_run_at` or writing a new output artifact. Keep continuation worker paused and do not resume normal development until P0 monitor finalization is proven healthy.
+
+- P0 scheduler recovery checkpoint on 2026-04-26T21:03:00+08:00 recorded `docs/process/2026-04-26-p0-scheduler-recovery.md`: P0 monitor, runtime-alert, roadmap/dev-log/research fanouts, and 6h report all advanced automatic `last_run_at`/output artifacts after the earlier finalization gap. The continuation worker may be resumed, while future stale metadata/output mismatches remain P0 regressions.
 - Coding boundary clarified: future production/test/build code changes under `prod/` must be implemented via OpenAI Codex CLI, while Hermes orchestrates, verifies, documents, reports, and pushes.
 - Commit behavior clarified: Codex must commit after each completed coding task; documentation-only changes may be committed by Hermes directly.
 - Git identity configured globally and local history rewritten to `lanyusea's bot <lanyusea@gmail.com>`; local rewrite succeeded, remote force push was blocked by platform smart approval and still needs an approved force-push path if remote history rewrite is still desired.
