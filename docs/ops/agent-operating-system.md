@@ -135,7 +135,7 @@ Behavior:
 - remain concise when healthy;
 - never perform implementation work;
 - never modify production code;
-- if it changes docs, commit/push docs-only成果 as Hermes.
+- if it changes docs, commit/push docs-only changes as Hermes.
 
 ### P0 dedicated monitor channel
 
