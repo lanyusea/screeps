@@ -40,12 +40,23 @@ REDIS_IMAGE = "redis:7.4.8"
 DEFAULT_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 DEFAULT_HTTP_PORT = 21025
 DEFAULT_CLI_PORT = 21026
+LAUNCHER_CLI_RESPONSE_LIMIT = 1400
 DEFAULT_ROOM = "E1S1"
 DEFAULT_SHARD = "shardX"
 DEFAULT_USERNAME = "smoke"
 DEFAULT_SPAWN_NAME = "Spawn1"
 DEFAULT_SPAWN_X = 20
 DEFAULT_SPAWN_Y = 20
+GENERATED_FILE_MODE = 0o600
+GENERATED_DIR_MODE = 0o700
+STEAM_KEY_FILE_MODE = GENERATED_FILE_MODE
+CONTAINER_WRITABLE_SUBDIRS = (
+    "maps",
+    "bots",
+    "bots/mvpbot",
+    "mods",
+    "deps",
+)
 SECRET_KEYS = {
     "authorization",
     "password",
@@ -197,6 +208,81 @@ def assert_safe_work_dir(work_dir: Path) -> None:
         raise SmokeError(f"work dir must be outside the repo or gitignored before writing secrets: {resolved}")
 
 
+def assert_path_inside_work_dir(work_dir: Path, path: Path) -> None:
+    """Raise unless a generated path resolves under the configured workdir."""
+    resolved_work_dir = work_dir.resolve()
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(resolved_work_dir)
+    except ValueError as exc:
+        raise SmokeError(f"generated path escapes smoke work dir: {resolved_path}") from exc
+
+
+def reject_existing_symlink(path: Path) -> None:
+    """Reject an existing generated path component when it is a symlink."""
+    if path.is_symlink():
+        raise SmokeError(f"refusing to use symlinked smoke work dir path: {path}")
+
+
+def assert_generated_path_has_no_symlink(work_dir: Path, path: Path) -> None:
+    """Reject existing symlinks from the workdir root through a generated path."""
+    assert_path_inside_work_dir(work_dir, path)
+    reject_existing_symlink(work_dir)
+    try:
+        relative = path.relative_to(work_dir)
+    except ValueError:
+        relative = path.resolve().relative_to(work_dir.resolve())
+    current = work_dir
+    for part in relative.parts:
+        current = current / part
+        reject_existing_symlink(current)
+
+
+def ensure_generated_dir(work_dir: Path, path: Path) -> None:
+    """Create and chmod one generated directory without following symlink paths."""
+    assert_generated_path_has_no_symlink(work_dir, path)
+    path.mkdir(mode=GENERATED_DIR_MODE, parents=True, exist_ok=True)
+    assert_generated_path_has_no_symlink(work_dir, path)
+    if not path.is_dir():
+        raise SmokeError(f"generated smoke work dir path is not a directory: {path}")
+    path.chmod(GENERATED_DIR_MODE)
+
+
+def write_generated_bytes(work_dir: Path, path: Path, data: bytes, mode: int = GENERATED_FILE_MODE) -> None:
+    """Atomically write a generated file without following a preexisting symlink."""
+    ensure_generated_dir(work_dir, path.parent)
+    assert_generated_path_has_no_symlink(work_dir, path)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as temp_file:
+            temp_file.write(data)
+        temp_path.chmod(mode)
+        assert_generated_path_has_no_symlink(work_dir, path)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+    assert_generated_path_has_no_symlink(work_dir, path)
+
+
+def write_generated_text(work_dir: Path, path: Path, text: str, mode: int = GENERATED_FILE_MODE) -> None:
+    """Atomically write generated UTF-8 text without following symlink paths."""
+    write_generated_bytes(work_dir, path, text.encode("utf-8"), mode)
+
+
+def prepare_container_writable_work_dir(cfg: SmokeConfig) -> list[str]:
+    """Prepare only generated smoke workdir paths for the mapped container UID."""
+    assert_safe_work_dir(cfg.work_dir)
+    ensure_generated_dir(cfg.work_dir, cfg.work_dir)
+    prepared = ["."]
+    for relative in CONTAINER_WRITABLE_SUBDIRS:
+        path = cfg.work_dir / relative
+        ensure_generated_dir(cfg.work_dir, path)
+        prepared.append(relative)
+    return prepared
+
+
 def config_from_env(args: argparse.Namespace) -> SmokeConfig:
     """Build a SmokeConfig from CLI arguments and environment variables."""
     work_dir = resolve_path(
@@ -314,6 +400,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
     return f"""services:
   screeps:
     image: {SCREEPS_LAUNCHER_IMAGE}
+    user: "{os.getuid()}:{os.getgid()}"
     volumes:
       - ./:/screeps
     ports:
@@ -531,20 +618,24 @@ def request_shape(method: str, path: str, body: dict[str, Any] | None = None) ->
 def prepare_work_dir(cfg: SmokeConfig) -> dict[str, Any]:
     """Create launcher files and copy live-only secret/runtime inputs."""
     assert_safe_work_dir(cfg.work_dir)
-    cfg.work_dir.mkdir(parents=True, exist_ok=True)
-    (cfg.work_dir / "maps").mkdir(parents=True, exist_ok=True)
-    cfg.bot_main_path.parent.mkdir(parents=True, exist_ok=True)
-    cfg.config_path.write_text(build_launcher_config(cfg), encoding="utf-8")
-    cfg.compose_path.write_text(build_compose_file(cfg), encoding="utf-8")
+    if cfg.dry_run:
+        ensure_generated_dir(cfg.work_dir, cfg.work_dir)
+        for relative in ("maps", "bots", "bots/mvpbot"):
+            ensure_generated_dir(cfg.work_dir, cfg.work_dir / relative)
+        container_writable_dirs: list[str] | str = "not-applied-dry-run"
+    else:
+        container_writable_dirs = prepare_container_writable_work_dir(cfg)
+    write_generated_text(cfg.work_dir, cfg.config_path, build_launcher_config(cfg))
+    write_generated_text(cfg.work_dir, cfg.compose_path, build_compose_file(cfg))
     if not cfg.dry_run:
         steam_key = os.environ["STEAM_KEY"]
-        cfg.steam_key_path.write_text(steam_key, encoding="utf-8")
-        cfg.steam_key_path.chmod(0o600)
-        shutil.copyfile(cfg.code_path, cfg.bot_main_path)
+        write_generated_text(cfg.work_dir, cfg.steam_key_path, steam_key, STEAM_KEY_FILE_MODE)
+        write_generated_bytes(cfg.work_dir, cfg.bot_main_path, cfg.code_path.read_bytes())
     return {
         "work_dir": str(cfg.work_dir),
         "config": str(cfg.config_path),
         "compose": str(cfg.compose_path),
+        "container_writable_dirs": container_writable_dirs,
         "steam_key_file": "created" if not cfg.dry_run else "not-created-dry-run",
         "bot_package_main": str(cfg.bot_main_path) if not cfg.dry_run else "not-copied-dry-run",
     }
@@ -562,9 +653,10 @@ def prepare_map(cfg: SmokeConfig) -> dict[str, Any]:
     if cfg.map_source_file:
         if not cfg.map_source_file.exists():
             raise SmokeError(f"map source file does not exist: {cfg.map_source_file}")
-        shutil.copyfile(cfg.map_source_file, cfg.map_path)
+        write_generated_bytes(cfg.work_dir, cfg.map_path, cfg.map_source_file.read_bytes())
         source = str(cfg.map_source_file)
     elif cfg.map_path.exists():
+        assert_generated_path_has_no_symlink(cfg.work_dir, cfg.map_path)
         source = "existing-workdir-file"
     else:
         parsed = urllib.parse.urlparse(cfg.map_url)
@@ -575,7 +667,7 @@ def prepare_map(cfg: SmokeConfig) -> dict[str, Any]:
             )
         request = urllib.request.Request(cfg.map_url, headers={"User-Agent": "screeps-private-smoke/1.0"})
         with urllib.request.urlopen(request, timeout=60) as response:
-            cfg.map_path.write_bytes(response.read())
+            write_generated_bytes(cfg.work_dir, cfg.map_path, response.read())
         source = cfg.map_url
     return {
         "path": str(cfg.map_path),
@@ -694,6 +786,36 @@ def http_json(
         return HttpResult(exc.code, parsed, dict(exc.headers.items()))
 
 
+def http_text(
+    method: str,
+    base_url: str,
+    path: str,
+    body: str | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: int = 25,
+    max_len: int = LAUNCHER_CLI_RESPONSE_LIMIT,
+) -> HttpResult:
+    """Send an HTTP request with a text body and return bounded text."""
+    url = base_url.rstrip("/") + path
+    data = body.encode("utf-8") if body is not None else None
+    request_headers = {"User-Agent": "screeps-private-smoke/1.0"}
+    if body is not None:
+        request_headers["Content-Type"] = "text/plain; charset=utf-8"
+    if headers:
+        request_headers.update(headers)
+    request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+
+    def read_bounded(response: Any) -> str:
+        raw = response.read(max_len + 1)
+        return short_text(raw.decode("utf-8", errors="replace"), max_len)
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return HttpResult(response.status, read_bounded(response), dict(response.headers.items()))
+    except urllib.error.HTTPError as exc:
+        return HttpResult(exc.code, read_bounded(exc), dict(exc.headers.items()))
+
+
 def token_headers(token: str) -> dict[str, str]:
     """Return the Screeps token headers expected by the private server."""
     return {
@@ -733,9 +855,38 @@ def wait_for_http(cfg: SmokeConfig, timeout: int = 300) -> dict[str, Any]:
 
 
 def run_launcher_cli(compose: list[str], cfg: SmokeConfig, expression: str) -> dict[str, Any]:
-    """Execute a screeps-launcher CLI expression inside the stack."""
-    command = [*compose, "exec", "-T", "screeps", "screeps-launcher", "cli"]
-    return require_success(run_command(command, cfg, input_text=expression + "\n", timeout=240))
+    """Execute a screeps-launcher CLI expression through the local HTTP CLI."""
+    _ = compose
+    started = time.time()
+    secrets_to_hide = [os.environ.get("STEAM_KEY", ""), cfg.password or ""]
+    cli_base_url = f"http://{cfg.server_host}:{cfg.cli_port}"
+    endpoint = cli_base_url.rstrip("/") + "/cli"
+    try:
+        result = http_text(
+            "POST",
+            cli_base_url,
+            "/cli",
+            expression,
+            timeout=240,
+            max_len=LAUNCHER_CLI_RESPONSE_LIMIT,
+        )
+    except Exception as exc:  # noqa: BLE001 - sanitized below for report
+        message = redact(short_text(exc, 200), secrets_to_hide)
+        raise SmokeError(f"launcher CLI HTTP request failed: {message}") from exc
+
+    elapsed = round(time.time() - started, 3)
+    response_excerpt = redact(short_text(result.payload, LAUNCHER_CLI_RESPONSE_LIMIT), secrets_to_hide)
+    details = {
+        "endpoint": endpoint,
+        "status": result.status,
+        "elapsed_seconds": elapsed,
+        "response_excerpt": response_excerpt,
+    }
+    if result.status < 200 or result.status >= 300:
+        raise SmokeError(f"launcher CLI HTTP request failed: {endpoint} returned {result.status}: {response_excerpt}")
+    if isinstance(result.payload, str) and result.payload.startswith("Error:"):
+        raise SmokeError(f"launcher CLI returned error: {response_excerpt}")
+    return details
 
 
 def safe_user_stats(stats: dict[str, Any], username: str) -> dict[str, Any]:
@@ -1072,8 +1223,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         report["report_path"] = str(report_path)
         assert_no_secret_leak(report, secrets_to_hide)
         assert_safe_work_dir(cfg.work_dir)
-        cfg.work_dir.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        write_generated_text(cfg.work_dir, report_path, json.dumps(report, indent=2, sort_keys=True))
     return report
 
 
@@ -1109,7 +1259,7 @@ def run_dry(cfg: SmokeConfig) -> dict[str, Any]:
     report_path = dry_cfg.report_path
     report["report_path"] = str(report_path)
     assert_no_secret_leak(report, [fake_password, sample_code])
-    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    write_generated_text(dry_cfg.work_dir, report_path, json.dumps(report, indent=2, sort_keys=True))
     return report
 
 
@@ -1172,11 +1322,12 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertNotIn("super-secret-password", config_text)
 
     def test_compose_file_binds_local_ports(self) -> None:
-        """Compose output should bind the configured loopback ports."""
+        """Compose output should bind local ports and map the launcher UID/GID."""
         cfg = self.make_cfg()
         compose = build_compose_file(cfg)
         self.assertIn('"127.0.0.1:21025:21025/tcp"', compose)
         self.assertIn('"127.0.0.1:21026:21026/tcp"', compose)
+        self.assertIn(f'user: "{os.getuid()}:{os.getgid()}"', compose)
         self.assertIn(f"image: {SCREEPS_LAUNCHER_IMAGE}", compose)
         self.assertIn(f"image: {MONGO_IMAGE}", compose)
         self.assertIn(f"image: {REDIS_IMAGE}", compose)
@@ -1224,6 +1375,151 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertEqual(persisted["report_path"], str(report_path))
         self.assertEqual(report["report_path"], str(report_path))
 
+    def test_live_prepare_sets_owner_only_generated_modes(self) -> None:
+        """Live preparation should keep generated dirs and files owner-only."""
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "self-test-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                code_path = temp_path / "main.js"
+                code_path.write_text("module.exports.loop = function loop() {};", encoding="utf-8")
+                cfg = SmokeConfig(
+                    **{
+                        **self.make_cfg().__dict__,
+                        "work_dir": temp_path / "work",
+                        "code_path": code_path,
+                        "dry_run": False,
+                    }
+                )
+                details = prepare_work_dir(cfg)
+                steam_key_mode = cfg.steam_key_path.stat().st_mode & 0o777
+                directory_modes = {
+                    relative: (cfg.work_dir / relative).stat().st_mode & 0o7777
+                    for relative in (".", *CONTAINER_WRITABLE_SUBDIRS)
+                }
+                file_modes = {
+                    "config": cfg.config_path.stat().st_mode & 0o777,
+                    "compose": cfg.compose_path.stat().st_mode & 0o777,
+                    "steam_key": steam_key_mode,
+                    "bot_main": cfg.bot_main_path.stat().st_mode & 0o777,
+                }
+
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+        for relative, mode in directory_modes.items():
+            with self.subTest(relative=relative):
+                self.assertEqual(mode, GENERATED_DIR_MODE)
+                self.assertEqual(mode & 0o077, 0)
+        for name, mode in file_modes.items():
+            with self.subTest(name=name):
+                self.assertEqual(mode, GENERATED_FILE_MODE)
+                self.assertEqual(mode & 0o077, 0)
+        self.assertIn("deps", details["container_writable_dirs"])
+        self.assertEqual(steam_key_mode, STEAM_KEY_FILE_MODE)
+        self.assertEqual(steam_key_mode & 0o700, 0o600)
+        self.assertEqual(steam_key_mode & 0o111, 0)
+        self.assertNotIn("self-test-steam-key", json.dumps(details))
+
+    def test_live_prepare_rejects_preexisting_steam_key_symlink(self) -> None:
+        """Live preparation should not follow a preexisting STEAM_KEY symlink."""
+        if not hasattr(os, "symlink"):
+            self.skipTest("os.symlink is unavailable")
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "self-test-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                code_path = temp_path / "main.js"
+                code_path.write_text("module.exports.loop = function loop() {};", encoding="utf-8")
+                cfg = SmokeConfig(
+                    **{
+                        **self.make_cfg().__dict__,
+                        "work_dir": temp_path / "work",
+                        "code_path": code_path,
+                        "dry_run": False,
+                    }
+                )
+                cfg.work_dir.mkdir(mode=GENERATED_DIR_MODE)
+                target = cfg.work_dir / "target-steam-key"
+                os.symlink(target, cfg.steam_key_path)
+                with self.assertRaises(SmokeError):
+                    prepare_work_dir(cfg)
+                self.assertFalse(target.exists())
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+    def test_live_prepare_rejects_preexisting_bot_main_symlink(self) -> None:
+        """Live preparation should not follow a preexisting bot main symlink."""
+        if not hasattr(os, "symlink"):
+            self.skipTest("os.symlink is unavailable")
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "self-test-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                code_path = temp_path / "main.js"
+                code_path.write_text("module.exports.loop = function loop() {};", encoding="utf-8")
+                cfg = SmokeConfig(
+                    **{
+                        **self.make_cfg().__dict__,
+                        "work_dir": temp_path / "work",
+                        "code_path": code_path,
+                        "dry_run": False,
+                    }
+                )
+                cfg.bot_main_path.parent.mkdir(mode=GENERATED_DIR_MODE, parents=True)
+                target = cfg.work_dir / "target-main.js"
+                os.symlink(target, cfg.bot_main_path)
+                with self.assertRaises(SmokeError):
+                    prepare_work_dir(cfg)
+                self.assertFalse(target.exists())
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+    def test_dry_run_does_not_create_or_report_steam_key(self) -> None:
+        """Dry-run should remain secret-free even if STEAM_KEY is present."""
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "dry-run-env-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                cfg = SmokeConfig(**{**self.make_cfg().__dict__, "work_dir": Path(temp_dir)})
+                report = run_dry(cfg)
+                persisted = json.loads(Path(report["report_path"]).read_text(encoding="utf-8"))
+                encoded = json.dumps({"report": report, "persisted": persisted}, sort_keys=True)
+                steam_key_exists = cfg.steam_key_path.exists()
+                dry_run_directory_modes = {
+                    relative: (cfg.work_dir / relative).stat().st_mode & 0o7777
+                    for relative in (".", "maps", "bots", "bots/mvpbot")
+                }
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+        self.assertFalse(steam_key_exists)
+        for relative, mode in dry_run_directory_modes.items():
+            with self.subTest(relative=relative):
+                self.assertEqual(mode, GENERATED_DIR_MODE)
+                self.assertEqual(mode & 0o077, 0)
+        self.assertEqual(report["prepare"]["container_writable_dirs"], "not-applied-dry-run")
+        self.assertNotIn("dry-run-env-steam-key", encoded)
+
     def test_upload_code_accepts_common_success_payloads(self) -> None:
         """/api/user/code should accept timestamp and ok-style success bodies."""
         for payload in ({"timestamp": 123}, {"ok": 1}, {"ok": True}):
@@ -1256,6 +1552,113 @@ class SmokeSelfTest(unittest.TestCase):
                     record_required_api_probe(phases, "user-overview", "/api/user/overview", result, [hidden])
                 self.assertFalse(phases[-1]["ok"])
                 self.assertNotIn(hidden, str(caught.exception))
+
+    def test_run_launcher_cli_posts_expression_to_http_endpoint(self) -> None:
+        """Launcher CLI execution should post raw expressions to the HTTP CLI."""
+        cfg = self.make_cfg()
+        original_http_text = globals()["http_text"]
+        captured: dict[str, Any] = {}
+
+        def fake_http_text(
+            method: str,
+            base_url: str,
+            path: str,
+            body: str | None = None,
+            **kwargs: Any,
+        ) -> HttpResult:
+            """Capture the request shape without touching the network."""
+            captured.update({
+                "method": method,
+                "base_url": base_url,
+                "path": path,
+                "body": body,
+                "timeout": kwargs.get("timeout"),
+                "max_len": kwargs.get("max_len"),
+            })
+            return HttpResult(200, "2\n", {})
+
+        try:
+            globals()["http_text"] = fake_http_text
+            details = run_launcher_cli(["docker", "compose"], cfg, "1+1")
+        finally:
+            globals()["http_text"] = original_http_text
+
+        self.assertEqual(
+            captured,
+            {
+                "method": "POST",
+                "base_url": "http://127.0.0.1:21026",
+                "path": "/cli",
+                "body": "1+1",
+                "timeout": 240,
+                "max_len": LAUNCHER_CLI_RESPONSE_LIMIT,
+            },
+        )
+        self.assertEqual(details["endpoint"], "http://127.0.0.1:21026/cli")
+        self.assertEqual(details["status"], 200)
+        self.assertEqual(details["response_excerpt"], "2\n")
+
+    def test_run_launcher_cli_rejects_http_and_cli_error_payloads(self) -> None:
+        """Launcher CLI execution should fail on HTTP errors and Error: payloads."""
+        cfg = self.make_cfg()
+        original_http_text = globals()["http_text"]
+
+        cases = (
+            ("http-status", HttpResult(503, "temporary unavailable", {}), "returned 503"),
+            ("cli-error", HttpResult(200, "Error: bad expression", {}), "launcher CLI returned error"),
+            ("timeout", TimeoutError("temporary timeout"), "temporary timeout"),
+        )
+        for name, outcome, expected in cases:
+            with self.subTest(name=name):
+
+                def fake_http_text(
+                    *args: Any,
+                    outcome: HttpResult | BaseException = outcome,
+                    **kwargs: Any,
+                ) -> HttpResult:
+                    """Return a deterministic launcher CLI failure."""
+                    if isinstance(outcome, BaseException):
+                        raise outcome
+                    return outcome
+
+                try:
+                    globals()["http_text"] = fake_http_text
+                    with self.assertRaises(SmokeError) as caught:
+                        run_launcher_cli([], cfg, "bad()")
+                finally:
+                    globals()["http_text"] = original_http_text
+                self.assertIn(expected, str(caught.exception))
+
+    def test_run_launcher_cli_redacts_and_bounds_response_output(self) -> None:
+        """Launcher CLI reports should redact secrets and bound response text."""
+        cfg = self.make_cfg()
+        original_http_text = globals()["http_text"]
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        hidden_steam_key = "self-test-steam-key"
+        long_response = f"ok {hidden_steam_key} {cfg.password} " + ("x" * 2000)
+
+        def fake_http_text(*args: Any, **kwargs: Any) -> HttpResult:
+            """Return a successful response that still needs report sanitation."""
+            return HttpResult(200, long_response, {})
+
+        try:
+            os.environ["STEAM_KEY"] = hidden_steam_key
+            globals()["http_text"] = fake_http_text
+            details = run_launcher_cli([], cfg, "secretProbe()")
+        finally:
+            globals()["http_text"] = original_http_text
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+        excerpt = details["response_excerpt"]
+        self.assertLessEqual(len(excerpt), LAUNCHER_CLI_RESPONSE_LIMIT)
+        self.assertTrue(excerpt.endswith("..."))
+        self.assertIn("[REDACTED]", excerpt)
+        self.assertNotIn(hidden_steam_key, excerpt)
+        self.assertNotIn(cfg.password or "", excerpt)
 
     def test_signin_payload_uses_configured_email(self) -> None:
         """Sign-in should use the registered email even when username differs."""
@@ -1349,6 +1752,29 @@ class SmokeSelfTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(SmokeError, "SCREEPS_PRIVATE_SMOKE_MAP_URL"):
                 prepare_map(cfg)
+
+    def test_prepare_map_rejects_preexisting_map_symlink(self) -> None:
+        """Map preparation should not follow a preexisting map-file symlink."""
+        if not hasattr(os, "symlink"):
+            self.skipTest("os.symlink is unavailable")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source = temp_path / "source-map.json"
+            source.write_text("{}", encoding="utf-8")
+            cfg = SmokeConfig(
+                **{
+                    **self.make_cfg().__dict__,
+                    "work_dir": temp_path / "work",
+                    "map_source_file": source,
+                    "dry_run": False,
+                }
+            )
+            cfg.map_path.parent.mkdir(mode=GENERATED_DIR_MODE, parents=True)
+            target = cfg.work_dir / "target-map.json"
+            os.symlink(target, cfg.map_path)
+            with self.assertRaises(SmokeError):
+                prepare_map(cfg)
+            self.assertFalse(target.exists())
 
     def test_safe_work_dir_rejects_unignored_repo_paths(self) -> None:
         """Secret-bearing workdirs must be outside the repo or ignored."""

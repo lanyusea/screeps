@@ -179,7 +179,7 @@ Recent additions:
 
 ### 7. Private-server smoke attempt and harness
 
-Status: pinned Dockerized path passed room/map initialization and bot tick validation; committed harness exists, and the next validation step is a fresh live harness run before treating it as a reusable release gate.
+Status: pinned Dockerized path passed room/map initialization and bot tick validation; PR #16 live-rerun fixes made the committed harness pass a fresh live run from an ignored workdir, and the PR remains open until merge gates complete.
 
 Artifacts:
 
@@ -206,7 +206,7 @@ Current result:
 - Follow-up observation reached `/stats` `gametime: 5267`, `totalRooms: 169`, `activeRooms: 1`, `ownedRooms: 1`, and one RCL 2 owned room.
 - Mongo room-object inspection showed owned `Spawn1` and three living bot-created `WORK/CARRY/MOVE` workers named `worker-E1S1-*`; post-restart log scanning found no current unhandled/type/reference/error hits.
 - Harness status: PR #12 `scripts/screeps-private-smoke.py` now supports offline `self-test`, `dry-run`, and live `run`. It writes a secret-free launcher config, keeps the actual Steam key and local auth password out of committed files and reports, rejects unsafe repo-local workdirs before writing secrets, retries transient `/stats` failures, requires room-specific Mongo spawn evidence for the `already playing` placement path, pins Docker image tags (`screepers/screeps-launcher:v1.16.2`, `mongo:8.2.7`, `redis:7.4.8`), signs in with the configured smoke email, uploads `prod/dist/main.js` without printing code contents, and writes a redacted JSON observation report.
-- Remaining work: run the harness live from a clean ignored work directory, then wire scheduled runtime-summary/runtime-alert monitoring using the now-repeat-smoked live-token monitor path. Basic room initialization is no longer the blocker.
+- Remaining work: merge PR #16 after checks/review gates; then wire scheduled runtime-summary/runtime-alert monitoring using the now-repeat-smoked live-token monitor path. Basic room initialization and harness live execution are no longer blockers.
 
 ## Active blockers and decisions
 
@@ -270,7 +270,7 @@ Immediate operating change:
 
 Docker/Compose, package installation, HTTP startup, local auth, code upload, room/map initialization, spawn placement, and bot tick validation are no longer the primary blockers for the pinned launcher path. The active follow-up is making this repeatable and observable:
 
-1. wait for PR #12 review state to refresh after latest harness hardening commit `d8c9197`, then merge through the PR gate and run the new pinned launcher harness live from a clean ignored work directory, archiving the redacted report in a process note;
+1. finish PR #16 review/check/merge gates for the harness live-rerun fixes; the latest secure live rerun from `/root/screeps/runtime-artifacts/screeps-private-smoke-live-20260426T0633Z` passed with one owned room and one bot-created worker;
 2. observe several additional windows or reruns to ensure the harness path is stable across fresh data resets;
 3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded twice (`summary` PNGs rendered; `alert=false` with no warnings for `shardX/E48S28` at official ticks `108687` and `109202`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
