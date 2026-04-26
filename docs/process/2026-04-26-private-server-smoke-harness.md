@@ -26,6 +26,7 @@ The harness supports:
 
 ```bash
 python3 scripts/screeps-private-smoke.py self-test
+python3 scripts/screeps-private-smoke.py dry-run
 python3 scripts/screeps-private-smoke.py run --dry-run
 python3 scripts/screeps-private-smoke.py run
 ```
@@ -34,12 +35,15 @@ Self-test is offline and validates config generation, Docker Compose shape, reda
 
 Live run mode:
 
-- creates/uses an ignored work directory, defaulting to `runtime-artifacts/screeps-private-smoke`;
+- creates/uses an ignored work directory, defaulting to `runtime-artifacts/screeps-private-smoke`, and rejects repo-local workdirs that are not gitignored before writing secret-bearing files;
 - writes secret-free `config.yml` using `steamKeyFile: STEAM_KEY`;
 - writes Docker Compose for launcher, Mongo, and Redis;
 - writes the actual Steam key only into the ignored work directory;
 - downloads or copies the pinned map file;
-- starts the local stack, imports the map, restarts/resumes simulation, registers/signs in a local smoke user, uploads `prod/dist/main.js`, places the spawn, polls `/stats`, and writes a redacted JSON report.
+- starts the local stack, imports the map, restarts/resumes simulation, registers/signs in a local smoke user, uploads `prod/dist/main.js`, places the spawn, polls `/stats`, and writes a redacted JSON report;
+- requires a caller-supplied `SCREEPS_PRIVATE_SMOKE_PASSWORD` when reusing existing server data without reset;
+- keeps `/stats` polling alive through transient HTTP failures until the configured deadline;
+- requires room-specific Mongo evidence for the configured spawn when spawn placement reports that the smoke user is already playing.
 
 Redaction coverage avoids printing or reporting `STEAM_KEY`, passwords, auth tokens, authorization headers, token headers, and uploaded code contents. Reports use code byte counts and SHA-256 digests instead.
 
@@ -51,7 +55,7 @@ Offline harness verification:
 
 ```text
 python3 scripts/screeps-private-smoke.py self-test
-# passed, 6 tests
+# passed, 12 tests
 ```
 
 Dry-run verification:

@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T11:01:39+08:00
+Last updated: 2026-04-26T11:25:41+08:00
 
 ## Current active objective
 
@@ -191,7 +191,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Longer observation note: `docs/process/2026-04-26-private-server-long-observation.md`
 - Harness note: `docs/process/2026-04-26-private-server-smoke-harness.md`
 - Current recommendation: private-server-first validation remains the release-quality path. Dockerized `screepers/screeps-launcher` with explicit `version: 4.2.21`, launcher Node `12.22.12`, and transitive dependency resolutions (`body-parser: 1.20.3`, `path-to-regexp: 0.1.12`) can initialize rooms when the map import avoids the Node 12 global-`fetch` path by using a pre-downloaded map file plus `utils.importMapFile('/screeps/maps/map-0b6758af.json')`. A follow-up observation reached private `gametime: 5267`, `totalRooms: 169`, `ownedRooms: 1`, one RCL 2 room, and three live bot-created workers without post-restart log exceptions.
-- Harness status: `scripts/screeps-private-smoke.py` supports offline `self-test`, `run --dry-run`, and live `run`; it writes secret-free launcher config, keeps live secrets in the ignored workdir only, uploads `prod/dist/main.js` without reporting code contents, and writes a redacted JSON observation report.
+- Harness status: PR #12 `scripts/screeps-private-smoke.py` supports offline `self-test`, `dry-run`, and live `run`; review hardening now rejects unsafe repo-local workdirs before writing secrets, requires a stable password when reusing no-reset server data, retries transient `/stats` failures until the deadline, requires room-specific Mongo spawn evidence for the `already playing` placement path, bounds Mongo summaries so JSON remains parseable, and adds docstrings for CodeRabbit coverage.
 - Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
 - Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
 - Durable roadmap: `docs/ops/roadmap.md`
@@ -204,8 +204,8 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Pinned Dockerized runtime smoke: pre-downloaded `map-0b6758af.json`, imported with `utils.importMapFile`, restarted/resumed simulation, registered local smoke user, uploaded `prod/dist/main.js`, placed `Spawn1` at `E1S1` `(20,20)`, and observed `/stats` with `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, plus owned `worker-E1S1-*` creeps in Mongo
   - Longer pinned runtime observation: private `gametime: 5267`, one RCL 2 owned room, three live bot-created workers, average tick time about 200 ms, and no current post-restart `Unhandled`/`TypeError`/`ReferenceError`/`Error:` hits in launcher logs
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
-  - Private smoke harness self-test: `python3 scripts/screeps-private-smoke.py self-test` passed, 6 tests
-  - Private smoke harness dry-run: `python3 scripts/screeps-private-smoke.py run --dry-run --work-dir /tmp/screeps-private-smoke-harness-dry-run-controller` passed and wrote a redacted report without Docker, network, secrets, or a live server
+  - Private smoke harness self-test: `python3 scripts/screeps-private-smoke.py self-test` passed, 12 tests
+  - Private smoke harness dry-run: `python3 scripts/screeps-private-smoke.py dry-run` passed and wrote a redacted report without Docker, network, secrets, or a live server
   - Current prod verification after harness addition: `npm run typecheck`, `npm test -- --runInBand` (12 suites / 68 tests), and `npm run build` all passed in `prod/`
 - Candidate next outputs:
   1. run the pinned private-server smoke harness live from a clean ignored work directory and capture the redacted report

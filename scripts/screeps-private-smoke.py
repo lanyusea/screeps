@@ -63,6 +63,8 @@ class SmokeError(RuntimeError):
 
 @dataclass(frozen=True)
 class SmokeConfig:
+    """Runtime configuration for dry-run and live private-smoke execution."""
+
     work_dir: Path
     server_host: str
     http_port: int
@@ -90,38 +92,47 @@ class SmokeConfig:
 
     @property
     def config_path(self) -> Path:
+        """Return the generated launcher config path."""
         return self.work_dir / "config.yml"
 
     @property
     def compose_path(self) -> Path:
+        """Return the generated Docker Compose file path."""
         return self.work_dir / "docker-compose.yml"
 
     @property
     def steam_key_path(self) -> Path:
+        """Return the local Steam key file path used by the launcher."""
         return self.work_dir / "STEAM_KEY"
 
     @property
     def map_path(self) -> Path:
+        """Return the local map file path mounted into the launcher."""
         return self.work_dir / "maps" / MAP_FILENAME
 
     @property
     def bot_main_path(self) -> Path:
+        """Return the bot bundle path mounted into the launcher."""
         return self.work_dir / "bots" / "mvpbot" / "main.js"
 
     @property
     def report_path(self) -> Path:
+        """Return a timestamped redacted report path in the workdir."""
         timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         return self.work_dir / f"private-smoke-report-{timestamp}.json"
 
 
 @dataclass
 class HttpResult:
+    """HTTP status, decoded payload, and response headers."""
+
     status: int
     payload: Any
     headers: dict[str, str]
 
 
 def short_text(value: Any, max_len: int = 500) -> str:
+    """Return a bounded string representation for reports and errors."""
     text = str(value)
     if len(text) <= max_len:
         return text
@@ -129,6 +140,7 @@ def short_text(value: Any, max_len: int = 500) -> str:
 
 
 def env_int(name: str, default: int) -> int:
+    """Read an integer environment variable with a SmokeError on bad input."""
     raw = os.environ.get(name)
     if raw is None or raw == "":
         return default
@@ -139,6 +151,7 @@ def env_int(name: str, default: int) -> int:
 
 
 def env_bool(name: str, default: bool) -> bool:
+    """Read a permissive boolean environment variable."""
     raw = os.environ.get(name)
     if raw is None or raw == "":
         return default
@@ -146,11 +159,13 @@ def env_bool(name: str, default: bool) -> bool:
 
 
 def safe_fragment(value: str) -> str:
+    """Convert arbitrary text into a Docker Compose-safe fragment."""
     fragment = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip(".-")
     return fragment or "screeps-private-smoke"
 
 
 def resolve_path(value: str | None, default: Path | None = None) -> Path | None:
+    """Resolve an optional path relative to the current directory."""
     if not value:
         return default
     path = Path(value).expanduser()
@@ -159,12 +174,33 @@ def resolve_path(value: str | None, default: Path | None = None) -> Path | None:
     return path
 
 
+def assert_safe_work_dir(work_dir: Path) -> None:
+    """Ensure an in-repository workdir is ignored before secrets are written."""
+    resolved = work_dir.resolve()
+    try:
+        resolved.relative_to(REPO_ROOT)
+    except ValueError:
+        return
+
+    check = subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(resolved)],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if check.returncode != 0:
+        raise SmokeError(f"work dir must be outside the repo or gitignored before writing secrets: {resolved}")
+
+
 def config_from_env(args: argparse.Namespace) -> SmokeConfig:
+    """Build a SmokeConfig from CLI arguments and environment variables."""
     work_dir = resolve_path(
         args.work_dir or os.environ.get("SCREEPS_PRIVATE_SMOKE_WORKDIR"),
         DEFAULT_WORK_DIR,
     )
     assert work_dir is not None
+    assert_safe_work_dir(work_dir)
     server_host = os.environ.get("SCREEPS_PRIVATE_SMOKE_HOST", "127.0.0.1")
     http_port = env_int("SCREEPS_PRIVATE_SMOKE_HTTP_PORT", DEFAULT_HTTP_PORT)
     cli_port = env_int("SCREEPS_PRIVATE_SMOKE_CLI_PORT", DEFAULT_CLI_PORT)
@@ -179,8 +215,9 @@ def config_from_env(args: argparse.Namespace) -> SmokeConfig:
     map_source_file = resolve_path(os.environ.get("SCREEPS_PRIVATE_SMOKE_MAP_FILE"))
     code_path = resolve_path(os.environ.get("SCREEPS_PRIVATE_SMOKE_CODE_PATH"), DEFAULT_CODE_PATH)
     assert code_path is not None
+    reset_data = not args.no_reset_data and env_bool("SCREEPS_PRIVATE_SMOKE_RESET_DATA", True)
     password = os.environ.get("SCREEPS_PRIVATE_SMOKE_PASSWORD")
-    if not password and not args.dry_run:
+    if not password and not args.dry_run and reset_data:
         password = secrets.token_urlsafe(24)
     compose_seed = hashlib.sha1(str(work_dir).encode("utf-8")).hexdigest()[:8]
     compose_project = safe_fragment(
@@ -207,7 +244,7 @@ def config_from_env(args: argparse.Namespace) -> SmokeConfig:
         stats_timeout=env_int("SCREEPS_PRIVATE_SMOKE_STATS_TIMEOUT", args.stats_timeout),
         poll_interval=env_int("SCREEPS_PRIVATE_SMOKE_POLL_INTERVAL", args.poll_interval),
         min_creeps=env_int("SCREEPS_PRIVATE_SMOKE_MIN_CREEPS", args.min_creeps),
-        reset_data=not args.no_reset_data and env_bool("SCREEPS_PRIVATE_SMOKE_RESET_DATA", True),
+        reset_data=reset_data,
         dry_run=args.dry_run,
         compose_project=compose_project,
         mongo_db=os.environ.get("SCREEPS_PRIVATE_SMOKE_MONGO_DB", "screeps"),
@@ -215,19 +252,24 @@ def config_from_env(args: argparse.Namespace) -> SmokeConfig:
 
 
 def required_env_errors(cfg: SmokeConfig) -> list[str]:
+    """Return sanitized prerequisite errors for live execution."""
     errors: list[str] = []
     if cfg.dry_run:
         return errors
     if not os.environ.get("STEAM_KEY"):
         errors.append("STEAM_KEY is required for run mode")
     if cfg.password is None:
-        errors.append("internal error: smoke password was not generated")
+        if not cfg.reset_data:
+            errors.append("SCREEPS_PRIVATE_SMOKE_PASSWORD is required when reusing server data without reset")
+        else:
+            errors.append("internal error: smoke password was not generated")
     if not cfg.code_path.exists():
         errors.append(f"bot bundle does not exist: {cfg.code_path}")
     return errors
 
 
 def build_launcher_config(cfg: SmokeConfig) -> str:
+    """Render the pinned screeps-launcher configuration."""
     return f"""steamKeyFile: STEAM_KEY
 version: 4.2.21
 nodeVersion: Erbium
@@ -264,6 +306,7 @@ cli:
 
 
 def build_compose_file(cfg: SmokeConfig) -> str:
+    """Render the Docker Compose stack used for the private smoke."""
     return f"""services:
   screeps:
     image: screepers/screeps-launcher:latest
@@ -319,6 +362,7 @@ volumes:
 
 
 def code_digest(path: Path) -> dict[str, Any]:
+    """Return a non-secret size and SHA-256 summary for a code artifact."""
     data = path.read_bytes()
     return {
         "path": str(path),
@@ -328,6 +372,7 @@ def code_digest(path: Path) -> dict[str, Any]:
 
 
 def redacted_module_summary(modules: dict[str, Any]) -> dict[str, Any]:
+    """Summarize uploaded code modules without returning their contents."""
     summary: dict[str, Any] = {}
     for name, value in modules.items():
         if isinstance(value, str):
@@ -342,6 +387,7 @@ def redacted_module_summary(modules: dict[str, Any]) -> dict[str, Any]:
 
 
 def redact(value: Any, secrets_to_hide: list[str] | None = None, parent_key: str = "") -> Any:
+    """Recursively replace secret-like values and uploaded code with summaries."""
     secrets_to_hide = [s for s in (secrets_to_hide or []) if s]
     key = parent_key.lower().replace("-", "_")
     if isinstance(value, dict):
@@ -371,6 +417,7 @@ def redact(value: Any, secrets_to_hide: list[str] | None = None, parent_key: str
 
 
 def assert_no_secret_leak(payload: Any, secrets_to_hide: list[str]) -> None:
+    """Raise if a supposedly redacted report still contains sensitive material."""
     encoded = json.dumps(payload, sort_keys=True)
     for secret_value in secrets_to_hide:
         if secret_value and secret_value in encoded:
@@ -380,6 +427,7 @@ def assert_no_secret_leak(payload: Any, secrets_to_hide: list[str]) -> None:
 
 
 def build_register_payload(cfg: SmokeConfig) -> dict[str, Any]:
+    """Build the local user registration request body."""
     if cfg.password is None:
         raise SmokeError("smoke password is unavailable")
     return {
@@ -390,6 +438,7 @@ def build_register_payload(cfg: SmokeConfig) -> dict[str, Any]:
 
 
 def build_signin_payload(cfg: SmokeConfig) -> dict[str, Any]:
+    """Build the local user sign-in request body."""
     if cfg.password is None:
         raise SmokeError("smoke password is unavailable")
     return {
@@ -399,6 +448,7 @@ def build_signin_payload(cfg: SmokeConfig) -> dict[str, Any]:
 
 
 def build_code_payload(cfg: SmokeConfig, code: str) -> dict[str, Any]:
+    """Build the code upload request body for the configured branch."""
     return {
         "branch": cfg.branch,
         "modules": {
@@ -408,6 +458,7 @@ def build_code_payload(cfg: SmokeConfig, code: str) -> dict[str, Any]:
 
 
 def build_spawn_payload(cfg: SmokeConfig) -> dict[str, Any]:
+    """Build the spawn placement request body."""
     return {
         "name": cfg.spawn_name,
         "room": cfg.room,
@@ -417,6 +468,7 @@ def build_spawn_payload(cfg: SmokeConfig) -> dict[str, Any]:
 
 
 def request_shape(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Describe an HTTP request shape for dry-run reports."""
     return {
         "method": method,
         "path": path,
@@ -425,6 +477,8 @@ def request_shape(method: str, path: str, body: dict[str, Any] | None = None) ->
 
 
 def prepare_work_dir(cfg: SmokeConfig) -> dict[str, Any]:
+    """Create launcher files and copy live-only secret/runtime inputs."""
+    assert_safe_work_dir(cfg.work_dir)
     cfg.work_dir.mkdir(parents=True, exist_ok=True)
     (cfg.work_dir / "maps").mkdir(parents=True, exist_ok=True)
     cfg.bot_main_path.parent.mkdir(parents=True, exist_ok=True)
@@ -445,6 +499,7 @@ def prepare_work_dir(cfg: SmokeConfig) -> dict[str, Any]:
 
 
 def prepare_map(cfg: SmokeConfig) -> dict[str, Any]:
+    """Prepare the map file from dry-run metadata, a local file, or a URL."""
     if cfg.dry_run:
         return {
             "path": str(cfg.map_path),
@@ -474,6 +529,7 @@ def prepare_map(cfg: SmokeConfig) -> dict[str, Any]:
 
 
 def find_compose_command() -> list[str]:
+    """Find a usable Docker Compose command."""
     docker = shutil.which("docker")
     if docker:
         try:
@@ -496,6 +552,7 @@ def find_compose_command() -> list[str]:
 
 
 def compose_env(cfg: SmokeConfig) -> dict[str, str]:
+    """Return subprocess environment with the smoke Compose project name."""
     env = os.environ.copy()
     env["COMPOSE_PROJECT_NAME"] = cfg.compose_project
     return env
@@ -506,7 +563,9 @@ def run_command(
     cfg: SmokeConfig,
     input_text: str | None = None,
     timeout: int = 120,
+    output_limit: int = 1400,
 ) -> dict[str, Any]:
+    """Run a Compose-scoped command and return sanitized bounded output."""
     started = time.time()
     result = subprocess.run(
         command,
@@ -522,7 +581,7 @@ def run_command(
     elapsed = round(time.time() - started, 3)
     command_summary = [Path(command[0]).name, *command[1:]]
     output = "\n".join(part for part in (result.stdout, result.stderr) if part)
-    sanitized_output = redact(short_text(output, 1400), [os.environ.get("STEAM_KEY", ""), cfg.password or ""])
+    sanitized_output = redact(short_text(output, output_limit), [os.environ.get("STEAM_KEY", ""), cfg.password or ""])
     return {
         "command": command_summary,
         "returncode": result.returncode,
@@ -532,6 +591,7 @@ def run_command(
 
 
 def require_success(step: dict[str, Any]) -> dict[str, Any]:
+    """Raise SmokeError when a command step returned a non-zero status."""
     if step["returncode"] != 0:
         raise SmokeError(f"command failed: {' '.join(step['command'])}: {step['output_excerpt']}")
     return step
@@ -547,6 +607,7 @@ def http_json(
     basic_auth: tuple[str, str] | None = None,
     timeout: int = 25,
 ) -> HttpResult:
+    """Send an HTTP request and decode a JSON response or HTTP error body."""
     url = base_url.rstrip("/") + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
@@ -576,6 +637,7 @@ def http_json(
 
 
 def token_headers(token: str) -> dict[str, str]:
+    """Return the Screeps token headers expected by the private server."""
     return {
         "X-Username": token,
         "X-Token": token,
@@ -583,6 +645,7 @@ def token_headers(token: str) -> dict[str, str]:
 
 
 def update_token_from_headers(current: str, headers: dict[str, str]) -> str:
+    """Refresh the auth token when the private server rotates it."""
     for key, value in headers.items():
         if key.lower() == "x-token" and value:
             return value
@@ -590,6 +653,7 @@ def update_token_from_headers(current: str, headers: dict[str, str]) -> str:
 
 
 def wait_for_http(cfg: SmokeConfig, timeout: int = 300) -> dict[str, Any]:
+    """Poll the private server until its version endpoint is reachable."""
     deadline = time.time() + timeout
     attempts = 0
     last_error = ""
@@ -609,11 +673,13 @@ def wait_for_http(cfg: SmokeConfig, timeout: int = 300) -> dict[str, Any]:
 
 
 def run_launcher_cli(compose: list[str], cfg: SmokeConfig, expression: str) -> dict[str, Any]:
+    """Execute a screeps-launcher CLI expression inside the stack."""
     command = [*compose, "exec", "-T", "screeps", "screeps-launcher", "cli"]
     return require_success(run_command(command, cfg, input_text=expression + "\n", timeout=240))
 
 
 def safe_user_stats(stats: dict[str, Any], username: str) -> dict[str, Any]:
+    """Extract the non-secret per-user fields needed for smoke criteria."""
     users = stats.get("users")
     selected = None
     if isinstance(users, list):
@@ -633,6 +699,7 @@ def safe_user_stats(stats: dict[str, Any], username: str) -> dict[str, Any]:
 
 
 def stats_passed(summary: dict[str, Any], min_creeps: int) -> bool:
+    """Return whether aggregate stats meet the smoke success criteria."""
     user = summary.get("user")
     if not isinstance(user, dict):
         return False
@@ -651,12 +718,19 @@ def stats_passed(summary: dict[str, Any], min_creeps: int) -> bool:
 
 
 def poll_stats(cfg: SmokeConfig) -> dict[str, Any]:
+    """Poll /stats until criteria pass or the configured deadline expires."""
     deadline = time.time() + cfg.stats_timeout
     first: dict[str, Any] | None = None
     last: dict[str, Any] | None = None
     samples = 0
+    last_error = ""
     while time.time() < deadline:
-        result = http_json("GET", cfg.server_url, "/stats", timeout=15)
+        try:
+            result = http_json("GET", cfg.server_url, "/stats", timeout=15)
+        except Exception as exc:  # noqa: BLE001 - transient request failures are retried until the deadline
+            last_error = short_text(exc, 200)
+            time.sleep(min(cfg.poll_interval, max(0, deadline - time.time())))
+            continue
         if result.status == 200 and isinstance(result.payload, dict):
             samples += 1
             summary = safe_user_stats(result.payload, cfg.username)
@@ -670,7 +744,7 @@ def poll_stats(cfg: SmokeConfig) -> dict[str, Any]:
                     "last": last,
                     "criteria": {"min_creeps": cfg.min_creeps},
                 }
-        time.sleep(cfg.poll_interval)
+        time.sleep(min(cfg.poll_interval, max(0, deadline - time.time())))
     return {
         "ok": False,
         "samples": samples,
@@ -678,27 +752,46 @@ def poll_stats(cfg: SmokeConfig) -> dict[str, Any]:
         "last": last,
         "criteria": {"min_creeps": cfg.min_creeps},
         "error": "stats criteria were not met before timeout",
+        "last_error": last_error or None,
     }
 
 
 def collect_mongo_summary(compose: list[str], cfg: SmokeConfig) -> dict[str, Any]:
+    """Collect a bounded room-specific object summary from Mongo."""
     eval_script = f"""
 const smokeDb = db.getSiblingDB({json.dumps(cfg.mongo_db)});
-const objects = smokeDb.getCollection('rooms.objects').find({{room: {json.dumps(cfg.room)}, type: {{$in: ['spawn', 'creep', 'controller', 'source', 'mineral']}}}}).toArray();
 const counts = {{}};
-const creeps = [];
-const spawns = [];
-let controller = null;
-for (const object of objects) {{
-  counts[object.type] = (counts[object.type] || 0) + 1;
-  if (object.type === 'creep') creeps.push({{name: object.name, x: object.x, y: object.y, body: (object.body || []).map(part => part.type), ticksToLive: object.ticksToLive}});
-  if (object.type === 'spawn') spawns.push({{name: object.name, x: object.x, y: object.y, hits: object.hits, hitsMax: object.hitsMax, store: object.store}});
-  if (object.type === 'controller') controller = {{x: object.x, y: object.y, level: object.level, progress: object.progress, progressTotal: object.progressTotal}};
+const objects = smokeDb.getCollection('rooms.objects');
+const user = smokeDb.getCollection('users').findOne({{username: {json.dumps(cfg.username)}}}, {{_id: 1, username: 1}});
+for (const item of objects.aggregate([
+  {{$match: {{room: {json.dumps(cfg.room)}, type: {{$in: ['spawn', 'creep', 'controller', 'source', 'mineral']}}}}}},
+  {{$group: {{_id: '$type', count: {{$sum: 1}}}}}},
+])) {{
+  counts[item._id] = item.count;
 }}
-print(JSON.stringify({{room: {json.dumps(cfg.room)}, counts, spawns, creeps, controller}}));
+const spawns = objects
+  .find({{room: {json.dumps(cfg.room)}, type: 'spawn'}}, {{_id: 0, name: 1, x: 1, y: 1, hits: 1, hitsMax: 1, user: 1}})
+  .sort({{name: 1}})
+  .limit(20)
+  .toArray()
+  .map(object => ({{name: object.name, x: object.x, y: object.y, hits: object.hits, hitsMax: object.hitsMax, user: object.user == null ? null : String(object.user)}}));
+const creeps = objects
+  .find({{room: {json.dumps(cfg.room)}, type: 'creep'}}, {{_id: 0, name: 1, x: 1, y: 1, body: 1, ticksToLive: 1, user: 1}})
+  .sort({{name: 1}})
+  .limit(10)
+  .toArray()
+  .map(object => ({{name: object.name, x: object.x, y: object.y, body: (object.body || []).map(part => part.type), ticksToLive: object.ticksToLive, user: object.user == null ? null : String(object.user)}}));
+const controllerObject = objects.findOne(
+  {{room: {json.dumps(cfg.room)}, type: 'controller'}},
+  {{_id: 0, x: 1, y: 1, level: 1, progress: 1, progressTotal: 1, user: 1}},
+);
+const controller = controllerObject
+  ? {{x: controllerObject.x, y: controllerObject.y, level: controllerObject.level, progress: controllerObject.progress, progressTotal: controllerObject.progressTotal, user: controllerObject.user == null ? null : String(controllerObject.user)}}
+  : null;
+print(JSON.stringify({{room: {json.dumps(cfg.room)}, user: user ? {{username: user.username, id: String(user._id)}} : null, counts, spawns, creeps, controller}}));
 """
     command = [*compose, "exec", "-T", "mongo", "mongosh", "--quiet", "--eval", eval_script]
-    result = run_command(command, cfg, timeout=60)
+    result = run_command(command, cfg, timeout=60, output_limit=12000)
     if result["returncode"] != 0:
         return {"ok": False, "error": result["output_excerpt"]}
     try:
@@ -708,7 +801,68 @@ print(JSON.stringify({{room: {json.dumps(cfg.room)}, counts, spawns, creeps, con
     return {"ok": True, "summary": redact(payload)}
 
 
+def verify_room_spawn_summary(mongo_summary: dict[str, Any], cfg: SmokeConfig) -> dict[str, Any]:
+    """Verify Mongo proves the expected smoke spawn belongs in the room."""
+    if not mongo_summary.get("ok"):
+        return {
+            "ok": False,
+            "error": f"room-specific Mongo summary could not be collected: {mongo_summary.get('error', 'unknown error')}",
+            "summary_ok": False,
+        }
+    summary = mongo_summary.get("summary")
+    if not isinstance(summary, dict):
+        return {"ok": False, "error": "room-specific Mongo summary was not an object", "summary_ok": True}
+    if summary.get("room") != cfg.room:
+        return {"ok": False, "error": f"Mongo summary returned unexpected room {summary.get('room')!r}", "summary_ok": True}
+
+    user = summary.get("user")
+    expected_user_id = user.get("id") if isinstance(user, dict) else None
+    if not isinstance(expected_user_id, str) or not expected_user_id:
+        return {"ok": False, "error": f"Mongo summary could not prove smoke user {cfg.username!r}", "summary_ok": True}
+
+    spawns = summary.get("spawns")
+    matching_spawn = None
+    if isinstance(spawns, list):
+        for spawn in spawns:
+            if isinstance(spawn, dict) and spawn.get("name") == cfg.spawn_name:
+                matching_spawn = spawn
+                break
+    if matching_spawn is None:
+        return {
+            "ok": False,
+            "error": f"smoke did not confirm spawn {cfg.spawn_name!r} in room {cfg.room!r}",
+            "summary_ok": True,
+        }
+
+    spawn_user = matching_spawn.get("user")
+    if spawn_user != expected_user_id:
+        return {
+            "ok": False,
+            "error": f"spawn {cfg.spawn_name!r} in room {cfg.room!r} is not owned by smoke user {cfg.username!r}",
+            "summary_ok": True,
+        }
+
+    controller = summary.get("controller")
+    controller_user = controller.get("user") if isinstance(controller, dict) else None
+    if controller_user not in (None, expected_user_id):
+        return {
+            "ok": False,
+            "error": f"room {cfg.room!r} controller is not owned by smoke user {cfg.username!r}",
+            "summary_ok": True,
+        }
+
+    return {
+        "ok": True,
+        "room": cfg.room,
+        "spawn": cfg.spawn_name,
+        "username": cfg.username,
+        "spawn_owner_confirmed": True,
+        "controller_owner_confirmed": controller_user == expected_user_id,
+    }
+
+
 def run_live(cfg: SmokeConfig) -> dict[str, Any]:
+    """Run the full live Dockerized smoke and write a redacted report."""
     phases: list[dict[str, Any]] = []
     secrets_to_hide = [os.environ.get("STEAM_KEY", ""), cfg.password or ""]
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -808,6 +962,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         phases.append({"name": "place-spawn", "ok": place_ok or already_playing, "details": {"status": place.status, "response": redact(place.payload, secrets_to_hide)}})
         if not (place_ok or already_playing):
             raise SmokeError(f"spawn placement failed: {redact(place.payload, secrets_to_hide)}")
+        needs_room_spawn_verify = already_playing and not place_ok
 
         overview = http_json("GET", cfg.server_url, "/api/user/overview", headers=token_headers(token))
         token = update_token_from_headers(token, overview.headers)
@@ -823,13 +978,27 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         token = update_token_from_headers(token, room_overview.headers)
         phases.append({"name": "room-overview", "ok": room_overview.status == 200, "details": {"status": room_overview.status, "response": redact(room_overview.payload, secrets_to_hide)}})
 
+        mongo_summary: dict[str, Any] | None = None
+        if needs_room_spawn_verify:
+            mongo_summary = collect_mongo_summary(compose, cfg)
+            room_spawn_verify = verify_room_spawn_summary(mongo_summary, cfg)
+            phases.append({"name": "room-spawn-verify", "ok": bool(room_spawn_verify.get("ok")), "details": redact(room_spawn_verify, secrets_to_hide)})
+            if not room_spawn_verify.get("ok"):
+                raise SmokeError(str(room_spawn_verify.get("error", "room-specific spawn verification failed")))
+
         stats = poll_stats(cfg)
         phases.append({"name": "poll-stats", "ok": bool(stats.get("ok")), "details": redact(stats, secrets_to_hide)})
         if not stats.get("ok"):
             raise SmokeError("stats polling did not reach the expected owned-room/creep criteria")
 
-        mongo_summary = collect_mongo_summary(compose, cfg)
-        phases.append({"name": "mongo-summary", "ok": bool(mongo_summary.get("ok")), "optional": True, "details": redact(mongo_summary, secrets_to_hide)})
+        if mongo_summary is None:
+            mongo_summary = collect_mongo_summary(compose, cfg)
+        phases.append({
+            "name": "mongo-summary",
+            "ok": bool(mongo_summary.get("ok")),
+            "optional": not needs_room_spawn_verify,
+            "details": redact(mongo_summary, secrets_to_hide),
+        })
 
         report["ok"] = True
     except Exception as exc:  # noqa: BLE001 - top-level report must capture sanitized failures
@@ -838,6 +1007,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
     finally:
         report["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         assert_no_secret_leak(report, secrets_to_hide)
+        assert_safe_work_dir(cfg.work_dir)
         cfg.work_dir.mkdir(parents=True, exist_ok=True)
         report_path = cfg.report_path
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -846,6 +1016,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
 
 
 def run_dry(cfg: SmokeConfig) -> dict[str, Any]:
+    """Run the secret-free dry-run path and write a redacted report."""
     fake_password = "dry-run-password"
     dry_cfg = SmokeConfig(
         **{
@@ -881,7 +1052,10 @@ def run_dry(cfg: SmokeConfig) -> dict[str, Any]:
 
 
 class SmokeSelfTest(unittest.TestCase):
+    """Offline regression tests for helper behavior and redaction."""
+
     def make_cfg(self) -> SmokeConfig:
+        """Create a minimal local config for offline tests."""
         return SmokeConfig(
             work_dir=Path("/tmp/screeps-private-smoke-self-test"),
             server_host="127.0.0.1",
@@ -909,7 +1083,22 @@ class SmokeSelfTest(unittest.TestCase):
             mongo_db="screeps",
         )
 
+    def make_args(self, **overrides: Any) -> argparse.Namespace:
+        """Create parser-like args for config_from_env tests."""
+        values = {
+            "command": "run",
+            "dry_run": False,
+            "work_dir": "/tmp/screeps-private-smoke-self-test",
+            "stats_timeout": 1,
+            "poll_interval": 0,
+            "min_creeps": 1,
+            "no_reset_data": False,
+        }
+        values.update(overrides)
+        return argparse.Namespace(**values)
+
     def test_launcher_config_is_secret_free(self) -> None:
+        """Launcher config should reference, not embed, local secrets."""
         cfg = self.make_cfg()
         config_text = build_launcher_config(cfg)
         self.assertIn("steamKeyFile: STEAM_KEY", config_text)
@@ -921,6 +1110,7 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertNotIn("super-secret-password", config_text)
 
     def test_compose_file_binds_local_ports(self) -> None:
+        """Compose output should bind the configured loopback ports."""
         cfg = self.make_cfg()
         compose = build_compose_file(cfg)
         self.assertIn('"127.0.0.1:21025:21025/tcp"', compose)
@@ -928,6 +1118,7 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertIn("screepers/screeps-launcher:latest", compose)
 
     def test_redaction_removes_secrets_and_code(self) -> None:
+        """Report redaction should hide credentials and uploaded code."""
         payload = {
             "headers": {"X-Token": "abc123", "Authorization": "Basic abc123"},
             "password": "super-secret-password",
@@ -942,6 +1133,7 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertIn("sha256", encoded)
 
     def test_request_shapes_are_redacted(self) -> None:
+        """Dry-run request shapes should be useful without leaking secrets."""
         cfg = self.make_cfg()
         code = "module.exports.loop = function loop() { console.log('secret-free code'); };"
         shapes = [
@@ -958,6 +1150,7 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertNotIn("module.exports.loop", encoded)
 
     def test_required_env_only_applies_to_live_run(self) -> None:
+        """Live-only prerequisites should not block dry-run validation."""
         cfg = self.make_cfg()
         self.assertEqual(required_env_errors(cfg), [])
         live_cfg = SmokeConfig(**{**cfg.__dict__, "dry_run": False})
@@ -969,7 +1162,28 @@ class SmokeSelfTest(unittest.TestCase):
                 os.environ["STEAM_KEY"] = old_steam_key
         self.assertTrue(any("STEAM_KEY" in error for error in errors))
 
+    def test_reusing_server_state_requires_stable_password(self) -> None:
+        """No-reset live runs should require a caller-supplied password."""
+        old_password = os.environ.pop("SCREEPS_PRIVATE_SMOKE_PASSWORD", None)
+        try:
+            cfg = config_from_env(self.make_args(no_reset_data=True))
+            self.assertFalse(cfg.reset_data)
+            self.assertIsNone(cfg.password)
+            errors = required_env_errors(cfg)
+        finally:
+            if old_password is not None:
+                os.environ["SCREEPS_PRIVATE_SMOKE_PASSWORD"] = old_password
+        self.assertTrue(any("SCREEPS_PRIVATE_SMOKE_PASSWORD" in error for error in errors))
+
+    def test_safe_work_dir_rejects_unignored_repo_paths(self) -> None:
+        """Secret-bearing workdirs must be outside the repo or ignored."""
+        assert_safe_work_dir(Path("/tmp/screeps-private-smoke-self-test"))
+        assert_safe_work_dir(DEFAULT_WORK_DIR)
+        with self.assertRaises(SmokeError):
+            assert_safe_work_dir(REPO_ROOT / "scripts" / "screeps-private-smoke.py")
+
     def test_stats_criteria(self) -> None:
+        """Aggregate stats criteria should require owned rooms and creeps."""
         self.assertTrue(
             stats_passed(
                 {
@@ -991,14 +1205,124 @@ class SmokeSelfTest(unittest.TestCase):
             )
         )
 
+    def test_poll_stats_retries_transient_http_errors(self) -> None:
+        """A transient /stats request failure should not abort polling."""
+        cfg = SmokeConfig(**{**self.make_cfg().__dict__, "stats_timeout": 10, "poll_interval": 0})
+        original_http_json = globals()["http_json"]
+        calls = 0
+
+        def fake_http_json(*args: Any, **kwargs: Any) -> HttpResult:
+            """Fail once, then return a passing stats payload."""
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise urllib.error.URLError("temporary reset")
+            return HttpResult(
+                200,
+                {
+                    "totalRooms": 169,
+                    "ownedRooms": 1,
+                    "users": [{"username": "smoke", "rooms": 1, "creeps": 1}],
+                },
+                {},
+            )
+
+        try:
+            globals()["http_json"] = fake_http_json
+            result = poll_stats(cfg)
+        finally:
+            globals()["http_json"] = original_http_json
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["samples"], 1)
+        self.assertEqual(calls, 2)
+
+    def test_poll_stats_reports_last_transient_error(self) -> None:
+        """Failed polling should keep the last transient request error."""
+        cfg = SmokeConfig(**{**self.make_cfg().__dict__, "stats_timeout": 1, "poll_interval": 1})
+        original_http_json = globals()["http_json"]
+        original_time = time.time
+        original_sleep = time.sleep
+        ticks = [0.0, 0.0, 0.5, 2.0]
+
+        def fake_http_json(*args: Any, **kwargs: Any) -> HttpResult:
+            """Always simulate a timeout."""
+            raise TimeoutError("temporary timeout")
+
+        def fake_time() -> float:
+            """Return deterministic clock ticks for one poll iteration."""
+            if ticks:
+                return ticks.pop(0)
+            return 2.0
+
+        def fake_sleep(_seconds: float) -> None:
+            """Avoid waiting during the deterministic timeout test."""
+
+        try:
+            globals()["http_json"] = fake_http_json
+            time.time = fake_time
+            time.sleep = fake_sleep
+            result = poll_stats(cfg)
+        finally:
+            globals()["http_json"] = original_http_json
+            time.time = original_time
+            time.sleep = original_sleep
+        self.assertFalse(result["ok"])
+        self.assertIn("temporary timeout", result["last_error"])
+
+    def test_collect_mongo_summary_uses_bounded_parseable_output(self) -> None:
+        """Mongo summary parsing should use the expanded bounded excerpt."""
+        cfg = self.make_cfg()
+        original_run_command = globals()["run_command"]
+        captured: dict[str, Any] = {}
+
+        def fake_run_command(command: list[str], cfg: SmokeConfig, **kwargs: Any) -> dict[str, Any]:
+            """Return a complete one-line Mongo JSON summary."""
+            captured["output_limit"] = kwargs.get("output_limit")
+            return {
+                "command": command,
+                "returncode": 0,
+                "elapsed_seconds": 0,
+                "output_excerpt": json.dumps({"room": cfg.room, "spawns": [], "creeps": [], "controller": None}),
+            }
+
+        try:
+            globals()["run_command"] = fake_run_command
+            result = collect_mongo_summary([], cfg)
+        finally:
+            globals()["run_command"] = original_run_command
+        self.assertEqual(captured["output_limit"], 12000)
+        self.assertTrue(result["ok"])
+
+    def test_room_spawn_summary_verifies_expected_owner(self) -> None:
+        """Room-spawn verification should require the named spawn owner."""
+        cfg = self.make_cfg()
+        summary = {
+            "ok": True,
+            "summary": {
+                "room": "E1S1",
+                "user": {"username": "smoke", "id": "user-1"},
+                "spawns": [{"name": "Spawn1", "user": "user-1"}],
+                "controller": {"user": "user-1"},
+            },
+        }
+        self.assertTrue(verify_room_spawn_summary(summary, cfg)["ok"])
+
+        missing_spawn = {"ok": True, "summary": {**summary["summary"], "spawns": []}}
+        self.assertFalse(verify_room_spawn_summary(missing_spawn, cfg)["ok"])
+
+        wrong_owner = {"ok": True, "summary": {**summary["summary"], "spawns": [{"name": "Spawn1", "user": "user-2"}]}}
+        self.assertFalse(verify_room_spawn_summary(wrong_owner, cfg)["ok"])
+
 
 def run_self_test() -> int:
+    """Run the offline unittest suite."""
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SmokeSelfTest)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for self-test and run modes."""
     parser = argparse.ArgumentParser(
         description="Run or self-test the pinned Dockerized Screeps private-server smoke harness.",
     )
@@ -1007,6 +1331,22 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "self-test",
         help="Run offline helper tests. Requires no Docker, network, secrets, or live Screeps server.",
+    )
+
+    dry_parser = subparsers.add_parser(
+        "dry-run",
+        help="Generate a secret-free config/report without Docker, network, secrets, or a live server.",
+    )
+    dry_parser.add_argument(
+        "--work-dir",
+        help=f"Ignored local work directory. Default: {DEFAULT_WORK_DIR}",
+    )
+    dry_parser.set_defaults(
+        dry_run=True,
+        stats_timeout=240,
+        poll_interval=5,
+        min_creeps=1,
+        no_reset_data=False,
     )
 
     run_parser = subparsers.add_parser(
@@ -1043,17 +1383,18 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--no-reset-data",
         action="store_true",
-        help="Skip system.resetAllData() before map import when reusing a local smoke server.",
+        help="Skip system.resetAllData() before map import; requires SCREEPS_PRIVATE_SMOKE_PASSWORD for live reuse.",
     )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point."""
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "self-test":
         return run_self_test()
-    if args.command == "run":
+    if args.command in {"run", "dry-run"}:
         try:
             cfg = config_from_env(args)
             errors = required_env_errors(cfg)

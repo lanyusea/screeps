@@ -53,9 +53,10 @@ The pinned Dockerized smoke path now has a committed local harness:
 
 ```bash
 python3 scripts/screeps-private-smoke.py self-test
+python3 scripts/screeps-private-smoke.py dry-run
 ```
 
-The self-test is the exact offline verification command. It requires no Docker, network access, secrets, or live Screeps server. It validates the launcher config generator, Docker Compose shape, redaction helpers, request-shaping helpers, required-env checks, and stats success criteria.
+The self-test is the exact offline verification command. It requires no Docker, network access, secrets, or live Screeps server. It validates the launcher config generator, Docker Compose shape, redaction helpers, request-shaping helpers, required-env checks, safe workdir guard, transient stats polling, room-spawn verification, and stats success criteria.
 
 For a live local run after `prod/dist/main.js` has been built:
 
@@ -66,10 +67,11 @@ STEAM_KEY=... python3 scripts/screeps-private-smoke.py run
 Required live env:
 
 - `STEAM_KEY`: Steam Web API key consumed through an untracked workdir file named `STEAM_KEY`.
+- `SCREEPS_PRIVATE_SMOKE_PASSWORD`: required when reusing server data with `--no-reset-data` or `SCREEPS_PRIVATE_SMOKE_RESET_DATA=false`; otherwise optional.
 
 Safe optional env:
 
-- `SCREEPS_PRIVATE_SMOKE_WORKDIR`: local untracked work directory; default is `runtime-artifacts/screeps-private-smoke`.
+- `SCREEPS_PRIVATE_SMOKE_WORKDIR`: local work directory; default is the gitignored `runtime-artifacts/screeps-private-smoke`. Custom repo-local workdirs must already be gitignored, and outside-repo workdirs are also accepted.
 - `SCREEPS_PRIVATE_SMOKE_MAP_FILE`: use an already downloaded `map-0b6758af.json` instead of fetching `SCREEPS_PRIVATE_SMOKE_MAP_URL`.
 - `SCREEPS_PRIVATE_SMOKE_MAP_URL`: defaults to `https://maps.screepspl.us/maps/map-0b6758af.json`.
 - `SCREEPS_PRIVATE_SMOKE_USERNAME`: defaults to `smoke`.
@@ -81,18 +83,19 @@ Safe optional env:
 - `SCREEPS_PRIVATE_SMOKE_CODE_PATH`: defaults to `prod/dist/main.js`.
 - `SCREEPS_PRIVATE_SMOKE_STATS_TIMEOUT`: defaults to the CLI timeout, currently 240 seconds.
 - `SCREEPS_PRIVATE_SMOKE_MIN_CREEPS`: defaults to `1`; set to `0` only when you want setup validation without waiting for a bot-created creep.
-- `SCREEPS_PRIVATE_SMOKE_PASSWORD`: optional local smoke password; if omitted, the harness generates one in memory for the run.
+- `SCREEPS_PRIVATE_SMOKE_PASSWORD`: optional local smoke password for fresh reset runs; if omitted, the harness generates one in memory for the run.
 
 Live run behavior:
 
-1. Creates or reuses the ignored work directory.
+1. Creates or reuses the ignored work directory after rejecting repo-local paths that are not gitignored.
 2. Writes a secret-free `config.yml` using `steamKeyFile: STEAM_KEY`.
 3. Writes Docker Compose for `screepers/screeps-launcher:latest`, `mongo:8`, and `redis:7`.
 4. Writes the actual Steam key only to the ignored workdir `STEAM_KEY` file with mode `0600`.
 5. Downloads or copies `map-0b6758af.json`.
 6. Starts Docker Compose, waits for `/api/version`, runs `system.resetAllData()` by default, imports the map with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`, restarts the Screeps service, and resumes simulation.
-7. Registers/signs in the local smoke user, uploads `prod/dist/main.js`, verifies `/api/user/code` round-trip by byte count and SHA-256, places `Spawn1`, polls `/stats`, and attempts a redacted Mongo object summary.
-8. Writes a redacted JSON observation report in the work directory.
+7. Registers/signs in the local smoke user, uploads `prod/dist/main.js`, verifies `/api/user/code` round-trip by byte count and SHA-256, places `Spawn1`, polls `/stats`, and attempts a bounded redacted Mongo object summary.
+8. If spawn placement reports that the user is already playing, the harness requires a room-specific Mongo check proving the configured spawn exists in the configured room for the smoke user before aggregate `/stats` can pass the run.
+9. Writes a redacted JSON observation report in the work directory.
 
 Redaction guarantees:
 
