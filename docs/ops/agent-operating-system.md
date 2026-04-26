@@ -1,6 +1,6 @@
 # Screeps Agent Operating System
 
-Last updated: 2026-04-26T04:56:00+08:00
+Last updated: 2026-04-26T16:08:57+08:00
 
 ## Purpose
 
@@ -39,6 +39,36 @@ A subagent result is not accepted until the main agent reviews it. The main agen
 - dev/test/build state;
 - runtime status;
 - blockers.
+
+### R2a — Dedicated QA acceptance gate for deliverables
+
+For any meaningful deliverable, the main agent must provide a QA/acceptance-check agent with explicit deliverables, common acceptance criteria, and task-specific acceptance criteria before treating the work as complete.
+
+Use the QA gate for:
+
+- production, test, build, deployment, runtime-monitor, cron, or configuration changes;
+- PR merge readiness and post-merge completion checks;
+- GitHub Issue, Milestone, or Project state changes;
+- roadmap next-point percentage changes;
+- long-running task completion claims;
+- cross-file documentation/process updates that change the operating contract.
+
+The QA agent verifies evidence. It does not own roadmap priority, cross-channel routing, or final project-management decisions. The main agent remains accountable for accepting or rejecting the QA result and for deciding the next roadmap move.
+
+QA checks must cover, when relevant:
+
+- code/documentation changes match the requested deliverables;
+- verification commands, CI, smoke tests, generated artifacts, or redacted runtime reports support the completion claim;
+- PRs are pushed, reviewed, merged, or explicitly closed as superseded according to project gates;
+- GitHub Issues, Milestones, and Project `screeps` fields reflect the final state;
+- process/roadmap docs match GitHub source-of-truth state;
+- no secrets or unsafe local paths were exposed;
+- Discord/channel reporting requirements were satisfied or explicitly marked not applicable.
+
+QA output must be evidence-based and use this verdict model:
+
+- `PASS` — all common and task-specific acceptance criteria are satisfied, with evidence listed.
+- `REQUEST_CHANGES` — at least one required criterion is not satisfied, with concrete required fixes.
 
 ### R3 — Main agent owns channel-appropriate summary fanout
 
@@ -98,13 +128,15 @@ For every meaningful task:
 1. Read current active state and git status.
 2. If P0 health is unknown, run an operations health check first.
 3. Decompose into minimal subagent/Codex tasks if useful.
-4. Give each subagent a single clear task and requested output format.
-5. Collect subagent final result and logs/artifacts.
-6. Review and verify before accepting.
-7. Update durable docs if the result changes state.
-8. Fan out summaries to the corresponding Discord channels.
-9. Commit/push meaningful docs-only changes as Hermes; Codex commits production/test/build work.
-10. Resume/trigger scheduled continuation only after state is durable and safe.
+4. Define the deliverables, common acceptance criteria, and task-specific acceptance criteria before implementation/review starts.
+5. Give each subagent a single clear task and requested output format.
+6. Collect subagent final result and logs/artifacts.
+7. Run a QA/acceptance-check pass for meaningful deliverables before accepting completion.
+8. Review QA evidence and either request changes or accept the result.
+9. Update durable docs if the result changes state.
+10. Fan out summaries to the corresponding Discord channels.
+11. Commit/push meaningful docs-only changes as Hermes; Codex commits production/test/build work.
+12. Resume/trigger scheduled continuation only after state is durable and safe.
 
 ## Scheduled worker roles
 
@@ -173,7 +205,8 @@ These reporters are not authoritative decision-makers. They are narrow visibilit
 | New owner task | home channel | `#task-queue` when accepted | yes, if clarification/blocker needed |
 | P0 health anomaly | `discord:1497820688843800776` | home only if owner action is urgently required | yes |
 | Subagent research result | main agent review first | `#research-notes` | no, unless decision needed |
-| Subagent development result | main agent review first | `#dev-log` | no, unless blocker/decision needed |
+| Subagent development result | main agent review first, then QA gate when deliverable-significant | `#dev-log` | no, unless blocker/decision needed |
+| QA acceptance result | main agent review first | `#task-queue` for PASS/REQUEST_CHANGES; `#dev-log` for verification evidence | no, unless blocker/decision needed |
 | Decision needed/finalized | `#decisions` | home if owner action needed | yes |
 | Roadmap/priorities changed | `#roadmap` | home only if major | maybe |
 | Active task/blocker | `#task-queue` | home if owner action needed | maybe |
@@ -188,3 +221,4 @@ These reporters are not authoritative decision-makers. They are narrow visibilit
 - Do not treat subagent output as accepted until the main agent reviews it.
 - Do not let subagents own cross-channel summary/decision routing.
 - Do not resume normal implementation work while P0 routing/monitoring is known broken.
+- Do not mark meaningful deliverables complete without a QA/acceptance-check verdict that cites evidence against both common and task-specific criteria.

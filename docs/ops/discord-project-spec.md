@@ -203,7 +203,8 @@ Main-agent responsibilities:
 4. pull subagent conclusions back into the main context;
 5. verify/review before accepting;
 6. route summaries to the typed Discord channels;
-7. maintain P0 monitoring of scheduled jobs, delivery targets, active-state freshness, and subagent communication.
+7. maintain P0 monitoring of scheduled jobs, delivery targets, active-state freshness, and subagent communication;
+8. run a QA/acceptance-check pass before marking meaningful deliverables complete.
 
 Subagent responsibilities:
 
@@ -212,7 +213,14 @@ Subagent responsibilities:
 - write or expose process detail if the task is long/complex;
 - avoid owning cross-channel decisions, roadmap, or task-queue state.
 
-If a spawned long-running agent has messaging access and a single obvious detail channel, it may post low-level progress to that one channel only, e.g. research → `#research-notes`, development → `#dev-log`. The main agent remains accountable for summary fanout and owner-facing status.
+QA/acceptance-check agent responsibilities:
+
+- verify one explicit delivery package against the main agent's common and task-specific acceptance criteria;
+- check code/docs diffs, verification evidence, PR state, merge state, GitHub Issue/Milestone/Project updates, and delivery-standard compliance when applicable;
+- return `PASS` or `REQUEST_CHANGES` with evidence and required fixes;
+- avoid changing roadmap priority, cross-channel authority, or final completion state independently.
+
+If a spawned long-running agent has messaging access and a single obvious detail channel, it may post low-level progress only to that channel, e.g. research → `#research-notes`, development → `#dev-log`. The main agent remains accountable for summary fanout and owner-facing status.
 
 ---
 
@@ -243,6 +251,29 @@ If a spawned long-running agent has messaging access and a single obvious detail
 [Owner] Owner / Bot
 [Done when] explicit acceptance criterion
 [Blockers] if any
+[QA gate] required / not required; if required, name common + task-specific acceptance criteria
+```
+
+### QA acceptance check
+```text
+[Delivery package] issue / PR / branch / commit / artifact links
+[Common criteria checked]
+- [ ] worktree/PR discipline
+- [ ] verification commands or CI
+- [ ] merge/closure state
+- [ ] GitHub Issue/Milestone/Project state
+- [ ] docs/process/roadmap consistency
+- [ ] no secrets exposed
+- [ ] Discord routing/reporting as applicable
+[Task-specific criteria checked]
+- [ ] ...
+[Evidence]
+commands, PR/Issue URLs, commit SHAs, artifact/report paths
+[Failed items]
+none, or concrete missing criteria
+[Required fixes]
+none, or exact follow-up actions
+[Verdict] PASS / REQUEST_CHANGES
 ```
 
 ### Owner-created task follow-up thread
