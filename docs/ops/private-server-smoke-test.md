@@ -47,6 +47,61 @@ Optional depending on smoke depth:
 - `screepsmod-mongo` for Mongo-backed persistence.
 - `screepsmod-admin-utils` for server configuration helpers.
 
+## Automation harness
+
+The pinned Dockerized smoke path now has a committed local harness:
+
+```bash
+python3 scripts/screeps-private-smoke.py self-test
+```
+
+The self-test is the exact offline verification command. It requires no Docker, network access, secrets, or live Screeps server. It validates the launcher config generator, Docker Compose shape, redaction helpers, request-shaping helpers, required-env checks, and stats success criteria.
+
+For a live local run after `prod/dist/main.js` has been built:
+
+```bash
+STEAM_KEY=... python3 scripts/screeps-private-smoke.py run
+```
+
+Required live env:
+
+- `STEAM_KEY`: Steam Web API key consumed through an untracked workdir file named `STEAM_KEY`.
+
+Safe optional env:
+
+- `SCREEPS_PRIVATE_SMOKE_WORKDIR`: local untracked work directory; default is `runtime-artifacts/screeps-private-smoke`.
+- `SCREEPS_PRIVATE_SMOKE_MAP_FILE`: use an already downloaded `map-0b6758af.json` instead of fetching `SCREEPS_PRIVATE_SMOKE_MAP_URL`.
+- `SCREEPS_PRIVATE_SMOKE_MAP_URL`: defaults to `https://maps.screepspl.us/maps/map-0b6758af.json`.
+- `SCREEPS_PRIVATE_SMOKE_USERNAME`: defaults to `smoke`.
+- `SCREEPS_PRIVATE_SMOKE_ROOM`: defaults to `E1S1`.
+- `SCREEPS_PRIVATE_SMOKE_SHARD`: defaults to `shardX`.
+- `SCREEPS_PRIVATE_SMOKE_SPAWN_NAME`: defaults to `Spawn1`.
+- `SCREEPS_PRIVATE_SMOKE_SPAWN_X` / `SCREEPS_PRIVATE_SMOKE_SPAWN_Y`: default to `20` / `20`.
+- `SCREEPS_PRIVATE_SMOKE_HTTP_PORT` / `SCREEPS_PRIVATE_SMOKE_CLI_PORT`: default to `21025` / `21026`.
+- `SCREEPS_PRIVATE_SMOKE_CODE_PATH`: defaults to `prod/dist/main.js`.
+- `SCREEPS_PRIVATE_SMOKE_STATS_TIMEOUT`: defaults to the CLI timeout, currently 240 seconds.
+- `SCREEPS_PRIVATE_SMOKE_MIN_CREEPS`: defaults to `1`; set to `0` only when you want setup validation without waiting for a bot-created creep.
+- `SCREEPS_PRIVATE_SMOKE_PASSWORD`: optional local smoke password; if omitted, the harness generates one in memory for the run.
+
+Live run behavior:
+
+1. Creates or reuses the ignored work directory.
+2. Writes a secret-free `config.yml` using `steamKeyFile: STEAM_KEY`.
+3. Writes Docker Compose for `screepers/screeps-launcher:latest`, `mongo:8`, and `redis:7`.
+4. Writes the actual Steam key only to the ignored workdir `STEAM_KEY` file with mode `0600`.
+5. Downloads or copies `map-0b6758af.json`.
+6. Starts Docker Compose, waits for `/api/version`, runs `system.resetAllData()` by default, imports the map with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`, restarts the Screeps service, and resumes simulation.
+7. Registers/signs in the local smoke user, uploads `prod/dist/main.js`, verifies `/api/user/code` round-trip by byte count and SHA-256, places `Spawn1`, polls `/stats`, and attempts a redacted Mongo object summary.
+8. Writes a redacted JSON observation report in the work directory.
+
+Redaction guarantees:
+
+- The committed launcher config never contains the Steam key; it references `steamKeyFile`.
+- The script must not print `STEAM_KEY`, generated/local passwords, auth tokens, `Authorization`, `X-Token`, or `X-Username` values.
+- Uploaded module contents are never printed or written into reports; reports include byte counts and SHA-256 digests instead.
+- `run` exits nonzero if required live env is missing or if the smoke criteria fail.
+- `run --dry-run` generates the secret-free config/report and validates request shapes without Docker, network, secrets, or a live server.
+
 ## Candidate private-server config shape
 
 Use this as a checklist, not as a committed secret-bearing config:
@@ -240,6 +295,8 @@ The private-server smoke milestone is complete when:
 
 The prior Docker/Compose blocker has been resolved in both the main Hermes context and a delegated subagent context.
 
+Automation status: `scripts/screeps-private-smoke.py` now exists and can self-test offline. The next validation step is a fresh live harness run against the pinned Dockerized path, followed by scheduler/wrapper wiring for already-smoked runtime monitoring. No cron jobs are created by this runbook or by the harness.
+
 A pinned runtime smoke on 2026-04-26 advanced through the previous blockers:
 
 - `screeps@4.2.21` installed and started under the Dockerized launcher with the transitive dependency pins above.
@@ -261,8 +318,8 @@ Longer observation note: `docs/process/2026-04-26-private-server-long-observatio
 Next executable options:
 
 1. Private-server-first validation remains required for local development before official MMO deployment.
-2. Automate the pinned private-server smoke procedure so a fresh run can start the runtime, import the map file, upload code, place/verify a spawn, poll stats, and capture redacted Mongo observations.
-3. Turn the runtime monitor script into scheduled `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` reporting after one more live-token smoke.
+2. Run the new harness live from a clean ignored work directory and capture the redacted report.
+3. Turn the runtime monitor script into scheduled `#runtime-summary` / `[SILENT]` no-alert `#runtime-alerts` reporting after the live harness rerun confirms the private path remains fresh-start stable.
 4. If this pinned runtime later exposes simulation incompatibilities, fall back to selecting/building a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 5. Use local, untracked config/secrets only. Verified secret prerequisites include `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` in local secret storage; values must not be printed or committed.
 6. Continue deterministic coding work in parallel Codex worktrees where tasks are independent.

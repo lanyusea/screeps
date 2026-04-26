@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T01:58:48Z
+Last updated: 2026-04-26T03:01:39Z
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -13,7 +13,7 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm test -- --runInBand` — passing, 12 suites / 68 tests
   - `cd prod && npm run build` — passing
 - Latest production/test milestones: Codex commit `12a2c4a test: harden worker no-target fallbacks` plus review follow-up `test: cover stale harvest worker tasks` added deterministic no-source/no-controller/no-target worker fallback coverage, including stale harvest targets; refreshed PR #9 commits `a95afdc test: handle full transfer result race` and `83eb0d5 fix: use screeps err full constant` clear stale transfer tasks when `creep.transfer` returns the Screeps global `ERR_FULL`
-- Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
+- Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room; a committed harness now automates that pinned path for fresh local reruns
 - Latest runtime-monitor milestone: live-token monitor smoke succeeded twice for `shardX/E48S28` at official ticks `108687` and `109202`; summary rendered PNGs and alert returned `alert: false` with no warnings
 - Latest documentation milestone: production CI workflow/runbook added on branch `chore/add-prod-ci`
 - Active state file: `docs/process/active-work-state.md`
@@ -154,19 +154,21 @@ Recent additions:
 - Deterministic worker-runner coverage proves the full-target race falls back to build without same-tick movement toward the full sink.
 - Worker no-target fallback hardening from `origin/main`: no-source, no-spending-target, controllerless, and stale-task cases are now deterministic Jest coverage.
 
-### 7. Private-server smoke attempt
+### 7. Private-server smoke attempt and harness
 
-Status: pinned Dockerized path passed room/map initialization and bot tick validation; longer observation/automation remains useful before treating it as a reusable release gate.
+Status: pinned Dockerized path passed room/map initialization and bot tick validation; committed harness exists, and the next validation step is a fresh live harness run before treating it as a reusable release gate.
 
 Artifacts:
 
 - `docs/ops/private-server-smoke-test.md`
+- `scripts/screeps-private-smoke.py`
 - `docs/process/2026-04-26-private-server-smoke-prep.md`
 - `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - `docs/process/2026-04-26-private-server-version-pin-research.md`
 - `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
 - `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - `docs/process/2026-04-26-private-server-long-observation.md`
+- `docs/process/2026-04-26-private-server-smoke-harness.md`
 
 Current result:
 
@@ -180,7 +182,8 @@ Current result:
 - Room/map initialization is resolved for the pinned launcher path by pre-downloading `map-0b6758af.json`, setting `serverConfig.mapFile`, importing with `utils.importMapFile('/screeps/maps/map-0b6758af.json')`, restarting, and resuming simulation.
 - Follow-up observation reached `/stats` `gametime: 5267`, `totalRooms: 169`, `activeRooms: 1`, `ownedRooms: 1`, and one RCL 2 owned room.
 - Mongo room-object inspection showed owned `Spawn1` and three living bot-created `WORK/CARRY/MOVE` workers named `worker-E1S1-*`; post-restart log scanning found no current unhandled/type/reference/error hits.
-- Remaining work: automate the smoke harness and wire scheduled runtime-summary/runtime-alert monitoring using the now-repeat-smoked live-token monitor path, not unblock basic room initialization.
+- Harness status: `scripts/screeps-private-smoke.py` now supports offline `self-test`, `run --dry-run`, and live `run`. It writes a secret-free launcher config, keeps the actual Steam key and local auth password out of committed files and reports, uploads `prod/dist/main.js` without printing code contents, polls `/stats`, and writes a redacted JSON observation report.
+- Remaining work: run the harness live from a clean ignored work directory, then wire scheduled runtime-summary/runtime-alert monitoring using the now-repeat-smoked live-token monitor path. Basic room initialization is no longer the blocker.
 
 ## Active blockers and decisions
 
@@ -243,8 +246,8 @@ Immediate operating change:
 
 Docker/Compose, package installation, HTTP startup, local auth, code upload, room/map initialization, spawn placement, and bot tick validation are no longer the primary blockers for the pinned launcher path. The active follow-up is making this repeatable and observable:
 
-1. package the pinned launcher config, map-file import, restart/resume, local user registration, code upload, spawn placement, stats polling, and redacted Mongo observation into an executable local smoke harness;
-2. observe several additional windows or reruns to ensure the path is stable across fresh data resets;
+1. run the new pinned launcher harness live from a clean ignored work directory and archive the redacted report in a process note;
+2. observe several additional windows or reruns to ensure the harness path is stable across fresh data resets;
 3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded twice (`summary` PNGs rendered; `alert=false` with no warnings for `shardX/E48S28` at official ticks `108687` and `109202`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 
@@ -252,7 +255,7 @@ Recommendation: keep private-server-first validation as the release-quality gate
 
 ### Decision: next code priority
 
-Recommended next slice: finish review/PR routing for the pinned private-server smoke harness and configure or verify the already live-smoked runtime monitor through dedicated scheduler jobs. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
+Recommended next slice: run the pinned private-server smoke harness live, then configure or verify the already live-smoked runtime monitor through dedicated scheduler jobs. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
 
 Reason:
 
