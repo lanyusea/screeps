@@ -1,7 +1,5 @@
 import { selectWorkerTask } from '../tasks/workerTasks';
 
-const ERR_FULL_RESULT: ScreepsReturnCode = -8;
-
 export function runWorker(creep: Creep): void {
   if (!creep.memory.task) {
     assignNextTask(creep);
@@ -29,7 +27,7 @@ export function runWorker(creep: Creep): void {
   }
 
   const result = executeTask(creep, task, target);
-  if (task.type === 'transfer' && result === ERR_FULL_RESULT) {
+  if (task.type === 'transfer' && result === ERR_FULL) {
     delete creep.memory.task;
     assignNextTask(creep);
     return;

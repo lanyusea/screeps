@@ -100,7 +100,6 @@ function selectWorkerTask(creep) {
 }
 
 // src/creeps/workerRunner.ts
-var ERR_FULL_RESULT = -8;
 function runWorker(creep) {
   if (!creep.memory.task) {
     assignNextTask(creep);
@@ -124,7 +123,7 @@ function runWorker(creep) {
     return;
   }
   const result = executeTask(creep, task, target);
-  if (task.type === "transfer" && result === ERR_FULL_RESULT) {
+  if (task.type === "transfer" && result === ERR_FULL) {
     delete creep.memory.task;
     assignNextTask(creep);
     return;
