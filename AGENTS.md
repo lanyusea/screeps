@@ -26,7 +26,7 @@ This repository builds and operates a Screeps: World bot. Use this file as the c
 
 ## Development boundaries
 
-- Do not edit or commit directly on `main`. Use a topic branch in a git worktree, normally under `/root/screeps-worktrees/<topic>`.
+- Do not edit or commit directly on `main`. Use a topic branch in a git worktree, normally under `~/screeps-worktrees/<topic>`.
 - Production/test/build code changes under `prod/` must be implemented through the Codex CLI coding agent when this project is being operated by Hermes. Hermes may edit docs/config directly, but Codex owns production code implementation commits.
 - A Codex coding task is not complete until the change is verified and committed.
 - Preferred commit identity for Codex-authored coding commits: `lanyusea's bot <lanyusea@gmail.com>`.

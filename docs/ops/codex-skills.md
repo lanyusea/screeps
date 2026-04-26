@@ -112,7 +112,7 @@ Use for docs, runbooks, and runtime monitor scripts.
 
 Use for any repository change.
 
-1. Start from `/root/screeps`, fetch refs, and create a worktree branch from `origin/main`.
+1. Start from the repository root (e.g., `~/screeps`), fetch refs, and create a worktree branch from `origin/main`.
 2. Make changes only inside the worktree.
 3. Verify syntax/tests appropriate to the change.
 4. Commit with a Conventional Commit message.
