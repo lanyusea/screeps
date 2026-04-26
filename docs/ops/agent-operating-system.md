@@ -131,6 +131,7 @@ Delivery: dedicated P0 operations channel `discord:1497820688843800776`.
 Behavior:
 
 - run frequently enough to catch broken automation quickly;
+- monitor continuation, checkpoint, runtime, and typed-channel reporter jobs;
 - report abnormal states to the dedicated P0 operations channel;
 - remain concise when healthy;
 - never perform implementation work;
@@ -144,6 +145,26 @@ Behavior:
 - Cron job: `Screeps P0 agent operations monitor` (`75cedbb77150`).
 - Delivery target: `discord:1497820688843800776`.
 - Purpose: keep P0 health output separate from owner-task/home-channel conversation while still escalating to home if owner action is urgently required.
+
+### Typed-channel fanout reporters
+
+Purpose: prevent typed channels from going stale when the continuation worker only delivers one final response to `#task-queue`.
+
+Configured reporters:
+
+- `Screeps dev-log fanout reporter` → `discord:#dev-log`, every 20m;
+- `Screeps roadmap fanout reporter` → `discord:#roadmap`, every 20m;
+- `Screeps research-notes fanout reporter` → `discord:#research-notes`, every 20m.
+
+Behavior:
+
+- read recent continuation output, active-state docs, roadmap, process/research docs, and git log/status;
+- compare against per-channel state under `~/.hermes/screeps-reporters/`;
+- report only new channel-relevant changes;
+- return exactly `[SILENT]` when there is nothing new;
+- never implement code or create/modify cron jobs.
+
+These reporters are not authoritative decision-makers. They are narrow visibility bridges. The main agent remains accountable for reviewing subagent conclusions and routing final decisions, roadmap changes, blockers, and owner-facing escalations.
 
 ## Discord routing matrix
 
