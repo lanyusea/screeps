@@ -2,15 +2,9 @@ name: prod-ci
 
 on:
   pull_request:
-    paths:
-      - "prod/**"
-      - ".github/workflows/prod-ci.yml"
   push:
     branches:
       - main
-    paths:
-      - "prod/**"
-      - ".github/workflows/prod-ci.yml"
   workflow_dispatch:
 
 permissions:
