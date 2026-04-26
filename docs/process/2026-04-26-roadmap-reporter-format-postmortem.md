@@ -32,10 +32,10 @@ A second contributing issue was state coupling: the reporter state file tracked 
 
 - Paused and removed the old text-summary reporter job.
 - Created a replacement same-name `Screeps roadmap fanout reporter` job with a hard visual contract.
-- Added renderer script `/root/.hermes/scripts/render-screeps-roadmap.js` for local PNG generation.
-- New reporter state file is separate: `/root/.hermes/screeps-reporters/roadmap-visual-state.json`.
+- Added external Hermes renderer script `~/.hermes/scripts/render-screeps-roadmap.js` for local PNG generation; this is managed as agent runtime configuration rather than a version-controlled repository file.
+- New external reporter state file is separate: `~/.hermes/screeps-reporters/roadmap-visual-state.json`.
 - New prompt uses `format_version=roadmap-visual-no-gantt-v3` as part of change detection.
-- Patched the reusable Screeps planning skill so future agents do not reintroduce Markdown/Mermaid/date-Gantt roadmap output.
+- Patched the reusable Screeps planning skill (`screeps-research-and-planning`) so future agents do not reintroduce Markdown/Mermaid/date-Gantt roadmap output.
 - Sent a corrected rendered roadmap PNG to `#roadmap`.
 
 ## Verification
