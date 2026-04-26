@@ -47,8 +47,9 @@ DEFAULT_USERNAME = "smoke"
 DEFAULT_SPAWN_NAME = "Spawn1"
 DEFAULT_SPAWN_X = 20
 DEFAULT_SPAWN_Y = 20
-STEAM_KEY_FILE_MODE = 0o644
-CONTAINER_WRITABLE_DIR_MODE = 0o1777
+GENERATED_FILE_MODE = 0o600
+GENERATED_DIR_MODE = 0o700
+STEAM_KEY_FILE_MODE = GENERATED_FILE_MODE
 CONTAINER_WRITABLE_SUBDIRS = (
     "maps",
     "bots",
@@ -217,19 +218,61 @@ def assert_path_inside_work_dir(work_dir: Path, path: Path) -> None:
         raise SmokeError(f"generated path escapes smoke work dir: {resolved_path}") from exc
 
 
-def ensure_generated_dir(work_dir: Path, path: Path) -> None:
-    """Create and chmod one generated directory without following symlink escapes."""
+def reject_existing_symlink(path: Path) -> None:
+    """Reject an existing generated path component when it is a symlink."""
+    if path.is_symlink():
+        raise SmokeError(f"refusing to use symlinked smoke work dir path: {path}")
+
+
+def assert_generated_path_has_no_symlink(work_dir: Path, path: Path) -> None:
+    """Reject existing symlinks from the workdir root through a generated path."""
     assert_path_inside_work_dir(work_dir, path)
-    if path.exists() and path.is_symlink():
-        raise SmokeError(f"refusing to chmod symlinked smoke work dir path: {path}")
-    path.mkdir(parents=True, exist_ok=True)
+    reject_existing_symlink(work_dir)
+    try:
+        relative = path.relative_to(work_dir)
+    except ValueError:
+        relative = path.resolve().relative_to(work_dir.resolve())
+    current = work_dir
+    for part in relative.parts:
+        current = current / part
+        reject_existing_symlink(current)
+
+
+def ensure_generated_dir(work_dir: Path, path: Path) -> None:
+    """Create and chmod one generated directory without following symlink paths."""
+    assert_generated_path_has_no_symlink(work_dir, path)
+    path.mkdir(mode=GENERATED_DIR_MODE, parents=True, exist_ok=True)
+    assert_generated_path_has_no_symlink(work_dir, path)
     if not path.is_dir():
         raise SmokeError(f"generated smoke work dir path is not a directory: {path}")
-    path.chmod(CONTAINER_WRITABLE_DIR_MODE)
+    path.chmod(GENERATED_DIR_MODE)
+
+
+def write_generated_bytes(work_dir: Path, path: Path, data: bytes, mode: int = GENERATED_FILE_MODE) -> None:
+    """Atomically write a generated file without following a preexisting symlink."""
+    ensure_generated_dir(work_dir, path.parent)
+    assert_generated_path_has_no_symlink(work_dir, path)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as temp_file:
+            temp_file.write(data)
+        temp_path.chmod(mode)
+        assert_generated_path_has_no_symlink(work_dir, path)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+    assert_generated_path_has_no_symlink(work_dir, path)
+
+
+def write_generated_text(work_dir: Path, path: Path, text: str, mode: int = GENERATED_FILE_MODE) -> None:
+    """Atomically write generated UTF-8 text without following symlink paths."""
+    write_generated_bytes(work_dir, path, text.encode("utf-8"), mode)
 
 
 def prepare_container_writable_work_dir(cfg: SmokeConfig) -> list[str]:
-    """Make only the generated smoke workdir tree writable by arbitrary container UIDs."""
+    """Prepare only generated smoke workdir paths for the mapped container UID."""
     assert_safe_work_dir(cfg.work_dir)
     ensure_generated_dir(cfg.work_dir, cfg.work_dir)
     prepared = ["."]
@@ -357,6 +400,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
     return f"""services:
   screeps:
     image: {SCREEPS_LAUNCHER_IMAGE}
+    user: "{os.getuid()}:{os.getgid()}"
     volumes:
       - ./:/screeps
     ports:
@@ -575,24 +619,18 @@ def prepare_work_dir(cfg: SmokeConfig) -> dict[str, Any]:
     """Create launcher files and copy live-only secret/runtime inputs."""
     assert_safe_work_dir(cfg.work_dir)
     if cfg.dry_run:
-        cfg.work_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.work_dir / "maps").mkdir(parents=True, exist_ok=True)
-        cfg.bot_main_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_generated_dir(cfg.work_dir, cfg.work_dir)
+        for relative in ("maps", "bots", "bots/mvpbot"):
+            ensure_generated_dir(cfg.work_dir, cfg.work_dir / relative)
         container_writable_dirs: list[str] | str = "not-applied-dry-run"
     else:
         container_writable_dirs = prepare_container_writable_work_dir(cfg)
-    cfg.config_path.write_text(build_launcher_config(cfg), encoding="utf-8")
-    cfg.compose_path.write_text(build_compose_file(cfg), encoding="utf-8")
+    write_generated_text(cfg.work_dir, cfg.config_path, build_launcher_config(cfg))
+    write_generated_text(cfg.work_dir, cfg.compose_path, build_compose_file(cfg))
     if not cfg.dry_run:
-        cfg.config_path.chmod(STEAM_KEY_FILE_MODE)
-        cfg.compose_path.chmod(STEAM_KEY_FILE_MODE)
         steam_key = os.environ["STEAM_KEY"]
-        cfg.steam_key_path.write_text(steam_key, encoding="utf-8")
-        # Docker may run screeps-launcher as a different UID/GID than the host writer;
-        # this generated gitignored file must be readable through the bind mount.
-        cfg.steam_key_path.chmod(STEAM_KEY_FILE_MODE)
-        shutil.copyfile(cfg.code_path, cfg.bot_main_path)
-        cfg.bot_main_path.chmod(STEAM_KEY_FILE_MODE)
+        write_generated_text(cfg.work_dir, cfg.steam_key_path, steam_key, STEAM_KEY_FILE_MODE)
+        write_generated_bytes(cfg.work_dir, cfg.bot_main_path, cfg.code_path.read_bytes())
     return {
         "work_dir": str(cfg.work_dir),
         "config": str(cfg.config_path),
@@ -615,9 +653,10 @@ def prepare_map(cfg: SmokeConfig) -> dict[str, Any]:
     if cfg.map_source_file:
         if not cfg.map_source_file.exists():
             raise SmokeError(f"map source file does not exist: {cfg.map_source_file}")
-        shutil.copyfile(cfg.map_source_file, cfg.map_path)
+        write_generated_bytes(cfg.work_dir, cfg.map_path, cfg.map_source_file.read_bytes())
         source = str(cfg.map_source_file)
     elif cfg.map_path.exists():
+        assert_generated_path_has_no_symlink(cfg.work_dir, cfg.map_path)
         source = "existing-workdir-file"
     else:
         parsed = urllib.parse.urlparse(cfg.map_url)
@@ -628,7 +667,7 @@ def prepare_map(cfg: SmokeConfig) -> dict[str, Any]:
             )
         request = urllib.request.Request(cfg.map_url, headers={"User-Agent": "screeps-private-smoke/1.0"})
         with urllib.request.urlopen(request, timeout=60) as response:
-            cfg.map_path.write_bytes(response.read())
+            write_generated_bytes(cfg.work_dir, cfg.map_path, response.read())
         source = cfg.map_url
     return {
         "path": str(cfg.map_path),
@@ -1184,8 +1223,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         report["report_path"] = str(report_path)
         assert_no_secret_leak(report, secrets_to_hide)
         assert_safe_work_dir(cfg.work_dir)
-        cfg.work_dir.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        write_generated_text(cfg.work_dir, report_path, json.dumps(report, indent=2, sort_keys=True))
     return report
 
 
@@ -1221,7 +1259,7 @@ def run_dry(cfg: SmokeConfig) -> dict[str, Any]:
     report_path = dry_cfg.report_path
     report["report_path"] = str(report_path)
     assert_no_secret_leak(report, [fake_password, sample_code])
-    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    write_generated_text(dry_cfg.work_dir, report_path, json.dumps(report, indent=2, sort_keys=True))
     return report
 
 
@@ -1284,11 +1322,12 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertNotIn("super-secret-password", config_text)
 
     def test_compose_file_binds_local_ports(self) -> None:
-        """Compose output should bind the configured loopback ports."""
+        """Compose output should bind local ports and map the launcher UID/GID."""
         cfg = self.make_cfg()
         compose = build_compose_file(cfg)
         self.assertIn('"127.0.0.1:21025:21025/tcp"', compose)
         self.assertIn('"127.0.0.1:21026:21026/tcp"', compose)
+        self.assertIn(f'user: "{os.getuid()}:{os.getgid()}"', compose)
         self.assertIn(f"image: {SCREEPS_LAUNCHER_IMAGE}", compose)
         self.assertIn(f"image: {MONGO_IMAGE}", compose)
         self.assertIn(f"image: {REDIS_IMAGE}", compose)
@@ -1336,8 +1375,8 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertEqual(persisted["report_path"], str(report_path))
         self.assertEqual(report["report_path"], str(report_path))
 
-    def test_live_prepare_sets_container_writable_workdir_and_steam_key_mode(self) -> None:
-        """Live preparation should make generated dirs writable and Steam key readable."""
+    def test_live_prepare_sets_owner_only_generated_modes(self) -> None:
+        """Live preparation should keep generated dirs and files owner-only."""
         steam_key_was_set = "STEAM_KEY" in os.environ
         old_steam_key = os.environ.get("STEAM_KEY")
         try:
@@ -1360,6 +1399,12 @@ class SmokeSelfTest(unittest.TestCase):
                     relative: (cfg.work_dir / relative).stat().st_mode & 0o7777
                     for relative in (".", *CONTAINER_WRITABLE_SUBDIRS)
                 }
+                file_modes = {
+                    "config": cfg.config_path.stat().st_mode & 0o777,
+                    "compose": cfg.compose_path.stat().st_mode & 0o777,
+                    "steam_key": steam_key_mode,
+                    "bot_main": cfg.bot_main_path.stat().st_mode & 0o777,
+                }
 
         finally:
             if steam_key_was_set:
@@ -1369,12 +1414,81 @@ class SmokeSelfTest(unittest.TestCase):
 
         for relative, mode in directory_modes.items():
             with self.subTest(relative=relative):
-                self.assertEqual(mode, CONTAINER_WRITABLE_DIR_MODE)
+                self.assertEqual(mode, GENERATED_DIR_MODE)
+                self.assertEqual(mode & 0o077, 0)
+        for name, mode in file_modes.items():
+            with self.subTest(name=name):
+                self.assertEqual(mode, GENERATED_FILE_MODE)
+                self.assertEqual(mode & 0o077, 0)
         self.assertIn("deps", details["container_writable_dirs"])
         self.assertEqual(steam_key_mode, STEAM_KEY_FILE_MODE)
-        self.assertEqual(steam_key_mode & 0o444, 0o444)
+        self.assertEqual(steam_key_mode & 0o700, 0o600)
         self.assertEqual(steam_key_mode & 0o111, 0)
         self.assertNotIn("self-test-steam-key", json.dumps(details))
+
+    def test_live_prepare_rejects_preexisting_steam_key_symlink(self) -> None:
+        """Live preparation should not follow a preexisting STEAM_KEY symlink."""
+        if not hasattr(os, "symlink"):
+            self.skipTest("os.symlink is unavailable")
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "self-test-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                code_path = temp_path / "main.js"
+                code_path.write_text("module.exports.loop = function loop() {};", encoding="utf-8")
+                cfg = SmokeConfig(
+                    **{
+                        **self.make_cfg().__dict__,
+                        "work_dir": temp_path / "work",
+                        "code_path": code_path,
+                        "dry_run": False,
+                    }
+                )
+                cfg.work_dir.mkdir(mode=GENERATED_DIR_MODE)
+                target = cfg.work_dir / "target-steam-key"
+                os.symlink(target, cfg.steam_key_path)
+                with self.assertRaises(SmokeError):
+                    prepare_work_dir(cfg)
+                self.assertFalse(target.exists())
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+    def test_live_prepare_rejects_preexisting_bot_main_symlink(self) -> None:
+        """Live preparation should not follow a preexisting bot main symlink."""
+        if not hasattr(os, "symlink"):
+            self.skipTest("os.symlink is unavailable")
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "self-test-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                code_path = temp_path / "main.js"
+                code_path.write_text("module.exports.loop = function loop() {};", encoding="utf-8")
+                cfg = SmokeConfig(
+                    **{
+                        **self.make_cfg().__dict__,
+                        "work_dir": temp_path / "work",
+                        "code_path": code_path,
+                        "dry_run": False,
+                    }
+                )
+                cfg.bot_main_path.parent.mkdir(mode=GENERATED_DIR_MODE, parents=True)
+                target = cfg.work_dir / "target-main.js"
+                os.symlink(target, cfg.bot_main_path)
+                with self.assertRaises(SmokeError):
+                    prepare_work_dir(cfg)
+                self.assertFalse(target.exists())
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
 
     def test_dry_run_does_not_create_or_report_steam_key(self) -> None:
         """Dry-run should remain secret-free even if STEAM_KEY is present."""
@@ -1388,6 +1502,10 @@ class SmokeSelfTest(unittest.TestCase):
                 persisted = json.loads(Path(report["report_path"]).read_text(encoding="utf-8"))
                 encoded = json.dumps({"report": report, "persisted": persisted}, sort_keys=True)
                 steam_key_exists = cfg.steam_key_path.exists()
+                dry_run_directory_modes = {
+                    relative: (cfg.work_dir / relative).stat().st_mode & 0o7777
+                    for relative in (".", "maps", "bots", "bots/mvpbot")
+                }
         finally:
             if steam_key_was_set:
                 os.environ["STEAM_KEY"] = old_steam_key or ""
@@ -1395,6 +1513,10 @@ class SmokeSelfTest(unittest.TestCase):
                 os.environ.pop("STEAM_KEY", None)
 
         self.assertFalse(steam_key_exists)
+        for relative, mode in dry_run_directory_modes.items():
+            with self.subTest(relative=relative):
+                self.assertEqual(mode, GENERATED_DIR_MODE)
+                self.assertEqual(mode & 0o077, 0)
         self.assertEqual(report["prepare"]["container_writable_dirs"], "not-applied-dry-run")
         self.assertNotIn("dry-run-env-steam-key", encoded)
 
@@ -1489,7 +1611,11 @@ class SmokeSelfTest(unittest.TestCase):
         for name, outcome, expected in cases:
             with self.subTest(name=name):
 
-                def fake_http_text(*args: Any, **kwargs: Any) -> HttpResult:
+                def fake_http_text(
+                    *args: Any,
+                    outcome: HttpResult | BaseException = outcome,
+                    **kwargs: Any,
+                ) -> HttpResult:
                     """Return a deterministic launcher CLI failure."""
                     if isinstance(outcome, BaseException):
                         raise outcome
@@ -1626,6 +1752,29 @@ class SmokeSelfTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(SmokeError, "SCREEPS_PRIVATE_SMOKE_MAP_URL"):
                 prepare_map(cfg)
+
+    def test_prepare_map_rejects_preexisting_map_symlink(self) -> None:
+        """Map preparation should not follow a preexisting map-file symlink."""
+        if not hasattr(os, "symlink"):
+            self.skipTest("os.symlink is unavailable")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source = temp_path / "source-map.json"
+            source.write_text("{}", encoding="utf-8")
+            cfg = SmokeConfig(
+                **{
+                    **self.make_cfg().__dict__,
+                    "work_dir": temp_path / "work",
+                    "map_source_file": source,
+                    "dry_run": False,
+                }
+            )
+            cfg.map_path.parent.mkdir(mode=GENERATED_DIR_MODE, parents=True)
+            target = cfg.work_dir / "target-map.json"
+            os.symlink(target, cfg.map_path)
+            with self.assertRaises(SmokeError):
+                prepare_map(cfg)
+            self.assertFalse(target.exists())
 
     def test_safe_work_dir_rejects_unignored_repo_paths(self) -> None:
         """Secret-bearing workdirs must be outside the repo or ignored."""
