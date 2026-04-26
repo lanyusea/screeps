@@ -52,10 +52,12 @@ Create the following channels in this order:
 ### Channel responsibilities
 
 #### `#project-vision`
+- Final gameplay objective: on Screeps competition maps, maximize sufficiently large territory first, sufficiently many resources second, and sufficiently many enemy kills third
 - Project mission
 - Scope boundaries
 - Principles
 - Success criteria
+- Priority contract for all roadmap decomposition and trade-off decisions
 
 #### `#decisions`
 - Final decisions only

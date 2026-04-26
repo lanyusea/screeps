@@ -1,8 +1,18 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T03:01:39Z
+Last updated: 2026-04-26T06:03:38Z
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
+
+## Project vision and priority contract
+
+Canonical vision: on Screeps competition maps, achieve the following in strict priority order:
+
+1. **Enough large territory** — claim, hold, defend, and coordinate a large footprint of rooms.
+2. **Enough resources across categories** — convert territory into durable energy, minerals, infrastructure, logistics, and market-ready value.
+3. **Enough enemy kills** — build defensive/offensive combat capability that serves territorial and economic control.
+
+All roadmap decomposition and priority evaluation must tie back to this ordered end goal. When tasks compete, prefer the one that clears the earliest bottleneck in the chain `survive reliably → expand territory → scale resources → defend/attack effectively → optimize kills`. The durable project-vision document is `docs/ops/project-vision.md`.
 
 ## Current status snapshot
 
