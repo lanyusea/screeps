@@ -14,7 +14,7 @@ This repository uses a pull-request-oriented workflow. Production bot changes un
   - manual `workflow_dispatch`
 - Runner: `ubuntu-latest`
 - Node.js: `20`
-- Dependency install: `npm ci --no-audit --no-fund` in `prod/`; the workflow uses stable CI tooling for the TypeScript/Jest/bundle gate. Private-server runtime validation remains a separate Node 22.9+ concern when testing current `screeps` server packages.
+- Dependency install: `npm install --include=dev --no-audit --no-fund` in `prod/`; the workflow uses stable CI tooling for the TypeScript/Jest/bundle gate and verifies the expected dev dependency tree before typechecking. Private-server runtime validation remains a separate Node 22.9+ concern when testing current `screeps` server packages.
 
 ## Required checks
 

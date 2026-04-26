@@ -13,10 +13,11 @@ Added `.github/workflows/prod-ci.yml` with a narrow production verification job:
 
 1. check out the repository;
 2. set up Node.js 20 for stable CI tooling;
-3. install `prod/` dependencies with `npm ci --no-audit --no-fund`;
-4. run `npm run typecheck`;
-5. run `npm test -- --runInBand`;
-6. run `npm run build`.
+3. install `prod/` dependencies with `npm install --include=dev --no-audit --no-fund`;
+4. verify the expected dev dependency tree;
+5. run `npm run typecheck`;
+6. run `npm test -- --runInBand`;
+7. run `npm run build`.
 
 Added `docs/ops/github-actions-prod-ci.md` to document the trigger conditions, local equivalent commands, branch-protection follow-up, and non-goals such as deployment or secret access.
 
@@ -41,7 +42,7 @@ Results on this slice:
 - Typecheck: passed
 - Jest: passed, 12 suites / 59 tests
 - Build: passed
-- GitHub Actions first two runs: failed in `npm ci` on the Node 22 runner path with npm's `Exit handler never called`; workflow follow-up moved the CI tooling lane to Node 20 while leaving Node 22.9+ private-server runtime validation as a separate gate.
+- GitHub Actions first three runs: exposed CI install instability. Node 22/`npm ci` and Node 20/`npm ci` both produced npm's `Exit handler never called`; one run continued with an incomplete dependency tree and typecheck failed. The workflow now uses `npm install --include=dev --no-audit --no-fund` plus an explicit `npm ls` dependency-tree check before typechecking.
 
 ## Follow-up
 
