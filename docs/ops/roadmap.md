@@ -234,7 +234,7 @@ Docker/Compose, package installation, HTTP startup, local auth, code upload, roo
 
 1. package the pinned launcher config, map-file import, restart/resume, local user registration, code upload, spawn placement, stats polling, and redacted Mongo observation into an executable local smoke harness;
 2. observe several additional windows or reruns to ensure the path is stable across fresh data resets;
-3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded (`summary` PNG rendered; `alert=false` with no warnings for `shardX/E48S28` at official tick `108687`);
+3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded (`summary` PNG rendered; `alert=false` with no warnings for `shardX/E48S28` at official tick `108687`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 
 Recommendation: keep private-server-first validation as the release-quality gate before future official MMO deployment, but treat the next engineering step as smoke automation/runtime monitoring rather than resolving basic room initialization.

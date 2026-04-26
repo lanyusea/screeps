@@ -47,7 +47,7 @@ python3 scripts/screeps-runtime-monitor.py alert --format json
 
 ## Interpretation
 
-The runtime monitor is ready for scheduled delivery from a dedicated runtime-summary/runtime-alerts job: summary should deliver the rendered PNG to `discord:#runtime-summary`; alert should return exactly `[SILENT]` when `alert=false` and only deliver images/text to `discord:#runtime-alerts` for real anomalies.
+The runtime monitor is ready for scheduled delivery from a dedicated runtime-summary/runtime-alerts job: summary should deliver the rendered PNG to `discord:#runtime-summary`; the alert scheduler/wrapper should inspect the JSON payload and make the scheduled job's final response exactly `[SILENT]` when `alert=false`, while delivering images/text to `discord:#runtime-alerts` only for real anomalies. The monitor script itself currently emits JSON for `--format json`; quiet no-alert delivery is a scheduler/wrapper responsibility unless a future script flag adds that behavior directly.
 
 This continuation worker intentionally did **not** create or modify cron jobs, because the scheduled-worker prompt forbids recursive cron creation.
 
