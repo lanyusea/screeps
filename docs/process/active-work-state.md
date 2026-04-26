@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T10:44:46+08:00
+Last updated: 2026-04-26T12:40:22+08:00
 
 ## Current active objective
 
@@ -154,6 +154,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Status: implemented, verified, PR-reviewed, and merged to `main`
 - Process note: `docs/process/2026-04-26-transfer-result-hardening.md`
 - Merge follow-up note: `docs/process/2026-04-26-pr9-merge-follow-up.md`
+- Conflict refresh note: `docs/process/2026-04-26-pr9-conflict-refresh.md`
 - Pull request: https://github.com/lanyusea/screeps/pull/9 (merged 2026-04-26T02:43:07Z as `b7e5c94`)
 - Codex-authored commit: `a95afdc` (`test: handle full transfer result race`)
 - Codex-authored review-fix commit: `83eb0d5` (`fix: use screeps err full constant`)
@@ -184,13 +185,19 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 
 ### next-runtime-validation
 
-- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation
+- Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation; committed local harness now exists and awaits a fresh live run
 - Process note: `docs/process/2026-04-26-private-server-smoke-attempt.md`
 - Version-pin research note: `docs/process/2026-04-26-private-server-version-pin-research.md`
 - Pinned runtime retry note: `docs/process/2026-04-26-pinned-private-server-smoke-retry.md`
 - Parallel throughput/smoke note: `docs/process/2026-04-26-parallel-throughput-and-private-smoke.md`
 - Longer observation note: `docs/process/2026-04-26-private-server-long-observation.md`
+- Harness note: `docs/process/2026-04-26-private-server-smoke-harness.md`
 - Current recommendation: private-server-first validation remains the release-quality path. Dockerized `screepers/screeps-launcher` with explicit `version: 4.2.21`, launcher Node `12.22.12`, and transitive dependency resolutions (`body-parser: 1.20.3`, `path-to-regexp: 0.1.12`) can initialize rooms when the map import avoids the Node 12 global-`fetch` path by using a pre-downloaded map file plus `utils.importMapFile('/screeps/maps/map-0b6758af.json')`. A follow-up observation reached private `gametime: 5267`, `totalRooms: 169`, `ownedRooms: 1`, one RCL 2 room, and three live bot-created workers without post-restart log exceptions.
+- Harness status: PR #12 `scripts/screeps-private-smoke.py` is ready for a fresh live run; see `docs/process/2026-04-26-private-server-smoke-harness.md` for full details.
+  - Modes: offline `self-test`, secret-free `dry-run`, and live `run`.
+  - Hardening: unsafe workdir rejection before secret writes, stable password requirement for no-reset server reuse, empty no-reset password rejection, transient `/stats` retry, non-200/unusable `/stats` failure capture, room-specific spawn evidence for `already playing`, required user/room overview success probes, bounded Mongo summaries, docstrings, and expanded self-test coverage.
+  - Pins: `screepers/screeps-launcher:v1.16.2`, `mongo:8.2.7`, `redis:7.4.8`, plus the Node-12-compatible `screeps@4.2.21` dependency pins.
+  - Latest Codex commit: `d8c9197` (`fix: capture smoke harness report metadata`).
 - Local secret storage has public MMO token plus `STEAM_KEY`; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`. Private-server URL/username selectors are not yet defined locally.
 - Temporary owner-approved official MMO link validation completed on 2026-04-26: created official code branch `main`, uploaded current `prod/dist/main.js`, set `main` as `activeWorld`, placed `Spawn1` at `E48S28` `(25,23)` on `shardX`, and verified official world status `normal` with room owner `lanyusea`. This does not remove the private-server-first validation requirement for future release-quality deployments.
 - Durable roadmap: `docs/ops/roadmap.md`
@@ -203,11 +210,17 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Pinned Dockerized runtime smoke: pre-downloaded `map-0b6758af.json`, imported with `utils.importMapFile`, restarted/resumed simulation, registered local smoke user, uploaded `prod/dist/main.js`, placed `Spawn1` at `E1S1` `(20,20)`, and observed `/stats` with `totalRooms: 169`, `ownedRooms: 1`, `activeUsers: 1`, plus owned `worker-E1S1-*` creeps in Mongo
   - Longer pinned runtime observation: private `gametime: 5267`, one RCL 2 owned room, three live bot-created workers, average tick time about 200 ms, and no current post-restart `Unhandled`/`TypeError`/`ReferenceError`/`Error:` hits in launcher logs
   - Runtime monitor self-test: `python3 scripts/screeps-runtime-monitor.py self-test` passed, 8 tests
+  - Private smoke harness self-test: `python3 scripts/screeps-private-smoke.py self-test` passed, 22 tests after PR #12 review fix `d8c9197`
+  - Private smoke harness dry-run: `python3 scripts/screeps-private-smoke.py dry-run` passed and wrote a redacted report without Docker, network, secrets, or a live server
+  - Current prod verification after harness addition: `npm run typecheck`, `npm test -- --runInBand` (12 suites / 68 tests), and `npm run build` all passed in `prod/`
 - Candidate next outputs:
-  1. automate the pinned private-server smoke harness and redacted observation capture
-  2. schedule the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
+  1. wait for PR #12 review state to refresh after `d8c9197`, then run the pinned private-server smoke harness live from a clean ignored work directory and capture the redacted report once the harness PR is accepted/merged
+  2. wire the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
-- Latest deterministic hardening slice on `main`: PR #9 transfer-result race hardening merged as `b7e5c94` on 2026-04-26T02:43:07Z after CI/CodeRabbit were green and review feedback was addressed; it includes Codex commit `a95afdc` plus review-fix commit `83eb0d5`, uses the Screeps global `ERR_FULL` constant, and verifies stale transfer tasks are cleared/reselected without moving toward a full target. Post-merge local verification passed typecheck, 12 suites / 68 tests, and build. Process notes: `docs/process/2026-04-26-transfer-result-hardening.md`, `docs/process/2026-04-26-pr9-conflict-refresh.md`, and `docs/process/2026-04-26-pr9-merge-follow-up.md`.
+- Latest deterministic hardening slice on `main`: PR #9 transfer-result race hardening merged as `b7e5c94` on 2026-04-26T02:43:07Z after CI/CodeRabbit were green and review feedback was addressed.
+  - It includes Codex commit `a95afdc` plus review-fix commit `83eb0d5`, uses the Screeps global `ERR_FULL` constant, and verifies stale transfer tasks are cleared/reselected without moving toward a full target.
+  - Post-merge local verification passed typecheck, 12 suites / 68 tests, and build.
+  - Process notes: `docs/process/2026-04-26-transfer-result-hardening.md`, `docs/process/2026-04-26-pr9-conflict-refresh.md`, and `docs/process/2026-04-26-pr9-merge-follow-up.md`.
 - PR #7 conflict refresh note from `origin/main`: `docs/process/2026-04-26-pr7-conflict-refresh.md`; Codex merge commit `6a54b8d` brought `test/runtime-risk-hardening-20260426` up to `origin/main`, preserved latest CI/P0/runtime-monitor docs, passed prod verification with 12 suites / 67 tests, and pushed the branch. GitHub Actions `prod-ci` passed; CodeRabbit status was pending immediately after push.
 - Runtime monitor live-token smoke: `docs/process/2026-04-26-runtime-monitor-live-smoke.md`; `self-test` passed (8 tests), live summary rendered `runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass and `runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png` in the 09:32 repeat pass; live alert returned `alert: false` with no warnings at official ticks `108687` and `109202` for `shardX/E48S28`; repeat prod verification passed typecheck, 12 suites / 59 tests, and build.
 - Verification target if code changes are made:
