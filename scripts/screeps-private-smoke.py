@@ -18,6 +18,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -261,7 +262,7 @@ def required_env_errors(cfg: SmokeConfig) -> list[str]:
         return errors
     if not os.environ.get("STEAM_KEY"):
         errors.append("STEAM_KEY is required for run mode")
-    if cfg.password is None:
+    if not cfg.password:
         if not cfg.reset_data:
             errors.append("SCREEPS_PRIVATE_SMOKE_PASSWORD is required when reusing server data without reset")
         else:
@@ -429,9 +430,57 @@ def assert_no_secret_leak(payload: Any, secrets_to_hide: list[str]) -> None:
         raise SmokeError("redacted report still contains uploaded code contents")
 
 
+def ok_field_succeeded(value: Any) -> bool:
+    """Return whether a Screeps API ok field represents success."""
+    return value is True or value == 1
+
+
+def upload_code_succeeded(result: HttpResult) -> bool:
+    """Return whether /api/user/code accepted the uploaded bundle."""
+    if result.status != 200 or not isinstance(result.payload, dict):
+        return False
+    return "timestamp" in result.payload or ok_field_succeeded(result.payload.get("ok"))
+
+
+def api_dict_succeeded(result: HttpResult) -> bool:
+    """Return whether an authenticated probe returned a usable success payload."""
+    if result.status != 200 or not isinstance(result.payload, dict):
+        return False
+    ok_value = result.payload.get("ok")
+    return ok_value is None or ok_field_succeeded(ok_value)
+
+
+def http_result_summary(
+    endpoint: str,
+    result: HttpResult,
+    secrets_to_hide: list[str] | None = None,
+    max_len: int = 200,
+) -> str:
+    """Return a bounded, redacted HTTP failure summary."""
+    return f"{endpoint} returned {result.status}: {short_text(redact(result.payload, secrets_to_hide), max_len)}"
+
+
+def record_required_api_probe(
+    phases: list[dict[str, Any]],
+    name: str,
+    endpoint: str,
+    result: HttpResult,
+    secrets_to_hide: list[str],
+) -> None:
+    """Record an authenticated API probe and fail the smoke on unusable responses."""
+    ok = api_dict_succeeded(result)
+    phases.append({
+        "name": name,
+        "ok": ok,
+        "details": {"status": result.status, "response": redact(result.payload, secrets_to_hide)},
+    })
+    if not ok:
+        raise SmokeError(f"{name} failed: {http_result_summary(endpoint, result, secrets_to_hide)}")
+
+
 def build_register_payload(cfg: SmokeConfig) -> dict[str, Any]:
     """Build the local user registration request body."""
-    if cfg.password is None:
+    if not cfg.password:
         raise SmokeError("smoke password is unavailable")
     return {
         "username": cfg.username,
@@ -442,7 +491,7 @@ def build_register_payload(cfg: SmokeConfig) -> dict[str, Any]:
 
 def build_signin_payload(cfg: SmokeConfig) -> dict[str, Any]:
     """Build the local user sign-in request body."""
-    if cfg.password is None:
+    if not cfg.password:
         raise SmokeError("smoke password is unavailable")
     return {
         "email": cfg.email,
@@ -518,6 +567,12 @@ def prepare_map(cfg: SmokeConfig) -> dict[str, Any]:
     elif cfg.map_path.exists():
         source = "existing-workdir-file"
     else:
+        parsed = urllib.parse.urlparse(cfg.map_url)
+        if parsed.scheme not in {"http", "https"}:
+            raise SmokeError(
+                "SCREEPS_PRIVATE_SMOKE_MAP_URL must use http or https; "
+                "use SCREEPS_PRIVATE_SMOKE_MAP_FILE for local files"
+            )
         request = urllib.request.Request(cfg.map_url, headers={"User-Agent": "screeps-private-smoke/1.0"})
         with urllib.request.urlopen(request, timeout=60) as response:
             cfg.map_path.write_bytes(response.read())
@@ -747,6 +802,8 @@ def poll_stats(cfg: SmokeConfig) -> dict[str, Any]:
                     "last": last,
                     "criteria": {"min_creeps": cfg.min_creeps},
                 }
+        else:
+            last_error = http_result_summary("/stats", result, max_len=200)
         time.sleep(min(cfg.poll_interval, max(0, deadline - time.time())))
     return {
         "ok": False,
@@ -935,10 +992,10 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         code_text = cfg.code_path.read_text(encoding="utf-8")
         upload = http_json("POST", cfg.server_url, "/api/user/code", build_code_payload(cfg, code_text), headers=token_headers(token))
         token = update_token_from_headers(token, upload.headers)
-        upload_ok = upload.status == 200 and isinstance(upload.payload, dict) and "timestamp" in upload.payload
+        upload_ok = upload_code_succeeded(upload)
         phases.append({"name": "upload-code", "ok": upload_ok, "details": {"status": upload.status, "response": redact(upload.payload, secrets_to_hide), "module": code_summary}})
         if not upload_ok:
-            raise SmokeError(f"code upload failed: {redact(upload.payload, secrets_to_hide)}")
+            raise SmokeError(f"code upload failed: {http_result_summary('/api/user/code', upload, secrets_to_hide)}")
 
         roundtrip = http_json("GET", cfg.server_url, "/api/user/code", headers=token_headers(token), params={"branch": cfg.branch})
         token = update_token_from_headers(token, roundtrip.headers)
@@ -969,7 +1026,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
 
         overview = http_json("GET", cfg.server_url, "/api/user/overview", headers=token_headers(token))
         token = update_token_from_headers(token, overview.headers)
-        phases.append({"name": "user-overview", "ok": overview.status == 200, "details": {"status": overview.status, "response": redact(overview.payload, secrets_to_hide)}})
+        record_required_api_probe(phases, "user-overview", "/api/user/overview", overview, secrets_to_hide)
 
         room_overview = http_json(
             "GET",
@@ -979,7 +1036,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
             params={"room": cfg.room, "shard": cfg.shard},
         )
         token = update_token_from_headers(token, room_overview.headers)
-        phases.append({"name": "room-overview", "ok": room_overview.status == 200, "details": {"status": room_overview.status, "response": redact(room_overview.payload, secrets_to_hide)}})
+        record_required_api_probe(phases, "room-overview", "/api/game/room-overview", room_overview, secrets_to_hide)
 
         mongo_summary: dict[str, Any] | None = None
         if needs_room_spawn_verify:
@@ -1154,6 +1211,39 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertNotIn("super-secret-password", encoded)
         self.assertNotIn("module.exports.loop", encoded)
 
+    def test_upload_code_accepts_common_success_payloads(self) -> None:
+        """/api/user/code should accept timestamp and ok-style success bodies."""
+        for payload in ({"timestamp": 123}, {"ok": 1}, {"ok": True}):
+            with self.subTest(payload=payload):
+                self.assertTrue(upload_code_succeeded(HttpResult(200, payload, {})))
+
+        for result in (
+            HttpResult(500, {"ok": 1}, {}),
+            HttpResult(200, {"ok": 0}, {}),
+            HttpResult(200, {"ok": False}, {}),
+            HttpResult(200, ["ok"], {}),
+        ):
+            with self.subTest(result=result):
+                self.assertFalse(upload_code_succeeded(result))
+
+    def test_required_api_probe_rejects_bad_overview_payloads(self) -> None:
+        """Overview phases should fail on non-200 or unusable payloads."""
+        phases: list[dict[str, Any]] = []
+        record_required_api_probe(phases, "user-overview", "/api/user/overview", HttpResult(200, {"rooms": []}, {}), [])
+        self.assertTrue(phases[-1]["ok"])
+
+        hidden = "api-token-123"
+        for result in (
+            HttpResult(503, {"error": hidden}, {}),
+            HttpResult(200, ["not", "a", "dict"], {}),
+            HttpResult(200, {"ok": 0}, {}),
+        ):
+            with self.subTest(result=result):
+                with self.assertRaises(SmokeError) as caught:
+                    record_required_api_probe(phases, "user-overview", "/api/user/overview", result, [hidden])
+                self.assertFalse(phases[-1]["ok"])
+                self.assertNotIn(hidden, str(caught.exception))
+
     def test_signin_payload_uses_configured_email(self) -> None:
         """Sign-in should use the registered email even when username differs."""
         cfg = SmokeConfig(
@@ -1186,6 +1276,44 @@ class SmokeSelfTest(unittest.TestCase):
             if old_password is not None:
                 os.environ["SCREEPS_PRIVATE_SMOKE_PASSWORD"] = old_password
         self.assertTrue(any("SCREEPS_PRIVATE_SMOKE_PASSWORD" in error for error in errors))
+
+    def test_reusing_server_state_rejects_empty_password(self) -> None:
+        """No-reset live runs should reject an explicitly empty password."""
+        password_was_set = "SCREEPS_PRIVATE_SMOKE_PASSWORD" in os.environ
+        old_password = os.environ.get("SCREEPS_PRIVATE_SMOKE_PASSWORD")
+        reset_was_set = "SCREEPS_PRIVATE_SMOKE_RESET_DATA" in os.environ
+        old_reset = os.environ.get("SCREEPS_PRIVATE_SMOKE_RESET_DATA")
+        try:
+            os.environ["SCREEPS_PRIVATE_SMOKE_PASSWORD"] = ""
+            os.environ["SCREEPS_PRIVATE_SMOKE_RESET_DATA"] = "false"
+            cfg = config_from_env(self.make_args())
+            self.assertFalse(cfg.reset_data)
+            self.assertEqual(cfg.password, "")
+            errors = required_env_errors(cfg)
+        finally:
+            if password_was_set:
+                os.environ["SCREEPS_PRIVATE_SMOKE_PASSWORD"] = old_password or ""
+            else:
+                os.environ.pop("SCREEPS_PRIVATE_SMOKE_PASSWORD", None)
+            if reset_was_set:
+                os.environ["SCREEPS_PRIVATE_SMOKE_RESET_DATA"] = old_reset or ""
+            else:
+                os.environ.pop("SCREEPS_PRIVATE_SMOKE_RESET_DATA", None)
+        self.assertTrue(any("SCREEPS_PRIVATE_SMOKE_PASSWORD" in error for error in errors))
+
+    def test_prepare_map_rejects_non_network_map_url(self) -> None:
+        """Map URL fetches should be limited to http and https schemes."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cfg = SmokeConfig(
+                **{
+                    **self.make_cfg().__dict__,
+                    "work_dir": Path(temp_dir),
+                    "map_url": "file:///tmp/local-map.json",
+                    "dry_run": False,
+                }
+            )
+            with self.assertRaisesRegex(SmokeError, "SCREEPS_PRIVATE_SMOKE_MAP_URL"):
+                prepare_map(cfg)
 
     def test_safe_work_dir_rejects_unignored_repo_paths(self) -> None:
         """Secret-bearing workdirs must be outside the repo or ignored."""
@@ -1280,6 +1408,75 @@ class SmokeSelfTest(unittest.TestCase):
             time.sleep = original_sleep
         self.assertFalse(result["ok"])
         self.assertIn("temporary timeout", result["last_error"])
+
+    def test_poll_stats_reports_last_http_failure(self) -> None:
+        """Failed polling should keep the last bad /stats HTTP response."""
+        cfg = SmokeConfig(**{**self.make_cfg().__dict__, "stats_timeout": 1, "poll_interval": 1})
+        original_http_json = globals()["http_json"]
+        original_time = time.time
+        original_sleep = time.sleep
+        ticks = [0.0, 0.0, 0.5, 2.0]
+
+        def fake_http_json(*args: Any, **kwargs: Any) -> HttpResult:
+            """Return a bounded, parseable server error payload."""
+            return HttpResult(503, {"error": "temporary unavailable", "detail": "x" * 500}, {})
+
+        def fake_time() -> float:
+            """Return deterministic clock ticks for one poll iteration."""
+            if ticks:
+                return ticks.pop(0)
+            return 2.0
+
+        def fake_sleep(_seconds: float) -> None:
+            """Avoid waiting during the deterministic timeout test."""
+
+        try:
+            globals()["http_json"] = fake_http_json
+            time.time = fake_time
+            time.sleep = fake_sleep
+            result = poll_stats(cfg)
+        finally:
+            globals()["http_json"] = original_http_json
+            time.time = original_time
+            time.sleep = original_sleep
+        self.assertFalse(result["ok"])
+        self.assertIn("/stats returned 503", result["last_error"])
+        self.assertIn("temporary unavailable", result["last_error"])
+        self.assertNotIn("x" * 300, result["last_error"])
+
+    def test_poll_stats_reports_last_non_dict_payload(self) -> None:
+        """Failed polling should capture unusable /stats payloads."""
+        cfg = SmokeConfig(**{**self.make_cfg().__dict__, "stats_timeout": 1, "poll_interval": 1})
+        original_http_json = globals()["http_json"]
+        original_time = time.time
+        original_sleep = time.sleep
+        ticks = [0.0, 0.0, 0.5, 2.0]
+
+        def fake_http_json(*args: Any, **kwargs: Any) -> HttpResult:
+            """Return a 200 response with a payload shape the stats parser cannot use."""
+            return HttpResult(200, ["not", "stats"], {})
+
+        def fake_time() -> float:
+            """Return deterministic clock ticks for one poll iteration."""
+            if ticks:
+                return ticks.pop(0)
+            return 2.0
+
+        def fake_sleep(_seconds: float) -> None:
+            """Avoid waiting during the deterministic timeout test."""
+
+        try:
+            globals()["http_json"] = fake_http_json
+            time.time = fake_time
+            time.sleep = fake_sleep
+            result = poll_stats(cfg)
+        finally:
+            globals()["http_json"] = original_http_json
+            time.time = original_time
+            time.sleep = original_sleep
+        self.assertFalse(result["ok"])
+        self.assertIn("/stats returned 200", result["last_error"])
+        self.assertIn("not", result["last_error"])
 
     def test_collect_mongo_summary_uses_bounded_parseable_output(self) -> None:
         """Mongo summary parsing should use the expanded bounded excerpt."""
