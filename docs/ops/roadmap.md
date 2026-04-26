@@ -12,7 +12,7 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm run typecheck` — passing
   - `cd prod && npm test -- --runInBand` — passing, 12 suites / 68 tests
   - `cd prod && npm run build` — passing
-- Latest production/test milestones: Codex commits `a95afdc test: handle full transfer result race` and `83eb0d5 fix: use screeps err full constant` clear stale transfer tasks when `creep.transfer` returns the Screeps global `ERR_FULL`; latest main also includes `12a2c4a test: harden worker no-target fallbacks` plus stale-harvest follow-up coverage
+- Latest production/test milestones: Codex commit `12a2c4a test: harden worker no-target fallbacks` plus review follow-up `test: cover stale harvest worker tasks` added deterministic no-source/no-controller/no-target worker fallback coverage, including stale harvest targets; refreshed PR #9 commits `a95afdc test: handle full transfer result race` and `83eb0d5 fix: use screeps err full constant` clear stale transfer tasks when `creep.transfer` returns the Screeps global `ERR_FULL`
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
 - Latest runtime-monitor milestone: live-token monitor smoke succeeded twice for `shardX/E48S28` at official ticks `108687` and `109202`; summary rendered PNGs and alert returned `alert: false` with no warnings
 - Latest documentation milestone: production CI workflow/runbook added on branch `chore/add-prod-ci`
