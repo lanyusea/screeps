@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T01:44:09Z
+Last updated: 2026-04-26T01:58:48Z
 
 This roadmap is the durable counterpart to the Discord `#roadmap` channel. It summarizes completed milestones, current blockers, next autonomous slices, and the required reporting behavior for main-agent/subagent work.
 
@@ -10,9 +10,9 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
 - Branch: `main`
 - Current verification baseline:
   - `cd prod && npm run typecheck` — passing
-  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 67 tests
+  - `cd prod && npm test -- --runInBand` — passing, 12 suites / 68 tests
   - `cd prod && npm run build` — passing
-- Latest production/test milestone: Codex commit `12a2c4a test: harden worker no-target fallbacks` plus review follow-up `test: cover stale harvest worker tasks` added deterministic no-source/no-controller/no-target worker fallback coverage, including stale harvest targets
+- Latest production/test milestones: Codex commit `12a2c4a test: harden worker no-target fallbacks` plus review follow-up `test: cover stale harvest worker tasks` added deterministic no-source/no-controller/no-target worker fallback coverage, including stale harvest targets; refreshed PR #9 commits `a95afdc test: handle full transfer result race` and `83eb0d5 fix: use screeps err full constant` clear stale transfer tasks when `creep.transfer` returns the Screeps global `ERR_FULL`
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
 - Latest runtime-monitor milestone: live-token monitor smoke succeeded twice for `shardX/E48S28` at official ticks `108687` and `109202`; summary rendered PNGs and alert returned `alert: false` with no warnings
 - Latest documentation milestone: production CI workflow/runbook added on branch `chore/add-prod-ci`
@@ -124,6 +124,8 @@ Artifacts:
 - `docs/research/2026-04-26-local-validation-strategy.md`
 - `docs/process/2026-04-26-deterministic-integration-hardening.md`
 - `docs/process/2026-04-26-worker-replacement-planning.md`
+- `docs/process/2026-04-26-worker-no-target-hardening.md`
+- `docs/process/2026-04-26-transfer-result-hardening.md`
 
 Implemented validation coverage:
 
@@ -137,12 +139,20 @@ Implemented validation coverage:
 - Upgrade fallback.
 - Replacement-age worker exclusion from steady-state capacity.
 - Worker replacement planning before an expiring worker causes population collapse.
+- No-source/no-controller/no-spending-target worker fallback without retaining invalid tasks.
+- Stale harvest/transfer/build/upgrade task clearing without executing missing targets.
 
 Current baseline:
 
 - Typecheck: pass.
-- Tests: 11 suites / 37 tests pass.
+- Tests: 12 suites / 68 tests pass.
 - Build: pass.
+
+Recent additions:
+
+- Transfer execution race hardening: if `creep.transfer` returns `ERR_FULL`, the worker clears the stale transfer task and immediately reselects through the existing task priority instead of moving toward or retaining the full target.
+- Deterministic worker-runner coverage proves the full-target race falls back to build without same-tick movement toward the full sink.
+- Worker no-target fallback hardening from `origin/main`: no-source, no-spending-target, controllerless, and stale-task cases are now deterministic Jest coverage.
 
 ### 7. Private-server smoke attempt
 

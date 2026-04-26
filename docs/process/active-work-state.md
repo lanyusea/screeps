@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T09:47:06+08:00
+Last updated: 2026-04-26T09:58:48+08:00
 
 ## Current active objective
 
@@ -149,6 +149,38 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - `npm test -- --runInBand`: passed, 12 suites / 45 tests
   - `npm run build`: passed
 
+### transfer-result-race-hardening
+
+- Status: implemented and verified
+- Process note: `docs/process/2026-04-26-transfer-result-hardening.md`
+- Pull request: https://github.com/lanyusea/screeps/pull/9
+- Codex-authored commit: `a95afdc` (`test: handle full transfer result race`)
+- Codex-authored review-fix commit: `83eb0d5` (`fix: use screeps err full constant`)
+- Implemented:
+  - transfer task execution now treats `ERR_FULL` as a same-tick stale-target signal
+  - full-carry workers clear the stale transfer task and immediately reselect through existing worker task priority
+  - deterministic Jest coverage proves a full target race falls back to build without moving toward the full sink
+  - rebuilt `prod/dist/main.js`
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 60 tests
+  - `npm run build`: passed
+
+### worker-no-target-hardening
+
+- Status: implemented and verified on `origin/main`
+- Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`
+- Codex-authored commit: `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up coverage for stale harvest worker tasks
+- Implemented:
+  - `selectWorkerTask` returns `null` without throwing when a worker has no sources
+  - `selectWorkerTask` returns `null` without throwing when an energy-carrying worker has no energy sinks, construction sites, or owned controller
+  - `runWorker` leaves no task assigned in both no-target task-selection cases
+  - `runWorker` clears stale harvest, transfer, build, and upgrade tasks without executing missing targets
+- Verification:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 67 tests
+  - `npm run build`: passed
+
 ### next-runtime-validation
 
 - Status: pinned private-server smoke unblocked for room/map initialization and bot tick validation
@@ -163,7 +195,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Durable roadmap: `docs/ops/roadmap.md`
 - Latest verification:
   - `cd prod && npm run typecheck`: passed
-  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 67 tests after the stale-harvest worker task coverage follow-up
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 68 tests after refreshed PR #9 was merged with the latest no-target and stale-task fallback coverage from `origin/main`
   - `cd prod && npm run build`: passed
   - Docker Compose startup with default `version: latest`: Mongo/Redis reached healthy; Screeps container restarted with default `screeps@4.3.0` engine mismatch (`>=22.9.0` required, `12.22.12` provided)
   - Dockerized launcher install preflight: `screeps-launcher apply` passed with explicit `version: 4.2.21`, `nodeVersion: Erbium`, and pinned package resolutions
@@ -174,8 +206,9 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   1. automate the pinned private-server smoke harness and redacted observation capture
   2. schedule the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
-- Latest deterministic hardening slice: Codex commit `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up `test: cover stale harvest worker tasks` added Jest coverage for no-source/no-controller/no-target worker fallback behavior, including stale harvest targets. Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`.
-- PR #7 conflict refresh note: `docs/process/2026-04-26-pr7-conflict-refresh.md`; Codex merge commit `6a54b8d` brought `test/runtime-risk-hardening-20260426` up to `origin/main`, preserved latest CI/P0/runtime-monitor docs, passed prod verification with 12 suites / 67 tests, and pushed the branch. GitHub Actions `prod-ci` passed; CodeRabbit status was pending immediately after push.
+- Latest deterministic hardening slice from `origin/main`: Codex commit `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up `test: cover stale harvest worker tasks` added Jest coverage for no-source/no-controller/no-target worker fallback behavior, including stale harvest targets. Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`.
+- Current PR #9 refresh slice: transfer-result race hardening remains in this branch, including use of the Screeps global `ERR_FULL` constant and deterministic coverage proving the stale transfer task is cleared/reselected without moving toward the full target. PR #9 refresh reporting must not print secrets; use only safe selectors and redacted runtime observations. Process note: `docs/process/2026-04-26-pr9-conflict-refresh.md`; merge commit `1157baf` brought the branch up to `origin/main`, local verification passed with 12 suites / 68 tests, GitHub Actions `prod-ci` passed, CodeRabbit status was `SUCCESS`, and PR #9 merge state became `CLEAN`.
+- PR #7 conflict refresh note from `origin/main`: `docs/process/2026-04-26-pr7-conflict-refresh.md`; Codex merge commit `6a54b8d` brought `test/runtime-risk-hardening-20260426` up to `origin/main`, preserved latest CI/P0/runtime-monitor docs, passed prod verification with 12 suites / 67 tests, and pushed the branch. GitHub Actions `prod-ci` passed; CodeRabbit status was pending immediately after push.
 - Runtime monitor live-token smoke: `docs/process/2026-04-26-runtime-monitor-live-smoke.md`; `self-test` passed (8 tests), live summary rendered `runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass and `runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png` in the 09:32 repeat pass; live alert returned `alert: false` with no warnings at official ticks `108687` and `109202` for `shardX/E48S28`; repeat prod verification passed typecheck, 12 suites / 59 tests, and build.
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
