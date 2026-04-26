@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T14:00:00+08:00
+Last updated: 2026-04-26T15:24:00+08:00
 
 ## Current active objective
 
@@ -219,6 +219,12 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - Merged: <https://github.com/lanyusea/screeps/pull/16> at `2026-04-26T06:38:25Z`
   - Merge commit: `b82d977a76f4f971c11dc0e1ca2cc010812a2315` (`fix: harden private smoke harness live run`)
   - Post-merge cleanup: `/root/screeps` fast-forwarded to `b82d977`; local feature worktree/branch and remote feature branch removed; secure rerun stack stopped; the only remaining `screeps-private-smoke` containers are the intentional `screeps-private-smoke-pinned-*` observation stack.
+- PR #37 completion:
+  - Merged: <https://github.com/lanyusea/screeps/pull/37> at `2026-04-26T07:20:02Z` after the required 15-minute wait.
+  - Merge commit: `c999a8fd1496dcb5f8c72e42e897051b4707cd2a` (`docs: record GitHub roadmap management contract`).
+  - Review/check state: CodeRabbit status passed; Gemini Code Assist had no feedback; GitHub GraphQL review-thread query returned no unresolved live threads.
+  - Post-merge cleanup: `/root/screeps` fast-forwarded to `c999a8f`; local PR worktree removed; local squash-merged branch force-deleted; remote PR branch deleted.
+  - Process note: `docs/process/2026-04-26-pr37-roadmap-management-merge.md`.
 - Candidate next outputs:
   1. wire the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
   2. observe several additional private-smoke rerun windows to ensure the harness path is stable across fresh data resets
