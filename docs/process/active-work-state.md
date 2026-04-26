@@ -185,7 +185,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Process note: `docs/process/2026-04-26-prod-ci-workflow.md`
 - Branch: `chore/add-prod-ci`
 - Implemented:
-  - `.github/workflows/prod-ci.yml` for PR/push/manual verification of `prod` typecheck, in-band Jest, and build on Node.js 20 CI tooling
+  - `.github/workflows/prod-ci.yml` for PR/push/manual verification of `prod` typecheck, in-band Jest, build, and `dist/main.js` artifact existence on Node.js 20 CI tooling
   - `docs/ops/github-actions-prod-ci.md` runbook documenting triggers, required checks, and branch-protection follow-up
   - docs index and roadmap references for the new CI gate
 - Verification:

@@ -17,7 +17,8 @@ Added `.github/workflows/prod-ci.yml` with a narrow production verification job:
 4. verify the expected dependency tree with `yarn list`;
 5. run `npm run typecheck`;
 6. run `npm test -- --runInBand`;
-7. run `npm run build`.
+7. run `npm run build`;
+8. assert `dist/main.js` exists.
 
 Added `docs/ops/github-actions-prod-ci.md` to document the trigger conditions, local equivalent commands, branch-protection follow-up, and non-goals such as deployment or secret access.
 

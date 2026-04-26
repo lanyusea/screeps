@@ -25,9 +25,10 @@ cd prod
 npm run typecheck
 npm test -- --runInBand
 npm run build
+test -f dist/main.js
 ```
 
-The in-band Jest command matches the local autonomous-worker gate and avoids worker-process nondeterminism in CI.
+The in-band Jest command matches the local autonomous-worker gate and avoids worker-process nondeterminism in CI. The artifact assertion makes the deployable Screeps bundle an explicit CI output condition.
 
 ## Branch protection follow-up
 
