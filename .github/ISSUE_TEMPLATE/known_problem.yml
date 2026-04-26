@@ -1,0 +1,73 @@
+name: Known problem
+description: Track every known problem against a roadmap item
+labels: [kind:bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        所有已知问题都必须建 issue。标题格式必须为：`<优先级>:<roadmap>:<具体问题>`，例如 `P0:Phase D:私服 smoke harness clean rerun 未完成`。
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 优先级
+      description: 选择 P0/P1/P2，并保持标题前缀一致。
+      options:
+        - P0
+        - P1
+        - P2
+    validations:
+      required: true
+  - type: dropdown
+    id: roadmap
+    attributes:
+      label: Roadmap 分类
+      description: 分类必须对应 docs/ops/roadmap.md 的 roadmap 条目。
+      options:
+        - P0 change-control
+        - P0 agent-ops
+        - Phase A docs-sync
+        - Phase B spawn-lifecycle
+        - Phase C telemetry
+        - Phase D private-smoke
+        - Phase E MMO-deploy
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 说明现象、影响范围、为什么阻塞 roadmap。
+      placeholder: 当前发生了什么？对 territory/resources/kills 或交付链路有什么影响？
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 问题日志
+      description: 粘贴 redacted 日志、命令输出、PR/commit/doc 链接；不得包含 secret。
+      placeholder: |
+        - Redacted log/output:
+        - Related docs/PRs/commits:
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 问题复现方式说明
+      description: 写清楚从 clean checkout / runtime / scheduler 如何复现；如果暂不可复现，写明观测入口。
+      placeholder: |
+        1. ...
+        2. ...
+        Actual: ...
+        Expected: ...
+    validations:
+      required: true
+  - type: textarea
+    id: fix_pr
+    attributes:
+      label: 修复 PR 关联要求
+      description: 修复 PR 必须在 PR body 写 `Fixes #<issue>` / `Closes #<issue>` / `Resolves #<issue>`。
+      value: |
+        Fix PR must link this issue with a closing keyword before merge.
+    validations:
+      required: true

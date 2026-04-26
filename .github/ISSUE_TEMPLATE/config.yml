@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Roadmap source of truth
+    url: https://github.com/lanyusea/screeps/blob/main/docs/ops/roadmap.md
+    about: Use roadmap entries as issue categories and labels.
