@@ -1,6 +1,6 @@
 # Screeps Project Roadmap
 
-Last updated: 2026-04-26T08:36:00Z
+Last updated: 2026-04-26T09:36:00Z
 
 This roadmap is the durable explanatory counterpart to Discord `#roadmap` and the GitHub roadmap controls. **GitHub Issues, Milestones, and Project `screeps` are now the source of truth for active roadmap work**; this markdown file records the vision, current snapshot, decisions, and reporting behavior for main-agent/subagent work.
 
@@ -38,7 +38,7 @@ These percentages are explicit next-point estimates for the current roadmap snap
 | Domain | Next-point completion | Current next point |
 | --- | ---: | --- |
 | Agent OS / visibility | 88% | repair or operator-inspect the scheduler runner/cadence defect; prove runtime-alert job `1c093252ab70` advances across two no-alert `[SILENT]` intervals |
-| Engineering governance | 75% | enforceable `main` branch protection / required checks |
+| Engineering governance | 95% | observe next PR to confirm the active `main` ruleset enforces PR + required-check gates in practice |
 | Private-server validation | 85% | fresh live harness run and redacted report |
 | Runtime Monitor | 85% | reliable scheduled summary images plus no-alert silence |
 | Bot Capability | 80% | runtime-driven deterministic hardening after fresh smoke evidence |
@@ -231,15 +231,16 @@ Current access findings:
 - GitHub CLI (`gh`) is installed and authenticated as `lanyusea`; PR creation and review/check inspection worked for PR #10.
 - Git operations use SSH, and the authenticated `gh` token currently reports scopes `admin:public_key`, `gist`, `read:org`, and `repo`.
 - Branch push via git works; branch `docs/runtime-monitor-live-smoke-20260426` was pushed and PR #10 was created from this environment.
-- The public branch listing previously reported `main` as unprotected; protection administration should still be verified before relying on automation to merge or manage branch protection.
+- PR #45 removed `prod-ci` path filters and merged after the required 15-minute wait, making the `Verify prod TypeScript, Jest, and bundle` check available on every PR.
+- Repository ruleset `default` (`15553848`) now applies to `~DEFAULT_BRANCH`, blocks branch deletion and non-fast-forward updates, requires pull requests with all review threads resolved, and requires the strict `Verify prod TypeScript, Jest, and bundle` status check on `main`.
 
 Roadmap tasks:
 
 1. establish the canonical worktree path convention, e.g. `/root/screeps-worktrees/<topic>`;
 2. add CI configuration under `.github/workflows/` for `prod` typecheck, Jest, and build — branch `chore/add-prod-ci` adds `.github/workflows/prod-ci.yml`;
 3. add or update runbooks documenting the worktree/PR/CI lifecycle — branch `chore/add-prod-ci` adds `docs/ops/github-actions-prod-ci.md`;
-4. configure branch protection on `main` after CI exists: require PR review/owner merge policy as desired and require the CI check to pass;
-5. use the GitHub API/CLI to create PRs, inspect PR review comments/discussions, wait at least 15 minutes after PR creation, monitor CI once available, and merge only after the configured gates are satisfied.
+4. observe the next PR to confirm the active ruleset blocks unsafe direct or unchecked changes in practice;
+5. use the GitHub API/CLI to create PRs, inspect PR review comments/discussions, wait at least 15 minutes after PR creation, monitor CI, and merge only after the configured gates are satisfied.
 
 Human-owned secret/action needed:
 
