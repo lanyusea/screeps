@@ -14,6 +14,7 @@ This roadmap is the durable counterpart to the Discord `#roadmap` channel. It su
   - `cd prod && npm run build` — passing
 - Latest production/test milestone: parallel Codex hardening commits `7d2a04d test: harden body builder invariants` and `4706868 test: harden worker runner task execution`; verification now passes with 12 suites / 59 tests
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room
+- Latest runtime-monitor milestone: live-token monitor smoke succeeded for `shardX/E48S28` at official tick `108687`; summary rendered a PNG and alert returned `alert: false` with no warnings
 - Latest documentation milestone: production CI workflow/runbook added on branch `chore/add-prod-ci`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority: continue high-throughput validation while keeping P0 agent communication/cron/Discord visibility healthy
@@ -233,7 +234,7 @@ Docker/Compose, package installation, HTTP startup, local auth, code upload, roo
 
 1. package the pinned launcher config, map-file import, restart/resume, local user registration, code upload, spawn placement, stats polling, and redacted Mongo observation into an executable local smoke harness;
 2. observe several additional windows or reruns to ensure the path is stable across fresh data resets;
-3. run one more live-token runtime-monitor smoke, then schedule `scripts/screeps-runtime-monitor.py` for hourly `#runtime-summary` images and `[SILENT]` no-alert `#runtime-alerts` checks;
+3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded (`summary` PNG rendered; `alert=false` with no warnings for `shardX/E48S28` at official tick `108687`);
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
 
 Recommendation: keep private-server-first validation as the release-quality gate before future official MMO deployment, but treat the next engineering step as smoke automation/runtime monitoring rather than resolving basic room initialization.
