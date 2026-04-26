@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T17:03:00+08:00
+Last updated: 2026-04-26T17:36:00+08:00
 
 ## Current active objective
 
@@ -297,7 +297,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 Owner correction on 2026-04-26: the main agent is responsible for project management outcomes, not only process scheduling. Every active planning/reporting cycle must keep all six roadmap domains advancing concurrently through delegated subagent/Codex tasks:
 
 1. Agent OS / visibility — current estimate 88%; next delegated task: repair or operator-inspect the scheduler runner/cadence defect recorded in `docs/process/2026-04-26-scheduler-cadence-followup.md`, then prove runtime-alert job `1c093252ab70` advances across at least two no-alert `[SILENT]` intervals.
-2. Engineering governance — current estimate 75%; next delegated task: branch protection / required-check gate.
+2. Engineering governance — current estimate 95%; completed in this slice: PR #45 merged after the 15-minute gate and repository ruleset `default` now applies to `~DEFAULT_BRANCH`, blocks deletion/non-fast-forward, requires PRs with resolved threads, and requires the strict `Verify prod TypeScript, Jest, and bundle` check on `main`; next delegated task: observe the next PR to confirm the ruleset blocks unsafe direct/unchecked changes in practice.
 3. Private-server validation — current estimate 85%; next delegated task: fresh live `scripts/screeps-private-smoke.py run` from a clean ignored workdir and redacted report.
 4. Runtime Monitor — current estimate 85%; next delegated task: verify scheduled summary/alert cadence and no-alert silence.
 5. Bot Capability — current estimate 80%; next delegated task: convert real private-smoke/runtime observations into deterministic Codex-owned hardening.
