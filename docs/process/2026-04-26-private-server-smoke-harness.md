@@ -123,8 +123,33 @@ cd prod && npm run build
 # passed
 ```
 
+Third review-hardening follow-up on PR #12:
+
+```text
+d8c9197 fix: capture smoke harness report metadata
+```
+
+This addressed the latest CodeRabbit review by ensuring live and dry-run persisted JSON reports include `report_path`, rejecting non-file bot bundle paths before live smoke execution, and carrying non-200 `/api/version` readiness responses into a redacted `last_error` summary. Offline harness self-test coverage expanded to 22 tests.
+
+Controller verification after this follow-up commit passed:
+
+```text
+python3 -m py_compile scripts/screeps-private-smoke.py
+python3 scripts/screeps-private-smoke.py self-test
+# passed, 22 tests
+python3 scripts/screeps-private-smoke.py dry-run
+# ok: true; redacted report persisted report_path metadata
+cd prod && npm run typecheck
+# passed
+cd prod && npm test -- --runInBand
+# passed, 12 suites / 68 tests
+cd prod && npm run build
+# passed
+```
+
 ## Follow-up
 
-1. Run the harness live from a clean ignored work directory with `STEAM_KEY` present.
-2. Attach the redacted live report to the next process note.
-3. Wire scheduler/runtime monitor wrappers only after the fresh live harness run confirms the pinned path remains stable.
+1. Wait for PR #12 review state to refresh after `d8c9197`; if accepted, merge the harness through the PR gate.
+2. Run the harness live from a clean ignored work directory with `STEAM_KEY` present.
+3. Attach the redacted live report to the next process note.
+4. Wire scheduler/runtime monitor wrappers only after the fresh live harness run confirms the pinned path remains stable.

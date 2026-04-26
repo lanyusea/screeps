@@ -246,7 +246,7 @@ Immediate operating change:
 
 Docker/Compose, package installation, HTTP startup, local auth, code upload, room/map initialization, spawn placement, and bot tick validation are no longer the primary blockers for the pinned launcher path. The active follow-up is making this repeatable and observable:
 
-1. run the new pinned launcher harness live from a clean ignored work directory and archive the redacted report in a process note;
+1. wait for PR #12 review state to refresh after latest harness hardening commit `d8c9197`, then merge through the PR gate and run the new pinned launcher harness live from a clean ignored work directory, archiving the redacted report in a process note;
 2. observe several additional windows or reruns to ensure the harness path is stable across fresh data resets;
 3. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded twice (`summary` PNGs rendered; `alert=false` with no warnings for `shardX/E48S28` at official ticks `108687` and `109202`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
@@ -255,7 +255,7 @@ Recommendation: keep private-server-first validation as the release-quality gate
 
 ### Decision: next code priority
 
-Recommended next slice: run the pinned private-server smoke harness live, then configure or verify the already live-smoked runtime monitor through dedicated scheduler jobs. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
+Recommended next slice: finish PR #12 review acceptance/merge for the pinned private-server smoke harness, run the harness live, then configure or verify the already live-smoked runtime monitor through dedicated scheduler jobs. If new runtime failures appear during observation, convert them into deterministic Jest hardening tasks for Codex.
 
 Reason:
 
