@@ -40,6 +40,7 @@ REDIS_IMAGE = "redis:7.4.8"
 DEFAULT_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 DEFAULT_HTTP_PORT = 21025
 DEFAULT_CLI_PORT = 21026
+LAUNCHER_CLI_RESPONSE_LIMIT = 1400
 DEFAULT_ROOM = "E1S1"
 DEFAULT_SHARD = "shardX"
 DEFAULT_USERNAME = "smoke"
@@ -746,6 +747,36 @@ def http_json(
         return HttpResult(exc.code, parsed, dict(exc.headers.items()))
 
 
+def http_text(
+    method: str,
+    base_url: str,
+    path: str,
+    body: str | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: int = 25,
+    max_len: int = LAUNCHER_CLI_RESPONSE_LIMIT,
+) -> HttpResult:
+    """Send an HTTP request with a text body and return bounded text."""
+    url = base_url.rstrip("/") + path
+    data = body.encode("utf-8") if body is not None else None
+    request_headers = {"User-Agent": "screeps-private-smoke/1.0"}
+    if body is not None:
+        request_headers["Content-Type"] = "text/plain; charset=utf-8"
+    if headers:
+        request_headers.update(headers)
+    request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
+
+    def read_bounded(response: Any) -> str:
+        raw = response.read(max_len + 1)
+        return short_text(raw.decode("utf-8", errors="replace"), max_len)
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return HttpResult(response.status, read_bounded(response), dict(response.headers.items()))
+    except urllib.error.HTTPError as exc:
+        return HttpResult(exc.code, read_bounded(exc), dict(exc.headers.items()))
+
+
 def token_headers(token: str) -> dict[str, str]:
     """Return the Screeps token headers expected by the private server."""
     return {
@@ -785,9 +816,38 @@ def wait_for_http(cfg: SmokeConfig, timeout: int = 300) -> dict[str, Any]:
 
 
 def run_launcher_cli(compose: list[str], cfg: SmokeConfig, expression: str) -> dict[str, Any]:
-    """Execute a screeps-launcher CLI expression inside the stack."""
-    command = [*compose, "exec", "-T", "screeps", "screeps-launcher", "cli"]
-    return require_success(run_command(command, cfg, input_text=expression + "\n", timeout=240))
+    """Execute a screeps-launcher CLI expression through the local HTTP CLI."""
+    _ = compose
+    started = time.time()
+    secrets_to_hide = [os.environ.get("STEAM_KEY", ""), cfg.password or ""]
+    cli_base_url = f"http://{cfg.server_host}:{cfg.cli_port}"
+    endpoint = cli_base_url.rstrip("/") + "/cli"
+    try:
+        result = http_text(
+            "POST",
+            cli_base_url,
+            "/cli",
+            expression,
+            timeout=240,
+            max_len=LAUNCHER_CLI_RESPONSE_LIMIT,
+        )
+    except Exception as exc:  # noqa: BLE001 - sanitized below for report
+        message = redact(short_text(exc, 200), secrets_to_hide)
+        raise SmokeError(f"launcher CLI HTTP request failed: {message}") from exc
+
+    elapsed = round(time.time() - started, 3)
+    response_excerpt = redact(short_text(result.payload, LAUNCHER_CLI_RESPONSE_LIMIT), secrets_to_hide)
+    details = {
+        "endpoint": endpoint,
+        "status": result.status,
+        "elapsed_seconds": elapsed,
+        "response_excerpt": response_excerpt,
+    }
+    if result.status < 200 or result.status >= 300:
+        raise SmokeError(f"launcher CLI HTTP request failed: {endpoint} returned {result.status}: {response_excerpt}")
+    if isinstance(result.payload, str) and result.payload.startswith("Error:"):
+        raise SmokeError(f"launcher CLI returned error: {response_excerpt}")
+    return details
 
 
 def safe_user_stats(stats: dict[str, Any], username: str) -> dict[str, Any]:
@@ -1370,6 +1430,109 @@ class SmokeSelfTest(unittest.TestCase):
                     record_required_api_probe(phases, "user-overview", "/api/user/overview", result, [hidden])
                 self.assertFalse(phases[-1]["ok"])
                 self.assertNotIn(hidden, str(caught.exception))
+
+    def test_run_launcher_cli_posts_expression_to_http_endpoint(self) -> None:
+        """Launcher CLI execution should post raw expressions to the HTTP CLI."""
+        cfg = self.make_cfg()
+        original_http_text = globals()["http_text"]
+        captured: dict[str, Any] = {}
+
+        def fake_http_text(
+            method: str,
+            base_url: str,
+            path: str,
+            body: str | None = None,
+            **kwargs: Any,
+        ) -> HttpResult:
+            """Capture the request shape without touching the network."""
+            captured.update({
+                "method": method,
+                "base_url": base_url,
+                "path": path,
+                "body": body,
+                "timeout": kwargs.get("timeout"),
+                "max_len": kwargs.get("max_len"),
+            })
+            return HttpResult(200, "2\n", {})
+
+        try:
+            globals()["http_text"] = fake_http_text
+            details = run_launcher_cli(["docker", "compose"], cfg, "1+1")
+        finally:
+            globals()["http_text"] = original_http_text
+
+        self.assertEqual(
+            captured,
+            {
+                "method": "POST",
+                "base_url": "http://127.0.0.1:21026",
+                "path": "/cli",
+                "body": "1+1",
+                "timeout": 240,
+                "max_len": LAUNCHER_CLI_RESPONSE_LIMIT,
+            },
+        )
+        self.assertEqual(details["endpoint"], "http://127.0.0.1:21026/cli")
+        self.assertEqual(details["status"], 200)
+        self.assertEqual(details["response_excerpt"], "2\n")
+
+    def test_run_launcher_cli_rejects_http_and_cli_error_payloads(self) -> None:
+        """Launcher CLI execution should fail on HTTP errors and Error: payloads."""
+        cfg = self.make_cfg()
+        original_http_text = globals()["http_text"]
+
+        cases = (
+            ("http-status", HttpResult(503, "temporary unavailable", {}), "returned 503"),
+            ("cli-error", HttpResult(200, "Error: bad expression", {}), "launcher CLI returned error"),
+            ("timeout", TimeoutError("temporary timeout"), "temporary timeout"),
+        )
+        for name, outcome, expected in cases:
+            with self.subTest(name=name):
+
+                def fake_http_text(*args: Any, **kwargs: Any) -> HttpResult:
+                    """Return a deterministic launcher CLI failure."""
+                    if isinstance(outcome, BaseException):
+                        raise outcome
+                    return outcome
+
+                try:
+                    globals()["http_text"] = fake_http_text
+                    with self.assertRaises(SmokeError) as caught:
+                        run_launcher_cli([], cfg, "bad()")
+                finally:
+                    globals()["http_text"] = original_http_text
+                self.assertIn(expected, str(caught.exception))
+
+    def test_run_launcher_cli_redacts_and_bounds_response_output(self) -> None:
+        """Launcher CLI reports should redact secrets and bound response text."""
+        cfg = self.make_cfg()
+        original_http_text = globals()["http_text"]
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        hidden_steam_key = "self-test-steam-key"
+        long_response = f"ok {hidden_steam_key} {cfg.password} " + ("x" * 2000)
+
+        def fake_http_text(*args: Any, **kwargs: Any) -> HttpResult:
+            """Return a successful response that still needs report sanitation."""
+            return HttpResult(200, long_response, {})
+
+        try:
+            os.environ["STEAM_KEY"] = hidden_steam_key
+            globals()["http_text"] = fake_http_text
+            details = run_launcher_cli([], cfg, "secretProbe()")
+        finally:
+            globals()["http_text"] = original_http_text
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+        excerpt = details["response_excerpt"]
+        self.assertLessEqual(len(excerpt), LAUNCHER_CLI_RESPONSE_LIMIT)
+        self.assertTrue(excerpt.endswith("..."))
+        self.assertIn("[REDACTED]", excerpt)
+        self.assertNotIn(hidden_steam_key, excerpt)
+        self.assertNotIn(cfg.password or "", excerpt)
 
     def test_signin_payload_uses_configured_email(self) -> None:
         """Sign-in should use the registered email even when username differs."""
