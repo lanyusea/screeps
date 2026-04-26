@@ -29,13 +29,43 @@ python3 scripts/screeps-runtime-monitor.py alert --format json
 ## Results
 
 - Offline monitor self-test passed: 8 tests.
-- Live `summary` command succeeded and rendered `/root/screeps/runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png`.
-- Live summary payload reported:
+- Live `summary` command succeeded and rendered `/root/screeps/runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass.
+- First live summary payload reported:
   - room: `shardX/E48S28`
   - tick: `108687`
   - creeps: `3`
   - hostiles: `0`
   - objects: `8`
+  - structures: `2`
+  - warnings: none
+- First live `alert` command succeeded with no alert:
+  - `alert: false`
+  - reasons: none
+  - suppressed: false
+  - warnings: none
+  - state file: `/root/.hermes/screeps-runtime-monitor/state.json`
+
+## Repeat smoke on 2026-04-26T09:32:58+08:00
+
+Commands run from `/root/screeps` with local ignored secret/config sourced and no secret values printed:
+
+```bash
+python3 scripts/screeps-runtime-monitor.py self-test
+python3 scripts/screeps-runtime-monitor.py summary --room shardX/E48S28 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-live-smoke-20260426
+python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-live-smoke-20260426
+cd prod && npm run typecheck && npm test -- --runInBand && npm run build
+```
+
+Results:
+
+- Offline monitor self-test passed: 8 tests.
+- Live `summary` command succeeded and rendered `/root/screeps/runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png`.
+- Live summary payload reported:
+  - room: `shardX/E48S28`
+  - tick: `109202`
+  - creeps: `4`
+  - hostiles: `0`
+  - objects: `9`
   - structures: `2`
   - warnings: none
 - Live `alert` command succeeded with no alert:
@@ -44,6 +74,10 @@ python3 scripts/screeps-runtime-monitor.py alert --format json
   - suppressed: false
   - warnings: none
   - state file: `/root/.hermes/screeps-runtime-monitor/state.json`
+- Production baseline verification still passes:
+  - `npm run typecheck`: passed
+  - `npm test -- --runInBand`: passed, 12 suites / 59 tests
+  - `npm run build`: passed
 
 ## Interpretation
 
