@@ -22,6 +22,16 @@ Added a tracked local automation harness for the pinned Dockerized Screeps priva
 - `down` mode to stop the local Compose stack without deleting the work directory.
 - Runbook update in `docs/ops/private-server-smoke-test.md` with script usage and safety behavior.
 
+## Review hardening
+
+The PR review follow-up hardened the automation path before merge:
+
+- redaction now catches common secret-key spellings and separators including `steamKey`, `steam_key`, `steam-key`, `X-Token`, `x_token`, `authorization`, `password`, and `token`;
+- generated Docker Compose output quotes the host `prod/dist` bind mount path;
+- `run` fails fast if `system.resetAllData()`, `utils.importMapFile(...)`, `docker compose restart screeps`, or `system.resumeSimulation()` fails;
+- after run-summary initialization, failures still write a redacted `artifacts/summary.json` with status, phase, and bounded command details;
+- `down` now propagates a non-zero exit status when Compose cleanup fails.
+
 ## Verification
 
 Commands run from the worktree:
@@ -31,12 +41,16 @@ python3 scripts/screeps-private-smoke.py self-test
 python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-smoke-harness-check --repo-root /root/screeps-worktrees/automate-private-smoke-20260426
 ```
 
-Results:
+Results after review hardening:
 
-- `self-test`: passed, 8 checks.
+- `self-test`: passed, 26 checks.
 - `plan`: passed; rendered `docker-compose.yml`, `config.yml`, and redacted summary in `/tmp/screeps-private-smoke-harness-check` without starting Docker.
 
-No `prod/` files were changed, so the production TypeScript/Jest/build verification gate was not required for this docs/ops-script-only slice.
+No `prod/` files changed in the harness hardening itself, but the PR update still reran the production TypeScript/Jest/build gate successfully:
+
+- `cd prod && npm run typecheck`: passed
+- `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
+- `cd prod && npm run build`: passed
 
 ## Remaining follow-up
 

@@ -48,6 +48,22 @@ PINNED_PACKAGES = {
 }
 
 SECRET_KEYS = {"password", "token", "steam_key", "authorization", "x_token"}
+SECRET_KEY_SUFFIXES = {"password", "token"}
+MAX_SUMMARY_OUTPUT_CHARS = 1200
+
+
+def normalize_secret_key(key: Any) -> str:
+    if not isinstance(key, str):
+        return ""
+    return "".join(ch.lower() for ch in key if ch.isalnum())
+
+
+SECRET_KEY_FINGERPRINTS = {normalize_secret_key(key) for key in SECRET_KEYS | {"steam-key", "steamKey", "x-token"}}
+
+
+def should_redact_key(key: Any) -> bool:
+    normalized = normalize_secret_key(key)
+    return normalized in SECRET_KEY_FINGERPRINTS or any(normalized.endswith(suffix) for suffix in SECRET_KEY_SUFFIXES)
 
 
 @dataclass
@@ -90,7 +106,7 @@ class HarnessConfig:
 
 def redact(value: Any) -> Any:
     if isinstance(value, dict):
-        return {k: (REDACTED if k.lower().replace("-", "_") in SECRET_KEYS else redact(v)) for k, v in value.items()}
+        return {k: (REDACTED if should_redact_key(k) else redact(v)) for k, v in value.items()}
     if isinstance(value, list):
         return [redact(v) for v in value]
     return value
@@ -126,7 +142,7 @@ def render_compose(config: HarnessConfig) -> str:
     volumes:
       - ./config.yml:/screeps/config.yml:ro
       - ./maps:/screeps/maps:ro
-      - {config.repo_root / 'prod' / 'dist'}:/bot:ro
+      - {json.dumps(f"{config.repo_root / 'prod' / 'dist'}:/bot:ro")}
     depends_on:
       - mongo
       - redis
@@ -182,12 +198,41 @@ def run_command(args: list[str], *, cwd: Path, input_text: str | None = None, ti
     return subprocess.run(args, cwd=cwd, input=input_text, text=True, capture_output=True, timeout=timeout, check=False)
 
 
+def text_tail(value: str, limit: int = MAX_SUMMARY_OUTPUT_CHARS) -> str:
+    if len(value) <= limit:
+        return value
+    return value[-limit:]
+
+
+def command_summary(result: subprocess.CompletedProcess[str]) -> dict[str, Any]:
+    return {
+        "returncode": result.returncode,
+        "stdout_tail": text_tail(result.stdout or ""),
+        "stderr_tail": text_tail(result.stderr or ""),
+    }
+
+
+def exception_summary(exc: Exception) -> dict[str, str]:
+    return {"type": type(exc).__name__, "message": text_tail(str(exc), limit=600)}
+
+
+def record_failure(summary: dict[str, Any], phase: str, details: Any) -> None:
+    summary["status"] = "failed"
+    summary["failure"] = {"phase": phase, "details": redact(details)}
+
+
+def require_success(summary: dict[str, Any], phase: str, result: subprocess.CompletedProcess[str]) -> None:
+    if result.returncode != 0:
+        record_failure(summary, phase, command_summary(result))
+        raise RuntimeError(f"{phase} failed with exit code {result.returncode}")
+
+
 def docker_compose_base() -> list[str]:
     if shutil.which("docker"):
         return ["docker", "compose"]
     if shutil.which("docker-compose"):
         return ["docker-compose"]
-    raise SystemExit("Neither docker compose nor docker-compose is available")
+    raise RuntimeError("Neither docker compose nor docker-compose is available")
 
 
 def http_json(url: str, *, method: str = "GET", data: dict[str, Any] | None = None, headers: dict[str, str] | None = None, timeout: int = 20) -> dict[str, Any]:
@@ -300,54 +345,96 @@ def run_harness(config: HarnessConfig) -> dict[str, Any]:
     if not config.bot_bundle.exists():
         raise SystemExit(f"Missing bot bundle: {config.bot_bundle}; run cd prod && npm run build first")
     write_rendered_files(config)
-    map_status = download_map(config, allow_network=True)
-    compose = docker_compose_base()
-    up = run_command(compose + ["up", "-d"], cwd=config.work_dir, timeout=300)
-    if up.returncode != 0:
-        raise RuntimeError(up.stderr or up.stdout)
-    version = wait_for_http(config, seconds=180)
-    reset = launcher_cli(config, "system.resetAllData()", timeout=120)
-    import_map = launcher_cli(config, f"utils.importMapFile('/screeps/maps/{config.map_name}')", timeout=240)
-    restart = run_command(compose + ["restart", "screeps"], cwd=config.work_dir, timeout=180)
-    wait_for_http(config, seconds=180)
-    resume = launcher_cli(config, "system.resumeSimulation()", timeout=120)
-    registration = register_user(config)
-    upload = upload_code(config)
-    spawn = place_spawn(config)
-    observations = poll_stats(config, config.observation_seconds)
     summary = {
         "mode": "run",
         "work_dir": str(config.work_dir),
-        "map_status": map_status,
-        "map_sha256": sha256_file(config.map_file) if config.map_file.exists() else None,
-        "version": version,
-        "reset_returncode": reset.returncode,
-        "import_map_returncode": import_map.returncode,
-        "restart_returncode": restart.returncode,
-        "resume_returncode": resume.returncode,
-        "registration": registration,
-        "upload": upload,
-        "spawn": spawn,
-        "observations": observations,
+        "status": "running",
+        "phase": "initializing",
+        "commands": {},
         "username": config.username,
         "password": config.password,
         "steam_key_present": config.steam_key_present,
     }
-    write_summary(config, summary)
-    return redact(summary)
+    try:
+        summary["phase"] = "download_map"
+        summary["map_status"] = download_map(config, allow_network=True)
+        summary["map_sha256"] = sha256_file(config.map_file) if config.map_file.exists() else None
+
+        summary["phase"] = "docker compose up"
+        compose = docker_compose_base()
+        up = run_command(compose + ["up", "-d"], cwd=config.work_dir, timeout=300)
+        summary["commands"]["docker_compose_up"] = command_summary(up)
+        require_success(summary, "docker compose up", up)
+
+        summary["phase"] = "wait_for_http_initial"
+        summary["version"] = wait_for_http(config, seconds=180)
+
+        summary["phase"] = "system.resetAllData()"
+        reset = launcher_cli(config, "system.resetAllData()", timeout=120)
+        summary["commands"]["reset_all_data"] = command_summary(reset)
+        summary["reset_returncode"] = reset.returncode
+        require_success(summary, "system.resetAllData()", reset)
+
+        summary["phase"] = "utils.importMapFile(...)"
+        import_map = launcher_cli(config, f"utils.importMapFile('/screeps/maps/{config.map_name}')", timeout=240)
+        summary["commands"]["import_map_file"] = command_summary(import_map)
+        summary["import_map_returncode"] = import_map.returncode
+        require_success(summary, "utils.importMapFile(...)", import_map)
+
+        summary["phase"] = "docker compose restart screeps"
+        restart = run_command(compose + ["restart", "screeps"], cwd=config.work_dir, timeout=180)
+        summary["commands"]["docker_compose_restart_screeps"] = command_summary(restart)
+        summary["restart_returncode"] = restart.returncode
+        require_success(summary, "docker compose restart screeps", restart)
+
+        summary["phase"] = "wait_for_http_after_restart"
+        wait_for_http(config, seconds=180)
+
+        summary["phase"] = "system.resumeSimulation()"
+        resume = launcher_cli(config, "system.resumeSimulation()", timeout=120)
+        summary["commands"]["resume_simulation"] = command_summary(resume)
+        summary["resume_returncode"] = resume.returncode
+        require_success(summary, "system.resumeSimulation()", resume)
+
+        summary["phase"] = "register_user"
+        summary["registration"] = register_user(config)
+        summary["phase"] = "upload_code"
+        summary["upload"] = upload_code(config)
+        summary["phase"] = "place_spawn"
+        summary["spawn"] = place_spawn(config)
+        summary["phase"] = "poll_stats"
+        summary["observations"] = poll_stats(config, config.observation_seconds)
+        summary["status"] = "passed"
+        summary.pop("phase", None)
+        return redact(summary)
+    except Exception as exc:
+        if "failure" not in summary:
+            record_failure(summary, str(summary.get("phase", "run")), exception_summary(exc))
+        raise
+    finally:
+        write_summary(config, summary)
 
 
 def down(config: HarnessConfig) -> dict[str, Any]:
     ensure_safe_work_dir(config.work_dir)
     result = run_command(docker_compose_base() + ["down"], cwd=config.work_dir, timeout=180)
-    summary = {"mode": "down", "work_dir": str(config.work_dir), "returncode": result.returncode}
+    summary = {"mode": "down", "work_dir": str(config.work_dir), **command_summary(result)}
     write_summary(config, summary)
-    return summary
+    return redact(summary)
+
+
+def exit_code_for_result(command: str, result: dict[str, Any]) -> int:
+    if command == "down":
+        return int(result.get("returncode") or 0)
+    return 0
 
 
 def self_test() -> dict[str, Any]:
+    import contextlib
+    import io
     import tempfile
 
+    checks = 0
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp) / "repo"
         dist = repo / "prod" / "dist"
@@ -372,16 +459,111 @@ def self_test() -> dict[str, Any]:
         assert "version: 4.2.21" in rendered
         assert "body-parser: 1.20.3" in rendered
         assert f"mapFile: /screeps/maps/{DEFAULT_MAP_NAME}" in rendered
-        redacted = redact({"password": "super-secret", "nested": {"X-Token": "abc"}, "ok": 1})
-        assert redacted["password"] == REDACTED
-        assert redacted["nested"]["X-Token"] == REDACTED
+        checks += 3
+
+        compose = render_compose(cfg)
+        assert f'"{repo.resolve() / "prod" / "dist"}:/bot:ro"' in compose
+        checks += 1
+
+        secret_variants = {
+            "steamKey": "a",
+            "steam_key": "b",
+            "steam-key": "c",
+            "X-Token": "d",
+            "x_token": "e",
+            "authorization": "f",
+            "password": "g",
+            "token": "h",
+        }
+        redacted = redact({"nested": secret_variants, "steam_key_present": True, "ok": 1})
+        for key in secret_variants:
+            assert redacted["nested"][key] == REDACTED
+        assert redacted["steam_key_present"] is True
+        checks += len(secret_variants) + 1
+
         planned = plan(cfg)
         assert (cfg.work_dir / MARKER_FILE).exists()
         assert cfg.compose_file.exists()
         assert cfg.launcher_config_file.exists()
         assert planned["bot_bundle_exists"] is True
         assert "super-secret" not in cfg.summary_file.read_text(encoding="utf-8")
-    return {"self_test": "passed", "checks": 8}
+        checks += 5
+
+        original_download_map = globals()["download_map"]
+        original_docker_compose_base = globals()["docker_compose_base"]
+        original_run_command = globals()["run_command"]
+        original_launcher_cli = globals()["launcher_cli"]
+        original_wait_for_http = globals()["wait_for_http"]
+        original_register_user = globals()["register_user"]
+        original_upload_code = globals()["upload_code"]
+        original_place_spawn = globals()["place_spawn"]
+        original_poll_stats = globals()["poll_stats"]
+        try:
+            calls: list[str] = []
+
+            def fake_download_map(config: HarnessConfig, *, allow_network: bool) -> str:
+                config.map_file.write_text("{}", encoding="utf-8")
+                return "cached"
+
+            def fake_docker_compose_base() -> list[str]:
+                return ["docker", "compose"]
+
+            def fake_run_command(args: list[str], *, cwd: Path, input_text: str | None = None, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(args, 0, "ok", "")
+
+            def fake_launcher_cli(config: HarnessConfig, js: str, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+                calls.append(js)
+                return subprocess.CompletedProcess(["screeps-launcher", "cli"], 7, "", "reset failed")
+
+            globals()["download_map"] = fake_download_map
+            globals()["docker_compose_base"] = fake_docker_compose_base
+            globals()["run_command"] = fake_run_command
+            globals()["launcher_cli"] = fake_launcher_cli
+            globals()["wait_for_http"] = lambda config, seconds: {"ok": True}
+            globals()["register_user"] = lambda config: (_ for _ in ()).throw(AssertionError("register_user should not run"))
+            globals()["upload_code"] = lambda config: (_ for _ in ()).throw(AssertionError("upload_code should not run"))
+            globals()["place_spawn"] = lambda config: (_ for _ in ()).throw(AssertionError("place_spawn should not run"))
+            globals()["poll_stats"] = lambda config, seconds: (_ for _ in ()).throw(AssertionError("poll_stats should not run"))
+
+            try:
+                run_harness(cfg)
+                raise AssertionError("run_harness should fail on reset failure")
+            except RuntimeError as exc:
+                assert "system.resetAllData()" in str(exc)
+            failure_summary_text = cfg.summary_file.read_text(encoding="utf-8")
+            failure_summary = json.loads(failure_summary_text)
+            assert failure_summary["status"] == "failed"
+            assert failure_summary["failure"]["phase"] == "system.resetAllData()"
+            assert failure_summary["reset_returncode"] == 7
+            assert "super-secret" not in failure_summary_text
+            assert calls == ["system.resetAllData()"]
+            checks += 5
+        finally:
+            globals()["download_map"] = original_download_map
+            globals()["docker_compose_base"] = original_docker_compose_base
+            globals()["run_command"] = original_run_command
+            globals()["launcher_cli"] = original_launcher_cli
+            globals()["wait_for_http"] = original_wait_for_http
+            globals()["register_user"] = original_register_user
+            globals()["upload_code"] = original_upload_code
+            globals()["place_spawn"] = original_place_spawn
+            globals()["poll_stats"] = original_poll_stats
+
+        original_docker_compose_base = globals()["docker_compose_base"]
+        original_run_command = globals()["run_command"]
+        try:
+            globals()["docker_compose_base"] = lambda: ["docker", "compose"]
+            globals()["run_command"] = lambda args, *, cwd, input_text=None, timeout=120: subprocess.CompletedProcess(args, 23, "", "down failed")
+            down_summary = down(cfg)
+            assert down_summary["returncode"] == 23
+            assert exit_code_for_result("down", down_summary) == 23
+            with contextlib.redirect_stdout(io.StringIO()):
+                assert main(["down", "--work-dir", str(cfg.work_dir), "--repo-root", str(repo)]) == 23
+            checks += 3
+        finally:
+            globals()["docker_compose_base"] = original_docker_compose_base
+            globals()["run_command"] = original_run_command
+    return {"self_test": "passed", "checks": checks}
 
 
 def build_config(args: argparse.Namespace) -> HarnessConfig:
@@ -443,7 +625,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         root.error(f"unknown command: {command}")
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 0
+    return exit_code_for_result(command, result)
 
 
 if __name__ == "__main__":

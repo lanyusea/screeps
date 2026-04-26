@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T06:42:59+08:00
+Last updated: 2026-04-26T08:23:53+08:00
 
 ## Current active objective
 
@@ -177,12 +177,27 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 - Latest automation slice:
   - Process note: `docs/process/2026-04-26-private-server-smoke-harness.md`
   - Added `scripts/screeps-private-smoke.py` with `self-test`, `plan`, `run`, and `down` modes for the pinned Dockerized smoke path.
+  - PR review hardening now redacts secret-key variants including `steamKey`, `steam_key`, `steam-key`, `X-Token`, `x_token`, `authorization`, `password`, and `token`; quotes the generated `prod/dist` bind mount; fails fast on reset/import/restart/resume setup failures; writes a redacted failure summary after run-summary initialization; and propagates non-zero `down` failures.
   - Updated `docs/ops/private-server-smoke-test.md` with harness usage and safety behavior.
-  - Verification: `python3 scripts/screeps-private-smoke.py self-test` passed, 8 checks; `python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-smoke-harness-check --repo-root /root/screeps-worktrees/automate-private-smoke-20260426` passed without starting Docker.
+  - Verification: `python3 scripts/screeps-private-smoke.py self-test` passed, 26 checks; `python3 scripts/screeps-private-smoke.py plan --work-dir /tmp/screeps-private-smoke-harness-check --repo-root /root/screeps-worktrees/automate-private-smoke-20260426` passed without starting Docker.
 - Verification target if code changes are made:
-  - `cd prod && npm run typecheck`
-  - `cd prod && npm test -- --runInBand`
-  - `cd prod && npm run build`
+  - `cd prod && npm run typecheck`: passed
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
+  - `cd prod && npm run build`: passed
+
+### worktree-pr-ci-gate
+
+- Status: production CI workflow/runbook exists on `origin/main` and is included in this branch merge state.
+- Process note: `docs/process/2026-04-26-prod-ci-workflow.md`
+- Implemented:
+  - `.github/workflows/prod-ci.yml` for PR/push/manual verification of `prod` typecheck, in-band Jest, build, and `dist/main.js` artifact existence on Node.js 20 CI tooling
+  - `docs/ops/github-actions-prod-ci.md` runbook documenting triggers, required checks, and branch-protection follow-up
+  - docs index and roadmap references for the CI gate
+- Verification:
+  - `cd prod && npm run typecheck`: passed
+  - `cd prod && npm test -- --runInBand`: passed, 12 suites / 59 tests
+  - `cd prod && npm run build`: passed
+  - this branch reran the same production gate after the smoke-harness review fixes
 - Reporting channels in non-cron/manual context: `#task-queue`, `#dev-log`, and `#roadmap` as appropriate; final owner decisions go to `#decisions`.
 - Subagent completion rule: after every subagent completes, main agent must review the result and report relevant task status, dev/test details, roadmap impact, research findings, or decision items to the corresponding Discord channel(s).
 - 4-hour summary due only if a new task is started and remains active after 4 hours.

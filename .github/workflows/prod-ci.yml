@@ -1,0 +1,58 @@
+name: prod-ci
+
+on:
+  pull_request:
+    paths:
+      - "prod/**"
+      - ".github/workflows/prod-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "prod/**"
+      - ".github/workflows/prod-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-prod:
+    name: Verify prod TypeScript, Jest, and bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: prod
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: yarn install --non-interactive --no-progress
+
+      - name: Verify dependency tree
+        run: yarn list --pattern "typescript|jest|@types/jest|@types/screeps|esbuild"
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run Jest in-band
+        run: npm test -- --runInBand
+
+      - name: Build bundled Screeps artifact
+        run: npm run build
+
+      - name: Verify build artifact
+        run: test -f dist/main.js
