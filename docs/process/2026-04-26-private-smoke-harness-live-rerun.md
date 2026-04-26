@@ -26,6 +26,11 @@ The harness then exposed three automation issues:
    - Codex commit: `a27532f fix: run smoke cli through http endpoint`.
    - Fix: the harness now uses the generated local HTTP CLI endpoint at `http://<host>:<cli_port>/cli` for `system.resetAllData()`, `utils.importMapFile(...)`, and `system.resumeSimulation()`.
 
+4. Review bots correctly flagged the initial permission fix as too broad: `STEAM_KEY` mode `0644` and `01777` generated directories exposed local multi-user risks.
+   - Codex commit: `28677d6 fix: harden smoke harness file permissions`.
+   - Fix: the Screeps container is configured to run as the host writer UID/GID, generated files use owner-only mode `0600`, generated directories use owner-only mode `0700`, and generated writes reject preexisting symlinks for sensitive/runtime paths.
+   - Secure live rerun passed after this fix; see below.
+
 ## Verification
 
 Controller verification after each Codex fix passed:
@@ -37,9 +42,9 @@ SCREEPS_PRIVATE_SMOKE_WORKDIR=/tmp/screeps-private-smoke-dry-run-verify-controll
 cd prod && npm run typecheck && npm test -- --runInBand && npm run build
 ```
 
-Latest offline result after the HTTP CLI fix:
+Latest offline result after the permission review fix:
 
-- Private smoke self-test: 27 tests passed.
+- Private smoke self-test: 30 tests passed.
 - Prod Jest: 12 suites / 68 tests passed.
 - Prod build succeeded and regenerated `prod/dist/main.js` from the existing source.
 
