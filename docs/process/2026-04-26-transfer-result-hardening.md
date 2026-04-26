@@ -2,6 +2,7 @@
 
 Date: 2026-04-26T08:46:46+08:00
 Branch: `test/transfer-result-hardening-20260426`
+Pull request: https://github.com/lanyusea/screeps/pull/9
 
 ## Objective
 

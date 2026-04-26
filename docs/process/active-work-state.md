@@ -153,6 +153,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 
 - Status: implemented and verified
 - Process note: `docs/process/2026-04-26-transfer-result-hardening.md`
+- Pull request: https://github.com/lanyusea/screeps/pull/9
 - Codex-authored commit: `a95afdc` (`test: handle full transfer result race`)
 - Implemented:
   - transfer task execution now treats `ERR_FULL` as a same-tick stale-target signal
