@@ -41,7 +41,7 @@ Key live findings:
 4. Updated the live continuation worker prompt so future slices are bounded and must final-report visible checkpoints instead of silently running for hours.
 5. Updated the live dev-log and research-notes fanout reporter prompts so they inspect active continuation session JSON files and report in-progress work instead of returning `[SILENT]` only because finalized output has not landed.
 6. Updated the live P0 monitor prompt so it may repair/resume/trigger stale scheduled jobs and reports ACTIVE-LONG-RUN status when a non-final but fresh continuation session exists.
-7. Removed `workdir=/root/screeps` from reporter/monitor/reporting cron jobs (`P0 monitor`, runtime summary/alert, dev-log, research-notes, roadmap, 6h report, and 4h checkpoint) so they are not serialized behind a long continuation worker that owns the `/root/screeps` workdir. Prompts use absolute `/root/screeps` paths instead.
+7. Removed `workdir=/root/screeps` from scheduled Screeps cron jobs (continuation worker, P0 monitor, runtime summary/alert, dev-log, research-notes, roadmap, 6h report, and 4h checkpoint) so no due workdir job can serialize the whole cron tick ahead of reporting. Prompts use absolute `/root/screeps` paths instead.
 8. Preserved PR #16 state by committing and pushing the docs-only follow-up `46c68f8 docs: record smoke harness permission hardening` after Codex-authored code commit `28677d6 fix: harden smoke harness file permissions`.
 
 ## Root cause
@@ -64,7 +64,7 @@ Specifically:
 - Continuation worker slices must be bounded and checkpoint visibly before long debug/private-server work continues.
 - `#dev-log` and `#research-notes` reporters must inspect active session JSON (`~/.hermes/sessions/session_cron_f66ed36d7be0_*.json`) in addition to finalized cron outputs.
 - P0 monitor must distinguish `ACTIVE-LONG-RUN` from stopped/failed, but it must still report it because owner visibility is degraded until the long run finalizes.
-- Routine reporters/monitors must not share the continuation worker's serialized `/root/screeps` cron workdir. Use absolute paths in prompts and leave reporter `workdir` unset unless repository context injection is strictly required.
+- Scheduled Screeps cron jobs must not share a serialized `/root/screeps` cron workdir. Use absolute paths in prompts and leave job `workdir` unset unless repository context injection is strictly required and the job is known not to block reporting.
 - `[SILENT]` is valid only when there is truly no new finalized or active-session information relevant to that channel.
 
 ## Follow-up checks
