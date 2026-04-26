@@ -1,5 +1,5 @@
 name: Known problem
-关于: Track every known problem against a roadmap item
+description: Track every known problem against a roadmap item
 labels: [kind:bug]
 body:
   - type: markdown
