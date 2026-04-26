@@ -1,91 +1,88 @@
-# Screeps Competition Bot
+# Screeps Autonomous Competition Bot
 
-This repository builds and operates an autonomous Screeps: World bot. Screeps is a persistent MMO programming game: every room, creep, structure, defense, expansion, and market action is controlled by code running once per game tick. The project is therefore not just a collection of scripts; it is an attempt to build a reliable long-running game-playing system that can survive, expand, extract value from territory, and eventually fight effectively on competition-style maps.
+<p align="center">
+  <img src="docs/assets/screeps-community-logo.png" alt="Screeps autonomous coding assistant logo" width="280">
+</p>
 
-## Project background and vision
+<p align="center">
+  <strong>An autonomous, test-driven Screeps: World operations stack for long-running territorial expansion, resource scaling, and competitive combat.</strong>
+</p>
 
-The project vision is to develop a Screeps system that can win by compounding control over the map. In priority order, the bot should achieve:
+<p align="center">
+  <a href="https://discord.gg/XenFZG9bCE">Join the Discord community</a>
+</p>
 
-1. **Enough large territory** — claim, reserve, hold, defend, and coordinate a large footprint of rooms.
-2. **Enough resources across categories** — convert territory into durable energy, minerals, infrastructure, logistics capacity, storage, and market-ready value.
-3. **Enough enemy kills** — develop defensive and offensive combat capability that removes threats and wins fights, after the economy can sustain expansion and losses.
+## Project overview
 
-That ordering is intentional. Combat is important, but it should serve territorial and economic control rather than become an isolated optimization target. Roadmap choices are evaluated against this chain:
+This repository develops and operates a long-running autonomous bot for [Screeps: World](https://screeps.com/), a persistent MMO programming game in which code controls every creep, structure, room decision, market action, and defensive response on each game tick. The project is structured as a complete autonomous operations system rather than a standalone script: it combines production bot code, deterministic validation, deployment runbooks, runtime monitoring, research notes, and GitHub/Discord-based coordination.
 
-```text
-survive reliably → expand territory → scale resources → defend/attack effectively → optimize kills
-```
+The engineering goal is to build a bot that can survive continuously, expand deliberately, convert territory into durable economic value, and eventually sustain effective defensive and offensive operations on competition-style maps. Decisions in this repository are evaluated against that ordered gameplay objective:
 
-The system we want is therefore a full autonomous operations stack, not only a creep script:
+1. **Territorial control first** — claim, reserve, hold, defend, and coordinate a large footprint of rooms.
+2. **Resource scale second** — convert territory into reliable energy, minerals, logistics capacity, storage, infrastructure, and market-ready value.
+3. **Enemy kills third** — build combat capability that removes threats and wins fights once the economy can sustain expansion and losses.
 
-- a tested Screeps runtime kernel that can make safe decisions every tick;
-- memory/schema discipline so long-running state survives code changes;
-- economy, logistics, expansion, defense, and combat planners that scale from one room to many rooms;
-- private-server and deterministic validation so risky behavior is caught before official MMO deployment;
-- runtime monitoring and Discord reporting so failures, attacks, and roadmap progress remain visible.
+Combat is therefore important, but it is treated as a capability that serves territorial and economic control rather than as an isolated metric.
+
+## Community and collaboration
+
+The project is being prepared for broader community visibility. Community members can follow progress, read staged project posts, discuss Screeps automation ideas, and observe the bot’s roadmap as the system evolves.
+
+- **Discord invite:** <https://discord.gg/XenFZG9bCE>
+- **Primary public artifact:** this GitHub repository and its documentation under `docs/`
+- **Development model:** focused worktree branches, pull requests, automated checks, and documented operational evidence
+
+Contributions, questions, and architecture discussions are welcome as the repository matures. Production behavior is still gated carefully because Screeps bots operate in a persistent shared world and unsafe changes can have lasting gameplay consequences.
+
+## System scope
+
+The project includes the following major layers:
+
+- **Production Screeps runtime** — TypeScript bot code exported as a Screeps-compatible `loop`, with memory/schema discipline, kernel orchestration, spawn/economy behavior, creep task execution, and runtime telemetry.
+- **Validation pipeline** — typechecking, Jest tests, bundling, private-server smoke harnesses, and release evidence before official MMO deployment.
+- **Operations and monitoring** — room snapshots, alerting, runtime summaries, Discord reporting, active-work state, and recovery notes for autonomous development.
+- **Research and planning** — documented Screeps API findings, development-chain decisions, private-server strategy, architecture references, and roadmap rationale.
+- **Governance and review** — topic branches, pull requests, GitHub Project tracking, CI requirements, automated review gates, and explicit acceptance evidence.
 
 ## Roadmap and current goals
 
-The roadmap is organized around the major capabilities needed to reach the vision. The detailed live roadmap is maintained in [`docs/ops/roadmap.md`](docs/ops/roadmap.md); the canonical vision is in [`docs/ops/project-vision.md`](docs/ops/project-vision.md).
+The detailed live roadmap is maintained in [`docs/ops/roadmap.md`](docs/ops/roadmap.md), and the canonical project vision is maintained in [`docs/ops/project-vision.md`](docs/ops/project-vision.md). At a high level, current work is organized around these domains:
 
 ### 1. Agent OS and project visibility
 
-Goal: keep autonomous development observable and recoverable.
-
-This domain covers Discord reporting, scheduled continuation workers, P0 operations monitoring, roadmap snapshots, active-work state, and process notes. It exists so long-running autonomous work does not disappear into silent background sessions and so future agents can recover context quickly.
+Keep autonomous development observable, recoverable, and accountable. This domain covers Discord reporting, scheduled continuation workers, P0 operations monitoring, roadmap snapshots, active-work state, and process notes.
 
 ### 2. Engineering governance
 
-Goal: make every meaningful change reviewable, reproducible, and safe to merge.
-
-This domain covers git worktrees, topic branches, pull requests, CI, review gates, branch protection, and Codex/Hermes execution boundaries. Production code changes under `prod/` are owned by Codex-driven implementation, while Hermes orchestrates planning, verification, documentation, and merge workflow.
+Make meaningful changes reviewable, reproducible, and safe to merge. This domain covers git worktrees, topic branches, pull requests, CI, branch protection, review gates, and the execution boundary between orchestration and production-code implementation.
 
 ### 3. Bot capability foundation
 
-Goal: establish a stable single-room bot that can survive and operate without deadlocks.
-
-Implemented foundations include the TypeScript/Jest production skeleton, exported Screeps `loop`, memory initialization, dead-creep cleanup, colony detection, worker spawn planning, worker body selection, and harvest/transfer/build/upgrade behavior. Current hardening focuses on deterministic fallbacks, worker replacement, emergency recovery, busy-spawn retries, and runtime-summary telemetry.
+Establish a stable single-room bot that can survive and operate without deadlocks. Implemented foundations include the TypeScript/Jest production skeleton, exported Screeps `loop`, memory initialization, dead-creep cleanup, colony detection, worker spawn planning, worker body selection, and harvest/transfer/build/upgrade behavior.
 
 ### 4. Private-server validation
 
-Goal: validate real Screeps runtime behavior before risking official MMO deployment.
-
-This domain uses a pinned Dockerized Screeps private-server path and a reusable smoke harness. The validation target is not merely “server starts”; the bot must upload, place a spawn, run ticks, create creeps, and exercise economy behavior in a real runtime loop while producing a redacted report that is safe to commit or discuss.
+Validate real Screeps runtime behavior before risking official MMO deployment. The private-server path should prove that the bot can upload, place a spawn, run ticks, create creeps, exercise economy behavior, and produce a redacted report.
 
 ### 5. Runtime monitoring and alerting
 
-Goal: make the official/private runtime observable in Discord.
-
-This domain covers live-token room snapshots, runtime-summary images, alert detection, hostile/damage monitoring, no-alert silence behavior, and warm editorial status visuals. Monitoring should show owned-room state and escalate only actionable failures or attacks.
+Make official/private runtime state visible without noisy spam. This domain covers live-token room snapshots, runtime-summary images, hostile/damage alert detection, no-alert silence behavior, and warm editorial status visuals.
 
 ### 6. Official MMO deployment
 
-Goal: deploy to Screeps official MMO only after release-quality evidence exists.
+Deploy to the official Screeps MMO only after release-quality evidence exists. The current official target is branch `main`, shard `shardX`, room `E48S28`, with deployment gated by deterministic tests, build verification, private-server smoke evidence, safe token handling, and post-deploy observation.
 
-The current official target is branch `main`, shard `shardX`, room `E48S28`. Deployment is gated by deterministic tests, build verification, private-server smoke evidence, safe token handling, and post-deploy observation. Official MMO work should remain reversible and should never print or commit secrets.
+### 7. Expansion, resources, and combat
 
-### 7. Expansion, resources, and combat roadmap
-
-Goal: move beyond single-room survival toward the actual competition vision.
-
-After the current validation and monitoring gates are stable, the next strategic product work should prioritize:
-
-- expansion scouting and room scoring;
-- claim/reserve planning and remote-room logistics;
-- road, container, storage, repair, and hauling systems that make territory productive;
-- mineral and market readiness once the economy supports it;
-- tower/rampart defense and hostile-intent telemetry;
-- coordinated combat only after the economy can replace losses and sustain operations.
+Move beyond single-room survival toward the competition vision: expansion scouting, room scoring, claim/reserve planning, remote-room logistics, road/container/storage/repair systems, minerals and market readiness, defensive telemetry, and eventually coordinated combat.
 
 ## Repository structure
-
-The repository is intentionally split by responsibility:
 
 | Path | Purpose |
 | --- | --- |
 | `prod/` | Runnable Screeps bot: TypeScript source, tests, build config, and bundled deploy artifact. |
 | `scripts/` | Local operations, validation, monitoring, and rendering scripts. |
-| `docs/` | Durable project documentation: vision, roadmap, runbooks, research notes, and process history. |
+| `docs/` | Durable project documentation: vision, roadmap, runbooks, research notes, assets, and process history. |
 | `.github/` | GitHub Actions and repository automation configuration. |
 | `.gemini/` | Gemini/code-review configuration. |
 
@@ -94,7 +91,7 @@ Most day-to-day production work happens under `prod/`, while roadmap and operati
 ## Development workflow
 
 - Do not commit directly on `main`; use a topic branch in a git worktree.
-- Keep changes focused and PR-ready.
+- Keep changes focused, reviewable, and PR-ready.
 - For production code under `prod/`, run:
 
 ```bash
@@ -104,4 +101,8 @@ npm test -- --runInBand
 npm run build
 ```
 
-- Keep secrets out of git and out of Discord. Screeps auth tokens, Steam keys, and private-server credentials belong only in ignored local configuration.
+- Keep secrets out of git and out of Discord. Screeps auth tokens, Steam keys, private-server credentials, and local selectors belong only in ignored local configuration.
+
+## Security and operational safety
+
+This repository may interact with persistent Screeps worlds and authenticated APIs. Do not commit tokens, passwords, Steam keys, private-server credentials, raw authorization headers, or uploaded module contents. Deployment and live-runtime actions should be documented, reversible where practical, and supported by verification evidence.
