@@ -40,10 +40,10 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        run: npm install --include=dev --no-audit --no-fund
+        run: yarn install --non-interactive --no-progress
 
       - name: Verify dependency tree
-        run: npm ls --depth=0 typescript jest @types/jest @types/screeps esbuild
+        run: yarn list --pattern "typescript|jest|@types/jest|@types/screeps|esbuild"
 
       - name: Typecheck
         run: npm run typecheck
