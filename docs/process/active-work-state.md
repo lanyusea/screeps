@@ -151,9 +151,11 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
 
 ### transfer-result-race-hardening
 
-- Status: implemented and verified
+- Status: implemented, verified, PR-reviewed, and merged to `main`
 - Process note: `docs/process/2026-04-26-transfer-result-hardening.md`
-- Pull request: https://github.com/lanyusea/screeps/pull/9
+- Merge follow-up note: `docs/process/2026-04-26-pr9-merge-follow-up.md`
+- Conflict refresh note: `docs/process/2026-04-26-pr9-conflict-refresh.md`
+- Pull request: https://github.com/lanyusea/screeps/pull/9 (merged 2026-04-26T02:43:07Z as `b7e5c94`)
 - Codex-authored commit: `a95afdc` (`test: handle full transfer result race`)
 - Codex-authored review-fix commit: `83eb0d5` (`fix: use screeps err full constant`)
 - Implemented:
@@ -163,7 +165,7 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   - rebuilt `prod/dist/main.js`
 - Verification:
   - `npm run typecheck`: passed
-  - `npm test -- --runInBand`: passed, 12 suites / 60 tests
+  - `npm test -- --runInBand`: passed, 12 suites / 68 tests after merge to `main`
   - `npm run build`: passed
 
 ### worker-no-target-hardening
@@ -215,8 +217,10 @@ P0: stabilize and monitor the Screeps agent operating system before continuing n
   1. wait for PR #12 review state to refresh after `d8c9197`, then run the pinned private-server smoke harness live from a clean ignored work directory and capture the redacted report once the harness PR is accepted/merged
   2. wire the now live-smoked runtime monitor through dedicated `#runtime-summary` jobs and an alert scheduler/wrapper that converts `alert=false` JSON into a final `[SILENT]` response for `#runtime-alerts`, without creating cron jobs from the continuation worker
   3. continue deterministic Jest hardening for risks found during longer real-runtime observation
-- Latest deterministic hardening slice from `origin/main`: Codex commit `12a2c4a` (`test: harden worker no-target fallbacks`) plus review follow-up `test: cover stale harvest worker tasks` added Jest coverage for no-source/no-controller/no-target worker fallback behavior, including stale harvest targets. Process note: `docs/process/2026-04-26-worker-no-target-hardening.md`.
-- Current PR #9 refresh slice: transfer-result race hardening remains in this branch, including use of the Screeps global `ERR_FULL` constant and deterministic coverage proving the stale transfer task is cleared/reselected without moving toward the full target. PR #9 refresh reporting must not print secrets; use only safe selectors and redacted runtime observations. Process note: `docs/process/2026-04-26-pr9-conflict-refresh.md`; merge commit `1157baf` brought the branch up to `origin/main`, local verification passed with 12 suites / 68 tests, GitHub Actions `prod-ci` passed, CodeRabbit status was `SUCCESS`, and PR #9 merge state became `CLEAN`.
+- Latest deterministic hardening slice on `main`: PR #9 transfer-result race hardening merged as `b7e5c94` on 2026-04-26T02:43:07Z after CI/CodeRabbit were green and review feedback was addressed.
+  - It includes Codex commit `a95afdc` plus review-fix commit `83eb0d5`, uses the Screeps global `ERR_FULL` constant, and verifies stale transfer tasks are cleared/reselected without moving toward a full target.
+  - Post-merge local verification passed typecheck, 12 suites / 68 tests, and build.
+  - Process notes: `docs/process/2026-04-26-transfer-result-hardening.md`, `docs/process/2026-04-26-pr9-conflict-refresh.md`, and `docs/process/2026-04-26-pr9-merge-follow-up.md`.
 - PR #7 conflict refresh note from `origin/main`: `docs/process/2026-04-26-pr7-conflict-refresh.md`; Codex merge commit `6a54b8d` brought `test/runtime-risk-hardening-20260426` up to `origin/main`, preserved latest CI/P0/runtime-monitor docs, passed prod verification with 12 suites / 67 tests, and pushed the branch. GitHub Actions `prod-ci` passed; CodeRabbit status was pending immediately after push.
 - Runtime monitor live-token smoke: `docs/process/2026-04-26-runtime-monitor-live-smoke.md`; `self-test` passed (8 tests), live summary rendered `runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass and `runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png` in the 09:32 repeat pass; live alert returned `alert: false` with no warnings at official ticks `108687` and `109202` for `shardX/E48S28`; repeat prod verification passed typecheck, 12 suites / 59 tests, and build.
 - Verification target if code changes are made:
