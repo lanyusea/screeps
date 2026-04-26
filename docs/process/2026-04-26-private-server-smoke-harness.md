@@ -37,13 +37,14 @@ Live run mode:
 
 - creates/uses an ignored work directory, defaulting to `runtime-artifacts/screeps-private-smoke`, and rejects repo-local workdirs that are not gitignored before writing secret-bearing files;
 - writes secret-free `config.yml` using `steamKeyFile: STEAM_KEY`;
-- writes Docker Compose for launcher, Mongo, and Redis;
+- writes Docker Compose with pinned images `screepers/screeps-launcher:v1.16.2`, `mongo:8.2.7`, and `redis:7.4.8`;
 - writes the actual Steam key only into the ignored work directory;
 - downloads or copies the pinned map file;
 - starts the local stack, imports the map, restarts/resumes simulation, registers/signs in a local smoke user, uploads `prod/dist/main.js`, places the spawn, polls `/stats`, and writes a redacted JSON report;
 - requires a caller-supplied `SCREEPS_PRIVATE_SMOKE_PASSWORD` when reusing existing server data without reset;
 - keeps `/stats` polling alive through transient HTTP failures until the configured deadline;
-- requires room-specific Mongo evidence for the configured spawn when spawn placement reports that the smoke user is already playing.
+- requires room-specific Mongo evidence for the configured spawn when spawn placement reports that the smoke user is already playing;
+- signs in with the configured smoke email (`cfg.email`) rather than assuming the username and email are identical.
 
 Redaction coverage avoids printing or reporting `STEAM_KEY`, passwords, auth tokens, authorization headers, token headers, and uploaded code contents. Reports use code byte counts and SHA-256 digests instead.
 
@@ -55,7 +56,7 @@ Offline harness verification:
 
 ```text
 python3 scripts/screeps-private-smoke.py self-test
-# passed, 12 tests
+# passed, 13 tests
 ```
 
 Dry-run verification:
@@ -68,6 +69,28 @@ python3 scripts/screeps-private-smoke.py run --dry-run --work-dir /tmp/screeps-p
 Production verification from the controller session also passed after installing worktree dependencies with `npm ci`:
 
 ```text
+cd prod && npm run typecheck
+# passed
+cd prod && npm test -- --runInBand
+# passed, 12 suites / 68 tests
+cd prod && npm run build
+# passed
+```
+
+Review follow-up on PR #12:
+
+```text
+cad16f9 fix: pin smoke harness images and signin email
+```
+
+This addressed the latest CodeRabbit review by pinning the harness's Docker image references and fixing sign-in payload construction. Controller verification after the follow-up commit passed:
+
+```text
+python3 -m py_compile scripts/screeps-private-smoke.py
+python3 scripts/screeps-private-smoke.py self-test
+# passed, 13 tests
+python3 scripts/screeps-private-smoke.py dry-run
+# ok: true; redacted request shapes use the configured email
 cd prod && npm run typecheck
 # passed
 cd prod && npm test -- --runInBand
