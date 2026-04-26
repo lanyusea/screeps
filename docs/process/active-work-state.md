@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T17:59:00+08:00
+Last updated: 2026-04-26T18:21:00+08:00
 
 ## Current active objective
 
@@ -277,6 +277,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Background terminal process completion notifications can bypass normal `send_message`/cron delivery routing and return to the invoking thread; future global/public long-running shell tasks should avoid `notify_on_complete=true` and instead poll/wait then report through the intended channel/cron delivery path.
 - P0 checkpoint on 2026-04-26T09:12:32+08:00 recorded `docs/process/2026-04-26-p0-routing-checkpoint-0912.md` and marked the older background-process routing note as superseded for scheduled-worker delivery. Current scheduled Screeps continuation/checkpoint target remains `discord:#task-queue`; home channel `1497537021378564200` is for global/home notifications, not routine scheduled project-progress delivery.
 - P0 scheduler cadence follow-up on 2026-04-26T17:03:00+08:00 recorded `docs/process/2026-04-26-scheduler-cadence-followup.md`: runtime-alert job `1c093252ab70` still did not advance after its overdue `next_run_at`, no new alert session appeared after `16:04`, and the latest successful alert run did prove no-alert `[SILENT]` behavior. Treat this as a scheduler runner/cadence blocker before private-server smoke or unrelated bot hardening.
+- P0 scheduler cadence audit on 2026-04-26T18:00:26+08:00 recorded `docs/process/2026-04-26-scheduler-cadence-audit-1800.md`: runtime-alert job `1c093252ab70` last ran at `17:57:47+08:00`, became due at `18:02:47+08:00`, and still had not created a new session or advanced metadata by `18:03:29+08:00`. Delivery target and last-status fields remained healthy, so the active blocker is still cron dispatcher cadence/rescheduling rather than monitor command behavior.
 - Coding boundary clarified: future production/test/build code changes under `prod/` must be implemented via OpenAI Codex CLI, while Hermes orchestrates, verifies, documents, reports, and pushes.
 - Commit behavior clarified: Codex must commit after each completed coding task; documentation-only changes may be committed by Hermes directly.
 - Git identity configured globally and local history rewritten to `lanyusea's bot <lanyusea@gmail.com>`; local rewrite succeeded, remote force push was blocked by platform smart approval and still needs an approved force-push path if remote history rewrite is still desired.
