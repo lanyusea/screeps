@@ -28,6 +28,7 @@ The home channel remains the owner command/proactive-report surface for main-age
 - `docs/ops/agent-operating-system.md`
 - `docs/process/active-work-state.md`
 - `docs/ops/roadmap.md`
+- `docs/README.md`
 
 ## Anti-regression rule
 

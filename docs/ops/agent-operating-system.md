@@ -103,7 +103,7 @@ For every meaningful task:
 6. Review and verify before accepting.
 7. Update durable docs if the result changes state.
 8. Fan out summaries to the corresponding Discord channels.
-9. Commit/push meaningful docs-only成果 as Hermes; Codex commits production/test/build work.
+9. Commit/push meaningful docs-only changes as Hermes; Codex commits production/test/build work.
 10. Resume/trigger scheduled continuation only after state is durable and safe.
 
 ## Scheduled worker roles
@@ -150,7 +150,7 @@ Behavior:
 | Event | Primary target | Secondary/detail target | Owner interrupt? |
 | --- | --- | --- | --- |
 | New owner task | home channel | `#task-queue` when accepted | yes, if clarification/blocker needed |
-| P0 health anomaly | dedicated P0 operations channel `discord:1497820688843800776` | home only if owner action is urgently required | yes |
+| P0 health anomaly | `discord:1497820688843800776` | home only if owner action is urgently required | yes |
 | Subagent research result | main agent review first | `#research-notes` | no, unless decision needed |
 | Subagent development result | main agent review first | `#dev-log` | no, unless blocker/decision needed |
 | Decision needed/finalized | `#decisions` | home if owner action needed | yes |
