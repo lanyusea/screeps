@@ -267,8 +267,8 @@ def required_env_errors(cfg: SmokeConfig) -> list[str]:
             errors.append("SCREEPS_PRIVATE_SMOKE_PASSWORD is required when reusing server data without reset")
         else:
             errors.append("internal error: smoke password was not generated")
-    if not cfg.code_path.exists():
-        errors.append(f"bot bundle does not exist: {cfg.code_path}")
+    if not cfg.code_path.is_file():
+        errors.append(f"bot bundle is not a file: {cfg.code_path}")
     return errors
 
 
@@ -724,6 +724,8 @@ def wait_for_http(cfg: SmokeConfig, timeout: int = 300) -> dict[str, Any]:
                     "attempts": attempts,
                     "version": redact(result.payload),
                 }
+            if result.status != 200:
+                last_error = http_result_summary("/api/version", result, max_len=200)
         except Exception as exc:  # noqa: BLE001 - sanitized below for report
             last_error = short_text(exc, 200)
         time.sleep(3)
@@ -1066,12 +1068,12 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         report["error"] = redact(short_text(exc, 1000), secrets_to_hide)
     finally:
         report["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        report_path = cfg.report_path
+        report["report_path"] = str(report_path)
         assert_no_secret_leak(report, secrets_to_hide)
         assert_safe_work_dir(cfg.work_dir)
         cfg.work_dir.mkdir(parents=True, exist_ok=True)
-        report_path = cfg.report_path
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
-        report["report_path"] = str(report_path)
     return report
 
 
@@ -1104,10 +1106,10 @@ def run_dry(cfg: SmokeConfig) -> dict[str, Any]:
         "request_shapes": redact(request_shapes, [fake_password]),
         "redaction_checked": True,
     }
-    assert_no_secret_leak(report, [fake_password, sample_code])
     report_path = dry_cfg.report_path
-    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     report["report_path"] = str(report_path)
+    assert_no_secret_leak(report, [fake_password, sample_code])
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     return report
 
 
@@ -1211,6 +1213,17 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertNotIn("super-secret-password", encoded)
         self.assertNotIn("module.exports.loop", encoded)
 
+    def test_dry_run_persists_report_path_metadata(self) -> None:
+        """Persisted dry-run reports should include their own report path."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cfg = SmokeConfig(**{**self.make_cfg().__dict__, "work_dir": Path(temp_dir)})
+            report = run_dry(cfg)
+            report_path = Path(report["report_path"])
+            persisted = json.loads(report_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(persisted["report_path"], str(report_path))
+        self.assertEqual(report["report_path"], str(report_path))
+
     def test_upload_code_accepts_common_success_payloads(self) -> None:
         """/api/user/code should accept timestamp and ok-style success bodies."""
         for payload in ({"timestamp": 123}, {"ok": 1}, {"ok": True}):
@@ -1263,6 +1276,28 @@ class SmokeSelfTest(unittest.TestCase):
             if old_steam_key is not None:
                 os.environ["STEAM_KEY"] = old_steam_key
         self.assertTrue(any("STEAM_KEY" in error for error in errors))
+
+    def test_required_env_rejects_non_file_bot_bundle(self) -> None:
+        """Live runs should reject bot bundle paths that are not regular files."""
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "self-test-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                cfg = SmokeConfig(
+                    **{
+                        **self.make_cfg().__dict__,
+                        "code_path": Path(temp_dir),
+                        "dry_run": False,
+                    }
+                )
+                errors = required_env_errors(cfg)
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+        self.assertTrue(any("bot bundle is not a file" in error for error in errors))
 
     def test_reusing_server_state_requires_stable_password(self) -> None:
         """No-reset live runs should require a caller-supplied password."""
@@ -1344,6 +1379,49 @@ class SmokeSelfTest(unittest.TestCase):
                 min_creeps=1,
             )
         )
+
+    def test_wait_for_http_reports_last_http_failure(self) -> None:
+        """Readiness timeouts should report the last bad /api/version response."""
+        cfg = self.make_cfg()
+        original_http_json = globals()["http_json"]
+        original_time = time.time
+        original_sleep = time.sleep
+        ticks = [0.0, 0.0, 2.0]
+        hidden = "api-token-123"
+
+        def fake_http_json(*args: Any, **kwargs: Any) -> HttpResult:
+            """Return a reachable but unhealthy version endpoint response."""
+            return HttpResult(
+                503,
+                {"error": "temporary unavailable", "token": hidden, "detail": "x" * 500},
+                {},
+            )
+
+        def fake_time() -> float:
+            """Return deterministic clock ticks for one readiness attempt."""
+            if ticks:
+                return ticks.pop(0)
+            return 2.0
+
+        def fake_sleep(_seconds: float) -> None:
+            """Avoid waiting during the deterministic readiness test."""
+
+        try:
+            globals()["http_json"] = fake_http_json
+            time.time = fake_time
+            time.sleep = fake_sleep
+            with self.assertRaises(SmokeError) as caught:
+                wait_for_http(cfg, timeout=1)
+        finally:
+            globals()["http_json"] = original_http_json
+            time.time = original_time
+            time.sleep = original_sleep
+
+        message = str(caught.exception)
+        self.assertIn("/api/version returned 503", message)
+        self.assertIn("temporary unavailable", message)
+        self.assertNotIn(hidden, message)
+        self.assertNotIn("x" * 300, message)
 
     def test_poll_stats_retries_transient_http_errors(self) -> None:
         """A transient /stats request failure should not abort polling."""
