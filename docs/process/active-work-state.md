@@ -1,6 +1,6 @@
 # Active Work State
 
-Last updated: 2026-04-26T16:36:00+08:00
+Last updated: 2026-04-26T17:03:00+08:00
 
 ## Current active objective
 
@@ -276,6 +276,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 - Discord visibility root-cause postmortem recorded in `docs/process/2026-04-26-discord-visibility-root-cause-postmortem.md`: scheduled Screeps continuation/checkpoint jobs should deliver to the named project channel `discord:#task-queue`; global/home notifications may use home channel `1497537021378564200`; avoid sending global notices to thread `1497579848594493560`.
 - Background terminal process completion notifications can bypass normal `send_message`/cron delivery routing and return to the invoking thread; future global/public long-running shell tasks should avoid `notify_on_complete=true` and instead poll/wait then report through the intended channel/cron delivery path.
 - P0 checkpoint on 2026-04-26T09:12:32+08:00 recorded `docs/process/2026-04-26-p0-routing-checkpoint-0912.md` and marked the older background-process routing note as superseded for scheduled-worker delivery. Current scheduled Screeps continuation/checkpoint target remains `discord:#task-queue`; home channel `1497537021378564200` is for global/home notifications, not routine scheduled project-progress delivery.
+- P0 scheduler cadence follow-up on 2026-04-26T17:03:00+08:00 recorded `docs/process/2026-04-26-scheduler-cadence-followup.md`: runtime-alert job `1c093252ab70` still did not advance after its overdue `next_run_at`, no new alert session appeared after `16:04`, and the latest successful alert run did prove no-alert `[SILENT]` behavior. Treat this as a scheduler runner/cadence blocker before private-server smoke or unrelated bot hardening.
 - Coding boundary clarified: future production/test/build code changes under `prod/` must be implemented via OpenAI Codex CLI, while Hermes orchestrates, verifies, documents, reports, and pushes.
 - Commit behavior clarified: Codex must commit after each completed coding task; documentation-only changes may be committed by Hermes directly.
 - Git identity configured globally and local history rewritten to `lanyusea's bot <lanyusea@gmail.com>`; local rewrite succeeded, remote force push was blocked by platform smart approval and still needs an approved force-push path if remote history rewrite is still desired.
@@ -295,7 +296,7 @@ If any task remains open for more than 4 hours without a final conclusion, publi
 
 Owner correction on 2026-04-26: the main agent is responsible for project management outcomes, not only process scheduling. Every active planning/reporting cycle must keep all six roadmap domains advancing concurrently through delegated subagent/Codex tasks:
 
-1. Agent OS / visibility — current estimate 88%; next delegated task: follow up the runtime-alert/P0-monitor scheduler-cadence gap recorded in `docs/process/2026-04-26-scheduler-alert-gap-audit.md` and prove whether `next_run_at` advances normally after this slice.
+1. Agent OS / visibility — current estimate 88%; next delegated task: repair or operator-inspect the scheduler runner/cadence defect recorded in `docs/process/2026-04-26-scheduler-cadence-followup.md`, then prove runtime-alert job `1c093252ab70` advances across at least two no-alert `[SILENT]` intervals.
 2. Engineering governance — current estimate 75%; next delegated task: branch protection / required-check gate.
 3. Private-server validation — current estimate 85%; next delegated task: fresh live `scripts/screeps-private-smoke.py run` from a clean ignored workdir and redacted report.
 4. Runtime Monitor — current estimate 85%; next delegated task: verify scheduled summary/alert cadence and no-alert silence.

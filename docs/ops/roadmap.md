@@ -37,7 +37,7 @@ These percentages are explicit next-point estimates for the current roadmap snap
 
 | Domain | Next-point completion | Current next point |
 | --- | ---: | --- |
-| Agent OS / visibility | 88% | follow up runtime-alert/P0-monitor scheduler-cadence gap and prove `next_run_at` advances normally |
+| Agent OS / visibility | 88% | repair or operator-inspect the scheduler runner/cadence defect; prove runtime-alert job `1c093252ab70` advances across two no-alert `[SILENT]` intervals |
 | Engineering governance | 75% | enforceable `main` branch protection / required checks |
 | Private-server validation | 85% | fresh live harness run and redacted report |
 | Runtime Monitor | 85% | reliable scheduled summary images plus no-alert silence |
@@ -267,6 +267,11 @@ Immediate operating change:
 - live monitoring cadence: continuation every 5 minutes during P0/active-development periods, operations monitor every 15 minutes, 4-hour checkpoint every 240 minutes;
 - continuation/checkpoint workers remain subordinate to main-agent review and channel fanout;
 - if P0 health is abnormal, pause or defer new implementation work until corrected.
+
+Current evidence update:
+
+- `docs/process/2026-04-26-scheduler-alert-gap-audit.md` found the runtime-alert job stale despite correct delivery configuration.
+- `docs/process/2026-04-26-scheduler-cadence-followup.md` reproduced the defect: alert job `1c093252ab70` still did not launch after its overdue `next_run_at`, and no new alert session appeared after `2026-04-26T16:04+08:00`. The latest successful alert session did return `alert: false`, `ok: true`, and final `[SILENT]`, so no-alert output behavior is proven when the job runs; the remaining blocker is scheduler cadence/rescheduling.
 
 ### Validation follow-up: automate private-server smoke and runtime monitoring
 
