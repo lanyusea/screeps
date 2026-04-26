@@ -46,6 +46,7 @@ DEFAULT_USERNAME = "smoke"
 DEFAULT_SPAWN_NAME = "Spawn1"
 DEFAULT_SPAWN_X = 20
 DEFAULT_SPAWN_Y = 20
+STEAM_KEY_FILE_MODE = 0o644
 SECRET_KEYS = {
     "authorization",
     "password",
@@ -539,7 +540,9 @@ def prepare_work_dir(cfg: SmokeConfig) -> dict[str, Any]:
     if not cfg.dry_run:
         steam_key = os.environ["STEAM_KEY"]
         cfg.steam_key_path.write_text(steam_key, encoding="utf-8")
-        cfg.steam_key_path.chmod(0o600)
+        # Docker may run screeps-launcher as a different UID/GID than the host writer;
+        # this generated gitignored file must be readable through the bind mount.
+        cfg.steam_key_path.chmod(STEAM_KEY_FILE_MODE)
         shutil.copyfile(cfg.code_path, cfg.bot_main_path)
     return {
         "work_dir": str(cfg.work_dir),
@@ -1223,6 +1226,59 @@ class SmokeSelfTest(unittest.TestCase):
 
         self.assertEqual(persisted["report_path"], str(report_path))
         self.assertEqual(report["report_path"], str(report_path))
+
+    def test_live_prepare_sets_container_readable_steam_key_mode(self) -> None:
+        """Live preparation should make the generated Steam key readable in Docker."""
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "self-test-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                code_path = temp_path / "main.js"
+                code_path.write_text("module.exports.loop = function loop() {};", encoding="utf-8")
+                cfg = SmokeConfig(
+                    **{
+                        **self.make_cfg().__dict__,
+                        "work_dir": temp_path / "work",
+                        "code_path": code_path,
+                        "dry_run": False,
+                    }
+                )
+                details = prepare_work_dir(cfg)
+                steam_key_mode = cfg.steam_key_path.stat().st_mode & 0o777
+
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+        self.assertEqual(steam_key_mode, STEAM_KEY_FILE_MODE)
+        self.assertEqual(steam_key_mode & 0o444, 0o444)
+        self.assertEqual(steam_key_mode & 0o111, 0)
+        self.assertNotIn("self-test-steam-key", json.dumps(details))
+
+    def test_dry_run_does_not_create_or_report_steam_key(self) -> None:
+        """Dry-run should remain secret-free even if STEAM_KEY is present."""
+        steam_key_was_set = "STEAM_KEY" in os.environ
+        old_steam_key = os.environ.get("STEAM_KEY")
+        try:
+            os.environ["STEAM_KEY"] = "dry-run-env-steam-key"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                cfg = SmokeConfig(**{**self.make_cfg().__dict__, "work_dir": Path(temp_dir)})
+                report = run_dry(cfg)
+                persisted = json.loads(Path(report["report_path"]).read_text(encoding="utf-8"))
+                encoded = json.dumps({"report": report, "persisted": persisted}, sort_keys=True)
+                steam_key_exists = cfg.steam_key_path.exists()
+        finally:
+            if steam_key_was_set:
+                os.environ["STEAM_KEY"] = old_steam_key or ""
+            else:
+                os.environ.pop("STEAM_KEY", None)
+
+        self.assertFalse(steam_key_exists)
+        self.assertNotIn("dry-run-env-steam-key", encoded)
 
     def test_upload_code_accepts_common_success_payloads(self) -> None:
         """/api/user/code should accept timestamp and ok-style success bodies."""
