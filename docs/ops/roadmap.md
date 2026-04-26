@@ -37,7 +37,7 @@ These percentages are explicit next-point estimates for the current roadmap snap
 
 | Domain | Next-point completion | Current next point |
 | --- | ---: | --- |
-| Agent OS / visibility | 88% | repair or operator-inspect the scheduler runner/cadence defect; latest audit `docs/process/2026-04-26-scheduler-cadence-audit-1800.md` reconfirmed runtime-alert job `1c093252ab70` did not advance after the `18:02:47+08:00` due time; prove it advances across two no-alert `[SILENT]` intervals after repair |
+| Agent OS / visibility | 88% | repair or operator-inspect the scheduler runner/cadence defect; latest audit `docs/process/2026-04-26-scheduler-cadence-audit-1832.md` reconfirmed runtime-alert job `1c093252ab70` did not advance after the `18:30:55+08:00` due time, while P0 monitor and typed fanout jobs also had far-future `next_run_at` gaps; prove it advances across two no-alert `[SILENT]` intervals after repair |
 | Engineering governance | 95% | observe next PR to confirm the active `main` ruleset enforces PR + required-check gates in practice |
 | Private-server validation | 85% | fresh live harness run and redacted report |
 | Runtime Monitor | 85% | reliable scheduled summary images plus no-alert silence |
@@ -274,6 +274,7 @@ Current evidence update:
 - `docs/process/2026-04-26-scheduler-alert-gap-audit.md` found the runtime-alert job stale despite correct delivery configuration.
 - `docs/process/2026-04-26-scheduler-cadence-followup.md` reproduced the defect: alert job `1c093252ab70` still did not launch after its overdue `next_run_at`, and no new alert session appeared after `2026-04-26T16:04+08:00`. The latest successful alert session did return `alert: false`, `ok: true`, and final `[SILENT]`, so no-alert output behavior is proven when the job runs; the remaining blocker is scheduler cadence/rescheduling.
 - `docs/process/2026-04-26-scheduler-cadence-audit-1800.md` reconfirmed the same cadence/rescheduling blocker: alert job `1c093252ab70` last ran at `17:57:47+08:00`, became due at `18:02:47+08:00`, and still had not advanced or created a new session by `18:03:29+08:00` despite healthy `last_status` and no delivery error.
+- `docs/process/2026-04-26-scheduler-cadence-audit-1832.md` reconfirmed the blocker again: alert job `1c093252ab70` remained overdue 80 seconds after its `18:30:55+08:00` due time, P0 monitor and typed fanout jobs had far-future `next_run_at` gaps, and all inspected delivery/workdir/status fields remained healthy. The remaining defect is scheduler cadence/rescheduling, not runtime monitor command behavior.
 
 ### Validation follow-up: automate private-server smoke and runtime monitoring
 
