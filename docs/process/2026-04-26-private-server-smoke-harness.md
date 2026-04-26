@@ -99,6 +99,30 @@ cd prod && npm run build
 # passed
 ```
 
+Second review-hardening follow-up on PR #12:
+
+```text
+2469fb2 fix: harden private smoke harness responses
+```
+
+This addressed the remaining open review threads by accepting standard `/api/user/code` success payloads such as `{ "ok": 1 }`, rejecting empty no-reset passwords before live reuse, restricting `SCREEPS_PRIVATE_SMOKE_MAP_URL` to `http`/`https`, carrying non-200 or unusable `/stats` responses into `last_error`, and failing live smoke if authenticated user/room overview probes return non-200 or unusable payloads. Offline harness self-test coverage expanded to 19 tests.
+
+Controller verification after this follow-up commit passed:
+
+```text
+python3 -m py_compile scripts/screeps-private-smoke.py
+python3 scripts/screeps-private-smoke.py self-test
+# passed, 19 tests
+python3 scripts/screeps-private-smoke.py dry-run
+# ok: true; redacted request shapes remained secret-free
+cd prod && npm run typecheck
+# passed
+cd prod && npm test -- --runInBand
+# passed, 12 suites / 68 tests
+cd prod && npm run build
+# passed
+```
+
 ## Follow-up
 
 1. Run the harness live from a clean ignored work directory with `STEAM_KEY` present.
