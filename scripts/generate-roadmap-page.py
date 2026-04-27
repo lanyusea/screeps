@@ -40,6 +40,14 @@ HOST_ABSOLUTE_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_:/.-])/(?:root|home|Users|tmp|var|mnt|opt|Volumes)(?:/[^\s\"'<>`,;)]*)*"
 )
 WINDOWS_DRIVE_ROOT_PATH_RE = re.compile(r"(?<![A-Za-z0-9_:/.-])[A-Za-z]:[\\/][^\s\"'<>`,;)]*")
+PUBLIC_CONTROLLER_TEXT_RE = re.compile(
+    r"\b(?:scheduler dispatched|scheduler prompt|codex review-fix|review-fix task|"
+    r"next scheduler action|reconcile codex|process_session|codex session|"
+    r"controller workflow|controller evidence|controller diff-check|controller-side|controller qa|"
+    r"operator-only|worktree|branch feat/|branch behind|local main fast-forwarded|remote/local branch)\b",
+    re.IGNORECASE,
+)
+CACHED_SUFFIX_RE = re.compile(r"(?:\s*·\s*cached)+\s*$")
 
 OBSERVED = "observed"
 NOT_OBSERVED = "not observed"
@@ -702,6 +710,10 @@ REPORT_ISSUE_DISPLAY_OVERRIDES: dict[int, JsonObject] = {
         "title": "Pages roadmap visual fidelity follow-up",
         "description": "Refine the public roadmap report presentation and English visible copy.",
     },
+    77: {
+        "title": "Roadmap report public artifact polish",
+        "description": "Polish the generated roadmap page and publish sanitized public artifacts.",
+    },
 }
 
 
@@ -828,7 +840,17 @@ def sanitize_public_data(value: Any) -> Any:
 def sanitize_public_text(value: str) -> str:
     text = INTERNAL_PROCESS_ID_RE.sub("proc_[redacted]", value)
     text = HOST_ABSOLUTE_PATH_RE.sub("[redacted-path]", text)
-    return WINDOWS_DRIVE_ROOT_PATH_RE.sub("[redacted-path]", text)
+    text = WINDOWS_DRIVE_ROOT_PATH_RE.sub("[redacted-path]", text)
+    if "[redacted-path]" in text or PUBLIC_CONTROLLER_TEXT_RE.search(text):
+        return ""
+    return text
+
+
+def public_visible_report_text(value: Any) -> str:
+    text = sanitize_public_text(str(value or "")).strip()
+    if not text or has_stale_visible_report_marker(text) or has_cjk_text(text):
+        return ""
+    return text
 
 
 def build_repo_snapshot(repo_full_name: str) -> JsonObject:
@@ -1682,9 +1704,17 @@ def build_roadmap_cards(project_items: Sequence[JsonObject], issues: Sequence[Js
 
     cards = []
     for item in source_items:
+        override = report_issue_display_override(item.get("number"))
+        title = first_visible_report_text(override.get("title"), item.get("title"), item.get("domain"), "Roadmap item")
+        if override.get("description"):
+            next_action = first_visible_report_text(override.get("description"))
+            evidence = ""
+        else:
+            next_action = first_visible_report_text(item.get("nextAction"))
+            evidence = first_visible_report_text(item.get("evidence"))
         cards.append(
             {
-                "title": item.get("title", ""),
+                "title": title,
                 "url": item.get("url", ""),
                 "type": item.get("type", ""),
                 "number": item.get("number"),
@@ -1693,8 +1723,8 @@ def build_roadmap_cards(project_items: Sequence[JsonObject], issues: Sequence[Js
                 "domain": item.get("domain", "Bot capability"),
                 "milestone": item.get("milestone", ""),
                 "visionLayer": classify_vision_layer(item),
-                "nextAction": item.get("nextAction", ""),
-                "evidence": item.get("evidence", ""),
+                "nextAction": next_action,
+                "evidence": evidence,
             }
         )
     return sorted(cards, key=roadmap_sort_key)[:12]
@@ -1711,9 +1741,17 @@ def build_kanban_cards(
         if not item.get("title"):
             continue
         vision_layer = classify_vision_layer(item)
+        override = report_issue_display_override(item.get("number"))
+        title = first_visible_report_text(override.get("title"), item.get("title"), item.get("domain"), "Roadmap item")
+        if override.get("description"):
+            next_action = first_visible_report_text(override.get("description"))
+            evidence = ""
+        else:
+            next_action = first_visible_report_text(item.get("nextAction"))
+            evidence = first_visible_report_text(item.get("evidence"))
         cards.append(
             {
-                "title": item.get("title", ""),
+                "title": title,
                 "url": item.get("url", ""),
                 "type": item.get("type", ""),
                 "number": item.get("number"),
@@ -1723,8 +1761,8 @@ def build_kanban_cards(
                 "kind": item.get("kind", "code"),
                 "visionLayer": vision_layer,
                 "lane": "Gameplay" if vision_layer in {"territory", "resources", "enemy kills"} else "Foundation",
-                "nextAction": item.get("nextAction", ""),
-                "evidence": item.get("evidence", ""),
+                "nextAction": next_action,
+                "evidence": evidence,
                 "state": item.get("state", ""),
                 "updatedAt": item.get("updatedAt", ""),
             }
@@ -2204,8 +2242,8 @@ def first_text(*values: Any) -> str:
 
 def first_visible_report_text(*values: Any) -> str:
     for value in values:
-        text = str(value or "").strip()
-        if text and not has_stale_visible_report_marker(text) and not has_cjk_text(text):
+        text = public_visible_report_text(value)
+        if text:
             return text
     return ""
 
@@ -2499,6 +2537,7 @@ def process_detail(
         return live_detail
     cached_detail = str(cached_card.get("detail") or "").strip()
     if cached_detail:
+        cached_detail = CACHED_SUFFIX_RE.sub("", cached_detail).strip()
         return f"{cached_detail} · cached"
     return format_fetch_error(command_label, error)
 
