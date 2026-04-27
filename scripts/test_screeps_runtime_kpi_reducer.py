@@ -127,6 +127,16 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "creepDestroyedCount": 1,
         })
 
+    def test_rejects_runtime_summary_lines_with_trailing_garbage(self) -> None:
+        report = reducer.reduce_runtime_kpis(['#runtime-summary {"type":"runtime-summary"} garbage\n'])
+
+        self.assertEqual(report["input"], {
+            "lineCount": 1,
+            "runtimeSummaryCount": 0,
+            "ignoredLineCount": 1,
+            "malformedRuntimeSummaryCount": 1,
+        })
+
     def test_marks_missing_kpi_sections_as_not_instrumented(self) -> None:
         report = reducer.reduce_runtime_kpis(
             [

@@ -116,7 +116,7 @@ def parse_runtime_summary_line(line: str) -> tuple[JsonObject | None, bool]:
         return None, saw_prefix
 
     try:
-        payload, _ = json.JSONDecoder().raw_decode(payload_text)
+        payload = json.loads(payload_text)
     except json.JSONDecodeError:
         return None, saw_prefix
 
