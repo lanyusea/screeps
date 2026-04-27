@@ -43,6 +43,97 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('seeds an adjacent reserve target when no configured targets exist', () => {
+    const colony = makeSafeColony();
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 514)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'reserve'
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        action: 'reserve'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 514
+      }
+    ]);
+  });
+
+  it('does not overwrite an existing configured target when adjacent rooms are discoverable', () => {
+    const colony = makeSafeColony();
+    const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const describeExits = jest.fn(() => ({ '1': 'W1N2' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [configuredTarget]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 515)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve'
+    });
+    expect(describeExits).not.toHaveBeenCalled();
+    expect(Memory.territory?.targets).toEqual([configuredTarget]);
+  });
+
+  it('does not seed visible hostile-owned or self-owned adjacent rooms', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' })) } as unknown as GameMap,
+      rooms: {
+        W1N2: {
+          name: 'W1N2',
+          controller: { my: false, owner: { username: 'enemy' } } as StructureController
+        } as Room,
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: true, owner: { username: 'me' } } as StructureController
+        } as Room
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 516)).toBeNull();
+    expect(Memory.territory).toBeUndefined();
+  });
+
+  it('does not throw when map exit APIs are absent', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {} as unknown as GameMap
+    };
+    let intent: ReturnType<typeof planTerritoryIntent>;
+
+    expect(() => {
+      intent = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 517);
+    }).not.toThrow();
+    expect(intent!).toBeNull();
+    expect(Memory.territory).toBeUndefined();
+  });
+
   it('ignores malformed territory memory without throwing', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {

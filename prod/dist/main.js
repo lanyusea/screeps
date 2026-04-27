@@ -603,9 +603,13 @@ function getBodyCost(body) {
 // src/territory/territoryPlanner.ts
 var TERRITORY_CLAIMER_ROLE = "claimer";
 var TERRITORY_DOWNGRADE_GUARD_TICKS = 5e3;
+var EXIT_DIRECTION_ORDER = ["1", "3", "5", "7"];
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
+  if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
+    return null;
+  }
   const target = selectTerritoryTarget(colony.room.name);
-  if (!target || !isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
+  if (!target) {
     return null;
   }
   const plan = {
@@ -673,10 +677,17 @@ function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
 }
 function selectTerritoryTarget(colonyName) {
   const territoryMemory = getTerritoryMemoryRecord();
+  const intents = normalizeTerritoryIntents(territoryMemory == null ? void 0 : territoryMemory.intents);
+  const configuredTarget = selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents);
+  if (configuredTarget) {
+    return configuredTarget;
+  }
+  return seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
+}
+function selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return null;
   }
-  const intents = normalizeTerritoryIntents(territoryMemory.intents);
   for (const rawTarget of territoryMemory.targets) {
     const target = normalizeTerritoryTarget(rawTarget);
     if (target && target.enabled !== false && target.colony === colonyName && target.roomName !== colonyName && !isTerritoryTargetSuppressed(target, intents) && !isVisibleTerritoryTargetUnavailable(target.roomName, target.controllerId)) {
@@ -684,6 +695,57 @@ function selectTerritoryTarget(colonyName) {
     }
   }
   return null;
+}
+function seedAdjacentReserveTarget(colonyName, territoryMemory, intents) {
+  const adjacentRooms = getAdjacentRoomNames(colonyName);
+  if (adjacentRooms.length === 0) {
+    return null;
+  }
+  const existingTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
+  for (const roomName of adjacentRooms) {
+    const target = { colony: colonyName, roomName, action: "reserve" };
+    if (roomName !== colonyName && !existingTargetRooms.has(roomName) && !isTerritoryTargetSuppressed(target, intents) && !isVisibleTerritoryTargetUnavailable(roomName)) {
+      appendTerritoryTarget(target);
+      return target;
+    }
+  }
+  return null;
+}
+function getConfiguredTargetRoomsForColony(territoryMemory, colonyName) {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return /* @__PURE__ */ new Set();
+  }
+  return new Set(
+    territoryMemory.targets.flatMap((rawTarget) => {
+      const target = normalizeTerritoryTarget(rawTarget);
+      return (target == null ? void 0 : target.colony) === colonyName ? [target.roomName] : [];
+    })
+  );
+}
+function appendTerritoryTarget(target) {
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+  territoryMemory.targets.push(target);
+}
+function getAdjacentRoomNames(roomName) {
+  const game = globalThis.Game;
+  const gameMap = game == null ? void 0 : game.map;
+  if (!gameMap || typeof gameMap.describeExits !== "function") {
+    return [];
+  }
+  const exits = gameMap.describeExits.call(gameMap, roomName);
+  if (!isRecord(exits)) {
+    return [];
+  }
+  return EXIT_DIRECTION_ORDER.flatMap((direction) => {
+    const exitRoom = exits[direction];
+    return isNonEmptyString(exitRoom) ? [exitRoom] : [];
+  });
 }
 function normalizeTerritoryTarget(rawTarget) {
   if (!isRecord(rawTarget)) {

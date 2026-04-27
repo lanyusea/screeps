@@ -5,6 +5,8 @@ import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_DOWNGRADE_GUARD_TICKS = 5_000;
 
+const EXIT_DIRECTION_ORDER: ExitKey[] = ['1', '3', '5', '7'];
+
 export interface TerritoryIntentPlan {
   colony: string;
   targetRoom: string;
@@ -22,8 +24,12 @@ export function planTerritoryIntent(
   workerTarget: number,
   gameTime: number
 ): TerritoryIntentPlan | null {
+  if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
+    return null;
+  }
+
   const target = selectTerritoryTarget(colony.room.name);
-  if (!target || !isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
+  if (!target) {
     return null;
   }
 
@@ -117,11 +123,24 @@ export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCoun
 
 function selectTerritoryTarget(colonyName: string): TerritoryTargetMemory | null {
   const territoryMemory = getTerritoryMemoryRecord();
+  const intents = normalizeTerritoryIntents(territoryMemory?.intents);
+  const configuredTarget = selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents);
+  if (configuredTarget) {
+    return configuredTarget;
+  }
+
+  return seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
+}
+
+function selectConfiguredTerritoryTarget(
+  colonyName: string,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[]
+): TerritoryTargetMemory | null {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return null;
   }
 
-  const intents = normalizeTerritoryIntents(territoryMemory.intents);
   for (const rawTarget of territoryMemory.targets) {
     const target = normalizeTerritoryTarget(rawTarget);
     if (
@@ -137,6 +156,80 @@ function selectTerritoryTarget(colonyName: string): TerritoryTargetMemory | null
   }
 
   return null;
+}
+
+function seedAdjacentReserveTarget(
+  colonyName: string,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[]
+): TerritoryTargetMemory | null {
+  const adjacentRooms = getAdjacentRoomNames(colonyName);
+  if (adjacentRooms.length === 0) {
+    return null;
+  }
+
+  const existingTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
+  for (const roomName of adjacentRooms) {
+    const target: TerritoryTargetMemory = { colony: colonyName, roomName, action: 'reserve' };
+    if (
+      roomName !== colonyName &&
+      !existingTargetRooms.has(roomName) &&
+      !isTerritoryTargetSuppressed(target, intents) &&
+      !isVisibleTerritoryTargetUnavailable(roomName)
+    ) {
+      appendTerritoryTarget(target);
+      return target;
+    }
+  }
+
+  return null;
+}
+
+function getConfiguredTargetRoomsForColony(
+  territoryMemory: Record<string, unknown> | null,
+  colonyName: string
+): Set<string> {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return new Set();
+  }
+
+  return new Set(
+    territoryMemory.targets.flatMap((rawTarget) => {
+      const target = normalizeTerritoryTarget(rawTarget);
+      return target?.colony === colonyName ? [target.roomName] : [];
+    })
+  );
+}
+
+function appendTerritoryTarget(target: TerritoryTargetMemory): void {
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+
+  territoryMemory.targets.push(target);
+}
+
+function getAdjacentRoomNames(roomName: string): string[] {
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  const gameMap = game?.map;
+  if (!gameMap || typeof gameMap.describeExits !== 'function') {
+    return [];
+  }
+
+  const exits = gameMap.describeExits.call(gameMap, roomName) as ExitsInformation | null;
+  if (!isRecord(exits)) {
+    return [];
+  }
+
+  return EXIT_DIRECTION_ORDER.flatMap((direction) => {
+    const exitRoom = exits[direction];
+    return isNonEmptyString(exitRoom) ? [exitRoom] : [];
+  });
 }
 
 function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | null {
