@@ -1,4 +1,9 @@
-import { buildEmergencyWorkerBody, buildWorkerBody, getBodyCost } from '../src/spawn/bodyBuilder';
+import {
+  buildEmergencyWorkerBody,
+  buildTerritoryControllerBody,
+  buildWorkerBody,
+  getBodyCost
+} from '../src/spawn/bodyBuilder';
 
 const WORKER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 
@@ -58,6 +63,16 @@ describe('buildEmergencyWorkerBody', () => {
 
   it('returns one worker pattern at the worker pattern energy cost', () => {
     expect(buildEmergencyWorkerBody(200)).toEqual(WORKER_PATTERN);
+  });
+});
+
+describe('buildTerritoryControllerBody', () => {
+  it('returns an empty body below one claim and move part', () => {
+    expect(buildTerritoryControllerBody(649)).toEqual([]);
+  });
+
+  it('builds one claim and move part when affordable', () => {
+    expect(buildTerritoryControllerBody(650)).toEqual(['claim', 'move']);
   });
 });
 
