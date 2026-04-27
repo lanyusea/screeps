@@ -181,12 +181,13 @@ function selectHarvestSource(creep: Creep): Source | null {
     return null;
   }
 
-  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, sources);
-  let selectedSource = sources[0];
+  const viableSources = selectViableHarvestSources(sources);
+  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, viableSources);
+  let selectedSource = viableSources[0];
   let selectedCount = assignmentCounts.get(selectedSource.id) ?? 0;
 
   // Ties intentionally keep room.find(FIND_SOURCES) order stable.
-  for (const source of sources.slice(1)) {
+  for (const source of viableSources.slice(1)) {
     const count = assignmentCounts.get(source.id) ?? 0;
     if (count < selectedCount) {
       selectedSource = source;
@@ -195,6 +196,11 @@ function selectHarvestSource(creep: Creep): Source | null {
   }
 
   return selectedSource;
+}
+
+function selectViableHarvestSources(sources: Source[]): Source[] {
+  const sourcesWithEnergy = sources.filter((source) => typeof source.energy === 'number' && source.energy > 0);
+  return sourcesWithEnergy.length > 0 ? sourcesWithEnergy : sources;
 }
 
 function countSameRoomWorkerHarvestAssignments(roomName: string | undefined, sources: Source[]): Map<Id<Source>, number> {
