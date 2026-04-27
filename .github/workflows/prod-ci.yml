@@ -32,12 +32,83 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: prod/package-lock.json
+
+      - name: Report Node.js toolchain
+        run: |
+          node --version
+          npm --version
 
       - name: Install dependencies
-        run: yarn install --non-interactive --no-progress
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: |
+          set -o pipefail
+          max_attempts=3
+          npm_ci_status=1
+
+          for attempt in 1 2 3; do
+            log_path="$RUNNER_TEMP/npm-ci-attempt-${attempt}.log"
+            echo "Running npm ci attempt ${attempt}/${max_attempts}"
+
+            set +e
+            npm ci 2>&1 | tee "$log_path"
+            npm_ci_status=${PIPESTATUS[0]}
+            set -e
+
+            cp "$log_path" "$RUNNER_TEMP/npm-ci.log"
+
+            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
+              if [ "$npm_ci_status" -eq 0 ]; then
+                echo "::warning::npm ci exited 0 but emitted npm error output during attempt ${attempt}/${max_attempts}; treating attempt as failed."
+                npm_ci_status=1
+              else
+                echo "::warning::npm ci emitted npm error output during failed attempt ${attempt}/${max_attempts}."
+              fi
+            fi
+
+            if [ "$npm_ci_status" -eq 0 ]; then
+              break
+            fi
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "npm ci attempt ${attempt}/${max_attempts} failed with exit code ${npm_ci_status}; retrying shortly."
+              sleep 10
+            fi
+          done
+
+          if [ "$npm_ci_status" -ne 0 ]; then
+            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
+              echo "::error::npm ci failed after ${max_attempts} attempts; latest log contains npm error output."
+            else
+              echo "::error::npm ci failed after ${max_attempts} attempts; latest exit code ${npm_ci_status}."
+            fi
+            exit "$npm_ci_status"
+          fi
 
       - name: Verify dependency tree
-        run: yarn list --pattern "typescript|jest|@types/jest|@types/screeps|esbuild"
+        run: |
+          node - <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+
+          const packages = [
+            "typescript",
+            "jest",
+            "ts-jest",
+            "@types/jest",
+            "@types/screeps",
+            "esbuild",
+          ];
+
+          for (const name of packages) {
+            const packageJsonPath = path.join(process.cwd(), "node_modules", ...name.split("/"), "package.json");
+            const { version } = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+            console.log(`${name}@${version}`);
+          }
+          NODE
+          npx esbuild --version
 
       - name: Typecheck
         run: npm run typecheck
