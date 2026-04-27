@@ -160,6 +160,59 @@ class OfficialDeployTest(unittest.TestCase):
         self.assertNotIn("secret-token", encoded_evidence)
         self.assertNotIn(artifact_body, encoded_evidence)
 
+    def test_api_failures_redact_token_value_from_error_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = self.write_artifact(Path(tmp), "module.exports.loop = function () { return 1; };\n")
+            fake = FakeTransport(
+                [
+                    deploy.HttpResult(
+                        500,
+                        {"ok": 0, "message": "upstream echoed secret-token in a non-standard field"},
+                        {},
+                    )
+                ]
+            )
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
+
+            with self.assertRaisesRegex(deploy.DeployError, "list branches failed") as raised:
+                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "secret-token"}, transport=fake)
+
+        self.assertNotIn("secret-token", str(raised.exception))
+        self.assertIn("[REDACTED]", str(raised.exception))
+
+    def test_upload_failure_redacts_token_value_from_error_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = self.write_artifact(Path(tmp), "module.exports.loop = function () { return 1; };\n")
+            fake = FakeTransport(
+                [
+                    deploy.HttpResult(200, {"ok": 1, "list": [{"branch": "main", "activeWorld": True}]}, {}),
+                    deploy.HttpResult(200, {"ok": 1, "list": [{"branch": "main", "activeWorld": True}]}, {}),
+                    deploy.HttpResult(500, {"ok": 0, "message": "upload rejected for secret-token"}, {}),
+                ]
+            )
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
+
+            with self.assertRaisesRegex(deploy.DeployError, "upload code failed") as raised:
+                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "secret-token"}, transport=fake)
+
+        self.assertNotIn("secret-token", str(raised.exception))
+        self.assertIn("[REDACTED]", str(raised.exception))
+
+    def test_transport_failures_redact_token_value_from_error_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = self.write_artifact(Path(tmp), "module.exports.loop = function () { return 1; };\n")
+
+            def failing_transport(**_kwargs: Any) -> deploy.HttpResult:
+                raise deploy.DeployError("request failed after echoing secret-token")
+
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
+
+            with self.assertRaisesRegex(deploy.DeployError, "request failed") as raised:
+                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "secret-token"}, transport=failing_transport)
+
+        self.assertNotIn("secret-token", str(raised.exception))
+        self.assertIn("[REDACTED]", str(raised.exception))
+
     def test_remote_hash_mismatch_fails_without_printing_remote_code(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             artifact = self.write_artifact(Path(tmp), "module.exports.loop = function () { return 1; };\n")

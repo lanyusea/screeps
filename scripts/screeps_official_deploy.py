@@ -100,15 +100,18 @@ class ScreepsApi:
             "payload": summarize_request_payload(path, payload),
         }
         transport = self.transport or http_json
-        result = transport(
-            method=method,
-            base_url=self.base_url,
-            path=path,
-            payload=payload,
-            headers=headers,
-            params=params,
-            timeout=self.timeout_seconds,
-        )
+        try:
+            result = transport(
+                method=method,
+                base_url=self.base_url,
+                path=path,
+                payload=payload,
+                headers=headers,
+                params=params,
+                timeout=self.timeout_seconds,
+            )
+        except DeployError as exc:
+            raise DeployError(short_text(redact(str(exc), [self.token]), 500)) from None
         request_summary["status"] = result.status
         request_summary["apiOk"] = api_payload_succeeded(result)
         self.requests.append(request_summary)
@@ -312,10 +315,10 @@ def api_payload_succeeded(result: HttpResult) -> bool:
     return ok_value is None or ok_value is True or ok_value == 1
 
 
-def require_api_success(name: str, result: HttpResult) -> None:
+def require_api_success(name: str, result: HttpResult, secrets: list[str] | None = None) -> None:
     """Raise a sanitized error when an API request failed."""
     if not api_payload_succeeded(result):
-        raise DeployError(f"{name} failed: HTTP {result.status}: {short_text(redact(result.payload), 500)}")
+        raise DeployError(f"{name} failed: HTTP {result.status}: {short_text(redact(result.payload, secrets), 500)}")
 
 
 def upload_succeeded(result: HttpResult) -> bool:
@@ -508,7 +511,7 @@ def run_deploy(
     client = ScreepsApi(cfg.api_url, token, cfg.timeout_seconds, transport)
 
     first_branches_result = client.list_branches()
-    require_api_success("list branches", first_branches_result)
+    require_api_success("list branches", first_branches_result, [token])
     first_branches = extract_branches(first_branches_result.payload)
     target_exists_before = find_branch(first_branches, cfg.branch) is not None
     clone_source = cfg.clone_source_branch or active_world_branch_name(first_branches) or "default"
@@ -516,19 +519,21 @@ def run_deploy(
 
     if not target_exists_before:
         clone_result = client.clone_branch(clone_source, cfg.branch)
-        require_api_success("clone branch", clone_result)
+        require_api_success("clone branch", clone_result, [token])
         branch_created = True
 
     second_branches_result = client.list_branches()
-    require_api_success("refresh branches", second_branches_result)
+    require_api_success("refresh branches", second_branches_result, [token])
     second_branches = extract_branches(second_branches_result.payload)
 
     upload_result = client.upload_code(cfg.branch, module)
     if not upload_succeeded(upload_result):
-        raise DeployError(f"upload code failed: HTTP {upload_result.status}: {short_text(redact(upload_result.payload), 500)}")
+        raise DeployError(
+            f"upload code failed: HTTP {upload_result.status}: {short_text(redact(upload_result.payload, [token]), 500)}"
+        )
 
     branch_code_result = client.get_code(cfg.branch)
-    require_api_success("verify branch code", branch_code_result)
+    require_api_success("verify branch code", branch_code_result, [token])
     branch_verify = verify_remote_module(branch_code_result.payload, artifact["sha256"])
     if not branch_verify["matched"]:
         raise DeployError("uploaded branch hash verification failed")
@@ -537,17 +542,17 @@ def run_deploy(
     active_verify: dict[str, Any] = {"requested": cfg.activate_world, "status": "not-requested"}
     if cfg.activate_world:
         active_result = client.set_active_world_branch(cfg.branch)
-        require_api_success("set activeWorld branch", active_result)
+        require_api_success("set activeWorld branch", active_result, [token])
 
         active_branches_result = client.list_branches()
-        require_api_success("verify active branch metadata", active_branches_result)
+        require_api_success("verify active branch metadata", active_branches_result, [token])
         final_branches = extract_branches(active_branches_result.payload)
         active_name = active_world_branch_name(final_branches)
         if active_name != cfg.branch:
             raise DeployError(f"activeWorld branch mismatch: expected {cfg.branch}, got {active_name or 'none'}")
 
         active_code_result = client.get_code("$activeWorld")
-        require_api_success("verify activeWorld code", active_code_result)
+        require_api_success("verify activeWorld code", active_code_result, [token])
         active_code_verify = verify_remote_module(active_code_result.payload, artifact["sha256"])
         if not active_code_verify["matched"]:
             raise DeployError("activeWorld hash verification failed")
