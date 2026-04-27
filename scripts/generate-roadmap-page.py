@@ -147,7 +147,7 @@ def init_db(db_path: Path) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.executescript(
             """
-            PRAGMA journal_mode=WAL;
+            PRAGMA journal_mode=DELETE;
             CREATE TABLE IF NOT EXISTS metric_points (
               id INTEGER PRIMARY KEY,
               captured_at TEXT NOT NULL,
@@ -295,8 +295,8 @@ def build_kpi_points(repo: Path) -> list[KpiPoint]:
         "attack_count": (number(nested(report, ["combat", "events", "attackCount"], 0)) or 0.0, bool(report), "runtime-kpi-reducer", "Attack event count."),
         "attack_damage": (number(nested(report, ["combat", "events", "attackDamage"], 0)) or 0.0, bool(report), "runtime-kpi-reducer", "Attack damage event total."),
         "object_destroyed_count": (number(nested(report, ["combat", "events", "objectDestroyedCount"], 0)) or 0.0, bool(report), "runtime-kpi-reducer", "Destroyed object events."),
-        "creep_destroyed_count": (number(nested(report, ["combat", "events", "creepDestroyedCount"], 0)) or 0.0, bool(report), "runtime-kpi-reducer", "Destroyed creep events."),
-        "enemy_kills": (number(nested(report, ["combat", "events", "creepDestroyedCount"], 0)) or 0.0, bool(report), "runtime-kpi-reducer", "Enemy kill proxy until ownership-aware kill reducer is added."),
+        "creep_destroyed_count": (number(nested(report, ["combat", "events", "creepDestroyedCount"], 0)) or 0.0, bool(report), "runtime-kpi-reducer", "Destroyed creep events; ownership is not yet classified."),
+        "enemy_kills": (None, False, "pending-ownership-aware-reducer", "Not instrumented: creepDestroyedCount can include own losses, so it is not used as an enemy-kill proxy."),
     }
     points: list[KpiPoint] = []
     for domain, metric, label, unit, definition_note in KEY_KPI_DEFINITIONS:
