@@ -80,18 +80,21 @@ describe('selectWorkerTask', () => {
     expect(task).toBeNull();
   });
 
-  it('selects transfer when worker has energy and spawn needs energy', () => {
-    const spawn = {
-      id: 'spawn1',
-      structureType: 'spawn',
+  it.each([
+    ['spawn', 'spawn1'],
+    ['extension', 'extension1']
+  ])('selects transfer when worker has energy and %s needs energy', (structureType, id) => {
+    const energySink = {
+      id,
+      structureType,
       store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
-    } as unknown as StructureSpawn;
+    } as unknown as StructureSpawn | StructureExtension;
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
-      room: { find: jest.fn((type) => (type === 3 ? [spawn] : [])) }
+      room: { find: jest.fn((type) => (type === 3 ? [energySink] : [])) }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
   });
 
   it('selects build when worker has energy and construction sites exist', () => {
@@ -178,8 +181,11 @@ describe('selectWorkerTask', () => {
     expect(task).toEqual({ type: 'build', targetId: 'spawn-site1' });
   });
 
-  it('keeps RCL2 build-before-upgrade priority when controller downgrade is safe', () => {
-    const site = { id: 'site1' } as ConstructionSite;
+  it.each([
+    ['road', 'road-site1'],
+    ['container', 'container-site1']
+  ])('selects RCL2 controller upgrade before non-critical %s construction when downgrade is safe', (structureType, id) => {
+    const site = { id, structureType } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -194,11 +200,76 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it.each([
+    ['spawn', 'spawn-site1'],
+    ['extension', 'extension-site1']
+  ])('builds RCL2 critical %s construction before controller progress guard', (structureType, id) => {
+    const site = { id, structureType } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === 2 ? [site] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: id });
+  });
+
+  it('builds RCL2 extension construction before controller progress guard when STRUCTURE_EXTENSION is missing', () => {
+    delete (globalThis as unknown as { STRUCTURE_EXTENSION?: StructureConstant }).STRUCTURE_EXTENSION;
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === 2 ? [site] : []))
+      }
+    } as unknown as Creep;
+    let task: CreepTaskMemory | null | undefined;
+
+    expect(() => {
+      task = selectWorkerTask(creep);
+    }).not.toThrow();
+    expect(task).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('keeps RCL3 build-before-upgrade priority when controller downgrade is safe', () => {
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === 2 ? [site] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
   it('keeps low-downgrade guard above construction at RCL2', () => {
-    const site = { id: 'site1' } as ConstructionSite;
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
