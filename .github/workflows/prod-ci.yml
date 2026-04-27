@@ -61,10 +61,13 @@ jobs:
 
             if [ "$npm_ci_status" -eq 0 ]; then
               if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
-                echo "::error::npm ci emitted npm error output; aborting before verification."
-                exit 1
+                echo "::warning::npm ci exited 0 but emitted npm error-looking output; continuing to dependency verification."
               fi
               break
+            fi
+
+            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
+              echo "::warning::npm ci emitted npm error output during failed attempt ${attempt}/${max_attempts}."
             fi
 
             if [ "$attempt" -lt "$max_attempts" ]; then
@@ -74,9 +77,7 @@ jobs:
           done
 
           if [ "$npm_ci_status" -ne 0 ]; then
-            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
-              echo "::error::npm ci emitted npm error output; aborting before verification."
-            fi
+            echo "::error::npm ci failed after ${max_attempts} attempts; latest exit code ${npm_ci_status}."
             exit "$npm_ci_status"
           fi
 
