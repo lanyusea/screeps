@@ -3,45 +3,11 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-04-27T11:19:46Z",
-  "generatedAtCst": "2026-04-27 19:19:46 CST",
+  "generatedAt": "2026-04-27T11:23:09Z",
+  "generatedAtCst": "2026-04-27 19:23:09 CST",
   "github": {
-    "fetchErrors": [
-      {
-        "command": [
-          "gh",
-          "issue",
-          "list",
-          "--repo"
-        ],
-        "exitCode": 1,
-        "message": "command failed",
-        "source": "issues"
-      },
-      {
-        "command": [
-          "gh",
-          "pr",
-          "list",
-          "--repo"
-        ],
-        "exitCode": 1,
-        "message": "command failed",
-        "source": "pullRequests"
-      },
-      {
-        "command": [
-          "gh",
-          "project",
-          "item-list",
-          "3"
-        ],
-        "exitCode": 1,
-        "message": "command failed",
-        "source": "project"
-      }
-    ],
-    "fetched": false,
+    "fetchErrors": [],
+    "fetched": true,
     "issues": [
       {
         "createdAt": "2026-04-27T08:23:27Z",
@@ -2083,34 +2049,34 @@
     },
     "processMetrics": [
       {
-        "instrumented": false,
+        "instrumented": true,
         "label": "Open roadmap issues",
-        "value": "insufficient evidence"
+        "value": 9
       },
       {
-        "instrumented": false,
+        "instrumented": true,
         "label": "Open PRs",
-        "value": "insufficient evidence"
+        "value": 1
       },
       {
-        "instrumented": false,
+        "instrumented": true,
         "label": "Blocked cards",
-        "value": "insufficient evidence"
+        "value": 4
       },
       {
-        "instrumented": false,
+        "instrumented": true,
         "label": "Project cards",
-        "value": "insufficient evidence"
+        "value": 56
       },
       {
-        "instrumented": false,
+        "instrumented": true,
         "label": "In progress",
-        "value": "insufficient evidence"
+        "value": 4
       },
       {
-        "instrumented": false,
+        "instrumented": true,
         "label": "In review",
-        "value": "insufficient evidence"
+        "value": 2
       }
     ],
     "projectItems": [
@@ -3362,8 +3328,8 @@
       }
     ],
     "seededFallbackIssueCount": 0,
-    "sourceMode": "cached",
-    "usedCachedSnapshot": true
+    "sourceMode": "live",
+    "usedCachedSnapshot": false
   },
   "kpis": {
     "categories": [
@@ -3997,13 +3963,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -4159,6 +4118,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4167,13 +4133,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -4329,6 +4288,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4337,13 +4303,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -4499,6 +4458,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4507,13 +4473,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -4669,6 +4628,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4677,13 +4643,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -4839,6 +4798,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4847,13 +4813,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -5009,6 +4968,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5017,13 +4983,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -5179,6 +5138,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5187,13 +5153,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -5349,6 +5308,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5357,13 +5323,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -5519,6 +5478,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5527,13 +5493,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -5689,6 +5648,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5697,13 +5663,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -5859,6 +5818,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5867,13 +5833,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -6029,6 +5988,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6037,13 +6003,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -6199,6 +6158,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6207,13 +6173,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -6369,6 +6328,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6377,13 +6343,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -6539,6 +6498,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6547,13 +6513,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -6709,6 +6668,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6717,13 +6683,6 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "observed",
           "value": 0.0
@@ -6879,6 +6838,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "observed",
           "value": 0.0
         }
@@ -6887,13 +6853,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -7049,6 +7008,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7057,13 +7023,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -7219,6 +7178,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7227,13 +7193,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -7389,6 +7348,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7397,13 +7363,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -7559,6 +7518,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7567,13 +7533,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -7729,6 +7688,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7737,13 +7703,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -7899,6 +7858,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7907,13 +7873,6 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "observed",
           "value": 0.0
@@ -8069,6 +8028,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "observed",
           "value": 0.0
         }
@@ -8077,13 +8043,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -8239,6 +8198,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8247,13 +8213,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -8409,6 +8368,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8417,13 +8383,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -8579,6 +8538,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8587,13 +8553,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -8749,6 +8708,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8757,13 +8723,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -8919,6 +8878,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8927,13 +8893,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -9089,6 +9048,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9097,13 +9063,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -9259,6 +9218,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9267,13 +9233,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -9429,6 +9388,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9437,13 +9403,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T05:54:48Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T05:56:21Z",
           "status": "not instrumented",
           "value": null
@@ -9599,6 +9558,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T11:19:46Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T11:23:09Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9648,7 +9614,7 @@
             "url": "https://github.com/lanyusea/screeps/issues/75"
           },
           {
-            "description": "2026-04-27T19:09:52+08:00 scheduler dispatched Codex review-fix in [redacted-path] on branch feat/pages-visua...",
+            "description": "2026-04-27T19:09:52+08:00 scheduler dispatched Codex review-fix in [redacted-path]",
             "number": 77,
             "priority": "P1",
             "title": "#77 fix: polish roadmap page visual fidelity",
@@ -10085,20 +10051,20 @@
         "delta": "+1",
         "detail": "repository history",
         "label": "Total commits",
-        "value": 124
+        "value": 128
       },
       {
         "delta": "+1",
-        "detail": "50 merged \u00b7 cached",
+        "detail": "50 merged",
         "label": "Total PRs",
-        "source": "cached",
+        "source": "github",
         "value": 55
       },
       {
         "delta": "+0",
-        "detail": "9 open \u00b7 cached",
+        "detail": "9 open",
         "label": "Total issues",
-        "source": "cached",
+        "source": "github",
         "value": 24
       },
       {
@@ -10120,7 +10086,7 @@
         "goal": "Use real game outcomes to drive roadmap, task, and release decisions.",
         "next": "Use game-result evidence to drive roadmap, task, and release updates.",
         "progress": 58,
-        "status": "#59 In progress \u00b7 GitHub \u00b7 cached",
+        "status": "#59 In progress \u00b7 GitHub",
         "title": "Gameplay Evolution",
         "url": "https://github.com/lanyusea/screeps/issues/59"
       },
@@ -10128,7 +10094,7 @@
         "goal": "Claim, hold, and grow the controlled room footprint first.",
         "next": "No current GitHub/Project evidence available.",
         "progress": 0,
-        "status": "GitHub snapshot cached",
+        "status": "No matching Project item",
         "title": "Territory",
         "url": ""
       },
@@ -10136,7 +10102,7 @@
         "goal": "Convert territory into energy, minerals, logistics, and spawn scale.",
         "next": "Persist runtime-summary lines, reduce KPI evidence, and deliver scheduled monitor rep...",
         "progress": 58,
-        "status": "#29 In progress \u00b7 GitHub \u00b7 cached",
+        "status": "#29 In progress \u00b7 GitHub",
         "title": "Resource Economy",
         "url": "https://github.com/lanyusea/screeps/issues/29"
       },
@@ -10144,7 +10110,7 @@
         "goal": "Make defense and offense serve territorial and economic control.",
         "next": "Connect alert signals to bounded tactical emergency triage.",
         "progress": 35,
-        "status": "#62 Ready \u00b7 GitHub \u00b7 cached",
+        "status": "#62 Ready \u00b7 GitHub",
         "title": "Combat",
         "url": "https://github.com/lanyusea/screeps/issues/62"
       },
@@ -10152,7 +10118,7 @@
         "goal": "Let automation health override game goals only when it blocks delivery.",
         "next": "Keep watch-only P0 monitor evidence current.",
         "progress": 100,
-        "status": "#27 Done \u00b7 Agent OS \u00b7 cached",
+        "status": "#27 Done \u00b7 Agent OS",
         "title": "Reliability / P0",
         "url": "https://github.com/lanyusea/screeps/issues/27"
       },
@@ -10160,7 +10126,7 @@
         "goal": "Private smoke proof, release gates, and official MMO deployment evidence.",
         "next": "Run a clean private-server smoke check and publish redacted evidence.",
         "progress": 58,
-        "status": "#28 In progress \u00b7 GitHub \u00b7 cached",
+        "status": "#28 In progress \u00b7 GitHub",
         "title": "Foundation Gates",
         "url": "https://github.com/lanyusea/screeps/issues/28"
       }
