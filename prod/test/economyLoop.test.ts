@@ -209,6 +209,65 @@ describe('runEconomy', () => {
     expect(creeps['worker-W1N1-200']?.memory).toEqual({ role: 'worker', colony: 'W1N1' });
   });
 
+  it('plans extension construction before workers select build targets', () => {
+    (globalThis as unknown as {
+      FIND_MY_STRUCTURES: number;
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      RESOURCE_ENERGY: ResourceConstant;
+      STRUCTURE_EXTENSION: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+    }).FIND_MY_STRUCTURES = 1;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+
+    const constructionSites: ConstructionSite[] = [];
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: { my: true, level: 2, id: 'controller1' } as StructureController,
+      find: jest.fn((type: number) => (type === 3 ? constructionSites : [])),
+      lookAt: jest.fn().mockReturnValue([]),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({ id: `site-${x}-${y}`, structureType } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      pos: { x: 25, y: 25, roomName: 'W1N1' },
+      spawning: null,
+      spawnCreep: jest.fn()
+    } as unknown as StructureSpawn;
+    const worker = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 250,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: { Worker1: worker },
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as Game['map']
+    };
+
+    runEconomy();
+
+    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_EXTENSION);
+    expect(worker.memory.task).toEqual({ type: 'build', targetId: 'site-24-24' });
+  });
+
   it('runs existing worker creeps', () => {
     const creep = {
       memory: { role: 'worker', colony: 'W1N1' },
