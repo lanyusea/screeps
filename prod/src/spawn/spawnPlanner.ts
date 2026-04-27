@@ -48,7 +48,7 @@ function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyP
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
 
-  return buildWorkerBody(colony.energyAvailable);
+  return [];
 }
 
 function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {
