@@ -518,9 +518,7 @@ function selectWorkerTask(creep) {
     const source = selectHarvestSource(creep);
     return source ? { type: "harvest", targetId: source.id } : null;
   }
-  const [energySink] = creep.room.find(FIND_MY_STRUCTURES, {
-    filter: isFillableEnergySink
-  });
+  const energySink = selectFillableEnergySink(creep);
   if (energySink) {
     return { type: "transfer", targetId: energySink.id };
   }
@@ -557,6 +555,16 @@ function selectWorkerTask(creep) {
 }
 function isFillableEnergySink(structure) {
   return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure && structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+}
+function selectFillableEnergySink(creep) {
+  const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
+    filter: isFillableEnergySink
+  });
+  if (energySinks.length === 0) {
+    return null;
+  }
+  const closestEnergySink = findClosestByRange(creep, energySinks);
+  return closestEnergySink != null ? closestEnergySink : energySinks[0];
 }
 function isSpawnConstructionSite(site) {
   return matchesStructureType2(site.structureType, "STRUCTURE_SPAWN", "spawn");
@@ -683,10 +691,20 @@ function findDroppedResources(room) {
 function isUsefulDroppedEnergy(resource) {
   return resource.resourceType === RESOURCE_ENERGY && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
 }
-function findClosestByRange(creep, resources) {
-  var _a, _b;
+function findClosestByRange(creep, objects) {
+  if (objects.length === 0) {
+    return null;
+  }
   const position = creep.pos;
-  return (_b = (_a = position == null ? void 0 : position.findClosestByRange) == null ? void 0 : _a.call(position, resources)) != null ? _b : null;
+  if (typeof (position == null ? void 0 : position.getRangeTo) === "function") {
+    return objects.reduce((closest, candidate) => {
+      var _a, _b, _c, _d;
+      const closestRange = (_b = (_a = position.getRangeTo) == null ? void 0 : _a.call(position, closest)) != null ? _b : Infinity;
+      const candidateRange = (_d = (_c = position.getRangeTo) == null ? void 0 : _c.call(position, candidate)) != null ? _d : Infinity;
+      return candidateRange < closestRange ? candidate : closest;
+    });
+  }
+  return typeof (position == null ? void 0 : position.findClosestByRange) === "function" ? position.findClosestByRange(objects) : null;
 }
 function selectHarvestSource(creep) {
   var _a, _b;
