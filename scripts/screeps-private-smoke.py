@@ -503,7 +503,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
         condition: service_healthy
     restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "sh", "-c", "curl --fail --silent http://127.0.0.1:{CONTAINER_HTTP_PORT}/api/version >/dev/null"]
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:{CONTAINER_HTTP_PORT}/api/version >/dev/null"]
       interval: 10s
       timeout: 5s
       start_period: 10s
@@ -515,7 +515,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
       - mongo-data:/data/db
     restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "sh", "-c", "echo 'db.runCommand(\\"ping\\").ok' | mongosh localhost:27017/test --quiet"]
+      test: ["CMD-SHELL", "echo 'db.runCommand(\\"ping\\").ok' | mongosh localhost:27017/test --quiet"]
       interval: 10s
       timeout: 5s
       start_period: 10s
@@ -1468,6 +1468,14 @@ class SmokeSelfTest(unittest.TestCase):
         values.update(overrides)
         return argparse.Namespace(**values)
 
+    def parse_compose(self, compose: str) -> dict[str, Any]:
+        """Parse generated Compose YAML for structural assertions."""
+        import yaml
+
+        parsed = yaml.safe_load(compose)
+        self.assertIsInstance(parsed, dict)
+        return parsed
+
     def test_launcher_config_is_secret_free(self) -> None:
         """Launcher config should reference, not embed, local secrets."""
         cfg = self.make_cfg()
@@ -1503,9 +1511,17 @@ class SmokeSelfTest(unittest.TestCase):
         )
         compose = build_compose_file(cfg)
         launcher_config = build_launcher_config(cfg)
+        parsed_compose = self.parse_compose(compose)
+        screeps_healthcheck = parsed_compose["services"]["screeps"]["healthcheck"]
         self.assertIn('"127.0.0.1:21125:21025/tcp"', compose)
         self.assertIn('"127.0.0.1:21126:21026/tcp"', compose)
         self.assertIn("curl --fail --silent http://127.0.0.1:21025/api/version", compose)
+        self.assertEqual(
+            screeps_healthcheck["test"],
+            ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:21025/api/version >/dev/null"],
+        )
+        self.assertEqual(screeps_healthcheck["interval"], "10s")
+        self.assertEqual(screeps_healthcheck["retries"], 12)
         self.assertIn("  port: 21026", launcher_config)
         self.assertNotIn("  port: 21126", launcher_config)
 
