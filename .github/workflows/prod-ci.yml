@@ -47,6 +47,14 @@ jobs:
           set -o pipefail
           max_attempts=3
           npm_ci_status=1
+          required_package_files=(
+            node_modules/typescript/package.json
+            node_modules/jest/package.json
+            node_modules/ts-jest/package.json
+            node_modules/@types/jest/package.json
+            node_modules/@types/screeps/package.json
+            node_modules/esbuild/package.json
+          )
 
           for attempt in 1 2 3; do
             log_path="$RUNNER_TEMP/npm-ci-attempt-${attempt}.log"
@@ -59,32 +67,56 @@ jobs:
 
             cp "$log_path" "$RUNNER_TEMP/npm-ci.log"
 
-            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
-              if [ "$npm_ci_status" -eq 0 ]; then
-                echo "::warning::npm ci exited 0 but emitted npm error output during attempt ${attempt}/${max_attempts}; treating attempt as failed."
-                npm_ci_status=1
-              else
-                echo "::warning::npm ci emitted npm error output during failed attempt ${attempt}/${max_attempts}."
-              fi
+            attempt_failed=0
+            failure_reasons=()
+
+            if [ "$npm_ci_status" -ne 0 ]; then
+              attempt_failed=1
+              failure_reasons+=("exit code ${npm_ci_status}")
             fi
 
-            if [ "$npm_ci_status" -eq 0 ]; then
+            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
+              attempt_failed=1
+              failure_reasons+=("npm error output")
+            fi
+
+            missing_package_files=()
+            for package_file in "${required_package_files[@]}"; do
+              if [ ! -f "$package_file" ]; then
+                missing_package_files+=("$package_file")
+              fi
+            done
+
+            if [ "${#missing_package_files[@]}" -gt 0 ]; then
+              attempt_failed=1
+              failure_reasons+=("missing required package files")
+              echo "::warning::npm ci attempt ${attempt}/${max_attempts} left required package files missing:"
+              printf '  %s\n' "${missing_package_files[@]}"
+            fi
+
+            if [ "$attempt_failed" -eq 0 ]; then
               break
             fi
 
             if [ "$attempt" -lt "$max_attempts" ]; then
-              echo "npm ci attempt ${attempt}/${max_attempts} failed with exit code ${npm_ci_status}; retrying shortly."
+              IFS=", "
+              echo "npm ci attempt ${attempt}/${max_attempts} failed validation: ${failure_reasons[*]}; retrying shortly."
+              unset IFS
               sleep 10
             fi
           done
 
-          if [ "$npm_ci_status" -ne 0 ]; then
-            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
-              echo "::error::npm ci failed after ${max_attempts} attempts; latest log contains npm error output."
-            else
-              echo "::error::npm ci failed after ${max_attempts} attempts; latest exit code ${npm_ci_status}."
+          if [ "$attempt_failed" -ne 0 ]; then
+            IFS=", "
+            echo "::error::npm ci failed validation after ${max_attempts} attempts: ${failure_reasons[*]}."
+            unset IFS
+
+            if [ "${#missing_package_files[@]}" -gt 0 ]; then
+              echo "::error::Latest attempt is missing required package files:"
+              printf '  %s\n' "${missing_package_files[@]}"
             fi
-            exit "$npm_ci_status"
+
+            exit 1
           fi
 
       - name: Verify dependency tree
