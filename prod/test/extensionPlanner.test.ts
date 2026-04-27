@@ -87,6 +87,23 @@ describe('extension construction planner', () => {
     expect((Game.map.getRoomTerrain as jest.Mock).mock.calls).toHaveLength(1);
   });
 
+  it('continues scanning when the nearby extension ring is blocked', () => {
+    const { room, colony } = makeColony({
+      controllerLevel: 2,
+      wallPositions: new Set(['26,26']),
+      structures: [
+        makeExtension('existing-at-first-candidate', { x: 24, y: 24 }),
+        makeExtension('existing-at-second-candidate', { x: 26, y: 24 })
+      ],
+      constructionSites: [makeExtensionSite('pending-at-third-candidate', { x: 24, y: 26 })]
+    });
+
+    expect(planExtensionConstruction(colony)).toBe(0);
+
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, STRUCTURE_EXTENSION);
+  });
+
   it('keeps adjacent cardinal paths open while filling RCL2 extension sites', () => {
     const { room, colony } = makeColony({ controllerLevel: 2 });
 

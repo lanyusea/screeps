@@ -30,6 +30,7 @@ interface ScanBounds {
 interface PlannerLookups {
   terrain: RoomTerrain;
   blockingPositions: Set<string>;
+  reservedWalkwayPositions: Set<string>;
 }
 
 export function planExtensionConstruction(colony: ColonySnapshot): ScreepsReturnCode | null {
@@ -106,7 +107,8 @@ function createPlannerLookups(room: Room, anchor: RoomPosition): PlannerLookups 
 
   return {
     terrain: Game.map.getRoomTerrain(room.name),
-    blockingPositions: getBlockingPositions(room, bounds)
+    blockingPositions: getBlockingPositions(room, bounds),
+    reservedWalkwayPositions: getReservedWalkwayPositions(anchor)
   };
 }
 
@@ -140,6 +142,10 @@ function canPlaceExtension(lookups: PlannerLookups, anchorParity: number, positi
     return false;
   }
 
+  if (lookups.reservedWalkwayPositions.has(getPositionKey(position))) {
+    return false;
+  }
+
   if (getPositionParity(position) !== anchorParity) {
     return false;
   }
@@ -149,6 +155,28 @@ function canPlaceExtension(lookups: PlannerLookups, anchorParity: number, positi
   }
 
   return !lookups.blockingPositions.has(getPositionKey(position));
+}
+
+function getReservedWalkwayPositions(anchor: RoomPosition): Set<string> {
+  return new Set(
+    [
+      { x: anchor.x, y: anchor.y - 1 },
+      { x: anchor.x + 1, y: anchor.y },
+      { x: anchor.x, y: anchor.y + 1 },
+      { x: anchor.x - 1, y: anchor.y }
+    ]
+      .filter((position) => isWithinRoomBounds(position))
+      .map(getPositionKey)
+  );
+}
+
+function isWithinRoomBounds(position: CandidatePosition): boolean {
+  return (
+    position.x >= ROOM_EDGE_MIN &&
+    position.x <= ROOM_EDGE_MAX &&
+    position.y >= ROOM_EDGE_MIN &&
+    position.y <= ROOM_EDGE_MAX
+  );
 }
 
 function getPositionParity(position: CandidatePosition): number {
