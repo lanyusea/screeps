@@ -1,6 +1,6 @@
 # Screeps Agent Operating System
 
-Last updated: 2026-04-26T16:08:57+08:00
+Last updated: 2026-04-27T18:55:00+08:00
 
 ## Purpose
 
@@ -142,11 +142,114 @@ For every meaningful task:
 
 ## Scheduled worker roles
 
-### Continuation worker
+### Continuation worker / autonomous scheduler
 
-Purpose: execute one bounded research/development slice from `docs/process/active-work-state.md`.
+Purpose: act as the autonomous scheduler/dispatcher for roadmap execution, not as a single-task worker. Each run must reconcile GitHub state, active agent state, open PRs, and safe capacity; then it should start, monitor, QA-route, or close as many non-conflicting executable tasks as the current capacity and gates allow.
 
 Delivery: `discord:#task-queue`.
+
+The scheduler remains bounded: it must not wait on long-running Codex/QA processes, sleep through review windows, or perform unbounded implementation inside the cron run. It should dispatch independent agents, record their state, and let the next scheduler run reconcile progress.
+
+#### Scheduler phase goals
+
+The scheduler runs these phases in order on every invocation:
+
+1. **Reconcile state.** Inspect `cronjob list`, background processes, `/root/.hermes/screeps-agent-registry.json` when present, git worktrees, open PRs, open roadmap issues, and GitHub Project `screeps` fields. Repair stale GitHub state before dispatching new work.
+2. **Close ready loops.** If a PR has completed QA, green required checks, resolved/outdated review threads, and the >=15 minute automated review gate, merge it, fast-forward `/root/screeps`, and set the linked issue/PR Project items to `Done` with evidence.
+3. **Handle completed dev agents.** For each finished dev/Codex process, verify commit/authorship, run required checks, push, create or update the PR, add the PR to Project `screeps`, set issue/PR status to `In review`, and dispatch on-demand QA.
+4. **Handle QA results.** If QA returns `PASS`, update the PR/issue Evidence and move the PR to merge-gate watch. If QA returns `REQUEST_CHANGES`, dispatch a review-fix dev/Codex agent and record the blocker.
+5. **Maximize safe parallelism.** Claim executable `Ready` issues up to capacity, preferring P0 blockers first, then game-goal work in the order territory > resources > kills, then non-blocking foundation. Default assumption: different roadmap submodules are non-conflicting and should run in parallel via separate worktrees unless a concrete file/runtime/resource conflict is observed.
+6. **Refresh owner-visible state.** Update Issue/Project `Evidence` and `Next action`, write concise scheduler checkpoint output, and trigger/allow typed reporters to refresh roadmap/task views from GitHub state.
+
+#### Parallelism and conflict policy
+
+Default capacity targets:
+
+| Lane | Default cap | Notes |
+| --- | ---: | --- |
+| Active dev/Codex agents | 4 | May include code and docs workers. Do not exceed if PR review backlog is unhealthy. |
+| Active QA agents | 2 | QA is on-demand and short-lived; never persistent. |
+| Open PRs waiting for review/merge gate | 6 | If exceeded, drain PRs before dispatching lower-priority new work. |
+| Same roadmap submodule | 1 by default | Allow more only when file scopes are explicitly disjoint. |
+
+Conflict rules:
+
+- Different roadmap domains/submodules are presumed independent.
+- Worktrees are mandatory for every repo mutation; use `/root/screeps-worktrees/<topic>`.
+- File-scope overlap blocks parallel dispatch only when concrete paths collide, for example two tasks both editing `prod/src/spawn*`, the same generated artifact, the same cron prompt, or the same deploy/runbook file.
+- Generated artifacts such as Pages output, bundled `prod/dist/main.js`, and committed SQLite artifacts should be serialized unless the task owns that artifact.
+- If a conflict is uncertain, dispatch the higher-priority task and leave the other `Ready` with `Next action` explaining the dependency.
+
+#### Claim, registry, and GitHub state protocol
+
+Before starting a dev or QA agent, the scheduler must claim the issue/PR by updating GitHub Project `screeps`:
+
+- Issue `Status`: `Ready` -> `In progress` for dev, or PR `Status`: `In review` for review/QA.
+- `Evidence`: include scheduler run timestamp, worktree, branch, process/session id if known, file scope, and current verification state.
+- `Next action`: include the exact next scheduler action, not a vague summary.
+
+The local registry is a runtime cache, not the source of truth. Preferred path:
+
+```text
+/root/.hermes/screeps-agent-registry.json
+```
+
+Each entry should record at least:
+
+```json
+{
+  "issue": 78,
+  "pr": null,
+  "kind": "dev|qa|review-fix|merge-watch",
+  "domain": "Agent OS",
+  "worktree": "/root/screeps-worktrees/autonomous-scheduler-78",
+  "branch": "docs/autonomous-scheduler-78",
+  "process_session": "proc_xxx",
+  "file_scope": ["docs/ops/agent-operating-system.md"],
+  "state": "running|finished|failed|qa_pending|merge_gate|done",
+  "claimed_at": "ISO-8601 timestamp",
+  "last_seen": "ISO-8601 timestamp"
+}
+```
+
+Every run must reconcile registry and GitHub:
+
+- Registry running + process missing -> inspect worktree/PR and classify finished, failed, or stale.
+- GitHub `In progress` + no registry/process -> recover from worktree/branch/PR evidence or mark blocked with exact reason.
+- PR merged + issue not Done -> update issue and PR Project fields immediately.
+- Registry says done + GitHub stale -> fix GitHub before final report.
+
+#### Dev-agent and Codex dispatch rules
+
+- Documentation-only tasks may be implemented by a docs dev agent/Hermes in a worktree, but still require PR, QA, Project updates, and review gate.
+- Production/test/build code, scripts, workflow/config behavior, generated runtime behavior, and review-fix code changes must be implemented by Codex CLI in the task worktree.
+- Each task prompt must include issue link, priority reason, file scope, acceptance criteria, verification commands, commit requirements, no-secret rule, and Project update requirements.
+- The scheduler should start agents in background and stop; it should not wait for long-running completion inside the same cron run.
+
+#### On-demand QA trigger
+
+QA is not a standing worker. Trigger it when a PR or dev result is ready for acceptance:
+
+- after a dev/Codex agent has committed and controller verification has passed;
+- after a review-fix commit has been pushed;
+- before merge when the only remaining question is acceptance/readiness;
+- after merge for a lightweight state reconciliation check when the task materially changes roadmap/process/deploy state.
+
+QA output must be exactly one of:
+
+```text
+PASS
+<evidence bullets>
+```
+
+or
+
+```text
+REQUEST_CHANGES
+<blocking findings and required fixes>
+```
+
+The scheduler must not treat a deliverable as complete without QA `PASS`, current GitHub Project fields, and satisfied PR gates.
 
 It should include labelled sections for other channels, but it does not replace main-agent fanout. If it produces significant detail in a final report, the next main-agent/manual review should route the relevant pieces to the typed channels.
 
