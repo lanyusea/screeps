@@ -1,5 +1,6 @@
 import { getOwnedColonies } from '../colony/colonyRegistry';
 import { planExtensionConstruction } from '../construction/extensionPlanner';
+import { planEarlyRoadConstruction } from '../construction/roadPlanner';
 import { countCreepsByRole } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import { planSpawn, type SpawnRequest } from '../spawn/spawnPlanner';
@@ -15,7 +16,10 @@ export function runEconomy(): void {
   const telemetryEvents: RuntimeTelemetryEvent[] = [];
 
   for (const colony of colonies) {
-    planExtensionConstruction(colony);
+    const extensionResult = planExtensionConstruction(colony);
+    if (extensionResult === null) {
+      planEarlyRoadConstruction(colony);
+    }
 
     const roleCounts = countCreepsByRole(creeps, colony.room.name);
     const spawnRequest = planSpawn(colony, roleCounts, Game.time);
