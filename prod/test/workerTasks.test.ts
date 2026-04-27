@@ -26,6 +26,18 @@ function makeStructure(
   return { id, structureType, hits, hitsMax, ...extra } as unknown as AnyStructure;
 }
 
+function makeEnergySink(
+  id: string,
+  structureType: StructureConstant,
+  freeCapacity: number
+): StructureSpawn | StructureExtension {
+  return {
+    id,
+    structureType,
+    store: { getFreeCapacity: jest.fn().mockReturnValue(freeCapacity) }
+  } as unknown as StructureSpawn | StructureExtension;
+}
+
 describe('selectWorkerTask', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
@@ -240,6 +252,84 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
+  });
+
+  it('selects the nearest fillable energy sink when worker position range helpers are available', () => {
+    const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
+    const fullExtension = makeEnergySink('extension-full', 'extension' as StructureConstant, 0);
+    const nearExtension = makeEnergySink('extension-near', 'extension' as StructureConstant, 50);
+    const structures = [farSpawn, fullExtension, nearExtension];
+    const getRangeTo = jest.fn((target: StructureSpawn | StructureExtension) => {
+      const ranges: Record<string, number> = {
+        'extension-full': 1,
+        'extension-near': 2,
+        'spawn-far': 8
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-near' });
+    expect(getRangeTo).not.toHaveBeenCalledWith(fullExtension);
+  });
+
+  it('keeps room.find order as the stable energy sink fallback when position helpers are unavailable', () => {
+    const firstExtension = makeEnergySink('extension-first', 'extension' as StructureConstant, 50);
+    const secondSpawn = makeEnergySink('spawn-second', 'spawn' as StructureConstant, 300);
+    const structures = [firstExtension, secondSpawn];
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-first' });
+  });
+
+  it('preserves no-sink fallback behavior when all energy sinks are full', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const fullExtension = makeEnergySink('extension-full', 'extension' as StructureConstant, 0);
+    const site = { id: 'site1' } as ConstructionSite;
+    const structures = [fullSpawn, fullExtension];
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+            if (type === FIND_MY_STRUCTURES) {
+              return options?.filter ? structures.filter(options.filter) : structures;
+            }
+
+            return type === FIND_CONSTRUCTION_SITES ? [site] : [];
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
   it('selects build when worker has energy and construction sites exist', () => {

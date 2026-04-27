@@ -21,9 +21,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return source ? { type: 'harvest', targetId: source.id } : null;
   }
 
-  const [energySink] = creep.room.find(FIND_MY_STRUCTURES, {
-    filter: isFillableEnergySink
-  });
+  const energySink = selectFillableEnergySink(creep);
   if (energySink) {
     return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
   }
@@ -75,6 +73,19 @@ function isFillableEnergySink(structure: AnyOwnedStructure): structure is Struct
     'store' in structure &&
     structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
   );
+}
+
+function selectFillableEnergySink(creep: Creep): StructureSpawn | StructureExtension | null {
+  const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
+    filter: isFillableEnergySink
+  });
+
+  if (energySinks.length === 0) {
+    return null;
+  }
+
+  const closestEnergySink = findClosestByRange(creep, energySinks);
+  return closestEnergySink ?? energySinks[0];
 }
 
 function isSpawnConstructionSite(site: ConstructionSite): boolean {
@@ -255,14 +266,27 @@ function isUsefulDroppedEnergy(resource: Resource): resource is Resource<RESOURC
   return resource.resourceType === RESOURCE_ENERGY && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
 }
 
-function findClosestByRange(creep: Creep, resources: Resource<RESOURCE_ENERGY>[]): Resource<RESOURCE_ENERGY> | null {
+function findClosestByRange<T extends RoomObject>(creep: Creep, objects: T[]): T | null {
+  if (objects.length === 0) {
+    return null;
+  }
+
   const position = (creep as Creep & {
     pos?: {
-      findClosestByRange?: (objects: Resource<RESOURCE_ENERGY>[]) => Resource<RESOURCE_ENERGY> | null;
+      findClosestByRange?: (objects: T[]) => T | null;
+      getRangeTo?: (target: T) => number;
     };
   }).pos;
 
-  return position?.findClosestByRange?.(resources) ?? null;
+  if (typeof position?.getRangeTo === 'function') {
+    return objects.reduce((closest, candidate) => {
+      const closestRange = position.getRangeTo?.(closest) ?? Infinity;
+      const candidateRange = position.getRangeTo?.(candidate) ?? Infinity;
+      return candidateRange < closestRange ? candidate : closest;
+    });
+  }
+
+  return typeof position?.findClosestByRange === 'function' ? position.findClosestByRange(objects) : null;
 }
 
 function selectHarvestSource(creep: Creep): Source | null {
