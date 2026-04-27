@@ -129,6 +129,54 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["categories"], ["owned_structure_damage"])
         self.assertEqual(report["triggers"][0]["severity"], "critical")
 
+    def test_low_health_non_core_owned_structure_damage_is_critical(self) -> None:
+        previous = {
+            "baseline_established": True,
+            "structures": {
+                "factory1": {
+                    "type": "factory",
+                    "x": 24,
+                    "y": 24,
+                    "hits": 1000,
+                    "hitsMax": 1000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                }
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "factory1": {
+                    "type": "factory",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 24,
+                    "y": 24,
+                    "hits": 250,
+                    "hitsMax": 1000,
+                }
+            }
+        )
+        emitted, _suppressed, _next_state = monitor.evaluate_room_alert(snapshot, previous, now=100, debounce_seconds=300)
+
+        self.assertEqual(emitted[0]["kind"], "structure_damage")
+        self.assertEqual(emitted[0]["structure_type"], "factory")
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": emitted,
+                "rooms": ["shardX/E48S28"],
+            }
+        )
+
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["categories"], ["owned_structure_damage"])
+        self.assertEqual(report["triggers"][0]["severity"], "critical")
+
     def test_report_is_json_serializable(self) -> None:
         rendered = json.dumps(monitor.build_tactical_response_report(HOSTILE_ALERT_FIXTURE), sort_keys=True)
 

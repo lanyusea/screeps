@@ -832,8 +832,7 @@ def category_severity(category: str, reason: dict[str, Any]) -> str:
     if category == "owned_structure_damage":
         hits = number_from_reason(reason, "current_hits", "currentHits", "hits")
         hits_max = number_from_reason(reason, "hitsMax", "hits_max")
-        structure_type = str(reason.get("structure_type") or reason.get("structureType") or "").lower()
-        if structure_type in {"spawn", "tower", "storage", "terminal"} and hits is not None and hits_max and hits / hits_max <= 0.25:
+        if hits is not None and hits_max and hits / hits_max <= 0.25:
             return "critical"
     return severity
 
