@@ -556,7 +556,7 @@ function shouldSpawnTerritoryControllerCreep(plan, roleCounts) {
   if (isTerritoryIntentSuppressed(plan.colony, plan.targetRoom, plan.action)) {
     return false;
   }
-  if (isClaimTargetAlreadyOwned(plan.targetRoom, plan.action, plan.controllerId)) {
+  if (isVisibleTerritoryTargetUnavailable(plan.targetRoom, plan.controllerId)) {
     return false;
   }
   return getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom) === 0;
@@ -613,7 +613,7 @@ function selectTerritoryTarget(colonyName) {
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   for (const rawTarget of territoryMemory.targets) {
     const target = normalizeTerritoryTarget(rawTarget);
-    if (target && target.enabled !== false && target.colony === colonyName && target.roomName !== colonyName && !isTerritoryTargetSuppressed(target, intents) && !isClaimTargetAlreadyOwned(target.roomName, target.action, target.controllerId)) {
+    if (target && target.enabled !== false && target.colony === colonyName && target.roomName !== colonyName && !isTerritoryTargetSuppressed(target, intents) && !isVisibleTerritoryTargetUnavailable(target.roomName, target.controllerId)) {
       return target;
     }
   }
@@ -701,12 +701,15 @@ function isTerritoryIntentSuppressed(colony, targetRoom, action) {
     (intent) => intent.status === "suppressed" && intent.colony === colony && intent.targetRoom === targetRoom && intent.action === action
   );
 }
-function isClaimTargetAlreadyOwned(targetRoom, action, controllerId) {
-  var _a;
-  if (action !== "claim") {
+function isVisibleTerritoryTargetUnavailable(targetRoom, controllerId) {
+  const controller = getVisibleController(targetRoom, controllerId);
+  if (!controller) {
     return false;
   }
-  return ((_a = getVisibleController(targetRoom, controllerId)) == null ? void 0 : _a.my) === true;
+  return isControllerOwned(controller);
+}
+function isControllerOwned(controller) {
+  return controller.owner != null || controller.my === true;
 }
 function getVisibleController(targetRoom, controllerId) {
   var _a, _b;
@@ -1106,6 +1109,7 @@ var CLAIM_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([
   ERR_INVALID_TARGET_CODE,
   ERR_GCL_NOT_ENOUGH_CODE
 ]);
+var RESERVE_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([ERR_INVALID_TARGET_CODE]);
 function runTerritoryControllerCreep(creep) {
   var _a;
   const assignment = creep.memory.territory;
@@ -1117,7 +1121,13 @@ function runTerritoryControllerCreep(creep) {
     return;
   }
   const controller = selectTargetController(creep, assignment);
-  if (!controller || controller.my === true) {
+  if (!controller) {
+    return;
+  }
+  if (controller.my === true) {
+    if (assignment.action === "reserve") {
+      suppressTerritoryAssignment(creep, assignment);
+    }
     return;
   }
   const result = assignment.action === "claim" ? executeControllerAction(creep, controller, "claimController") : executeControllerAction(creep, controller, "reserveController");
@@ -1125,10 +1135,13 @@ function runTerritoryControllerCreep(creep) {
     creep.moveTo(controller);
     return;
   }
-  if (assignment.action === "claim" && CLAIM_FATAL_RESULT_CODES.has(result)) {
-    suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime2());
-    delete creep.memory.territory;
+  if (assignment.action === "claim" && CLAIM_FATAL_RESULT_CODES.has(result) || assignment.action === "reserve" && RESERVE_FATAL_RESULT_CODES.has(result)) {
+    suppressTerritoryAssignment(creep, assignment);
   }
+}
+function suppressTerritoryAssignment(creep, assignment) {
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime2());
+  delete creep.memory.territory;
 }
 function selectTargetController(creep, assignment) {
   var _a, _b;

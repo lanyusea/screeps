@@ -44,7 +44,7 @@ export function shouldSpawnTerritoryControllerCreep(plan: TerritoryIntentPlan, r
     return false;
   }
 
-  if (isClaimTargetAlreadyOwned(plan.targetRoom, plan.action, plan.controllerId)) {
+  if (isVisibleTerritoryTargetUnavailable(plan.targetRoom, plan.controllerId)) {
     return false;
   }
 
@@ -130,7 +130,7 @@ function selectTerritoryTarget(colonyName: string): TerritoryTargetMemory | null
       target.colony === colonyName &&
       target.roomName !== colonyName &&
       !isTerritoryTargetSuppressed(target, intents) &&
-      !isClaimTargetAlreadyOwned(target.roomName, target.action, target.controllerId)
+      !isVisibleTerritoryTargetUnavailable(target.roomName, target.controllerId)
     ) {
       return target;
     }
@@ -268,16 +268,20 @@ function isTerritoryIntentSuppressed(
   );
 }
 
-function isClaimTargetAlreadyOwned(
+function isVisibleTerritoryTargetUnavailable(
   targetRoom: string,
-  action: TerritoryControlAction,
   controllerId?: Id<StructureController>
 ): boolean {
-  if (action !== 'claim') {
+  const controller = getVisibleController(targetRoom, controllerId);
+  if (!controller) {
     return false;
   }
 
-  return getVisibleController(targetRoom, controllerId)?.my === true;
+  return isControllerOwned(controller);
+}
+
+function isControllerOwned(controller: StructureController): boolean {
+  return controller.owner != null || controller.my === true;
 }
 
 function getVisibleController(targetRoom: string, controllerId?: Id<StructureController>): StructureController | null {

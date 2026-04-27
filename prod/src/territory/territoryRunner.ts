@@ -8,6 +8,7 @@ const CLAIM_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([
   ERR_INVALID_TARGET_CODE,
   ERR_GCL_NOT_ENOUGH_CODE
 ]);
+const RESERVE_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([ERR_INVALID_TARGET_CODE]);
 
 type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
 
@@ -23,7 +24,14 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   }
 
   const controller = selectTargetController(creep, assignment);
-  if (!controller || controller.my === true) {
+  if (!controller) {
+    return;
+  }
+
+  if (controller.my === true) {
+    if (assignment.action === 'reserve') {
+      suppressTerritoryAssignment(creep, assignment);
+    }
     return;
   }
 
@@ -37,10 +45,17 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     return;
   }
 
-  if (assignment.action === 'claim' && CLAIM_FATAL_RESULT_CODES.has(result)) {
-    suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime());
-    delete creep.memory.territory;
+  if (
+    (assignment.action === 'claim' && CLAIM_FATAL_RESULT_CODES.has(result)) ||
+    (assignment.action === 'reserve' && RESERVE_FATAL_RESULT_CODES.has(result))
+  ) {
+    suppressTerritoryAssignment(creep, assignment);
   }
+}
+
+function suppressTerritoryAssignment(creep: Creep, assignment: CreepTerritoryMemory): void {
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime());
+  delete creep.memory.territory;
 }
 
 function selectTargetController(creep: Creep, assignment: CreepTerritoryMemory): StructureController | null {

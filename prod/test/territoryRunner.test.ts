@@ -125,6 +125,90 @@ describe('runTerritoryControllerCreep', () => {
     ]);
   });
 
+  it('suppresses a reserve target and stops the creep assignment when reserve is impossible', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 504,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 500
+          }
+        ]
+      }
+    };
+    const controller = { id: 'controller1', my: false, owner: { username: 'enemy' } } as StructureController;
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      reserveController: jest.fn().mockReturnValue(-7),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 504
+      }
+    ]);
+  });
+
+  it('suppresses a reserve assignment when the target controller is already self-owned', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 505,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 501
+          }
+        ]
+      }
+    };
+    const controller = { id: 'controller1', my: true, owner: { username: 'me' } } as StructureController;
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      reserveController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 505
+      }
+    ]);
+  });
+
   it('ignores incomplete territory memory without throwing', () => {
     const creep = {
       memory: { role: 'claimer', colony: 'W1N1' },
