@@ -72,6 +72,8 @@ Make official/private runtime state visible without noisy spam. This domain cove
 
 Deploy to the official Screeps MMO only after release-quality evidence exists. The current official target is branch `main`, shard `shardX`, room `E48S28`, with deployment gated by deterministic tests, build verification, private-server smoke evidence, safe token handling, and post-deploy observation.
 
+Runbook: `docs/ops/official-mmo-deploy.md`.
+
 ### 7. Expansion, resources, and combat
 
 Move beyond single-room survival toward the competition vision: expansion scouting, room scoring, claim/reserve planning, remote-room logistics, road/container/storage/repair systems, minerals and market readiness, defensive telemetry, and eventually coordinated combat.
