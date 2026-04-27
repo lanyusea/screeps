@@ -1,6 +1,9 @@
 import { runEconomy } from '../src/economy/economyLoop';
 import { RUNTIME_SUMMARY_PREFIX } from '../src/telemetry/runtimeSummary';
 
+const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
+
 describe('runEconomy', () => {
   let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
 
@@ -102,6 +105,47 @@ describe('runEconomy', () => {
     });
   });
 
+  it('does not attempt duplicate spawning while a successful spawn stays busy across ticks', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true } as StructureController
+    } as Room;
+    const creeps: Record<string, Creep> = {};
+    const spawn = createLifecycleSpawn(room, creeps, 3);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 200,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn.spawning).toMatchObject({ name: 'worker-W1N1-200', remainingTime: 3 });
+
+    Game.time = 201;
+    spawn.advanceSpawnLifecycle();
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn.spawning).toMatchObject({ name: 'worker-W1N1-200', remainingTime: 2 });
+
+    Game.time = 202;
+    spawn.advanceSpawnLifecycle();
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn.spawning).toMatchObject({ name: 'worker-W1N1-200', remainingTime: 1 });
+
+    spawn.advanceSpawnLifecycle();
+
+    expect(spawn.spawning).toBeNull();
+    expect(creeps['worker-W1N1-200']?.memory).toEqual({ role: 'worker', colony: 'W1N1' });
+  });
+
   it('runs existing worker creeps', () => {
     const creep = {
       memory: { role: 'worker', colony: 'W1N1' },
@@ -123,3 +167,49 @@ describe('runEconomy', () => {
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 });
+
+interface LifecycleSpawn extends StructureSpawn {
+  spawnCreep: jest.Mock<ScreepsReturnCode, Parameters<StructureSpawn['spawnCreep']>>;
+  advanceSpawnLifecycle(): void;
+}
+
+function createLifecycleSpawn(room: Room, creeps: Record<string, Creep>, spawnTime: number): LifecycleSpawn {
+  let spawning: Spawning | null = null;
+  let pendingMemory: CreepMemory | undefined;
+
+  const spawn = {
+    name: 'Spawn1',
+    room,
+    get spawning(): Spawning | null {
+      return spawning;
+    },
+    spawnCreep: jest.fn((body: BodyPartConstant[], name: string, options?: SpawnOptions) => {
+      if (spawning) {
+        return ERR_BUSY_CODE;
+      }
+
+      pendingMemory = options?.memory;
+      spawning = { name, remainingTime: spawnTime } as Spawning;
+      return OK_CODE;
+    }),
+    advanceSpawnLifecycle: () => {
+      if (!spawning) {
+        return;
+      }
+
+      spawning = { ...spawning, remainingTime: spawning.remainingTime - 1 } as Spawning;
+      if (spawning.remainingTime > 0) {
+        return;
+      }
+
+      creeps[spawning.name] = {
+        name: spawning.name,
+        memory: pendingMemory ?? {}
+      } as Creep;
+      spawning = null;
+      pendingMemory = undefined;
+    }
+  };
+
+  return spawn as unknown as LifecycleSpawn;
+}
