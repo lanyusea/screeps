@@ -223,6 +223,8 @@ Acceptance:
 
 Goal: make review conclusions automatically become schedulable work without falling through cracks.
 
+Runbook: `docs/ops/gameplay-finding-to-codex-bridge.md`.
+
 Initial tasks:
 
 1. Define issue templates/body structure for gameplay findings.
@@ -234,6 +236,7 @@ Acceptance:
 
 - Every accepted gameplay finding has a GitHub issue or a comment updating an existing issue.
 - Every active issue has milestone, Project status, priority, domain, kind, evidence, and next action.
+- Every Codex prompt generated from a finding states the evidence window, expected KPI movement, acceptance evidence, and rollback/stop condition.
 
 ### Track 4 — Tactical emergency response
 

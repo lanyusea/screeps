@@ -316,10 +316,10 @@ Decision:
 
 Immediate next slices:
 
-1. Keep #29 in progress as the immediate runtime KPI telemetry bridge for territory/resource/combat visibility.
-2. Convert the first accepted gameplay-review finding into #61 / a Codex-ready task with expected KPI movement.
+1. Keep #29 in progress as the immediate runtime KPI telemetry/reducer bridge for territory/resource/combat visibility; PR #65 landed the first in-game payload, so the next #29 worker should consume it in reports/renderers.
+2. Use `docs/ops/gameplay-finding-to-codex-bridge.md` to convert the next accepted gameplay-review finding into #61 / a Codex-ready task with expected KPI movement, acceptance evidence, and rollback/stop condition.
 3. Keep foundation lines active in parallel: #28 for private-smoke release evidence, #62 for tactical response wiring, #63 for release/hotfix gate enforcement, and routine P0 monitor watch for #27.
-4. Run one manual Gameplay Evolution Review dry run before enabling recurring cadence.
+4. Keep #30/#31 Ready for the next free Codex/test worker slot so bot-capability coverage does not go idle.
 
 ### Decision: next code priority
 
