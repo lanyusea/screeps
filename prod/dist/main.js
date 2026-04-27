@@ -198,8 +198,8 @@ function canSatisfyWorkerCapacity(creep) {
 }
 
 // src/tasks/workerTasks.ts
+var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 function selectWorkerTask(creep) {
-  var _a;
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   if (carriedEnergy === 0) {
     const source = selectHarvestSource(creep);
@@ -211,14 +211,21 @@ function selectWorkerTask(creep) {
   if (energySink) {
     return { type: "transfer", targetId: energySink.id };
   }
+  const controller = creep.room.controller;
+  if (controller && shouldGuardControllerDowngrade(controller)) {
+    return { type: "upgrade", targetId: controller.id };
+  }
   const [constructionSite] = creep.room.find(FIND_CONSTRUCTION_SITES);
   if (constructionSite) {
     return { type: "build", targetId: constructionSite.id };
   }
-  if ((_a = creep.room.controller) == null ? void 0 : _a.my) {
-    return { type: "upgrade", targetId: creep.room.controller.id };
+  if (controller == null ? void 0 : controller.my) {
+    return { type: "upgrade", targetId: controller.id };
   }
   return null;
+}
+function shouldGuardControllerDowngrade(controller) {
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
 }
 function selectHarvestSource(creep) {
   var _a, _b;

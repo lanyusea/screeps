@@ -1,3 +1,6 @@
+// Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
+export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
+
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
 
@@ -16,16 +19,29 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
   }
 
+  const controller = creep.room.controller;
+  if (controller && shouldGuardControllerDowngrade(controller)) {
+    return { type: 'upgrade', targetId: controller.id };
+  }
+
   const [constructionSite] = creep.room.find(FIND_CONSTRUCTION_SITES);
   if (constructionSite) {
     return { type: 'build', targetId: constructionSite.id };
   }
 
-  if (creep.room.controller?.my) {
-    return { type: 'upgrade', targetId: creep.room.controller.id };
+  if (controller?.my) {
+    return { type: 'upgrade', targetId: controller.id };
   }
 
   return null;
+}
+
+function shouldGuardControllerDowngrade(controller: StructureController | undefined): boolean {
+  return (
+    controller?.my === true &&
+    typeof controller.ticksToDowngrade === 'number' &&
+    controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS
+  );
 }
 
 function selectHarvestSource(creep: Creep): Source | null {
