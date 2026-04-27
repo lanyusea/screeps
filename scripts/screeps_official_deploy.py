@@ -155,6 +155,12 @@ def normalize_api_url(raw_url: str) -> str:
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
 
 
+def require_https_api_url(api_url: str) -> None:
+    """Reject non-HTTPS API URLs before authenticated deploy requests."""
+    if urllib.parse.urlparse(api_url).scheme != "https":
+        raise DeployError("SCREEPS_API_URL must use https for --deploy")
+
+
 def validate_selector(name: str, value: str, pattern: re.Pattern[str]) -> str:
     """Validate a non-secret branch/shard/room selector."""
     if not pattern.fullmatch(value):
@@ -267,6 +273,19 @@ def summarize_request_payload(path: str, payload: dict[str, Any] | None) -> dict
     return redact(payload)
 
 
+CODE_LEAK_MARKERS = ("module.exports", "exports.loop")
+CODE_LIKE_TEXT_KEYS = {"main", "message", "error", "body", "detail"}
+
+
+def looks_like_code_leak(text: str, parent_key: str) -> bool:
+    """Return whether a free-text API field appears to contain uploaded code."""
+    if parent_key == "main":
+        return len(text) > 120 or any(marker in text for marker in CODE_LEAK_MARKERS)
+    if parent_key in CODE_LIKE_TEXT_KEYS:
+        return any(marker in text for marker in CODE_LEAK_MARKERS)
+    return False
+
+
 def redact(value: Any, secrets_to_hide: list[str] | None = None, parent_key: str = "") -> Any:
     """Recursively redact secret-like keys and explicit secret values."""
     secrets = [secret for secret in (secrets_to_hide or []) if secret]
@@ -287,7 +306,7 @@ def redact(value: Any, secrets_to_hide: list[str] | None = None, parent_key: str
         text = value
         for secret in secrets:
             text = text.replace(secret, "[REDACTED]")
-        if parent_key == "main" and (len(text) > 120 or "module.exports" in text):
+        if looks_like_code_leak(text, parent_key):
             return f"[REDACTED_CODE sizeBytes={len(value.encode('utf-8'))}]"
         return text
     return value
@@ -488,6 +507,8 @@ def run_deploy(
     """Execute dry-run or deploy mode and return safe evidence."""
     if env is None:
         env = os.environ
+    if cfg.deploy:
+        require_https_api_url(cfg.api_url)
     artifact_bytes, artifact = read_artifact(cfg.artifact_path)
     evidence = base_evidence(cfg, artifact)
     if not cfg.deploy:
@@ -654,6 +675,8 @@ def build_parser() -> argparse.ArgumentParser:
 def config_from_args(args: argparse.Namespace) -> DeployConfig:
     """Create a validated deploy config from CLI arguments."""
     api_url = normalize_api_url(args.api_url)
+    if args.deploy:
+        require_https_api_url(api_url)
     branch = validate_selector("SCREEPS_BRANCH", args.branch, BRANCH_RE)
     shard = validate_selector("SCREEPS_SHARD", args.shard, SHARD_RE)
     room = validate_selector("SCREEPS_ROOM", args.room, ROOM_RE)

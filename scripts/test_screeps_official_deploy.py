@@ -36,13 +36,14 @@ class OfficialDeployTest(unittest.TestCase):
         self,
         artifact: Path,
         *,
+        api_url: str = "https://screeps.com",
         deploy_mode: bool = False,
         activate_world: bool = False,
         confirm: str | None = None,
         repo_root: Path | None = None,
     ) -> deploy.DeployConfig:
         return deploy.DeployConfig(
-            api_url="https://screeps.com",
+            api_url=api_url,
             branch="main",
             shard="shardX",
             room="E48S28",
@@ -59,7 +60,7 @@ class OfficialDeployTest(unittest.TestCase):
         self.assertEqual(payload, {"branch": "main", "modules": {"main": "module text"}})
 
     def test_redacts_secret_values_and_module_contents(self) -> None:
-        secret = "token-value"
+        secret = "fixture-value"
         redacted = deploy.redact(
             {
                 "headers": {"X-Token": secret},
@@ -75,6 +76,18 @@ class OfficialDeployTest(unittest.TestCase):
         self.assertEqual(redacted["headers"]["X-Token"], "[REDACTED]")
         self.assertTrue(redacted["modules"]["main"]["redacted"])
         self.assertIn("sha256", redacted["modules"]["main"])
+
+    def test_redacts_code_like_api_error_text(self) -> None:
+        redacted = deploy.redact({"message": "API echoed module.exports.loop = function () {};"})
+
+        self.assertNotIn("module.exports", json.dumps(redacted))
+        self.assertIn("[REDACTED_CODE", redacted["message"])
+
+    def test_normalize_api_url_allows_http_for_non_deploy_configuration(self) -> None:
+        self.assertEqual(deploy.normalize_api_url("https://screeps.com/"), "https://screeps.com")
+        self.assertEqual(deploy.normalize_api_url("http://localhost:21025/"), "http://localhost:21025")
+        with self.assertRaisesRegex(deploy.DeployError, "http\\(s\\) URL"):
+            deploy.normalize_api_url("ftp://screeps.com")
 
     def test_artifact_metadata_reports_hash_and_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -102,6 +115,34 @@ class OfficialDeployTest(unittest.TestCase):
         self.assertIn("/api/user/code", encoded)
         self.assertNotIn("SCREEPS_AUTH_TOKEN", encoded)
         self.assertNotIn("module.exports.loop", encoded)
+
+    def test_dry_run_allows_plaintext_local_api_url_without_http(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = self.write_artifact(Path(tmp))
+            cfg = self.config(artifact, api_url="http://localhost:21025")
+
+            evidence = deploy.run_deploy(cfg, env={}, transport=lambda **_kwargs: self.fail("no HTTP expected"))
+
+        self.assertTrue(evidence["ok"])
+        self.assertEqual(evidence["mode"], "dry-run")
+        self.assertEqual(evidence["target"]["apiUrl"], "http://localhost:21025")
+
+    def test_deploy_rejects_plaintext_api_url_before_authenticated_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = self.write_artifact(Path(tmp))
+            cfg = self.config(
+                artifact,
+                api_url="http://localhost:21025",
+                deploy_mode=True,
+                confirm="deploy main to shardX/E48S28",
+            )
+
+            with self.assertRaisesRegex(deploy.DeployError, "SCREEPS_API_URL must use https"):
+                deploy.run_deploy(
+                    cfg,
+                    env={deploy.AUTH_TOKEN_ENV: "fixture-value"},
+                    transport=lambda **_kwargs: self.fail("no HTTP expected"),
+                )
 
     def test_deploy_requests_expected_endpoints_and_verifies_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -134,7 +175,7 @@ class OfficialDeployTest(unittest.TestCase):
                 confirm="deploy main to shardX/E48S28",
             )
 
-            evidence = deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "secret-token"}, transport=fake)
+            evidence = deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
 
         self.assertTrue(evidence["ok"])
         self.assertEqual(evidence["verification"]["branchCode"]["status"], "matched")
@@ -155,9 +196,9 @@ class OfficialDeployTest(unittest.TestCase):
         )
         self.assertEqual(fake.calls[1]["payload"], {"branch": "default", "newName": "main"})
         self.assertEqual(fake.calls[3]["payload"]["modules"]["main"], artifact_body)
-        self.assertEqual(fake.calls[0]["headers"], {"X-Token": "secret-token"})
+        self.assertEqual(fake.calls[0]["headers"], {"X-Token": "fixture-value"})
         encoded_evidence = json.dumps(evidence, sort_keys=True)
-        self.assertNotIn("secret-token", encoded_evidence)
+        self.assertNotIn("fixture-value", encoded_evidence)
         self.assertNotIn(artifact_body, encoded_evidence)
 
     def test_api_failures_redact_token_value_from_error_text(self) -> None:
@@ -167,7 +208,7 @@ class OfficialDeployTest(unittest.TestCase):
                 [
                     deploy.HttpResult(
                         500,
-                        {"ok": 0, "message": "upstream echoed secret-token in a non-standard field"},
+                        {"ok": 0, "message": "upstream echoed fixture-value in a non-standard field"},
                         {},
                     )
                 ]
@@ -175,9 +216,9 @@ class OfficialDeployTest(unittest.TestCase):
             cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
 
             with self.assertRaisesRegex(deploy.DeployError, "list branches failed") as raised:
-                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "secret-token"}, transport=fake)
+                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
 
-        self.assertNotIn("secret-token", str(raised.exception))
+        self.assertNotIn("fixture-value", str(raised.exception))
         self.assertIn("[REDACTED]", str(raised.exception))
 
     def test_upload_failure_redacts_token_value_from_error_text(self) -> None:
@@ -187,15 +228,15 @@ class OfficialDeployTest(unittest.TestCase):
                 [
                     deploy.HttpResult(200, {"ok": 1, "list": [{"branch": "main", "activeWorld": True}]}, {}),
                     deploy.HttpResult(200, {"ok": 1, "list": [{"branch": "main", "activeWorld": True}]}, {}),
-                    deploy.HttpResult(500, {"ok": 0, "message": "upload rejected for secret-token"}, {}),
+                    deploy.HttpResult(500, {"ok": 0, "message": "upload rejected for fixture-value"}, {}),
                 ]
             )
             cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
 
             with self.assertRaisesRegex(deploy.DeployError, "upload code failed") as raised:
-                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "secret-token"}, transport=fake)
+                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
 
-        self.assertNotIn("secret-token", str(raised.exception))
+        self.assertNotIn("fixture-value", str(raised.exception))
         self.assertIn("[REDACTED]", str(raised.exception))
 
     def test_transport_failures_redact_token_value_from_error_text(self) -> None:
@@ -203,14 +244,14 @@ class OfficialDeployTest(unittest.TestCase):
             artifact = self.write_artifact(Path(tmp), "module.exports.loop = function () { return 1; };\n")
 
             def failing_transport(**_kwargs: Any) -> deploy.HttpResult:
-                raise deploy.DeployError("request failed after echoing secret-token")
+                raise deploy.DeployError("request failed after echoing fixture-value")
 
             cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
 
             with self.assertRaisesRegex(deploy.DeployError, "request failed") as raised:
-                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "secret-token"}, transport=failing_transport)
+                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=failing_transport)
 
-        self.assertNotIn("secret-token", str(raised.exception))
+        self.assertNotIn("fixture-value", str(raised.exception))
         self.assertIn("[REDACTED]", str(raised.exception))
 
     def test_remote_hash_mismatch_fails_without_printing_remote_code(self) -> None:
@@ -227,7 +268,7 @@ class OfficialDeployTest(unittest.TestCase):
             cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
 
             with self.assertRaisesRegex(deploy.DeployError, "hash verification failed") as raised:
-                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "secret-token"}, transport=fake)
+                deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
 
         self.assertNotIn("return 2", str(raised.exception))
 
