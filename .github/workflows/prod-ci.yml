@@ -35,6 +35,14 @@ jobs:
           cache: "npm"
           cache-dependency-path: prod/package-lock.json
 
+      - name: Pin npm CLI
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: |
+          npm install --global npm@11.13.0
+          node --version
+          npm --version
+
       - name: Install dependencies
         env:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
