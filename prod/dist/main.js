@@ -425,7 +425,7 @@ function selectWorkerBody(colony, roleCounts) {
   if (roleCounts.worker === 0) {
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
-  return [];
+  return buildWorkerBody(colony.energyAvailable);
 }
 function canAffordBody(body, energyAvailable) {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
