@@ -40,6 +40,10 @@ export function planTerritoryIntent(
 }
 
 export function shouldSpawnTerritoryControllerCreep(plan: TerritoryIntentPlan, roleCounts: RoleCounts): boolean {
+  if (isTerritoryIntentSuppressed(plan.colony, plan.targetRoom, plan.action)) {
+    return false;
+  }
+
   if (isClaimTargetAlreadyOwned(plan.targetRoom, plan.action, plan.controllerId)) {
     return false;
   }
@@ -57,6 +61,38 @@ export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemor
       ...(plan.controllerId ? { controllerId: plan.controllerId } : {})
     }
   };
+}
+
+export function suppressTerritoryIntent(
+  colony: string | undefined,
+  assignment: CreepTerritoryMemory,
+  gameTime: number
+): void {
+  if (
+    !isNonEmptyString(colony) ||
+    !isNonEmptyString(assignment.targetRoom) ||
+    !isTerritoryAction(assignment.action)
+  ) {
+    return;
+  }
+
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  const suppressedIntent: TerritoryIntentMemory = {
+    colony,
+    targetRoom: assignment.targetRoom,
+    action: assignment.action,
+    status: 'suppressed',
+    updatedAt: gameTime,
+    ...(assignment.controllerId ? { controllerId: assignment.controllerId } : {})
+  };
+
+  upsertTerritoryIntent(intents, suppressedIntent);
 }
 
 export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
@@ -85,6 +121,7 @@ function selectTerritoryTarget(colonyName: string): TerritoryTargetMemory | null
     return null;
   }
 
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
   for (const rawTarget of territoryMemory.targets) {
     const target = normalizeTerritoryTarget(rawTarget);
     if (
@@ -92,6 +129,7 @@ function selectTerritoryTarget(colonyName: string): TerritoryTargetMemory | null
       target.enabled !== false &&
       target.colony === colonyName &&
       target.roomName !== colonyName &&
+      !isTerritoryTargetSuppressed(target, intents) &&
       !isClaimTargetAlreadyOwned(target.roomName, target.action, target.controllerId)
     ) {
       return target;
@@ -131,12 +169,7 @@ function recordTerritoryIntent(plan: TerritoryIntentPlan, status: TerritoryInten
     return;
   }
 
-  const intents = Array.isArray(territoryMemory.intents)
-    ? territoryMemory.intents.flatMap((intent) => {
-        const normalizedIntent = normalizeTerritoryIntent(intent);
-        return normalizedIntent ? [normalizedIntent] : [];
-      })
-    : [];
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
   const nextIntent: TerritoryIntentMemory = {
     colony: plan.colony,
@@ -146,6 +179,20 @@ function recordTerritoryIntent(plan: TerritoryIntentPlan, status: TerritoryInten
     updatedAt: gameTime,
     ...(plan.controllerId ? { controllerId: plan.controllerId } : {})
   };
+
+  upsertTerritoryIntent(intents, nextIntent);
+}
+
+function normalizeTerritoryIntents(rawIntents: TerritoryMemory['intents'] | unknown): TerritoryIntentMemory[] {
+  return Array.isArray(rawIntents)
+    ? rawIntents.flatMap((intent) => {
+        const normalizedIntent = normalizeTerritoryIntent(intent);
+        return normalizedIntent ? [normalizedIntent] : [];
+      })
+    : [];
+}
+
+function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
   const existingIndex = intents.findIndex(
     (intent) =>
       intent.colony === nextIntent.colony &&
@@ -190,6 +237,35 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
 
 function getTerritoryCreepCountForTarget(roleCounts: RoleCounts, targetRoom: string): number {
   return roleCounts.claimersByTargetRoom?.[targetRoom] ?? 0;
+}
+
+function isTerritoryTargetSuppressed(target: TerritoryTargetMemory, intents: TerritoryIntentMemory[]): boolean {
+  return intents.some(
+    (intent) =>
+      intent.status === 'suppressed' &&
+      intent.colony === target.colony &&
+      intent.targetRoom === target.roomName &&
+      intent.action === target.action
+  );
+}
+
+function isTerritoryIntentSuppressed(
+  colony: string,
+  targetRoom: string,
+  action: TerritoryControlAction
+): boolean {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return false;
+  }
+
+  return normalizeTerritoryIntents(territoryMemory.intents).some(
+    (intent) =>
+      intent.status === 'suppressed' &&
+      intent.colony === colony &&
+      intent.targetRoom === targetRoom &&
+      intent.action === action
+  );
 }
 
 function isClaimTargetAlreadyOwned(
@@ -251,7 +327,7 @@ function isTerritoryAction(action: unknown): action is TerritoryControlAction {
 }
 
 function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
-  return status === 'planned' || status === 'active';
+  return status === 'planned' || status === 'active' || status === 'suppressed';
 }
 
 function isNonEmptyString(value: unknown): value is string {

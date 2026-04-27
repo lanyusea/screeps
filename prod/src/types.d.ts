@@ -34,7 +34,7 @@ declare global {
     colony: string;
     targetRoom: string;
     action: TerritoryControlAction;
-    status: 'planned' | 'active';
+    status: 'planned' | 'active' | 'suppressed';
     updatedAt: number;
     controllerId?: Id<StructureController>;
   }

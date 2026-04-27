@@ -1,5 +1,13 @@
+import { suppressTerritoryIntent } from './territoryPlanner';
+
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
+const ERR_GCL_NOT_ENOUGH_CODE = -15 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
+const CLAIM_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([
+  ERR_INVALID_TARGET_CODE,
+  ERR_GCL_NOT_ENOUGH_CODE
+]);
 
 type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
 
@@ -26,6 +34,12 @@ export function runTerritoryControllerCreep(creep: Creep): void {
 
   if (result === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
     creep.moveTo(controller);
+    return;
+  }
+
+  if (assignment.action === 'claim' && CLAIM_FATAL_RESULT_CODES.has(result)) {
+    suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime());
+    delete creep.memory.territory;
   }
 }
 
@@ -64,6 +78,11 @@ function moveTowardTargetRoom(creep: Creep, targetRoom: string): void {
   }
 
   creep.moveTo(new RoomPositionCtor(25, 25, targetRoom));
+}
+
+function getGameTime(): number {
+  const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
+  return typeof gameTime === 'number' ? gameTime : 0;
 }
 
 function isTerritoryAssignment(assignment: CreepTerritoryMemory | undefined): assignment is CreepTerritoryMemory {
