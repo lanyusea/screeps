@@ -207,6 +207,7 @@ def build_report(state: ReductionState) -> JsonObject:
         "territory": build_territory_report(state, first_rooms, latest_rooms),
         "resources": build_numeric_section_report(
             state.rooms,
+            first_rooms,
             latest_rooms,
             RESOURCE_FIELDS,
             "resources",
@@ -216,6 +217,7 @@ def build_report(state: ReductionState) -> JsonObject:
         ),
         "combat": build_numeric_section_report(
             state.rooms,
+            first_rooms,
             latest_rooms,
             COMBAT_FIELDS,
             "combat",
@@ -247,6 +249,7 @@ def build_territory_report(state: ReductionState, first_rooms: set[str], latest_
         "ownedRooms": owned_rooms,
         "controllers": build_numeric_section_report(
             state.rooms,
+            first_rooms,
             latest_rooms,
             CONTROLLER_FIELDS,
             "controller",
@@ -259,6 +262,7 @@ def build_territory_report(state: ReductionState, first_rooms: set[str], latest_
 
 def build_numeric_section_report(
     rooms: dict[str, RoomState],
+    first_rooms: set[str],
     latest_rooms: set[str],
     fields: tuple[str, ...],
     state_attr: str,
@@ -297,7 +301,7 @@ def build_numeric_section_report(
 
         room_reports[room_name] = report
 
-    status = OBSERVED if observed_room_count > 0 else NOT_INSTRUMENTED
+    status = OBSERVED if observed_room_count > 0 or has_section_values(rooms, first_rooms, state_attr) else NOT_INSTRUMENTED
     report = {
         "status": status,
         "observedRoomCount": observed_room_count,
@@ -311,7 +315,7 @@ def build_numeric_section_report(
 
     report["totals"] = {
         "latest": sum_latest_values(rooms, latest_rooms, fields, state_attr),
-        "delta": sum_latest_delta(rooms, latest_rooms, fields, state_attr),
+        "delta": sum_window_delta(rooms, first_rooms, latest_rooms, fields, state_attr),
     }
 
     if event_fields:
@@ -357,8 +361,18 @@ def sum_latest_values(
     return totals
 
 
-def sum_latest_delta(
+def has_section_values(rooms: dict[str, RoomState], room_names: set[str], state_attr: str) -> bool:
+    for room_name in room_names:
+        room_state = rooms.get(room_name)
+        section_state = getattr(room_state, state_attr) if room_state is not None else None
+        if section_state is not None and section_state.first is not None:
+            return True
+    return False
+
+
+def sum_window_delta(
     rooms: dict[str, RoomState],
+    first_rooms: set[str],
     latest_rooms: set[str],
     fields: tuple[str, ...],
     state_attr: str,
@@ -367,12 +381,24 @@ def sum_latest_delta(
     for room_name in latest_rooms:
         room_state = rooms.get(room_name)
         section_state = getattr(room_state, state_attr) if room_state is not None else None
-        if section_state is None or section_state.latest is None:
+        latest = section_state.latest if section_state is not None else None
+        if latest is None:
             continue
-        delta = numeric_delta(section_state.first, section_state.latest, fields)
-        for field_name, value in delta.items():
+        for field_name in fields:
+            value = latest.get(field_name)
             if is_number(value):
                 totals[field_name] += value
+
+    for room_name in first_rooms:
+        room_state = rooms.get(room_name)
+        section_state = getattr(room_state, state_attr) if room_state is not None else None
+        first = section_state.first if section_state is not None else None
+        if first is None:
+            continue
+        for field_name in fields:
+            value = first.get(field_name)
+            if is_number(value):
+                totals[field_name] -= value
     return totals
 
 

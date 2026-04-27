@@ -211,6 +211,40 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "creepDestroyedCount": 0,
         })
 
+    def test_resource_total_delta_includes_lost_room_values(self) -> None:
+        first = {
+            "type": "runtime-summary",
+            "tick": 10,
+            "rooms": [
+                {
+                    "roomName": "W2N2",
+                    "resources": {"storedEnergy": 100, "workerCarriedEnergy": 7, "droppedEnergy": 3, "sourceCount": 2},
+                },
+            ],
+        }
+        latest = {
+            "type": "runtime-summary",
+            "tick": 20,
+            "rooms": [],
+        }
+
+        report = reducer.reduce_runtime_kpis([runtime_line(first), runtime_line(latest)])
+
+        self.assertEqual(report["territory"]["ownedRooms"]["lost"], ["W2N2"])
+        self.assertEqual(report["resources"]["status"], "observed")
+        self.assertEqual(report["resources"]["totals"]["latest"], {
+            "storedEnergy": 0,
+            "workerCarriedEnergy": 0,
+            "droppedEnergy": 0,
+            "sourceCount": 0,
+        })
+        self.assertEqual(report["resources"]["totals"]["delta"], {
+            "storedEnergy": -100,
+            "workerCarriedEnergy": -7,
+            "droppedEnergy": -3,
+            "sourceCount": -2,
+        })
+
     def test_reads_files_and_stdin_marker_and_renders_deterministic_json(self) -> None:
         file_payload = {
             "type": "runtime-summary",
