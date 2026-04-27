@@ -1,10 +1,10 @@
 # Active Work State
 
-Last updated: 2026-04-27T11:08:00+08:00
+Last updated: 2026-04-27T12:02:00+08:00
 
 ## Current active objective
 
-P0 agent operating-system health is repaired/watch-only in the current cron window: `/root/.hermes/cron/jobs.json` shows the continuation worker, P0 monitor, runtime summary, runtime alert, typed fanouts, 6h report, and Gameplay Evolution Review enabled with `workdir: null`, current `last_run_at`, and non-overdue `next_run_at` values at slice start. Normal development may proceed while routine P0 monitor watch continues. The active gameplay priority is #29/#61: consume the newly merged KPI telemetry bridge and convert accepted Gameplay Evolution findings into GitHub/Project/Codex-ready tasks. The competition-map vision ordering remains territory first, resource scale second, enemy kills third; foundation work outranks that order only when it blocks evidence, implementation, release, or rollback. Canonical operating contract: `docs/ops/agent-operating-system.md`. Vision contract: `docs/ops/project-vision.md`. Owner decisions on 2026-04-26: use the automated review口径 with no formal GitHub approval requirement, add every active agent PR to Project `screeps`, and let known P0 monitoring/routing/scheduler health block normal development and non-P0 merges until repaired/proven healthy.
+P0 agent operating-system health is repaired/watch-only in the current cron window: `/root/.hermes/cron/jobs.json` shows the continuation worker, P0 monitor, runtime summary, runtime alert, typed fanouts, 6h report, and Gameplay Evolution Review enabled with `workdir: null`, current `last_run_at`, and non-overdue `next_run_at` values at slice start. Normal development may proceed while routine P0 monitor watch continues. The active gameplay priority is #29: finish PR #67's runtime KPI reducer review/merge gate, then feed persisted `#runtime-summary` logs into the reducer and wire its territory/resource/combat evidence into 12h Gameplay Evolution and roadmap reporting. #61's durable finding-to-Codex bridge is done/watch. The competition-map vision ordering remains territory first, resource scale second, enemy kills third; foundation work outranks that order only when it blocks evidence, implementation, release, or rollback. Canonical operating contract: `docs/ops/agent-operating-system.md`. Vision contract: `docs/ops/project-vision.md`. Owner decisions on 2026-04-26: use the automated review口径 with no formal GitHub approval requirement, add every active agent PR to Project `screeps`, and let known P0 monitoring/routing/scheduler health block normal development and non-P0 merges until repaired/proven healthy.
 
 ## Completed tasks
 
@@ -235,6 +235,27 @@ P0 agent operating-system health is repaired/watch-only in the current cron wind
   - Process notes: `docs/process/2026-04-26-transfer-result-hardening.md`, `docs/process/2026-04-26-pr9-conflict-refresh.md`, and `docs/process/2026-04-26-pr9-merge-follow-up.md`.
 - PR #7 conflict refresh note from `origin/main`: `docs/process/2026-04-26-pr7-conflict-refresh.md`; Codex merge commit `6a54b8d` brought `test/runtime-risk-hardening-20260426` up to `origin/main`, preserved latest CI/P0/runtime-monitor docs, passed prod verification with 12 suites / 67 tests, and pushed the branch. GitHub Actions `prod-ci` passed; CodeRabbit status was pending immediately after push.
 - Runtime monitor live-token smoke: `docs/process/2026-04-26-runtime-monitor-live-smoke.md`; `self-test` passed (8 tests), live summary rendered `runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass and `runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png` in the 09:32 repeat pass; live alert returned `alert: false` with no warnings at official ticks `108687` and `109202` for `shardX/E48S28`; repeat prod verification passed typecheck, 12 suites / 59 tests, and build.
+### runtime-kpi-reducer
+
+- Status: PR opened and in review gate
+- Process note: `docs/process/2026-04-27-runtime-kpi-reducer.md`
+- Pull request: https://github.com/lanyusea/screeps/pull/67
+- Codex-authored commit: `80a571f` (`feat: add runtime KPI reducer`)
+- Implemented:
+  - `scripts/screeps_runtime_kpi_reducer.py` parses saved `#runtime-summary` JSON lines from files or stdin.
+  - Deterministic JSON report aggregates territory/owned rooms, controller state, resource latest/deltas/events, and combat latest/deltas/events, with explicit `not instrumented` / `not observed` markers.
+  - `--format human` emits a compact review-readable summary.
+  - `scripts/test_screeps_runtime_kpi_reducer.py` adds deterministic local coverage for observed, missing, malformed, file/stdin, and human-rendering cases.
+  - Gameplay Evolution roadmap and finding-to-Codex bridge now document the saved-log reducer command.
+- Verification:
+  - `git diff --check`: passed
+  - `python3 -m py_compile scripts/screeps_runtime_kpi_reducer.py scripts/test_screeps_runtime_kpi_reducer.py`: passed
+  - `python3 -m unittest scripts/test_screeps_runtime_kpi_reducer.py`: passed, 5 tests
+  - No `prod/` files changed; prod typecheck/test/build not required for this slice.
+- Remaining gate:
+  - PR #67 prod-ci passed; CodeRabbit review is pending and the >=15-minute review-age gate matures at 2026-04-27T12:15:04+08:00.
+  - After merge, update #29 with merge evidence and wire persisted runtime-summary logs/reducer output into 12h Gameplay Evolution / roadmap reporting.
+
 - Verification target if code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
