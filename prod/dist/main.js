@@ -394,9 +394,12 @@ function getBodyCost(body) {
 }
 
 // src/spawn/spawnPlanner.ts
-var TARGET_WORKERS = 3;
+var MIN_WORKER_TARGET = 3;
+var WORKERS_PER_SOURCE = 2;
+var MAX_WORKER_TARGET = 6;
+var sourceCountByRoomName = /* @__PURE__ */ new Map();
 function planSpawn(colony, roleCounts, gameTime) {
-  if (roleCounts.worker >= TARGET_WORKERS) {
+  if (roleCounts.worker >= getWorkerTarget(colony)) {
     return null;
   }
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
@@ -426,6 +429,31 @@ function selectWorkerBody(colony, roleCounts) {
 }
 function canAffordBody(body, energyAvailable) {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
+}
+function getWorkerTarget(colony) {
+  const sourceCount = getSourceCount(colony.room);
+  const sourceAwareTarget = sourceCount * WORKERS_PER_SOURCE;
+  return Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
+}
+function getSourceCount(room) {
+  const roomName = typeof room.name === "string" && room.name.length > 0 ? room.name : void 0;
+  if (roomName) {
+    const cachedSourceCount = sourceCountByRoomName.get(roomName);
+    if (cachedSourceCount !== void 0) {
+      return cachedSourceCount;
+    }
+  }
+  const sourceCount = findSourceCount(room);
+  if (roomName) {
+    sourceCountByRoomName.set(roomName, sourceCount);
+  }
+  return sourceCount;
+}
+function findSourceCount(room) {
+  if (typeof FIND_SOURCES === "undefined" || typeof room.find !== "function") {
+    return 1;
+  }
+  return room.find(FIND_SOURCES).length;
 }
 
 // src/telemetry/runtimeSummary.ts
