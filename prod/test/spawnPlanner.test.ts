@@ -66,6 +66,17 @@ describe('planSpawn', () => {
     });
   });
 
+  it('plans the full capacity worker body when currently affordable', () => {
+    const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 400 });
+
+    expect(planSpawn(colony, { worker: 2 }, 134)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N1-134',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('does not overbuild when replacement-aware worker capacity is at target', () => {
     const { colony } = makeColony();
 
@@ -145,16 +156,27 @@ describe('planSpawn', () => {
     });
   });
 
-  it('waits for normal worker energy instead of using the emergency body for replacements', () => {
-    const { colony } = makeColony({ energyAvailable: 200, energyCapacityAvailable: 400 });
+  it('plans the best currently affordable worker body when full capacity body is not affordable', () => {
+    const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 600 });
 
-    expect(planSpawn(colony, { worker: 2 }, 125)).toBeNull();
+    expect(planSpawn(colony, { worker: 2 }, 135)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N1-135',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
   });
 
   it('does not plan an emergency body that costs more than available energy', () => {
     const { colony } = makeColony({ energyAvailable: 199, energyCapacityAvailable: 400 });
 
     expect(planSpawn(colony, { worker: 0 }, 125)).toBeNull();
+  });
+
+  it('does not plan a non-emergency worker body below the minimum worker energy', () => {
+    const { colony } = makeColony({ energyAvailable: 199, energyCapacityAvailable: 400 });
+
+    expect(planSpawn(colony, { worker: 2 }, 136)).toBeNull();
   });
 
   it('does not plan when all spawns are busy', () => {
