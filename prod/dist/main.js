@@ -263,13 +263,17 @@ function shouldEmitRuntimeSummary(tick, events) {
 }
 function summarizeRoom(colony, creeps) {
   const colonyWorkers = creeps.filter((creep) => creep.memory.role === "worker" && creep.memory.colony === colony.room.name);
+  const eventMetrics = summarizeRoomEventMetrics(colony.room);
   return {
     roomName: colony.room.name,
     energyAvailable: colony.energyAvailable,
     energyCapacity: colony.energyCapacityAvailable,
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
-    taskCounts: countWorkerTasks(colonyWorkers)
+    taskCounts: countWorkerTasks(colonyWorkers),
+    ...buildControllerSummary(colony.room),
+    resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
+    combat: summarizeCombat(colony.room, eventMetrics.combat)
   };
 }
 function summarizeSpawn(spawn) {
@@ -307,6 +311,167 @@ function countWorkerTasks(workers) {
 }
 function isWorkerTaskType(taskType) {
   return WORKER_TASK_TYPES.includes(taskType);
+}
+function buildControllerSummary(room) {
+  const controller = room.controller;
+  if (!(controller == null ? void 0 : controller.my)) {
+    return {};
+  }
+  const summary = {
+    level: controller.level
+  };
+  if (typeof controller.progress === "number") {
+    summary.progress = controller.progress;
+  }
+  if (typeof controller.progressTotal === "number") {
+    summary.progressTotal = controller.progressTotal;
+  }
+  if (typeof controller.ticksToDowngrade === "number") {
+    summary.ticksToDowngrade = controller.ticksToDowngrade;
+  }
+  return { controller: summary };
+}
+function summarizeResources(colony, colonyWorkers, events) {
+  var _a, _b, _c;
+  const roomStructures = (_a = findRoomObjects(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
+  const droppedResources = (_b = findRoomObjects(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _b : [];
+  const sources = (_c = findRoomObjects(colony.room, "FIND_SOURCES")) != null ? _c : [];
+  return {
+    storedEnergy: sumEnergyInStores(roomStructures),
+    workerCarriedEnergy: sumEnergyInStores(colonyWorkers),
+    droppedEnergy: sumDroppedEnergy(droppedResources),
+    sourceCount: sources.length,
+    ...events ? { events } : {}
+  };
+}
+function summarizeCombat(room, events) {
+  var _a, _b;
+  const hostileCreeps = (_a = findRoomObjects(room, "FIND_HOSTILE_CREEPS")) != null ? _a : [];
+  const hostileStructures = (_b = findRoomObjects(room, "FIND_HOSTILE_STRUCTURES")) != null ? _b : [];
+  return {
+    hostileCreepCount: hostileCreeps.length,
+    hostileStructureCount: hostileStructures.length,
+    ...events ? { events } : {}
+  };
+}
+function summarizeRoomEventMetrics(room) {
+  const eventLog = getRoomEventLog(room);
+  if (!eventLog) {
+    return {};
+  }
+  const harvestEvent = getGlobalNumber("EVENT_HARVEST");
+  const transferEvent = getGlobalNumber("EVENT_TRANSFER");
+  const attackEvent = getGlobalNumber("EVENT_ATTACK");
+  const objectDestroyedEvent = getGlobalNumber("EVENT_OBJECT_DESTROYED");
+  const resourceEvents = {
+    harvestedEnergy: 0,
+    transferredEnergy: 0
+  };
+  const combatEvents = {
+    attackCount: 0,
+    attackDamage: 0,
+    objectDestroyedCount: 0,
+    creepDestroyedCount: 0
+  };
+  let hasResourceEvents = false;
+  let hasCombatEvents = false;
+  for (const entry of eventLog) {
+    if (!isRecord(entry) || typeof entry.event !== "number") {
+      continue;
+    }
+    const data = isRecord(entry.data) ? entry.data : {};
+    if (entry.event === harvestEvent && isEnergyEventData(data)) {
+      resourceEvents.harvestedEnergy += getNumericEventData(data, "amount");
+      hasResourceEvents = true;
+    }
+    if (entry.event === transferEvent && isEnergyEventData(data)) {
+      resourceEvents.transferredEnergy += getNumericEventData(data, "amount");
+      hasResourceEvents = true;
+    }
+    if (entry.event === attackEvent) {
+      combatEvents.attackCount += 1;
+      combatEvents.attackDamage += getNumericEventData(data, "damage");
+      hasCombatEvents = true;
+    }
+    if (entry.event === objectDestroyedEvent) {
+      combatEvents.objectDestroyedCount += 1;
+      if (data.type === "creep") {
+        combatEvents.creepDestroyedCount += 1;
+      }
+      hasCombatEvents = true;
+    }
+  }
+  return {
+    ...hasResourceEvents ? { resources: resourceEvents } : {},
+    ...hasCombatEvents ? { combat: combatEvents } : {}
+  };
+}
+function findRoomObjects(room, constantName) {
+  const findConstant = getGlobalNumber(constantName);
+  const find = room.find;
+  if (typeof findConstant !== "number" || typeof find !== "function") {
+    return void 0;
+  }
+  try {
+    const result = find.call(room, findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return void 0;
+  }
+}
+function getRoomEventLog(room) {
+  const getEventLog = room.getEventLog;
+  if (typeof getEventLog !== "function") {
+    return void 0;
+  }
+  try {
+    const eventLog = getEventLog.call(room);
+    return Array.isArray(eventLog) ? eventLog : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function sumEnergyInStores(objects) {
+  return objects.reduce((total, object) => total + getEnergyInStore(object), 0);
+}
+function getEnergyInStore(object) {
+  if (!isRecord(object) || !isRecord(object.store)) {
+    return 0;
+  }
+  const getUsedCapacity = object.store.getUsedCapacity;
+  if (typeof getUsedCapacity === "function") {
+    const usedCapacity = getUsedCapacity.call(object.store, getEnergyResource());
+    return typeof usedCapacity === "number" ? usedCapacity : 0;
+  }
+  const storedEnergy = object.store[getEnergyResource()];
+  return typeof storedEnergy === "number" ? storedEnergy : 0;
+}
+function sumDroppedEnergy(droppedResources) {
+  const energyResource = getEnergyResource();
+  return droppedResources.reduce((total, droppedResource) => {
+    if (!isRecord(droppedResource) || droppedResource.resourceType !== energyResource) {
+      return total;
+    }
+    return total + (typeof droppedResource.amount === "number" ? droppedResource.amount : 0);
+  }, 0);
+}
+function isEnergyEventData(data) {
+  return data.resourceType === void 0 || data.resourceType === getEnergyResource();
+}
+function getNumericEventData(data, key) {
+  const value = data[key];
+  return typeof value === "number" ? value : 0;
+}
+function getGlobalNumber(name) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : void 0;
+}
+function getEnergyResource() {
+  const value = globalThis.RESOURCE_ENERGY;
+  return typeof value === "string" ? value : "energy";
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null;
 }
 function buildCpuSummary() {
   const gameWithOptionalCpu = Game;
