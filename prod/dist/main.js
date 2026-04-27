@@ -55,6 +55,128 @@ function getOwnedColonies() {
   }));
 }
 
+// src/construction/extensionPlanner.ts
+var EXTENSION_LIMITS_BY_RCL = {
+  2: 5,
+  3: 10,
+  4: 20,
+  5: 30,
+  6: 40,
+  7: 50,
+  8: 60
+};
+var MAX_EXTENSION_PLANNER_RADIUS = 6;
+var ROOM_EDGE_MIN = 1;
+var ROOM_EDGE_MAX = 48;
+var DEFAULT_TERRAIN_WALL_MASK = 1;
+function planExtensionConstruction(colony) {
+  var _a;
+  const allowedExtensions = getExtensionLimitForRcl((_a = colony.room.controller) == null ? void 0 : _a.level);
+  if (allowedExtensions <= 0) {
+    return null;
+  }
+  const plannedExtensions = countExistingAndPendingExtensions(colony.room);
+  if (plannedExtensions >= allowedExtensions) {
+    return null;
+  }
+  const anchor = selectExtensionAnchor(colony);
+  if (!anchor) {
+    return null;
+  }
+  const position = findNextExtensionPosition(colony.room, anchor);
+  if (!position) {
+    return null;
+  }
+  return colony.room.createConstructionSite(position.x, position.y, STRUCTURE_EXTENSION);
+}
+function getExtensionLimitForRcl(level) {
+  var _a;
+  return level ? (_a = EXTENSION_LIMITS_BY_RCL[level]) != null ? _a : 0 : 0;
+}
+function countExistingAndPendingExtensions(room) {
+  const existingExtensions = room.find(FIND_MY_STRUCTURES, {
+    filter: (structure) => structure.structureType === STRUCTURE_EXTENSION
+  });
+  const pendingExtensions = room.find(FIND_MY_CONSTRUCTION_SITES, {
+    filter: (site) => site.structureType === STRUCTURE_EXTENSION
+  });
+  return existingExtensions.length + pendingExtensions.length;
+}
+function selectExtensionAnchor(colony) {
+  var _a, _b, _c;
+  const [primarySpawn] = colony.spawns.filter((spawn) => spawn.pos).sort((left, right) => left.name.localeCompare(right.name));
+  return (_c = (_b = primarySpawn == null ? void 0 : primarySpawn.pos) != null ? _b : (_a = colony.room.controller) == null ? void 0 : _a.pos) != null ? _c : null;
+}
+function findNextExtensionPosition(room, anchor) {
+  const lookups = createPlannerLookups(room, anchor);
+  const anchorParity = getPositionParity(anchor);
+  for (let radius = 1; radius <= MAX_EXTENSION_PLANNER_RADIUS; radius += 1) {
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) {
+          continue;
+        }
+        const position = { x: anchor.x + dx, y: anchor.y + dy };
+        if (canPlaceExtension(lookups, anchorParity, position)) {
+          return position;
+        }
+      }
+    }
+  }
+  return null;
+}
+function createPlannerLookups(room, anchor) {
+  const bounds = getScanBounds(anchor);
+  return {
+    terrain: Game.map.getRoomTerrain(room.name),
+    blockingPositions: getBlockingPositions(room, bounds)
+  };
+}
+function getScanBounds(anchor) {
+  return {
+    top: Math.max(ROOM_EDGE_MIN, anchor.y - MAX_EXTENSION_PLANNER_RADIUS),
+    left: Math.max(ROOM_EDGE_MIN, anchor.x - MAX_EXTENSION_PLANNER_RADIUS),
+    bottom: Math.min(ROOM_EDGE_MAX, anchor.y + MAX_EXTENSION_PLANNER_RADIUS),
+    right: Math.min(ROOM_EDGE_MAX, anchor.x + MAX_EXTENSION_PLANNER_RADIUS)
+  };
+}
+function getBlockingPositions(room, bounds) {
+  const blockingPositions = /* @__PURE__ */ new Set();
+  const structures = room.lookForAtArea(LOOK_STRUCTURES, bounds.top, bounds.left, bounds.bottom, bounds.right, true);
+  const constructionSites = room.lookForAtArea(LOOK_CONSTRUCTION_SITES, bounds.top, bounds.left, bounds.bottom, bounds.right, true);
+  for (const structure of structures) {
+    blockingPositions.add(getPositionKey(structure));
+  }
+  for (const constructionSite of constructionSites) {
+    blockingPositions.add(getPositionKey(constructionSite));
+  }
+  return blockingPositions;
+}
+function canPlaceExtension(lookups, anchorParity, position) {
+  if (position.x < ROOM_EDGE_MIN || position.x > ROOM_EDGE_MAX || position.y < ROOM_EDGE_MIN || position.y > ROOM_EDGE_MAX) {
+    return false;
+  }
+  if (getPositionParity(position) !== anchorParity) {
+    return false;
+  }
+  if (isTerrainWall(lookups.terrain, position)) {
+    return false;
+  }
+  return !lookups.blockingPositions.has(getPositionKey(position));
+}
+function getPositionParity(position) {
+  return (position.x + position.y) % 2;
+}
+function isTerrainWall(terrain, position) {
+  return (terrain.get(position.x, position.y) & getTerrainWallMask()) !== 0;
+}
+function getPositionKey(position) {
+  return `${position.x},${position.y}`;
+}
+function getTerrainWallMask() {
+  return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK;
+}
+
 // src/creeps/roleCounts.ts
 var WORKER_REPLACEMENT_TICKS_TO_LIVE = 100;
 function countCreepsByRole(creeps, colonyName) {
@@ -543,6 +665,7 @@ function runEconomy() {
   const colonies = getOwnedColonies();
   const telemetryEvents = [];
   for (const colony of colonies) {
+    planExtensionConstruction(colony);
     const roleCounts = countCreepsByRole(creeps, colony.room.name);
     const spawnRequest = planSpawn(colony, roleCounts, Game.time);
     if (spawnRequest) {
