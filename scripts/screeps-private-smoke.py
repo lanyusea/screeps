@@ -15,6 +15,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import shutil
 import subprocess
 import sys
@@ -38,8 +39,12 @@ SCREEPS_LAUNCHER_IMAGE = "screepers/screeps-launcher:v1.16.2"
 MONGO_IMAGE = "mongo:8.2.7"
 REDIS_IMAGE = "redis:7.4.8"
 DEFAULT_CODE_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
-DEFAULT_HTTP_PORT = 21025
-DEFAULT_CLI_PORT = 21026
+CONTAINER_HTTP_PORT = 21025
+CONTAINER_CLI_PORT = 21026
+DEFAULT_HTTP_PORT = CONTAINER_HTTP_PORT
+DEFAULT_CLI_PORT = CONTAINER_CLI_PORT
+MIN_TCP_PORT = 1
+MAX_TCP_PORT = 65535
 LAUNCHER_CLI_RESPONSE_LIMIT = 1400
 DEFAULT_ROOM = "E1S1"
 DEFAULT_SHARD = "shardX"
@@ -163,6 +168,68 @@ def env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError as exc:
         raise SmokeError(f"{name} must be an integer") from exc
+
+
+def optional_env_int(name: str) -> int | None:
+    """Read an optional integer environment variable."""
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise SmokeError(f"{name} must be an integer") from exc
+
+
+def validate_tcp_port(name: str, value: int) -> int:
+    """Validate a host TCP port value."""
+    if value < MIN_TCP_PORT or value > MAX_TCP_PORT:
+        raise SmokeError(f"{name} must be between {MIN_TCP_PORT} and {MAX_TCP_PORT}")
+    return value
+
+
+def host_port_pair_from_start(name: str, value: int) -> tuple[int, int]:
+    """Return the HTTP/CLI host port pair implied by a starting port."""
+    start = validate_tcp_port(name, value)
+    if start >= MAX_TCP_PORT:
+        raise SmokeError(f"{name} must be between {MIN_TCP_PORT} and {MAX_TCP_PORT - 1}")
+    return start, start + 1
+
+
+def resolve_host_ports(args: argparse.Namespace) -> tuple[int, int]:
+    """Resolve host HTTP/CLI ports from CLI flags, env, and defaults."""
+    arg_start = getattr(args, "host_port_start", None)
+    arg_http = getattr(args, "host_http_port", None)
+    arg_cli = getattr(args, "host_cli_port", None)
+    env_start = optional_env_int("SCREEPS_PRIVATE_SMOKE_HOST_PORT_START")
+    env_http = optional_env_int("SCREEPS_PRIVATE_SMOKE_HTTP_PORT")
+    env_cli = optional_env_int("SCREEPS_PRIVATE_SMOKE_CLI_PORT")
+
+    if arg_start is not None:
+        http_port, cli_port = host_port_pair_from_start("--host-port-start", arg_start)
+        if arg_http is not None:
+            http_port = arg_http
+        if arg_cli is not None:
+            cli_port = arg_cli
+    else:
+        if env_start is not None:
+            http_port, cli_port = host_port_pair_from_start("SCREEPS_PRIVATE_SMOKE_HOST_PORT_START", env_start)
+        else:
+            http_port, cli_port = DEFAULT_HTTP_PORT, DEFAULT_CLI_PORT
+        if env_http is not None:
+            http_port = env_http
+        if env_cli is not None:
+            cli_port = env_cli
+        if arg_http is not None:
+            http_port = arg_http
+        if arg_cli is not None:
+            cli_port = arg_cli
+
+    http_port = validate_tcp_port("host HTTP port", http_port)
+    cli_port = validate_tcp_port("host CLI port", cli_port)
+    if http_port == cli_port:
+        raise SmokeError("host HTTP port and host CLI port must be different")
+    return http_port, cli_port
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -292,8 +359,7 @@ def config_from_env(args: argparse.Namespace) -> SmokeConfig:
     assert work_dir is not None
     assert_safe_work_dir(work_dir)
     server_host = os.environ.get("SCREEPS_PRIVATE_SMOKE_HOST", "127.0.0.1")
-    http_port = env_int("SCREEPS_PRIVATE_SMOKE_HTTP_PORT", DEFAULT_HTTP_PORT)
-    cli_port = env_int("SCREEPS_PRIVATE_SMOKE_CLI_PORT", DEFAULT_CLI_PORT)
+    http_port, cli_port = resolve_host_ports(args)
     username = os.environ.get("SCREEPS_PRIVATE_SMOKE_USERNAME", DEFAULT_USERNAME)
     room = os.environ.get("SCREEPS_PRIVATE_SMOKE_ROOM", DEFAULT_ROOM)
     shard = os.environ.get("SCREEPS_PRIVATE_SMOKE_SHARD", DEFAULT_SHARD)
@@ -389,7 +455,7 @@ serverConfig:
   mapFile: {MAP_CONTAINER_PATH}
 cli:
   host: 127.0.0.1
-  port: {cfg.cli_port}
+  port: {CONTAINER_CLI_PORT}
   username: ""
   password: ""
 """
@@ -404,8 +470,8 @@ def build_compose_file(cfg: SmokeConfig) -> str:
     volumes:
       - ./:/screeps
     ports:
-      - "{cfg.server_host}:{cfg.http_port}:21025/tcp"
-      - "{cfg.server_host}:{cfg.cli_port}:21026/tcp"
+      - "{cfg.server_host}:{cfg.http_port}:{CONTAINER_HTTP_PORT}/tcp"
+      - "{cfg.server_host}:{cfg.cli_port}:{CONTAINER_CLI_PORT}/tcp"
     environment:
       MONGO_HOST: mongo
       REDIS_HOST: redis
@@ -416,7 +482,7 @@ def build_compose_file(cfg: SmokeConfig) -> str:
         condition: service_healthy
     restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "sh", "-c", "curl --fail --silent http://127.0.0.1:21025/api/version >/dev/null"]
+      test: ["CMD-SHELL", "sh", "-c", "curl --fail --silent http://127.0.0.1:{CONTAINER_HTTP_PORT}/api/version >/dev/null"]
       interval: 10s
       timeout: 5s
       start_period: 10s
@@ -635,6 +701,10 @@ def prepare_work_dir(cfg: SmokeConfig) -> dict[str, Any]:
         "work_dir": str(cfg.work_dir),
         "config": str(cfg.config_path),
         "compose": str(cfg.compose_path),
+        "ports": {
+            "host": {"http": cfg.http_port, "cli": cfg.cli_port},
+            "container": {"http": CONTAINER_HTTP_PORT, "cli": CONTAINER_CLI_PORT},
+        },
         "container_writable_dirs": container_writable_dirs,
         "steam_key_file": "created" if not cfg.dry_run else "not-created-dry-run",
         "bot_package_main": str(cfg.bot_main_path) if not cfg.dry_run else "not-copied-dry-run",
@@ -706,6 +776,56 @@ def compose_env(cfg: SmokeConfig) -> dict[str, str]:
     env = os.environ.copy()
     env["COMPOSE_PROJECT_NAME"] = cfg.compose_project
     return env
+
+
+def host_port_unavailable_reason(host: str, port: int) -> str | None:
+    """Return a sanitized bind failure reason when a host port is unavailable."""
+    try:
+        candidates = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        return short_text(exc, 200)
+    if not candidates:
+        return f"no socket address candidates for {host}:{port}"
+
+    last_error: OSError | None = None
+    for family, socktype, proto, _canonname, sockaddr in candidates:
+        try:
+            with socket.socket(family, socktype, proto) as probe:
+                probe.bind(sockaddr)
+            return None
+        except OSError as exc:
+            last_error = exc
+    if last_error is None:
+        return "unknown bind failure"
+    return short_text(last_error, 200)
+
+
+def preflight_host_ports(cfg: SmokeConfig) -> dict[str, Any]:
+    """Fail before Docker startup if selected host ports cannot be bound."""
+    if cfg.http_port == cfg.cli_port:
+        raise SmokeError(
+            f"selected HTTP and CLI host ports must be different: {cfg.server_host}:{cfg.http_port}"
+        )
+
+    checks: list[dict[str, Any]] = []
+    for service, host_port, container_port in (
+        ("http", cfg.http_port, CONTAINER_HTTP_PORT),
+        ("cli", cfg.cli_port, CONTAINER_CLI_PORT),
+    ):
+        reason = host_port_unavailable_reason(cfg.server_host, host_port)
+        if reason:
+            raise SmokeError(
+                f"selected private-smoke {service} host port is unavailable: "
+                f"{cfg.server_host}:{host_port} ({reason})"
+            )
+        checks.append({
+            "service": service,
+            "host": cfg.server_host,
+            "host_port": host_port,
+            "container_port": container_port,
+            "available": True,
+        })
+    return {"checks": checks}
 
 
 def run_command(
@@ -1085,6 +1205,10 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         "started_at": started_at,
         "work_dir": str(cfg.work_dir),
         "server_url": cfg.server_url,
+        "ports": {
+            "host": {"http": cfg.http_port, "cli": cfg.cli_port},
+            "container": {"http": CONTAINER_HTTP_PORT, "cli": CONTAINER_CLI_PORT},
+        },
         "launcher": {
             "image": SCREEPS_LAUNCHER_IMAGE,
             "version": "4.2.21",
@@ -1105,6 +1229,9 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         "phases": phases,
     }
     try:
+        port_preflight = preflight_host_ports(cfg)
+        phases.append({"name": "host-port-preflight", "ok": True, "details": port_preflight})
+
         prepare = prepare_work_dir(cfg)
         phases.append({"name": "prepare-workdir", "ok": True, "details": redact(prepare, secrets_to_hide)})
 
@@ -1250,6 +1377,11 @@ def run_dry(cfg: SmokeConfig) -> dict[str, Any]:
         "ok": True,
         "dry_run": True,
         "work_dir": str(dry_cfg.work_dir),
+        "server_url": dry_cfg.server_url,
+        "ports": {
+            "host": {"http": dry_cfg.http_port, "cli": dry_cfg.cli_port},
+            "container": {"http": CONTAINER_HTTP_PORT, "cli": CONTAINER_CLI_PORT},
+        },
         "prepare": redact(prepare, [fake_password]),
         "map": redact(map_details, [fake_password]),
         "launcher_config_contains_secret": "dry-run-password" in build_launcher_config(dry_cfg),
@@ -1301,6 +1433,9 @@ class SmokeSelfTest(unittest.TestCase):
             "command": "run",
             "dry_run": False,
             "work_dir": "/tmp/screeps-private-smoke-self-test",
+            "host_port_start": None,
+            "host_http_port": None,
+            "host_cli_port": None,
             "stats_timeout": 1,
             "poll_interval": 0,
             "min_creeps": 1,
@@ -1331,6 +1466,46 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertIn(f"image: {SCREEPS_LAUNCHER_IMAGE}", compose)
         self.assertIn(f"image: {MONGO_IMAGE}", compose)
         self.assertIn(f"image: {REDIS_IMAGE}", compose)
+
+    def test_custom_host_ports_preserve_container_ports(self) -> None:
+        """Custom host bindings should leave Screeps container ports unchanged."""
+        cfg = SmokeConfig(
+            **{
+                **self.make_cfg().__dict__,
+                "http_port": 21125,
+                "cli_port": 21126,
+                "server_url": "http://127.0.0.1:21125",
+            }
+        )
+        compose = build_compose_file(cfg)
+        launcher_config = build_launcher_config(cfg)
+        self.assertIn('"127.0.0.1:21125:21025/tcp"', compose)
+        self.assertIn('"127.0.0.1:21126:21026/tcp"', compose)
+        self.assertIn("curl --fail --silent http://127.0.0.1:21025/api/version", compose)
+        self.assertIn("  port: 21026", launcher_config)
+        self.assertNotIn("  port: 21126", launcher_config)
+
+    def test_dry_run_persists_custom_port_metadata(self) -> None:
+        """Dry-run reports and generated Compose should show custom host ports."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cfg = SmokeConfig(
+                **{
+                    **self.make_cfg().__dict__,
+                    "work_dir": Path(temp_dir),
+                    "http_port": 21125,
+                    "cli_port": 21126,
+                    "server_url": "http://127.0.0.1:21125",
+                }
+            )
+            report = run_dry(cfg)
+            persisted = json.loads(Path(report["report_path"]).read_text(encoding="utf-8"))
+            compose = cfg.compose_path.read_text(encoding="utf-8")
+
+        self.assertEqual(report["server_url"], "http://127.0.0.1:21125")
+        self.assertEqual(persisted["ports"]["host"], {"http": 21125, "cli": 21126})
+        self.assertEqual(persisted["ports"]["container"], {"http": 21025, "cli": 21026})
+        self.assertIn('"127.0.0.1:21125:21025/tcp"', compose)
+        self.assertIn('"127.0.0.1:21126:21026/tcp"', compose)
 
     def test_redaction_removes_secrets_and_code(self) -> None:
         """Report redaction should hide credentials and uploaded code."""
@@ -1679,6 +1854,148 @@ class SmokeSelfTest(unittest.TestCase):
             if old_steam_key is not None:
                 os.environ["STEAM_KEY"] = old_steam_key
         self.assertTrue(any("STEAM_KEY" in error for error in errors))
+
+    def test_config_from_cli_host_port_start_sets_host_pair(self) -> None:
+        """CLI port-start should configure adjacent host HTTP/CLI ports."""
+        cfg = config_from_env(self.make_args(dry_run=True, host_port_start=21125))
+        self.assertEqual(cfg.http_port, 21125)
+        self.assertEqual(cfg.cli_port, 21126)
+        self.assertEqual(cfg.server_url, "http://127.0.0.1:21125")
+
+    def test_config_from_env_host_port_start_sets_host_pair(self) -> None:
+        """Env port-start should configure adjacent host HTTP/CLI ports."""
+        old_values = {
+            name: os.environ.get(name)
+            for name in (
+                "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+                "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+                "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            )
+        }
+        try:
+            os.environ["SCREEPS_PRIVATE_SMOKE_HOST_PORT_START"] = "21125"
+            os.environ.pop("SCREEPS_PRIVATE_SMOKE_HTTP_PORT", None)
+            os.environ.pop("SCREEPS_PRIVATE_SMOKE_CLI_PORT", None)
+            cfg = config_from_env(self.make_args(dry_run=True))
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(cfg.http_port, 21125)
+        self.assertEqual(cfg.cli_port, 21126)
+        self.assertEqual(cfg.server_url, "http://127.0.0.1:21125")
+
+    def test_config_from_explicit_host_port_env_and_cli(self) -> None:
+        """Explicit HTTP/CLI host ports should work from env and CLI flags."""
+        old_values = {
+            name: os.environ.get(name)
+            for name in (
+                "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+                "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+                "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            )
+        }
+        try:
+            os.environ.pop("SCREEPS_PRIVATE_SMOKE_HOST_PORT_START", None)
+            os.environ["SCREEPS_PRIVATE_SMOKE_HTTP_PORT"] = "21135"
+            os.environ["SCREEPS_PRIVATE_SMOKE_CLI_PORT"] = "21136"
+            env_cfg = config_from_env(self.make_args(dry_run=True))
+            cli_cfg = config_from_env(
+                self.make_args(dry_run=True, host_http_port=21145, host_cli_port=21146)
+            )
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(env_cfg.http_port, 21135)
+        self.assertEqual(env_cfg.cli_port, 21136)
+        self.assertEqual(env_cfg.server_url, "http://127.0.0.1:21135")
+        self.assertEqual(cli_cfg.http_port, 21145)
+        self.assertEqual(cli_cfg.cli_port, 21146)
+        self.assertEqual(cli_cfg.server_url, "http://127.0.0.1:21145")
+
+    def test_config_rejects_invalid_host_ports(self) -> None:
+        """Host ports should be valid and non-overlapping."""
+        cases = (
+            {"host_port_start": 65535},
+            {"host_http_port": 0},
+            {"host_http_port": 21125, "host_cli_port": 21125},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(SmokeError):
+                    config_from_env(self.make_args(dry_run=True, **overrides))
+
+    def test_host_port_preflight_rejects_occupied_port(self) -> None:
+        """Live preflight should catch occupied host ports before Docker startup."""
+        original_probe = globals()["host_port_unavailable_reason"]
+
+        def fake_probe(host: str, port: int) -> str | None:
+            """Pretend only the selected HTTP host port is occupied."""
+            self.assertEqual(host, "127.0.0.1")
+            if port == 22025:
+                return "Address already in use"
+            return None
+
+        try:
+            globals()["host_port_unavailable_reason"] = fake_probe
+            cfg = SmokeConfig(
+                **{
+                    **self.make_cfg().__dict__,
+                    "http_port": 22025,
+                    "cli_port": 22026,
+                    "server_url": "http://127.0.0.1:22025",
+                    "dry_run": False,
+                }
+            )
+            with self.assertRaisesRegex(SmokeError, "http host port is unavailable"):
+                preflight_host_ports(cfg)
+        finally:
+            globals()["host_port_unavailable_reason"] = original_probe
+
+    def test_host_port_preflight_allows_available_alternate_ports(self) -> None:
+        """Live preflight should let alternate available host ports proceed."""
+        original_probe = globals()["host_port_unavailable_reason"]
+        try:
+            globals()["host_port_unavailable_reason"] = lambda _host, _port: None
+            cfg = SmokeConfig(
+                **{
+                    **self.make_cfg().__dict__,
+                    "http_port": 22025,
+                    "cli_port": 22026,
+                    "server_url": "http://127.0.0.1:22025",
+                    "dry_run": False,
+                }
+            )
+            result = preflight_host_ports(cfg)
+        finally:
+            globals()["host_port_unavailable_reason"] = original_probe
+
+        self.assertEqual(
+            result["checks"],
+            [
+                {
+                    "service": "http",
+                    "host": "127.0.0.1",
+                    "host_port": 22025,
+                    "container_port": CONTAINER_HTTP_PORT,
+                    "available": True,
+                },
+                {
+                    "service": "cli",
+                    "host": "127.0.0.1",
+                    "host_port": 22026,
+                    "container_port": CONTAINER_CLI_PORT,
+                    "available": True,
+                },
+            ],
+        )
 
     def test_required_env_rejects_non_file_bot_bundle(self) -> None:
         """Live runs should reject bot bundle paths that are not regular files."""
@@ -2054,6 +2371,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--work-dir",
         help=f"Ignored local work directory. Default: {DEFAULT_WORK_DIR}",
     )
+    dry_parser.add_argument(
+        "--host-port-start",
+        type=int,
+        help=(
+            "Bind the private server HTTP host port to this value and CLI host port to the next value. "
+            "Env: SCREEPS_PRIVATE_SMOKE_HOST_PORT_START. "
+            f"Default: {DEFAULT_HTTP_PORT}/{DEFAULT_CLI_PORT}."
+        ),
+    )
+    dry_parser.add_argument(
+        "--host-http-port",
+        type=int,
+        help=f"Explicit private server HTTP host port. Env: SCREEPS_PRIVATE_SMOKE_HTTP_PORT. Default: {DEFAULT_HTTP_PORT}.",
+    )
+    dry_parser.add_argument(
+        "--host-cli-port",
+        type=int,
+        help=f"Explicit private server CLI host port. Env: SCREEPS_PRIVATE_SMOKE_CLI_PORT. Default: {DEFAULT_CLI_PORT}.",
+    )
     dry_parser.set_defaults(
         dry_run=True,
         stats_timeout=240,
@@ -2074,6 +2410,25 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--work-dir",
         help=f"Ignored local work directory. Default: {DEFAULT_WORK_DIR}",
+    )
+    run_parser.add_argument(
+        "--host-port-start",
+        type=int,
+        help=(
+            "Bind the private server HTTP host port to this value and CLI host port to the next value. "
+            "Env: SCREEPS_PRIVATE_SMOKE_HOST_PORT_START. "
+            f"Default: {DEFAULT_HTTP_PORT}/{DEFAULT_CLI_PORT}."
+        ),
+    )
+    run_parser.add_argument(
+        "--host-http-port",
+        type=int,
+        help=f"Explicit private server HTTP host port. Env: SCREEPS_PRIVATE_SMOKE_HTTP_PORT. Default: {DEFAULT_HTTP_PORT}.",
+    )
+    run_parser.add_argument(
+        "--host-cli-port",
+        type=int,
+        help=f"Explicit private server CLI host port. Env: SCREEPS_PRIVATE_SMOKE_CLI_PORT. Default: {DEFAULT_CLI_PORT}.",
     )
     run_parser.add_argument(
         "--stats-timeout",

@@ -54,6 +54,7 @@ The pinned Dockerized smoke path now has a committed local harness:
 ```bash
 python3 scripts/screeps-private-smoke.py self-test
 python3 scripts/screeps-private-smoke.py dry-run
+python3 scripts/screeps-private-smoke.py dry-run --host-port-start 21125 --work-dir /tmp/screeps-private-smoke-dry-run-ports
 ```
 
 The self-test is the exact offline verification command. It requires no Docker, network access, secrets, or live Screeps server. It validates the launcher config generator, Docker Compose shape, redaction helpers, request-shaping helpers, required-env checks, safe workdir guard, transient stats polling, room-spawn verification, and stats success criteria.
@@ -63,6 +64,19 @@ For a live local run after `prod/dist/main.js` has been built:
 ```bash
 STEAM_KEY=... python3 scripts/screeps-private-smoke.py run
 ```
+
+When the default pinned smoke ports `21025/21026` are already occupied, rerun cleanly on alternate host ports without stopping the existing stack:
+
+```bash
+STEAM_KEY=... python3 scripts/screeps-private-smoke.py run \
+  --host-port-start 21125 \
+  --work-dir runtime-artifacts/screeps-private-smoke-issue-28-rerun \
+  --stats-timeout 420 \
+  --poll-interval 5 \
+  --min-creeps 1
+```
+
+`--host-port-start 21125` binds host HTTP to `21125` and host CLI to `21126`. The Docker Compose service still exposes the Screeps container ports `21025/21026`, so launcher internals keep their expected ports.
 
 Required live env:
 
@@ -79,7 +93,8 @@ Safe optional env:
 - `SCREEPS_PRIVATE_SMOKE_SHARD`: defaults to `shardX`.
 - `SCREEPS_PRIVATE_SMOKE_SPAWN_NAME`: defaults to `Spawn1`.
 - `SCREEPS_PRIVATE_SMOKE_SPAWN_X` / `SCREEPS_PRIVATE_SMOKE_SPAWN_Y`: default to `20` / `20`.
-- `SCREEPS_PRIVATE_SMOKE_HTTP_PORT` / `SCREEPS_PRIVATE_SMOKE_CLI_PORT`: default to `21025` / `21026`.
+- `--host-port-start` or `SCREEPS_PRIVATE_SMOKE_HOST_PORT_START`: set adjacent host ports, with HTTP on the given value and CLI on the next value.
+- `--host-http-port` / `--host-cli-port`, or `SCREEPS_PRIVATE_SMOKE_HTTP_PORT` / `SCREEPS_PRIVATE_SMOKE_CLI_PORT`: set explicit host ports; defaults are `21025` / `21026`.
 - `SCREEPS_PRIVATE_SMOKE_CODE_PATH`: defaults to `prod/dist/main.js`.
 - `SCREEPS_PRIVATE_SMOKE_STATS_TIMEOUT`: defaults to the CLI timeout, currently 240 seconds.
 - `SCREEPS_PRIVATE_SMOKE_MIN_CREEPS`: defaults to `1`; set to `0` only when you want setup validation without waiting for a bot-created creep.
