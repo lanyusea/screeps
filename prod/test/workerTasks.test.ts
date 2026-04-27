@@ -1,4 +1,8 @@
-import { CONTROLLER_DOWNGRADE_GUARD_TICKS, selectWorkerTask } from '../src/tasks/workerTasks';
+import {
+  CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  IDLE_RAMPART_REPAIR_HITS_CEILING,
+  selectWorkerTask
+} from '../src/tasks/workerTasks';
 
 function makeLoadedWorker(room: Room, task?: CreepTaskMemory): Creep {
   return {
@@ -12,15 +16,29 @@ function setGameCreeps(creeps: Record<string, Creep>): void {
   (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps };
 }
 
+function makeStructure(
+  id: string,
+  structureType: StructureConstant,
+  hits: number,
+  hitsMax: number,
+  extra: Partial<StructureRampart> = {}
+): AnyStructure {
+  return { id, structureType, hits, hitsMax, ...extra } as unknown as AnyStructure;
+}
+
 describe('selectWorkerTask', () => {
   beforeEach(() => {
-    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
     (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
   });
 
@@ -573,7 +591,119 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
-  it('keeps carried-energy fallback order as transfer, build, then upgrade', () => {
+  it('selects damaged road repair before idle controller upgrading', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const fullRoad = makeStructure('road-full', 'road' as StructureConstant, 5_000, 5_000);
+    const damagedRoad = makeStructure('road-damaged', 'road' as StructureConstant, 3_000, 5_000);
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [fullRoad, damagedRoad] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-damaged' });
+  });
+
+  it('chooses repair targets deterministically and avoids hostile structures', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const hostileRampart = makeStructure('rampart-hostile', 'rampart' as StructureConstant, 100, 1_000, {
+      my: false
+    });
+    const damagedContainer = makeStructure('container-damaged', 'container' as StructureConstant, 100, 2_000);
+    const roadB = makeStructure('road-b', 'road' as StructureConstant, 2_500, 5_000);
+    const roadA = makeStructure('road-a', 'road' as StructureConstant, 2_500, 5_000);
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [hostileRampart, damagedContainer, roadB, roadA] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-a' });
+  });
+
+  it('selects owned ramparts below the idle repair ceiling', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const rampart = makeStructure(
+      'rampart-low',
+      'rampart' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 1,
+      300_000_000,
+      { my: true }
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [rampart] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-low' });
+  });
+
+  it('skips owned ramparts at the idle repair ceiling without blocking container repair', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const rampart = makeStructure(
+      'rampart-ceiling',
+      'rampart' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING,
+      300_000_000,
+      { my: true }
+    );
+    const container = makeStructure('container-damaged', 'container' as StructureConstant, 1_000, 2_000);
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [rampart, container] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-damaged' });
+  });
+
+  it('falls back to upgrade when only owned ramparts above the idle repair ceiling are damaged', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const rampart = makeStructure(
+      'rampart-high',
+      'rampart' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING + 1,
+      300_000_000,
+      { my: true }
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [rampart] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('falls back to upgrade when no safe damaged repair targets exist', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const fullRoad = makeStructure('road-full', 'road' as StructureConstant, 5_000, 5_000);
+    const hostileRampart = makeStructure('rampart-hostile', 'rampart' as StructureConstant, 100, 1_000, {
+      my: false
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [fullRoad, hostileRampart] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps carried-energy fallback order as transfer, build, repair, then upgrade', () => {
     const spawn = {
       id: 'spawn1',
       structureType: 'spawn',
@@ -586,6 +716,7 @@ describe('selectWorkerTask', () => {
     } as unknown as StructureSpawn;
     const site = { id: 'site1' } as ConstructionSite;
     const controller = { id: 'controller1', my: true } as StructureController;
+    const road = makeStructure('road-damaged', 'road' as StructureConstant, 3_000, 5_000);
     const makeCreep = (room: Room): Creep =>
       ({
         store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
@@ -614,6 +745,10 @@ describe('selectWorkerTask', () => {
         return type === 2 ? [site] : [];
       })
     } as unknown as Room;
+    const roomWithRepair = {
+      controller,
+      find: jest.fn((type: number) => (type === FIND_STRUCTURES ? [road] : []))
+    } as unknown as Room;
     const roomWithController = {
       controller,
       find: jest.fn().mockReturnValue([])
@@ -621,6 +756,7 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(makeCreep(roomWithSink))).toEqual({ type: 'transfer', targetId: 'spawn1' });
     expect(selectWorkerTask(makeCreep(roomWithSite))).toEqual({ type: 'build', targetId: 'site1' });
+    expect(selectWorkerTask(makeCreep(roomWithRepair))).toEqual({ type: 'repair', targetId: 'road-damaged' });
     expect(selectWorkerTask(makeCreep(roomWithController))).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
