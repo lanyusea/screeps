@@ -40,7 +40,11 @@ jobs:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
         run: |
           set -o pipefail
-          npm ci 2>&1 | tee "$RUNNER_TEMP/npm-ci.log"
+          npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/npm-ci.log"
+          npm_ci_status=${PIPESTATUS[0]}
+          if [ "$npm_ci_status" -ne 0 ]; then
+            exit "$npm_ci_status"
+          fi
           if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
             echo "::error::npm ci emitted npm error output; aborting before verification."
             exit 1
@@ -67,6 +71,7 @@ jobs:
             console.log(`${name}@${version}`);
           }
           NODE
+          npx esbuild --version
 
       - name: Typecheck
         run: npm run typecheck
