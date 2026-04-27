@@ -1,6 +1,16 @@
 import { ColonySnapshot } from '../colony/colonyRegistry';
 import type { RoleCounts } from '../creeps/roleCounts';
-import { buildEmergencyWorkerBody, buildWorkerBody, getBodyCost } from './bodyBuilder';
+import {
+  buildEmergencyWorkerBody,
+  buildTerritoryControllerBody,
+  buildWorkerBody,
+  getBodyCost
+} from './bodyBuilder';
+import {
+  buildTerritoryCreepMemory,
+  planTerritoryIntent,
+  shouldSpawnTerritoryControllerCreep
+} from '../territory/territoryPlanner';
 
 export interface SpawnRequest {
   spawn: StructureSpawn;
@@ -16,10 +26,35 @@ const MAX_WORKER_TARGET = 6;
 const sourceCountByRoomName = new Map<string, number>();
 
 export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
-  if (roleCounts.worker >= getWorkerTarget(colony)) {
+  const workerTarget = getWorkerTarget(colony);
+  if (roleCounts.worker < workerTarget) {
+    return planWorkerSpawn(colony, roleCounts, gameTime);
+  }
+
+  const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
+  if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts)) {
     return null;
   }
 
+  const spawn = colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const body = buildTerritoryControllerBody(colony.energyAvailable);
+  if (body.length === 0) {
+    return null;
+  }
+
+  return {
+    spawn,
+    body,
+    name: `claimer-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`,
+    memory: buildTerritoryCreepMemory(territoryIntent)
+  };
+}
+
+function planWorkerSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
   if (!spawn) {
     return null;

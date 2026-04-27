@@ -377,6 +377,26 @@ describe('runEconomy', () => {
 
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
   });
+
+  it('runs existing territory controller creeps', () => {
+    const controller = { id: 'controller1', my: false } as StructureController;
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      reserveController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 300,
+      rooms: {},
+      spawns: {},
+      creeps: { Reserver1: creep }
+    };
+
+    runEconomy();
+
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+  });
 });
 
 interface LifecycleSpawn extends StructureSpawn {
