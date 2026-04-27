@@ -40,6 +40,28 @@ The main Hermes agent must classify each finding before work starts:
 - **Reject** — add a concise issue/comment explanation when the finding is unsupported, lower priority, duplicated, or unsafe.
 - **Escalate** — use the tactical emergency response path when the finding indicates room loss, attack, spawn collapse, controller downgrade risk, deploy breakage, or telemetry silence.
 
+## Runtime KPI evidence feeder
+
+Use the persisted-artifact bridge first when a Gameplay Evolution Review, roadmap snapshot, or accepted finding needs territory/resource/combat KPI evidence:
+
+```bash
+python3 scripts/screeps_runtime_kpi_artifact_bridge.py > runtime-kpi-report.json
+```
+
+With explicit review-window roots:
+
+```bash
+python3 scripts/screeps_runtime_kpi_artifact_bridge.py /path/to/runtime-artifacts /path/to/cron-output > runtime-kpi-report.json
+```
+
+The bridge scans files/directories for `#runtime-summary ` lines, skips binary and oversized files, tolerates missing default roots, and includes source metadata without artifact contents. Use `--format human` for quick review text.
+
+If artifact discovery is unnecessary and a worker has a single raw saved console log, use the reducer fallback:
+
+```bash
+python3 scripts/screeps_runtime_kpi_reducer.py saved-runtime-summary.log > runtime-kpi-report.json
+```
+
 ## GitHub source-of-truth update checklist
 
 Before implementation begins:
@@ -135,10 +157,10 @@ A finding-to-Codex task is not accepted until the main agent verifies:
 
 PR #65 landed the first additive in-game KPI telemetry bridge for #29/#61. The next accepted finding should be transformed with this runbook into one of these bounded tasks:
 
-1. **#29 reducer/renderer follow-up** — consume the new `controller`, `resources`, and `combat` runtime-summary fields so review reports and roadmap snapshots can show territory/resource/combat deltas instead of `not instrumented`. The reducer command for saved logs is:
+1. **#29 reducer/artifact feeder follow-up** — consume the new `controller`, `resources`, and `combat` runtime-summary fields so review reports and roadmap snapshots can show territory/resource/combat deltas instead of `not instrumented`. The preferred persisted-artifact feeder is:
 
    ```bash
-   python3 scripts/screeps_runtime_kpi_reducer.py saved-runtime-summary.log > runtime-kpi-report.json
+   python3 scripts/screeps_runtime_kpi_artifact_bridge.py > runtime-kpi-report.json
    ```
 
 2. **#61 bridge hardening** — convert the next 12-hour Gameplay Evolution recommendation into a concrete issue with expected KPI movement, acceptance evidence, and rollback/stop condition.

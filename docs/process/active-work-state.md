@@ -1,10 +1,10 @@
 # Active Work State
 
-Last updated: 2026-04-27T12:02:00+08:00
+Last updated: 2026-04-27T12:34:28+08:00
 
 ## Current active objective
 
-P0 agent operating-system health is repaired/watch-only in the current cron window: `/root/.hermes/cron/jobs.json` shows the continuation worker, P0 monitor, runtime summary, runtime alert, typed fanouts, 6h report, and Gameplay Evolution Review enabled with `workdir: null`, current `last_run_at`, and non-overdue `next_run_at` values at slice start. Normal development may proceed while routine P0 monitor watch continues. The active gameplay priority is #29: finish PR #67's runtime KPI reducer review/merge gate, then feed persisted `#runtime-summary` logs into the reducer and wire its territory/resource/combat evidence into 12h Gameplay Evolution and roadmap reporting. #61's durable finding-to-Codex bridge is done/watch. The competition-map vision ordering remains territory first, resource scale second, enemy kills third; foundation work outranks that order only when it blocks evidence, implementation, release, or rollback. Canonical operating contract: `docs/ops/agent-operating-system.md`. Vision contract: `docs/ops/project-vision.md`. Owner decisions on 2026-04-26: use the automated review口径 with no formal GitHub approval requirement, add every active agent PR to Project `screeps`, and let known P0 monitoring/routing/scheduler health block normal development and non-P0 merges until repaired/proven healthy.
+P0 agent operating-system health is repaired/watch-only in the current cron window: `/root/.hermes/cron/jobs.json` shows the continuation worker, P0 monitor, runtime summary, runtime alert, typed fanouts, 6h report, and Gameplay Evolution Review enabled with `workdir: null`, current `last_run_at`, and non-overdue `next_run_at` values at slice start. Normal development may proceed while routine P0 monitor watch continues. The active gameplay priority remains #29: PR #67's runtime KPI reducer is merged, and the current artifact-bridge slice is PR-ready/in review to feed persisted `#runtime-summary` logs into the reducer; the next #29 step is wiring its territory/resource/combat evidence into 12h Gameplay Evolution and roadmap reporting prompts. #61's durable finding-to-Codex bridge is done/watch. The competition-map vision ordering remains territory first, resource scale second, enemy kills third; foundation work outranks that order only when it blocks evidence, implementation, release, or rollback. Canonical operating contract: `docs/ops/agent-operating-system.md`. Vision contract: `docs/ops/project-vision.md`. Owner decisions on 2026-04-26: use the automated review口径 with no formal GitHub approval requirement, add every active agent PR to Project `screeps`, and let known P0 monitoring/routing/scheduler health block normal development and non-P0 merges until repaired/proven healthy.
 
 ## Completed tasks
 
@@ -237,7 +237,7 @@ P0 agent operating-system health is repaired/watch-only in the current cron wind
 - Runtime monitor live-token smoke: `docs/process/2026-04-26-runtime-monitor-live-smoke.md`; `self-test` passed (8 tests), live summary rendered `runtime-artifacts/screeps-monitor/summary-shardX-E48S28.png` in the first pass and `runtime-artifacts/screeps-monitor-live-smoke-20260426/summary-shardX-E48S28.png` in the 09:32 repeat pass; live alert returned `alert: false` with no warnings at official ticks `108687` and `109202` for `shardX/E48S28`; repeat prod verification passed typecheck, 12 suites / 59 tests, and build.
 ### runtime-kpi-reducer
 
-- Status: PR opened and in review gate
+- Status: merged to `main`
 - Process note: `docs/process/2026-04-27-runtime-kpi-reducer.md`
 - Pull request: https://github.com/lanyusea/screeps/pull/67
 - Codex-authored commit: `80a571f` (`feat: add runtime KPI reducer`)
@@ -252,11 +252,31 @@ P0 agent operating-system health is repaired/watch-only in the current cron wind
   - `python3 -m py_compile scripts/screeps_runtime_kpi_reducer.py scripts/test_screeps_runtime_kpi_reducer.py`: passed
   - `python3 -m unittest scripts/test_screeps_runtime_kpi_reducer.py`: passed, 5 tests
   - No `prod/` files changed; prod typecheck/test/build not required for this slice.
-- Remaining gate:
-  - PR #67 prod-ci passed; CodeRabbit review is pending and the >=15-minute review-age gate matures at 2026-04-27T12:15:04+08:00.
-  - After merge, update #29 with merge evidence and wire persisted runtime-summary logs/reducer output into 12h Gameplay Evolution / roadmap reporting.
+- Merge evidence:
+  - Merge commit on current branch: `f32cdc3` (`feat: add runtime KPI reducer (#67)`).
+  - Follow-up remains active under #29: wire persisted runtime-summary logs/reducer output into 12h Gameplay Evolution / roadmap reporting.
 
-- Verification target if code changes are made:
+### runtime-kpi-artifact-bridge
+
+- Status: PR-ready / in review for #29
+- Process note: `docs/process/2026-04-27-runtime-kpi-artifact-bridge.md`
+- Branch: `feat/kpi-artifact-bridge-29`
+- Implemented:
+  - `scripts/screeps_runtime_kpi_artifact_bridge.py` scans files/directories for persisted `#runtime-summary ` lines, defaults to `/root/screeps/runtime-artifacts` and `/root/.hermes/cron/output`, tolerates missing dirs, and skips binary/oversized files.
+  - JSON output remains deterministic and adds source metadata without artifact contents: input paths, scanned files, matched files, runtime-summary line count, and skipped file paths/reasons.
+  - `--format human` emits a concise source/reducer summary.
+  - `scripts/test_screeps_runtime_kpi_artifact_bridge.py` covers file scanning, recursive directory scans, binary/oversized skips, default no-match/no-input behavior, reducer integration, and human output.
+  - Gameplay Evolution roadmap and finding-to-Codex bridge now prefer the artifact feeder before raw saved-log reducer fallback.
+- Verification target:
+  - `git diff --check`
+  - `python3 -m py_compile scripts/screeps_runtime_kpi_reducer.py scripts/screeps_runtime_kpi_artifact_bridge.py scripts/test_screeps_runtime_kpi_reducer.py scripts/test_screeps_runtime_kpi_artifact_bridge.py`
+  - `python3 -m unittest scripts/test_screeps_runtime_kpi_reducer.py scripts/test_screeps_runtime_kpi_artifact_bridge.py`
+- Remaining next step:
+  - In a later scheduler-management slice, wire `python3 scripts/screeps_runtime_kpi_artifact_bridge.py` into the 12h Gameplay Evolution Review and roadmap KPI snapshot job prompts. Keep #29 active until that wiring is merged and observed.
+
+## General production verification reminder
+
+- Verification target if future `prod/` code changes are made:
   - `cd prod && npm run typecheck`
   - `cd prod && npm test -- --runInBand`
   - `cd prod && npm run build`
