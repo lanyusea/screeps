@@ -129,7 +129,8 @@ function createPlannerLookups(room, anchor) {
   const bounds = getScanBounds(anchor);
   return {
     terrain: Game.map.getRoomTerrain(room.name),
-    blockingPositions: getBlockingPositions(room, bounds)
+    blockingPositions: getBlockingPositions(room, bounds),
+    reservedWalkwayPositions: getReservedWalkwayPositions(anchor)
   };
 }
 function getScanBounds(anchor) {
@@ -156,6 +157,9 @@ function canPlaceExtension(lookups, anchorParity, position) {
   if (position.x < ROOM_EDGE_MIN || position.x > ROOM_EDGE_MAX || position.y < ROOM_EDGE_MIN || position.y > ROOM_EDGE_MAX) {
     return false;
   }
+  if (lookups.reservedWalkwayPositions.has(getPositionKey(position))) {
+    return false;
+  }
   if (getPositionParity(position) !== anchorParity) {
     return false;
   }
@@ -163,6 +167,19 @@ function canPlaceExtension(lookups, anchorParity, position) {
     return false;
   }
   return !lookups.blockingPositions.has(getPositionKey(position));
+}
+function getReservedWalkwayPositions(anchor) {
+  return new Set(
+    [
+      { x: anchor.x, y: anchor.y - 1 },
+      { x: anchor.x + 1, y: anchor.y },
+      { x: anchor.x, y: anchor.y + 1 },
+      { x: anchor.x - 1, y: anchor.y }
+    ].filter((position) => isWithinRoomBounds(position)).map(getPositionKey)
+  );
+}
+function isWithinRoomBounds(position) {
+  return position.x >= ROOM_EDGE_MIN && position.x <= ROOM_EDGE_MAX && position.y >= ROOM_EDGE_MIN && position.y <= ROOM_EDGE_MAX;
 }
 function getPositionParity(position) {
   return (position.x + position.y) % 2;
