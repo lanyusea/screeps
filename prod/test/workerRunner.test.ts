@@ -3,12 +3,13 @@ import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
 
 describe('runWorker', () => {
   beforeEach(() => {
-    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).ERR_NOT_IN_RANGE = -9;
+    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).ERR_NOT_IN_RANGE = -9;
     (globalThis as unknown as { ERR_FULL: number }).ERR_FULL = -8;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
   });
@@ -95,6 +96,27 @@ describe('runWorker', () => {
 
     expect(creep.harvest).toHaveBeenCalledWith(source);
     expect(creep.moveTo).toHaveBeenCalledWith(source);
+  });
+
+  it('picks up dropped energy and moves when not in range', () => {
+    const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
+    const creep = {
+      memory: { task: { type: 'pickup', targetId: 'drop1' as Id<Resource<ResourceConstant>> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pickup: jest.fn().mockReturnValue(-9),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(droppedEnergy)
+    };
+
+    runWorker(creep);
+
+    expect(creep.pickup).toHaveBeenCalledWith(droppedEnergy);
+    expect(creep.moveTo).toHaveBeenCalledWith(droppedEnergy);
   });
 
   it('transfers energy to a transfer target and moves when not in range', () => {
@@ -332,6 +354,7 @@ describe('runWorker', () => {
 
   it.each([
     { type: 'harvest', targetId: 'missing-source' as Id<Source> },
+    { type: 'pickup', targetId: 'missing-drop' as Id<Resource<ResourceConstant>> },
     { type: 'transfer', targetId: 'missing-transfer' as Id<AnyStoreStructure> },
     { type: 'build', targetId: 'missing-site' as Id<ConstructionSite> },
     { type: 'upgrade', targetId: 'missing-controller' as Id<StructureController> }
@@ -346,6 +369,7 @@ describe('runWorker', () => {
         },
         room: { find: jest.fn().mockReturnValue([]) },
         harvest: jest.fn(),
+        pickup: jest.fn(),
         build: jest.fn(),
         transfer: jest.fn(),
         upgradeController: jest.fn(),
@@ -359,6 +383,7 @@ describe('runWorker', () => {
       expect(getObjectById).toHaveBeenCalledWith(task.targetId);
       expect(creep.memory.task).toBeUndefined();
       expect(creep.harvest).not.toHaveBeenCalled();
+      expect(creep.pickup).not.toHaveBeenCalled();
       expect(creep.build).not.toHaveBeenCalled();
       expect(creep.transfer).not.toHaveBeenCalled();
       expect(creep.upgradeController).not.toHaveBeenCalled();

@@ -14,9 +14,10 @@ function setGameCreeps(creeps: Record<string, Creep>): void {
 
 describe('selectWorkerTask', () => {
   beforeEach(() => {
-    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
@@ -31,6 +32,67 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('selects nearby useful dropped energy before harvesting when worker has free capacity', () => {
+    const farDroppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const nearDroppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
+    const source = { id: 'source1' } as Source;
+    const findClosestByRange = jest.fn().mockReturnValue(nearDroppedEnergy);
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [farDroppedEnergy, nearDroppedEnergy];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { findClosestByRange },
+      room: { find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
+    expect(findClosestByRange).toHaveBeenCalledWith([farDroppedEnergy, nearDroppedEnergy]);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('ignores non-energy and trivial dropped resources before falling back to balanced harvesting', () => {
+    const source1 = { id: 'source1' } as Source;
+    const source2 = { id: 'source2' } as Source;
+    const droppedMineral = { id: 'drop-mineral', resourceType: 'H' as ResourceConstant, amount: 100 } as Resource<ResourceConstant>;
+    const zeroEnergy = { id: 'drop-zero', resourceType: 'energy', amount: 0 } as Resource<ResourceConstant>;
+    const trivialEnergy = { id: 'drop-trivial', resourceType: 'energy', amount: 1 } as Resource<ResourceConstant>;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => {
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedMineral, zeroEnergy, trivialEnergy];
+        }
+
+        return type === FIND_SOURCES ? [source1, source2] : [];
+      })
+    } as unknown as Room;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        Assigned: {
+          memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+          room
+        } as unknown as Creep
+      }
+    };
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
   it('selects the least-assigned harvest source for same-room workers', () => {
