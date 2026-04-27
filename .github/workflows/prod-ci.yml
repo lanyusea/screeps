@@ -31,10 +31,21 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: prod/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          NPM_CONFIG_REPLACE_REGISTRY_HOST: always
+        run: |
+          set -o pipefail
+          npm ci 2>&1 | tee "$RUNNER_TEMP/npm-ci.log"
+          if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
+            echo "::error::npm ci emitted npm error output; aborting before verification."
+            exit 1
+          fi
 
       - name: Verify dependency tree
         run: |
