@@ -76,6 +76,71 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('defers seeded adjacent target writes until recording a finalized plan', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap
+    };
+    const claimersByTargetRoom = new Proxy<Record<string, number>>(
+      {},
+      {
+        get(target, property) {
+          if (property === 'W1N2') {
+            expect(Memory.territory?.targets).toBeUndefined();
+          }
+
+          return typeof property === 'string' ? target[property] : undefined;
+        }
+      }
+    );
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom }, 3, 518)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        action: 'reserve'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 518
+      }
+    ]);
+  });
+
+  it('calls describeExits directly when discovering adjacent rooms', () => {
+    const colony = makeSafeColony();
+    const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
+    const callTrap = jest.fn(() => {
+      throw new Error('describeExits.call should not be used');
+    });
+    Object.defineProperty(describeExits, 'call', { value: callTrap });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 519)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(callTrap).not.toHaveBeenCalled();
+  });
+
   it('does not overwrite an existing configured target when adjacent rooms are discoverable', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };

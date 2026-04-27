@@ -608,10 +608,11 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
   }
-  const target = selectTerritoryTarget(colony.room.name);
-  if (!target) {
+  const selection = selectTerritoryTarget(colony.room.name);
+  if (!selection) {
     return null;
   }
+  const target = selection.target;
   const plan = {
     colony: colony.room.name,
     targetRoom: target.roomName,
@@ -619,7 +620,7 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
     ...target.controllerId ? { controllerId: target.controllerId } : {}
   };
   const status = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom) > 0 ? "active" : "planned";
-  recordTerritoryIntent(plan, status, gameTime);
+  recordTerritoryIntent(plan, status, gameTime, selection.seeded ? target : null);
   return plan;
 }
 function shouldSpawnTerritoryControllerCreep(plan, roleCounts) {
@@ -680,9 +681,10 @@ function selectTerritoryTarget(colonyName) {
   const intents = normalizeTerritoryIntents(territoryMemory == null ? void 0 : territoryMemory.intents);
   const configuredTarget = selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents);
   if (configuredTarget) {
-    return configuredTarget;
+    return { target: configuredTarget, seeded: false };
   }
-  return seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
+  const seededTarget = seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
+  return seededTarget ? { target: seededTarget, seeded: true } : null;
 }
 function selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
@@ -705,7 +707,6 @@ function seedAdjacentReserveTarget(colonyName, territoryMemory, intents) {
   for (const roomName of adjacentRooms) {
     const target = { colony: colonyName, roomName, action: "reserve" };
     if (roomName !== colonyName && !existingTargetRooms.has(roomName) && !isTerritoryTargetSuppressed(target, intents) && !isVisibleTerritoryTargetUnavailable(roomName)) {
-      appendTerritoryTarget(target);
       return target;
     }
   }
@@ -722,11 +723,7 @@ function getConfiguredTargetRoomsForColony(territoryMemory, colonyName) {
     })
   );
 }
-function appendTerritoryTarget(target) {
-  const territoryMemory = getWritableTerritoryMemoryRecord();
-  if (!territoryMemory) {
-    return;
-  }
+function appendTerritoryTarget(territoryMemory, target) {
   if (!Array.isArray(territoryMemory.targets)) {
     territoryMemory.targets = [];
   }
@@ -738,7 +735,7 @@ function getAdjacentRoomNames(roomName) {
   if (!gameMap || typeof gameMap.describeExits !== "function") {
     return [];
   }
-  const exits = gameMap.describeExits.call(gameMap, roomName);
+  const exits = gameMap.describeExits(roomName);
   if (!isRecord(exits)) {
     return [];
   }
@@ -762,10 +759,13 @@ function normalizeTerritoryTarget(rawTarget) {
     ...rawTarget.enabled === false ? { enabled: false } : {}
   };
 }
-function recordTerritoryIntent(plan, status, gameTime) {
+function recordTerritoryIntent(plan, status, gameTime, seededTarget = null) {
   const territoryMemory = getWritableTerritoryMemoryRecord();
   if (!territoryMemory) {
     return;
+  }
+  if (seededTarget) {
+    appendTerritoryTarget(territoryMemory, seededTarget);
   }
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;

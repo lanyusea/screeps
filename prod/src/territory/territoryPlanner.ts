@@ -18,6 +18,11 @@ interface MemoryRecord {
   territory?: unknown;
 }
 
+interface SelectedTerritoryTarget {
+  target: TerritoryTargetMemory;
+  seeded: boolean;
+}
+
 export function planTerritoryIntent(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
@@ -28,11 +33,12 @@ export function planTerritoryIntent(
     return null;
   }
 
-  const target = selectTerritoryTarget(colony.room.name);
-  if (!target) {
+  const selection = selectTerritoryTarget(colony.room.name);
+  if (!selection) {
     return null;
   }
 
+  const target = selection.target;
   const plan: TerritoryIntentPlan = {
     colony: colony.room.name,
     targetRoom: target.roomName,
@@ -40,7 +46,7 @@ export function planTerritoryIntent(
     ...(target.controllerId ? { controllerId: target.controllerId } : {})
   };
   const status = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom) > 0 ? 'active' : 'planned';
-  recordTerritoryIntent(plan, status, gameTime);
+  recordTerritoryIntent(plan, status, gameTime, selection.seeded ? target : null);
 
   return plan;
 }
@@ -121,15 +127,16 @@ export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCoun
   );
 }
 
-function selectTerritoryTarget(colonyName: string): TerritoryTargetMemory | null {
+function selectTerritoryTarget(colonyName: string): SelectedTerritoryTarget | null {
   const territoryMemory = getTerritoryMemoryRecord();
   const intents = normalizeTerritoryIntents(territoryMemory?.intents);
   const configuredTarget = selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents);
   if (configuredTarget) {
-    return configuredTarget;
+    return { target: configuredTarget, seeded: false };
   }
 
-  return seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
+  const seededTarget = seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
+  return seededTarget ? { target: seededTarget, seeded: true } : null;
 }
 
 function selectConfiguredTerritoryTarget(
@@ -177,7 +184,6 @@ function seedAdjacentReserveTarget(
       !isTerritoryTargetSuppressed(target, intents) &&
       !isVisibleTerritoryTargetUnavailable(roomName)
     ) {
-      appendTerritoryTarget(target);
       return target;
     }
   }
@@ -201,12 +207,7 @@ function getConfiguredTargetRoomsForColony(
   );
 }
 
-function appendTerritoryTarget(target: TerritoryTargetMemory): void {
-  const territoryMemory = getWritableTerritoryMemoryRecord();
-  if (!territoryMemory) {
-    return;
-  }
-
+function appendTerritoryTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
   if (!Array.isArray(territoryMemory.targets)) {
     territoryMemory.targets = [];
   }
@@ -221,7 +222,7 @@ function getAdjacentRoomNames(roomName: string): string[] {
     return [];
   }
 
-  const exits = gameMap.describeExits.call(gameMap, roomName) as ExitsInformation | null;
+  const exits = gameMap.describeExits(roomName) as ExitsInformation | null;
   if (!isRecord(exits)) {
     return [];
   }
@@ -256,10 +257,19 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
   };
 }
 
-function recordTerritoryIntent(plan: TerritoryIntentPlan, status: TerritoryIntentMemory['status'], gameTime: number): void {
+function recordTerritoryIntent(
+  plan: TerritoryIntentPlan,
+  status: TerritoryIntentMemory['status'],
+  gameTime: number,
+  seededTarget: TerritoryTargetMemory | null = null
+): void {
   const territoryMemory = getWritableTerritoryMemoryRecord();
   if (!territoryMemory) {
     return;
+  }
+
+  if (seededTarget) {
+    appendTerritoryTarget(territoryMemory, seededTarget);
   }
 
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
