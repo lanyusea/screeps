@@ -207,23 +207,19 @@ def resolve_host_ports(args: argparse.Namespace) -> tuple[int, int]:
 
     if arg_start is not None:
         http_port, cli_port = host_port_pair_from_start("--host-port-start", arg_start)
-        if arg_http is not None:
-            http_port = arg_http
-        if arg_cli is not None:
-            cli_port = arg_cli
+    elif env_start is not None:
+        http_port, cli_port = host_port_pair_from_start("SCREEPS_PRIVATE_SMOKE_HOST_PORT_START", env_start)
     else:
-        if env_start is not None:
-            http_port, cli_port = host_port_pair_from_start("SCREEPS_PRIVATE_SMOKE_HOST_PORT_START", env_start)
-        else:
-            http_port, cli_port = DEFAULT_HTTP_PORT, DEFAULT_CLI_PORT
-        if env_http is not None:
-            http_port = env_http
-        if env_cli is not None:
-            cli_port = env_cli
-        if arg_http is not None:
-            http_port = arg_http
-        if arg_cli is not None:
-            cli_port = arg_cli
+        http_port, cli_port = DEFAULT_HTTP_PORT, DEFAULT_CLI_PORT
+
+    if env_http is not None:
+        http_port = env_http
+    if env_cli is not None:
+        cli_port = env_cli
+    if arg_http is not None:
+        http_port = arg_http
+    if arg_cli is not None:
+        cli_port = arg_cli
 
     http_port = validate_tcp_port("host HTTP port", http_port)
     cli_port = validate_tcp_port("host CLI port", cli_port)
@@ -1857,7 +1853,26 @@ class SmokeSelfTest(unittest.TestCase):
 
     def test_config_from_cli_host_port_start_sets_host_pair(self) -> None:
         """CLI port-start should configure adjacent host HTTP/CLI ports."""
-        cfg = config_from_env(self.make_args(dry_run=True, host_port_start=21125))
+        old_values = {
+            name: os.environ.get(name)
+            for name in (
+                "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+                "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+                "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            )
+        }
+        try:
+            os.environ["SCREEPS_PRIVATE_SMOKE_HOST_PORT_START"] = "21115"
+            os.environ.pop("SCREEPS_PRIVATE_SMOKE_HTTP_PORT", None)
+            os.environ.pop("SCREEPS_PRIVATE_SMOKE_CLI_PORT", None)
+            cfg = config_from_env(self.make_args(dry_run=True, host_port_start=21125))
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
         self.assertEqual(cfg.http_port, 21125)
         self.assertEqual(cfg.cli_port, 21126)
         self.assertEqual(cfg.server_url, "http://127.0.0.1:21125")
@@ -1887,6 +1902,65 @@ class SmokeSelfTest(unittest.TestCase):
         self.assertEqual(cfg.http_port, 21125)
         self.assertEqual(cfg.cli_port, 21126)
         self.assertEqual(cfg.server_url, "http://127.0.0.1:21125")
+
+    def test_env_explicit_host_ports_override_cli_start_pair(self) -> None:
+        """Env explicit host ports should override the selected start-port pair."""
+        old_values = {
+            name: os.environ.get(name)
+            for name in (
+                "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+                "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+                "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            )
+        }
+        try:
+            os.environ["SCREEPS_PRIVATE_SMOKE_HOST_PORT_START"] = "21115"
+            os.environ["SCREEPS_PRIVATE_SMOKE_HTTP_PORT"] = "21135"
+            os.environ["SCREEPS_PRIVATE_SMOKE_CLI_PORT"] = "21136"
+            cfg = config_from_env(self.make_args(dry_run=True, host_port_start=21125))
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(cfg.http_port, 21135)
+        self.assertEqual(cfg.cli_port, 21136)
+        self.assertEqual(cfg.server_url, "http://127.0.0.1:21135")
+
+    def test_cli_explicit_host_ports_override_env_explicit_ports(self) -> None:
+        """CLI explicit host ports should be the final port override layer."""
+        old_values = {
+            name: os.environ.get(name)
+            for name in (
+                "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+                "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+                "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            )
+        }
+        try:
+            os.environ["SCREEPS_PRIVATE_SMOKE_HOST_PORT_START"] = "21115"
+            os.environ["SCREEPS_PRIVATE_SMOKE_HTTP_PORT"] = "21135"
+            os.environ["SCREEPS_PRIVATE_SMOKE_CLI_PORT"] = "21136"
+            cfg = config_from_env(
+                self.make_args(
+                    dry_run=True,
+                    host_port_start=21125,
+                    host_http_port=21145,
+                    host_cli_port=21146,
+                )
+            )
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(cfg.http_port, 21145)
+        self.assertEqual(cfg.cli_port, 21146)
+        self.assertEqual(cfg.server_url, "http://127.0.0.1:21145")
 
     def test_config_from_explicit_host_port_env_and_cli(self) -> None:
         """Explicit HTTP/CLI host ports should work from env and CLI flags."""
