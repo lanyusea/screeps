@@ -35,6 +35,11 @@ LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 SCREEPS_SHARD_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 SCREEPS_ROOM_RE = re.compile(r"^[WE]\d+[NS]\d+$")
 CJK_TEXT_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+INTERNAL_PROCESS_ID_RE = re.compile(r"\bproc_[a-z0-9]+\b")
+HOST_ABSOLUTE_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9_:/.-])/(?:root|home|Users|tmp|var|mnt|opt|Volumes)(?:/[^\s\"'<>`,;)]*)*"
+)
+WINDOWS_DRIVE_ROOT_PATH_RE = re.compile(r"(?<![A-Za-z0-9_:/.-])[A-Za-z]:[\\/][^\s\"'<>`,;)]*")
 
 OBSERVED = "observed"
 NOT_OBSERVED = "not observed"
@@ -753,6 +758,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         repo_root=repo_root,
         cached_page_data=cached_page_data,
     )
+    data = sanitize_public_data(data)
 
     json_path = docs_dir / "roadmap-data.json"
     html_path = docs_dir / "index.html"
@@ -805,6 +811,24 @@ def parse_github_remote(remote_url: str) -> str | None:
 
 def strip_trailing_whitespace(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.splitlines()) + "\n"
+
+
+def sanitize_public_data(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: sanitize_public_data(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_public_data(item) for item in value]
+    if isinstance(value, tuple):
+        return [sanitize_public_data(item) for item in value]
+    if isinstance(value, str):
+        return sanitize_public_text(value)
+    return value
+
+
+def sanitize_public_text(value: str) -> str:
+    text = INTERNAL_PROCESS_ID_RE.sub("proc_[redacted]", value)
+    text = HOST_ABSOLUTE_PATH_RE.sub("[redacted-path]", text)
+    return WINDOWS_DRIVE_ROOT_PATH_RE.sub("[redacted-path]", text)
 
 
 def build_repo_snapshot(repo_full_name: str) -> JsonObject:
@@ -2156,9 +2180,9 @@ def build_report_roadmap_card(
     override = report_issue_display_override(item.get("number"))
     card["next"] = shorten_text(
         first_visible_report_text(
+            override.get("description"),
             item.get("nextAction"),
             item.get("evidence"),
-            override.get("description"),
             item.get("title"),
             template.get("next"),
             "Track current GitHub/Project evidence.",
@@ -2278,9 +2302,9 @@ def report_kanban_item(card: JsonObject) -> JsonObject:
     number = f"#{card['number']} " if isinstance(card.get("number"), int) else ""
     title = first_visible_report_text(override.get("title"), card.get("title"), card.get("domain"), "Roadmap item")
     description = first_visible_report_text(
+        override.get("description"),
         card.get("nextAction"),
         card.get("evidence"),
-        override.get("description"),
         card.get("domain"),
         card.get("status"),
         "Track Project evidence and next action.",
