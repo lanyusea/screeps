@@ -100,7 +100,7 @@ Subagents must not independently update `#decisions`, `#roadmap`, or `#task-queu
 The main agent must maintain an internal operations monitor that checks:
 
 - scheduled jobs exist and are enabled;
-- continuation worker is running at the expected cadence;
+- continuation worker is running at the expected cadence, or is intentionally paused for maintenance/migration with that pause mirrored in GitHub Project `Status`, `Evidence`, and `Next action`;
 - checkpoint job exists;
 - job delivery targets are still correct;
 - last run status is not failed/stale;
@@ -108,9 +108,9 @@ The main agent must maintain an internal operations monitor that checks:
 - git working tree is not unsafe for autonomous workers;
 - obvious routing contradictions have not reappeared.
 
-If this monitoring detects an abnormal state, it must report to the dedicated P0 operations channel `discord:1497820688843800776` and preserve a durable process note if the issue is non-trivial.
+If this monitoring detects an abnormal state, it must report to the dedicated P0 operations channel `discord:1497820688843800776` and preserve a durable process note if the issue is non-trivial. An intentionally paused continuation worker is healthy only when the pause is mirrored in Project metadata: `Status`, `Evidence`, and `Next action`, plus `blocked`/`Blocked by` when the pause is caused by an external blocker. If those artifacts are missing or stale, the monitor must escalate to the P0 operations channel and create/refresh durable process evidence.
 
-Owner decision on 2026-04-26: P0 monitoring/routing/scheduler health blocks normal development and non-P0 merges. If P0 health is known unhealthy, the main agent must repair or prove the P0 monitor and affected scheduled jobs before starting unrelated implementation slices.
+Owner decision on 2026-04-26: P0 monitoring/routing/scheduler health blocks normal development and non-P0 merges. If P0 health is known unhealthy, the main agent must repair or prove the P0 monitor and affected scheduled jobs before starting unrelated implementation slices. This repair requirement excludes intentionally paused maintenance/migration states only when the Project metadata conditions above are current; otherwise the pause is treated as an abnormal P0 state.
 
 ## Priority model
 

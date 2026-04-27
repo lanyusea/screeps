@@ -60,7 +60,8 @@
 
 - Issue #78 is `In progress`, P0, Agent OS, ops, with Evidence and Next action.
 - Open PRs and active issues have enough Evidence/Next action for the scheduler to resume without chat context.
-- The paused continuation worker state is explicitly recorded as intentional migration pause, not abnormal delivery failure.
+- If any tracked item is blocked, it also has explicit `blocked` status and `Blocked by` linkage before resume.
+- The paused continuation worker state is explicitly recorded as an intentional migration pause, not abnormal delivery failure; if the pause is caused by an external blocker, the same `blocked` / `Blocked by` metadata is populated.
 
 ## Phase 5 — Verification and PR
 
