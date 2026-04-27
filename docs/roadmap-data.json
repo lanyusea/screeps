@@ -1,11 +1,11 @@
 {
   "formatVersion": "roadmap-live-page-v1",
-  "publishedAt": "2026-04-27 13:10:43 CST",
-  "capturedAt": "2026-04-27T05:10:43Z",
+  "publishedAt": "2026-04-27 13:12:10 CST",
+  "capturedAt": "2026-04-27T05:12:10Z",
   "repo": {
     "slug": "lanyusea/screeps",
     "url": "https://github.com/lanyusea/screeps",
-    "head": "6cf6a5d",
+    "head": "7d10d8f",
     "projectBoardUrl": "https://github.com/users/lanyusea/projects/3"
   },
   "game": {
@@ -564,29 +564,7 @@
   "kpiHistory": {
     "attack_count": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "attack_count",
-        "label": "Attack events",
-        "value": 0.0,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Attack event count."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "attack_count",
-        "label": "Attack events",
-        "value": 0.0,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Attack event count."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "attack_count",
         "label": "Attack events",
@@ -599,29 +577,7 @@
     ],
     "attack_damage": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "attack_damage",
-        "label": "Attack damage",
-        "value": 0.0,
-        "unit": "hits",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Attack damage event total."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "attack_damage",
-        "label": "Attack damage",
-        "value": 0.0,
-        "unit": "hits",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Attack damage event total."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "attack_damage",
         "label": "Attack damage",
@@ -634,29 +590,7 @@
     ],
     "creep_destroyed_count": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "creep_destroyed_count",
-        "label": "Creeps destroyed",
-        "value": 0.0,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Destroyed creep events."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "creep_destroyed_count",
-        "label": "Creeps destroyed",
-        "value": 0.0,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Destroyed creep events."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "creep_destroyed_count",
         "label": "Creeps destroyed",
@@ -669,29 +603,7 @@
     ],
     "defensive_readiness": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "defensive_readiness",
-        "label": "Defensive readiness",
-        "value": null,
-        "unit": "score",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Tactical readiness score when strategy telemetry exists. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "defensive_readiness",
-        "label": "Defensive readiness",
-        "value": null,
-        "unit": "score",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Tactical readiness score when strategy telemetry exists. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "defensive_readiness",
         "label": "Defensive readiness",
@@ -704,29 +616,7 @@
     ],
     "enemy_kills": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "enemy_kills",
-        "label": "Enemy kills",
-        "value": 0.0,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Enemy kill proxy until ownership-aware kill reducer is added."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "enemy_kills",
-        "label": "Enemy kills",
-        "value": 0.0,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Enemy kill proxy until ownership-aware kill reducer is added."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "enemy_kills",
         "label": "Enemy kills",
@@ -739,29 +629,7 @@
     ],
     "hostile_creep_count": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "hostile_creep_count",
-        "label": "Hostile creeps",
-        "value": 0.0,
-        "unit": "creeps",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Latest hostile creep count."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "hostile_creep_count",
-        "label": "Hostile creeps",
-        "value": 0.0,
-        "unit": "creeps",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Latest hostile creep count."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "hostile_creep_count",
         "label": "Hostile creeps",
@@ -774,29 +642,7 @@
     ],
     "hostile_structure_count": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "hostile_structure_count",
-        "label": "Hostile structures",
-        "value": 0.0,
-        "unit": "structures",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Latest hostile structure count."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "hostile_structure_count",
-        "label": "Hostile structures",
-        "value": 0.0,
-        "unit": "structures",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Latest hostile structure count."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "hostile_structure_count",
         "label": "Hostile structures",
@@ -809,29 +655,7 @@
     ],
     "object_destroyed_count": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "object_destroyed_count",
-        "label": "Objects destroyed",
-        "value": 0.0,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Destroyed object events."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "object_destroyed_count",
-        "label": "Objects destroyed",
-        "value": 0.0,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Destroyed object events."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "object_destroyed_count",
         "label": "Objects destroyed",
@@ -844,29 +668,7 @@
     ],
     "own_loss": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "combat",
-        "metric": "own_loss",
-        "label": "Own loss",
-        "value": null,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Own creep/structure loss count when instrumented. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "combat",
-        "metric": "own_loss",
-        "label": "Own loss",
-        "value": null,
-        "unit": "events",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Own creep/structure loss count when instrumented. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "combat",
         "metric": "own_loss",
         "label": "Own loss",
@@ -879,29 +681,7 @@
     ],
     "cpu_bucket": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "guardrails",
-        "metric": "cpu_bucket",
-        "label": "CPU bucket",
-        "value": null,
-        "unit": "cpu",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "CPU bucket level when telemetry is available. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "guardrails",
-        "metric": "cpu_bucket",
-        "label": "CPU bucket",
-        "value": null,
-        "unit": "cpu",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "CPU bucket level when telemetry is available. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "guardrails",
         "metric": "cpu_bucket",
         "label": "CPU bucket",
@@ -914,29 +694,7 @@
     ],
     "cpu_used": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "guardrails",
-        "metric": "cpu_used",
-        "label": "CPU used",
-        "value": null,
-        "unit": "cpu",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "CPU used per tick when telemetry is available. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "guardrails",
-        "metric": "cpu_used",
-        "label": "CPU used",
-        "value": null,
-        "unit": "cpu",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "CPU used per tick when telemetry is available. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "guardrails",
         "metric": "cpu_used",
         "label": "CPU used",
@@ -949,29 +707,7 @@
     ],
     "exceptions": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "guardrails",
-        "metric": "exceptions",
-        "label": "Loop exceptions",
-        "value": null,
-        "unit": "count",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Runtime loop exception count. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "guardrails",
-        "metric": "exceptions",
-        "label": "Loop exceptions",
-        "value": null,
-        "unit": "count",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Runtime loop exception count. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "guardrails",
         "metric": "exceptions",
         "label": "Loop exceptions",
@@ -984,29 +720,7 @@
     ],
     "resets": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "guardrails",
-        "metric": "resets",
-        "label": "Runtime resets",
-        "value": null,
-        "unit": "count",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Runtime reset count. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "guardrails",
-        "metric": "resets",
-        "label": "Runtime resets",
-        "value": null,
-        "unit": "count",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Runtime reset count. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "guardrails",
         "metric": "resets",
         "label": "Runtime resets",
@@ -1019,29 +733,7 @@
     ],
     "spawn_collapse": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "guardrails",
-        "metric": "spawn_collapse",
-        "label": "Spawn collapse",
-        "value": null,
-        "unit": "flag",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Emergency no-spawn/no-worker condition flag. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "guardrails",
-        "metric": "spawn_collapse",
-        "label": "Spawn collapse",
-        "value": null,
-        "unit": "flag",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Emergency no-spawn/no-worker condition flag. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "guardrails",
         "metric": "spawn_collapse",
         "label": "Spawn collapse",
@@ -1054,29 +746,7 @@
     ],
     "telemetry_silence": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "guardrails",
-        "metric": "telemetry_silence",
-        "label": "Telemetry silence",
-        "value": null,
-        "unit": "minutes",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Minutes since last telemetry when monitored. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "guardrails",
-        "metric": "telemetry_silence",
-        "label": "Telemetry silence",
-        "value": null,
-        "unit": "minutes",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Minutes since last telemetry when monitored. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "guardrails",
         "metric": "telemetry_silence",
         "label": "Telemetry silence",
@@ -1089,29 +759,7 @@
     ],
     "dropped_energy": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "dropped_energy",
-        "label": "Dropped energy",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Dropped energy from runtime summary."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "dropped_energy",
-        "label": "Dropped energy",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Dropped energy from runtime summary."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "dropped_energy",
         "label": "Dropped energy",
@@ -1124,29 +772,7 @@
     ],
     "harvest_delta": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "harvest_delta",
-        "label": "Harvest delta",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Harvest delta used for roadmap trend."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "harvest_delta",
-        "label": "Harvest delta",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Harvest delta used for roadmap trend."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "harvest_delta",
         "label": "Harvest delta",
@@ -1159,29 +785,7 @@
     ],
     "harvested_energy": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "harvested_energy",
-        "label": "Harvested energy",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Harvest event total over reducer window."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "harvested_energy",
-        "label": "Harvested energy",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Harvest event total over reducer window."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "harvested_energy",
         "label": "Harvested energy",
@@ -1194,29 +798,7 @@
     ],
     "remote_uptime": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "remote_uptime",
-        "label": "Remote uptime",
-        "value": null,
-        "unit": "ratio",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Remote-harvest uptime when instrumentation is available. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "remote_uptime",
-        "label": "Remote uptime",
-        "value": null,
-        "unit": "ratio",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Remote-harvest uptime when instrumentation is available. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "remote_uptime",
         "label": "Remote uptime",
@@ -1229,29 +811,7 @@
     ],
     "source_count": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "source_count",
-        "label": "Source count",
-        "value": null,
-        "unit": "sources",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Known source count when runtime summary includes it."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "source_count",
-        "label": "Source count",
-        "value": null,
-        "unit": "sources",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Known source count when runtime summary includes it."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "source_count",
         "label": "Source count",
@@ -1264,29 +824,7 @@
     ],
     "spawn_utilization": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "spawn_utilization",
-        "label": "Spawn utilization",
-        "value": null,
-        "unit": "ratio",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Spawn uptime/utilization when instrumentation is available. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "spawn_utilization",
-        "label": "Spawn utilization",
-        "value": null,
-        "unit": "ratio",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Spawn uptime/utilization when instrumentation is available. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "spawn_utilization",
         "label": "Spawn utilization",
@@ -1299,29 +837,7 @@
     ],
     "stored_energy": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "stored_energy",
-        "label": "Stored energy",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Resource reducer field; 0 until observed."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "stored_energy",
-        "label": "Stored energy",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Resource reducer field; 0 until observed."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "stored_energy",
         "label": "Stored energy",
@@ -1334,29 +850,7 @@
     ],
     "transferred_energy": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "transferred_energy",
-        "label": "Transferred energy",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Transfer event total over reducer window."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "transferred_energy",
-        "label": "Transferred energy",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Transfer event total over reducer window."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "transferred_energy",
         "label": "Transferred energy",
@@ -1369,29 +863,7 @@
     ],
     "worker_carried_energy": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "resources",
-        "metric": "worker_carried_energy",
-        "label": "Worker carried",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Worker carried energy from runtime summary."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "resources",
-        "metric": "worker_carried_energy",
-        "label": "Worker carried",
-        "value": 0.0,
-        "unit": "energy",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Worker carried energy from runtime summary."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "resources",
         "metric": "worker_carried_energy",
         "label": "Worker carried",
@@ -1404,29 +876,7 @@
     ],
     "controller_level": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "territory",
-        "metric": "controller_level",
-        "label": "Controller level",
-        "value": 3.0,
-        "unit": "RCL",
-        "instrumented": 1,
-        "source": "runtime-monitor",
-        "note": "Latest controller level from room monitor/reducer."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "territory",
-        "metric": "controller_level",
-        "label": "Controller level",
-        "value": 3.0,
-        "unit": "RCL",
-        "instrumented": 1,
-        "source": "runtime-monitor",
-        "note": "Latest controller level from room monitor/reducer."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "territory",
         "metric": "controller_level",
         "label": "Controller level",
@@ -1439,29 +889,7 @@
     ],
     "controller_progress": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "territory",
-        "metric": "controller_progress",
-        "label": "Controller progress",
-        "value": null,
-        "unit": "progress",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Controller progress from runtime summary when present."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "territory",
-        "metric": "controller_progress",
-        "label": "Controller progress",
-        "value": null,
-        "unit": "progress",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Controller progress from runtime summary when present."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "territory",
         "metric": "controller_progress",
         "label": "Controller progress",
@@ -1474,29 +902,7 @@
     ],
     "controller_progress_total": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "territory",
-        "metric": "controller_progress_total",
-        "label": "Controller progress total",
-        "value": null,
-        "unit": "progress",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Controller progress target from runtime summary when present."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "territory",
-        "metric": "controller_progress_total",
-        "label": "Controller progress total",
-        "value": null,
-        "unit": "progress",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Controller progress target from runtime summary when present."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "territory",
         "metric": "controller_progress_total",
         "label": "Controller progress total",
@@ -1509,29 +915,7 @@
     ],
     "controller_ticks_to_downgrade": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "territory",
-        "metric": "controller_ticks_to_downgrade",
-        "label": "Downgrade timer",
-        "value": null,
-        "unit": "ticks",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Downgrade risk from runtime summary when present."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "territory",
-        "metric": "controller_ticks_to_downgrade",
-        "label": "Downgrade timer",
-        "value": null,
-        "unit": "ticks",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Downgrade risk from runtime summary when present."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "territory",
         "metric": "controller_ticks_to_downgrade",
         "label": "Downgrade timer",
@@ -1544,29 +928,7 @@
     ],
     "owned_rooms": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "territory",
-        "metric": "owned_rooms",
-        "label": "Owned rooms",
-        "value": 1.0,
-        "unit": "rooms",
-        "instrumented": 1,
-        "source": "runtime-monitor",
-        "note": "Observed owned room count or safe current target baseline."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "territory",
-        "metric": "owned_rooms",
-        "label": "Owned rooms",
-        "value": 1.0,
-        "unit": "rooms",
-        "instrumented": 1,
-        "source": "runtime-monitor",
-        "note": "Observed owned room count or safe current target baseline."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "territory",
         "metric": "owned_rooms",
         "label": "Owned rooms",
@@ -1579,29 +941,7 @@
     ],
     "reserved_rooms": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "territory",
-        "metric": "reserved_rooms",
-        "label": "Reserved rooms",
-        "value": null,
-        "unit": "rooms",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Reserved or remote-room footprint when instrumented. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "territory",
-        "metric": "reserved_rooms",
-        "label": "Reserved rooms",
-        "value": null,
-        "unit": "rooms",
-        "instrumented": 0,
-        "source": "pending-instrumentation",
-        "note": "Reserved or remote-room footprint when instrumented. Pending telemetry/reducer implementation."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "territory",
         "metric": "reserved_rooms",
         "label": "Reserved rooms",
@@ -1614,29 +954,7 @@
     ],
     "room_gain": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "territory",
-        "metric": "room_gain",
-        "label": "Room gain",
-        "value": 0.0,
-        "unit": "rooms",
-        "instrumented": 1,
-        "source": "runtime-kpi-reducer",
-        "note": "Delta from reducer when available; otherwise current window baseline."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "territory",
-        "metric": "room_gain",
-        "label": "Room gain",
-        "value": 0.0,
-        "unit": "rooms",
-        "instrumented": 1,
-        "source": "runtime-kpi-reducer",
-        "note": "Delta from reducer when available; otherwise current window baseline."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "territory",
         "metric": "room_gain",
         "label": "Room gain",
@@ -1649,29 +967,7 @@
     ],
     "room_loss": [
       {
-        "captured_at": "2026-04-27T05:07:59Z",
-        "domain": "territory",
-        "metric": "room_loss",
-        "label": "Room loss",
-        "value": 0.0,
-        "unit": "rooms",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Loss-specific reducer field pending; room delta is tracked."
-      },
-      {
-        "captured_at": "2026-04-27T05:09:49Z",
-        "domain": "territory",
-        "metric": "room_loss",
-        "label": "Room loss",
-        "value": 0.0,
-        "unit": "rooms",
-        "instrumented": 0,
-        "source": "runtime-kpi-reducer",
-        "note": "Loss-specific reducer field pending; room delta is tracked."
-      },
-      {
-        "captured_at": "2026-04-27T05:10:43Z",
+        "captured_at": "2026-04-27T05:12:10Z",
         "domain": "territory",
         "metric": "room_loss",
         "label": "Room loss",
@@ -1947,7 +1243,7 @@
     ]
   },
   "processMetrics": {
-    "commits": 122,
+    "commits": 123,
     "prs": 47,
     "mergedPrs": 43,
     "issues": 22,
