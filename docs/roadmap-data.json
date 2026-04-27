@@ -3,8 +3,8 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-04-27T07:14:03Z",
-  "generatedAtCst": "2026-04-27 15:14:03 CST",
+  "generatedAt": "2026-04-27T07:44:17Z",
+  "generatedAtCst": "2026-04-27 15:44:17 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
@@ -167,7 +167,7 @@
         "status": "Ready",
         "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
         "type": "Issue",
-        "updatedAt": "2026-04-27T06:50:32Z",
+        "updatedAt": "2026-04-27T07:25:22Z",
         "url": "https://github.com/lanyusea/screeps/issues/29"
       },
       {
@@ -195,10 +195,13 @@
       "cards": [
         {
           "domain": "Runtime monitor",
+          "evidence": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-summary console capture utility, tests, and docs. Verification passed locally: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars. This solves the offline persistence primitive; live official-console wiring still pending.",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 29,
           "priority": "P1",
+          "state": "",
           "status": "In progress",
           "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
           "type": "Issue",
@@ -208,10 +211,45 @@
         },
         {
           "domain": "Runtime monitor",
+          "evidence": "PR #73 / fe7e0fa adds offline exact-prefix runtime-summary console capture, tests, docs, and active-state update. Local verification passed: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars.",
+          "kind": "code",
+          "lane": "Foundation",
+          "nextAction": "",
+          "number": 73,
+          "priority": "P1",
+          "state": "",
+          "status": "In review",
+          "title": "feat: capture runtime summary console artifacts",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/73",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Bot capability",
+          "evidence": "PR #72 restores GitHub Pages roadmap to approved v5 snapshot layout: exactly 3 visible KPI cards, no not-instrumented clutter in HTML, extra KPIs retained in SQLite only. Codex commit b9469cb; local browser visual smoke PASS; SQLite/LFS/enemy_kills/no-sidecars checks passed.",
+          "kind": "code",
+          "lane": "Foundation",
+          "nextAction": "",
+          "number": 72,
+          "priority": "P1",
+          "state": "",
+          "status": "In review",
+          "title": "fix: restore roadmap Pages report layout",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/72",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "evidence": "Issue created to connect runtime-alert signals to bounded tactical emergency triage.",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 62,
           "priority": "P1",
+          "state": "",
           "status": "Ready",
           "title": "P1: Phase C: tactical emergency response is not wired to runtime alerts",
           "type": "Issue",
@@ -221,10 +259,13 @@
         },
         {
           "domain": "Official MMO",
+          "evidence": "Issue created to enforce gameplay-aware normal release cadence and emergency hotfix gates.",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 63,
           "priority": "P1",
+          "state": "",
           "status": "Ready",
           "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
           "type": "Issue",
@@ -234,10 +275,13 @@
         },
         {
           "domain": "Private smoke",
+          "evidence": "Fresh clean live run redacted report",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 28,
           "priority": "P1",
+          "state": "",
           "status": "Ready",
           "title": "P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
           "type": "Issue",
@@ -247,10 +291,13 @@
         },
         {
           "domain": "Official MMO",
+          "evidence": "Deploy preflight, private-smoke gate, monitor proof, official API verification",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 33,
           "priority": "P1",
+          "state": "",
           "status": "Backlog",
           "title": "P1:Phase E:\u5b98\u65b9 MMO \u90e8\u7f72\u4ecd\u53d7\u79c1\u670d smoke release gate \u963b\u585e",
           "type": "Issue",
@@ -260,10 +307,13 @@
         },
         {
           "domain": "Runtime monitor",
+          "evidence": "Private smoke failure modes mapped into alert-level telemetry",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 32,
           "priority": "P2",
+          "state": "",
           "status": "Backlog",
           "title": "P2:Phase C:alert-level telemetry \u9700\u8981\u57fa\u4e8e\u79c1\u670d smoke \u5931\u8d25\u6a21\u5f0f\u8865\u9f50",
           "type": "Issue",
@@ -273,10 +323,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #42 merged at 2026-04-26T08:26:48Z after QA PASS; issue #41 closed; docs-only QA acceptance gate landed without touching PR #40-owned files.",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 41,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "Establish dedicated QA acceptance-check agent gate",
           "type": "Issue",
@@ -286,10 +339,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "P0 repair completed: PR #58 merged as c6120dc; 4h checkpoint, runtime-alert, P0 monitor, typed fanouts, runtime summary, and resumed bounded continuation worker all finalized with fresh output artifacts/no delivery errors; continuation restored to 5m cadence.",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 27,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "P0:P0 agent-ops:P0 \u76d1\u63a7\u4e0e Discord \u8def\u7531\u5065\u5eb7\u9700\u8981\u6301\u7eed\u9a8c\u8bc1",
           "type": "Issue",
@@ -299,10 +355,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "PR documenting GitHub roadmap management contract; verifies milestones/project fields/items",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 36,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "P0:P0 change-control:GitHub Milestones/Project roadmap source-of-truth \u5408\u540c\u672a\u5165\u5e93",
           "type": "Issue",
@@ -312,10 +371,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "Read-only inspection: main protected=false; branch protection API 404; active ruleset 'defualt' has no rules; prod-ci exists but path filters made it unsuitable as universal required check. PR #45 opened to make check always present.",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 26,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "P0:P0 change-control:main \u5206\u652f\u4fdd\u62a4\u4e0e CI \u5fc5\u8fc7\u95e8\u7981\u5c1a\u672a\u786e\u8ba4",
           "type": "Issue",
@@ -325,10 +387,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "PR #48 merged at 2026-04-26T10:17:39Z; merge commit 955a0df records owner governance decisions in docs/AGENTS.",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 47,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "P0:P0 change-control:owner roadmap governance decisions need durable contract sync",
           "type": "Issue",
@@ -338,10 +403,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "PR #34; issue form + PR template + docs contract",
           "kind": "ops",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 22,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "P0:P0 change-control:\u5df2\u77e5\u95ee\u9898\u672a\u5f3a\u5236\u8fdb\u5165 GitHub issue \u4e0e PR \u5173\u8054\u6d41\u7a0b",
           "type": "Issue",
@@ -351,10 +419,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "PR #40 merged at 2026-04-26T08:19:33Z; issue closed via Fixes #39; main fast-forwarded to d64f30a.",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 39,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "P0:P0 change-control:\u6240\u6709 agent \u4efb\u52a1\u5b8c\u6210\u6807\u51c6\u7f3a\u5c11 GitHub \u72b6\u6001\u66f4\u65b0\u95e8\u7981",
           "type": "Issue",
@@ -364,10 +435,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "Fixes #22; PR templates/issue form docs",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 34,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "chore: add issue and PR management templates",
           "type": "PullRequest",
@@ -377,10 +451,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "Merged PR #45 made prod verification required-check friendly; main ruleset now requires Verify prod TypeScript, Jest, and bundle.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 45,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "ci: make prod verification required-check friendly",
           "type": "PullRequest",
@@ -390,10 +467,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #42 establishes dedicated QA acceptance gate; merged 2026-04-26.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 42,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: add QA acceptance gate",
           "type": "PullRequest",
@@ -403,10 +483,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "Fixes #36; docs-only roadmap management contract",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 37,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record GitHub roadmap management contract",
           "type": "PullRequest",
@@ -416,10 +499,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #53 merged at 2026-04-26T13:03:35Z as 0bca111 after >=15m, prod-ci SUCCESS, CodeRabbit no actionable comments, Gemini no feedback, no review threads.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 53,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record P0 cron finalization gap",
           "type": "PullRequest",
@@ -429,10 +515,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #54 merged via squash at 2026-04-26T13:40:29Z; merge commit 0ebed16931f044bd4ab02800f0425cdaac7c3d0d; required check Verify prod TypeScript, Jest, and bundle SUCCESS; CodeRabbit status SUCCESS; review thread PRRT_kwDOSMSsO859qLyO resolved.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 54,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record P0 scheduler recovery",
           "type": "PullRequest",
@@ -442,10 +531,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "P0 visibility repair process note PR",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 21,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record P0 visibility repair",
           "type": "PullRequest",
@@ -455,10 +547,13 @@
         },
         {
           "domain": "Docs/process",
+          "evidence": "PR #38 records PR #37 merge checkpoint; merged 2026-04-26.",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 38,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record PR 37 merge checkpoint",
           "type": "PullRequest",
@@ -468,10 +563,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "Merged PR #46 records CI/ruleset gate completion; checks green (prod-ci SUCCESS, CodeRabbit SUCCESS); Gemini no feedback; merge commit 459a528.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 46,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record ci required gate completion",
           "type": "PullRequest",
@@ -481,10 +579,13 @@
         },
         {
           "domain": "Change-control",
+          "evidence": "Merged PR #48 at 2026-04-26T10:17:39Z after >=15m, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, QA PASS; merge commit 955a0df.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 48,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record owner governance decisions",
           "type": "PullRequest",
@@ -494,10 +595,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #43 documents scheduler alert gap audit; merged 2026-04-26.",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 43,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record scheduler alert gap audit",
           "type": "PullRequest",
@@ -507,10 +611,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "2026-04-26T18:26+08: PR #49 merged at 2026-04-26T10:23:37Z as 0343354734a48f173efa38f365c4cc12d76f2cc5 after gates passed: prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini COMMENTED with no feedback, review threads empty.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 49,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record scheduler cadence audit",
           "type": "PullRequest",
@@ -520,10 +627,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #52 documents 19:48 metadata-only scheduler cadence audit; prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini no feedback, no review threads; linked to #27.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 52,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record scheduler cadence audit at 1948",
           "type": "PullRequest",
@@ -533,10 +643,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #50 merged at 2026-04-26T10:49:25Z as 87512b615cc03e5364044dea41776a0b381c682c. Gates: >=15m wait satisfied, prod-ci SUCCESS, CodeRabbit SUCCESS status, Gemini no feedback, no unresolved live review threads.",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 50,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record scheduler cadence audit follow-up",
           "type": "PullRequest",
@@ -546,10 +659,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "Merged PR #44 documents scheduler cadence follow-up and links issue #27/#29; CodeRabbit SUCCESS; Gemini no critical feedback.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 44,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record scheduler cadence follow-up",
           "type": "PullRequest",
@@ -559,10 +675,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #56 documents renewed scheduler cadence regression; prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback; body patched with Related to #27.",
           "kind": "review",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 56,
           "priority": "P0",
+          "state": "",
           "status": "Done",
           "title": "docs: record scheduler cadence regression",
           "type": "PullRequest",
@@ -572,10 +691,13 @@
         },
         {
           "domain": "Private smoke",
+          "evidence": "Linked PR #16 / smoke harness verification evidence",
           "kind": "bug",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 23,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "P1:Phase D:\u79c1\u670d smoke STEAM_KEY \u6587\u4ef6\u6743\u9650\u66fe\u5bfc\u81f4\u5bb9\u5668\u4e0d\u53ef\u8bfb",
           "type": "Issue",
@@ -585,10 +707,13 @@
         },
         {
           "domain": "Docs/process",
+          "evidence": "PR #66 merged at 2026-04-27T03:29:27Z as 1f41670 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and empty GraphQL review threads.",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 66,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "docs: define gameplay finding Codex bridge",
           "type": "PullRequest",
@@ -598,10 +723,13 @@
         },
         {
           "domain": "Docs/process",
+          "evidence": "PR #55 merged after green checks/reviews; README now has formal community-facing description, logo asset, Discord invite, and docs lane mapping.",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 55,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "docs: prepare community-facing README",
           "type": "PullRequest",
@@ -611,10 +739,13 @@
         },
         {
           "domain": "Runtime monitor",
+          "evidence": "Merged PR #71 as 454e2cf after >=15m gate, green prod-ci/CodeRabbit, Gemini no-feedback review, and no active review threads; remote/local branch cleaned.",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 71,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "docs: record KPI persistence wiring checkpoint",
           "type": "PullRequest",
@@ -624,10 +755,13 @@
         },
         {
           "domain": "Docs/process",
+          "evidence": "PR #57 merged at 2026-04-26T15:17:58Z as cbe3641 after >=15m, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and no unresolved review threads.",
           "kind": "code",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 57,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "docs: record P0 scheduler recovery checkpoint",
           "type": "PullRequest",
@@ -637,10 +771,13 @@
         },
         {
           "domain": "Docs/process",
+          "evidence": "PR #58 merged at 2026-04-26T15:41:46Z as c6120dc after prod-ci success, CodeRabbit success, Gemini no feedback, and resolved/outdated review thread.",
           "kind": "code",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 58,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "docs: record P0 scheduler repair completion",
           "type": "PullRequest",
@@ -650,10 +787,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "PR #40 merged at 2026-04-26T08:19:33Z; CodeRabbit success; review threads empty; main at d64f30a.",
           "kind": "code",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 40,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "docs: require GitHub state updates before agent completion",
           "type": "PullRequest",
@@ -663,10 +803,13 @@
         },
         {
           "domain": "Runtime monitor",
+          "evidence": "Merged PR #70 as c21f1bb at 2026-04-27T06:09:41Z. Gates: prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments after 391d572, three prior review threads resolved/outdated, >=15m elapsed, controller QA checks passed.",
           "kind": "code",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 70,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "feat: add Codex-authored Pages roadmap report",
           "type": "PullRequest",
@@ -676,10 +819,13 @@
         },
         {
           "domain": "Runtime monitor",
+          "evidence": "Closed as superseded by Codex-authored PR #70 because PR #69 contained direct Hermes-authored implementation commits and an unresolved Python 3.10 compatibility review thread.",
           "kind": "code",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 69,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "feat: add GitHub Pages roadmap live report",
           "type": "PullRequest",
@@ -689,10 +835,13 @@
         },
         {
           "domain": "Runtime monitor",
+          "evidence": "PR #68 merged at 2026-04-27T05:09:10Z as da20ac4 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini no feedback, and GraphQL review thread resolved.",
           "kind": "code",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 68,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "feat: add runtime KPI artifact bridge",
           "type": "PullRequest",
@@ -702,10 +851,13 @@
         },
         {
           "domain": "Runtime monitor",
+          "evidence": "Merged PR #67 as f32cdc3 after review fixes 10d588a/ee5e852; checks passed (prod-ci, CodeRabbit), review threads resolved, main fast-forwarded and PR branch deleted.",
           "kind": "code",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 67,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "feat: add runtime KPI reducer",
           "type": "PullRequest",
@@ -715,10 +867,13 @@
         },
         {
           "domain": "Runtime monitor",
+          "evidence": "Merged PR #65 at 2026-04-27T02:49:49Z as 4d90ecd. Gates: prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, GraphQL review threads empty, >=15m elapsed, controller-side typecheck/test/build PASS.",
           "kind": "code",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 65,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "feat: add runtime KPI telemetry",
           "type": "PullRequest",
@@ -728,10 +883,13 @@
         },
         {
           "domain": "Docs/process",
+          "evidence": "Closed issue / PR #19",
           "kind": "docs",
           "lane": "Foundation",
+          "nextAction": "",
           "number": 24,
           "priority": "P2",
+          "state": "",
           "status": "Done",
           "title": "P2:Phase A:\u6839\u76ee\u5f55 AGENT.md \u6307\u9488\u6587\u4ef6\u5df2\u5e9f\u5f03\u4f46\u66fe\u6b8b\u7559",
           "type": "Issue",
@@ -741,10 +899,13 @@
         },
         {
           "domain": "Docs/process",
+          "evidence": "PR #70 merged as c21f1bb; Gameplay Evolution now has a static Pages/KPI reporting surface plus KPI artifact reducer/bridge on main. #60/#61 are done; #29 remains active for real runtime-summary persistence/wiring; #62/#63 remain Ready.",
           "kind": "ops",
           "lane": "Gameplay",
+          "nextAction": "",
           "number": 59,
           "priority": "P1",
+          "state": "",
           "status": "In progress",
           "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
           "type": "Issue",
@@ -754,10 +915,13 @@
         },
         {
           "domain": "Bot capability",
+          "evidence": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation work; kept Ready queued for parallel worker coverage.",
           "kind": "test",
           "lane": "Gameplay",
+          "nextAction": "",
           "number": 30,
           "priority": "P1",
+          "state": "",
           "status": "Ready",
           "title": "P1:Phase B:mock harness \u7f3a\u5c11\u591a tick spawn.spawning \u751f\u547d\u5468\u671f\u4eff\u771f",
           "type": "Issue",
@@ -767,10 +931,13 @@
         },
         {
           "domain": "Bot capability",
+          "evidence": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation work; kept Ready queued for parallel worker coverage.",
           "kind": "test",
           "lane": "Gameplay",
+          "nextAction": "",
           "number": 31,
           "priority": "P1",
+          "state": "",
           "status": "Ready",
           "title": "P1:Phase B:zero-creep/insufficient-energy emergency recovery \u8986\u76d6\u9700\u786e\u8ba4",
           "type": "Issue",
@@ -780,10 +947,13 @@
         },
         {
           "domain": "Bot capability",
+          "evidence": "Completed by merged PR #66 / 1f41670: durable Gameplay finding \u2192 GitHub issue/Project/Codex prompt bridge runbook with QA acceptance and first #29/#61 task examples.",
           "kind": "ops",
           "lane": "Gameplay",
+          "nextAction": "",
           "number": 61,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "P1: Phase B: gameplay findings do not yet bridge into Codex task pipeline",
           "type": "Issue",
@@ -793,10 +963,13 @@
         },
         {
           "domain": "Agent OS",
+          "evidence": "One-shot Gameplay Evolution dry run produced useful advisory output in session_cron_be2c21e9fd73; recurring 12h Screeps Gameplay Evolution Review job c7b3dda8f1ac created for #task-queue delivery.",
           "kind": "ops",
           "lane": "Gameplay",
+          "nextAction": "",
           "number": 60,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "P1: Phase C: 12h gameplay evolution review loop is not automated",
           "type": "Issue",
@@ -806,10 +979,13 @@
         },
         {
           "domain": "Docs/process",
+          "evidence": "PR #64 merged at 2026-04-27T02:09Z as 0377388; prod-ci and CodeRabbit green, Gemini no feedback, review threads empty, QA blocker resolved before merge.",
           "kind": "docs",
           "lane": "Gameplay",
+          "nextAction": "",
           "number": 64,
           "priority": "P1",
+          "state": "",
           "status": "Done",
           "title": "docs: add gameplay evolution roadmap",
           "type": "PullRequest",
@@ -830,10 +1006,13 @@
               "cards": [
                 {
                   "domain": "Bot capability",
+                  "evidence": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation work; kept Ready queued for parallel worker coverage.",
                   "kind": "test",
                   "lane": "Gameplay",
+                  "nextAction": "",
                   "number": 30,
                   "priority": "P1",
+                  "state": "",
                   "status": "Ready",
                   "title": "P1:Phase B:mock harness \u7f3a\u5c11\u591a tick spawn.spawning \u751f\u547d\u5468\u671f\u4eff\u771f",
                   "type": "Issue",
@@ -843,10 +1022,13 @@
                 },
                 {
                   "domain": "Bot capability",
+                  "evidence": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation work; kept Ready queued for parallel worker coverage.",
                   "kind": "test",
                   "lane": "Gameplay",
+                  "nextAction": "",
                   "number": 31,
                   "priority": "P1",
+                  "state": "",
                   "status": "Ready",
                   "title": "P1:Phase B:zero-creep/insufficient-energy emergency recovery \u8986\u76d6\u9700\u786e\u8ba4",
                   "type": "Issue",
@@ -861,10 +1043,13 @@
               "cards": [
                 {
                   "domain": "Docs/process",
+                  "evidence": "PR #70 merged as c21f1bb; Gameplay Evolution now has a static Pages/KPI reporting surface plus KPI artifact reducer/bridge on main. #60/#61 are done; #29 remains active for real runtime-summary persistence/wiring; #62/#63 remain Ready.",
                   "kind": "ops",
                   "lane": "Gameplay",
+                  "nextAction": "",
                   "number": 59,
                   "priority": "P1",
+                  "state": "",
                   "status": "In progress",
                   "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
                   "type": "Issue",
@@ -883,10 +1068,13 @@
               "cards": [
                 {
                   "domain": "Bot capability",
+                  "evidence": "Completed by merged PR #66 / 1f41670: durable Gameplay finding \u2192 GitHub issue/Project/Codex prompt bridge runbook with QA acceptance and first #29/#61 task examples.",
                   "kind": "ops",
                   "lane": "Gameplay",
+                  "nextAction": "",
                   "number": 61,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "P1: Phase B: gameplay findings do not yet bridge into Codex task pipeline",
                   "type": "Issue",
@@ -896,10 +1084,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "One-shot Gameplay Evolution dry run produced useful advisory output in session_cron_be2c21e9fd73; recurring 12h Screeps Gameplay Evolution Review job c7b3dda8f1ac created for #task-queue delivery.",
                   "kind": "ops",
                   "lane": "Gameplay",
+                  "nextAction": "",
                   "number": 60,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "P1: Phase C: 12h gameplay evolution review loop is not automated",
                   "type": "Issue",
@@ -909,10 +1100,13 @@
                 },
                 {
                   "domain": "Docs/process",
+                  "evidence": "PR #64 merged at 2026-04-27T02:09Z as 0377388; prod-ci and CodeRabbit green, Gemini no feedback, review threads empty, QA blocker resolved before merge.",
                   "kind": "docs",
                   "lane": "Gameplay",
+                  "nextAction": "",
                   "number": 64,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: add gameplay evolution roadmap",
                   "type": "PullRequest",
@@ -932,10 +1126,13 @@
               "cards": [
                 {
                   "domain": "Official MMO",
+                  "evidence": "Deploy preflight, private-smoke gate, monitor proof, official API verification",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 33,
                   "priority": "P1",
+                  "state": "",
                   "status": "Backlog",
                   "title": "P1:Phase E:\u5b98\u65b9 MMO \u90e8\u7f72\u4ecd\u53d7\u79c1\u670d smoke release gate \u963b\u585e",
                   "type": "Issue",
@@ -945,10 +1142,13 @@
                 },
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "Private smoke failure modes mapped into alert-level telemetry",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 32,
                   "priority": "P2",
+                  "state": "",
                   "status": "Backlog",
                   "title": "P2:Phase C:alert-level telemetry \u9700\u8981\u57fa\u4e8e\u79c1\u670d smoke \u5931\u8d25\u6a21\u5f0f\u8865\u9f50",
                   "type": "Issue",
@@ -963,10 +1163,13 @@
               "cards": [
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "Issue created to connect runtime-alert signals to bounded tactical emergency triage.",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 62,
                   "priority": "P1",
+                  "state": "",
                   "status": "Ready",
                   "title": "P1: Phase C: tactical emergency response is not wired to runtime alerts",
                   "type": "Issue",
@@ -976,10 +1179,13 @@
                 },
                 {
                   "domain": "Official MMO",
+                  "evidence": "Issue created to enforce gameplay-aware normal release cadence and emergency hotfix gates.",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 63,
                   "priority": "P1",
+                  "state": "",
                   "status": "Ready",
                   "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
                   "type": "Issue",
@@ -989,10 +1195,13 @@
                 },
                 {
                   "domain": "Private smoke",
+                  "evidence": "Fresh clean live run redacted report",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 28,
                   "priority": "P1",
+                  "state": "",
                   "status": "Ready",
                   "title": "P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
                   "type": "Issue",
@@ -1007,10 +1216,13 @@
               "cards": [
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-summary console capture utility, tests, and docs. Verification passed locally: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars. This solves the offline persistence primitive; live official-console wiring still pending.",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 29,
                   "priority": "P1",
+                  "state": "",
                   "status": "In progress",
                   "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
                   "type": "Issue",
@@ -1022,17 +1234,53 @@
               "status": "In progress"
             },
             {
-              "cards": [],
+              "cards": [
+                {
+                  "domain": "Runtime monitor",
+                  "evidence": "PR #73 / fe7e0fa adds offline exact-prefix runtime-summary console capture, tests, docs, and active-state update. Local verification passed: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars.",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "nextAction": "",
+                  "number": 73,
+                  "priority": "P1",
+                  "state": "",
+                  "status": "In review",
+                  "title": "feat: capture runtime summary console artifacts",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/73",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Bot capability",
+                  "evidence": "PR #72 restores GitHub Pages roadmap to approved v5 snapshot layout: exactly 3 visible KPI cards, no not-instrumented clutter in HTML, extra KPIs retained in SQLite only. Codex commit b9469cb; local browser visual smoke PASS; SQLite/LFS/enemy_kills/no-sidecars checks passed.",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "nextAction": "",
+                  "number": 72,
+                  "priority": "P1",
+                  "state": "",
+                  "status": "In review",
+                  "title": "fix: restore roadmap Pages report layout",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/72",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
               "status": "In review"
             },
             {
               "cards": [
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #42 merged at 2026-04-26T08:26:48Z after QA PASS; issue #41 closed; docs-only QA acceptance gate landed without touching PR #40-owned files.",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 41,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "Establish dedicated QA acceptance-check agent gate",
                   "type": "Issue",
@@ -1042,10 +1290,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "P0 repair completed: PR #58 merged as c6120dc; 4h checkpoint, runtime-alert, P0 monitor, typed fanouts, runtime summary, and resumed bounded continuation worker all finalized with fresh output artifacts/no delivery errors; continuation restored to 5m cadence.",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 27,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "P0:P0 agent-ops:P0 \u76d1\u63a7\u4e0e Discord \u8def\u7531\u5065\u5eb7\u9700\u8981\u6301\u7eed\u9a8c\u8bc1",
                   "type": "Issue",
@@ -1055,10 +1306,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "PR documenting GitHub roadmap management contract; verifies milestones/project fields/items",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 36,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "P0:P0 change-control:GitHub Milestones/Project roadmap source-of-truth \u5408\u540c\u672a\u5165\u5e93",
                   "type": "Issue",
@@ -1068,10 +1322,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "Read-only inspection: main protected=false; branch protection API 404; active ruleset 'defualt' has no rules; prod-ci exists but path filters made it unsuitable as universal required check. PR #45 opened to make check always present.",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 26,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "P0:P0 change-control:main \u5206\u652f\u4fdd\u62a4\u4e0e CI \u5fc5\u8fc7\u95e8\u7981\u5c1a\u672a\u786e\u8ba4",
                   "type": "Issue",
@@ -1081,10 +1338,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "PR #48 merged at 2026-04-26T10:17:39Z; merge commit 955a0df records owner governance decisions in docs/AGENTS.",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 47,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "P0:P0 change-control:owner roadmap governance decisions need durable contract sync",
                   "type": "Issue",
@@ -1094,10 +1354,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "PR #34; issue form + PR template + docs contract",
                   "kind": "ops",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 22,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "P0:P0 change-control:\u5df2\u77e5\u95ee\u9898\u672a\u5f3a\u5236\u8fdb\u5165 GitHub issue \u4e0e PR \u5173\u8054\u6d41\u7a0b",
                   "type": "Issue",
@@ -1107,10 +1370,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "PR #40 merged at 2026-04-26T08:19:33Z; issue closed via Fixes #39; main fast-forwarded to d64f30a.",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 39,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "P0:P0 change-control:\u6240\u6709 agent \u4efb\u52a1\u5b8c\u6210\u6807\u51c6\u7f3a\u5c11 GitHub \u72b6\u6001\u66f4\u65b0\u95e8\u7981",
                   "type": "Issue",
@@ -1120,10 +1386,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "Fixes #22; PR templates/issue form docs",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 34,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "chore: add issue and PR management templates",
                   "type": "PullRequest",
@@ -1133,10 +1402,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "Merged PR #45 made prod verification required-check friendly; main ruleset now requires Verify prod TypeScript, Jest, and bundle.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 45,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "ci: make prod verification required-check friendly",
                   "type": "PullRequest",
@@ -1146,10 +1418,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #42 establishes dedicated QA acceptance gate; merged 2026-04-26.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 42,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: add QA acceptance gate",
                   "type": "PullRequest",
@@ -1159,10 +1434,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "Fixes #36; docs-only roadmap management contract",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 37,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record GitHub roadmap management contract",
                   "type": "PullRequest",
@@ -1172,10 +1450,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #53 merged at 2026-04-26T13:03:35Z as 0bca111 after >=15m, prod-ci SUCCESS, CodeRabbit no actionable comments, Gemini no feedback, no review threads.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 53,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record P0 cron finalization gap",
                   "type": "PullRequest",
@@ -1185,10 +1466,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #54 merged via squash at 2026-04-26T13:40:29Z; merge commit 0ebed16931f044bd4ab02800f0425cdaac7c3d0d; required check Verify prod TypeScript, Jest, and bundle SUCCESS; CodeRabbit status SUCCESS; review thread PRRT_kwDOSMSsO859qLyO resolved.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 54,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record P0 scheduler recovery",
                   "type": "PullRequest",
@@ -1198,10 +1482,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "P0 visibility repair process note PR",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 21,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record P0 visibility repair",
                   "type": "PullRequest",
@@ -1211,10 +1498,13 @@
                 },
                 {
                   "domain": "Docs/process",
+                  "evidence": "PR #38 records PR #37 merge checkpoint; merged 2026-04-26.",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 38,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record PR 37 merge checkpoint",
                   "type": "PullRequest",
@@ -1224,10 +1514,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "Merged PR #46 records CI/ruleset gate completion; checks green (prod-ci SUCCESS, CodeRabbit SUCCESS); Gemini no feedback; merge commit 459a528.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 46,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record ci required gate completion",
                   "type": "PullRequest",
@@ -1237,10 +1530,13 @@
                 },
                 {
                   "domain": "Change-control",
+                  "evidence": "Merged PR #48 at 2026-04-26T10:17:39Z after >=15m, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, QA PASS; merge commit 955a0df.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 48,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record owner governance decisions",
                   "type": "PullRequest",
@@ -1250,10 +1546,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #43 documents scheduler alert gap audit; merged 2026-04-26.",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 43,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record scheduler alert gap audit",
                   "type": "PullRequest",
@@ -1263,10 +1562,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "2026-04-26T18:26+08: PR #49 merged at 2026-04-26T10:23:37Z as 0343354734a48f173efa38f365c4cc12d76f2cc5 after gates passed: prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini COMMENTED with no feedback, review threads empty.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 49,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record scheduler cadence audit",
                   "type": "PullRequest",
@@ -1276,10 +1578,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #52 documents 19:48 metadata-only scheduler cadence audit; prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini no feedback, no review threads; linked to #27.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 52,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record scheduler cadence audit at 1948",
                   "type": "PullRequest",
@@ -1289,10 +1594,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #50 merged at 2026-04-26T10:49:25Z as 87512b615cc03e5364044dea41776a0b381c682c. Gates: >=15m wait satisfied, prod-ci SUCCESS, CodeRabbit SUCCESS status, Gemini no feedback, no unresolved live review threads.",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 50,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record scheduler cadence audit follow-up",
                   "type": "PullRequest",
@@ -1302,10 +1610,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "Merged PR #44 documents scheduler cadence follow-up and links issue #27/#29; CodeRabbit SUCCESS; Gemini no critical feedback.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 44,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record scheduler cadence follow-up",
                   "type": "PullRequest",
@@ -1315,10 +1626,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #56 documents renewed scheduler cadence regression; prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback; body patched with Related to #27.",
                   "kind": "review",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 56,
                   "priority": "P0",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record scheduler cadence regression",
                   "type": "PullRequest",
@@ -1328,10 +1642,13 @@
                 },
                 {
                   "domain": "Private smoke",
+                  "evidence": "Linked PR #16 / smoke harness verification evidence",
                   "kind": "bug",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 23,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "P1:Phase D:\u79c1\u670d smoke STEAM_KEY \u6587\u4ef6\u6743\u9650\u66fe\u5bfc\u81f4\u5bb9\u5668\u4e0d\u53ef\u8bfb",
                   "type": "Issue",
@@ -1341,10 +1658,13 @@
                 },
                 {
                   "domain": "Docs/process",
+                  "evidence": "PR #66 merged at 2026-04-27T03:29:27Z as 1f41670 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and empty GraphQL review threads.",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 66,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: define gameplay finding Codex bridge",
                   "type": "PullRequest",
@@ -1354,10 +1674,13 @@
                 },
                 {
                   "domain": "Docs/process",
+                  "evidence": "PR #55 merged after green checks/reviews; README now has formal community-facing description, logo asset, Discord invite, and docs lane mapping.",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 55,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: prepare community-facing README",
                   "type": "PullRequest",
@@ -1367,10 +1690,13 @@
                 },
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "Merged PR #71 as 454e2cf after >=15m gate, green prod-ci/CodeRabbit, Gemini no-feedback review, and no active review threads; remote/local branch cleaned.",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 71,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record KPI persistence wiring checkpoint",
                   "type": "PullRequest",
@@ -1380,10 +1706,13 @@
                 },
                 {
                   "domain": "Docs/process",
+                  "evidence": "PR #57 merged at 2026-04-26T15:17:58Z as cbe3641 after >=15m, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and no unresolved review threads.",
                   "kind": "code",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 57,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record P0 scheduler recovery checkpoint",
                   "type": "PullRequest",
@@ -1393,10 +1722,13 @@
                 },
                 {
                   "domain": "Docs/process",
+                  "evidence": "PR #58 merged at 2026-04-26T15:41:46Z as c6120dc after prod-ci success, CodeRabbit success, Gemini no feedback, and resolved/outdated review thread.",
                   "kind": "code",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 58,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: record P0 scheduler repair completion",
                   "type": "PullRequest",
@@ -1406,10 +1738,13 @@
                 },
                 {
                   "domain": "Agent OS",
+                  "evidence": "PR #40 merged at 2026-04-26T08:19:33Z; CodeRabbit success; review threads empty; main at d64f30a.",
                   "kind": "code",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 40,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "docs: require GitHub state updates before agent completion",
                   "type": "PullRequest",
@@ -1419,10 +1754,13 @@
                 },
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "Merged PR #70 as c21f1bb at 2026-04-27T06:09:41Z. Gates: prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments after 391d572, three prior review threads resolved/outdated, >=15m elapsed, controller QA checks passed.",
                   "kind": "code",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 70,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "feat: add Codex-authored Pages roadmap report",
                   "type": "PullRequest",
@@ -1432,10 +1770,13 @@
                 },
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "Closed as superseded by Codex-authored PR #70 because PR #69 contained direct Hermes-authored implementation commits and an unresolved Python 3.10 compatibility review thread.",
                   "kind": "code",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 69,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "feat: add GitHub Pages roadmap live report",
                   "type": "PullRequest",
@@ -1445,10 +1786,13 @@
                 },
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "PR #68 merged at 2026-04-27T05:09:10Z as da20ac4 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini no feedback, and GraphQL review thread resolved.",
                   "kind": "code",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 68,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "feat: add runtime KPI artifact bridge",
                   "type": "PullRequest",
@@ -1458,10 +1802,13 @@
                 },
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "Merged PR #67 as f32cdc3 after review fixes 10d588a/ee5e852; checks passed (prod-ci, CodeRabbit), review threads resolved, main fast-forwarded and PR branch deleted.",
                   "kind": "code",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 67,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "feat: add runtime KPI reducer",
                   "type": "PullRequest",
@@ -1471,10 +1818,13 @@
                 },
                 {
                   "domain": "Runtime monitor",
+                  "evidence": "Merged PR #65 at 2026-04-27T02:49:49Z as 4d90ecd. Gates: prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, GraphQL review threads empty, >=15m elapsed, controller-side typecheck/test/build PASS.",
                   "kind": "code",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 65,
                   "priority": "P1",
+                  "state": "",
                   "status": "Done",
                   "title": "feat: add runtime KPI telemetry",
                   "type": "PullRequest",
@@ -1484,10 +1834,13 @@
                 },
                 {
                   "domain": "Docs/process",
+                  "evidence": "Closed issue / PR #19",
                   "kind": "docs",
                   "lane": "Foundation",
+                  "nextAction": "",
                   "number": 24,
                   "priority": "P2",
+                  "state": "",
                   "status": "Done",
                   "title": "P2:Phase A:\u6839\u76ee\u5f55 AGENT.md \u6307\u9488\u6587\u4ef6\u5df2\u5e9f\u5f03\u4f46\u66fe\u6b8b\u7559",
                   "type": "Issue",
@@ -1511,7 +1864,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 0
+        "value": 2
       },
       {
         "instrumented": true,
@@ -1521,7 +1874,7 @@
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 48
+        "value": 50
       },
       {
         "instrumented": true,
@@ -1531,7 +1884,7 @@
       {
         "instrumented": true,
         "label": "In review",
-        "value": 0
+        "value": 2
       }
     ],
     "projectItems": [
@@ -1669,7 +2022,7 @@
       {
         "blockedBy": "",
         "domain": "Runtime monitor",
-        "evidence": "PR #71 merged as 454e2cf: docs checkpoint records #65/#67/#68/#70 merged, artifact bridge default scan still has 0 persisted real #runtime-summary lines, and Pages dry run remains KPI-unobserved until persistence source exists.",
+        "evidence": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-summary console capture utility, tests, and docs. Verification passed locally: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars. This solves the offline persistence primitive; live official-console wiring still pending.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -2450,9 +2803,90 @@
         "type": "PullRequest",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/pull/71"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "evidence": "PR #72 restores GitHub Pages roadmap to approved v5 snapshot layout: exactly 3 visible KPI cards, no not-instrumented clutter in HTML, extra KPIs retained in SQLite only. Codex commit b9469cb; local browser visual smoke PASS; SQLite/LFS/enemy_kills/no-sidecars checks passed.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 72,
+        "priority": "P1",
+        "state": "",
+        "status": "In review",
+        "title": "fix: restore roadmap Pages report layout",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/72"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "PR #73 / fe7e0fa adds offline exact-prefix runtime-summary console capture, tests, docs, and active-state update. Local verification passed: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 73,
+        "priority": "P1",
+        "state": "",
+        "status": "In review",
+        "title": "feat: capture runtime summary console artifacts",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/73"
       }
     ],
-    "pullRequests": [],
+    "pullRequests": [
+      {
+        "checks": {
+          "failure": 0,
+          "pending": 0,
+          "success": 2,
+          "total": 2
+        },
+        "createdAt": "2026-04-27T07:23:40Z",
+        "domain": "Runtime monitor",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 73,
+        "priority": "P1",
+        "reviewDecision": "",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "feat: capture runtime summary console artifacts",
+        "type": "PullRequest",
+        "updatedAt": "2026-04-27T07:35:21Z",
+        "url": "https://github.com/lanyusea/screeps/pull/73"
+      },
+      {
+        "checks": {
+          "failure": 0,
+          "pending": 0,
+          "success": 2,
+          "total": 2
+        },
+        "createdAt": "2026-04-27T07:16:54Z",
+        "domain": "Bot capability",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 72,
+        "priority": "P1",
+        "reviewDecision": "",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "fix: restore roadmap Pages report layout",
+        "type": "PullRequest",
+        "updatedAt": "2026-04-27T07:21:58Z",
+        "url": "https://github.com/lanyusea/screeps/pull/72"
+      }
+    ],
     "roadmapCards": [
       {
         "domain": "Agent OS",
@@ -3312,6 +3746,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "alert_false_positives": [
@@ -3382,6 +3858,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3456,6 +3974,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "attack_damage": [
@@ -3526,6 +4086,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3600,6 +4202,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "controller_level_sum": [
@@ -3670,6 +4314,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3744,6 +4430,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "cpu_bucket": [
@@ -3814,6 +4542,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3888,6 +4658,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "creeps_destroyed_generic": [
@@ -3958,6 +4770,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4032,6 +4886,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "enemy_kills": [
@@ -4102,6 +4998,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4176,6 +5114,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "harvested_energy": [
@@ -4246,6 +5226,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4320,6 +5342,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "hostile_structures": [
@@ -4390,6 +5454,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4464,6 +5570,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "objects_destroyed": [
@@ -4534,6 +5682,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4608,6 +5798,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "owned_room_delta": [
@@ -4678,6 +5910,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4752,6 +6026,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "reserved_remote_rooms": [
@@ -4822,6 +6138,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4896,6 +6254,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "runtime_summary_samples": [
@@ -4966,6 +6366,48 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "observed",
           "value": 0.0
         }
@@ -5040,6 +6482,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "spawn_queue_pressure": [
@@ -5110,6 +6594,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5184,6 +6710,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "stored_energy": [
@@ -5254,6 +6822,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5328,6 +6938,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "telemetry_silence_minutes": [
@@ -5398,6 +7050,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5472,6 +7166,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "worker_carried_energy": [
@@ -5542,6 +7278,48 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5616,6 +7394,48 @@
           "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:37:50Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:38:26Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:40:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:41:08Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:43:01Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
         }
       ]
     }
@@ -5637,93 +7457,136 @@
       "status": "official target",
       "url": "https://screeps.com/a/#!/room/shardX/E48S28"
     },
-    "shortSha": "454e2cf",
+    "shortSha": "b9469cb",
     "url": "https://github.com/lanyusea/screeps"
   },
   "report": {
+    "contract": "Owner-approved roadmap-portrait-kpi-kanban-v5 presentation contract from Discord message/image 1498175235797811291.",
     "foundationKanban": [
+      {
+        "items": [],
+        "title": "Backlog"
+      },
       {
         "items": [
           {
-            "description": "Do not deploy until Phase D private-smoke gate and monitor proof are complete, unless owner\u2026",
+            "description": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-summary console capture u...",
+            "number": 29,
+            "priority": "P1",
+            "title": "#29 P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
+            "url": "https://github.com/lanyusea/screeps/issues/29"
+          },
+          {
+            "description": "PR #73 / fe7e0fa adds offline exact-prefix runtime-summary console capture, tests, docs, and active-state upd...",
+            "number": 73,
+            "priority": "P1",
+            "title": "#73 feat: capture runtime summary console artifacts",
+            "url": "https://github.com/lanyusea/screeps/pull/73"
+          },
+          {
+            "description": "PR #72 restores GitHub Pages roadmap to approved v5 snapshot layout: exactly 3 visible KPI cards, no not-inst...",
+            "number": 72,
+            "priority": "P1",
+            "title": "#72 fix: restore roadmap Pages report layout",
+            "url": "https://github.com/lanyusea/screeps/pull/72"
+          },
+          {
+            "description": "Issue created to connect runtime-alert signals to bounded tactical emergency triage.",
+            "number": 62,
+            "priority": "P1",
+            "title": "#62 P1: Phase C: tactical emergency response is not wired to runtime...",
+            "url": "https://github.com/lanyusea/screeps/issues/62"
+          }
+        ],
+        "title": "\u5f00\u53d1\u4e2d"
+      },
+      {
+        "items": [
+          {
+            "description": "Fresh clean live run redacted report",
+            "number": 28,
+            "priority": "P1",
+            "title": "#28 P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
+            "url": "https://github.com/lanyusea/screeps/issues/28"
+          },
+          {
+            "description": "Deploy preflight, private-smoke gate, monitor proof, official API verification",
             "number": 33,
             "priority": "P1",
             "title": "#33 P1:Phase E:\u5b98\u65b9 MMO \u90e8\u7f72\u4ecd\u53d7\u79c1\u670d smoke release gate \u963b\u585e",
             "url": "https://github.com/lanyusea/screeps/issues/33"
           },
           {
-            "description": "Update release docs/checklist so every gameplay release records expected KPI movement and p\u2026",
-            "number": 63,
-            "priority": "P1",
-            "title": "#63 P1: Phase E: gameplay release cadence and emergency h\u2026",
-            "url": "https://github.com/lanyusea/screeps/issues/63"
-          }
-        ],
-        "title": "Backlog"
-      },
-      {
-        "items": [],
-        "title": "\u5f00\u53d1\u4e2d"
-      },
-      {
-        "items": [
-          {
-            "description": "Run clean ignored-workdir private smoke harness and attach/report redacted evidence.",
-            "number": 28,
-            "priority": "P1",
-            "title": "#28 P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
-            "url": "https://github.com/lanyusea/screeps/issues/28"
+            "description": "Private smoke failure modes mapped into alert-level telemetry",
+            "number": 32,
+            "priority": "P2",
+            "title": "#32 P2:Phase C:alert-level telemetry \u9700\u8981\u57fa\u4e8e\u79c1\u670d smoke \u5931\u8d25\u6a21\u5f0f\u8865\u9f50",
+            "url": "https://github.com/lanyusea/screeps/issues/32"
           }
         ],
         "title": "\u79c1\u670d\u9a8c\u8bc1\u4e2d"
       },
       {
-        "items": [],
+        "items": [
+          {
+            "description": "PR #42 merged at 2026-04-26T08:26:48Z after QA PASS; issue #41 closed; docs-only QA acceptance gate landed wi...",
+            "number": 41,
+            "priority": "P0",
+            "title": "#41 Establish dedicated QA acceptance-check agent gate",
+            "url": "https://github.com/lanyusea/screeps/issues/41"
+          },
+          {
+            "description": "P0 repair completed: PR #58 merged as c6120dc; 4h checkpoint, runtime-alert, P0 monitor, typed fanouts, runti...",
+            "number": 27,
+            "priority": "P0",
+            "title": "#27 P0:P0 agent-ops:P0 \u76d1\u63a7\u4e0e Discord \u8def\u7531\u5065\u5eb7\u9700\u8981\u6301\u7eed\u9a8c\u8bc1",
+            "url": "https://github.com/lanyusea/screeps/issues/27"
+          },
+          {
+            "description": "PR documenting GitHub roadmap management contract; verifies milestones/project fields/items",
+            "number": 36,
+            "priority": "P0",
+            "title": "#36 P0:P0 change-control:GitHub Milestones/Project roadmap source-of-...",
+            "url": "https://github.com/lanyusea/screeps/issues/36"
+          },
+          {
+            "description": "Read-only inspection: main protected=false; branch protection API 404; active ruleset 'defualt' has no rules;...",
+            "number": 26,
+            "priority": "P0",
+            "title": "#26 P0:P0 change-control:main \u5206\u652f\u4fdd\u62a4\u4e0e CI \u5fc5\u8fc7\u95e8\u7981\u5c1a\u672a\u786e\u8ba4",
+            "url": "https://github.com/lanyusea/screeps/issues/26"
+          }
+        ],
         "title": "\u5df2\u4e0a\u7ebf"
       }
     ],
     "gameplayKanban": [
       {
+        "items": [],
+        "title": "Backlog"
+      },
+      {
         "items": [
           {
-            "description": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke\u2026",
+            "description": "Docs/process",
+            "number": 59,
+            "priority": "P1",
+            "title": "#59 P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to road...",
+            "url": "https://github.com/lanyusea/screeps/issues/59"
+          },
+          {
+            "description": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation w...",
             "number": 30,
             "priority": "P1",
             "title": "#30 P1:Phase B:mock harness \u7f3a\u5c11\u591a tick spawn.spawning \u751f\u547d\u5468\u671f\u4eff\u771f",
             "url": "https://github.com/lanyusea/screeps/issues/30"
           },
           {
-            "description": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke\u2026",
+            "description": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation w...",
             "number": 31,
             "priority": "P1",
-            "title": "#31 P1:Phase B:zero-creep/insufficient-energy emergency r\u2026",
+            "title": "#31 P1:Phase B:zero-creep/insufficient-energy emergency recovery \u8986\u76d6\u9700\u786e\u8ba4",
             "url": "https://github.com/lanyusea/screeps/issues/31"
-          },
-          {
-            "description": "Define trigger matrix, report template, and no-alert/simulated dry-run before automatic eme\u2026",
-            "number": 62,
-            "priority": "P1",
-            "title": "#62 P1: Phase C: tactical emergency response is not wired\u2026",
-            "url": "https://github.com/lanyusea/screeps/issues/62"
-          }
-        ],
-        "title": "Backlog"
-      },
-      {
-        "items": [
-          {
-            "description": "Review/merge PR #70 if gates pass, then use its static report plus KPI artifact bridge in t\u2026",
-            "number": 59,
-            "priority": "P1",
-            "title": "#59 P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result re\u2026",
-            "url": "https://github.com/lanyusea/screeps/issues/59"
-          },
-          {
-            "description": "Close PR #70 loop after checks/reviews/QA; then wire real persisted #runtime-summary eviden\u2026",
-            "number": 29,
-            "priority": "P1",
-            "title": "#29 P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
-            "url": "https://github.com/lanyusea/screeps/issues/29"
           }
         ],
         "title": "\u5f00\u53d1\u4e2d"
@@ -5733,13 +7596,45 @@
         "title": "\u79c1\u670d\u9a8c\u8bc1\u4e2d"
       },
       {
-        "items": [],
+        "items": [
+          {
+            "description": "Completed by merged PR #66 / 1f41670: durable Gameplay finding \u2192 GitHub issue/Project/Codex prompt bridge run...",
+            "number": 61,
+            "priority": "P1",
+            "title": "#61 P1: Phase B: gameplay findings do not yet bridge into Codex task...",
+            "url": "https://github.com/lanyusea/screeps/issues/61"
+          },
+          {
+            "description": "One-shot Gameplay Evolution dry run produced useful advisory output in session_cron_be2c21e9fd73; recurring 1...",
+            "number": 60,
+            "priority": "P1",
+            "title": "#60 P1: Phase C: 12h gameplay evolution review loop is not automated",
+            "url": "https://github.com/lanyusea/screeps/issues/60"
+          },
+          {
+            "description": "PR #64 merged at 2026-04-27T02:09Z as 0377388; prod-ci and CodeRabbit green, Gemini no feedback, review threa...",
+            "number": 64,
+            "priority": "P1",
+            "title": "#64 docs: add gameplay evolution roadmap",
+            "url": "https://github.com/lanyusea/screeps/pull/64"
+          }
+        ],
         "title": "\u5df2\u4e0a\u7ebf"
       }
     ],
+    "id": "roadmap-portrait-kpi-kanban-v5",
     "kpiCards": [
       {
-        "footer": "7d \u5386\u53f2\u4ecd\u5728\u63a5\u5165\uff1b\u5f53\u524d\u70b9\u6765\u81ea official room monitor / Project evidence\u3002",
+        "dates": [
+          "4/21",
+          "4/22",
+          "4/23",
+          "4/24",
+          "4/25",
+          "4/26",
+          "4/27"
+        ],
+        "footer": "No observed runtime KPI history yet; missing buckets stay blank until persisted summaries exist.",
         "key": "territory",
         "max": 3,
         "pill": "rooms/RCL",
@@ -5747,28 +7642,48 @@
           {
             "color": "#9f6a3a",
             "label": "Owned rooms",
+            "metric": "owned_rooms",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              1,
-              1,
-              1,
-              1,
-              1,
-              1,
-              1
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 4
           },
           {
             "color": "#77716a",
             "label": "RCL",
+            "metric": "controller_level_sum",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              3,
-              3,
-              3,
-              3,
-              3,
-              3,
-              3
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 4
           },
@@ -5776,14 +7691,24 @@
             "color": "#c8945a",
             "dash": "6 6",
             "label": "Room gain",
+            "metric": "owned_room_delta",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 3
           }
@@ -5797,7 +7722,16 @@
         "title": "\u5730\u76d8 / Territory"
       },
       {
-        "footer": "PR #65 \u5df2\u52a0\u5165\u8d44\u6e90\u5b57\u6bb5\uff1breducer/7d \u805a\u5408\u4ecd\u5c5e #29\u3002",
+        "dates": [
+          "4/21",
+          "4/22",
+          "4/23",
+          "4/24",
+          "4/25",
+          "4/26",
+          "4/27"
+        ],
+        "footer": "No observed runtime KPI history yet; missing buckets stay blank until persisted summaries exist.",
         "key": "resources",
         "max": 1,
         "pill": "energy",
@@ -5805,28 +7739,48 @@
           {
             "color": "#25211c",
             "label": "Stored energy",
+            "metric": "stored_energy",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 2
           },
           {
             "color": "#66605a",
             "label": "Harvest delta",
+            "metric": "harvested_energy",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 2
           },
@@ -5834,14 +7788,24 @@
             "color": "#c8945a",
             "dash": "6 6",
             "label": "Worker carried",
+            "metric": "worker_carried_energy",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 3
           }
@@ -5855,7 +7819,16 @@
         "title": "\u8d44\u6e90 / Resources"
       },
       {
-        "footer": "kill/loss \u4e8b\u4ef6 7d reducer \u672a\u63a5\u5165\uff1b\u5f53\u524d hostile monitor no-alert\u3002",
+        "dates": [
+          "4/21",
+          "4/22",
+          "4/23",
+          "4/24",
+          "4/25",
+          "4/26",
+          "4/27"
+        ],
+        "footer": "Enemy-kill ownership data is unavailable; generic creepDestroyed is not counted as kills.",
         "key": "combat",
         "max": 1,
         "pill": "events",
@@ -5863,28 +7836,48 @@
           {
             "color": "#25211c",
             "label": "Enemy kills",
+            "metric": "enemy_kills",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 2
           },
           {
             "color": "#77716a",
             "label": "Hostiles seen",
+            "metric": "hostile_creeps",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 4
           },
@@ -5892,14 +7885,24 @@
             "color": "#c8945a",
             "dash": "6 6",
             "label": "Own loss",
+            "metric": "own_losses",
+            "statuses": [
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "missing",
+              "not instrumented"
+            ],
             "values": [
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
             ],
             "width": 3
           }
@@ -5916,20 +7919,22 @@
     "processCards": [
       {
         "delta": "+1",
-        "detail": "HEAD 454e2cf",
+        "detail": "HEAD b9469cb",
         "label": "\u603b commit \u6570",
-        "value": 120
+        "value": 121
       },
       {
         "delta": "+1",
         "detail": "45 merged",
         "label": "\u603b PR \u6570",
-        "value": 49
+        "source": "github",
+        "value": 51
       },
       {
         "delta": "+0",
         "detail": "9 open",
         "label": "\u603b issue \u6570",
+        "source": "github",
         "value": 22
       },
       {
@@ -5942,59 +7947,56 @@
         "delta": "+0",
         "detail": "smoke/report evidence",
         "label": "\u79c1\u670d\u5185\u603b\u6d4b\u8bd5\u6b21\u6570",
-        "value": 2
+        "source": "approved process report count",
+        "value": 1
       }
     ],
     "roadmapCards": [
       {
         "goal": "\u771f\u5b9e\u6e38\u620f\u7ed3\u679c\u9a71\u52a8 roadmap / task / release",
-        "issue": 59,
-        "next": "#59 \u7edf\u7b79\uff1b#60 done\uff1b#61 bridge in progress",
-        "progress": 10,
-        "status": "\u2713 12h review job \u5df2\u5efa\uff1bPR #66 \u5728 review",
+        "next": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
+        "progress": 58,
+        "status": "#59 In progress \u00b7 Docs/process",
         "title": "Gameplay Evolution",
         "url": "https://github.com/lanyusea/screeps/issues/59"
       },
       {
         "goal": "\u5148\u62ff\u4e0b\u5e76\u5b88\u4f4f\u66f4\u5927\u7248\u56fe",
-        "next": "owned/reserved/room gain/RCL KPI",
-        "progress": 15,
-        "status": "\u2713 E48S28 Spawn1\uff1b\u591a\u623f\u95f4\u7b56\u7565\u5f85\u5f00\u53d1",
-        "title": "Territory / \u5360\u5730"
+        "next": "No current GitHub/Project evidence available.",
+        "progress": 0,
+        "status": "No matching Project item",
+        "title": "Territory / \u5360\u5730",
+        "url": ""
       },
       {
         "goal": "\u628a\u5360\u5730\u8f6c\u6362\u6210\u80fd\u91cf\u3001\u77ff\u7269\u3001\u7269\u6d41\u89c4\u6a21",
-        "issue": 29,
-        "next": "harvest/transfer/store deltas",
-        "progress": 15,
-        "status": "\u2713 PR #65 payload\uff1b#29 reducer \u5f85\u63a5\u5165",
+        "next": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-s...",
+        "progress": 58,
+        "status": "#29 In progress \u00b7 GitHub",
         "title": "Resource Economy",
         "url": "https://github.com/lanyusea/screeps/issues/29"
       },
       {
         "goal": "\u9632\u5fa1/\u8fdb\u653b\u670d\u52a1\u4e8e\u9886\u571f\u548c\u7ecf\u6d4e\u63a7\u5236",
-        "issue": 62,
-        "next": "event-log kills/losses + tactical bridge",
-        "progress": 5,
-        "status": "\u2713 #62 Ready\uff1bkill KPI reducer \u672a\u63a5\u5165",
+        "next": "Issue created to connect runtime-alert signals to bounded tactical emergency triage.",
+        "progress": 35,
+        "status": "#62 Ready \u00b7 GitHub",
         "title": "Combat / \u654c\u4eba\u51fb\u6740",
         "url": "https://github.com/lanyusea/screeps/issues/62"
       },
       {
         "goal": "\u81ea\u52a8\u5316\u7cfb\u7edf\u5065\u5eb7\u53ea\u5728\u963b\u585e\u65f6\u538b\u8fc7\u6e38\u620f\u76ee\u6807",
-        "issue": 27,
-        "next": "P0 monitor watch / no silent scheduler failures",
+        "next": "P0 repair completed: PR #58 merged as c6120dc; 4h checkpoint, runtime-alert, P0 monit...",
         "progress": 100,
-        "status": "\u2713 #27 Done watch-only",
+        "status": "#27 Done \u00b7 Agent OS",
         "title": "Reliability / P0",
         "url": "https://github.com/lanyusea/screeps/issues/27"
       },
       {
         "goal": "\u79c1\u670d\u9a8c\u8bc1 / release gate / official MMO",
-        "issue": 28,
-        "next": "private smoke + release/hotfix evidence",
-        "progress": 85,
-        "status": "\u2713 #28 Ready\uff1b#63 Ready\uff1b#33 blocked",
+        "next": "Fresh clean live run redacted report",
+        "progress": 35,
+        "status": "#28 Ready \u00b7 GitHub",
         "title": "Foundation Gates",
         "url": "https://github.com/lanyusea/screeps/issues/28"
       }
@@ -6009,7 +8011,7 @@
       "matchedFiles": 0,
       "reason": "",
       "runtimeSummaryLines": 0,
-      "scannedFiles": 71538,
+      "scannedFiles": 71545,
       "skippedFileCount": 1643
     },
     "window": {

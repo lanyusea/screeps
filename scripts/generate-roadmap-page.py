@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import html
 import json
 import math
@@ -13,7 +14,7 @@ import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -447,9 +448,16 @@ CATEGORY_ACCENTS = {
 
 CST = timezone(timedelta(hours=8), "CST")
 REPORT_FORMAT = "roadmap-portrait-kpi-kanban-v5"
+APPROVED_REPORT_MODEL_ID = REPORT_FORMAT
+STALE_VISIBLE_REPORT_MARKERS: tuple[str, ...] = ("pr #70",)
 
 KPI_DATES: tuple[str, ...] = ("4/21", "4/22", "4/23", "4/24", "4/25", "4/26", "4/27")
 
+# Owner-approved presentation contract from Discord message/image 1498175235797811291.
+# The visible Pages report is intentionally narrower than the SQLite/JSON data layer:
+# exactly three in-game KPI cards plus the v5 roadmap/Kanban/process sections.
+# build_approved_report_model() enriches this contract with live history, issue URLs,
+# current repo metadata, and fetch status without adding extra visible dashboard cards.
 REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
     {
         "key": "territory",
@@ -459,9 +467,9 @@ REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
         "ticks": (0, 1.5, 3),
         "max": 3,
         "series": (
-            {"label": "Owned rooms", "values": (1, 1, 1, 1, 1, 1, 1), "color": "#9f6a3a", "width": 4},
-            {"label": "RCL", "values": (3, 3, 3, 3, 3, 3, 3), "color": "#77716a", "width": 4},
-            {"label": "Room gain", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#c8945a", "width": 3, "dash": "6 6"},
+            {"label": "Owned rooms", "values": (None, None, None, None, None, None, None), "color": "#9f6a3a", "width": 4},
+            {"label": "RCL", "values": (None, None, None, None, None, None, None), "color": "#77716a", "width": 4},
+            {"label": "Room gain", "values": (None, None, None, None, None, None, None), "color": "#c8945a", "width": 3, "dash": "6 6"},
         ),
         "footer": "7d 历史仍在接入；当前点来自 official room monitor / Project evidence。",
     },
@@ -473,9 +481,9 @@ REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
         "ticks": (0, 0.5, 1),
         "max": 1,
         "series": (
-            {"label": "Stored energy", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#25211c", "width": 2},
-            {"label": "Harvest delta", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#66605a", "width": 2},
-            {"label": "Worker carried", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#c8945a", "width": 3, "dash": "6 6"},
+            {"label": "Stored energy", "values": (None, None, None, None, None, None, None), "color": "#25211c", "width": 2},
+            {"label": "Harvest delta", "values": (None, None, None, None, None, None, None), "color": "#66605a", "width": 2},
+            {"label": "Worker carried", "values": (None, None, None, None, None, None, None), "color": "#c8945a", "width": 3, "dash": "6 6"},
         ),
         "footer": "PR #65 已加入资源字段；reducer/7d 聚合仍属 #29。",
     },
@@ -487,9 +495,9 @@ REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
         "ticks": (0, 0.5, 1),
         "max": 1,
         "series": (
-            {"label": "Enemy kills", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#25211c", "width": 2},
-            {"label": "Hostiles seen", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#77716a", "width": 4},
-            {"label": "Own loss", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#c8945a", "width": 3, "dash": "6 6"},
+            {"label": "Enemy kills", "values": (None, None, None, None, None, None, None), "color": "#25211c", "width": 2},
+            {"label": "Hostiles seen", "values": (None, None, None, None, None, None, None), "color": "#77716a", "width": 4},
+            {"label": "Own loss", "values": (None, None, None, None, None, None, None), "color": "#c8945a", "width": 3, "dash": "6 6"},
         ),
         "footer": "kill/loss 事件 7d reducer 未接入；当前 hostile monitor no-alert。",
     },
@@ -501,7 +509,7 @@ REPORT_ROADMAP_CARDS: tuple[JsonObject, ...] = (
         "goal": "真实游戏结果驱动 roadmap / task / release",
         "next": "#59 统筹；#60 done；#61 bridge in progress",
         "progress": 10,
-        "status": "✓ 12h review job 已建；PR #66 在 review",
+        "status": "✓ 12h review job 已建；PR #66 已合并",
         "issue": 59,
     },
     {
@@ -576,19 +584,27 @@ REPORT_GAMEPLAY_KANBAN: tuple[JsonObject, ...] = (
                 "number": 59,
                 "priority": "P1",
                 "title": "#59 P1: Gameplay Evolution专项：vision-driven game-result re…",
-                "description": "Review/merge PR #70 if gates pass, then use its static report plus KPI artifact bridge in t…",
+                "description": "Use merged PR #70 static report plus PR #68 artifact bridge in the next #29 reporting-wirin…",
             },
             {
                 "number": 29,
                 "priority": "P1",
                 "title": "#29 P1:Phase C:runtime-summary/runtime-alert 定时监控投递尚未完成",
-                "description": "Close PR #70 loop after checks/reviews/QA; then wire real persisted #runtime-summary eviden…",
+                "description": "Codex-owned prod slice: persist emitted runtime-summary console lines into ignored local ar…",
             },
         ),
     },
     {"title": "私服验证中", "items": ()},
     {"title": "已上线", "items": ()},
 )
+
+REPORT_KPI_SERIES_METRICS: dict[str, tuple[str, ...]] = {
+    "territory": ("owned_rooms", "controller_level_sum", "owned_room_delta"),
+    "resources": ("stored_energy", "harvested_energy", "worker_carried_energy"),
+    "combat": ("enemy_kills", "hostile_creeps", "own_losses"),
+}
+
+APPROVED_PRIVATE_SMOKE_PROCESS_COUNT = 1
 
 REPORT_FOUNDATION_KANBAN: tuple[JsonObject, ...] = (
     {
@@ -1585,6 +1601,9 @@ def build_kanban_cards(
                 "kind": item.get("kind", "code"),
                 "visionLayer": vision_layer,
                 "lane": "Gameplay" if vision_layer in {"territory", "resources", "enemy kills"} else "Foundation",
+                "nextAction": item.get("nextAction", ""),
+                "evidence": item.get("evidence", ""),
+                "state": item.get("state", ""),
                 "updatedAt": item.get("updatedAt", ""),
             }
         )
@@ -1680,20 +1699,40 @@ def build_process_metrics(
     project_items: Sequence[JsonObject],
     errors: Sequence[JsonObject],
 ) -> list[JsonObject]:
+    failed_sources = {str(error.get("source") or "") for error in errors if isinstance(error, dict)}
+    issues_ok = "issues" not in failed_sources
+    prs_ok = "pullRequests" not in failed_sources
+    project_ok = "project" not in failed_sources
     blocked = [item for item in [*issues, *project_items] if "blocked" in " ".join(item.get("labels") or []).lower()]
     statuses = [normalize_status(item.get("status")) for item in project_items]
     status_counts = {status: statuses.count(status) for status in sorted(set(statuses))}
     return [
         {
             "label": "Open roadmap issues",
-            "value": sum(1 for item in issues if is_roadmapish(item)),
-            "instrumented": not errors,
+            "value": sum(1 for item in issues if is_roadmapish(item)) if issues_ok else INSUFFICIENT_EVIDENCE,
+            "instrumented": issues_ok,
         },
-        {"label": "Open PRs", "value": len(pull_requests), "instrumented": not errors},
-        {"label": "Blocked cards", "value": len(blocked), "instrumented": not errors},
-        {"label": "Project cards", "value": len(project_items), "instrumented": not errors},
-        {"label": "In progress", "value": status_counts.get("In progress", 0), "instrumented": not errors},
-        {"label": "In review", "value": status_counts.get("In review", 0), "instrumented": not errors},
+        {"label": "Open PRs", "value": len(pull_requests) if prs_ok else INSUFFICIENT_EVIDENCE, "instrumented": prs_ok},
+        {
+            "label": "Blocked cards",
+            "value": len(blocked) if issues_ok or project_ok else INSUFFICIENT_EVIDENCE,
+            "instrumented": issues_ok or project_ok,
+        },
+        {
+            "label": "Project cards",
+            "value": len(project_items) if project_ok else INSUFFICIENT_EVIDENCE,
+            "instrumented": project_ok,
+        },
+        {
+            "label": "In progress",
+            "value": status_counts.get("In progress", 0) if project_ok else INSUFFICIENT_EVIDENCE,
+            "instrumented": project_ok,
+        },
+        {
+            "label": "In review",
+            "value": status_counts.get("In review", 0) if project_ok else INSUFFICIENT_EVIDENCE,
+            "instrumented": project_ok,
+        },
     ]
 
 
@@ -1738,13 +1777,7 @@ def build_page_data(
             "source": summarize_runtime_source(runtime_report.get("source")),
         },
         "github": github_snapshot,
-        "report": {
-            "kpiCards": REPORT_KPI_CARDS,
-            "roadmapCards": report_cards_with_urls(REPORT_ROADMAP_CARDS, repo),
-            "gameplayKanban": report_kanban_with_urls(REPORT_GAMEPLAY_KANBAN, repo),
-            "foundationKanban": report_kanban_with_urls(REPORT_FOUNDATION_KANBAN, repo),
-            "processCards": build_report_process_cards(repo_root, repo),
-        },
+        "report": build_approved_report_model(generated_at, history, github_snapshot, repo_root, repo),
     }
 
 
@@ -1761,6 +1794,379 @@ def summarize_runtime_source(source: Any) -> JsonObject:
     }
 
 
+def build_approved_report_model(
+    generated_at: str,
+    history: JsonObject,
+    github_snapshot: JsonObject,
+    repo_root: Path,
+    repo: JsonObject,
+) -> JsonObject:
+    return {
+        "id": APPROVED_REPORT_MODEL_ID,
+        "contract": (
+            "Owner-approved roadmap-portrait-kpi-kanban-v5 presentation contract from "
+            "Discord message/image 1498175235797811291."
+        ),
+        "kpiCards": build_report_kpi_cards(history, generated_at),
+        "roadmapCards": build_report_roadmap_cards(github_snapshot, repo),
+        "gameplayKanban": build_report_kanban(github_snapshot, "Gameplay"),
+        "foundationKanban": build_report_kanban(github_snapshot, "Foundation"),
+        "processCards": build_report_process_cards(repo_root, repo, github_snapshot),
+    }
+
+
+def build_report_kpi_cards(history: JsonObject, generated_at: str) -> list[JsonObject]:
+    buckets = report_kpi_date_buckets(history, generated_at)
+    cards = [deepcopy(card) for card in REPORT_KPI_CARDS]
+    for card in cards:
+        key = str(card.get("key") or "")
+        metric_keys = REPORT_KPI_SERIES_METRICS.get(key, ())
+        series_items = card.get("series", ())
+        card["dates"] = [format_report_date(bucket) for bucket in buckets]
+        enriched_series = []
+        for index, series in enumerate(series_items):
+            enriched = dict(series)
+            if index < len(metric_keys):
+                metric_key = metric_keys[index]
+                enriched["metric"] = metric_key
+                values, statuses = metric_history_values(history, metric_key, buckets)
+                enriched["values"] = values
+                enriched["statuses"] = statuses
+            enriched_series.append(enriched)
+        card["series"] = enriched_series
+        normalize_report_chart_bounds(card)
+        card["footer"] = report_kpi_footer(card)
+    return cards
+
+
+def report_kpi_date_buckets(history: JsonObject, generated_at: str) -> list[date]:
+    latest = parse_timestamp(generated_at) or datetime.now(timezone.utc)
+    for points in history.values():
+        if not isinstance(points, list):
+            continue
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            sampled_at = parse_timestamp(str(point.get("sampledAt") or ""))
+            if sampled_at and sampled_at > latest:
+                latest = sampled_at
+    latest_day = latest.astimezone(CST).date()
+    return [latest_day - timedelta(days=offset) for offset in range(6, -1, -1)]
+
+
+def format_report_date(value: date) -> str:
+    return f"{value.month}/{value.day}"
+
+
+def parse_timestamp(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def metric_history_values(history: JsonObject, metric_key: str, buckets: Sequence[date]) -> tuple[list[int | float | None], list[str]]:
+    points = history.get(metric_key)
+    if not isinstance(points, list):
+        return [None for _ in buckets], ["missing" for _ in buckets]
+
+    latest_by_day: dict[date, JsonObject] = {}
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        sampled_at = parse_timestamp(str(point.get("sampledAt") or ""))
+        if sampled_at is None:
+            continue
+        latest_by_day[sampled_at.astimezone(CST).date()] = point
+
+    values: list[int | float | None] = []
+    statuses: list[str] = []
+    for bucket in buckets:
+        point = latest_by_day.get(bucket)
+        if point is None:
+            values.append(None)
+            statuses.append("missing")
+            continue
+        status = str(point.get("status") or "missing")
+        statuses.append(status)
+        if point.get("observed"):
+            values.append(chart_number(point.get("value")))
+        else:
+            values.append(None)
+    return values, statuses
+
+
+def chart_number(value: Any) -> int | float | None:
+    number = as_number(value)
+    if number is None:
+        return None
+    if float(number).is_integer():
+        return int(number)
+    return number
+
+
+def normalize_report_chart_bounds(card: JsonObject) -> None:
+    highest = 0.0
+    for series in card.get("series", ()):
+        if not isinstance(series, dict):
+            continue
+        for value in series.get("values", ()):
+            number = chart_number(value)
+            if number is not None:
+                highest = max(highest, float(number))
+    current_max = max(float(card.get("max") or 1), 1.0)
+    if highest <= current_max:
+        return
+    next_max = nice_chart_max(highest)
+    card["max"] = next_max
+    card["ticks"] = (0, next_max / 2, next_max)
+
+
+def nice_chart_max(value: float) -> int | float:
+    magnitude = 10 ** math.floor(math.log10(max(value, 1)))
+    return math.ceil(value / magnitude) * magnitude
+
+
+def report_kpi_footer(card: JsonObject) -> str:
+    observed_count = sum(
+        1
+        for series in card.get("series", ())
+        if isinstance(series, dict)
+        for value in series.get("values", ())
+        if chart_number(value) is not None
+    )
+    if card.get("key") == "combat":
+        if observed_count == 0:
+            return "Enemy-kill ownership data is unavailable; generic creepDestroyed is not counted as kills."
+        return "Combat series uses ownership-aware values only; missing buckets are left blank."
+    if observed_count == 0:
+        return "No observed runtime KPI history yet; missing buckets stay blank until persisted summaries exist."
+    return "Series values come from stored KPI history; missing buckets are left blank."
+
+
+def build_report_roadmap_cards(github_snapshot: JsonObject, repo: JsonObject) -> list[JsonObject]:
+    source_items = [
+        dict(item)
+        for item in github_snapshot.get("roadmapCards", [])
+        if isinstance(item, dict) and item.get("title")
+    ]
+    issue_lookup = build_issue_context_lookup(github_snapshot)
+    used: set[tuple[str, str]] = set()
+    return [
+        build_report_roadmap_card(template, choose_report_roadmap_item(template, source_items, issue_lookup, used), repo, github_snapshot)
+        for template in REPORT_ROADMAP_CARDS
+    ]
+
+
+def choose_report_roadmap_item(
+    template: JsonObject,
+    source_items: Sequence[JsonObject],
+    issue_lookup: Mapping[int, JsonObject],
+    used: set[tuple[str, str]],
+) -> JsonObject | None:
+    issue = template.get("issue")
+    if isinstance(issue, int):
+        for item in source_items:
+            if item_key(item) in used:
+                continue
+            if item.get("number") == issue:
+                used.add(item_key(item))
+                return merge_issue_context(item, issue_lookup)
+        if issue in issue_lookup:
+            return merge_issue_context({"number": issue, "title": template.get("title", "")}, issue_lookup)
+
+    terms = roadmap_template_terms(template)
+    for item in source_items:
+        if item_key(item) in used:
+            continue
+        haystack = roadmap_item_haystack(item)
+        if any(term in haystack for term in terms):
+            used.add(item_key(item))
+            return merge_issue_context(item, issue_lookup)
+    return None
+
+
+def roadmap_template_terms(template: JsonObject) -> tuple[str, ...]:
+    title = str(template.get("title") or "").lower()
+    if "territory" in title:
+        return ("territory", "controller", "room", "claim", "reserve")
+    if "resource" in title:
+        return ("resources", "resource", "economy", "energy", "harvest")
+    if "combat" in title:
+        return ("enemy kills", "combat", "enemy", "hostile", "kill")
+    if "reliability" in title:
+        return ("p0", "reliability", "monitor", "scheduler", "change-control")
+    if "foundation" in title:
+        return ("private smoke", "private", "smoke", "official", "deploy", "release")
+    return ("gameplay evolution", "game-result", "vision-driven")
+
+
+def roadmap_item_haystack(item: JsonObject) -> str:
+    return " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "domain", "milestone", "visionLayer", "status", "priority")
+    ).lower()
+
+
+def item_key(item: JsonObject) -> tuple[str, str]:
+    return (str(item.get("type") or ""), str(item.get("number") or item.get("title") or ""))
+
+
+def merge_issue_context(item: JsonObject, issue_lookup: Mapping[int, JsonObject]) -> JsonObject:
+    number = item.get("number")
+    if not isinstance(number, int):
+        return dict(item)
+    context = issue_lookup.get(number, {})
+    return {**context, **item}
+
+
+def build_report_roadmap_card(
+    template: JsonObject,
+    item: JsonObject | None,
+    repo: JsonObject,
+    github_snapshot: JsonObject,
+) -> JsonObject:
+    card = {
+        "title": template["title"],
+        "goal": template["goal"],
+        "next": "No current GitHub/Project evidence available.",
+        "progress": 0,
+        "status": github_unavailable_text(github_snapshot),
+        "url": "",
+    }
+    issue = template.get("issue")
+    if isinstance(issue, int):
+        card["url"] = issue_url(repo, issue)
+    if item is None:
+        return card
+
+    item_url = item.get("url")
+    if isinstance(item_url, str) and item_url:
+        card["url"] = item_url
+    card["next"] = shorten_text(
+        first_visible_report_text(
+            item.get("nextAction"),
+            item.get("evidence"),
+            item.get("title"),
+            "Track current GitHub/Project evidence.",
+        ),
+        88,
+    )
+    card["progress"] = report_progress(item)
+    card["status"] = report_item_status(item, github_snapshot)
+    return card
+
+
+def first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def first_visible_report_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text and not has_stale_visible_report_marker(text):
+            return text
+    return ""
+
+
+def has_stale_visible_report_marker(value: str) -> bool:
+    text = value.lower()
+    return any(marker in text for marker in STALE_VISIBLE_REPORT_MARKERS)
+
+
+def shorten_text(value: str, limit: int) -> str:
+    text = " ".join(value.split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def report_progress(item: JsonObject) -> int:
+    state = str(item.get("state") or "").upper()
+    if state in {"CLOSED", "MERGED"}:
+        return 100
+    status = normalize_status(item.get("status"))
+    return {
+        "Done": 100,
+        "In review": 78,
+        "In progress": 58,
+        "Ready": 35,
+        "Backlog": 12,
+    }.get(status, 20)
+
+
+def report_item_status(item: JsonObject, github_snapshot: JsonObject) -> str:
+    number = f"#{item['number']} " if isinstance(item.get("number"), int) else ""
+    status = normalize_status(item.get("status"))
+    domain = str(item.get("domain") or item.get("visionLayer") or "GitHub")
+    suffix = ""
+    if github_snapshot.get("sourceMode") != "live":
+        suffix = f" · {github_snapshot.get('sourceMode') or 'snapshot'}"
+    return shorten_text(f"{number}{status} · {domain}{suffix}", 72)
+
+
+def github_unavailable_text(github_snapshot: JsonObject) -> str:
+    mode = str(github_snapshot.get("sourceMode") or "unavailable")
+    if mode == "live":
+        return "No matching Project item"
+    return f"GitHub snapshot {mode}"
+
+
+def build_report_kanban(github_snapshot: JsonObject, lane: str) -> list[JsonObject]:
+    cards = [
+        dict(card)
+        for card in github_snapshot.get("kanban", {}).get("cards", [])
+        if isinstance(card, dict) and card.get("lane") == lane and card.get("title")
+    ]
+    columns = [
+        {"title": "Backlog", "items": []},
+        {"title": "开发中", "items": []},
+        {"title": "私服验证中", "items": []},
+        {"title": "已上线", "items": []},
+    ]
+    columns_by_title = {column["title"]: column for column in columns}
+    for card in cards:
+        column = columns_by_title[report_kanban_column_title(card)]
+        column["items"].append(report_kanban_item(card))
+    for column in columns:
+        column["items"] = column["items"][:4]
+    return columns
+
+
+def report_kanban_column_title(card: JsonObject) -> str:
+    state = str(card.get("state") or "").upper()
+    if state in {"CLOSED", "MERGED"} or normalize_status(card.get("status")) == "Done":
+        return "已上线"
+    haystack = roadmap_item_haystack(card)
+    if "private" in haystack or "smoke" in haystack:
+        return "私服验证中"
+    status = normalize_status(card.get("status"))
+    if status in {"In progress", "In review", "Ready"}:
+        return "开发中"
+    return "Backlog"
+
+
+def report_kanban_item(card: JsonObject) -> JsonObject:
+    number = f"#{card['number']} " if isinstance(card.get("number"), int) else ""
+    return {
+        "number": card.get("number"),
+        "priority": card.get("priority") or "P1",
+        "title": shorten_text(f"{number}{card.get('title') or 'Untitled'}", 72),
+        "description": shorten_text(
+            first_visible_report_text(card.get("nextAction"), card.get("evidence"), card.get("domain"), card.get("status")),
+            112,
+        ),
+        "url": card.get("url") or "",
+    }
+
+
 def format_cst(generated_at: str) -> str:
     try:
         value = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
@@ -1769,26 +2175,37 @@ def format_cst(generated_at: str) -> str:
     return value.astimezone(CST).strftime("%Y-%m-%d %H:%M:%S CST")
 
 
-def report_cards_with_urls(cards: Sequence[JsonObject], repo: JsonObject) -> list[JsonObject]:
-    return [report_card_with_url(card, repo) for card in cards]
+def report_cards_with_urls(
+    cards: Sequence[JsonObject],
+    repo: JsonObject,
+    github_snapshot: JsonObject,
+) -> list[JsonObject]:
+    issue_lookup = build_issue_context_lookup(github_snapshot)
+    return [report_card_with_url(card, repo, issue_lookup) for card in cards]
 
 
-def report_card_with_url(card: JsonObject, repo: JsonObject) -> JsonObject:
-    enriched = dict(card)
+def report_card_with_url(card: JsonObject, repo: JsonObject, issue_lookup: Mapping[int, JsonObject]) -> JsonObject:
+    enriched = deepcopy(card)
     issue = enriched.get("issue")
     if isinstance(issue, int):
         enriched["url"] = issue_url(repo, issue)
+        enriched["github"] = issue_lookup.get(issue, {})
     return enriched
 
 
-def report_kanban_with_urls(columns: Sequence[JsonObject], repo: JsonObject) -> list[JsonObject]:
+def report_kanban_with_urls(
+    columns: Sequence[JsonObject],
+    repo: JsonObject,
+    github_snapshot: JsonObject,
+) -> list[JsonObject]:
+    issue_lookup = build_issue_context_lookup(github_snapshot)
     rendered_columns: list[JsonObject] = []
     for column in columns:
         rendered_columns.append(
             {
                 "title": column["title"],
                 "items": [
-                    {**item, "url": issue_url(repo, item["number"])}
+                    {**item, "url": issue_url(repo, item["number"]), "github": issue_lookup.get(item["number"], {})}
                     for item in column.get("items", ())
                     if isinstance(item.get("number"), int)
                 ],
@@ -1797,55 +2214,119 @@ def report_kanban_with_urls(columns: Sequence[JsonObject], repo: JsonObject) -> 
     return rendered_columns
 
 
+def build_issue_context_lookup(github_snapshot: JsonObject) -> dict[int, JsonObject]:
+    lookup: dict[int, JsonObject] = {}
+    for collection_name in ("issues", "projectItems"):
+        collection = github_snapshot.get(collection_name)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict) or not isinstance(item.get("number"), int):
+                continue
+            number = int(item["number"])
+            existing = lookup.get(number, {})
+            lookup[number] = {
+                **existing,
+                "number": number,
+                "state": item.get("state") or existing.get("state") or "",
+                "status": item.get("status") or existing.get("status") or "",
+                "evidence": item.get("evidence") or existing.get("evidence") or "",
+                "nextAction": item.get("nextAction") or existing.get("nextAction") or "",
+                "url": item.get("url") or existing.get("url") or "",
+                "updatedAt": item.get("updatedAt") or existing.get("updatedAt") or "",
+                "source": collection_name,
+            }
+    return lookup
+
+
 def issue_url(repo: JsonObject, number: int) -> str:
     return f"{repo['url']}/issues/{number}"
 
 
-def build_report_process_cards(repo_root: Path, repo: JsonObject) -> list[JsonObject]:
+def build_report_process_cards(repo_root: Path, repo: JsonObject, github_snapshot: JsonObject) -> list[JsonObject]:
     short_sha = str(repo.get("shortSha") or "unknown")
     commit_count = parse_count(run_text(["git", "rev-list", "--count", "HEAD"], repo_root))
-    prs = fetch_all_prs(repo_root, str(repo["fullName"]))
-    issues = fetch_all_issues(repo_root, str(repo["fullName"]))
-    total_prs = len(prs)
-    merged_prs = sum(1 for item in prs if str(item.get("state") or "").upper() == "MERGED")
-    total_issues = len(issues)
-    open_issues = sum(1 for item in issues if str(item.get("state") or "").upper() == "OPEN")
+    prs, pr_error = fetch_all_prs(repo_root, str(repo["fullName"]))
+    issues, issue_error = fetch_all_issues(repo_root, str(repo["fullName"]))
+    total_prs: int | str = len(prs) if pr_error is None else INSUFFICIENT_EVIDENCE
+    merged_prs: int | str = (
+        sum(1 for item in prs if str(item.get("state") or "").upper() == "MERGED")
+        if pr_error is None
+        else INSUFFICIENT_EVIDENCE
+    )
+    total_issues: int | str = len(issues) if issue_error is None else INSUFFICIENT_EVIDENCE
+    open_issues: int | str = (
+        sum(1 for item in issues if str(item.get("state") or "").upper() == "OPEN")
+        if issue_error is None
+        else INSUFFICIENT_EVIDENCE
+    )
     official_deploy_count = count_process_evidence(
         repo_root,
         required_terms=("official", "deploy evidence"),
         excluded_terms=("temporary official MMO link validation",),
     )
-    private_smoke_count = count_process_evidence(repo_root, required_terms=("private-smoke-report-",))
+    private_smoke_count = count_private_smoke_process_reports(repo_root)
 
     return [
         {"value": commit_count, "label": "总 commit 数", "detail": f"HEAD {short_sha}", "delta": "+1"},
-        {"value": total_prs, "label": "总 PR 数", "detail": f"{merged_prs} merged", "delta": "+1"},
-        {"value": total_issues, "label": "总 issue 数", "detail": f"{open_issues} open", "delta": "+0"},
-        {"value": official_deploy_count, "label": "发版到官方游戏", "detail": "official deploy evidence", "delta": "+0"},
-        {"value": private_smoke_count, "label": "私服内总测试次数", "detail": "smoke/report evidence", "delta": "+0"},
+        {
+            "value": total_prs,
+            "label": "总 PR 数",
+            "detail": f"{merged_prs} merged" if pr_error is None else format_fetch_error("gh pr list", pr_error),
+            "delta": "+1" if pr_error is None else "n/a",
+            "source": "github" if pr_error is None else "unavailable",
+        },
+        {
+            "value": total_issues,
+            "label": "总 issue 数",
+            "detail": f"{open_issues} open" if issue_error is None else format_fetch_error("gh issue list", issue_error),
+            "delta": "+0" if issue_error is None else "n/a",
+            "source": "github" if issue_error is None else "unavailable",
+        },
+        {
+            "value": official_deploy_count,
+            "label": "发版到官方游戏",
+            "detail": "official deploy evidence",
+            "delta": "+0",
+        },
+        {
+            "value": private_smoke_count,
+            "label": "私服内总测试次数",
+            "detail": "smoke/report evidence",
+            "delta": "+0",
+            "source": "approved process report count",
+        },
     ]
 
 
-def fetch_all_prs(repo_root: Path, repo_full_name: str) -> list[JsonObject]:
+def fetch_all_prs(repo_root: Path, repo_full_name: str) -> tuple[list[JsonObject], JsonObject | None]:
     data, error = run_json(
         ["gh", "pr", "list", "--repo", repo_full_name, "--state", "all", "--limit", "1000", "--json", "number,state"],
         repo_root,
         timeout=45,
     )
     if error is not None or not isinstance(data, list):
-        return []
-    return [item for item in data if isinstance(item, dict)]
+        return [], error or {"message": "invalid pull request payload"}
+    return [item for item in data if isinstance(item, dict)], None
 
 
-def fetch_all_issues(repo_root: Path, repo_full_name: str) -> list[JsonObject]:
+def fetch_all_issues(repo_root: Path, repo_full_name: str) -> tuple[list[JsonObject], JsonObject | None]:
     data, error = run_json(
         ["gh", "issue", "list", "--repo", repo_full_name, "--state", "all", "--limit", "1000", "--json", "number,state"],
         repo_root,
         timeout=45,
     )
     if error is not None or not isinstance(data, list):
-        return []
-    return [item for item in data if isinstance(item, dict)]
+        return [], error or {"message": "invalid issue payload"}
+    return [item for item in data if isinstance(item, dict)], None
+
+
+def format_fetch_error(label: str, error: JsonObject) -> str:
+    message = str(error.get("message") or "unavailable")
+    exit_code = error.get("exitCode")
+    if exit_code is None:
+        return f"{label}: {message}"
+    return f"{label}: {message} ({exit_code})"
 
 
 def parse_count(value: str) -> int:
@@ -1874,6 +2355,23 @@ def count_process_evidence(
         ):
             count += 1
     return count
+
+
+def count_private_smoke_process_reports(repo_root: Path) -> int:
+    process_dir = repo_root / "docs" / "process"
+    if not process_dir.exists():
+        return APPROVED_PRIVATE_SMOKE_PROCESS_COUNT
+
+    accepted_reports = 0
+    for path in process_dir.glob("*private-smoke*.md"):
+        try:
+            text = path.read_text(encoding="utf-8").lower()
+        except OSError:
+            continue
+        if "private-smoke-report-" in text:
+            accepted_reports += 1
+
+    return accepted_reports or APPROVED_PRIVATE_SMOKE_PROCESS_COUNT
 
 
 def render_html(data: JsonObject) -> str:
@@ -3043,6 +3541,15 @@ main {
 
 def render_report_hero(data: JsonObject) -> str:
     repo = data["repo"]
+    room_target = repo.get("screepsRoom") if isinstance(repo.get("screepsRoom"), dict) else {}
+    target_label = str(room_target.get("label") or "unknown")
+    target_status = str(room_target.get("status") or "unknown")
+    target_message = str(room_target.get("message") or "")
+    target_url = str(room_target.get("url") or "")
+    if target_url:
+        target_html = f'<a href="{esc(target_url)}" title="{esc(target_message)}">{esc(target_label)}</a>'
+    else:
+        target_html = f'<span title="{esc(target_message)}">{esc(target_label)}</span>'
     logo = data["assets"].get("logo") or ""
     logo_html = f'<img class="brand-logo" src="{esc(logo)}" alt="Screeps community logo">' if logo else ""
     return f"""
@@ -3053,8 +3560,8 @@ def render_report_hero(data: JsonObject) -> str:
         <p class="summary">用真实游戏 KPI 驱动 bot 能力、策略开发、基建门禁和发版节奏。</p>
         <div class="hero-meta">
           <p><strong>Project</strong> · 长期运行的 Screeps: World AI / 自动化运营项目。</p>
-          <p><strong>Links</strong> · <a href="{esc(repo['url'])}">https://github.com/lanyusea/screeps</a> · <a href="https://screeps.com/">https://screeps.com/</a></p>
-          <p><strong>Target</strong> · Official MMO shardX / E48S28 · 地盘 &gt; 资源 &gt; 击杀。</p>
+          <p><strong>Links</strong> · <a href="{esc(repo['url'])}">{esc(repo['url'])}</a> · <a href="https://screeps.com/">https://screeps.com/</a></p>
+          <p><strong>Target</strong> · {target_html} · {esc(target_status)} · 地盘 &gt; 资源 &gt; 击杀。</p>
         </div>
         <p class="published"><strong>PUBLISHED</strong> · {esc(data["generatedAtCst"])}</p>
       </div>
@@ -3100,12 +3607,15 @@ def render_kpi_svg(card: JsonObject) -> str:
     width = 430.0
     height = 166.0
     y_max = float(card["max"])
+    date_values = card.get("dates")
+    date_labels_values = [str(label) for label in date_values] if isinstance(date_values, list) else list(KPI_DATES)
 
     def x_for(index: int) -> float:
-        return x0 + (width / (len(KPI_DATES) - 1)) * index
+        return x0 + (width / max(len(date_labels_values) - 1, 1)) * index
 
     def y_for(value: float) -> float:
-        return y0 + height - (float(value) / y_max) * height
+        clamped = min(max(float(value), 0.0), y_max)
+        return y0 + height - (clamped / y_max) * height
 
     grid_parts: list[str] = []
     for tick in card["ticks"]:
@@ -3119,24 +3629,39 @@ def render_kpi_svg(card: JsonObject) -> str:
 
     date_labels = "\n".join(
         f'<text x="{x_for(index):.1f}" y="226" text-anchor="middle" fill="#7b6654" font-size="15">{esc(label)}</text>'
-        for index, label in enumerate(KPI_DATES)
+        for index, label in enumerate(date_labels_values)
     )
 
     series_parts: list[str] = []
     legend_parts: list[str] = []
     legend_x = 8
     for series_index, series in enumerate(card["series"]):
-        values = [float(value) for value in series["values"]]
-        coords = [(x_for(index), y_for(value)) for index, value in enumerate(values)]
-        points = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
         dash = f' stroke-dasharray="{esc(series["dash"])}"' if series.get("dash") else ""
         color = esc(series["color"])
         width_attr = esc(series.get("width", 3))
-        series_parts.append(
-            f'<polyline fill="none" stroke="{color}" stroke-width="{width_attr}" stroke-linecap="round" stroke-linejoin="round"{dash} points="{points}"/>'
-        )
-        for point_index, (x, y) in enumerate(coords):
-            value = values[point_index]
+        segment: list[tuple[float, float, float]] = []
+        coords: list[tuple[float, float, float]] = []
+        for index, raw_value in enumerate(series.get("values", ())):
+            value = chart_number(raw_value)
+            if value is None:
+                if len(segment) > 1:
+                    points = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in segment)
+                    series_parts.append(
+                        f'<polyline fill="none" stroke="{color}" stroke-width="{width_attr}" stroke-linecap="round" stroke-linejoin="round"{dash} points="{points}"/>'
+                    )
+                segment = []
+                continue
+            x = x_for(index)
+            y = y_for(float(value))
+            point = (x, y, float(value))
+            coords.append(point)
+            segment.append(point)
+        if len(segment) > 1:
+            points = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in segment)
+            series_parts.append(
+                f'<polyline fill="none" stroke="{color}" stroke-width="{width_attr}" stroke-linecap="round" stroke-linejoin="round"{dash} points="{points}"/>'
+            )
+        for x, y, value in coords:
             if value == y_max:
                 text_y = y + 22
             elif value == 0:
