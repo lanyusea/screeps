@@ -1,5 +1,17 @@
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS, selectWorkerTask } from '../src/tasks/workerTasks';
 
+function makeLoadedWorker(room: Room, task?: CreepTaskMemory): Creep {
+  return {
+    memory: { role: 'worker', ...(task ? { task } : {}) },
+    store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+    room
+  } as unknown as Creep;
+}
+
+function setGameCreeps(creeps: Record<string, Creep>): void {
+  (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps };
+}
+
 describe('selectWorkerTask', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).FIND_SOURCES = 1;
@@ -184,7 +196,7 @@ describe('selectWorkerTask', () => {
   it.each([
     ['road', 'road-site1'],
     ['container', 'container-site1']
-  ])('selects RCL2 controller upgrade before non-critical %s construction when downgrade is safe', (structureType, id) => {
+  ])('selects RCL2 controller upgrade before non-critical %s construction when another loaded worker can build', (structureType, id) => {
     const site = { id, structureType } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -192,13 +204,16 @@ describe('selectWorkerTask', () => {
       level: 2,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type) => (type === 2 ? [site] : []))
+    } as unknown as Room;
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
-      room: {
-        controller,
-        find: jest.fn((type) => (type === 2 ? [site] : []))
-      }
+      room
     } as unknown as Creep;
+    setGameCreeps({ Builder: makeLoadedWorker(room) });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
@@ -214,13 +229,16 @@ describe('selectWorkerTask', () => {
       level: 2,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type) => (type === 2 ? [site] : []))
+    } as unknown as Room;
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
-      room: {
-        controller,
-        find: jest.fn((type) => (type === 2 ? [site] : []))
-      }
+      room
     } as unknown as Creep;
+    setGameCreeps({ Worker2: makeLoadedWorker(room) });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: id });
   });
@@ -249,7 +267,7 @@ describe('selectWorkerTask', () => {
     expect(task).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
-  it('keeps RCL3 build-before-upgrade priority when controller downgrade is safe', () => {
+  it('keeps RCL3 build-before-upgrade priority when only one loaded worker is available', () => {
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -264,6 +282,52 @@ describe('selectWorkerTask', () => {
         find: jest.fn((type) => (type === 2 ? [site] : []))
       }
     } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('selects RCL3 controller upgrade before non-critical construction when another loaded worker can build', () => {
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type) => (type === 2 ? [site] : []))
+    } as unknown as Room;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: makeLoadedWorker(room) });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps non-critical build priority when another loaded worker is already upgrading the controller', () => {
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type) => (type === 2 ? [site] : []))
+    } as unknown as Room;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> })
+    });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
