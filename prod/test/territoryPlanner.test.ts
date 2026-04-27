@@ -185,6 +185,41 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
+  it('does not seed visible reserved adjacent rooms', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' })) } as unknown as GameMap,
+      rooms: {
+        W1N2: {
+          name: 'W1N2',
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 4_000 }
+          } as StructureController
+        } as Room,
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false } as StructureController
+        } as Room
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 520)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve'
+      }
+    ]);
+  });
+
   it('does not throw when map exit APIs are absent', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {

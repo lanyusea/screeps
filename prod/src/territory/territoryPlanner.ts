@@ -182,7 +182,8 @@ function seedAdjacentReserveTarget(
       roomName !== colonyName &&
       !existingTargetRooms.has(roomName) &&
       !isTerritoryTargetSuppressed(target, intents) &&
-      !isVisibleTerritoryTargetUnavailable(roomName)
+      !isVisibleTerritoryTargetUnavailable(roomName) &&
+      !isVisibleTerritoryTargetReserved(roomName)
     ) {
       return target;
     }
@@ -381,6 +382,10 @@ function isVisibleTerritoryTargetUnavailable(
   }
 
   return isControllerOwned(controller);
+}
+
+function isVisibleTerritoryTargetReserved(targetRoom: string): boolean {
+  return getVisibleController(targetRoom)?.reservation != null;
 }
 
 function isControllerOwned(controller: StructureController): boolean {
