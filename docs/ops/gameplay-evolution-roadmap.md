@@ -20,12 +20,25 @@ Without this loop, the bot can keep improving peripheral systems while not measu
 
 ## Operating principles
 
-1. **Game outcomes drive the roadmap.** Infrastructure work is valuable only when it improves the evidence loop, release safety, or bot capability.
-2. **Main Hermes agent remains the authority.** Gameplay-review agents provide evidence and recommendations; the main agent accepts/rejects and updates GitHub.
-3. **GitHub is the source of truth.** Any accepted work item must become or update a GitHub Issue, Milestone, and Project `screeps` item.
-4. **Codex owns production code.** Any `prod/` code change must be delegated to Codex and verified with typecheck/test/build.
-5. **Scheduled reviews and tactical emergencies are separate paths.** The 12-hour loop must not delay an urgent response to attacks or collapse.
-6. **Release is a gameplay decision, not just a build artifact.** A release candidate must have expected KPI movement and observation requirements.
+1. **P0 automation health is the only priority class above gameplay.** Anything that blocks the autonomous system from operating, reporting, merging, or safely recovering is `P0` until cleared.
+2. **Game outcomes drive the roadmap.** Once P0 automation health is clear, work that directly advances the ordered game vision has priority over non-blocking foundation work: territory first, resource scale second, enemy kills third.
+3. **Infrastructure must justify itself as an unblocker.** Foundation work outranks a gameplay task only when it is currently blocking that gameplay task's evidence, implementation, release, or safe rollback path.
+4. **No roadmap line may be abandoned.** Gameplay development tracks and foundation/operations tracks must both keep active or queued worker coverage. The main agent may allocate more worker capacity to higher-priority gameplay items, but a non-blocked track cannot be left idle.
+5. **Main Hermes agent remains the authority.** Gameplay-review agents provide evidence and recommendations; the main agent accepts/rejects and updates GitHub.
+6. **GitHub is the source of truth.** Any accepted work item must become or update a GitHub Issue, Milestone, and Project `screeps` item.
+7. **Codex owns production code.** Any `prod/` code change must be delegated to Codex and verified with typecheck/test/build.
+8. **Scheduled reviews and tactical emergencies are separate paths.** The 12-hour loop must not delay an urgent response to attacks or collapse.
+9. **Release is a gameplay decision, not just a build artifact.** A release candidate must have expected KPI movement and observation requirements.
+
+## Reporting weight contract
+
+Routine roadmap snapshots, 4-hour checkpoints, and the six-hour development report must make the project vision visible instead of treating it as background context:
+
+- Start with current game-result KPI status whenever data exists; if a KPI is missing, state `not instrumented` and link the build item that will instrument it.
+- For every active/queued item, identify the served vision layer: `P0 automation health`, `territory`, `resources`, `enemy kills`, or `foundation blocker`.
+- In the six-hour report, the roadmap progress section must spend more weight on territory/resource/combat KPI movement and the delivery state of their enabling build items than on generic process activity.
+- Foundation updates should be concise unless they block the earliest unmet gameplay KPI.
+- Each report must name stalled domains and the next worker/delegation action so parallel coverage remains auditable.
 
 ## Agent model
 
