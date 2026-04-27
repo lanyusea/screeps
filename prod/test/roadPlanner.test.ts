@@ -6,11 +6,11 @@ const OK_CODE = 0 as ScreepsReturnCode;
 const TEST_GLOBALS = {
   FIND_SOURCES: 1,
   FIND_MY_CONSTRUCTION_SITES: 2,
+  FIND_CONSTRUCTION_SITES: 3,
+  FIND_STRUCTURES: 4,
   STRUCTURE_ROAD: 'road',
   STRUCTURE_EXTENSION: 'extension',
   TERRAIN_MASK_WALL: 1,
-  LOOK_STRUCTURES: 'structure',
-  LOOK_CONSTRUCTION_SITES: 'constructionSite',
   OK: OK_CODE
 } as const;
 
@@ -92,6 +92,9 @@ describe('early road planner', () => {
 
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
     expect(room.createConstructionSite).toHaveBeenCalledWith(16, 10, STRUCTURE_ROAD);
+    expect(room.lookForAtArea).not.toHaveBeenCalled();
+    expect(room.find).toHaveBeenCalledWith(FIND_STRUCTURES);
+    expect(room.find).toHaveBeenCalledWith(FIND_CONSTRUCTION_SITES);
   });
 
   it('caps created sites by per-tick and pending road budgets', () => {
@@ -183,26 +186,22 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
     controller,
     energyAvailable: 300,
     energyCapacityAvailable: 300,
-    find: jest.fn((findType: number, findOptions?: { filter?: (target: Source | ConstructionSite) => boolean }) => {
+    find: jest.fn((findType: number, findOptions?: { filter?: (target: Source | Structure | ConstructionSite) => boolean }) => {
       const targets =
         findType === TEST_GLOBALS.FIND_SOURCES
           ? options.sources
           : findType === TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES
             ? constructionSites
-            : [];
+            : findType === TEST_GLOBALS.FIND_CONSTRUCTION_SITES
+              ? constructionSites
+              : findType === TEST_GLOBALS.FIND_STRUCTURES
+                ? structures
+                : [];
 
       return findOptions?.filter ? targets.filter(findOptions.filter) : targets;
     }),
-    lookForAtArea: jest.fn((lookType: string, top: number, left: number, bottom: number, right: number) => {
-      if (lookType === TEST_GLOBALS.LOOK_STRUCTURES) {
-        return getStructureLookResults(structures, top, left, bottom, right);
-      }
-
-      if (lookType === TEST_GLOBALS.LOOK_CONSTRUCTION_SITES) {
-        return getConstructionSiteLookResults(constructionSites, top, left, bottom, right);
-      }
-
-      return [];
+    lookForAtArea: jest.fn(() => {
+      throw new Error('road planner should use room.find for room-wide lookups');
     }),
     createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
       constructionSites.push(makeConstructionSite(`site-${x}-${y}`, structureType, { x, y }));
@@ -270,34 +269,6 @@ function makeConstructionSite(id: string, structureType: StructureConstant, posi
 
 function makeRoomPosition(position: TestPosition, roomName: string): RoomPosition {
   return { ...position, roomName } as RoomPosition;
-}
-
-function getStructureLookResults(structures: Structure[], top: number, left: number, bottom: number, right: number): LookAtResultWithPos[] {
-  return structures.flatMap((structure) => {
-    const position = (structure as { pos?: RoomPosition }).pos;
-    return position && isWithinBounds(position, top, left, bottom, right)
-      ? [{ x: position.x, y: position.y, structure } as LookAtResultWithPos]
-      : [];
-  });
-}
-
-function getConstructionSiteLookResults(
-  constructionSites: ConstructionSite[],
-  top: number,
-  left: number,
-  bottom: number,
-  right: number
-): LookAtResultWithPos[] {
-  return constructionSites.flatMap((constructionSite) => {
-    const position = (constructionSite as { pos?: RoomPosition }).pos;
-    return position && isWithinBounds(position, top, left, bottom, right)
-      ? [{ x: position.x, y: position.y, constructionSite } as LookAtResultWithPos]
-      : [];
-  });
-}
-
-function isWithinBounds(position: TestPosition, top: number, left: number, bottom: number, right: number): boolean {
-  return position.x >= left && position.x <= right && position.y >= top && position.y <= bottom;
 }
 
 function getPositionKey(position: TestPosition): string {

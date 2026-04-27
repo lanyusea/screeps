@@ -145,7 +145,6 @@ function hasRequiredRoomApis(room: Room): boolean {
   const partialRoom = room as Partial<Room>;
   return (
     typeof partialRoom.find === 'function' &&
-    typeof partialRoom.lookForAtArea === 'function' &&
     typeof partialRoom.createConstructionSite === 'function'
   );
 }
@@ -196,7 +195,7 @@ function countPendingRoadConstructionSites(room: Room): number {
 }
 
 function createRoadPlannerLookups(room: Room): RoadPlannerLookups | null {
-  if (typeof LOOK_STRUCTURES !== 'string' || typeof LOOK_CONSTRUCTION_SITES !== 'string') {
+  if (typeof FIND_STRUCTURES !== 'number' || typeof FIND_CONSTRUCTION_SITES !== 'number') {
     return null;
   }
 
@@ -240,14 +239,14 @@ function blockRoomEdges(lookups: RoadPlannerLookups): void {
 }
 
 function cacheRoomStructures(room: Room, lookups: RoadPlannerLookups): void {
-  for (const result of room.lookForAtArea(LOOK_STRUCTURES, ROOM_COORDINATE_MIN, ROOM_COORDINATE_MIN, ROOM_COORDINATE_MAX, ROOM_COORDINATE_MAX, true)) {
-    if (!result.structure) {
+  for (const structure of room.find(FIND_STRUCTURES)) {
+    const position = structure.pos;
+    if (!position || !isSameRoomPosition(position, room.name)) {
       continue;
     }
 
-    const position = { x: result.x, y: result.y };
     const key = getPositionKey(position);
-    if (isRoadStructure(result.structure)) {
+    if (isRoadStructure(structure)) {
       lookups.existingRoadPositions.add(key);
       setRoadPathCostIfOpen(lookups, position);
       continue;
@@ -259,14 +258,14 @@ function cacheRoomStructures(room: Room, lookups: RoadPlannerLookups): void {
 }
 
 function cacheRoomConstructionSites(room: Room, lookups: RoadPlannerLookups): void {
-  for (const result of room.lookForAtArea(LOOK_CONSTRUCTION_SITES, ROOM_COORDINATE_MIN, ROOM_COORDINATE_MIN, ROOM_COORDINATE_MAX, ROOM_COORDINATE_MAX, true)) {
-    if (!result.constructionSite) {
+  for (const constructionSite of room.find(FIND_CONSTRUCTION_SITES)) {
+    const position = constructionSite.pos;
+    if (!position || !isSameRoomPosition(position, room.name)) {
       continue;
     }
 
-    const position = { x: result.x, y: result.y };
     const key = getPositionKey(position);
-    if (isRoadConstructionSite(result.constructionSite)) {
+    if (isRoadConstructionSite(constructionSite)) {
       lookups.pendingRoadSitePositions.add(key);
       setRoadPathCostIfOpen(lookups, position);
       continue;

@@ -270,7 +270,7 @@ function isPathFinderAvailable() {
 }
 function hasRequiredRoomApis(room) {
   const partialRoom = room;
-  return typeof partialRoom.find === "function" && typeof partialRoom.lookForAtArea === "function" && typeof partialRoom.createConstructionSite === "function";
+  return typeof partialRoom.find === "function" && typeof partialRoom.createConstructionSite === "function";
 }
 function selectRoadAnchor(colony) {
   const [primarySpawn] = colony.spawns.filter((spawn) => spawn.pos).sort((left, right) => left.name.localeCompare(right.name));
@@ -304,7 +304,7 @@ function countPendingRoadConstructionSites(room) {
   }).length;
 }
 function createRoadPlannerLookups(room) {
-  if (typeof LOOK_STRUCTURES !== "string" || typeof LOOK_CONSTRUCTION_SITES !== "string") {
+  if (typeof FIND_STRUCTURES !== "number" || typeof FIND_CONSTRUCTION_SITES !== "number") {
     return null;
   }
   const terrain = getRoomTerrain(room);
@@ -340,13 +340,13 @@ function blockRoomEdges(lookups) {
   }
 }
 function cacheRoomStructures(room, lookups) {
-  for (const result of room.lookForAtArea(LOOK_STRUCTURES, ROOM_COORDINATE_MIN, ROOM_COORDINATE_MIN, ROOM_COORDINATE_MAX, ROOM_COORDINATE_MAX, true)) {
-    if (!result.structure) {
+  for (const structure of room.find(FIND_STRUCTURES)) {
+    const position = structure.pos;
+    if (!position || !isSameRoomPosition(position, room.name)) {
       continue;
     }
-    const position = { x: result.x, y: result.y };
     const key = getPositionKey2(position);
-    if (isRoadStructure(result.structure)) {
+    if (isRoadStructure(structure)) {
       lookups.existingRoadPositions.add(key);
       setRoadPathCostIfOpen(lookups, position);
       continue;
@@ -356,13 +356,13 @@ function cacheRoomStructures(room, lookups) {
   }
 }
 function cacheRoomConstructionSites(room, lookups) {
-  for (const result of room.lookForAtArea(LOOK_CONSTRUCTION_SITES, ROOM_COORDINATE_MIN, ROOM_COORDINATE_MIN, ROOM_COORDINATE_MAX, ROOM_COORDINATE_MAX, true)) {
-    if (!result.constructionSite) {
+  for (const constructionSite of room.find(FIND_CONSTRUCTION_SITES)) {
+    const position = constructionSite.pos;
+    if (!position || !isSameRoomPosition(position, room.name)) {
       continue;
     }
-    const position = { x: result.x, y: result.y };
     const key = getPositionKey2(position);
-    if (isRoadConstructionSite(result.constructionSite)) {
+    if (isRoadConstructionSite(constructionSite)) {
       lookups.pendingRoadSitePositions.add(key);
       setRoadPathCostIfOpen(lookups, position);
       continue;
