@@ -1,9 +1,14 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
-import { planTerritoryIntent, TERRITORY_DOWNGRADE_GUARD_TICKS } from '../src/territory/territoryPlanner';
+import {
+  planTerritoryIntent,
+  shouldSpawnTerritoryControllerCreep,
+  TERRITORY_DOWNGRADE_GUARD_TICKS
+} from '../src/territory/territoryPlanner';
 
 describe('planTerritoryIntent', () => {
   beforeEach(() => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    delete (globalThis as { Game?: Partial<Game> }).Game;
   });
 
   it('records the first valid enabled target for the colony', () => {
@@ -70,6 +75,81 @@ describe('planTerritoryIntent', () => {
 
     expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 502)).toBeNull();
     expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('does not request replacement claimers after a visible claim target is owned', () => {
+    const colony = makeSafeColony();
+    const ownedController = { my: true } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: { name: 'W2N1', controller: ownedController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 503)).toBeNull();
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} }
+      )
+    ).toBe(false);
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('still requests claimers for visible unowned claim targets', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: { name: 'W2N1', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 504);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' });
+    expect(
+      shouldSpawnTerritoryControllerCreep(plan!, { worker: 3, claimer: 0, claimersByTargetRoom: {} })
+    ).toBe(true);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 504
+      }
+    ]);
+  });
+
+  it('leaves reserve targets eligible even when the visible controller is owned', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: { name: 'W2N1', controller: { my: true } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 505);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' });
+    expect(
+      shouldSpawnTerritoryControllerCreep(plan!, { worker: 3, claimer: 0, claimersByTargetRoom: {} })
+    ).toBe(true);
   });
 });
 

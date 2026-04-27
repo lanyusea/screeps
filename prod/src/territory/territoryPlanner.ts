@@ -40,6 +40,10 @@ export function planTerritoryIntent(
 }
 
 export function shouldSpawnTerritoryControllerCreep(plan: TerritoryIntentPlan, roleCounts: RoleCounts): boolean {
+  if (isClaimTargetAlreadyOwned(plan.targetRoom, plan.action, plan.controllerId)) {
+    return false;
+  }
+
   return getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom) === 0;
 }
 
@@ -87,7 +91,8 @@ function selectTerritoryTarget(colonyName: string): TerritoryTargetMemory | null
       target &&
       target.enabled !== false &&
       target.colony === colonyName &&
-      target.roomName !== colonyName
+      target.roomName !== colonyName &&
+      !isClaimTargetAlreadyOwned(target.roomName, target.action, target.controllerId)
     ) {
       return target;
     }
@@ -153,6 +158,33 @@ function recordTerritoryIntent(plan: TerritoryIntentPlan, status: TerritoryInten
 
 function getTerritoryCreepCountForTarget(roleCounts: RoleCounts, targetRoom: string): number {
   return roleCounts.claimersByTargetRoom?.[targetRoom] ?? 0;
+}
+
+function isClaimTargetAlreadyOwned(
+  targetRoom: string,
+  action: TerritoryControlAction,
+  controllerId?: Id<StructureController>
+): boolean {
+  if (action !== 'claim') {
+    return false;
+  }
+
+  return getVisibleController(targetRoom, controllerId)?.my === true;
+}
+
+function getVisibleController(targetRoom: string, controllerId?: Id<StructureController>): StructureController | null {
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  const roomController = game?.rooms?.[targetRoom]?.controller;
+  if (roomController) {
+    return roomController;
+  }
+
+  const getObjectById = game?.getObjectById;
+  if (controllerId && typeof getObjectById === 'function') {
+    return getObjectById.call(game, controllerId) as StructureController | null;
+  }
+
+  return null;
 }
 
 function getWritableTerritoryMemoryRecord(): TerritoryMemory | null {

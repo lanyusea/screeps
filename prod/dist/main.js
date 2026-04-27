@@ -531,6 +531,9 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   return plan;
 }
 function shouldSpawnTerritoryControllerCreep(plan, roleCounts) {
+  if (isClaimTargetAlreadyOwned(plan.targetRoom, plan.action, plan.controllerId)) {
+    return false;
+  }
   return getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom) === 0;
 }
 function buildTerritoryCreepMemory(plan) {
@@ -564,7 +567,7 @@ function selectTerritoryTarget(colonyName) {
   }
   for (const rawTarget of territoryMemory.targets) {
     const target = normalizeTerritoryTarget(rawTarget);
-    if (target && target.enabled !== false && target.colony === colonyName && target.roomName !== colonyName) {
+    if (target && target.enabled !== false && target.colony === colonyName && target.roomName !== colonyName && !isClaimTargetAlreadyOwned(target.roomName, target.action, target.controllerId)) {
       return target;
     }
   }
@@ -612,6 +615,26 @@ function recordTerritoryIntent(plan, status, gameTime) {
 function getTerritoryCreepCountForTarget(roleCounts, targetRoom) {
   var _a, _b;
   return (_b = (_a = roleCounts.claimersByTargetRoom) == null ? void 0 : _a[targetRoom]) != null ? _b : 0;
+}
+function isClaimTargetAlreadyOwned(targetRoom, action, controllerId) {
+  var _a;
+  if (action !== "claim") {
+    return false;
+  }
+  return ((_a = getVisibleController(targetRoom, controllerId)) == null ? void 0 : _a.my) === true;
+}
+function getVisibleController(targetRoom, controllerId) {
+  var _a, _b;
+  const game = globalThis.Game;
+  const roomController = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[targetRoom]) == null ? void 0 : _b.controller;
+  if (roomController) {
+    return roomController;
+  }
+  const getObjectById = game == null ? void 0 : game.getObjectById;
+  if (controllerId && typeof getObjectById === "function") {
+    return getObjectById.call(game, controllerId);
+  }
+  return null;
 }
 function getWritableTerritoryMemoryRecord() {
   const memory = getMemoryRecord();
