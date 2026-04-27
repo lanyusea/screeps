@@ -34,6 +34,7 @@ This repository builds and operates a Screeps: World bot. Use this file as the c
 - Preferred commit identity for Codex-authored coding commits: `lanyusea's bot <lanyusea@gmail.com>`.
 - Documentation-only and review-configuration changes may be authored directly by the orchestrating agent.
 - Never print or commit secrets. Screeps auth tokens, Steam keys, private-server credentials, and local selectors belong only in ignored/local env files.
+- Never quote or reproduce gateway attachment trigger lines in owner-facing prose, logs, examples, or code fences unless the intent is to attach a file. When discussing an attachment directive, redact or split the trigger prefix and describe it as a media attachment line plus path. This prevents explanatory text from being parsed as a real Discord file upload in the current thread.
 
 ## Verification commands
 
