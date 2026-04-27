@@ -7,6 +7,7 @@ import argparse
 import html
 import json
 import math
+import os
 import re
 import sqlite3
 import subprocess
@@ -14,7 +15,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 
 SCHEMA_VERSION = 1
@@ -24,9 +25,14 @@ DEFAULT_PROJECT_NUMBER = 3
 PAGE_TITLE = "Screeps Roadmap Live Report"
 PAGES_URL = "https://lanyusea.github.io/screeps/"
 GITHUB_PROJECT_URL = "https://github.com/users/lanyusea/projects/3"
-SCREEPS_ROOM_URL = "https://screeps.com/a/#!/room/shardX/E48S28"
+SCREEPS_ROOM_URL_BASE = "https://screeps.com/a/#!/room"
+# AGENTS.md official deployment target; generation env can override it.
+OFFICIAL_SCREEPS_SHARD = "shardX"
+OFFICIAL_SCREEPS_ROOM = "E48S28"
 DISCORD_URL = "https://discord.gg/XenFZG9bCE"
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+SCREEPS_SHARD_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+SCREEPS_ROOM_RE = re.compile(r"^[WE]\d+[NS]\d+$")
 
 OBSERVED = "observed"
 NOT_OBSERVED = "not observed"
@@ -479,7 +485,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         project_owner=args.project_owner,
         project_number=args.project_number,
     )
-    repo_snapshot = build_repo_snapshot(repo_root, repo_full_name)
+    repo_snapshot = build_repo_snapshot(repo_full_name)
     data = build_page_data(
         generated_at=generated_at,
         repo=repo_snapshot,
@@ -533,19 +539,69 @@ def strip_trailing_whitespace(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.splitlines()) + "\n"
 
 
-def build_repo_snapshot(repo_root: Path, repo_full_name: str) -> JsonObject:
-    branch = run_text(["git", "branch", "--show-current"], repo_root).strip()
-    commit = run_text(["git", "rev-parse", "--short", "HEAD"], repo_root).strip()
+def build_repo_snapshot(repo_full_name: str) -> JsonObject:
     return {
         "fullName": repo_full_name,
-        "branch": branch,
-        "commit": commit,
         "url": f"https://github.com/{repo_full_name}",
         "pagesUrl": PAGES_URL,
         "projectUrl": GITHUB_PROJECT_URL,
-        "screepsRoomUrl": SCREEPS_ROOM_URL,
+        "screepsRoom": build_screeps_room_target(),
         "discordUrl": DISCORD_URL,
     }
+
+
+def build_screeps_room_target(environ: Mapping[str, str] | None = None) -> JsonObject:
+    env = os.environ if environ is None else environ
+    shard, shard_source = config_value(env, "SCREEPS_SHARD", OFFICIAL_SCREEPS_SHARD)
+    room, room_source = config_value(env, "SCREEPS_ROOM", OFFICIAL_SCREEPS_ROOM)
+    sources = {"shard": shard_source, "room": room_source}
+
+    if not shard or not room:
+        return {
+            "status": "unknown",
+            "shard": shard,
+            "room": room,
+            "url": "",
+            "label": "unknown",
+            "sources": sources,
+            "message": "Set SCREEPS_SHARD and SCREEPS_ROOM to publish a target room link.",
+        }
+    if not SCREEPS_SHARD_RE.fullmatch(shard) or not SCREEPS_ROOM_RE.fullmatch(room):
+        return {
+            "status": "unknown",
+            "shard": shard,
+            "room": room,
+            "url": "",
+            "label": f"{shard}/{room}",
+            "sources": sources,
+            "message": "SCREEPS_SHARD or SCREEPS_ROOM is not a valid Screeps room selector.",
+        }
+
+    status = "configured" if "environment" in {shard_source, room_source} else "official target"
+    message = (
+        "Target room from SCREEPS_SHARD and SCREEPS_ROOM with the AGENTS.md official target as fallback."
+        if status == "configured"
+        else "Target room from the AGENTS.md official deployment target."
+    )
+    return {
+        "status": status,
+        "shard": shard,
+        "room": room,
+        "url": f"{SCREEPS_ROOM_URL_BASE}/{shard}/{room}",
+        "label": f"{shard}/{room}",
+        "sources": sources,
+        "message": message,
+    }
+
+
+def config_value(environ: Mapping[str, str], key: str, default: str) -> tuple[str, str]:
+    value = str(environ.get(key) or "").strip()
+    if value:
+        return value, "environment"
+    fallback = default.strip()
+    if fallback:
+        return fallback, "AGENTS.md official target"
+    return "", "unknown"
 
 
 def run_text(command: Sequence[str], cwd: Path, timeout: int = 15) -> str:
@@ -1085,12 +1141,7 @@ def fetch_github_snapshot(
         repo_root,
     )
     if project_error:
-        project_json, project_error_alt = run_json(
-            ["gh", "project", "item-list", str(project_number), "--owner", "@me", "--limit", "100", "--format", "json"],
-            repo_root,
-        )
-        if project_error_alt:
-            errors.append({"source": "project", **project_error})
+        errors.append({"source": "project", **project_error})
 
     issues = [normalize_issue(item) for item in issues_json] if isinstance(issues_json, list) else []
     seeded_issue_count = 0
@@ -1525,6 +1576,7 @@ def render_html(data: JsonObject) -> str:
     logo = data["assets"].get("logo") or ""
     logo_html = f'<img class="brand-logo" src="{esc(logo)}" alt="Screeps community logo">' if logo else ""
     generated_at = esc(data["generatedAt"])
+    target_room_nav = render_target_room_nav(repo)
     body = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1544,11 +1596,11 @@ def render_html(data: JsonObject) -> str:
       <nav class="link-row" aria-label="Project links">
         <a href="{esc(repo['url'])}">GitHub repository</a>
         <a href="{esc(repo['projectUrl'])}">Project board</a>
-        <a href="{esc(repo['screepsRoomUrl'])}">Target room</a>
+        {target_room_nav}
         <a href="{esc(repo['discordUrl'])}">Discord</a>
         <a href="{esc(repo['pagesUrl'])}">Pages URL</a>
       </nav>
-      <p class="published">Published {generated_at} from {esc(repo.get('branch') or 'unknown')} at {esc(repo.get('commit') or 'unknown')}</p>
+      <p class="published">Published {generated_at}</p>
     </div>
     {logo_html}
   </header>
@@ -1564,6 +1616,18 @@ def render_html(data: JsonObject) -> str:
 </html>
 """
     return body
+
+
+def render_target_room_nav(repo: JsonObject) -> str:
+    room_target = repo.get("screepsRoom") if isinstance(repo.get("screepsRoom"), dict) else {}
+    label = str(room_target.get("label") or "unknown")
+    status = str(room_target.get("status") or "unknown")
+    message = str(room_target.get("message") or "")
+    text = f"Target room: {label} ({status})"
+    url = str(room_target.get("url") or "")
+    if url:
+        return f'<a href="{esc(url)}" title="{esc(message)}">{esc(text)}</a>'
+    return f'<span class="link-status" title="{esc(message)}">{esc(text)}</span>'
 
 
 def render_css() -> str:
@@ -1659,6 +1723,7 @@ h1 {
 }
 
 .link-row a,
+.link-row .link-status,
 .card-link {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1668,6 +1733,10 @@ h1 {
   font-size: 0.92rem;
   font-weight: 700;
   text-decoration: none;
+}
+
+.link-row .link-status {
+  display: inline-flex;
 }
 
 main {
