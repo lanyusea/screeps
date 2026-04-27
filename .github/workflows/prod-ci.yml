@@ -78,6 +78,11 @@ jobs:
             if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
               attempt_failed=1
               failure_reasons+=("npm error output")
+              if [ "$npm_ci_status" -eq 0 ]; then
+                echo "::warning::npm ci exited 0 but emitted npm error output during attempt ${attempt}/${max_attempts}; treating attempt as failed."
+              else
+                echo "::warning::npm ci emitted npm error output during failed attempt ${attempt}/${max_attempts}."
+              fi
             fi
 
             missing_package_files=()
