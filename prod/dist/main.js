@@ -194,6 +194,280 @@ function getTerrainWallMask() {
   return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK;
 }
 
+// src/construction/roadPlanner.ts
+var DEFAULT_MAX_ROAD_SITES_PER_TICK = 1;
+var DEFAULT_MAX_PENDING_ROAD_SITES = 3;
+var DEFAULT_MAX_ROAD_TARGETS_PER_TICK = 3;
+var DEFAULT_MAX_PATH_OPS_PER_TARGET = 1e3;
+var MIN_CONTROLLER_LEVEL_FOR_ROADS = 2;
+var ROOM_EDGE_MIN2 = 1;
+var ROOM_EDGE_MAX2 = 48;
+var ROOM_COORDINATE_MIN = 0;
+var ROOM_COORDINATE_MAX = 49;
+var DEFAULT_TERRAIN_WALL_MASK2 = 1;
+var PATH_BLOCKED_COST = 255;
+var ROAD_PATH_COST = 1;
+var PLAIN_PATH_COST = 2;
+var SWAMP_PATH_COST = 10;
+function planEarlyRoadConstruction(colony, options = {}) {
+  var _a, _b;
+  const limits = resolveRoadPlannerLimits(options);
+  if (limits.maxSitesPerTick <= 0 || limits.maxPendingRoadSites <= 0 || ((_b = (_a = colony.room.controller) == null ? void 0 : _a.level) != null ? _b : 0) < MIN_CONTROLLER_LEVEL_FOR_ROADS || !isPathFinderAvailable() || !hasRequiredRoomApis(colony.room)) {
+    return [];
+  }
+  const anchor = selectRoadAnchor(colony);
+  if (!anchor) {
+    return [];
+  }
+  const pendingRoadSites = countPendingRoadConstructionSites(colony.room);
+  const remainingSiteBudget = Math.min(limits.maxSitesPerTick, limits.maxPendingRoadSites - pendingRoadSites);
+  if (remainingSiteBudget <= 0) {
+    return [];
+  }
+  const targets = selectRoadTargets(colony.room, limits.maxTargetsPerTick);
+  if (targets.length === 0) {
+    return [];
+  }
+  const lookups = createRoadPlannerLookups(colony.room);
+  if (!lookups) {
+    return [];
+  }
+  const candidates = selectRoadCandidates(colony.room.name, anchor.pos, targets, lookups, limits);
+  const results = [];
+  for (const candidate of candidates) {
+    if (results.length >= remainingSiteBudget) {
+      break;
+    }
+    if (!canPlaceRoad(lookups, candidate)) {
+      continue;
+    }
+    const result = colony.room.createConstructionSite(candidate.x, candidate.y, getRoadStructureType());
+    results.push(result);
+    if (result !== getOkCode()) {
+      break;
+    }
+    lookups.pendingRoadSitePositions.add(candidate.key);
+    lookups.costMatrix.set(candidate.x, candidate.y, ROAD_PATH_COST);
+  }
+  return results;
+}
+function resolveRoadPlannerLimits(options) {
+  return {
+    maxSitesPerTick: resolveNonNegativeInteger(options.maxSitesPerTick, DEFAULT_MAX_ROAD_SITES_PER_TICK),
+    maxPendingRoadSites: resolveNonNegativeInteger(options.maxPendingRoadSites, DEFAULT_MAX_PENDING_ROAD_SITES),
+    maxTargetsPerTick: resolveNonNegativeInteger(options.maxTargetsPerTick, DEFAULT_MAX_ROAD_TARGETS_PER_TICK),
+    maxPathOpsPerTarget: resolveNonNegativeInteger(options.maxPathOpsPerTarget, DEFAULT_MAX_PATH_OPS_PER_TARGET)
+  };
+}
+function resolveNonNegativeInteger(value, fallback) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.floor(value));
+}
+function isPathFinderAvailable() {
+  return typeof PathFinder !== "undefined" && typeof PathFinder.search === "function" && typeof PathFinder.CostMatrix === "function";
+}
+function hasRequiredRoomApis(room) {
+  const partialRoom = room;
+  return typeof partialRoom.find === "function" && typeof partialRoom.createConstructionSite === "function";
+}
+function selectRoadAnchor(colony) {
+  const [primarySpawn] = colony.spawns.filter((spawn) => spawn.pos).sort((left, right) => left.name.localeCompare(right.name));
+  return primarySpawn != null ? primarySpawn : null;
+}
+function selectRoadTargets(room, maxTargets) {
+  var _a;
+  if (maxTargets <= 0) {
+    return [];
+  }
+  const targets = getSortedSources(room).map((source) => ({
+    pos: source.pos
+  }));
+  if (((_a = room.controller) == null ? void 0 : _a.pos) && isSameRoomPosition(room.controller.pos, room.name)) {
+    targets.push({ pos: room.controller.pos });
+  }
+  return targets.filter((target) => isSameRoomPosition(target.pos, room.name)).slice(0, maxTargets);
+}
+function getSortedSources(room) {
+  if (typeof FIND_SOURCES !== "number") {
+    return [];
+  }
+  return room.find(FIND_SOURCES).filter((source) => source.pos && isSameRoomPosition(source.pos, room.name)).sort((left, right) => String(left.id).localeCompare(String(right.id)));
+}
+function countPendingRoadConstructionSites(room) {
+  if (typeof FIND_MY_CONSTRUCTION_SITES !== "number") {
+    return 0;
+  }
+  return room.find(FIND_MY_CONSTRUCTION_SITES, {
+    filter: isRoadConstructionSite
+  }).length;
+}
+function createRoadPlannerLookups(room) {
+  if (typeof FIND_STRUCTURES !== "number" || typeof FIND_CONSTRUCTION_SITES !== "number") {
+    return null;
+  }
+  const terrain = getRoomTerrain(room);
+  if (!terrain) {
+    return null;
+  }
+  const lookups = {
+    terrain,
+    costMatrix: new PathFinder.CostMatrix(),
+    blockingPositions: /* @__PURE__ */ new Set(),
+    existingRoadPositions: /* @__PURE__ */ new Set(),
+    pendingRoadSitePositions: /* @__PURE__ */ new Set(),
+    pathBlockedPositions: /* @__PURE__ */ new Set()
+  };
+  blockRoomEdges(lookups);
+  cacheRoomStructures(room, lookups);
+  cacheRoomConstructionSites(room, lookups);
+  return lookups;
+}
+function getRoomTerrain(room) {
+  const game = globalThis.Game;
+  if (!(game == null ? void 0 : game.map) || typeof game.map.getRoomTerrain !== "function") {
+    return null;
+  }
+  return game.map.getRoomTerrain(room.name);
+}
+function blockRoomEdges(lookups) {
+  for (let coordinate = ROOM_COORDINATE_MIN; coordinate <= ROOM_COORDINATE_MAX; coordinate += 1) {
+    blockPathPosition(lookups, { x: ROOM_COORDINATE_MIN, y: coordinate });
+    blockPathPosition(lookups, { x: ROOM_COORDINATE_MAX, y: coordinate });
+    blockPathPosition(lookups, { x: coordinate, y: ROOM_COORDINATE_MIN });
+    blockPathPosition(lookups, { x: coordinate, y: ROOM_COORDINATE_MAX });
+  }
+}
+function cacheRoomStructures(room, lookups) {
+  for (const structure of room.find(FIND_STRUCTURES)) {
+    const position = structure.pos;
+    if (!position || !isSameRoomPosition(position, room.name)) {
+      continue;
+    }
+    const key = getPositionKey2(position);
+    if (isRoadStructure(structure)) {
+      lookups.existingRoadPositions.add(key);
+      setRoadPathCostIfOpen(lookups, position);
+      continue;
+    }
+    lookups.blockingPositions.add(key);
+    blockPathPosition(lookups, position);
+  }
+}
+function cacheRoomConstructionSites(room, lookups) {
+  for (const constructionSite of room.find(FIND_CONSTRUCTION_SITES)) {
+    const position = constructionSite.pos;
+    if (!position || !isSameRoomPosition(position, room.name)) {
+      continue;
+    }
+    const key = getPositionKey2(position);
+    if (isRoadConstructionSite(constructionSite)) {
+      lookups.pendingRoadSitePositions.add(key);
+      setRoadPathCostIfOpen(lookups, position);
+      continue;
+    }
+    lookups.blockingPositions.add(key);
+    blockPathPosition(lookups, position);
+  }
+}
+function selectRoadCandidates(roomName, origin, targets, lookups, limits) {
+  const candidates = /* @__PURE__ */ new Map();
+  targets.forEach((target, targetIndex) => {
+    const path = findRoadPath(roomName, origin, target, lookups, limits);
+    const seenInRoute = /* @__PURE__ */ new Set();
+    path.forEach((position, pathIndex) => {
+      if (!isSameRoomPosition(position, roomName) || !canPlaceRoad(lookups, position)) {
+        return;
+      }
+      const key = getPositionKey2(position);
+      if (seenInRoute.has(key)) {
+        return;
+      }
+      seenInRoute.add(key);
+      const existingCandidate = candidates.get(key);
+      if (existingCandidate) {
+        existingCandidate.routeCount += 1;
+        existingCandidate.minPathIndex = Math.min(existingCandidate.minPathIndex, pathIndex);
+        existingCandidate.minTargetIndex = Math.min(existingCandidate.minTargetIndex, targetIndex);
+        return;
+      }
+      candidates.set(key, {
+        x: position.x,
+        y: position.y,
+        key,
+        routeCount: 1,
+        minPathIndex: pathIndex,
+        minTargetIndex: targetIndex
+      });
+    });
+  });
+  return [...candidates.values()].sort(compareRoadCandidates);
+}
+function findRoadPath(roomName, origin, target, lookups, limits) {
+  const result = PathFinder.search(origin, { pos: target.pos, range: 1 }, {
+    maxRooms: 1,
+    maxOps: limits.maxPathOpsPerTarget,
+    plainCost: PLAIN_PATH_COST,
+    swampCost: SWAMP_PATH_COST,
+    roomCallback: (callbackRoomName) => callbackRoomName === roomName ? lookups.costMatrix : false
+  });
+  return result.incomplete ? [] : result.path;
+}
+function compareRoadCandidates(left, right) {
+  return right.routeCount - left.routeCount || left.minPathIndex - right.minPathIndex || left.minTargetIndex - right.minTargetIndex || left.y - right.y || left.x - right.x;
+}
+function canPlaceRoad(lookups, position) {
+  if (!isWithinBuildableRoomBounds(position) || isTerrainWall2(lookups.terrain, position)) {
+    return false;
+  }
+  const key = getPositionKey2(position);
+  return !lookups.blockingPositions.has(key) && !lookups.existingRoadPositions.has(key) && !lookups.pendingRoadSitePositions.has(key);
+}
+function blockPathPosition(lookups, position) {
+  lookups.pathBlockedPositions.add(getPositionKey2(position));
+  lookups.costMatrix.set(position.x, position.y, PATH_BLOCKED_COST);
+}
+function setRoadPathCostIfOpen(lookups, position) {
+  if (!lookups.pathBlockedPositions.has(getPositionKey2(position))) {
+    lookups.costMatrix.set(position.x, position.y, ROAD_PATH_COST);
+  }
+}
+function isWithinBuildableRoomBounds(position) {
+  return position.x >= ROOM_EDGE_MIN2 && position.x <= ROOM_EDGE_MAX2 && position.y >= ROOM_EDGE_MIN2 && position.y <= ROOM_EDGE_MAX2;
+}
+function isSameRoomPosition(position, roomName) {
+  return !position.roomName || position.roomName === roomName;
+}
+function isTerrainWall2(terrain, position) {
+  return (terrain.get(position.x, position.y) & getTerrainWallMask2()) !== 0;
+}
+function isRoadStructure(structure) {
+  return matchesStructureType(structure.structureType, "STRUCTURE_ROAD", "road");
+}
+function isRoadConstructionSite(site) {
+  return matchesStructureType(site.structureType, "STRUCTURE_ROAD", "road");
+}
+function matchesStructureType(actual, globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return actual === ((_a = constants[globalName]) != null ? _a : fallback);
+}
+function getRoadStructureType() {
+  var _a;
+  const constants = globalThis;
+  return (_a = constants.STRUCTURE_ROAD) != null ? _a : "road";
+}
+function getPositionKey2(position) {
+  return `${position.x},${position.y}`;
+}
+function getTerrainWallMask2() {
+  return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK2;
+}
+function getOkCode() {
+  return typeof OK === "number" ? OK : 0;
+}
+
 // src/creeps/roleCounts.ts
 var WORKER_REPLACEMENT_TICKS_TO_LIVE = 100;
 function countCreepsByRole(creeps, colonyName) {
@@ -282,15 +556,15 @@ function selectWorkerTask(creep) {
   return null;
 }
 function isFillableEnergySink(structure) {
-  return (matchesStructureType(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure && structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+  return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure && structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
 }
 function isSpawnConstructionSite(site) {
-  return matchesStructureType(site.structureType, "STRUCTURE_SPAWN", "spawn");
+  return matchesStructureType2(site.structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function isExtensionConstructionSite(site) {
-  return matchesStructureType(site.structureType, "STRUCTURE_EXTENSION", "extension");
+  return matchesStructureType2(site.structureType, "STRUCTURE_EXTENSION", "extension");
 }
-function matchesStructureType(actual, globalName, fallback) {
+function matchesStructureType2(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -316,16 +590,16 @@ function isSafeRepairTarget(structure) {
   if (isWorkerRepairTargetComplete(structure)) {
     return false;
   }
-  if (matchesStructureType(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+  if (matchesStructureType2(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType2(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
     return true;
   }
-  return matchesStructureType(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
+  return matchesStructureType2(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
 }
 function isWorkerRepairTargetComplete(structure) {
   return structure.hits >= getWorkerRepairHitsCeiling(structure);
 }
 function getWorkerRepairHitsCeiling(structure) {
-  if (matchesStructureType(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure)) {
+  if (matchesStructureType2(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure)) {
     return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING);
   }
   return structure.hitsMax;
@@ -337,10 +611,10 @@ function compareRepairTargets(left, right) {
   return getRepairPriority(left) - getRepairPriority(right) || getHitsRatio(left) - getHitsRatio(right) || left.hits - right.hits || String(left.id).localeCompare(String(right.id));
 }
 function getRepairPriority(structure) {
-  if (matchesStructureType(structure.structureType, "STRUCTURE_ROAD", "road")) {
+  if (matchesStructureType2(structure.structureType, "STRUCTURE_ROAD", "road")) {
     return 0;
   }
-  if (matchesStructureType(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+  if (matchesStructureType2(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
     return 1;
   }
   return 2;
@@ -1326,7 +1600,10 @@ function runEconomy() {
   const colonies = getOwnedColonies();
   const telemetryEvents = [];
   for (const colony of colonies) {
-    planExtensionConstruction(colony);
+    const extensionResult = planExtensionConstruction(colony);
+    if (extensionResult === null) {
+      planEarlyRoadConstruction(colony);
+    }
     const roleCounts = countCreepsByRole(creeps, colony.room.name);
     const spawnRequest = planSpawn(colony, roleCounts, Game.time);
     if (spawnRequest) {
