@@ -25,6 +25,38 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('splits empty workers across sources as harvest assignments change', () => {
+    const source1 = { id: 'source1' } as Source;
+    const source2 = { id: 'source2' } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([source1, source2])
+    } as unknown as Room;
+    const assigned = {
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      room
+    } as unknown as Creep;
+    const worker1 = {
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    const worker2 = {
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Assigned: assigned, Worker1: worker1, Worker2: worker2 }
+    };
+
+    runWorker(worker1);
+    runWorker(worker2);
+
+    expect(worker1.memory.task).toEqual({ type: 'harvest', targetId: 'source2' });
+    expect(worker2.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
   it('leaves worker untasked when it has no energy and no sources', () => {
     const creep = {
       memory: {},

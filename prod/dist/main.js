@@ -80,7 +80,7 @@ function selectWorkerTask(creep) {
   var _a;
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   if (carriedEnergy === 0) {
-    const [source] = creep.room.find(FIND_SOURCES);
+    const source = selectHarvestSource(creep);
     return source ? { type: "harvest", targetId: source.id } : null;
   }
   const [energySink] = creep.room.find(FIND_MY_STRUCTURES, {
@@ -97,6 +97,50 @@ function selectWorkerTask(creep) {
     return { type: "upgrade", targetId: creep.room.controller.id };
   }
   return null;
+}
+function selectHarvestSource(creep) {
+  var _a, _b;
+  const sources = creep.room.find(FIND_SOURCES);
+  if (sources.length === 0) {
+    return null;
+  }
+  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, sources);
+  let selectedSource = sources[0];
+  let selectedCount = (_a = assignmentCounts.get(selectedSource.id)) != null ? _a : 0;
+  for (const source of sources.slice(1)) {
+    const count = (_b = assignmentCounts.get(source.id)) != null ? _b : 0;
+    if (count < selectedCount) {
+      selectedSource = source;
+      selectedCount = count;
+    }
+  }
+  return selectedSource;
+}
+function countSameRoomWorkerHarvestAssignments(roomName, sources) {
+  var _a, _b, _c, _d;
+  const assignmentCounts = /* @__PURE__ */ new Map();
+  for (const source of sources) {
+    assignmentCounts.set(source.id, 0);
+  }
+  if (!roomName) {
+    return assignmentCounts;
+  }
+  const sourceIds = new Set(sources.map((source) => source.id));
+  for (const assignedCreep of getGameCreeps()) {
+    const task = (_a = assignedCreep.memory) == null ? void 0 : _a.task;
+    const targetId = typeof (task == null ? void 0 : task.targetId) === "string" ? task.targetId : void 0;
+    if (((_b = assignedCreep.memory) == null ? void 0 : _b.role) !== "worker" || ((_c = assignedCreep.room) == null ? void 0 : _c.name) !== roomName || (task == null ? void 0 : task.type) !== "harvest" || !targetId || !sourceIds.has(targetId)) {
+      continue;
+    }
+    const sourceId = targetId;
+    assignmentCounts.set(sourceId, ((_d = assignmentCounts.get(sourceId)) != null ? _d : 0) + 1);
+  }
+  return assignmentCounts;
+}
+function getGameCreeps() {
+  var _a;
+  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
+  return creeps ? Object.values(creeps) : [];
 }
 
 // src/creeps/workerRunner.ts
