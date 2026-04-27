@@ -610,7 +610,10 @@ function recordTerritoryIntent(plan, status, gameTime) {
   if (!territoryMemory) {
     return;
   }
-  const intents = Array.isArray(territoryMemory.intents) ? territoryMemory.intents : [];
+  const intents = Array.isArray(territoryMemory.intents) ? territoryMemory.intents.flatMap((intent) => {
+    const normalizedIntent = normalizeTerritoryIntent(intent);
+    return normalizedIntent ? [normalizedIntent] : [];
+  }) : [];
   territoryMemory.intents = intents;
   const nextIntent = {
     colony: plan.colony,
@@ -628,6 +631,22 @@ function recordTerritoryIntent(plan, status, gameTime) {
     return;
   }
   intents.push(nextIntent);
+}
+function normalizeTerritoryIntent(rawIntent) {
+  if (!isRecord(rawIntent)) {
+    return null;
+  }
+  if (!isNonEmptyString(rawIntent.colony) || !isNonEmptyString(rawIntent.targetRoom) || !isTerritoryAction(rawIntent.action) || !isTerritoryIntentStatus(rawIntent.status) || typeof rawIntent.updatedAt !== "number") {
+    return null;
+  }
+  return {
+    colony: rawIntent.colony,
+    targetRoom: rawIntent.targetRoom,
+    action: rawIntent.action,
+    status: rawIntent.status,
+    updatedAt: rawIntent.updatedAt,
+    ...typeof rawIntent.controllerId === "string" ? { controllerId: rawIntent.controllerId } : {}
+  };
 }
 function getTerritoryCreepCountForTarget(roleCounts, targetRoom) {
   var _a, _b;
@@ -676,6 +695,9 @@ function getMemoryRecord() {
 }
 function isTerritoryAction(action) {
   return action === "claim" || action === "reserve";
+}
+function isTerritoryIntentStatus(status) {
+  return status === "planned" || status === "active";
 }
 function isNonEmptyString(value) {
   return typeof value === "string" && value.length > 0;

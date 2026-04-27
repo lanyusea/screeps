@@ -63,6 +63,55 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
+  it('normalizes malformed existing intents before updating a matching intent', () => {
+    const colony = makeSafeColony();
+    const unrelatedIntent: TerritoryIntentMemory = {
+      colony: 'W9N9',
+      targetRoom: 'W9N8',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 400
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
+        intents: [
+          null,
+          undefined,
+          { colony: 'W1N1', targetRoom: 'W2N1', status: 'planned', updatedAt: 450 },
+          unrelatedIntent,
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 451
+          }
+        ] as unknown as TerritoryIntentMemory[]
+      }
+    };
+
+    expect(() => {
+      expect(
+        planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 506)
+      ).toEqual({
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve'
+      });
+    }).not.toThrow();
+    expect(Memory.territory?.intents).toEqual([
+      unrelatedIntent,
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 506
+      }
+    ]);
+  });
+
   it('does not emit territory intent when the home controller is near downgrade', () => {
     const colony = makeSafeColony({
       controller: { my: true, level: 3, ticksToDowngrade: TERRITORY_DOWNGRADE_GUARD_TICKS } as StructureController
