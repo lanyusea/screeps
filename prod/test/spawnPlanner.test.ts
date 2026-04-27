@@ -128,7 +128,10 @@ describe('planSpawn', () => {
       controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
     });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      map: { describeExits: jest.fn(() => ({ '3': 'W2N1' })) } as unknown as GameMap
+      map: { describeExits: jest.fn(() => ({ '3': 'W2N1' })) } as unknown as GameMap,
+      rooms: {
+        W2N1: { name: 'W2N1', controller: { my: false } as StructureController } as Room
+      }
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
 

@@ -47,7 +47,10 @@ describe('planTerritoryIntent', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      map: { describeExits } as unknown as GameMap
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W1N2: { name: 'W1N2', controller: { my: false } as StructureController } as Room
+      }
     };
 
     expect(
@@ -74,6 +77,18 @@ describe('planTerritoryIntent', () => {
         updatedAt: 514
       }
     ]);
+  });
+
+  it('does not seed unseen adjacent reserve targets', () => {
+    const colony = makeSafeColony();
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 525)).toBeNull();
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory).toBeUndefined();
   });
 
   it('does not seed an adjacent reserve target when the colony has only disabled configured targets', () => {
@@ -163,7 +178,10 @@ describe('planTerritoryIntent', () => {
   it('defers seeded adjacent target writes until recording a finalized plan', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap,
+      rooms: {
+        W1N2: { name: 'W1N2', controller: { my: false } as StructureController } as Room
+      }
     };
     const claimersByTargetRoom = new Proxy<Record<string, number>>(
       {},
@@ -211,7 +229,10 @@ describe('planTerritoryIntent', () => {
     });
     Object.defineProperty(describeExits, 'call', { value: callTrap });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      map: { describeExits } as unknown as GameMap
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W2N1: { name: 'W2N1', controller: { my: false } as StructureController } as Room
+      }
     };
 
     expect(
