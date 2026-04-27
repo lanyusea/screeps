@@ -8,6 +8,7 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
   });
 
   it('selects harvest when worker has no energy', () => {
@@ -18,6 +19,52 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('selects the least-assigned harvest source for same-room workers', () => {
+    const source1 = { id: 'source1' } as Source;
+    const source2 = { id: 'source2' } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([source1, source2])
+    } as unknown as Room;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        Assigned: {
+          memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+          room
+        } as unknown as Creep,
+        OtherRoom: {
+          memory: { role: 'worker', task: { type: 'harvest', targetId: 'source2' as Id<Source> } },
+          room: { name: 'W2N2' } as Room
+        } as unknown as Creep,
+        Miner: {
+          memory: { role: 'miner', task: { type: 'harvest', targetId: 'source2' as Id<Source> } },
+          room
+        } as unknown as Creep,
+        Partial: {
+          memory: { role: 'worker', task: { type: 'harvest' } as CreepTaskMemory },
+          room
+        } as unknown as Creep
+      }
+    };
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
+  });
+
+  it('keeps room.find source order as the stable tie-breaker', () => {
+    const source2 = { id: 'source2' } as Source;
+    const source1 = { id: 'source1' } as Source;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room: { name: 'W1N1', find: jest.fn().mockReturnValue([source2, source1]) }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
   it('selects no task when worker has no energy and no sources', () => {
@@ -65,6 +112,57 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps carried-energy fallback order as transfer, build, then upgrade', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const fullSpawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const site = { id: 'site1' } as ConstructionSite;
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const makeCreep = (room: Room): Creep =>
+      ({
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room
+      }) as unknown as Creep;
+
+    const roomWithSink = {
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === 3) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return type === 2 ? [site] : [];
+      })
+    } as unknown as Room;
+    const roomWithSite = {
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === 3) {
+          const structures = [fullSpawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return type === 2 ? [site] : [];
+      })
+    } as unknown as Room;
+    const roomWithController = {
+      controller,
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+
+    expect(selectWorkerTask(makeCreep(roomWithSink))).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(selectWorkerTask(makeCreep(roomWithSite))).toEqual({ type: 'build', targetId: 'site1' });
+    expect(selectWorkerTask(makeCreep(roomWithController))).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('selects no task when worker has energy and the room has no spending targets or controller', () => {
