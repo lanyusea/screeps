@@ -130,7 +130,60 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
-  it('keeps room.find source order as the stable tie-breaker', () => {
+  it('avoids depleted harvest sources when another source has energy', () => {
+    const depletedSource = { id: 'source-empty', energy: 0 } as Source;
+    const viableSource = { id: 'source-full', energy: 300 } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([depletedSource, viableSource])
+    } as unknown as Room;
+    setGameCreeps({
+      Assigned: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source-full' as Id<Source> } },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-full' });
+  });
+
+  it('keeps room.find source order as the stable tie-breaker for viable sources', () => {
+    const source2 = { id: 'source2', energy: 100 } as Source;
+    const source1 = { id: 'source1', energy: 100 } as Source;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room: { name: 'W1N1', find: jest.fn().mockReturnValue([source2, source1]) }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
+  });
+
+  it('falls back deterministically when all sources are empty', () => {
+    const source1 = { id: 'source1', energy: 0 } as Source;
+    const source2 = { id: 'source2', energy: 0 } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([source1, source2])
+    } as unknown as Room;
+    setGameCreeps({
+      Assigned: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
+  });
+
+  it('keeps room.find source order as the stable fallback when source energy is unknown', () => {
     const source2 = { id: 'source2' } as Source;
     const source1 = { id: 'source1' } as Source;
     const creep = {
