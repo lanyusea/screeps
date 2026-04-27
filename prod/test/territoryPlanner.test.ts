@@ -100,6 +100,66 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
+  it('does not seed an adjacent reserve target when the colony has only suppressed configured targets', () => {
+    const colony = makeSafeColony();
+    const suppressedTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve'
+    };
+    const suppressedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'suppressed',
+      updatedAt: 520
+    };
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [suppressedTarget],
+        intents: [suppressedIntent]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 522)).toBeNull();
+    expect(describeExits).not.toHaveBeenCalled();
+    expect(Memory.territory?.targets).toEqual([suppressedTarget]);
+    expect(Memory.territory?.intents).toEqual([suppressedIntent]);
+  });
+
+  it('does not seed an adjacent reserve target when the colony has only visible unavailable configured targets', () => {
+    const colony = makeSafeColony();
+    const unavailableTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve'
+    };
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false, owner: { username: 'enemy' } } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [unavailableTarget]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 523)).toBeNull();
+    expect(describeExits).not.toHaveBeenCalled();
+    expect(Memory.territory?.targets).toEqual([unavailableTarget]);
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
   it('defers seeded adjacent target writes until recording a finalized plan', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -207,6 +267,37 @@ describe('planTerritoryIntent', () => {
 
     expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 516)).toBeNull();
     expect(Memory.territory).toBeUndefined();
+  });
+
+  it('does not seed visible adjacent rooms without controllers', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' })) } as unknown as GameMap,
+      rooms: {
+        W1N2: {
+          name: 'W1N2'
+        } as Room,
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false } as StructureController
+        } as Room
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 524)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve'
+      }
+    ]);
   });
 
   it('does not seed visible reserved adjacent rooms', () => {

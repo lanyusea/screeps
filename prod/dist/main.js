@@ -1110,6 +1110,9 @@ function isTerritoryIntentSuppressed(colony, targetRoom, action) {
   );
 }
 function isVisibleTerritoryTargetUnavailable(targetRoom, controllerId) {
+  if (isVisibleRoomMissingController(targetRoom)) {
+    return true;
+  }
   const controller = getVisibleController(targetRoom, controllerId);
   if (!controller) {
     return false;
@@ -1119,6 +1122,12 @@ function isVisibleTerritoryTargetUnavailable(targetRoom, controllerId) {
 function isVisibleTerritoryTargetReserved(targetRoom) {
   var _a;
   return ((_a = getVisibleController(targetRoom)) == null ? void 0 : _a.reservation) != null;
+}
+function isVisibleRoomMissingController(targetRoom) {
+  var _a;
+  const game = globalThis.Game;
+  const room = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[targetRoom];
+  return room != null && room.controller == null;
 }
 function isControllerOwned(controller) {
   return controller.owner != null || controller.my === true;

@@ -387,6 +387,10 @@ function isVisibleTerritoryTargetUnavailable(
   targetRoom: string,
   controllerId?: Id<StructureController>
 ): boolean {
+  if (isVisibleRoomMissingController(targetRoom)) {
+    return true;
+  }
+
   const controller = getVisibleController(targetRoom, controllerId);
   if (!controller) {
     return false;
@@ -397,6 +401,12 @@ function isVisibleTerritoryTargetUnavailable(
 
 function isVisibleTerritoryTargetReserved(targetRoom: string): boolean {
   return getVisibleController(targetRoom)?.reservation != null;
+}
+
+function isVisibleRoomMissingController(targetRoom: string): boolean {
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  const room = game?.rooms?.[targetRoom];
+  return room != null && room.controller == null;
 }
 
 function isControllerOwned(controller: StructureController): boolean {
