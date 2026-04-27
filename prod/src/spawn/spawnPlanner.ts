@@ -13,6 +13,7 @@ const MIN_WORKER_TARGET = 3;
 const WORKERS_PER_SOURCE = 2;
 // Keep source-aware scaling bounded so unusual source data cannot create runaway early-room spawn pressure.
 const MAX_WORKER_TARGET = 6;
+const sourceCountByRoomName = new Map<string, number>();
 
 export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
   if (roleCounts.worker >= getWorkerTarget(colony)) {
@@ -62,7 +63,24 @@ function getWorkerTarget(colony: ColonySnapshot): number {
 }
 
 function getSourceCount(room: Room): number {
-  if (typeof FIND_SOURCES === 'undefined') {
+  const roomName = typeof room.name === 'string' && room.name.length > 0 ? room.name : undefined;
+  if (roomName) {
+    const cachedSourceCount = sourceCountByRoomName.get(roomName);
+    if (cachedSourceCount !== undefined) {
+      return cachedSourceCount;
+    }
+  }
+
+  const sourceCount = findSourceCount(room);
+  if (roomName) {
+    sourceCountByRoomName.set(roomName, sourceCount);
+  }
+
+  return sourceCount;
+}
+
+function findSourceCount(room: Room): number {
+  if (typeof FIND_SOURCES === 'undefined' || typeof room.find !== 'function') {
     return 1;
   }
 
