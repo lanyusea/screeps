@@ -72,6 +72,14 @@ Preferred persisted-artifact feeder for KPI evidence:
 python3 scripts/screeps_runtime_kpi_artifact_bridge.py > runtime-kpi-report.json
 ```
 
+When a worker has raw Screeps console output rather than a saved artifact, persist the exact runtime-summary lines first:
+
+```bash
+python3 scripts/screeps_runtime_summary_console_capture.py saved-console.log
+```
+
+This writes only lines that start exactly `#runtime-summary ` under `/root/screeps/runtime-artifacts/runtime-summary-console/` by default, so the artifact bridge can consume them on its next scan. The utility is offline-only; the remaining live step is wiring an authenticated official console capture source into the job prompt or wrapper without printing tokens.
+
 With no paths, the bridge scans safe local artifact roots such as `/root/screeps/runtime-artifacts` and `/root/.hermes/cron/output`, tolerates missing directories, skips binary/oversized files, and attaches source counts without file contents. Pass explicit files or directories to bound a review window:
 
 ```bash

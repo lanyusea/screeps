@@ -66,4 +66,16 @@ Requirements:
 
 ## Next worker gate
 
-The next worker should not spend the slice on another static report/reducer layer unless it first proves a real persisted `#runtime-summary ` source exists. If no source exists, run the Codex prompt above or create a narrower Codex issue/PR for the persistence primitive.
+This prompt is the implementation record for the offline persistence primitive. The next worker should not spend another slice on reducer/page layers or rerun this prompt unless the capture utility regresses. Instead, wire a live official-console capture source or Hermes job prompt to:
+
+```bash
+python3 scripts/screeps_runtime_summary_console_capture.py saved-console.log
+```
+
+Then prove a nonzero scan with:
+
+```bash
+python3 scripts/screeps_runtime_kpi_artifact_bridge.py --format human
+```
+
+Only after real persisted `#runtime-summary ` lines exist should a worker wire the bridge into the 12h Gameplay Evolution Review and roadmap KPI snapshot job prompts.

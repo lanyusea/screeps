@@ -48,6 +48,14 @@ Use the persisted-artifact bridge first when a Gameplay Evolution Review, roadma
 python3 scripts/screeps_runtime_kpi_artifact_bridge.py > runtime-kpi-report.json
 ```
 
+If a worker has raw Screeps console output but no persisted artifact yet, capture exact in-game summary lines first:
+
+```bash
+python3 scripts/screeps_runtime_summary_console_capture.py saved-console.log
+```
+
+The capture utility writes only lines starting exactly `#runtime-summary ` to `/root/screeps/runtime-artifacts/runtime-summary-console/` by default, or to paths set with `--out-dir`, `--out-file`, or `SCREEPS_RUNTIME_SUMMARY_CONSOLE_OUT_DIR`. It does not connect to Screeps or require secrets.
+
 With explicit review-window roots:
 
 ```bash

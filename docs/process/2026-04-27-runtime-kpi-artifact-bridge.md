@@ -28,4 +28,4 @@ python3 -m unittest scripts/test_screeps_runtime_kpi_reducer.py scripts/test_scr
 
 ## Remaining next step
 
-Wire this command into the 12h Gameplay Evolution Review prompt and roadmap KPI snapshot job prompts in a later scheduler-management slice. Do not create or schedule cron jobs in this bridge slice.
+First feed real console output into `scripts/screeps_runtime_summary_console_capture.py` so `/root/screeps/runtime-artifacts/runtime-summary-console/` contains nonzero exact-prefix `#runtime-summary ` lines. After `python3 scripts/screeps_runtime_kpi_artifact_bridge.py --format human` proves the persisted source is live, wire the bridge command into the 12h Gameplay Evolution Review prompt and roadmap KPI snapshot job prompts in a later scheduler-management slice. Do not create or schedule cron jobs in this bridge slice.
