@@ -317,6 +317,11 @@ function runWorker(creep) {
     assignNextTask(creep);
     return;
   }
+  if (shouldPreemptRcl2UpgradeTask(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
   const task = creep.memory.task;
   const target = Game.getObjectById(task.targetId);
   if (!target) {
@@ -356,6 +361,18 @@ function shouldReplaceTask(creep, task) {
     return freeEnergyCapacity === 0;
   }
   return usedEnergy === 0;
+}
+function shouldPreemptRcl2UpgradeTask(creep, task) {
+  var _a;
+  if (task.type !== "upgrade") {
+    return false;
+  }
+  const controller = (_a = creep.room) == null ? void 0 : _a.controller;
+  if ((controller == null ? void 0 : controller.my) !== true || controller.level !== 2) {
+    return false;
+  }
+  const nextTask = selectWorkerTask(creep);
+  return nextTask !== null && (nextTask.type !== task.type || nextTask.targetId !== task.targetId);
 }
 function shouldReplaceTarget(task, target) {
   return task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0;
