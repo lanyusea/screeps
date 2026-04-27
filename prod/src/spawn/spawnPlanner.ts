@@ -9,10 +9,13 @@ export interface SpawnRequest {
   memory: CreepMemory;
 }
 
-const TARGET_WORKERS = 3;
+const MIN_WORKER_TARGET = 3;
+const WORKERS_PER_SOURCE = 2;
+// Keep source-aware scaling bounded so unusual source data cannot create runaway early-room spawn pressure.
+const MAX_WORKER_TARGET = 6;
 
 export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
-  if (roleCounts.worker >= TARGET_WORKERS) {
+  if (roleCounts.worker >= getWorkerTarget(colony)) {
     return null;
   }
 
@@ -49,4 +52,19 @@ function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyP
 
 function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
+}
+
+function getWorkerTarget(colony: ColonySnapshot): number {
+  const sourceCount = getSourceCount(colony.room);
+  const sourceAwareTarget = sourceCount * WORKERS_PER_SOURCE;
+
+  return Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
+}
+
+function getSourceCount(room: Room): number {
+  if (typeof FIND_SOURCES === 'undefined') {
+    return 1;
+  }
+
+  return room.find(FIND_SOURCES).length;
 }
