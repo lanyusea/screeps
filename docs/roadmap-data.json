@@ -3,8 +3,8 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-04-27T07:44:17Z",
-  "generatedAtCst": "2026-04-27 15:44:17 CST",
+  "generatedAt": "2026-04-27T07:51:00Z",
+  "generatedAtCst": "2026-04-27 15:51:00 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
@@ -195,7 +195,7 @@
       "cards": [
         {
           "domain": "Runtime monitor",
-          "evidence": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-summary console capture utility, tests, and docs. Verification passed locally: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars. This solves the offline persistence primitive; live official-console wiring still pending.",
+          "evidence": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Local verification after latest fix: diff-check, py_compile, capture unittest 7 tests, full reducer+bridge+capture unittest 21 tests.",
           "kind": "ops",
           "lane": "Foundation",
           "nextAction": "",
@@ -211,7 +211,7 @@
         },
         {
           "domain": "Runtime monitor",
-          "evidence": "PR #73 / fe7e0fa adds offline exact-prefix runtime-summary console capture, tests, docs, and active-state update. Local verification passed: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars.",
+          "evidence": "PR #73 updated through 3777e2f: offline exact-prefix runtime-summary console capture, bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Verification: diff-check, py_compile, capture unittest 7, full reducer+bridge+capture unittest 21, prod-ci SUCCESS. CodeRabbit still PENDING at 2026-04-27T15:47+08.",
           "kind": "code",
           "lane": "Foundation",
           "nextAction": "",
@@ -227,7 +227,7 @@
         },
         {
           "domain": "Bot capability",
-          "evidence": "PR #72 restores GitHub Pages roadmap to approved v5 snapshot layout: exactly 3 visible KPI cards, no not-instrumented clutter in HTML, extra KPIs retained in SQLite only. Codex commit b9469cb; local browser visual smoke PASS; SQLite/LFS/enemy_kills/no-sidecars checks passed.",
+          "evidence": "PR #72 head 28f1e17 fixes generator arity/blank KPI buckets, preserves approved v5 visible layout, regenerates docs/index.html + docs/roadmap-data.json + LFS SQLite. Verification PASS: py_compile, generator, HTML required/forbidden/3 KPI cards, SQLite 528 samples/33 metrics/latest enemy_kills NULL instrumented=0, no WAL/SHM, LFS pointer, cached diff-check, secret scan; prod-ci and CodeRabbit status green.",
           "kind": "code",
           "lane": "Foundation",
           "nextAction": "",
@@ -1216,7 +1216,7 @@
               "cards": [
                 {
                   "domain": "Runtime monitor",
-                  "evidence": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-summary console capture utility, tests, and docs. Verification passed locally: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars. This solves the offline persistence primitive; live official-console wiring still pending.",
+                  "evidence": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Local verification after latest fix: diff-check, py_compile, capture unittest 7 tests, full reducer+bridge+capture unittest 21 tests.",
                   "kind": "ops",
                   "lane": "Foundation",
                   "nextAction": "",
@@ -1237,7 +1237,7 @@
               "cards": [
                 {
                   "domain": "Runtime monitor",
-                  "evidence": "PR #73 / fe7e0fa adds offline exact-prefix runtime-summary console capture, tests, docs, and active-state update. Local verification passed: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars.",
+                  "evidence": "PR #73 updated through 3777e2f: offline exact-prefix runtime-summary console capture, bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Verification: diff-check, py_compile, capture unittest 7, full reducer+bridge+capture unittest 21, prod-ci SUCCESS. CodeRabbit still PENDING at 2026-04-27T15:47+08.",
                   "kind": "code",
                   "lane": "Foundation",
                   "nextAction": "",
@@ -1253,7 +1253,7 @@
                 },
                 {
                   "domain": "Bot capability",
-                  "evidence": "PR #72 restores GitHub Pages roadmap to approved v5 snapshot layout: exactly 3 visible KPI cards, no not-instrumented clutter in HTML, extra KPIs retained in SQLite only. Codex commit b9469cb; local browser visual smoke PASS; SQLite/LFS/enemy_kills/no-sidecars checks passed.",
+                  "evidence": "PR #72 head 28f1e17 fixes generator arity/blank KPI buckets, preserves approved v5 visible layout, regenerates docs/index.html + docs/roadmap-data.json + LFS SQLite. Verification PASS: py_compile, generator, HTML required/forbidden/3 KPI cards, SQLite 528 samples/33 metrics/latest enemy_kills NULL instrumented=0, no WAL/SHM, LFS pointer, cached diff-check, secret scan; prod-ci and CodeRabbit status green.",
                   "kind": "code",
                   "lane": "Foundation",
                   "nextAction": "",
@@ -2022,7 +2022,7 @@
       {
         "blockedBy": "",
         "domain": "Runtime monitor",
-        "evidence": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-summary console capture utility, tests, and docs. Verification passed locally: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars. This solves the offline persistence primitive; live official-console wiring still pending.",
+        "evidence": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Local verification after latest fix: diff-check, py_compile, capture unittest 7 tests, full reducer+bridge+capture unittest 21 tests.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -2807,7 +2807,7 @@
       {
         "blockedBy": "",
         "domain": "Bot capability",
-        "evidence": "PR #72 restores GitHub Pages roadmap to approved v5 snapshot layout: exactly 3 visible KPI cards, no not-instrumented clutter in HTML, extra KPIs retained in SQLite only. Codex commit b9469cb; local browser visual smoke PASS; SQLite/LFS/enemy_kills/no-sidecars checks passed.",
+        "evidence": "PR #72 head 28f1e17 fixes generator arity/blank KPI buckets, preserves approved v5 visible layout, regenerates docs/index.html + docs/roadmap-data.json + LFS SQLite. Verification PASS: py_compile, generator, HTML required/forbidden/3 KPI cards, SQLite 528 samples/33 metrics/latest enemy_kills NULL instrumented=0, no WAL/SHM, LFS pointer, cached diff-check, secret scan; prod-ci and CodeRabbit status green.",
         "kind": "code",
         "labels": [],
         "milestone": "",
@@ -2824,7 +2824,7 @@
       {
         "blockedBy": "",
         "domain": "Runtime monitor",
-        "evidence": "PR #73 / fe7e0fa adds offline exact-prefix runtime-summary console capture, tests, docs, and active-state update. Local verification passed: diff-check, py_compile, 18 unittest tests, Pages generator temp run, no temp DB WAL/SHM sidecars.",
+        "evidence": "PR #73 updated through 3777e2f: offline exact-prefix runtime-summary console capture, bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Verification: diff-check, py_compile, capture unittest 7, full reducer+bridge+capture unittest 21, prod-ci SUCCESS. CodeRabbit still PENDING at 2026-04-27T15:47+08.",
         "kind": "code",
         "labels": [],
         "milestone": "",
@@ -2860,7 +2860,7 @@
         "status": "In review",
         "title": "feat: capture runtime summary console artifacts",
         "type": "PullRequest",
-        "updatedAt": "2026-04-27T07:35:21Z",
+        "updatedAt": "2026-04-27T07:48:29Z",
         "url": "https://github.com/lanyusea/screeps/pull/73"
       },
       {
@@ -2883,7 +2883,7 @@
         "status": "In review",
         "title": "fix: restore roadmap Pages report layout",
         "type": "PullRequest",
-        "updatedAt": "2026-04-27T07:21:58Z",
+        "updatedAt": "2026-04-27T07:48:33Z",
         "url": "https://github.com/lanyusea/screeps/pull/72"
       }
     ],
@@ -3788,6 +3788,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "alert_false_positives": [
@@ -3900,6 +3921,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4016,6 +4058,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "attack_damage": [
@@ -4128,6 +4191,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4244,6 +4328,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "controller_level_sum": [
@@ -4356,6 +4461,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4472,6 +4598,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "cpu_bucket": [
@@ -4584,6 +4731,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4700,6 +4868,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "creeps_destroyed_generic": [
@@ -4812,6 +5001,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4928,6 +5138,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "enemy_kills": [
@@ -5040,6 +5271,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5156,6 +5408,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "harvested_energy": [
@@ -5268,6 +5541,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5384,6 +5678,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "hostile_structures": [
@@ -5496,6 +5811,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5612,6 +5948,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "objects_destroyed": [
@@ -5724,6 +6081,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5840,6 +6218,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "owned_room_delta": [
@@ -5952,6 +6351,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6068,6 +6488,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "reserved_remote_rooms": [
@@ -6180,6 +6621,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6296,6 +6758,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "runtime_summary_samples": [
@@ -6408,6 +6891,27 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "observed",
           "value": 0.0
         }
@@ -6524,6 +7028,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "spawn_queue_pressure": [
@@ -6636,6 +7161,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6752,6 +7298,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "stored_energy": [
@@ -6864,6 +7431,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6980,6 +7568,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "telemetry_silence_minutes": [
@@ -7092,6 +7701,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7208,6 +7838,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "worker_carried_energy": [
@@ -7320,6 +7971,27 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:44:17Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7436,6 +8108,27 @@
           "sampledAt": "2026-04-27T07:44:17Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:46:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:49:10Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
         }
       ]
     }
@@ -7457,7 +8150,6 @@
       "status": "official target",
       "url": "https://screeps.com/a/#!/room/shardX/E48S28"
     },
-    "shortSha": "b9469cb",
     "url": "https://github.com/lanyusea/screeps"
   },
   "report": {
@@ -7470,21 +8162,21 @@
       {
         "items": [
           {
-            "description": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-summary console capture u...",
+            "description": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses bridge-compatible default ou...",
             "number": 29,
             "priority": "P1",
             "title": "#29 P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
             "url": "https://github.com/lanyusea/screeps/issues/29"
           },
           {
-            "description": "PR #73 / fe7e0fa adds offline exact-prefix runtime-summary console capture, tests, docs, and active-state upd...",
+            "description": "PR #73 updated through 3777e2f: offline exact-prefix runtime-summary console capture, bridge-compatible defau...",
             "number": 73,
             "priority": "P1",
             "title": "#73 feat: capture runtime summary console artifacts",
             "url": "https://github.com/lanyusea/screeps/pull/73"
           },
           {
-            "description": "PR #72 restores GitHub Pages roadmap to approved v5 snapshot layout: exactly 3 visible KPI cards, no not-inst...",
+            "description": "PR #72 head 28f1e17 fixes generator arity/blank KPI buckets, preserves approved v5 visible layout, regenerate...",
             "number": 72,
             "priority": "P1",
             "title": "#72 fix: restore roadmap Pages report layout",
@@ -7919,9 +8611,9 @@
     "processCards": [
       {
         "delta": "+1",
-        "detail": "HEAD b9469cb",
+        "detail": "repository history",
         "label": "\u603b commit \u6570",
-        "value": 121
+        "value": 122
       },
       {
         "delta": "+1",
@@ -7970,7 +8662,7 @@
       },
       {
         "goal": "\u628a\u5360\u5730\u8f6c\u6362\u6210\u80fd\u91cf\u3001\u77ff\u7269\u3001\u7269\u6d41\u89c4\u6a21",
-        "next": "PR #73 opened from Codex-authored commit fe7e0fa: adds offline exact-prefix runtime-s...",
+        "next": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses brid...",
         "progress": 58,
         "status": "#29 In progress \u00b7 GitHub",
         "title": "Resource Economy",
@@ -8011,7 +8703,7 @@
       "matchedFiles": 0,
       "reason": "",
       "runtimeSummaryLines": 0,
-      "scannedFiles": 71545,
+      "scannedFiles": 71547,
       "skippedFileCount": 1643
     },
     "window": {

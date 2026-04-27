@@ -679,7 +679,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         project_owner=args.project_owner,
         project_number=args.project_number,
     )
-    repo_snapshot = build_repo_snapshot(repo_full_name, repo_root)
+    repo_snapshot = build_repo_snapshot(repo_full_name)
     data = build_page_data(
         generated_at=generated_at,
         repo=repo_snapshot,
@@ -734,12 +734,10 @@ def strip_trailing_whitespace(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.splitlines()) + "\n"
 
 
-def build_repo_snapshot(repo_full_name: str, repo_root: Path) -> JsonObject:
-    short_sha = run_text(["git", "rev-parse", "--short", "HEAD"], repo_root).strip() or "unknown"
+def build_repo_snapshot(repo_full_name: str) -> JsonObject:
     return {
         "fullName": repo_full_name,
         "url": f"https://github.com/{repo_full_name}",
-        "shortSha": short_sha,
         "pagesUrl": PAGES_URL,
         "projectUrl": GITHUB_PROJECT_URL,
         "screepsRoom": build_screeps_room_target(),
@@ -2244,7 +2242,6 @@ def issue_url(repo: JsonObject, number: int) -> str:
 
 
 def build_report_process_cards(repo_root: Path, repo: JsonObject, github_snapshot: JsonObject) -> list[JsonObject]:
-    short_sha = str(repo.get("shortSha") or "unknown")
     commit_count = parse_count(run_text(["git", "rev-list", "--count", "HEAD"], repo_root))
     prs, pr_error = fetch_all_prs(repo_root, str(repo["fullName"]))
     issues, issue_error = fetch_all_issues(repo_root, str(repo["fullName"]))
@@ -2268,7 +2265,7 @@ def build_report_process_cards(repo_root: Path, repo: JsonObject, github_snapsho
     private_smoke_count = count_private_smoke_process_reports(repo_root)
 
     return [
-        {"value": commit_count, "label": "总 commit 数", "detail": f"HEAD {short_sha}", "delta": "+1"},
+        {"value": commit_count, "label": "总 commit 数", "detail": "repository history", "delta": "+1"},
         {
             "value": total_prs,
             "label": "总 PR 数",
@@ -3072,7 +3069,7 @@ def render_html(data: JsonObject) -> str:
       {render_kanban_section("foundation-kanban", "04 基建开发 Kanban", data["report"]["foundationKanban"])}
       {render_report_process(data)}
     </main>
-    <footer class="report-footer">format {esc(data["format"])} · repo {esc(repo.get("shortSha") or "unknown")} · generated {generated_at}</footer>
+    <footer class="report-footer">format {esc(data["format"])} · repo {esc(repo["url"])} · generated {generated_at}</footer>
   </div>
 </body>
 </html>
@@ -3567,7 +3564,7 @@ def render_report_hero(data: JsonObject) -> str:
       </div>
       <div class="hero-art">
         {logo_html}
-        <div class="logo-badge">KPI/Kanban · {esc(repo.get("shortSha") or "unknown")}</div>
+        <div class="logo-badge">KPI/Kanban · v5</div>
       </div>
     </header>
 """
