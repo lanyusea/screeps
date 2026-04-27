@@ -135,6 +135,11 @@ A finding-to-Codex task is not accepted until the main agent verifies:
 
 PR #65 landed the first additive in-game KPI telemetry bridge for #29/#61. The next accepted finding should be transformed with this runbook into one of these bounded tasks:
 
-1. **#29 reducer/renderer follow-up** — consume the new `controller`, `resources`, and `combat` runtime-summary fields so review reports and roadmap snapshots can show territory/resource/combat deltas instead of `not instrumented`.
+1. **#29 reducer/renderer follow-up** — consume the new `controller`, `resources`, and `combat` runtime-summary fields so review reports and roadmap snapshots can show territory/resource/combat deltas instead of `not instrumented`. The reducer command for saved logs is:
+
+   ```bash
+   python3 scripts/screeps_runtime_kpi_reducer.py saved-runtime-summary.log > runtime-kpi-report.json
+   ```
+
 2. **#61 bridge hardening** — convert the next 12-hour Gameplay Evolution recommendation into a concrete issue with expected KPI movement, acceptance evidence, and rollback/stop condition.
 3. **#30/#31 bot-capability tests** — if the next worker slot is free before reducer work is ready, dispatch Codex to harden spawn lifecycle or emergency recovery coverage.

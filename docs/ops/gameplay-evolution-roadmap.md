@@ -66,6 +66,14 @@ Inputs:
 - recent merged PRs/deploys;
 - open GitHub roadmap issues and Project fields.
 
+Saved `#runtime-summary` console logs can be reduced into KPI evidence without live API access:
+
+```bash
+python3 scripts/screeps_runtime_kpi_reducer.py saved-runtime-summary.log > runtime-kpi-report.json
+```
+
+Use `-` for stdin, and add `--format human` for a compact reviewer-facing readout. The JSON output is deterministic and marks missing KPI sections as `not instrumented`.
+
 Required output:
 
 ```markdown
@@ -195,7 +203,7 @@ Initial tasks:
 
 1. Extend runtime telemetry schema with territory/economy/combat KPI fields.
 2. Add deterministic tests for KPI aggregation where feasible.
-3. Add an external reducer that compares the current window to the prior 12-hour baseline.
+3. Add an external reducer that consumes saved `#runtime-summary` logs and emits territory/resource/combat KPI evidence.
 4. Render or publish a concise KPI board for routine review.
 
 Acceptance:
