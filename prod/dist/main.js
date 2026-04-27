@@ -258,6 +258,10 @@ function selectWorkerTask(creep) {
   if (constructionSites[0]) {
     return { type: "build", targetId: constructionSites[0].id };
   }
+  const repairTarget = selectRepairTarget(creep);
+  if (repairTarget) {
+    return { type: "repair", targetId: repairTarget.id };
+  }
   if (controller == null ? void 0 : controller.my) {
     return { type: "upgrade", targetId: controller.id };
   }
@@ -276,6 +280,50 @@ function matchesStructureType(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
+}
+function selectRepairTarget(creep) {
+  var _a;
+  if (((_a = creep.room.controller) == null ? void 0 : _a.my) !== true) {
+    return null;
+  }
+  const repairTargets = findVisibleRoomStructures(creep.room).filter(isSafeRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+  return repairTargets.sort(compareRepairTargets)[0];
+}
+function findVisibleRoomStructures(room) {
+  if (typeof FIND_STRUCTURES !== "number") {
+    return [];
+  }
+  return room.find(FIND_STRUCTURES);
+}
+function isSafeRepairTarget(structure) {
+  if (structure.hits >= structure.hitsMax) {
+    return false;
+  }
+  if (matchesStructureType(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+    return true;
+  }
+  return matchesStructureType(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
+}
+function isOwnedRampart(structure) {
+  return structure.my === true;
+}
+function compareRepairTargets(left, right) {
+  return getRepairPriority(left) - getRepairPriority(right) || getHitsRatio(left) - getHitsRatio(right) || left.hits - right.hits || String(left.id).localeCompare(String(right.id));
+}
+function getRepairPriority(structure) {
+  if (matchesStructureType(structure.structureType, "STRUCTURE_ROAD", "road")) {
+    return 0;
+  }
+  if (matchesStructureType(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+    return 1;
+  }
+  return 2;
+}
+function getHitsRatio(structure) {
+  return structure.hitsMax > 0 ? structure.hits / structure.hitsMax : 1;
 }
 function shouldGuardControllerDowngrade(controller) {
   return (controller == null ? void 0 : controller.my) === true && typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
@@ -404,7 +452,7 @@ function runWorker(creep) {
     assignNextTask(creep);
     return;
   }
-  if (shouldPreemptRcl2UpgradeTask(creep, creep.memory.task)) {
+  if (shouldPreemptUpgradeTask(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
     return;
@@ -449,20 +497,26 @@ function shouldReplaceTask(creep, task) {
   }
   return usedEnergy === 0;
 }
-function shouldPreemptRcl2UpgradeTask(creep, task) {
+function shouldPreemptUpgradeTask(creep, task) {
   var _a;
   if (task.type !== "upgrade") {
     return false;
   }
   const controller = (_a = creep.room) == null ? void 0 : _a.controller;
-  if ((controller == null ? void 0 : controller.my) !== true || controller.level !== 2) {
+  if ((controller == null ? void 0 : controller.my) !== true) {
     return false;
   }
   const nextTask = selectWorkerTask(creep);
-  return nextTask !== null && (nextTask.type !== task.type || nextTask.targetId !== task.targetId);
+  if (nextTask === null || nextTask.type === task.type && nextTask.targetId === task.targetId) {
+    return false;
+  }
+  return nextTask.type === "repair" || controller.level === 2;
 }
 function shouldReplaceTarget(task, target) {
-  return task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0;
+  if (task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+    return true;
+  }
+  return task.type === "repair" && "hits" in target && target.hits >= target.hitsMax;
 }
 function executeTask(creep, task, target) {
   switch (task.type) {
@@ -474,6 +528,8 @@ function executeTask(creep, task, target) {
       return creep.transfer(target, RESOURCE_ENERGY);
     case "build":
       return creep.build(target);
+    case "repair":
+      return creep.repair(target);
     case "upgrade":
       return creep.upgradeController(target);
   }

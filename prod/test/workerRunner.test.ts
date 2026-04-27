@@ -3,15 +3,19 @@ import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
 
 describe('runWorker', () => {
   beforeEach(() => {
-    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant }).ERR_NOT_IN_RANGE = -9;
+    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).ERR_NOT_IN_RANGE = -9;
     (globalThis as unknown as { ERR_FULL: number }).ERR_FULL = -8;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
     (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
   });
 
   it('assigns a task when the creep has none', () => {
@@ -161,6 +165,31 @@ describe('runWorker', () => {
     expect(moveTo).toHaveBeenCalledWith(site);
   });
 
+  it('repairs an existing repair target and moves when not in range', () => {
+    const road = { id: 'road1', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const repair = jest.fn().mockReturnValue(-9);
+    const moveTo = jest.fn();
+    const getObjectById = jest.fn().mockReturnValue(road);
+    const creep = {
+      memory: { task: { type: 'repair', targetId: 'road1' as Id<Structure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      repair,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('road1');
+    expect(repair).toHaveBeenCalledWith(road);
+    expect(moveTo).toHaveBeenCalledWith(road);
+  });
+
   it('upgrades an existing upgrade target and moves when not in range', () => {
     const controller = { id: 'controller1' } as StructureController;
     const upgradeController = jest.fn().mockReturnValue(-9);
@@ -283,6 +312,39 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts a low-value upgrade task for damaged road repair', () => {
+    const road = { id: 'road1', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [road] : []))
+      },
+      upgradeController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn()
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'road1' });
+    expect(Game.getObjectById).not.toHaveBeenCalled();
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('clears missing build targets and reassigns without building the stale target', () => {
     const site = { id: 'site2' } as ConstructionSite;
     const build = jest.fn();
@@ -337,6 +399,37 @@ describe('runWorker', () => {
     expect(moveTo).not.toHaveBeenCalled();
   });
 
+  it('clears completed repair targets and reassigns without repairing the stale target', () => {
+    const fullRoad = { id: 'road-full', structureType: 'road', hits: 5_000, hitsMax: 5_000 } as StructureRoad;
+    const damagedRoad = { id: 'road-damaged', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const repair = jest.fn();
+    const moveTo = jest.fn();
+    const creep = {
+      memory: { task: { type: 'repair', targetId: 'road-full' as Id<Structure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        controller: { id: 'controller1', my: true } as StructureController,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [fullRoad, damagedRoad] : []))
+      },
+      repair,
+      moveTo
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(fullRoad);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('road-full');
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'road-damaged' });
+    expect(repair).not.toHaveBeenCalled();
+    expect(moveTo).not.toHaveBeenCalled();
+  });
+
   it('clears invalid task targets', () => {
     const creep = {
       memory: { task: { type: 'build', targetId: 'missing' as Id<ConstructionSite> } },
@@ -357,6 +450,7 @@ describe('runWorker', () => {
     { type: 'pickup', targetId: 'missing-drop' as Id<Resource<ResourceConstant>> },
     { type: 'transfer', targetId: 'missing-transfer' as Id<AnyStoreStructure> },
     { type: 'build', targetId: 'missing-site' as Id<ConstructionSite> },
+    { type: 'repair', targetId: 'missing-repair' as Id<Structure> },
     { type: 'upgrade', targetId: 'missing-controller' as Id<StructureController> }
   ] satisfies CreepTaskMemory[])(
     'clears stale $type task in a controllerless room without executing it',
@@ -371,6 +465,7 @@ describe('runWorker', () => {
         harvest: jest.fn(),
         pickup: jest.fn(),
         build: jest.fn(),
+        repair: jest.fn(),
         transfer: jest.fn(),
         upgradeController: jest.fn(),
         moveTo: jest.fn()
@@ -385,6 +480,7 @@ describe('runWorker', () => {
       expect(creep.harvest).not.toHaveBeenCalled();
       expect(creep.pickup).not.toHaveBeenCalled();
       expect(creep.build).not.toHaveBeenCalled();
+      expect(creep.repair).not.toHaveBeenCalled();
       expect(creep.transfer).not.toHaveBeenCalled();
       expect(creep.upgradeController).not.toHaveBeenCalled();
       expect(creep.moveTo).not.toHaveBeenCalled();

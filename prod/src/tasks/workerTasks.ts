@@ -3,6 +3,8 @@ export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
 
+type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
+
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
 
@@ -53,6 +55,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'build', targetId: constructionSites[0].id };
   }
 
+  const repairTarget = selectRepairTarget(creep);
+  if (repairTarget) {
+    return { type: 'repair', targetId: repairTarget.id as Id<Structure> };
+  }
+
   if (controller?.my) {
     return { type: 'upgrade', targetId: controller.id };
   }
@@ -77,11 +84,81 @@ function isExtensionConstructionSite(site: ConstructionSite): boolean {
   return matchesStructureType(site.structureType, 'STRUCTURE_EXTENSION', 'extension');
 }
 
-type StructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
+type StructureConstantGlobal =
+  | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_EXTENSION'
+  | 'STRUCTURE_ROAD'
+  | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_RAMPART';
 
 function matchesStructureType(actual: string | undefined, globalName: StructureConstantGlobal, fallback: string): boolean {
   const constants = globalThis as unknown as Partial<Record<StructureConstantGlobal, string>>;
   return actual === (constants[globalName] ?? fallback);
+}
+
+function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
+  if (creep.room.controller?.my !== true) {
+    return null;
+  }
+
+  const repairTargets = findVisibleRoomStructures(creep.room).filter(isSafeRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+
+  return repairTargets.sort(compareRepairTargets)[0];
+}
+
+function findVisibleRoomStructures(room: Room): AnyStructure[] {
+  if (typeof FIND_STRUCTURES !== 'number') {
+    return [];
+  }
+
+  return room.find(FIND_STRUCTURES);
+}
+
+function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWorkerStructure {
+  if (structure.hits >= structure.hitsMax) {
+    return false;
+  }
+
+  if (
+    matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')
+  ) {
+    return true;
+  }
+
+  return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure);
+}
+
+function isOwnedRampart(structure: AnyStructure): structure is StructureRampart {
+  return (structure as Partial<StructureRampart>).my === true;
+}
+
+function compareRepairTargets(left: RepairableWorkerStructure, right: RepairableWorkerStructure): number {
+  return (
+    getRepairPriority(left) - getRepairPriority(right) ||
+    getHitsRatio(left) - getHitsRatio(right) ||
+    left.hits - right.hits ||
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
+function getRepairPriority(structure: RepairableWorkerStructure): number {
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road')) {
+    return 0;
+  }
+
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')) {
+    return 1;
+  }
+
+  return 2;
+}
+
+function getHitsRatio(structure: Structure): number {
+  return structure.hitsMax > 0 ? structure.hits / structure.hitsMax : 1;
 }
 
 function shouldGuardControllerDowngrade(controller: StructureController | undefined): boolean {

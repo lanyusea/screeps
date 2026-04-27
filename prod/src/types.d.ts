@@ -18,5 +18,6 @@ declare global {
     | { type: 'pickup'; targetId: Id<Resource<ResourceConstant>> }
     | { type: 'transfer'; targetId: Id<AnyStoreStructure> }
     | { type: 'build'; targetId: Id<ConstructionSite> }
+    | { type: 'repair'; targetId: Id<Structure> }
     | { type: 'upgrade'; targetId: Id<StructureController> };
 }

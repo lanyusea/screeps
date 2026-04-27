@@ -12,7 +12,7 @@ export function runWorker(creep: Creep): void {
     return;
   }
 
-  if (shouldPreemptRcl2UpgradeTask(creep, creep.memory.task)) {
+  if (shouldPreemptUpgradeTask(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
     return;
@@ -66,31 +66,39 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   return usedEnergy === 0;
 }
 
-function shouldPreemptRcl2UpgradeTask(creep: Creep, task: CreepTaskMemory): boolean {
+function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean {
   if (task.type !== 'upgrade') {
     return false;
   }
 
   const controller = creep.room?.controller;
-  if (controller?.my !== true || controller.level !== 2) {
+  if (controller?.my !== true) {
     return false;
   }
 
   const nextTask = selectWorkerTask(creep);
-  return nextTask !== null && (nextTask.type !== task.type || nextTask.targetId !== task.targetId);
+  if (nextTask === null || (nextTask.type === task.type && nextTask.targetId === task.targetId)) {
+    return false;
+  }
+
+  return nextTask.type === 'repair' || controller.level === 2;
 }
 
 function shouldReplaceTarget(
   task: CreepTaskMemory,
-  target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController
+  target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
 ): boolean {
-  return task.type === 'transfer' && 'store' in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0;
+  if (task.type === 'transfer' && 'store' in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+    return true;
+  }
+
+  return task.type === 'repair' && 'hits' in target && target.hits >= target.hitsMax;
 }
 
 function executeTask(
   creep: Creep,
   task: CreepTaskMemory,
-  target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController
+  target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
 ): ScreepsReturnCode {
   switch (task.type) {
     case 'harvest':
@@ -101,6 +109,8 @@ function executeTask(
       return creep.transfer(target as AnyStoreStructure, RESOURCE_ENERGY);
     case 'build':
       return creep.build(target as ConstructionSite);
+    case 'repair':
+      return creep.repair(target as Structure);
     case 'upgrade':
       return creep.upgradeController(target as StructureController);
   }
