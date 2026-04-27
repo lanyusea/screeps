@@ -18,6 +18,7 @@ Main command:
 ```bash
 python3 scripts/screeps-runtime-monitor.py summary
 python3 scripts/screeps-runtime-monitor.py alert
+python3 scripts/screeps-runtime-monitor.py tactical-response
 ```
 
 The script outputs JSON only and never prints auth tokens.
@@ -49,12 +50,12 @@ SCREEPS_MONITOR_STATE_FILE=/root/.hermes/screeps-runtime-monitor/state.json
 SCREEPS_ALERT_DEBOUNCE_SECONDS=300
 ```
 
-In local Hermes runs, these are normally sourced from `/root/.secret/.env` without displaying values.
+In local Hermes runs, source these from the local secret environment without displaying values.
 
 ## Summary mode
 
 ```bash
-set -a; . /root/.secret/.env; set +a
+# Load SCREEPS_AUTH_TOKEN into the environment without printing it.
 python3 scripts/screeps-runtime-monitor.py summary --out-dir /root/screeps/runtime-artifacts/screeps-monitor
 ```
 
@@ -77,7 +78,7 @@ python3 scripts/screeps-runtime-monitor.py summary --room shardX/E48S28
 ## Alert mode
 
 ```bash
-set -a; . /root/.secret/.env; set +a
+# Load SCREEPS_AUTH_TOKEN into the environment without printing it.
 python3 scripts/screeps-runtime-monitor.py alert --out-dir /root/screeps/runtime-artifacts/screeps-monitor
 ```
 
@@ -112,12 +113,138 @@ python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28 --force-al
 
 `--force-alert-image` renders a red-emphasis image but keeps `alert: false` unless a real alert exists.
 
+## Tactical response bridge
+
+The tactical bridge is an offline API mode that consumes the JSON emitted by `alert` mode and returns a bounded machine-readable next-action payload. It does not call Screeps APIs, does not create cron jobs, and does not send Discord messages directly.
+
+Pipe usage:
+
+```bash
+python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28 \
+  | python3 scripts/screeps-runtime-monitor.py tactical-response
+```
+
+File usage:
+
+```bash
+python3 scripts/screeps-runtime-monitor.py tactical-response --input runtime-alert.json
+```
+
+No-alert dry run:
+
+```bash
+printf '%s\n' '{"ok":true,"mode":"alert","alert":false,"reasons":[],"rooms":["shardX/E48S28"],"warnings":[]}' \
+  | python3 scripts/screeps-runtime-monitor.py tactical-response
+```
+
+Expected no-alert fields:
+
+```json
+{
+  "emergency": false,
+  "silent": true,
+  "severity": "none",
+  "categories": [],
+  "scheduler": {
+    "should_post": false,
+    "recommended_output": "[SILENT]"
+  }
+}
+```
+
+High-priority dry run:
+
+```bash
+printf '%s\n' '{"ok":true,"mode":"alert","alert":true,"reasons":[{"kind":"hostile_creep","room":"shardX/E48S28","object_id":"hostile-1","owner":"Invader","x":20,"y":21,"message":"hostile creep visible: Invader at 20,21"}],"rooms":["shardX/E48S28"]}' \
+  | python3 scripts/screeps-runtime-monitor.py tactical-response
+```
+
+Expected emergency fields:
+
+```json
+{
+  "emergency": true,
+  "silent": false,
+  "severity": "high",
+  "categories": ["hostiles"],
+  "scheduler": {
+    "should_post": true,
+    "recommended_output": "TACTICAL_EMERGENCY_REPORT"
+  }
+}
+```
+
+### Trigger categories
+
+| Category | Source signal | Severity | Default decision |
+| --- | --- | --- | --- |
+| `hostiles` | `hostile_creep` or hostile text in alert reason | high | observe or owner action after live-room inspection |
+| `owned_structure_damage` | owned damageable structure HP decreased | high; critical when critical storage/spawn/tower/terminal is at or below 25% HP | open issue or Codex hotfix |
+| `owned_structure_disappearance` | previously observed critical owned structure disappeared | critical | Codex hotfix or rollback decision |
+| `spawn_collapse` | spawn missing/destroyed/collapsed/no recovery signal | critical | Codex hotfix or owner action |
+| `downgrade_risk` | controller downgrade signal | high; critical at 2000 ticks or less | owner action or Codex hotfix |
+| `telemetry_silence` | `alert` payload has `ok:false`, runtime-summary silence, loop exception, or telemetry silence signal | critical | rollback or monitor fix |
+| `monitor_integrity` | monitor miss/spam signal | high | monitor fix |
+| `unknown_runtime_alert` | emitted alert reason that does not match a known category | high | main-agent triage |
+
+### Tactical Emergency Report template
+
+Use this shape when the bridge returns `"emergency": true`:
+
+```text
+Tactical Emergency Report
+- Source: alert artifact path or scheduler run id
+- Room/shard: <room>
+- Severity/categories: <severity> / <categories>
+- Evidence: alert JSON, image paths, recent runtime-summary lines, latest deploy SHA
+- Decision: observe | open issue | Codex hotfix | rollback | owner action
+- Gate: no-secret check, GitHub state current, Codex owns prod edits, verification complete, post-release monitor checked
+- Next action: <single concrete owner/action>
+```
+
+### Main-agent decision matrix
+
+| Bridge result | Main-agent action |
+| --- | --- |
+| `emergency:false`, `silent:true` | Scheduler wrapper returns exactly `[SILENT]`; no Discord alert is posted. |
+| `severity:high`, category `hostiles` only | Inspect the live room and next alert check; open/update an incident only if the hostile persists, damage follows, or manual defense is required. |
+| `severity:high`, structure or downgrade category | Open/update the incident issue when confirmed; choose Codex hotfix if bot behavior can change the outcome. |
+| `severity:critical`, spawn/structure/downgrade category | Start the emergency hotfix gate or request owner action when live manual intervention is faster than code. |
+| `severity:critical`, `telemetry_silence` | Restore telemetry first; rollback only when the latest deploy plausibly caused loop exceptions or runtime-summary silence. |
+| `monitor_integrity` | Fix monitor/debounce/wrapper behavior; do not modify live cron configuration from this script. |
+
+### No-secret guarantees
+
+- The bridge reads alert JSON from stdin or `--input` and emits JSON only.
+- It does not require `SCREEPS_AUTH_TOKEN` and does not call live APIs.
+- It does not print raw auth headers or raw input. Copied messages are shortened and redacted for token/password/secret/header patterns and local secret-path patterns.
+- It never schedules cron jobs and never sends Discord messages directly. The scheduler wrapper decides whether to post or return `[SILENT]` from the `scheduler` object.
+
+### Scheduler and QA gate
+
+PASS:
+
+- `python3 scripts/screeps-runtime-monitor.py tactical-response` returns `emergency:false`, `silent:true`, and `scheduler.recommended_output:"[SILENT]"` for the no-alert dry run.
+- The hostile dry run returns `emergency:true`, `severity:"high"`, `categories:["hostiles"]`, and non-empty `next_actions`.
+- Offline verification passes: `python3 -m py_compile scripts/screeps-runtime-monitor.py scripts/test_screeps_runtime_monitor_tactical_response.py`, `python3 scripts/screeps-runtime-monitor.py self-test`, and `python3 -m unittest scripts/test_screeps_runtime_monitor_tactical_response.py`.
+- `git diff --check` is clean.
+- No cron files or live scheduler configuration changed.
+
+REQUEST_CHANGES:
+
+- No-alert JSON can trigger a Discord-visible alert instead of `[SILENT]`.
+- Emergency output lacks severity, categories, or next actions.
+- Tests require live Screeps credentials.
+- Output includes tokens, auth headers, passwords, or local secret paths.
+- The change creates or modifies cron jobs.
+
 ## Verification
 
 Offline pure-function tests:
 
 ```bash
 python3 scripts/screeps-runtime-monitor.py self-test
+python3 -m unittest scripts/test_screeps_runtime_monitor_tactical_response.py
 ```
 
 ## Runtime KPI console capture
@@ -145,7 +272,7 @@ Only lines starting exactly `#runtime-summary ` are written. Embedded, quoted, t
 Live smoke:
 
 ```bash
-set -a; . /root/.secret/.env; set +a
+# Load SCREEPS_AUTH_TOKEN into the environment without printing it.
 python3 scripts/screeps-runtime-monitor.py summary --room shardX/E48S28 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-smoke
 SCREEPS_MONITOR_STATE_FILE=/tmp/screeps-monitor-alert-smoke-state.json \
   python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-smoke

@@ -94,6 +94,145 @@ CRITICAL_STRUCTURE_TYPES = {
     "tower",
 }
 
+TACTICAL_SEVERITY_RANK = {
+    "none": 0,
+    "warning": 1,
+    "high": 2,
+    "critical": 3,
+}
+
+TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
+    "hostiles": {
+        "severity": "high",
+        "decision": "owner_action_or_observe",
+        "actions": ["capture_runtime_context", "inspect_live_room", "decide_owner_action"],
+    },
+    "owned_structure_damage": {
+        "severity": "high",
+        "decision": "open_issue_or_codex_hotfix",
+        "actions": ["capture_runtime_context", "compare_baseline", "open_incident_issue"],
+    },
+    "owned_structure_disappearance": {
+        "severity": "critical",
+        "decision": "codex_hotfix_or_rollback",
+        "actions": ["capture_runtime_context", "compare_baseline", "start_hotfix_gate"],
+    },
+    "spawn_collapse": {
+        "severity": "critical",
+        "decision": "codex_hotfix_or_owner_action",
+        "actions": ["capture_runtime_context", "inspect_spawn_recovery", "start_hotfix_gate"],
+    },
+    "downgrade_risk": {
+        "severity": "high",
+        "decision": "owner_action_or_codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_controller", "start_hotfix_gate"],
+    },
+    "telemetry_silence": {
+        "severity": "critical",
+        "decision": "rollback_or_monitor_fix",
+        "actions": ["capture_runtime_context", "inspect_recent_deploy", "restore_telemetry"],
+    },
+    "monitor_integrity": {
+        "severity": "high",
+        "decision": "monitor_fix",
+        "actions": ["capture_runtime_context", "inspect_monitor_state", "restore_telemetry"],
+    },
+    "unknown_runtime_alert": {
+        "severity": "high",
+        "decision": "main_agent_triage",
+        "actions": ["capture_runtime_context", "open_incident_issue"],
+    },
+}
+
+TACTICAL_REASON_CATEGORY_MAP = {
+    "hostile_creep": ["hostiles"],
+    "structure_damage": ["owned_structure_damage"],
+    "critical_structure_missing": ["owned_structure_disappearance"],
+    "spawn_destroyed": ["spawn_collapse"],
+    "spawn_collapse": ["spawn_collapse"],
+    "no_workers_no_recovery": ["spawn_collapse"],
+    "no_spawn_recovery": ["spawn_collapse"],
+    "controller_downgrade_risk": ["downgrade_risk"],
+    "downgrade_risk": ["downgrade_risk"],
+    "telemetry_silence": ["telemetry_silence"],
+    "runtime_summary_silence": ["telemetry_silence"],
+    "loop_exception": ["telemetry_silence"],
+    "monitor_miss": ["monitor_integrity"],
+    "monitor_spam": ["monitor_integrity"],
+}
+
+TACTICAL_ACTION_CATALOG: dict[str, dict[str, Any]] = {
+    "return_silent": {
+        "owner": "scheduler-wrapper",
+        "action": "Return [SILENT] and do not post a runtime-alert message.",
+        "decision": "observe",
+    },
+    "capture_runtime_context": {
+        "owner": "main-agent",
+        "action": "Capture the alert JSON, rendered room image path, recent runtime-summary evidence, current branch, and latest deploy SHA before changing code.",
+        "decision": "triage",
+    },
+    "inspect_live_room": {
+        "owner": "main-agent",
+        "action": "Inspect the current room state for hostile owner, hostile body intent, tower/spawn/controller condition, and whether the alert persists across the next check.",
+        "decision": "owner_action_or_observe",
+    },
+    "decide_owner_action": {
+        "owner": "main-agent",
+        "action": "Escalate to owner action only when live manual defense or market/terminal action is needed before a code change can help.",
+        "decision": "owner_action",
+    },
+    "compare_baseline": {
+        "owner": "main-agent",
+        "action": "Compare the monitor baseline against the current snapshot to confirm damage or disappearance is real and not a stale object-cache artifact.",
+        "decision": "open_issue_or_hotfix",
+    },
+    "open_incident_issue": {
+        "owner": "main-agent",
+        "action": "Open or update a GitHub incident issue when the condition persists, affects production behavior, or needs code work.",
+        "decision": "open_issue",
+    },
+    "inspect_spawn_recovery": {
+        "owner": "main-agent",
+        "action": "Check whether any spawn exists, whether workers can recover harvesting, and whether the bot has a deterministic recovery path.",
+        "decision": "codex_hotfix_or_owner_action",
+    },
+    "inspect_controller": {
+        "owner": "main-agent",
+        "action": "Check controller level, ticks-to-downgrade, upgrader presence, available energy, and spawn availability before selecting observe, hotfix, or owner action.",
+        "decision": "owner_action_or_hotfix",
+    },
+    "inspect_recent_deploy": {
+        "owner": "main-agent",
+        "action": "Check the latest deploy, runtime console, and monitor capture path to distinguish bot loop failure from monitor transport failure.",
+        "decision": "rollback_or_monitor_fix",
+    },
+    "inspect_monitor_state": {
+        "owner": "main-agent",
+        "action": "Inspect debounce state, alert signature churn, and scheduler wrapper behavior before changing cron configuration.",
+        "decision": "monitor_fix",
+    },
+    "restore_telemetry": {
+        "owner": "main-agent",
+        "action": "Restore trustworthy telemetry first; use rollback only when the latest deploy plausibly caused loop exceptions or runtime-summary silence.",
+        "decision": "rollback_or_monitor_fix",
+    },
+    "start_hotfix_gate": {
+        "owner": "codex",
+        "action": "Start the emergency hotfix gate: keep GitHub state current, preserve no-secret handling, implement prod changes through Codex, run required verification, and monitor after release.",
+        "decision": "codex_hotfix",
+    },
+}
+
+TACTICAL_HOTFIX_GATE = [
+    "Keep the issue or PR state current before reporting completion.",
+    "Do not expose tokens, auth headers, passwords, or local secret paths.",
+    "Use Codex for production code changes.",
+    "Run typecheck, tests, and build when prod code changes are involved.",
+    "Run the runtime monitor self-test and tactical-response offline tests for monitor changes.",
+    "Verify post-release runtime monitor output before closing the incident.",
+]
+
 
 @dataclass(frozen=True)
 class RoomRef:
@@ -619,6 +758,220 @@ def evaluate_room_alert(
     return emitted, suppressed, next_state
 
 
+def severity_max(left: str, right: str) -> str:
+    return left if TACTICAL_SEVERITY_RANK.get(left, 0) >= TACTICAL_SEVERITY_RANK.get(right, 0) else right
+
+
+def tactical_rule(category: str) -> dict[str, Any]:
+    return TACTICAL_CATEGORY_RULES.get(category, TACTICAL_CATEGORY_RULES["unknown_runtime_alert"])
+
+
+def tactical_reason_kind(reason: dict[str, Any]) -> str:
+    for key in ("kind", "category", "type"):
+        value = reason.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return "unknown_runtime_alert"
+
+
+def number_from_reason(reason: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = reason.get(key)
+        if isinstance(value, (int, float)):
+            return float(value)
+    return None
+
+
+def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
+    kind = tactical_reason_kind(reason)
+    lowered_kind = kind.lower()
+    message = str(reason.get("message") or "").lower()
+    structure_type = str(reason.get("structure_type") or reason.get("structureType") or "").lower()
+    categories: list[str] = []
+
+    categories.extend(TACTICAL_REASON_CATEGORY_MAP.get(kind, []))
+    categories.extend(TACTICAL_REASON_CATEGORY_MAP.get(lowered_kind, []))
+
+    if "hostile" in lowered_kind or "hostile" in message:
+        categories.append("hostiles")
+    if "downgrade" in lowered_kind or "downgrade" in message:
+        categories.append("downgrade_risk")
+    if "telemetry" in lowered_kind or "runtime-summary" in lowered_kind or "loop_exception" in lowered_kind:
+        categories.append("telemetry_silence")
+    if "silence" in lowered_kind or "silent" in lowered_kind:
+        categories.append("telemetry_silence")
+    if "monitor" in lowered_kind and ("miss" in lowered_kind or "spam" in lowered_kind):
+        categories.append("monitor_integrity")
+    if "damage" in lowered_kind:
+        categories.append("owned_structure_damage")
+    if "missing" in lowered_kind or "disappear" in lowered_kind or "destroyed" in lowered_kind:
+        categories.append("owned_structure_disappearance")
+
+    current_hits = number_from_reason(reason, "current_hits", "currentHits", "hits")
+    if structure_type == "spawn" and (
+        "missing" in lowered_kind
+        or "destroyed" in lowered_kind
+        or "collapse" in lowered_kind
+        or current_hits == 0
+    ):
+        categories.append("spawn_collapse")
+
+    if not categories:
+        categories.append("unknown_runtime_alert")
+    return sorted(set(categories), key=lambda category: (-TACTICAL_SEVERITY_RANK.get(tactical_rule(category)["severity"], 0), category))
+
+
+def category_severity(category: str, reason: dict[str, Any]) -> str:
+    severity = str(tactical_rule(category)["severity"])
+    if category == "downgrade_risk":
+        ticks = number_from_reason(reason, "ticks_to_downgrade", "ticksToDowngrade", "remaining_ticks", "remainingTicks")
+        if ticks is not None and ticks <= 2000:
+            return "critical"
+    if category == "owned_structure_damage":
+        hits = number_from_reason(reason, "current_hits", "currentHits", "hits")
+        hits_max = number_from_reason(reason, "hitsMax", "hits_max")
+        structure_type = str(reason.get("structure_type") or reason.get("structureType") or "").lower()
+        if structure_type in {"spawn", "tower", "storage", "terminal"} and hits is not None and hits_max and hits / hits_max <= 0.25:
+            return "critical"
+    return severity
+
+
+def tactical_source_summary(alert_payload: dict[str, Any], reasons: list[dict[str, Any]]) -> dict[str, Any]:
+    rooms = alert_payload.get("rooms")
+    warnings = alert_payload.get("warnings")
+    summary = {
+        "ok": bool(alert_payload.get("ok")),
+        "mode": alert_payload.get("mode") if isinstance(alert_payload.get("mode"), str) else None,
+        "alert": bool(alert_payload.get("alert")),
+        "reason_count": len(reasons),
+        "rooms": [room for room in rooms if isinstance(room, str)] if isinstance(rooms, list) else [],
+        "suppressed": bool(alert_payload.get("suppressed")),
+        "suppressed_count": int(alert_payload.get("suppressed_count", 0) or 0),
+        "warning_count": len(warnings) if isinstance(warnings, list) else 0,
+    }
+    if alert_payload.get("ok") is False:
+        error = alert_payload.get("error")
+        if isinstance(error, str):
+            summary["error_excerpt"] = short_text(redact_secrets(error, [os.environ.get("SCREEPS_AUTH_TOKEN", "")]), 220)
+    return summary
+
+
+def normalize_tactical_reasons(alert_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_reasons = alert_payload.get("reasons")
+    if not isinstance(raw_reasons, list):
+        return []
+    return [dict(reason) for reason in raw_reasons if isinstance(reason, dict)]
+
+
+def append_unique_action(action_ids: list[str], action_id: str) -> None:
+    if action_id not in action_ids:
+        action_ids.append(action_id)
+
+
+def tactical_action_payload(action_id: str, priority: int) -> dict[str, Any]:
+    action = dict(TACTICAL_ACTION_CATALOG[action_id])
+    action["id"] = action_id
+    action["priority"] = priority
+    return action
+
+
+def build_tactical_response_report(alert_payload: dict[str, Any]) -> dict[str, Any]:
+    reasons = normalize_tactical_reasons(alert_payload)
+    source = tactical_source_summary(alert_payload, reasons)
+    triggers: list[dict[str, Any]] = []
+    category_set: set[str] = set()
+    action_ids: list[str] = []
+    severity = "none"
+
+    if alert_payload.get("ok") is False:
+        synthetic_reason = {
+            "kind": "telemetry_silence",
+            "message": "runtime monitor returned ok=false",
+        }
+        reasons = [synthetic_reason, *reasons]
+    elif alert_payload.get("alert") is True and not reasons:
+        reasons = [
+            {
+                "kind": "unknown_runtime_alert",
+                "message": "runtime monitor returned alert=true without reason details",
+            }
+        ]
+
+    for reason in reasons:
+        categories = infer_tactical_categories(reason)
+        for category in categories:
+            rule = tactical_rule(category)
+            category_set.add(category)
+            category_sev = category_severity(category, reason)
+            severity = severity_max(severity, category_sev)
+            for action_id in rule["actions"]:
+                append_unique_action(action_ids, action_id)
+            triggers.append(
+                {
+                    "category": category,
+                    "severity": category_sev,
+                    "decision": rule["decision"],
+                    "reason_kind": tactical_reason_kind(reason),
+                    "room": reason.get("room"),
+                    "object_id": reason.get("object_id"),
+                    "structure_type": reason.get("structure_type") or reason.get("structureType"),
+                    "message": short_text(redact_secrets(str(reason.get("message") or tactical_reason_kind(reason)), [os.environ.get("SCREEPS_AUTH_TOKEN", "")]), 180),
+                }
+            )
+
+    emergency = bool(triggers)
+    if not emergency:
+        action_ids = ["return_silent"]
+
+    categories = sorted(category_set, key=lambda category: (-TACTICAL_SEVERITY_RANK.get(tactical_rule(category)["severity"], 0), category))
+    next_actions = [tactical_action_payload(action_id, (index + 1) * 10) for index, action_id in enumerate(action_ids)]
+    scheduler = {
+        "should_post": emergency,
+        "direct_discord_send": False,
+        "recommended_output": "TACTICAL_EMERGENCY_REPORT" if emergency else "[SILENT]",
+        "silent_token": None if emergency else "[SILENT]",
+    }
+
+    return {
+        "ok": True,
+        "mode": "tactical-response",
+        "source": source,
+        "emergency": emergency,
+        "silent": not emergency,
+        "severity": severity,
+        "categories": categories,
+        "triggers": triggers,
+        "next_actions": next_actions,
+        "scheduler": scheduler,
+        "hotfix_gate": TACTICAL_HOTFIX_GATE if emergency else [],
+        "report_template": {
+            "title": "Tactical Emergency Report",
+            "required_fields": [
+                "source alert JSON path or artifact id",
+                "room and shard",
+                "severity and categories",
+                "evidence snapshot paths",
+                "decision: observe/open issue/Codex hotfix/rollback/owner action",
+                "verification and post-release monitor result",
+            ],
+        },
+    }
+
+
+def load_tactical_alert_payload(input_path: str | None) -> dict[str, Any]:
+    if not input_path or input_path == "-":
+        raw = sys.stdin.read()
+    else:
+        raw = Path(input_path).read_text(encoding="utf-8")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"tactical-response input must be JSON: {exc.msg}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("tactical-response input must be a JSON object")
+    return payload
+
+
 def load_state(path: Path) -> dict[str, Any]:
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -1044,6 +1397,9 @@ def redact_secrets(text: str, secrets: list[str]) -> str:
     for secret in secrets:
         if secret and len(secret) >= 6:
             redacted = redacted.replace(secret, "[REDACTED]")
+    redacted = re.sub(r"(?i)(x-token|authorization)\s*[:=]\s*(?:bearer\s+)?[^,\s}]+", r"\1=[REDACTED]", redacted)
+    redacted = re.sub(r"(?i)(token|password|secret)\s*[:=]\s*[^,\s}]+", r"\1=[REDACTED]", redacted)
+    redacted = re.sub(r"/root/\.secret/[^,\s\"']+", "[REDACTED_SECRET_PATH]", redacted)
     return redacted
 
 
@@ -1150,6 +1506,13 @@ def command_alert(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_tactical_response(args: argparse.Namespace) -> int:
+    payload = load_tactical_alert_payload(args.input)
+    response = build_tactical_response_report(payload)
+    print_json(response, [os.environ.get("SCREEPS_AUTH_TOKEN", "")])
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Render Screeps runtime summary and alert monitor images.")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -1167,6 +1530,18 @@ def build_parser() -> argparse.ArgumentParser:
     add_live_options(alert)
     alert.add_argument("--force-alert-image", action="store_true", help="render alert-style image even when no alert is emitted")
     alert.set_defaults(func=command_alert)
+
+    tactical_response = subcommands.add_parser(
+        "tactical-response",
+        help="classify runtime alert JSON into a bounded tactical emergency response payload",
+    )
+    tactical_response.add_argument(
+        "--input",
+        default="-",
+        help="runtime alert JSON path, or '-' for stdin (default: stdin)",
+    )
+    tactical_response.add_argument("--format", choices=["json"], default="json", help="output format")
+    tactical_response.set_defaults(func=command_tactical_response)
 
     self_test = subcommands.add_parser("self-test", help="run offline pure-function tests")
     self_test.set_defaults(func=command_self_test)
@@ -1303,6 +1678,81 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertEqual(emitted, [])
             self.assertEqual(len(suppressed), 1)
 
+    class TacticalResponseTests(unittest.TestCase):
+        def test_tactical_response_keeps_no_alert_silent(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": True,
+                    "mode": "alert",
+                    "alert": False,
+                    "reasons": [],
+                    "rooms": ["shardTest/E1N1"],
+                }
+            )
+            self.assertFalse(report["emergency"])
+            self.assertTrue(report["silent"])
+            self.assertEqual(report["severity"], "none")
+            self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
+            self.assertEqual(report["next_actions"][0]["id"], "return_silent")
+
+        def test_tactical_response_classifies_hostile_alert(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": True,
+                    "mode": "alert",
+                    "alert": True,
+                    "reasons": [
+                        {
+                            "kind": "hostile_creep",
+                            "room": "shardTest/E1N1",
+                            "object_id": "h1",
+                            "owner": "Invader",
+                            "x": 10,
+                            "y": 11,
+                            "message": "hostile creep visible: Invader at 10,11",
+                        }
+                    ],
+                }
+            )
+            self.assertTrue(report["emergency"])
+            self.assertFalse(report["silent"])
+            self.assertEqual(report["severity"], "high")
+            self.assertEqual(report["categories"], ["hostiles"])
+            self.assertEqual(report["scheduler"]["recommended_output"], "TACTICAL_EMERGENCY_REPORT")
+
+        def test_tactical_response_promotes_missing_spawn_to_critical(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": True,
+                    "mode": "alert",
+                    "alert": True,
+                    "reasons": [
+                        {
+                            "kind": "critical_structure_missing",
+                            "room": "shardTest/E1N1",
+                            "object_id": "spawn1",
+                            "structure_type": "spawn",
+                            "message": "critical spawn disappeared from 25,25",
+                        }
+                    ],
+                }
+            )
+            self.assertTrue(report["emergency"])
+            self.assertEqual(report["severity"], "critical")
+            self.assertEqual(report["categories"], ["owned_structure_disappearance", "spawn_collapse"])
+
+        def test_tactical_response_treats_monitor_failure_as_telemetry_silence(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": False,
+                    "mode": "alert",
+                    "error": "no room snapshots collected",
+                }
+            )
+            self.assertTrue(report["emergency"])
+            self.assertEqual(report["severity"], "critical")
+            self.assertEqual(report["categories"], ["telemetry_silence"])
+
     class SafeJsonTests(unittest.TestCase):
         def test_safe_json_rejects_secret(self) -> None:
             with self.assertRaises(RuntimeError):
@@ -1312,9 +1762,13 @@ def command_self_test(_args: argparse.Namespace) -> int:
             rendered = safe_json_dumps({"mode": "summary", "images": ["/tmp/image.png"]}, ["abcdef123456"])
             self.assertIn('"mode": "summary"', rendered)
 
+        def test_redact_secrets_handles_auth_header_text(self) -> None:
+            rendered = redact_secrets("Authorization: Bearer abcdef123456 token=abcdef123456", [])
+            self.assertNotIn("abcdef123456", rendered)
+
     suite = unittest.TestSuite()
     loader = unittest.defaultTestLoader
-    for case in (TerrainTests, AlertTests, SafeJsonTests):
+    for case in (TerrainTests, AlertTests, TacticalResponseTests, SafeJsonTests):
         suite.addTests(loader.loadTestsFromTestCase(case))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
