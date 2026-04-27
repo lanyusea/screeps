@@ -46,7 +46,37 @@ jobs:
         run: |
           set -o pipefail
           max_attempts=3
-          npm_ci_status=1
+          install_succeeded=0
+          last_failure_reason="npm ci did not run"
+
+          required_packages=(
+            "typescript"
+            "jest"
+            "ts-jest"
+            "@types/jest"
+            "@types/screeps"
+            "esbuild"
+          )
+
+          has_npm_error_output() {
+            grep -Eiq "^npm[[:space:]]+(ERR!|error)([[:space:]:]|$)" "$1"
+          }
+
+          required_packages_present() {
+            local missing=0
+            local package_name
+            local package_json
+
+            for package_name in "${required_packages[@]}"; do
+              package_json="node_modules/${package_name}/package.json"
+              if [ ! -f "$package_json" ]; then
+                echo "::warning::Required dependency package.json is missing: prod/${package_json}"
+                missing=1
+              fi
+            done
+
+            return "$missing"
+          }
 
           for attempt in 1 2 3; do
             log_path="$RUNNER_TEMP/npm-ci-attempt-${attempt}.log"
@@ -59,32 +89,45 @@ jobs:
 
             cp "$log_path" "$RUNNER_TEMP/npm-ci.log"
 
-            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
-              if [ "$npm_ci_status" -eq 0 ]; then
-                echo "::warning::npm ci exited 0 but emitted npm error output during attempt ${attempt}/${max_attempts}; treating attempt as failed."
-                npm_ci_status=1
-              else
-                echo "::warning::npm ci emitted npm error output during failed attempt ${attempt}/${max_attempts}."
-              fi
+            npm_error_output=0
+            if has_npm_error_output "$RUNNER_TEMP/npm-ci.log"; then
+              npm_error_output=1
+              echo "::warning::npm ci attempt ${attempt}/${max_attempts} emitted npm error-looking output."
             fi
 
-            if [ "$npm_ci_status" -eq 0 ]; then
+            missing_packages=0
+            if ! required_packages_present; then
+              missing_packages=1
+            fi
+
+            if [ "$npm_ci_status" -eq 0 ] && [ "$npm_error_output" -eq 0 ] && [ "$missing_packages" -eq 0 ]; then
+              install_succeeded=1
+              echo "npm ci attempt ${attempt}/${max_attempts} completed and required package files are present."
               break
             fi
 
+            failure_reasons=()
+            if [ "$npm_ci_status" -ne 0 ]; then
+              failure_reasons+=("exit code ${npm_ci_status}")
+            fi
+            if [ "$npm_error_output" -ne 0 ]; then
+              failure_reasons+=("npm error-looking output")
+            fi
+            if [ "$missing_packages" -ne 0 ]; then
+              failure_reasons+=("missing required package files")
+            fi
+            last_failure_reason=$(printf "%s; " "${failure_reasons[@]}")
+            last_failure_reason="${last_failure_reason%; }"
+
             if [ "$attempt" -lt "$max_attempts" ]; then
-              echo "npm ci attempt ${attempt}/${max_attempts} failed with exit code ${npm_ci_status}; retrying shortly."
+              echo "::warning::npm ci attempt ${attempt}/${max_attempts} failed install validation (${last_failure_reason}); retrying shortly."
               sleep 10
             fi
           done
 
-          if [ "$npm_ci_status" -ne 0 ]; then
-            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
-              echo "::error::npm ci failed after ${max_attempts} attempts; latest log contains npm error output."
-            else
-              echo "::error::npm ci failed after ${max_attempts} attempts; latest exit code ${npm_ci_status}."
-            fi
-            exit "$npm_ci_status"
+          if [ "$install_succeeded" -ne 1 ]; then
+            echo "::error::npm ci failed install validation after ${max_attempts} attempts (${last_failure_reason})."
+            exit 1
           fi
 
       - name: Verify dependency tree
