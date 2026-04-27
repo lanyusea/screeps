@@ -213,9 +213,16 @@ function canSatisfyRoleCapacity(creep) {
 // src/tasks/workerTasks.ts
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
+var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
 function selectWorkerTask(creep) {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   if (carriedEnergy === 0) {
+    if (getFreeEnergyCapacity(creep) > 0) {
+      const droppedEnergy = selectDroppedEnergy(creep);
+      if (droppedEnergy) {
+        return { type: "pickup", targetId: droppedEnergy.id };
+      }
+    }
     const source = selectHarvestSource(creep);
     return source ? { type: "harvest", targetId: source.id } : null;
   }
@@ -301,10 +308,36 @@ function getUsedEnergy(creep) {
   var _a, _b, _c;
   return (_c = (_b = (_a = creep.store) == null ? void 0 : _a.getUsedCapacity) == null ? void 0 : _b.call(_a, RESOURCE_ENERGY)) != null ? _c : 0;
 }
+function getFreeEnergyCapacity(creep) {
+  var _a, _b, _c;
+  return (_c = (_b = (_a = creep.store) == null ? void 0 : _a.getFreeCapacity) == null ? void 0 : _b.call(_a, RESOURCE_ENERGY)) != null ? _c : 0;
+}
 function isUpgradingController(creep, controller) {
   var _a;
   const task = (_a = creep.memory) == null ? void 0 : _a.task;
   return (task == null ? void 0 : task.type) === "upgrade" && task.targetId === controller.id;
+}
+function selectDroppedEnergy(creep) {
+  const droppedEnergy = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy);
+  if (droppedEnergy.length === 0) {
+    return null;
+  }
+  const closestDroppedEnergy = findClosestByRange(creep, droppedEnergy);
+  return closestDroppedEnergy != null ? closestDroppedEnergy : droppedEnergy[0];
+}
+function findDroppedResources(room) {
+  if (typeof FIND_DROPPED_RESOURCES !== "number") {
+    return [];
+  }
+  return room.find(FIND_DROPPED_RESOURCES);
+}
+function isUsefulDroppedEnergy(resource) {
+  return resource.resourceType === RESOURCE_ENERGY && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+}
+function findClosestByRange(creep, resources) {
+  var _a, _b;
+  const position = creep.pos;
+  return (_b = (_a = position == null ? void 0 : position.findClosestByRange) == null ? void 0 : _a.call(position, resources)) != null ? _b : null;
 }
 function selectHarvestSource(creep) {
   var _a, _b;
@@ -402,7 +435,7 @@ function shouldReplaceTask(creep, task) {
   }
   const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
-  if (task.type === "harvest") {
+  if (task.type === "harvest" || task.type === "pickup") {
     return freeEnergyCapacity === 0;
   }
   return usedEnergy === 0;
@@ -426,6 +459,8 @@ function executeTask(creep, task, target) {
   switch (task.type) {
     case "harvest":
       return creep.harvest(target);
+    case "pickup":
+      return creep.pickup(target);
     case "transfer":
       return creep.transfer(target, RESOURCE_ENERGY);
     case "build":

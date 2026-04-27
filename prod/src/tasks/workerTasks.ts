@@ -1,11 +1,19 @@
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
+const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
 
   if (carriedEnergy === 0) {
+    if (getFreeEnergyCapacity(creep) > 0) {
+      const droppedEnergy = selectDroppedEnergy(creep);
+      if (droppedEnergy) {
+        return { type: 'pickup', targetId: droppedEnergy.id };
+      }
+    }
+
     const source = selectHarvestSource(creep);
     return source ? { type: 'harvest', targetId: source.id } : null;
   }
@@ -126,9 +134,45 @@ function getUsedEnergy(creep: Creep): number {
   return creep.store?.getUsedCapacity?.(RESOURCE_ENERGY) ?? 0;
 }
 
+function getFreeEnergyCapacity(creep: Creep): number {
+  return creep.store?.getFreeCapacity?.(RESOURCE_ENERGY) ?? 0;
+}
+
 function isUpgradingController(creep: Creep, controller: StructureController): boolean {
   const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
   return task?.type === 'upgrade' && task.targetId === controller.id;
+}
+
+function selectDroppedEnergy(creep: Creep): Resource<RESOURCE_ENERGY> | null {
+  const droppedEnergy = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy);
+  if (droppedEnergy.length === 0) {
+    return null;
+  }
+
+  const closestDroppedEnergy = findClosestByRange(creep, droppedEnergy);
+  return closestDroppedEnergy ?? droppedEnergy[0];
+}
+
+function findDroppedResources(room: Room): Resource[] {
+  if (typeof FIND_DROPPED_RESOURCES !== 'number') {
+    return [];
+  }
+
+  return room.find(FIND_DROPPED_RESOURCES);
+}
+
+function isUsefulDroppedEnergy(resource: Resource): resource is Resource<RESOURCE_ENERGY> {
+  return resource.resourceType === RESOURCE_ENERGY && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+}
+
+function findClosestByRange(creep: Creep, resources: Resource<RESOURCE_ENERGY>[]): Resource<RESOURCE_ENERGY> | null {
+  const position = (creep as Creep & {
+    pos?: {
+      findClosestByRange?: (objects: Resource<RESOURCE_ENERGY>[]) => Resource<RESOURCE_ENERGY> | null;
+    };
+  }).pos;
+
+  return position?.findClosestByRange?.(resources) ?? null;
 }
 
 function selectHarvestSource(creep: Creep): Source | null {
