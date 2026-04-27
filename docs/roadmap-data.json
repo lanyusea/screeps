@@ -1,0 +1,1254 @@
+{
+  "formatVersion": "roadmap-live-page-v1",
+  "publishedAt": "2026-04-27 13:06:03 CST",
+  "capturedAt": "2026-04-27T05:06:03Z",
+  "repo": {
+    "slug": "lanyusea/screeps",
+    "url": "https://github.com/lanyusea/screeps",
+    "head": "0df5835",
+    "projectBoardUrl": "https://github.com/users/lanyusea/projects/3"
+  },
+  "game": {
+    "url": "https://screeps.com/",
+    "shard": "shardX",
+    "room": "E48S28"
+  },
+  "kpiDefinitions": [
+    {
+      "domain": "territory",
+      "metric": "owned_rooms",
+      "label": "Owned rooms",
+      "unit": "rooms",
+      "note": "Owned room count in the target shard."
+    },
+    {
+      "domain": "territory",
+      "metric": "reserved_rooms",
+      "label": "Reserved rooms",
+      "unit": "rooms",
+      "note": "Reserved or remote-room footprint when instrumented."
+    },
+    {
+      "domain": "territory",
+      "metric": "room_gain",
+      "label": "Room gain",
+      "unit": "rooms",
+      "note": "Owned-room delta across the observed window."
+    },
+    {
+      "domain": "territory",
+      "metric": "room_loss",
+      "label": "Room loss",
+      "unit": "rooms",
+      "note": "Owned-room loss across the observed window."
+    },
+    {
+      "domain": "territory",
+      "metric": "controller_level",
+      "label": "Controller level",
+      "unit": "RCL",
+      "note": "Latest owned-room controller level."
+    },
+    {
+      "domain": "territory",
+      "metric": "controller_progress",
+      "label": "Controller progress",
+      "unit": "progress",
+      "note": "Latest controller progress."
+    },
+    {
+      "domain": "territory",
+      "metric": "controller_progress_total",
+      "label": "Controller progress total",
+      "unit": "progress",
+      "note": "Latest controller progress target."
+    },
+    {
+      "domain": "territory",
+      "metric": "controller_ticks_to_downgrade",
+      "label": "Downgrade timer",
+      "unit": "ticks",
+      "note": "Latest ticks to controller downgrade."
+    },
+    {
+      "domain": "resources",
+      "metric": "stored_energy",
+      "label": "Stored energy",
+      "unit": "energy",
+      "note": "Energy stored in owned structures."
+    },
+    {
+      "domain": "resources",
+      "metric": "worker_carried_energy",
+      "label": "Worker carried",
+      "unit": "energy",
+      "note": "Energy carried by worker creeps."
+    },
+    {
+      "domain": "resources",
+      "metric": "dropped_energy",
+      "label": "Dropped energy",
+      "unit": "energy",
+      "note": "Energy observed on the ground."
+    },
+    {
+      "domain": "resources",
+      "metric": "source_count",
+      "label": "Source count",
+      "unit": "sources",
+      "note": "Known source count in owned rooms."
+    },
+    {
+      "domain": "resources",
+      "metric": "harvested_energy",
+      "label": "Harvested energy",
+      "unit": "energy",
+      "note": "Event-backed harvested energy over the observed window."
+    },
+    {
+      "domain": "resources",
+      "metric": "transferred_energy",
+      "label": "Transferred energy",
+      "unit": "energy",
+      "note": "Event-backed transferred energy over the observed window."
+    },
+    {
+      "domain": "resources",
+      "metric": "harvest_delta",
+      "label": "Harvest delta",
+      "unit": "energy",
+      "note": "Harvested-energy delta/trend used by roadmap charts."
+    },
+    {
+      "domain": "resources",
+      "metric": "spawn_utilization",
+      "label": "Spawn utilization",
+      "unit": "ratio",
+      "note": "Spawn uptime/utilization when instrumentation is available."
+    },
+    {
+      "domain": "resources",
+      "metric": "remote_uptime",
+      "label": "Remote uptime",
+      "unit": "ratio",
+      "note": "Remote-harvest uptime when instrumentation is available."
+    },
+    {
+      "domain": "combat",
+      "metric": "enemy_kills",
+      "label": "Enemy kills",
+      "unit": "events",
+      "note": "Enemy creep/structure kill count when event telemetry is available."
+    },
+    {
+      "domain": "combat",
+      "metric": "hostile_creep_count",
+      "label": "Hostile creeps",
+      "unit": "creeps",
+      "note": "Latest hostile creep count."
+    },
+    {
+      "domain": "combat",
+      "metric": "hostile_structure_count",
+      "label": "Hostile structures",
+      "unit": "structures",
+      "note": "Latest hostile structure count."
+    },
+    {
+      "domain": "combat",
+      "metric": "attack_count",
+      "label": "Attack events",
+      "unit": "events",
+      "note": "Combat attack event count."
+    },
+    {
+      "domain": "combat",
+      "metric": "attack_damage",
+      "label": "Attack damage",
+      "unit": "hits",
+      "note": "Total attack damage observed in event telemetry."
+    },
+    {
+      "domain": "combat",
+      "metric": "object_destroyed_count",
+      "label": "Objects destroyed",
+      "unit": "events",
+      "note": "Destroyed object events."
+    },
+    {
+      "domain": "combat",
+      "metric": "creep_destroyed_count",
+      "label": "Creeps destroyed",
+      "unit": "events",
+      "note": "Destroyed creep events."
+    },
+    {
+      "domain": "combat",
+      "metric": "own_loss",
+      "label": "Own loss",
+      "unit": "events",
+      "note": "Own creep/structure loss count when instrumented."
+    },
+    {
+      "domain": "combat",
+      "metric": "defensive_readiness",
+      "label": "Defensive readiness",
+      "unit": "score",
+      "note": "Tactical readiness score when strategy telemetry exists."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "cpu_used",
+      "label": "CPU used",
+      "unit": "cpu",
+      "note": "CPU used per tick when telemetry is available."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "cpu_bucket",
+      "label": "CPU bucket",
+      "unit": "cpu",
+      "note": "CPU bucket level when telemetry is available."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "exceptions",
+      "label": "Loop exceptions",
+      "unit": "count",
+      "note": "Runtime loop exception count."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "resets",
+      "label": "Runtime resets",
+      "unit": "count",
+      "note": "Runtime reset count."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "telemetry_silence",
+      "label": "Telemetry silence",
+      "unit": "minutes",
+      "note": "Minutes since last telemetry when monitored."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "spawn_collapse",
+      "label": "Spawn collapse",
+      "unit": "flag",
+      "note": "Emergency no-spawn/no-worker condition flag."
+    }
+  ],
+  "kpiLatest": [
+    {
+      "domain": "territory",
+      "metric": "owned_rooms",
+      "label": "Owned rooms",
+      "value": 1.0,
+      "unit": "rooms",
+      "instrumented": true,
+      "source": "runtime-monitor",
+      "note": "Observed owned room count or safe current target baseline."
+    },
+    {
+      "domain": "territory",
+      "metric": "reserved_rooms",
+      "label": "Reserved rooms",
+      "value": null,
+      "unit": "rooms",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Reserved or remote-room footprint when instrumented. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "territory",
+      "metric": "room_gain",
+      "label": "Room gain",
+      "value": 0.0,
+      "unit": "rooms",
+      "instrumented": true,
+      "source": "runtime-kpi-reducer",
+      "note": "Delta from reducer when available; otherwise current window baseline."
+    },
+    {
+      "domain": "territory",
+      "metric": "room_loss",
+      "label": "Room loss",
+      "value": 0.0,
+      "unit": "rooms",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Loss-specific reducer field pending; room delta is tracked."
+    },
+    {
+      "domain": "territory",
+      "metric": "controller_level",
+      "label": "Controller level",
+      "value": 3.0,
+      "unit": "RCL",
+      "instrumented": true,
+      "source": "runtime-monitor",
+      "note": "Latest controller level from room monitor/reducer."
+    },
+    {
+      "domain": "territory",
+      "metric": "controller_progress",
+      "label": "Controller progress",
+      "value": null,
+      "unit": "progress",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Controller progress from runtime summary when present."
+    },
+    {
+      "domain": "territory",
+      "metric": "controller_progress_total",
+      "label": "Controller progress total",
+      "value": null,
+      "unit": "progress",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Controller progress target from runtime summary when present."
+    },
+    {
+      "domain": "territory",
+      "metric": "controller_ticks_to_downgrade",
+      "label": "Downgrade timer",
+      "value": null,
+      "unit": "ticks",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Downgrade risk from runtime summary when present."
+    },
+    {
+      "domain": "resources",
+      "metric": "stored_energy",
+      "label": "Stored energy",
+      "value": 0.0,
+      "unit": "energy",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Resource reducer field; 0 until observed."
+    },
+    {
+      "domain": "resources",
+      "metric": "worker_carried_energy",
+      "label": "Worker carried",
+      "value": 0.0,
+      "unit": "energy",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Worker carried energy from runtime summary."
+    },
+    {
+      "domain": "resources",
+      "metric": "dropped_energy",
+      "label": "Dropped energy",
+      "value": 0.0,
+      "unit": "energy",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Dropped energy from runtime summary."
+    },
+    {
+      "domain": "resources",
+      "metric": "source_count",
+      "label": "Source count",
+      "value": null,
+      "unit": "sources",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Known source count when runtime summary includes it."
+    },
+    {
+      "domain": "resources",
+      "metric": "harvested_energy",
+      "label": "Harvested energy",
+      "value": 0.0,
+      "unit": "energy",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Harvest event total over reducer window."
+    },
+    {
+      "domain": "resources",
+      "metric": "transferred_energy",
+      "label": "Transferred energy",
+      "value": 0.0,
+      "unit": "energy",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Transfer event total over reducer window."
+    },
+    {
+      "domain": "resources",
+      "metric": "harvest_delta",
+      "label": "Harvest delta",
+      "value": 0.0,
+      "unit": "energy",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Harvest delta used for roadmap trend."
+    },
+    {
+      "domain": "resources",
+      "metric": "spawn_utilization",
+      "label": "Spawn utilization",
+      "value": null,
+      "unit": "ratio",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Spawn uptime/utilization when instrumentation is available. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "resources",
+      "metric": "remote_uptime",
+      "label": "Remote uptime",
+      "value": null,
+      "unit": "ratio",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Remote-harvest uptime when instrumentation is available. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "combat",
+      "metric": "enemy_kills",
+      "label": "Enemy kills",
+      "value": 0.0,
+      "unit": "events",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Enemy kill proxy until ownership-aware kill reducer is added."
+    },
+    {
+      "domain": "combat",
+      "metric": "hostile_creep_count",
+      "label": "Hostile creeps",
+      "value": 0.0,
+      "unit": "creeps",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Latest hostile creep count."
+    },
+    {
+      "domain": "combat",
+      "metric": "hostile_structure_count",
+      "label": "Hostile structures",
+      "value": 0.0,
+      "unit": "structures",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Latest hostile structure count."
+    },
+    {
+      "domain": "combat",
+      "metric": "attack_count",
+      "label": "Attack events",
+      "value": 0.0,
+      "unit": "events",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Attack event count."
+    },
+    {
+      "domain": "combat",
+      "metric": "attack_damage",
+      "label": "Attack damage",
+      "value": 0.0,
+      "unit": "hits",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Attack damage event total."
+    },
+    {
+      "domain": "combat",
+      "metric": "object_destroyed_count",
+      "label": "Objects destroyed",
+      "value": 0.0,
+      "unit": "events",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Destroyed object events."
+    },
+    {
+      "domain": "combat",
+      "metric": "creep_destroyed_count",
+      "label": "Creeps destroyed",
+      "value": 0.0,
+      "unit": "events",
+      "instrumented": false,
+      "source": "runtime-kpi-reducer",
+      "note": "Destroyed creep events."
+    },
+    {
+      "domain": "combat",
+      "metric": "own_loss",
+      "label": "Own loss",
+      "value": null,
+      "unit": "events",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Own creep/structure loss count when instrumented. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "combat",
+      "metric": "defensive_readiness",
+      "label": "Defensive readiness",
+      "value": null,
+      "unit": "score",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Tactical readiness score when strategy telemetry exists. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "cpu_used",
+      "label": "CPU used",
+      "value": null,
+      "unit": "cpu",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "CPU used per tick when telemetry is available. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "cpu_bucket",
+      "label": "CPU bucket",
+      "value": null,
+      "unit": "cpu",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "CPU bucket level when telemetry is available. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "exceptions",
+      "label": "Loop exceptions",
+      "value": null,
+      "unit": "count",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Runtime loop exception count. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "resets",
+      "label": "Runtime resets",
+      "value": null,
+      "unit": "count",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Runtime reset count. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "telemetry_silence",
+      "label": "Telemetry silence",
+      "value": null,
+      "unit": "minutes",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Minutes since last telemetry when monitored. Pending telemetry/reducer implementation."
+    },
+    {
+      "domain": "guardrails",
+      "metric": "spawn_collapse",
+      "label": "Spawn collapse",
+      "value": null,
+      "unit": "flag",
+      "instrumented": false,
+      "source": "pending-instrumentation",
+      "note": "Emergency no-spawn/no-worker condition flag. Pending telemetry/reducer implementation."
+    }
+  ],
+  "kpiHistory": {
+    "attack_count": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "attack_count",
+        "label": "Attack events",
+        "value": 0.0,
+        "unit": "events",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Attack event count."
+      }
+    ],
+    "attack_damage": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "attack_damage",
+        "label": "Attack damage",
+        "value": 0.0,
+        "unit": "hits",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Attack damage event total."
+      }
+    ],
+    "creep_destroyed_count": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "creep_destroyed_count",
+        "label": "Creeps destroyed",
+        "value": 0.0,
+        "unit": "events",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Destroyed creep events."
+      }
+    ],
+    "defensive_readiness": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "defensive_readiness",
+        "label": "Defensive readiness",
+        "value": null,
+        "unit": "score",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Tactical readiness score when strategy telemetry exists. Pending telemetry/reducer implementation."
+      }
+    ],
+    "enemy_kills": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "enemy_kills",
+        "label": "Enemy kills",
+        "value": 0.0,
+        "unit": "events",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Enemy kill proxy until ownership-aware kill reducer is added."
+      }
+    ],
+    "hostile_creep_count": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "hostile_creep_count",
+        "label": "Hostile creeps",
+        "value": 0.0,
+        "unit": "creeps",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Latest hostile creep count."
+      }
+    ],
+    "hostile_structure_count": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "hostile_structure_count",
+        "label": "Hostile structures",
+        "value": 0.0,
+        "unit": "structures",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Latest hostile structure count."
+      }
+    ],
+    "object_destroyed_count": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "object_destroyed_count",
+        "label": "Objects destroyed",
+        "value": 0.0,
+        "unit": "events",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Destroyed object events."
+      }
+    ],
+    "own_loss": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "combat",
+        "metric": "own_loss",
+        "label": "Own loss",
+        "value": null,
+        "unit": "events",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Own creep/structure loss count when instrumented. Pending telemetry/reducer implementation."
+      }
+    ],
+    "cpu_bucket": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "guardrails",
+        "metric": "cpu_bucket",
+        "label": "CPU bucket",
+        "value": null,
+        "unit": "cpu",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "CPU bucket level when telemetry is available. Pending telemetry/reducer implementation."
+      }
+    ],
+    "cpu_used": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "guardrails",
+        "metric": "cpu_used",
+        "label": "CPU used",
+        "value": null,
+        "unit": "cpu",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "CPU used per tick when telemetry is available. Pending telemetry/reducer implementation."
+      }
+    ],
+    "exceptions": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "guardrails",
+        "metric": "exceptions",
+        "label": "Loop exceptions",
+        "value": null,
+        "unit": "count",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Runtime loop exception count. Pending telemetry/reducer implementation."
+      }
+    ],
+    "resets": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "guardrails",
+        "metric": "resets",
+        "label": "Runtime resets",
+        "value": null,
+        "unit": "count",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Runtime reset count. Pending telemetry/reducer implementation."
+      }
+    ],
+    "spawn_collapse": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "guardrails",
+        "metric": "spawn_collapse",
+        "label": "Spawn collapse",
+        "value": null,
+        "unit": "flag",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Emergency no-spawn/no-worker condition flag. Pending telemetry/reducer implementation."
+      }
+    ],
+    "telemetry_silence": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "guardrails",
+        "metric": "telemetry_silence",
+        "label": "Telemetry silence",
+        "value": null,
+        "unit": "minutes",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Minutes since last telemetry when monitored. Pending telemetry/reducer implementation."
+      }
+    ],
+    "dropped_energy": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "dropped_energy",
+        "label": "Dropped energy",
+        "value": 0.0,
+        "unit": "energy",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Dropped energy from runtime summary."
+      }
+    ],
+    "harvest_delta": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "harvest_delta",
+        "label": "Harvest delta",
+        "value": 0.0,
+        "unit": "energy",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Harvest delta used for roadmap trend."
+      }
+    ],
+    "harvested_energy": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "harvested_energy",
+        "label": "Harvested energy",
+        "value": 0.0,
+        "unit": "energy",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Harvest event total over reducer window."
+      }
+    ],
+    "remote_uptime": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "remote_uptime",
+        "label": "Remote uptime",
+        "value": null,
+        "unit": "ratio",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Remote-harvest uptime when instrumentation is available. Pending telemetry/reducer implementation."
+      }
+    ],
+    "source_count": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "source_count",
+        "label": "Source count",
+        "value": null,
+        "unit": "sources",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Known source count when runtime summary includes it."
+      }
+    ],
+    "spawn_utilization": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "spawn_utilization",
+        "label": "Spawn utilization",
+        "value": null,
+        "unit": "ratio",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Spawn uptime/utilization when instrumentation is available. Pending telemetry/reducer implementation."
+      }
+    ],
+    "stored_energy": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "stored_energy",
+        "label": "Stored energy",
+        "value": 0.0,
+        "unit": "energy",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Resource reducer field; 0 until observed."
+      }
+    ],
+    "transferred_energy": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "transferred_energy",
+        "label": "Transferred energy",
+        "value": 0.0,
+        "unit": "energy",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Transfer event total over reducer window."
+      }
+    ],
+    "worker_carried_energy": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "resources",
+        "metric": "worker_carried_energy",
+        "label": "Worker carried",
+        "value": 0.0,
+        "unit": "energy",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Worker carried energy from runtime summary."
+      }
+    ],
+    "controller_level": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "territory",
+        "metric": "controller_level",
+        "label": "Controller level",
+        "value": 3.0,
+        "unit": "RCL",
+        "instrumented": 1,
+        "source": "runtime-monitor",
+        "note": "Latest controller level from room monitor/reducer."
+      }
+    ],
+    "controller_progress": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "territory",
+        "metric": "controller_progress",
+        "label": "Controller progress",
+        "value": null,
+        "unit": "progress",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Controller progress from runtime summary when present."
+      }
+    ],
+    "controller_progress_total": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "territory",
+        "metric": "controller_progress_total",
+        "label": "Controller progress total",
+        "value": null,
+        "unit": "progress",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Controller progress target from runtime summary when present."
+      }
+    ],
+    "controller_ticks_to_downgrade": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "territory",
+        "metric": "controller_ticks_to_downgrade",
+        "label": "Downgrade timer",
+        "value": null,
+        "unit": "ticks",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Downgrade risk from runtime summary when present."
+      }
+    ],
+    "owned_rooms": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "territory",
+        "metric": "owned_rooms",
+        "label": "Owned rooms",
+        "value": 1.0,
+        "unit": "rooms",
+        "instrumented": 1,
+        "source": "runtime-monitor",
+        "note": "Observed owned room count or safe current target baseline."
+      }
+    ],
+    "reserved_rooms": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "territory",
+        "metric": "reserved_rooms",
+        "label": "Reserved rooms",
+        "value": null,
+        "unit": "rooms",
+        "instrumented": 0,
+        "source": "pending-instrumentation",
+        "note": "Reserved or remote-room footprint when instrumented. Pending telemetry/reducer implementation."
+      }
+    ],
+    "room_gain": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "territory",
+        "metric": "room_gain",
+        "label": "Room gain",
+        "value": 0.0,
+        "unit": "rooms",
+        "instrumented": 1,
+        "source": "runtime-kpi-reducer",
+        "note": "Delta from reducer when available; otherwise current window baseline."
+      }
+    ],
+    "room_loss": [
+      {
+        "captured_at": "2026-04-27T05:06:03Z",
+        "domain": "territory",
+        "metric": "room_loss",
+        "label": "Room loss",
+        "value": 0.0,
+        "unit": "rooms",
+        "instrumented": 0,
+        "source": "runtime-kpi-reducer",
+        "note": "Loss-specific reducer field pending; room delta is tracked."
+      }
+    ]
+  },
+  "roadmap": [
+    {
+      "title": "Gameplay Evolution",
+      "goal": "真实游戏结果驱动 roadmap / task / release",
+      "nextPoint": "Keep open: accept first 12h Gameplay Evolution Review output, convert finding into #29/#61 Codex-ready KPI/gameplay task, and continue #62/#63 follow-ups.",
+      "progressPct": 10,
+      "url": "https://github.com/lanyusea/screeps/issues/59"
+    },
+    {
+      "title": "Territory / 占地",
+      "goal": "先拿下并守住更大版图",
+      "nextPoint": "owned/reserved/room gain/RCL KPI",
+      "progressPct": 15,
+      "url": "https://github.com/users/lanyusea/projects/3"
+    },
+    {
+      "title": "Resource Economy",
+      "goal": "把占地转换成能量、矿物、物流规模",
+      "nextPoint": "Merge PR #68 after elapsed gate and re-checks; next #29 slice wires scripts/screeps_runtime_kpi_artifact_bridge.py into 12h Gameplay Evolution Review/roadmap KPI prompts and ensures real #runtime-summary console lines are persisted.",
+      "progressPct": 90,
+      "url": "https://github.com/lanyusea/screeps/issues/29"
+    },
+    {
+      "title": "Combat / 敌人击杀",
+      "goal": "防御/进攻服务于领土和经济控制",
+      "nextPoint": "Define trigger matrix, report template, and no-alert/simulated dry-run before automatic emergency response.",
+      "progressPct": 1,
+      "url": "https://github.com/lanyusea/screeps/issues/62"
+    },
+    {
+      "title": "Reliability / P0",
+      "goal": "自动化系统健康只在阻塞时压过游戏目标",
+      "nextPoint": "Done/watch-only. Routine P0 monitor continues; reopen/escalate only if future stale next_run_at, missing output, delivery error, or workdir serialization risk appears.",
+      "progressPct": 88,
+      "url": "https://github.com/lanyusea/screeps/issues/27"
+    },
+    {
+      "title": "Foundation Gates",
+      "goal": "私服验证 / release gate / official MMO",
+      "nextPoint": "Run clean ignored-workdir private smoke harness and attach/report redacted evidence.",
+      "progressPct": 85,
+      "url": "https://github.com/lanyusea/screeps/issues/28"
+    }
+  ],
+  "kanban": {
+    "gameplay": [
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrCFvw",
+        "number": 59,
+        "type": "Issue",
+        "title": "P1: Gameplay Evolution专项：vision-driven game-result review to roadmap/task loop",
+        "status": "In progress",
+        "priority": "P1",
+        "domain": "Docs/process",
+        "kind": "ops",
+        "evidence": "Docs foundation merged via PR #64 / 0377388; umbrella remains active for full Gameplay Evolution专项 until recurring reviews, KPI telemetry, task bridge, tactical response, and release gates are operational.",
+        "nextAction": "Keep open: accept first 12h Gameplay Evolution Review output, convert finding into #29/#61 Codex-ready KPI/gameplay task, and continue #62/#63 follow-ups.",
+        "nextPointPct": 10,
+        "url": "https://github.com/lanyusea/screeps/issues/59",
+        "column": "developing"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrA1V0",
+        "number": 29,
+        "type": "Issue",
+        "title": "P1:Phase C:runtime-summary/runtime-alert 定时监控投递尚未完成",
+        "status": "In progress",
+        "priority": "P1",
+        "domain": "Runtime monitor",
+        "kind": "ops",
+        "evidence": "PR #68 artifact bridge is clean after review fix 205a5b5: marker prefix enforced, regression test added, py_compile/unittest 14 tests OK, prod-ci SUCCESS, CodeRabbit SUCCESS, review thread resolved. Waiting only on >=15m review elapsed gate before merge.",
+        "nextAction": "Merge PR #68 after elapsed gate and re-checks; next #29 slice wires scripts/screeps_runtime_kpi_artifact_bridge.py into 12h Gameplay Evolution Review/roadmap KPI prompts and ensures real #runtime-summary console lines are persisted.",
+        "nextPointPct": 90,
+        "url": "https://github.com/lanyusea/screeps/issues/29",
+        "column": "developing"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrCF6w",
+        "number": 61,
+        "type": "Issue",
+        "title": "P1: Phase B: gameplay findings do not yet bridge into Codex task pipeline",
+        "status": "Done",
+        "priority": "P1",
+        "domain": "Bot capability",
+        "kind": "ops",
+        "evidence": "Completed by merged PR #66 / 1f41670: durable Gameplay finding → GitHub issue/Project/Codex prompt bridge runbook with QA acceptance and first #29/#61 task examples.",
+        "nextAction": "Done. Use docs/ops/gameplay-finding-to-codex-bridge.md for next accepted review finding; immediate active follow-up is #29 KPI reducer/renderer/reporting consumption.",
+        "nextPointPct": 10,
+        "url": "https://github.com/lanyusea/screeps/issues/61",
+        "column": "online"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrA1V4",
+        "number": 30,
+        "type": "Issue",
+        "title": "P1:Phase B:mock harness 缺少多 tick spawn.spawning 生命周期仿真",
+        "status": "Ready",
+        "priority": "P1",
+        "domain": "Bot capability",
+        "kind": "test",
+        "evidence": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation work; kept Ready queued for parallel worker coverage.",
+        "nextAction": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worker slot is free; do not leave unblocked bot-capability coverage idle.",
+        "nextPointPct": 80,
+        "url": "https://github.com/lanyusea/screeps/issues/30",
+        "column": "backlog"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrA1V8",
+        "number": 31,
+        "type": "Issue",
+        "title": "P1:Phase B:zero-creep/insufficient-energy emergency recovery 覆盖需确认",
+        "status": "Ready",
+        "priority": "P1",
+        "domain": "Bot capability",
+        "kind": "test",
+        "evidence": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation work; kept Ready queued for parallel worker coverage.",
+        "nextAction": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worker slot is free; do not leave unblocked bot-capability coverage idle.",
+        "nextPointPct": 80,
+        "url": "https://github.com/lanyusea/screeps/issues/31",
+        "column": "backlog"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrCGKo",
+        "number": 62,
+        "type": "Issue",
+        "title": "P1: Phase C: tactical emergency response is not wired to runtime alerts",
+        "status": "Ready",
+        "priority": "P1",
+        "domain": "Runtime monitor",
+        "kind": "ops",
+        "evidence": "Issue created to connect runtime-alert signals to bounded tactical emergency triage.",
+        "nextAction": "Define trigger matrix, report template, and no-alert/simulated dry-run before automatic emergency response.",
+        "nextPointPct": 1,
+        "url": "https://github.com/lanyusea/screeps/issues/62",
+        "column": "backlog"
+      }
+    ],
+    "foundation": [
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrA1Vs",
+        "number": 28,
+        "type": "Issue",
+        "title": "P1:Phase D:私服 smoke harness clean live rerun 未完成",
+        "status": "Ready",
+        "priority": "P1",
+        "domain": "Private smoke",
+        "kind": "ops",
+        "evidence": "Fresh clean live run redacted report",
+        "nextAction": "Run clean ignored-workdir private smoke harness and attach/report redacted evidence.",
+        "nextPointPct": 85,
+        "url": "https://github.com/lanyusea/screeps/issues/28",
+        "column": "private"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrA1WE",
+        "number": 33,
+        "type": "Issue",
+        "title": "P1:Phase E:官方 MMO 部署仍受私服 smoke release gate 阻塞",
+        "status": "Backlog",
+        "priority": "P1",
+        "domain": "Official MMO",
+        "kind": "ops",
+        "evidence": "Deploy preflight, private-smoke gate, monitor proof, official API verification",
+        "nextAction": "Do not deploy until Phase D private-smoke gate and monitor proof are complete, unless owner explicitly overrides.",
+        "nextPointPct": 50,
+        "url": "https://github.com/lanyusea/screeps/issues/33",
+        "column": "backlog"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrCGMA",
+        "number": 63,
+        "type": "Issue",
+        "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
+        "status": "Ready",
+        "priority": "P1",
+        "domain": "Official MMO",
+        "kind": "ops",
+        "evidence": "Issue created to enforce gameplay-aware normal release cadence and emergency hotfix gates.",
+        "nextAction": "Update release docs/checklist so every gameplay release records expected KPI movement and post-release monitor verification.",
+        "nextPointPct": 1,
+        "url": "https://github.com/lanyusea/screeps/issues/63",
+        "column": "backlog"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrA1Vo",
+        "number": 27,
+        "type": "Issue",
+        "title": "P0:P0 agent-ops:P0 监控与 Discord 路由健康需要持续验证",
+        "status": "Done",
+        "priority": "P0",
+        "domain": "Agent OS",
+        "kind": "ops",
+        "evidence": "P0 repair completed: PR #58 merged as c6120dc; 4h checkpoint, runtime-alert, P0 monitor, typed fanouts, runtime summary, and resumed bounded continuation worker all finalized with fresh output artifacts/no delivery errors; continuation restored to 5m cadence.",
+        "nextAction": "Done/watch-only. Routine P0 monitor continues; reopen/escalate only if future stale next_run_at, missing output, delivery error, or workdir serialization risk appears.",
+        "nextPointPct": 88,
+        "url": "https://github.com/lanyusea/screeps/issues/27",
+        "column": "online"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrA1Vk",
+        "number": 26,
+        "type": "Issue",
+        "title": "P0:P0 change-control:main 分支保护与 CI 必过门禁尚未确认",
+        "status": "Done",
+        "priority": "P0",
+        "domain": "Change-control",
+        "kind": "ops",
+        "evidence": "Read-only inspection: main protected=false; branch protection API 404; active ruleset 'defualt' has no rules; prod-ci exists but path filters made it unsuitable as universal required check. PR #45 opened to make check always present.",
+        "nextAction": "Review/merge PR #45; then configure main branch protection/ruleset to require PRs and status check 'Verify prod TypeScript, Jest, and bundle'.",
+        "nextPointPct": 75,
+        "url": "https://github.com/lanyusea/screeps/issues/26",
+        "column": "online"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrEZ5o",
+        "number": 66,
+        "type": "PullRequest",
+        "title": "docs: define gameplay finding Codex bridge",
+        "status": "Done",
+        "priority": "P1",
+        "domain": "Docs/process",
+        "kind": "docs",
+        "evidence": "PR #66 merged at 2026-04-27T03:29:27Z as 1f41670 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and empty GraphQL review threads.",
+        "nextAction": "Done. Main fast-forwarded to 1f41670; continue #29 reducer/renderer/reporting slice using the bridge.",
+        "nextPointPct": null,
+        "url": "https://github.com/lanyusea/screeps/pull/66",
+        "column": "online"
+      },
+      {
+        "id": "PVTI_lAHOACo3ic4BVvO4zgrEt0c",
+        "number": 68,
+        "type": "PullRequest",
+        "title": "feat: add runtime KPI artifact bridge",
+        "status": "In review",
+        "priority": "P1",
+        "domain": "Runtime monitor",
+        "kind": "code",
+        "evidence": "PR #68 review fix pushed as 205a5b5; local py_compile/unittest 14 tests OK, prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini no feedback, GraphQL review thread resolved. Merge held only for >=15m elapsed gate (created 2026-04-27T04:41:53Z; checked 04:54:45Z).",
+        "nextAction": "After >=15m elapsed, re-check PR #68 checks/reviews/threads/Project fields and squash-merge if still CLEAN; then fast-forward /root/screeps main and mark PR item Done.",
+        "nextPointPct": null,
+        "url": "https://github.com/lanyusea/screeps/pull/68",
+        "column": "developing"
+      }
+    ],
+    "columns": [
+      [
+        "backlog",
+        "Backlog"
+      ],
+      [
+        "developing",
+        "开发中"
+      ],
+      [
+        "private",
+        "私服验证中"
+      ],
+      [
+        "online",
+        "已上线"
+      ]
+    ]
+  },
+  "processMetrics": {
+    "commits": 118,
+    "prs": 47,
+    "mergedPrs": 42,
+    "issues": 22,
+    "openIssues": 9,
+    "officialDeploys": 0,
+    "privateTests": 1
+  }
+}

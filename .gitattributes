@@ -1,0 +1,2 @@
+docs/roadmap-kpi.sqlite filter=lfs diff=lfs merge=lfs -text
+docs/*.sqlite filter=lfs diff=lfs merge=lfs -text
