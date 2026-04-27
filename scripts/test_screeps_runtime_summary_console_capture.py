@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import sys
@@ -13,6 +14,44 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import screeps_runtime_kpi_artifact_bridge as bridge
 import screeps_runtime_summary_console_capture as capture
+
+
+class FakeWebSocket:
+    def __init__(self, messages: list[object]) -> None:
+        self.messages = list(messages)
+        self.sent: list[str] = []
+
+    async def send(self, message: str) -> None:
+        self.sent.append(message)
+
+    async def recv(self) -> object:
+        if not self.messages:
+            raise asyncio.TimeoutError()
+        message = self.messages.pop(0)
+        if isinstance(message, BaseException):
+            raise message
+        return message
+
+
+class FakeWebsocketConnection:
+    def __init__(self, websocket: FakeWebSocket) -> None:
+        self.websocket = websocket
+
+    async def __aenter__(self) -> FakeWebSocket:
+        return self.websocket
+
+    async def __aexit__(self, *args: object) -> None:
+        return None
+
+
+class FakeWebsocketsModule:
+    def __init__(self, websocket: FakeWebSocket) -> None:
+        self.websocket = websocket
+        self.connect_calls: list[dict[str, object]] = []
+
+    def connect(self, uri: str, **kwargs: object) -> FakeWebsocketConnection:
+        self.connect_calls.append({"uri": uri, **kwargs})
+        return FakeWebsocketConnection(self.websocket)
 
 
 class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
@@ -186,6 +225,217 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
         self.assertEqual(report["inputPaths"], ["-"])
         self.assertTrue(report["outputPath"].endswith("stdin.log"))
         self.assertNotIn("#runtime-summary", output.getvalue())
+
+    def test_live_official_console_authenticates_subscribes_and_persists_exact_prefix_lines(self) -> None:
+        secret = "SECRET_TOKEN_VALUE"
+        websocket = FakeWebSocket(
+            [
+                b"auth ok",
+                json.dumps(
+                    [
+                        "console",
+                        {
+                            "messages": {
+                                "log": [
+                                    "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":101}",
+                                    "noise #runtime-summary {\"type\":\"runtime-summary\",\"tick\":999}",
+                                ],
+                                "results": [
+                                    "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":102}\nignored result"
+                                ],
+                            },
+                        },
+                    ]
+                ),
+                json.dumps(
+                    [
+                        "console:shardX",
+                        {"data": ["#runtime-summary {\"type\":\"runtime-summary\",\"tick\":103}"]},
+                    ]
+                ),
+                json.dumps(
+                    [
+                        "other",
+                        {"messages": {"log": ["#runtime-summary {\"type\":\"runtime-summary\",\"tick\":999}"]}},
+                    ]
+                ),
+            ]
+        )
+        websockets_module = FakeWebsocketsModule(websocket)
+        ctx = capture.LiveConsoleContext(
+            base_http="https://screeps.com",
+            token=secret,
+            channels=["console", "console:shardX"],
+            timeout_seconds=5.0,
+            max_messages=2,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
+
+            result = capture.persist_live_official_console_artifact(
+                ctx=ctx,
+                out_dir=out_dir,
+                artifact_name="live.log",
+                websockets_module=websockets_module,
+            )
+
+            self.assertEqual(result.input_paths, ["live-official-console"])
+            self.assertEqual(result.input_line_count, 5)
+            self.assertEqual(result.persisted_line_count, 3)
+            self.assertEqual(result.skipped_line_count, 2)
+            self.assertEqual(result.output_path, out_dir / "live.log")
+            self.assertEqual(
+                result.output_path.read_text(encoding="utf-8").splitlines(),
+                [
+                    "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":101}",
+                    "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":102}",
+                    "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":103}",
+                ],
+            )
+
+        self.assertEqual(
+            websocket.sent,
+            [
+                f"auth {secret}",
+                "subscribe console",
+                "subscribe console:shardX",
+            ],
+        )
+        self.assertEqual(
+            websockets_module.connect_calls,
+            [{"uri": "wss://screeps.com/socket/websocket", "open_timeout": 5.0}],
+        )
+        self.assertEqual(len(websocket.messages), 1)
+        metadata = result.metadata()
+        metadata_text = json.dumps(metadata, sort_keys=True)
+        self.assertEqual(metadata["source"], "live-official-console")
+        self.assertEqual(metadata["requestedChannels"], ["console", "console:shardX"])
+        self.assertEqual(metadata["receivedMessageCount"], 2)
+        self.assertNotIn(secret, metadata_text)
+        self.assertNotIn("#runtime-summary", metadata_text)
+
+    def test_cli_live_official_console_reports_channels_without_secrets_or_artifact_contents(self) -> None:
+        secret = "VERY_SECRET_TOKEN_VALUE"
+        websocket = FakeWebSocket(
+            [
+                "auth ok",
+                json.dumps(
+                    [
+                        "console",
+                        {"messages": {"log": ["#runtime-summary {\"type\":\"runtime-summary\",\"tick\":201}"]}},
+                    ]
+                ),
+            ]
+        )
+        websockets_module = FakeWebsocketsModule(websocket)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = io.StringIO()
+            error = io.StringIO()
+            with (
+                mock.patch.dict(
+                    capture.os.environ,
+                    {
+                        capture.AUTH_TOKEN_ENV: secret,
+                        capture.API_URL_ENV: "https://screeps.com",
+                        capture.CONSOLE_CHANNELS_ENV: "console,console:shardX",
+                    },
+                ),
+                mock.patch.object(capture, "import_websockets_module", return_value=websockets_module),
+            ):
+                exit_code = capture.main(
+                    [
+                        "--live-official-console",
+                        "--out-dir",
+                        str(Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"),
+                        "--artifact-name",
+                        "live.log",
+                        "--live-timeout-seconds",
+                        "4",
+                        "--live-max-messages",
+                        "1",
+                    ],
+                    stdout=output,
+                    stderr=error,
+                )
+
+            report = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(error.getvalue(), "")
+        self.assertEqual(report["persistedLineCount"], 1)
+        self.assertEqual(report["requestedChannels"], ["console", "console:shardX"])
+        self.assertEqual(report["websocketUrl"], "wss://screeps.com/socket/websocket")
+        self.assertEqual(websocket.sent, [f"auth {secret}", "subscribe console", "subscribe console:shardX"])
+        self.assertNotIn(secret, output.getvalue())
+        self.assertNotIn("#runtime-summary", output.getvalue())
+
+    def test_live_official_console_timeout_without_match_does_not_write_artifact(self) -> None:
+        websocket = FakeWebSocket(
+            [
+                "auth ok",
+                json.dumps(["console", {"messages": {"log": ["noise only"]}}]),
+                asyncio.TimeoutError(),
+            ]
+        )
+        websockets_module = FakeWebsocketsModule(websocket)
+        ctx = capture.LiveConsoleContext(
+            base_http="https://screeps.com",
+            token="SECRET_TOKEN_VALUE",
+            channels=["console"],
+            timeout_seconds=5.0,
+            max_messages=10,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
+
+            result = capture.persist_live_official_console_artifact(
+                ctx=ctx,
+                out_dir=out_dir,
+                artifact_name="empty.log",
+                websockets_module=websockets_module,
+            )
+
+            self.assertEqual(result.input_line_count, 1)
+            self.assertEqual(result.persisted_line_count, 0)
+            self.assertEqual(result.skipped_line_count, 1)
+            self.assertEqual(result.output_path, None)
+            self.assertFalse(out_dir.exists())
+            self.assertEqual(result.metadata()["receivedMessageCount"], 1)
+
+    def test_live_official_console_missing_websockets_package_reports_sanitized_error(self) -> None:
+        secret = "SECRET_TOKEN_VALUE"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = io.StringIO()
+            error = io.StringIO()
+            with (
+                mock.patch.dict(capture.os.environ, {capture.AUTH_TOKEN_ENV: secret}),
+                mock.patch.object(
+                    capture,
+                    "import_websockets_module",
+                    side_effect=RuntimeError("Python package 'websockets' is required for --live-official-console"),
+                ),
+            ):
+                exit_code = capture.main(
+                    [
+                        "--live-official-console",
+                        "--out-dir",
+                        str(Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"),
+                        "--live-timeout-seconds",
+                        "1",
+                        "--live-max-messages",
+                        "1",
+                    ],
+                    stdout=output,
+                    stderr=error,
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("websockets", error.getvalue())
+        self.assertNotIn(secret, error.getvalue())
 
 
 if __name__ == "__main__":
