@@ -10,10 +10,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const [energySink] = creep.room.find(FIND_MY_STRUCTURES, {
-    filter: (structure) =>
-      (structure.structureType === STRUCTURE_SPAWN || structure.structureType === STRUCTURE_EXTENSION) &&
-      'store' in structure &&
-      structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+    filter: isFillableEnergySink
   });
   if (energySink) {
     return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
@@ -24,9 +21,18 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'upgrade', targetId: controller.id };
   }
 
-  const [constructionSite] = creep.room.find(FIND_CONSTRUCTION_SITES);
-  if (constructionSite) {
-    return { type: 'build', targetId: constructionSite.id };
+  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+  const spawnConstructionSite = constructionSites.find(isSpawnConstructionSite);
+  if (spawnConstructionSite) {
+    return { type: 'build', targetId: spawnConstructionSite.id };
+  }
+
+  if (controller && shouldRushRcl1Controller(controller)) {
+    return { type: 'upgrade', targetId: controller.id };
+  }
+
+  if (constructionSites[0]) {
+    return { type: 'build', targetId: constructionSites[0].id };
   }
 
   if (controller?.my) {
@@ -36,12 +42,36 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   return null;
 }
 
+function isFillableEnergySink(structure: AnyOwnedStructure): structure is StructureSpawn | StructureExtension {
+  return (
+    (matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+      matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension')) &&
+    'store' in structure &&
+    structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+  );
+}
+
+function isSpawnConstructionSite(site: ConstructionSite): boolean {
+  return matchesStructureType(site.structureType, 'STRUCTURE_SPAWN', 'spawn');
+}
+
+type StructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
+
+function matchesStructureType(actual: string | undefined, globalName: StructureConstantGlobal, fallback: string): boolean {
+  const constants = globalThis as unknown as Partial<Record<StructureConstantGlobal, string>>;
+  return actual === (constants[globalName] ?? fallback);
+}
+
 function shouldGuardControllerDowngrade(controller: StructureController | undefined): boolean {
   return (
     controller?.my === true &&
     typeof controller.ticksToDowngrade === 'number' &&
     controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS
   );
+}
+
+function shouldRushRcl1Controller(controller: StructureController): boolean {
+  return controller.my === true && controller.level === 1;
 }
 
 function selectHarvestSource(creep: Creep): Source | null {
