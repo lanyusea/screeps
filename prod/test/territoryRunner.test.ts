@@ -80,6 +80,88 @@ describe('runTerritoryControllerCreep', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
+  it('suppresses a claim assignment when the target room has no controller', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 506,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 500
+          }
+        ]
+      }
+    };
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N2' },
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 506
+      }
+    ]);
+  });
+
+  it('suppresses a reserve assignment when the target room has no controller', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 507,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 500
+          }
+        ]
+      }
+    };
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2' },
+      reserveController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 507
+      }
+    ]);
+  });
+
   it('suppresses a claim target and stops the creep assignment when claim is impossible', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 503,

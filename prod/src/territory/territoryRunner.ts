@@ -25,6 +25,7 @@ export function runTerritoryControllerCreep(creep: Creep): void {
 
   const controller = selectTargetController(creep, assignment);
   if (!controller) {
+    suppressTerritoryAssignment(creep, assignment);
     return;
   }
 

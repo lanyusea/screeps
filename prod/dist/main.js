@@ -1122,6 +1122,7 @@ function runTerritoryControllerCreep(creep) {
   }
   const controller = selectTargetController(creep, assignment);
   if (!controller) {
+    suppressTerritoryAssignment(creep, assignment);
     return;
   }
   if (controller.my === true) {
