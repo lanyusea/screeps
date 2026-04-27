@@ -135,6 +135,10 @@ function selectTerritoryTarget(colonyName: string): SelectedTerritoryTarget | nu
     return { target: configuredTarget, seeded: false };
   }
 
+  if (hasConfiguredTerritoryTargetForColony(territoryMemory, colonyName)) {
+    return null;
+  }
+
   const seededTarget = seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
   return seededTarget ? { target: seededTarget, seeded: true } : null;
 }
@@ -163,6 +167,13 @@ function selectConfiguredTerritoryTarget(
   }
 
   return null;
+}
+
+function hasConfiguredTerritoryTargetForColony(
+  territoryMemory: Record<string, unknown> | null,
+  colonyName: string
+): boolean {
+  return getConfiguredTargetRoomsForColony(territoryMemory, colonyName).size > 0;
 }
 
 function seedAdjacentReserveTarget(

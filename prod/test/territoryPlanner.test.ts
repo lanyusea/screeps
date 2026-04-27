@@ -76,6 +76,30 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('does not seed an adjacent reserve target when the colony has only disabled configured targets', () => {
+    const colony = makeSafeColony();
+    const disabledTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      enabled: false
+    };
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [disabledTarget]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 521)).toBeNull();
+    expect(describeExits).not.toHaveBeenCalled();
+    expect(Memory.territory?.targets).toEqual([disabledTarget]);
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
   it('defers seeded adjacent target writes until recording a finalized plan', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {

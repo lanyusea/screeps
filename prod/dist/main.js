@@ -683,6 +683,9 @@ function selectTerritoryTarget(colonyName) {
   if (configuredTarget) {
     return { target: configuredTarget, seeded: false };
   }
+  if (hasConfiguredTerritoryTargetForColony(territoryMemory, colonyName)) {
+    return null;
+  }
   const seededTarget = seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
   return seededTarget ? { target: seededTarget, seeded: true } : null;
 }
@@ -697,6 +700,9 @@ function selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents) {
     }
   }
   return null;
+}
+function hasConfiguredTerritoryTargetForColony(territoryMemory, colonyName) {
+  return getConfiguredTargetRoomsForColony(territoryMemory, colonyName).size > 0;
 }
 function seedAdjacentReserveTarget(colonyName, territoryMemory, intents) {
   const adjacentRooms = getAdjacentRoomNames(colonyName);
