@@ -1,0 +1,3741 @@
+{
+  "assets": {
+    "logo": "assets/screeps-community-logo.png"
+  },
+  "generatedAt": "2026-04-27T05:40:04Z",
+  "github": {
+    "fetchErrors": [],
+    "fetched": true,
+    "issues": [
+      {
+        "createdAt": "2026-04-26T17:09:40Z",
+        "domain": "Change-control",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-e-mmo-deploy"
+        ],
+        "milestone": "Phase E: Official MMO deployment gate",
+        "number": 63,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
+        "type": "Issue",
+        "updatedAt": "2026-04-26T17:09:40Z",
+        "url": "https://github.com/lanyusea/screeps/issues/63"
+      },
+      {
+        "createdAt": "2026-04-26T17:09:38Z",
+        "domain": "Runtime monitor",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "number": 62,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1: Phase C: tactical emergency response is not wired to runtime alerts",
+        "type": "Issue",
+        "updatedAt": "2026-04-26T17:09:38Z",
+        "url": "https://github.com/lanyusea/screeps/issues/62"
+      },
+      {
+        "createdAt": "2026-04-26T17:09:32Z",
+        "domain": "Runtime monitor",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "number": 59,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
+        "type": "Issue",
+        "updatedAt": "2026-04-27T02:09:48Z",
+        "url": "https://github.com/lanyusea/screeps/issues/59"
+      },
+      {
+        "createdAt": "2026-04-26T06:39:17Z",
+        "domain": "Change-control",
+        "kind": "ops",
+        "labels": [
+          "blocked",
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-e-mmo-deploy"
+        ],
+        "milestone": "Phase E: Official MMO deployment gate",
+        "number": 33,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Backlog",
+        "title": "P1:Phase E:\u5b98\u65b9 MMO \u90e8\u7f72\u4ecd\u53d7\u79c1\u670d smoke release gate \u963b\u585e",
+        "type": "Issue",
+        "updatedAt": "2026-04-26T06:57:18Z",
+        "url": "https://github.com/lanyusea/screeps/issues/33"
+      },
+      {
+        "createdAt": "2026-04-26T06:39:15Z",
+        "domain": "Private smoke",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p2",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "number": 32,
+        "priority": "P2",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P2:Phase C:alert-level telemetry \u9700\u8981\u57fa\u4e8e\u79c1\u670d smoke \u5931\u8d25\u6a21\u5f0f\u8865\u9f50",
+        "type": "Issue",
+        "updatedAt": "2026-04-26T06:57:12Z",
+        "url": "https://github.com/lanyusea/screeps/issues/32"
+      },
+      {
+        "createdAt": "2026-04-26T06:39:13Z",
+        "domain": "Change-control",
+        "kind": "test",
+        "labels": [
+          "kind:test",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-b-spawn-lifecycle"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "number": 31,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1:Phase B:zero-creep/insufficient-energy emergency recovery \u8986\u76d6\u9700\u786e\u8ba4",
+        "type": "Issue",
+        "updatedAt": "2026-04-27T02:10:05Z",
+        "url": "https://github.com/lanyusea/screeps/issues/31"
+      },
+      {
+        "createdAt": "2026-04-26T06:39:11Z",
+        "domain": "Bot capability",
+        "kind": "test",
+        "labels": [
+          "kind:test",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-b-spawn-lifecycle"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "number": 30,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1:Phase B:mock harness \u7f3a\u5c11\u591a tick spawn.spawning \u751f\u547d\u5468\u671f\u4eff\u771f",
+        "type": "Issue",
+        "updatedAt": "2026-04-27T02:10:03Z",
+        "url": "https://github.com/lanyusea/screeps/issues/30"
+      },
+      {
+        "createdAt": "2026-04-26T06:39:09Z",
+        "domain": "Runtime monitor",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "number": 29,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
+        "type": "Issue",
+        "updatedAt": "2026-04-27T05:12:47Z",
+        "url": "https://github.com/lanyusea/screeps/issues/29"
+      },
+      {
+        "createdAt": "2026-04-26T06:39:07Z",
+        "domain": "Private smoke",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-d-private-smoke"
+        ],
+        "milestone": "Phase D: Private-server smoke release gate",
+        "number": 28,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
+        "type": "Issue",
+        "updatedAt": "2026-04-26T06:57:16Z",
+        "url": "https://github.com/lanyusea/screeps/issues/28"
+      }
+    ],
+    "kanban": {
+      "cards": [
+        {
+          "domain": "Runtime monitor",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 29,
+          "priority": "P1",
+          "status": "In progress",
+          "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/29",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "kind": "code",
+          "lane": "Foundation",
+          "number": 69,
+          "priority": "P1",
+          "status": "In review",
+          "title": "feat: add GitHub Pages roadmap live report",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/69",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 62,
+          "priority": "P1",
+          "status": "Ready",
+          "title": "P1: Phase C: tactical emergency response is not wired to runtime alerts",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/62",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Official MMO",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 63,
+          "priority": "P1",
+          "status": "Ready",
+          "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/63",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Private smoke",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 28,
+          "priority": "P1",
+          "status": "Ready",
+          "title": "P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/28",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Official MMO",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 33,
+          "priority": "P1",
+          "status": "Backlog",
+          "title": "P1:Phase E:\u5b98\u65b9 MMO \u90e8\u7f72\u4ecd\u53d7\u79c1\u670d smoke release gate \u963b\u585e",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/33",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 32,
+          "priority": "P2",
+          "status": "Backlog",
+          "title": "P2:Phase C:alert-level telemetry \u9700\u8981\u57fa\u4e8e\u79c1\u670d smoke \u5931\u8d25\u6a21\u5f0f\u8865\u9f50",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/32",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 41,
+          "priority": "P0",
+          "status": "Done",
+          "title": "Establish dedicated QA acceptance-check agent gate",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/41",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 27,
+          "priority": "P0",
+          "status": "Done",
+          "title": "P0:P0 agent-ops:P0 \u76d1\u63a7\u4e0e Discord \u8def\u7531\u5065\u5eb7\u9700\u8981\u6301\u7eed\u9a8c\u8bc1",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/27",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 36,
+          "priority": "P0",
+          "status": "Done",
+          "title": "P0:P0 change-control:GitHub Milestones/Project roadmap source-of-truth \u5408\u540c\u672a\u5165\u5e93",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/36",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 26,
+          "priority": "P0",
+          "status": "Done",
+          "title": "P0:P0 change-control:main \u5206\u652f\u4fdd\u62a4\u4e0e CI \u5fc5\u8fc7\u95e8\u7981\u5c1a\u672a\u786e\u8ba4",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/26",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 47,
+          "priority": "P0",
+          "status": "Done",
+          "title": "P0:P0 change-control:owner roadmap governance decisions need durable contract sync",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/47",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "ops",
+          "lane": "Foundation",
+          "number": 22,
+          "priority": "P0",
+          "status": "Done",
+          "title": "P0:P0 change-control:\u5df2\u77e5\u95ee\u9898\u672a\u5f3a\u5236\u8fdb\u5165 GitHub issue \u4e0e PR \u5173\u8054\u6d41\u7a0b",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/22",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 39,
+          "priority": "P0",
+          "status": "Done",
+          "title": "P0:P0 change-control:\u6240\u6709 agent \u4efb\u52a1\u5b8c\u6210\u6807\u51c6\u7f3a\u5c11 GitHub \u72b6\u6001\u66f4\u65b0\u95e8\u7981",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/39",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 34,
+          "priority": "P0",
+          "status": "Done",
+          "title": "chore: add issue and PR management templates",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/34",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 45,
+          "priority": "P0",
+          "status": "Done",
+          "title": "ci: make prod verification required-check friendly",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/45",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 42,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: add QA acceptance gate",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/42",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 37,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record GitHub roadmap management contract",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/37",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 53,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record P0 cron finalization gap",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/53",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 54,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record P0 scheduler recovery",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/54",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 21,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record P0 visibility repair",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/21",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 38,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record PR 37 merge checkpoint",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/38",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 46,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record ci required gate completion",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/46",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Change-control",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 48,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record owner governance decisions",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/48",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 43,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record scheduler alert gap audit",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/43",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 49,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record scheduler cadence audit",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/49",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 52,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record scheduler cadence audit at 1948",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/52",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 50,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record scheduler cadence audit follow-up",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/50",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 44,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record scheduler cadence follow-up",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/44",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "review",
+          "lane": "Foundation",
+          "number": 56,
+          "priority": "P0",
+          "status": "Done",
+          "title": "docs: record scheduler cadence regression",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/56",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Private smoke",
+          "kind": "bug",
+          "lane": "Foundation",
+          "number": 23,
+          "priority": "P1",
+          "status": "Done",
+          "title": "P1:Phase D:\u79c1\u670d smoke STEAM_KEY \u6587\u4ef6\u6743\u9650\u66fe\u5bfc\u81f4\u5bb9\u5668\u4e0d\u53ef\u8bfb",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/23",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 66,
+          "priority": "P1",
+          "status": "Done",
+          "title": "docs: define gameplay finding Codex bridge",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/66",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 55,
+          "priority": "P1",
+          "status": "Done",
+          "title": "docs: prepare community-facing README",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/55",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "kind": "code",
+          "lane": "Foundation",
+          "number": 57,
+          "priority": "P1",
+          "status": "Done",
+          "title": "docs: record P0 scheduler recovery checkpoint",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/57",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "kind": "code",
+          "lane": "Foundation",
+          "number": 58,
+          "priority": "P1",
+          "status": "Done",
+          "title": "docs: record P0 scheduler repair completion",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/58",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "code",
+          "lane": "Foundation",
+          "number": 40,
+          "priority": "P1",
+          "status": "Done",
+          "title": "docs: require GitHub state updates before agent completion",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/40",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "kind": "code",
+          "lane": "Foundation",
+          "number": 68,
+          "priority": "P1",
+          "status": "Done",
+          "title": "feat: add runtime KPI artifact bridge",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/68",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "kind": "code",
+          "lane": "Foundation",
+          "number": 67,
+          "priority": "P1",
+          "status": "Done",
+          "title": "feat: add runtime KPI reducer",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/67",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "kind": "code",
+          "lane": "Foundation",
+          "number": 65,
+          "priority": "P1",
+          "status": "Done",
+          "title": "feat: add runtime KPI telemetry",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/65",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 24,
+          "priority": "P2",
+          "status": "Done",
+          "title": "P2:Phase A:\u6839\u76ee\u5f55 AGENT.md \u6307\u9488\u6587\u4ef6\u5df2\u5e9f\u5f03\u4f46\u66fe\u6b8b\u7559",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/24",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "kind": "ops",
+          "lane": "Gameplay",
+          "number": 59,
+          "priority": "P1",
+          "status": "In progress",
+          "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/59",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Bot capability",
+          "kind": "test",
+          "lane": "Gameplay",
+          "number": 30,
+          "priority": "P1",
+          "status": "Ready",
+          "title": "P1:Phase B:mock harness \u7f3a\u5c11\u591a tick spawn.spawning \u751f\u547d\u5468\u671f\u4eff\u771f",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/30",
+          "visionLayer": "resources"
+        },
+        {
+          "domain": "Bot capability",
+          "kind": "test",
+          "lane": "Gameplay",
+          "number": 31,
+          "priority": "P1",
+          "status": "Ready",
+          "title": "P1:Phase B:zero-creep/insufficient-energy emergency recovery \u8986\u76d6\u9700\u786e\u8ba4",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/31",
+          "visionLayer": "resources"
+        },
+        {
+          "domain": "Bot capability",
+          "kind": "ops",
+          "lane": "Gameplay",
+          "number": 61,
+          "priority": "P1",
+          "status": "Done",
+          "title": "P1: Phase B: gameplay findings do not yet bridge into Codex task pipeline",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/61",
+          "visionLayer": "resources"
+        },
+        {
+          "domain": "Agent OS",
+          "kind": "ops",
+          "lane": "Gameplay",
+          "number": 60,
+          "priority": "P1",
+          "status": "Done",
+          "title": "P1: Phase C: 12h gameplay evolution review loop is not automated",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/60",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Docs/process",
+          "kind": "docs",
+          "lane": "Gameplay",
+          "number": 64,
+          "priority": "P1",
+          "status": "Done",
+          "title": "docs: add gameplay evolution roadmap",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/64",
+          "visionLayer": "territory"
+        }
+      ],
+      "columns": [
+        {
+          "lane": "Gameplay",
+          "statuses": [
+            {
+              "cards": [],
+              "status": "Backlog"
+            },
+            {
+              "cards": [
+                {
+                  "domain": "Bot capability",
+                  "kind": "test",
+                  "lane": "Gameplay",
+                  "number": 30,
+                  "priority": "P1",
+                  "status": "Ready",
+                  "title": "P1:Phase B:mock harness \u7f3a\u5c11\u591a tick spawn.spawning \u751f\u547d\u5468\u671f\u4eff\u771f",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/30",
+                  "visionLayer": "resources"
+                },
+                {
+                  "domain": "Bot capability",
+                  "kind": "test",
+                  "lane": "Gameplay",
+                  "number": 31,
+                  "priority": "P1",
+                  "status": "Ready",
+                  "title": "P1:Phase B:zero-creep/insufficient-energy emergency recovery \u8986\u76d6\u9700\u786e\u8ba4",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/31",
+                  "visionLayer": "resources"
+                }
+              ],
+              "status": "Ready"
+            },
+            {
+              "cards": [
+                {
+                  "domain": "Docs/process",
+                  "kind": "ops",
+                  "lane": "Gameplay",
+                  "number": 59,
+                  "priority": "P1",
+                  "status": "In progress",
+                  "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/59",
+                  "visionLayer": "territory"
+                }
+              ],
+              "status": "In progress"
+            },
+            {
+              "cards": [],
+              "status": "In review"
+            },
+            {
+              "cards": [
+                {
+                  "domain": "Bot capability",
+                  "kind": "ops",
+                  "lane": "Gameplay",
+                  "number": 61,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "P1: Phase B: gameplay findings do not yet bridge into Codex task pipeline",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/61",
+                  "visionLayer": "resources"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "ops",
+                  "lane": "Gameplay",
+                  "number": 60,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "P1: Phase C: 12h gameplay evolution review loop is not automated",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/60",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Docs/process",
+                  "kind": "docs",
+                  "lane": "Gameplay",
+                  "number": 64,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "docs: add gameplay evolution roadmap",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/64",
+                  "visionLayer": "territory"
+                }
+              ],
+              "status": "Done"
+            }
+          ]
+        },
+        {
+          "lane": "Foundation",
+          "statuses": [
+            {
+              "cards": [
+                {
+                  "domain": "Official MMO",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 33,
+                  "priority": "P1",
+                  "status": "Backlog",
+                  "title": "P1:Phase E:\u5b98\u65b9 MMO \u90e8\u7f72\u4ecd\u53d7\u79c1\u670d smoke release gate \u963b\u585e",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/33",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Runtime monitor",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 32,
+                  "priority": "P2",
+                  "status": "Backlog",
+                  "title": "P2:Phase C:alert-level telemetry \u9700\u8981\u57fa\u4e8e\u79c1\u670d smoke \u5931\u8d25\u6a21\u5f0f\u8865\u9f50",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/32",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
+              "status": "Backlog"
+            },
+            {
+              "cards": [
+                {
+                  "domain": "Runtime monitor",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 62,
+                  "priority": "P1",
+                  "status": "Ready",
+                  "title": "P1: Phase C: tactical emergency response is not wired to runtime alerts",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/62",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Official MMO",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 63,
+                  "priority": "P1",
+                  "status": "Ready",
+                  "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/63",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Private smoke",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 28,
+                  "priority": "P1",
+                  "status": "Ready",
+                  "title": "P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/28",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
+              "status": "Ready"
+            },
+            {
+              "cards": [
+                {
+                  "domain": "Runtime monitor",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 29,
+                  "priority": "P1",
+                  "status": "In progress",
+                  "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/29",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
+              "status": "In progress"
+            },
+            {
+              "cards": [
+                {
+                  "domain": "Runtime monitor",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "number": 69,
+                  "priority": "P1",
+                  "status": "In review",
+                  "title": "feat: add GitHub Pages roadmap live report",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/69",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
+              "status": "In review"
+            },
+            {
+              "cards": [
+                {
+                  "domain": "Agent OS",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 41,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "Establish dedicated QA acceptance-check agent gate",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/41",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 27,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "P0:P0 agent-ops:P0 \u76d1\u63a7\u4e0e Discord \u8def\u7531\u5065\u5eb7\u9700\u8981\u6301\u7eed\u9a8c\u8bc1",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/27",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 36,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "P0:P0 change-control:GitHub Milestones/Project roadmap source-of-truth \u5408\u540c\u672a\u5165\u5e93",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/36",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 26,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "P0:P0 change-control:main \u5206\u652f\u4fdd\u62a4\u4e0e CI \u5fc5\u8fc7\u95e8\u7981\u5c1a\u672a\u786e\u8ba4",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/26",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 47,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "P0:P0 change-control:owner roadmap governance decisions need durable contract sync",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/47",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "ops",
+                  "lane": "Foundation",
+                  "number": 22,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "P0:P0 change-control:\u5df2\u77e5\u95ee\u9898\u672a\u5f3a\u5236\u8fdb\u5165 GitHub issue \u4e0e PR \u5173\u8054\u6d41\u7a0b",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/22",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 39,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "P0:P0 change-control:\u6240\u6709 agent \u4efb\u52a1\u5b8c\u6210\u6807\u51c6\u7f3a\u5c11 GitHub \u72b6\u6001\u66f4\u65b0\u95e8\u7981",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/39",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 34,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "chore: add issue and PR management templates",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/34",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 45,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "ci: make prod verification required-check friendly",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/45",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 42,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: add QA acceptance gate",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/42",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 37,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record GitHub roadmap management contract",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/37",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 53,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record P0 cron finalization gap",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/53",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 54,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record P0 scheduler recovery",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/54",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 21,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record P0 visibility repair",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/21",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 38,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record PR 37 merge checkpoint",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/38",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 46,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record ci required gate completion",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/46",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Change-control",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 48,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record owner governance decisions",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/48",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 43,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record scheduler alert gap audit",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/43",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 49,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record scheduler cadence audit",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/49",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 52,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record scheduler cadence audit at 1948",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/52",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 50,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record scheduler cadence audit follow-up",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/50",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 44,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record scheduler cadence follow-up",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/44",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "review",
+                  "lane": "Foundation",
+                  "number": 56,
+                  "priority": "P0",
+                  "status": "Done",
+                  "title": "docs: record scheduler cadence regression",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/56",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Private smoke",
+                  "kind": "bug",
+                  "lane": "Foundation",
+                  "number": 23,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "P1:Phase D:\u79c1\u670d smoke STEAM_KEY \u6587\u4ef6\u6743\u9650\u66fe\u5bfc\u81f4\u5bb9\u5668\u4e0d\u53ef\u8bfb",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/23",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 66,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "docs: define gameplay finding Codex bridge",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/66",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 55,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "docs: prepare community-facing README",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/55",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "number": 57,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "docs: record P0 scheduler recovery checkpoint",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/57",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "number": 58,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "docs: record P0 scheduler repair completion",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/58",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "number": 40,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "docs: require GitHub state updates before agent completion",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/40",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Runtime monitor",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "number": 68,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "feat: add runtime KPI artifact bridge",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/68",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Runtime monitor",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "number": 67,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "feat: add runtime KPI reducer",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/67",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Runtime monitor",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "number": 65,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "feat: add runtime KPI telemetry",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/65",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 24,
+                  "priority": "P2",
+                  "status": "Done",
+                  "title": "P2:Phase A:\u6839\u76ee\u5f55 AGENT.md \u6307\u9488\u6587\u4ef6\u5df2\u5e9f\u5f03\u4f46\u66fe\u6b8b\u7559",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/24",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
+              "status": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    "processMetrics": [
+      {
+        "instrumented": true,
+        "label": "Open roadmap issues",
+        "value": 9
+      },
+      {
+        "instrumented": true,
+        "label": "Open PRs",
+        "value": 1
+      },
+      {
+        "instrumented": true,
+        "label": "Blocked cards",
+        "value": 2
+      },
+      {
+        "instrumented": true,
+        "label": "Project cards",
+        "value": 46
+      },
+      {
+        "instrumented": true,
+        "label": "In progress",
+        "value": 2
+      },
+      {
+        "instrumented": true,
+        "label": "In review",
+        "value": 1
+      }
+    ],
+    "projectItems": [
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "PR #34; issue form + PR template + docs contract",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-change-control"
+        ],
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 22,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "P0:P0 change-control:\u5df2\u77e5\u95ee\u9898\u672a\u5f3a\u5236\u8fdb\u5165 GitHub issue \u4e0e PR \u5173\u8054\u6d41\u7a0b",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/22"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Private smoke",
+        "evidence": "Linked PR #16 / smoke harness verification evidence",
+        "kind": "bug",
+        "labels": [
+          "kind:bug",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-d-private-smoke"
+        ],
+        "milestone": "Phase D: Private-server smoke release gate",
+        "nextAction": "",
+        "number": 23,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "P1:Phase D:\u79c1\u670d smoke STEAM_KEY \u6587\u4ef6\u6743\u9650\u66fe\u5bfc\u81f4\u5bb9\u5668\u4e0d\u53ef\u8bfb",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/23"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "evidence": "Closed issue / PR #19",
+        "kind": "docs",
+        "labels": [
+          "kind:docs",
+          "priority:p2",
+          "roadmap:phase-a-docs-sync"
+        ],
+        "milestone": "",
+        "nextAction": "",
+        "number": 24,
+        "priority": "P2",
+        "state": "",
+        "status": "Done",
+        "title": "P2:Phase A:\u6839\u76ee\u5f55 AGENT.md \u6307\u9488\u6587\u4ef6\u5df2\u5e9f\u5f03\u4f46\u66fe\u6b8b\u7559",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/24"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "Read-only inspection: main protected=false; branch protection API 404; active ruleset 'defualt' has no rules; prod-ci exists but path filters made it unsuitable as universal required check. PR #45 opened to make check always present.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-change-control"
+        ],
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 26,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "P0:P0 change-control:main \u5206\u652f\u4fdd\u62a4\u4e0e CI \u5fc5\u8fc7\u95e8\u7981\u5c1a\u672a\u786e\u8ba4",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/26"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "P0 repair completed: PR #58 merged as c6120dc; 4h checkpoint, runtime-alert, P0 monitor, typed fanouts, runtime summary, and resumed bounded continuation worker all finalized with fresh output artifacts/no delivery errors; continuation restored to 5m cadence.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-agent-ops"
+        ],
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "nextAction": "",
+        "number": 27,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "P0:P0 agent-ops:P0 \u76d1\u63a7\u4e0e Discord \u8def\u7531\u5065\u5eb7\u9700\u8981\u6301\u7eed\u9a8c\u8bc1",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/27"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Private smoke",
+        "evidence": "Fresh clean live run redacted report",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-d-private-smoke"
+        ],
+        "milestone": "Phase D: Private-server smoke release gate",
+        "nextAction": "",
+        "number": 28,
+        "priority": "P1",
+        "state": "",
+        "status": "Ready",
+        "title": "P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/28"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "PR #68 merged as da20ac4: persisted artifact bridge now scans runtime-artifacts and /root/.hermes/cron/output for #runtime-summary lines and feeds reducer JSON/human output. Remaining #29 gap is scheduler/prompt wiring plus proof that real in-game console summaries are persisted.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "nextAction": "",
+        "number": 29,
+        "priority": "P1",
+        "state": "",
+        "status": "In progress",
+        "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/29"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "evidence": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation work; kept Ready queued for parallel worker coverage.",
+        "kind": "test",
+        "labels": [
+          "kind:test",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-b-spawn-lifecycle"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 30,
+        "priority": "P1",
+        "state": "",
+        "status": "Ready",
+        "title": "P1:Phase B:mock harness \u7f3a\u5c11\u591a tick spawn.spawning \u751f\u547d\u5468\u671f\u4eff\u771f",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/30"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "evidence": "Owner priority correction: direct bot-capability/gameplay reliability items outrank non-blocking foundation work; kept Ready queued for parallel worker coverage.",
+        "kind": "test",
+        "labels": [
+          "kind:test",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-b-spawn-lifecycle"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 31,
+        "priority": "P1",
+        "state": "",
+        "status": "Ready",
+        "title": "P1:Phase B:zero-creep/insufficient-energy emergency recovery \u8986\u76d6\u9700\u786e\u8ba4",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/31"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "Private smoke failure modes mapped into alert-level telemetry",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p2",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "nextAction": "",
+        "number": 32,
+        "priority": "P2",
+        "state": "",
+        "status": "Backlog",
+        "title": "P2:Phase C:alert-level telemetry \u9700\u8981\u57fa\u4e8e\u79c1\u670d smoke \u5931\u8d25\u6a21\u5f0f\u8865\u9f50",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/32"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Official MMO",
+        "evidence": "Deploy preflight, private-smoke gate, monitor proof, official API verification",
+        "kind": "ops",
+        "labels": [
+          "blocked",
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-e-mmo-deploy"
+        ],
+        "milestone": "Phase E: Official MMO deployment gate",
+        "nextAction": "",
+        "number": 33,
+        "priority": "P1",
+        "state": "",
+        "status": "Backlog",
+        "title": "P1:Phase E:\u5b98\u65b9 MMO \u90e8\u7f72\u4ecd\u53d7\u79c1\u670d smoke release gate \u963b\u585e",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/33"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "Fixes #22; PR templates/issue form docs",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 34,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "chore: add issue and PR management templates",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/34"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "P0 visibility repair process note PR",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 21,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record P0 visibility repair",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/21"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "PR documenting GitHub roadmap management contract; verifies milestones/project fields/items",
+        "kind": "docs",
+        "labels": [
+          "kind:docs",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-change-control"
+        ],
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 36,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "P0:P0 change-control:GitHub Milestones/Project roadmap source-of-truth \u5408\u540c\u672a\u5165\u5e93",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/36"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "Fixes #36; docs-only roadmap management contract",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 37,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record GitHub roadmap management contract",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/37"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "PR #40 merged at 2026-04-26T08:19:33Z; issue closed via Fixes #39; main fast-forwarded to d64f30a.",
+        "kind": "docs",
+        "labels": [
+          "kind:docs",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-change-control"
+        ],
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 39,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "P0:P0 change-control:\u6240\u6709 agent \u4efb\u52a1\u5b8c\u6210\u6807\u51c6\u7f3a\u5c11 GitHub \u72b6\u6001\u66f4\u65b0\u95e8\u7981",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/39"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #40 merged at 2026-04-26T08:19:33Z; CodeRabbit success; review threads empty; main at d64f30a.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 40,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "docs: require GitHub state updates before agent completion",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/40"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #42 merged at 2026-04-26T08:26:48Z after QA PASS; issue #41 closed; docs-only QA acceptance gate landed without touching PR #40-owned files.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-agent-ops"
+        ],
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "nextAction": "",
+        "number": 41,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "Establish dedicated QA acceptance-check agent gate",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/41"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "Merged PR #44 documents scheduler cadence follow-up and links issue #27/#29; CodeRabbit SUCCESS; Gemini no critical feedback.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 44,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record scheduler cadence follow-up",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/44"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "Merged PR #45 made prod verification required-check friendly; main ruleset now requires Verify prod TypeScript, Jest, and bundle.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 45,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "ci: make prod verification required-check friendly",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/45"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "Merged PR #46 records CI/ruleset gate completion; checks green (prod-ci SUCCESS, CodeRabbit SUCCESS); Gemini no feedback; merge commit 459a528.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 46,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record ci required gate completion",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/46"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #43 documents scheduler alert gap audit; merged 2026-04-26.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 43,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record scheduler alert gap audit",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/43"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #42 establishes dedicated QA acceptance gate; merged 2026-04-26.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 42,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: add QA acceptance gate",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/42"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "evidence": "PR #38 records PR #37 merge checkpoint; merged 2026-04-26.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 38,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record PR 37 merge checkpoint",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/38"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "PR #48 merged at 2026-04-26T10:17:39Z; merge commit 955a0df records owner governance decisions in docs/AGENTS.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p0",
+          "roadmap",
+          "roadmap:p0-change-control"
+        ],
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 47,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "P0:P0 change-control:owner roadmap governance decisions need durable contract sync",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/47"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Change-control",
+        "evidence": "Merged PR #48 at 2026-04-26T10:17:39Z after >=15m, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, QA PASS; merge commit 955a0df.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 48,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record owner governance decisions",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/48"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "2026-04-26T18:26+08: PR #49 merged at 2026-04-26T10:23:37Z as 0343354734a48f173efa38f365c4cc12d76f2cc5 after gates passed: prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini COMMENTED with no feedback, review threads empty.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 49,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record scheduler cadence audit",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/49"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #50 merged at 2026-04-26T10:49:25Z as 87512b615cc03e5364044dea41776a0b381c682c. Gates: >=15m wait satisfied, prod-ci SUCCESS, CodeRabbit SUCCESS status, Gemini no feedback, no unresolved live review threads.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 50,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record scheduler cadence audit follow-up",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/50"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #52 documents 19:48 metadata-only scheduler cadence audit; prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini no feedback, no review threads; linked to #27.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 52,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record scheduler cadence audit at 1948",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/52"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #53 merged at 2026-04-26T13:03:35Z as 0bca111 after >=15m, prod-ci SUCCESS, CodeRabbit no actionable comments, Gemini no feedback, no review threads.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 53,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record P0 cron finalization gap",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/53"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #54 merged via squash at 2026-04-26T13:40:29Z; merge commit 0ebed16931f044bd4ab02800f0425cdaac7c3d0d; required check Verify prod TypeScript, Jest, and bundle SUCCESS; CodeRabbit status SUCCESS; review thread PRRT_kwDOSMSsO859qLyO resolved.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 54,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record P0 scheduler recovery",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/54"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "evidence": "PR #55 merged after green checks/reviews; README now has formal community-facing description, logo asset, Discord invite, and docs lane mapping.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 55,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "docs: prepare community-facing README",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/55"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "PR #56 documents renewed scheduler cadence regression; prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback; body patched with Related to #27.",
+        "kind": "review",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 56,
+        "priority": "P0",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record scheduler cadence regression",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/56"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "evidence": "PR #57 merged at 2026-04-26T15:17:58Z as cbe3641 after >=15m, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and no unresolved review threads.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 57,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record P0 scheduler recovery checkpoint",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/57"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "evidence": "PR #58 merged at 2026-04-26T15:41:46Z as c6120dc after prod-ci success, CodeRabbit success, Gemini no feedback, and resolved/outdated review thread.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 58,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record P0 scheduler repair completion",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/58"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "evidence": "Docs foundation merged via PR #64 / 0377388; umbrella remains active for full Gameplay Evolution\u4e13\u9879 until recurring reviews, KPI telemetry, task bridge, tactical response, and release gates are operational.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "nextAction": "",
+        "number": 59,
+        "priority": "P1",
+        "state": "",
+        "status": "In progress",
+        "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/59"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "evidence": "One-shot Gameplay Evolution dry run produced useful advisory output in session_cron_be2c21e9fd73; recurring 12h Screeps Gameplay Evolution Review job c7b3dda8f1ac created for #task-queue delivery.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "nextAction": "",
+        "number": 60,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "P1: Phase C: 12h gameplay evolution review loop is not automated",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/60"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "evidence": "Completed by merged PR #66 / 1f41670: durable Gameplay finding \u2192 GitHub issue/Project/Codex prompt bridge runbook with QA acceptance and first #29/#61 task examples.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-b-spawn-lifecycle"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 61,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "P1: Phase B: gameplay findings do not yet bridge into Codex task pipeline",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/61"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "Issue created to connect runtime-alert signals to bounded tactical emergency triage.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "nextAction": "",
+        "number": 62,
+        "priority": "P1",
+        "state": "",
+        "status": "Ready",
+        "title": "P1: Phase C: tactical emergency response is not wired to runtime alerts",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/62"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Official MMO",
+        "evidence": "Issue created to enforce gameplay-aware normal release cadence and emergency hotfix gates.",
+        "kind": "ops",
+        "labels": [
+          "kind:ops",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-e-mmo-deploy"
+        ],
+        "milestone": "Phase E: Official MMO deployment gate",
+        "nextAction": "",
+        "number": 63,
+        "priority": "P1",
+        "state": "",
+        "status": "Ready",
+        "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/63"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "evidence": "PR #64 merged at 2026-04-27T02:09Z as 0377388; prod-ci and CodeRabbit green, Gemini no feedback, review threads empty, QA blocker resolved before merge.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 64,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "docs: add gameplay evolution roadmap",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/64"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "Merged PR #65 at 2026-04-27T02:49:49Z as 4d90ecd. Gates: prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, GraphQL review threads empty, >=15m elapsed, controller-side typecheck/test/build PASS.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 65,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "feat: add runtime KPI telemetry",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/65"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "evidence": "PR #66 merged at 2026-04-27T03:29:27Z as 1f41670 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and empty GraphQL review threads.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 66,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "docs: define gameplay finding Codex bridge",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/66"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "Merged PR #67 as f32cdc3 after review fixes 10d588a/ee5e852; checks passed (prod-ci, CodeRabbit), review threads resolved, main fast-forwarded and PR branch deleted.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 67,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "feat: add runtime KPI reducer",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/67"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "PR #68 merged at 2026-04-27T05:09:10Z as da20ac4 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS, Gemini no feedback, and GraphQL review thread resolved.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 68,
+        "priority": "P1",
+        "state": "",
+        "status": "Done",
+        "title": "feat: add runtime KPI artifact bridge",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/68"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "PROCESS CORRECTION: PR #69 includes direct Hermes-authored implementation commits, so it does not satisfy the owner boundary requiring Codex-authored coding plus QA-agent acceptance. Treat as do-not-merge unless superseded or rewritten by Codex and QA accepted.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 69,
+        "priority": "P1",
+        "state": "",
+        "status": "In review",
+        "title": "feat: add GitHub Pages roadmap live report",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/69"
+      }
+    ],
+    "pullRequests": [
+      {
+        "checks": {
+          "failure": 0,
+          "pending": 0,
+          "success": 2,
+          "total": 2
+        },
+        "createdAt": "2026-04-27T05:04:57Z",
+        "domain": "Bot capability",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 69,
+        "priority": "P1",
+        "reviewDecision": "",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "feat: add GitHub Pages roadmap live report",
+        "type": "PullRequest",
+        "updatedAt": "2026-04-27T05:20:14Z",
+        "url": "https://github.com/lanyusea/screeps/pull/69"
+      }
+    ],
+    "roadmapCards": [
+      {
+        "domain": "Agent OS",
+        "evidence": "PR #42 merged at 2026-04-26T08:26:48Z after QA PASS; issue #41 closed; docs-only QA acceptance gate landed without touching PR #40-owned files.",
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "nextAction": "",
+        "number": 41,
+        "priority": "P0",
+        "status": "Done",
+        "title": "Establish dedicated QA acceptance-check agent gate",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/41",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Agent OS",
+        "evidence": "P0 repair completed: PR #58 merged as c6120dc; 4h checkpoint, runtime-alert, P0 monitor, typed fanouts, runtime summary, and resumed bounded continuation worker all finalized with fresh output artifacts/no delivery errors; continuation restored to 5m cadence.",
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "nextAction": "",
+        "number": 27,
+        "priority": "P0",
+        "status": "Done",
+        "title": "P0:P0 agent-ops:P0 \u76d1\u63a7\u4e0e Discord \u8def\u7531\u5065\u5eb7\u9700\u8981\u6301\u7eed\u9a8c\u8bc1",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/27",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Change-control",
+        "evidence": "PR documenting GitHub roadmap management contract; verifies milestones/project fields/items",
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 36,
+        "priority": "P0",
+        "status": "Done",
+        "title": "P0:P0 change-control:GitHub Milestones/Project roadmap source-of-truth \u5408\u540c\u672a\u5165\u5e93",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/36",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Change-control",
+        "evidence": "Read-only inspection: main protected=false; branch protection API 404; active ruleset 'defualt' has no rules; prod-ci exists but path filters made it unsuitable as universal required check. PR #45 opened to make check always present.",
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 26,
+        "priority": "P0",
+        "status": "Done",
+        "title": "P0:P0 change-control:main \u5206\u652f\u4fdd\u62a4\u4e0e CI \u5fc5\u8fc7\u95e8\u7981\u5c1a\u672a\u786e\u8ba4",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/26",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Change-control",
+        "evidence": "PR #48 merged at 2026-04-26T10:17:39Z; merge commit 955a0df records owner governance decisions in docs/AGENTS.",
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 47,
+        "priority": "P0",
+        "status": "Done",
+        "title": "P0:P0 change-control:owner roadmap governance decisions need durable contract sync",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/47",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Change-control",
+        "evidence": "PR #34; issue form + PR template + docs contract",
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 22,
+        "priority": "P0",
+        "status": "Done",
+        "title": "P0:P0 change-control:\u5df2\u77e5\u95ee\u9898\u672a\u5f3a\u5236\u8fdb\u5165 GitHub issue \u4e0e PR \u5173\u8054\u6d41\u7a0b",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/22",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Change-control",
+        "evidence": "PR #40 merged at 2026-04-26T08:19:33Z; issue closed via Fixes #39; main fast-forwarded to d64f30a.",
+        "milestone": "P0: Change-control / CI / branch protection gate",
+        "nextAction": "",
+        "number": 39,
+        "priority": "P0",
+        "status": "Done",
+        "title": "P0:P0 change-control:\u6240\u6709 agent \u4efb\u52a1\u5b8c\u6210\u6807\u51c6\u7f3a\u5c11 GitHub \u72b6\u6001\u66f4\u65b0\u95e8\u7981",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/39",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Change-control",
+        "evidence": "Fixes #36; docs-only roadmap management contract",
+        "milestone": "",
+        "nextAction": "",
+        "number": 37,
+        "priority": "P0",
+        "status": "Done",
+        "title": "docs: record GitHub roadmap management contract",
+        "type": "PullRequest",
+        "url": "https://github.com/lanyusea/screeps/pull/37",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Agent OS",
+        "evidence": "PR #53 merged at 2026-04-26T13:03:35Z as 0bca111 after >=15m, prod-ci SUCCESS, CodeRabbit no actionable comments, Gemini no feedback, no review threads.",
+        "milestone": "",
+        "nextAction": "",
+        "number": 53,
+        "priority": "P0",
+        "status": "Done",
+        "title": "docs: record P0 cron finalization gap",
+        "type": "PullRequest",
+        "url": "https://github.com/lanyusea/screeps/pull/53",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Agent OS",
+        "evidence": "PR #54 merged via squash at 2026-04-26T13:40:29Z; merge commit 0ebed16931f044bd4ab02800f0425cdaac7c3d0d; required check Verify prod TypeScript, Jest, and bundle SUCCESS; CodeRabbit status SUCCESS; review thread PRRT_kwDOSMSsO859qLyO resolved.",
+        "milestone": "",
+        "nextAction": "",
+        "number": 54,
+        "priority": "P0",
+        "status": "Done",
+        "title": "docs: record P0 scheduler recovery",
+        "type": "PullRequest",
+        "url": "https://github.com/lanyusea/screeps/pull/54",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Agent OS",
+        "evidence": "P0 visibility repair process note PR",
+        "milestone": "",
+        "nextAction": "",
+        "number": 21,
+        "priority": "P0",
+        "status": "Done",
+        "title": "docs: record P0 visibility repair",
+        "type": "PullRequest",
+        "url": "https://github.com/lanyusea/screeps/pull/21",
+        "visionLayer": "foundation blocker"
+      },
+      {
+        "domain": "Docs/process",
+        "evidence": "Docs foundation merged via PR #64 / 0377388; umbrella remains active for full Gameplay Evolution\u4e13\u9879 until recurring reviews, KPI telemetry, task bridge, tactical response, and release gates are operational.",
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "nextAction": "",
+        "number": 59,
+        "priority": "P1",
+        "status": "In progress",
+        "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
+        "type": "Issue",
+        "url": "https://github.com/lanyusea/screeps/issues/59",
+        "visionLayer": "territory"
+      }
+    ],
+    "seededFallbackIssueCount": 0,
+    "sourceMode": "live"
+  },
+  "kpis": {
+    "categories": [
+      {
+        "accent": "#2f6f5e",
+        "key": "territory",
+        "label": "Territory",
+        "metrics": [
+          {
+            "category": "territory",
+            "categoryLabel": "Territory",
+            "description": "Owned room count in the latest runtime KPI window.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "owned_rooms",
+            "label": "Owned rooms",
+            "layer": "territory",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 10,
+            "source": "runtime-summary rooms",
+            "status": "not instrumented",
+            "unit": "rooms",
+            "value": null
+          },
+          {
+            "category": "territory",
+            "categoryLabel": "Territory",
+            "description": "Net owned-room gain or loss across the runtime KPI window.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "owned_room_delta",
+            "label": "Owned-room delta",
+            "layer": "territory",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 20,
+            "source": "runtime-summary rooms",
+            "status": "not instrumented",
+            "unit": "rooms/window",
+            "value": null
+          },
+          {
+            "category": "territory",
+            "categoryLabel": "Territory",
+            "description": "Reserved or remote room footprint; reducer support is still pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "reserved_remote_rooms",
+            "label": "Reserved / remote rooms",
+            "layer": "territory",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 30,
+            "source": "future room-footprint telemetry",
+            "status": "not instrumented",
+            "unit": "rooms",
+            "value": null
+          },
+          {
+            "category": "territory",
+            "categoryLabel": "Territory",
+            "description": "Sum of latest room controller levels.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "controller_level_sum",
+            "label": "Controller level sum",
+            "layer": "territory",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 40,
+            "source": "runtime-summary controller fields",
+            "status": "not instrumented",
+            "unit": "RCL",
+            "value": null
+          },
+          {
+            "category": "territory",
+            "categoryLabel": "Territory",
+            "description": "Total controller progress movement across the runtime KPI window.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "controller_progress_delta",
+            "label": "Controller progress delta",
+            "layer": "territory",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 50,
+            "source": "runtime-summary controller fields",
+            "status": "not instrumented",
+            "unit": "progress/window",
+            "value": null
+          }
+        ]
+      },
+      {
+        "accent": "#c6752a",
+        "key": "resources",
+        "label": "Resources / Economy",
+        "metrics": [
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Energy held in room stores in the latest runtime KPI window.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "stored_energy",
+            "label": "Stored energy",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 10,
+            "source": "runtime-summary resource fields",
+            "status": "not instrumented",
+            "unit": "energy",
+            "value": null
+          },
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Stored energy movement across the runtime KPI window.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "stored_energy_delta",
+            "label": "Stored-energy delta",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 20,
+            "source": "runtime-summary resource fields",
+            "status": "not instrumented",
+            "unit": "energy/window",
+            "value": null
+          },
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Energy currently carried by workers.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "worker_carried_energy",
+            "label": "Worker carried energy",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 30,
+            "source": "runtime-summary resource fields",
+            "status": "not instrumented",
+            "unit": "energy",
+            "value": null
+          },
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Visible dropped energy in owned rooms.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "dropped_energy",
+            "label": "Dropped energy",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 40,
+            "source": "runtime-summary resource fields",
+            "status": "not instrumented",
+            "unit": "energy",
+            "value": null
+          },
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Visible source count in currently observed owned rooms.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "source_count",
+            "label": "Source count",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 50,
+            "source": "runtime-summary resource fields",
+            "status": "not instrumented",
+            "unit": "sources",
+            "value": null
+          },
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Energy harvested from runtime event totals when observed.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "harvested_energy",
+            "label": "Harvested energy",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 60,
+            "source": "runtime-summary resource events",
+            "status": "not instrumented",
+            "unit": "energy/window",
+            "value": null
+          },
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Energy transferred from runtime event totals when observed.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "transferred_energy",
+            "label": "Transferred energy",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 70,
+            "source": "runtime-summary resource events",
+            "status": "not instrumented",
+            "unit": "energy/window",
+            "value": null
+          },
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Spawn busy time or utilization ratio; telemetry support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "spawn_utilization",
+            "label": "Spawn utilization",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 80,
+            "source": "future spawn telemetry",
+            "status": "not instrumented",
+            "unit": "ratio",
+            "value": null
+          },
+          {
+            "category": "resources",
+            "categoryLabel": "Resources / Economy",
+            "description": "Unserved spawn demand; telemetry support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "spawn_queue_pressure",
+            "label": "Spawn queue pressure",
+            "layer": "resources",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 90,
+            "source": "future spawn telemetry",
+            "status": "not instrumented",
+            "unit": "requests",
+            "value": null
+          }
+        ]
+      },
+      {
+        "accent": "#a83f35",
+        "key": "combat",
+        "label": "Combat / Enemy Kills",
+        "metrics": [
+          {
+            "category": "combat",
+            "categoryLabel": "Combat / Enemy Kills",
+            "description": "Latest hostile creep count in observed rooms.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "hostile_creeps",
+            "label": "Hostile creeps",
+            "layer": "enemy kills",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 10,
+            "source": "runtime-summary combat fields",
+            "status": "not instrumented",
+            "unit": "creeps",
+            "value": null
+          },
+          {
+            "category": "combat",
+            "categoryLabel": "Combat / Enemy Kills",
+            "description": "Latest hostile structure count in observed rooms.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "hostile_structures",
+            "label": "Hostile structures",
+            "layer": "enemy kills",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 20,
+            "source": "runtime-summary combat fields",
+            "status": "not instrumented",
+            "unit": "structures",
+            "value": null
+          },
+          {
+            "category": "combat",
+            "categoryLabel": "Combat / Enemy Kills",
+            "description": "Attack event total across the runtime KPI window when observed.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "attack_count",
+            "label": "Attack events",
+            "layer": "enemy kills",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 30,
+            "source": "runtime-summary combat events",
+            "status": "not instrumented",
+            "unit": "events/window",
+            "value": null
+          },
+          {
+            "category": "combat",
+            "categoryLabel": "Combat / Enemy Kills",
+            "description": "Attack damage total across the runtime KPI window when observed.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "attack_damage",
+            "label": "Attack damage",
+            "layer": "enemy kills",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 40,
+            "source": "runtime-summary combat events",
+            "status": "not instrumented",
+            "unit": "damage/window",
+            "value": null
+          },
+          {
+            "category": "combat",
+            "categoryLabel": "Combat / Enemy Kills",
+            "description": "Generic destroyed-object event total; this is not enemy-kill proof.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "objects_destroyed",
+            "label": "Objects destroyed",
+            "layer": "enemy kills",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 50,
+            "source": "runtime-summary combat events",
+            "status": "not instrumented",
+            "unit": "objects/window",
+            "value": null
+          },
+          {
+            "category": "combat",
+            "categoryLabel": "Combat / Enemy Kills",
+            "description": "Generic destroyed-creep event total; this can include own losses.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "creeps_destroyed_generic",
+            "label": "Creeps destroyed, generic",
+            "layer": "enemy kills",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 60,
+            "source": "runtime-summary combat events",
+            "status": "not instrumented",
+            "unit": "creeps/window",
+            "value": null
+          },
+          {
+            "category": "combat",
+            "categoryLabel": "Combat / Enemy Kills",
+            "description": "Ownership-aware enemy kills are not available yet.",
+            "details": {
+              "reason": "Generic creepDestroyedCount can include own losses; enemy_kills stays empty until an ownership-aware reducer exists."
+            },
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "enemy_kills",
+            "label": "Enemy kills",
+            "layer": "enemy kills",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 70,
+            "source": "future ownership-aware combat reducer",
+            "status": "not instrumented",
+            "unit": "kills/window",
+            "value": null
+          },
+          {
+            "category": "combat",
+            "categoryLabel": "Combat / Enemy Kills",
+            "description": "Own creep losses; ownership-aware combat reducer support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "own_losses",
+            "label": "Own losses",
+            "layer": "enemy kills",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 80,
+            "source": "future ownership-aware combat reducer",
+            "status": "not instrumented",
+            "unit": "creeps/window",
+            "value": null
+          }
+        ]
+      },
+      {
+        "accent": "#244c73",
+        "key": "guardrails",
+        "label": "Guardrails / Reliability",
+        "metrics": [
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Runtime-summary lines found by the persisted artifact feeder.",
+            "details": {},
+            "formattedValue": "0",
+            "instrumented": true,
+            "key": "runtime_summary_samples",
+            "label": "Runtime summary samples",
+            "layer": "guardrails",
+            "lowerIsBetter": false,
+            "observed": true,
+            "priority": 10,
+            "source": "runtime KPI artifact bridge",
+            "status": "observed",
+            "unit": "samples",
+            "value": 0
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Files matched by the persisted artifact feeder.",
+            "details": {},
+            "formattedValue": "0",
+            "instrumented": true,
+            "key": "kpi_artifact_files",
+            "label": "KPI artifact files",
+            "layer": "guardrails",
+            "lowerIsBetter": false,
+            "observed": true,
+            "priority": 20,
+            "source": "runtime KPI artifact bridge",
+            "status": "observed",
+            "unit": "files",
+            "value": 0
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Minimum ticks-to-downgrade among observed controllers.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "controller_downgrade_min_ticks",
+            "label": "Downgrade risk",
+            "layer": "guardrails",
+            "lowerIsBetter": true,
+            "observed": false,
+            "priority": 30,
+            "source": "runtime-summary controller fields",
+            "status": "not instrumented",
+            "unit": "ticks",
+            "value": null
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "CPU used per tick; telemetry support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "cpu_used",
+            "label": "CPU used",
+            "layer": "guardrails",
+            "lowerIsBetter": true,
+            "observed": false,
+            "priority": 40,
+            "source": "future reliability telemetry",
+            "status": "not instrumented",
+            "unit": "cpu",
+            "value": null
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "CPU bucket safety; telemetry support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "cpu_bucket",
+            "label": "CPU bucket",
+            "layer": "guardrails",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 50,
+            "source": "future reliability telemetry",
+            "status": "not instrumented",
+            "unit": "bucket",
+            "value": null
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Loop exceptions across the review window; telemetry support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "runtime_exceptions",
+            "label": "Runtime exceptions",
+            "layer": "guardrails",
+            "lowerIsBetter": true,
+            "observed": false,
+            "priority": 60,
+            "source": "future reliability telemetry",
+            "status": "not instrumented",
+            "unit": "exceptions",
+            "value": null
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Global reset count across the review window; telemetry support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "global_resets",
+            "label": "Global resets",
+            "layer": "guardrails",
+            "lowerIsBetter": true,
+            "observed": false,
+            "priority": 70,
+            "source": "future reliability telemetry",
+            "status": "not instrumented",
+            "unit": "resets",
+            "value": null
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Longest telemetry silence interval; reporter support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "telemetry_silence_minutes",
+            "label": "Telemetry silence",
+            "layer": "guardrails",
+            "lowerIsBetter": true,
+            "observed": false,
+            "priority": 80,
+            "source": "future reliability telemetry",
+            "status": "not instrumented",
+            "unit": "minutes",
+            "value": null
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Known false-positive alerts; review classification support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "alert_false_positives",
+            "label": "Alert false positives",
+            "layer": "guardrails",
+            "lowerIsBetter": true,
+            "observed": false,
+            "priority": 90,
+            "source": "future alert review telemetry",
+            "status": "not instrumented",
+            "unit": "alerts",
+            "value": null
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Known missed alerts; review classification support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "alert_false_negatives",
+            "label": "Alert false negatives",
+            "layer": "guardrails",
+            "lowerIsBetter": true,
+            "observed": false,
+            "priority": 100,
+            "source": "future alert review telemetry",
+            "status": "not instrumented",
+            "unit": "alerts",
+            "value": null
+          },
+          {
+            "category": "guardrails",
+            "categoryLabel": "Guardrails / Reliability",
+            "description": "Spawn/worker death-spiral recovery health; telemetry support is pending.",
+            "details": {},
+            "formattedValue": "not instrumented",
+            "instrumented": false,
+            "key": "worker_recovery_state",
+            "label": "Worker recovery state",
+            "layer": "guardrails",
+            "lowerIsBetter": false,
+            "observed": false,
+            "priority": 110,
+            "source": "future reliability telemetry",
+            "status": "not instrumented",
+            "unit": "state",
+            "value": null
+          }
+        ]
+      }
+    ],
+    "history": {
+      "alert_false_negatives": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "alert_false_positives": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "attack_count": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "attack_damage": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "controller_downgrade_min_ticks": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "controller_level_sum": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "controller_progress_delta": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "cpu_bucket": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "cpu_used": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "creeps_destroyed_generic": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "dropped_energy": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "enemy_kills": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "global_resets": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "harvested_energy": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "hostile_creeps": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "hostile_structures": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "kpi_artifact_files": [
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "observed",
+          "value": 0.0
+        }
+      ],
+      "objects_destroyed": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "own_losses": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "owned_room_delta": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "owned_rooms": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "reserved_remote_rooms": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "runtime_exceptions": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "runtime_summary_samples": [
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "observed",
+          "value": 0.0
+        }
+      ],
+      "source_count": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "spawn_queue_pressure": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "spawn_utilization": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "stored_energy": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "stored_energy_delta": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "telemetry_silence_minutes": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "transferred_energy": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "worker_carried_energy": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ],
+      "worker_recovery_state": [
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:35:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T05:40:04Z",
+          "status": "not instrumented",
+          "value": null
+        }
+      ]
+    }
+  },
+  "repo": {
+    "branch": "feat/pages-roadmap-live-codex",
+    "commit": "da20ac4",
+    "discordUrl": "https://discord.gg/XenFZG9bCE",
+    "fullName": "lanyusea/screeps",
+    "pagesUrl": "https://lanyusea.github.io/screeps/",
+    "projectUrl": "https://github.com/users/lanyusea/projects/3",
+    "screepsRoomUrl": "https://screeps.com/a/#!/room/shardX/E48S28",
+    "url": "https://github.com/lanyusea/screeps"
+  },
+  "runtimeReport": {
+    "source": {
+      "inputPaths": [
+        "/root/screeps/runtime-artifacts",
+        "/root/.hermes/cron/output"
+      ],
+      "matchedFiles": 0,
+      "reason": "",
+      "runtimeSummaryLines": 0,
+      "scannedFiles": 71514,
+      "skippedFileCount": 1643
+    },
+    "window": {
+      "firstTick": null,
+      "latestTick": null
+    }
+  },
+  "schemaVersion": 1,
+  "title": "Screeps Roadmap Live Report"
+}
