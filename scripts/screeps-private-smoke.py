@@ -9,6 +9,7 @@ places a local spawn, polls safe stats, and writes a redacted report.
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import hashlib
 import json
@@ -1468,13 +1469,53 @@ class SmokeSelfTest(unittest.TestCase):
         values.update(overrides)
         return argparse.Namespace(**values)
 
-    def parse_compose(self, compose: str) -> dict[str, Any]:
-        """Parse generated Compose YAML for structural assertions."""
-        import yaml
+    def screeps_healthcheck_from_compose(self, compose: str) -> dict[str, Any]:
+        """Extract the generated Screeps healthcheck without external YAML dependencies."""
+        healthcheck: dict[str, Any] = {}
+        in_screeps = False
+        in_healthcheck = False
+        for line in compose.splitlines():
+            if line == "  screeps:":
+                in_screeps = True
+                continue
+            if in_screeps and line.startswith("  ") and not line.startswith("    "):
+                break
+            if not in_screeps:
+                continue
+            if line == "    healthcheck:":
+                in_healthcheck = True
+                continue
+            if not in_healthcheck:
+                continue
+            if line.startswith("    ") and not line.startswith("      "):
+                break
+            if not line.startswith("      "):
+                continue
+            key, separator, raw_value = line.strip().partition(": ")
+            self.assertEqual(separator, ": ", f"malformed healthcheck line: {line!r}")
+            if key == "test":
+                parsed = ast.literal_eval(raw_value)
+                self.assertIsInstance(parsed, list)
+                self.assertTrue(all(isinstance(part, str) for part in parsed))
+                healthcheck[key] = parsed
+            elif key == "interval":
+                healthcheck[key] = raw_value
+            elif key == "retries":
+                healthcheck[key] = int(raw_value)
+        self.assertIn("test", healthcheck)
+        self.assertIn("interval", healthcheck)
+        self.assertIn("retries", healthcheck)
+        return healthcheck
 
-        parsed = yaml.safe_load(compose)
-        self.assertIsInstance(parsed, dict)
-        return parsed
+    def assert_screeps_healthcheck(self, compose: str) -> None:
+        """Assert the generated Screeps healthcheck stays Compose-compatible."""
+        screeps_healthcheck = self.screeps_healthcheck_from_compose(compose)
+        self.assertEqual(
+            screeps_healthcheck["test"],
+            ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:21025/api/version >/dev/null"],
+        )
+        self.assertEqual(screeps_healthcheck["interval"], "10s")
+        self.assertEqual(screeps_healthcheck["retries"], 12)
 
     def test_launcher_config_is_secret_free(self) -> None:
         """Launcher config should reference, not embed, local secrets."""
@@ -1511,19 +1552,23 @@ class SmokeSelfTest(unittest.TestCase):
         )
         compose = build_compose_file(cfg)
         launcher_config = build_launcher_config(cfg)
-        parsed_compose = self.parse_compose(compose)
-        screeps_healthcheck = parsed_compose["services"]["screeps"]["healthcheck"]
         self.assertIn('"127.0.0.1:21125:21025/tcp"', compose)
         self.assertIn('"127.0.0.1:21126:21026/tcp"', compose)
         self.assertIn("curl --fail --silent http://127.0.0.1:21025/api/version", compose)
-        self.assertEqual(
-            screeps_healthcheck["test"],
-            ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:21025/api/version >/dev/null"],
-        )
-        self.assertEqual(screeps_healthcheck["interval"], "10s")
-        self.assertEqual(screeps_healthcheck["retries"], 12)
+        self.assert_screeps_healthcheck(compose)
         self.assertIn("  port: 21026", launcher_config)
         self.assertNotIn("  port: 21126", launcher_config)
+
+    def test_screeps_healthcheck_rejects_wrapped_shell_array(self) -> None:
+        """Healthcheck validation should reject CMD-SHELL, sh, -c array forms."""
+        compose = build_compose_file(self.make_cfg())
+        malformed = compose.replace(
+            'test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:21025/api/version >/dev/null"]',
+            'test: ["CMD-SHELL", "sh", "-c", "curl --fail --silent http://127.0.0.1:21025/api/version >/dev/null"]',
+        )
+        self.assertNotEqual(compose, malformed)
+        with self.assertRaises(AssertionError):
+            self.assert_screeps_healthcheck(malformed)
 
     def test_dry_run_persists_custom_port_metadata(self) -> None:
         """Dry-run reports and generated Compose should show custom host ports."""
