@@ -59,19 +59,19 @@ class OfficialDeployTest(unittest.TestCase):
 
         self.assertEqual(payload, {"branch": "main", "modules": {"main": "module text"}})
 
-    def test_redacts_secret_values_and_module_contents(self) -> None:
-        secret = "fixture-value"
+    def test_redacts_sensitive_values_and_module_contents(self) -> None:
+        sentinel = "redaction-marker"
         redacted = deploy.redact(
             {
-                "headers": {"X-Token": secret},
+                "headers": {"X-Token": sentinel},
                 "modules": {"main": "module.exports.loop = function () { return 1; };"},
-                "message": f"safe prefix {secret} safe suffix",
+                "message": f"safe prefix {sentinel} safe suffix",
             },
-            [secret],
+            [sentinel],
         )
         encoded = json.dumps(redacted, sort_keys=True)
 
-        self.assertNotIn(secret, encoded)
+        self.assertNotIn(sentinel, encoded)
         self.assertNotIn("module.exports.loop", encoded)
         self.assertEqual(redacted["headers"]["X-Token"], "[REDACTED]")
         self.assertTrue(redacted["modules"]["main"]["redacted"])
@@ -83,10 +83,11 @@ class OfficialDeployTest(unittest.TestCase):
         self.assertNotIn("module.exports", json.dumps(redacted))
         self.assertIn("[REDACTED_CODE", redacted["message"])
 
-    def test_normalize_api_url_allows_http_for_non_deploy_configuration(self) -> None:
+    def test_normalize_api_url_requires_official_https_origin(self) -> None:
         self.assertEqual(deploy.normalize_api_url("https://screeps.com/"), "https://screeps.com")
-        self.assertEqual(deploy.normalize_api_url("http://localhost:21025/"), "http://localhost:21025")
-        with self.assertRaisesRegex(deploy.DeployError, "http\\(s\\) URL"):
+        with self.assertRaisesRegex(deploy.DeployError, "https://screeps.com"):
+            deploy.normalize_api_url("http://localhost:21025/")
+        with self.assertRaisesRegex(deploy.DeployError, "https://screeps.com"):
             deploy.normalize_api_url("ftp://screeps.com")
 
     def test_artifact_metadata_reports_hash_and_size(self) -> None:
@@ -137,7 +138,7 @@ class OfficialDeployTest(unittest.TestCase):
                 confirm="deploy main to shardX/E48S28",
             )
 
-            with self.assertRaisesRegex(deploy.DeployError, "SCREEPS_API_URL must use https"):
+            with self.assertRaisesRegex(deploy.DeployError, "https://screeps.com"):
                 deploy.run_deploy(
                     cfg,
                     env={deploy.AUTH_TOKEN_ENV: "fixture-value"},

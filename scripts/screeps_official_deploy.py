@@ -143,10 +143,10 @@ class ScreepsApi:
 
 
 def normalize_api_url(raw_url: str) -> str:
-    """Normalize and validate a safe HTTP API base URL."""
+    """Normalize and validate the official HTTPS API base URL."""
     parsed = urllib.parse.urlparse(raw_url.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise DeployError("SCREEPS_API_URL must be an http(s) URL")
+    if parsed.scheme != "https" or parsed.netloc != "screeps.com":
+        raise DeployError("SCREEPS_API_URL must be https://screeps.com for official deploys")
     if parsed.username or parsed.password:
         raise DeployError("SCREEPS_API_URL must not include credentials")
     if parsed.query or parsed.fragment:
@@ -156,9 +156,10 @@ def normalize_api_url(raw_url: str) -> str:
 
 
 def require_https_api_url(api_url: str) -> None:
-    """Reject non-HTTPS API URLs before authenticated deploy requests."""
-    if urllib.parse.urlparse(api_url).scheme != "https":
-        raise DeployError("SCREEPS_API_URL must use https for --deploy")
+    """Reject non-official API URLs before authenticated deploy requests."""
+    parsed = urllib.parse.urlparse(api_url)
+    if parsed.scheme != "https" or parsed.netloc != "screeps.com":
+        raise DeployError("SCREEPS_API_URL must be https://screeps.com for --deploy")
 
 
 def validate_selector(name: str, value: str, pattern: re.Pattern[str]) -> str:
