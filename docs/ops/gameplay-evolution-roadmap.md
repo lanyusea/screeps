@@ -78,7 +78,13 @@ When a worker has raw Screeps console output rather than a saved artifact, persi
 python3 scripts/screeps_runtime_summary_console_capture.py saved-console.log
 ```
 
-This writes only lines that start exactly `#runtime-summary ` under `/root/screeps/runtime-artifacts/runtime-summary-console/` by default, so the artifact bridge can consume them on its next scan. The utility is offline-only; the remaining live step is wiring an authenticated official console capture source into the job prompt or wrapper without printing tokens.
+For a bounded live official-client console capture, load `SCREEPS_AUTH_TOKEN` from the local secret environment and run:
+
+```bash
+python3 scripts/screeps_runtime_summary_console_capture.py --live-official-console --live-timeout-seconds 20 --live-max-messages 50
+```
+
+This writes only lines that start exactly `#runtime-summary ` under `/root/screeps/runtime-artifacts/runtime-summary-console/` by default, so the artifact bridge can consume them on its next scan. `SCREEPS_API_URL` defaults to `https://screeps.com`; `SCREEPS_CONSOLE_CHANNELS` or repeated `--console-channel` values can override the default requested channel list, which includes `console`. Command output reports counts, output path, and requested channels without printing tokens, headers, or raw artifact contents.
 
 With no paths, the bridge scans safe local artifact roots such as `/root/screeps/runtime-artifacts` and `/root/.hermes/cron/output`, tolerates missing directories, skips binary/oversized files, and attaches source counts without file contents. Pass explicit files or directories to bound a review window:
 

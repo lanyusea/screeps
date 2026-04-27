@@ -54,7 +54,13 @@ If a worker has raw Screeps console output but no persisted artifact yet, captur
 python3 scripts/screeps_runtime_summary_console_capture.py saved-console.log
 ```
 
-The capture utility writes only lines starting exactly `#runtime-summary ` to `/root/screeps/runtime-artifacts/runtime-summary-console/` by default, or to paths set with `--out-dir`, `--out-file`, or `SCREEPS_RUNTIME_SUMMARY_CONSOLE_OUT_DIR`. It does not connect to Screeps or require secrets.
+For a bounded live official-client console capture, load `SCREEPS_AUTH_TOKEN` from the local secret environment and run:
+
+```bash
+python3 scripts/screeps_runtime_summary_console_capture.py --live-official-console --live-timeout-seconds 20 --live-max-messages 50
+```
+
+The capture utility writes only lines starting exactly `#runtime-summary ` to `/root/screeps/runtime-artifacts/runtime-summary-console/` by default, or to paths set with `--out-dir`, `--out-file`, or `SCREEPS_RUNTIME_SUMMARY_CONSOLE_OUT_DIR`. `SCREEPS_API_URL` defaults to `https://screeps.com`; `SCREEPS_CONSOLE_CHANNELS` or repeated `--console-channel` values can override the default requested channel list, which includes `console`. Command output reports counts, output path, and requested channels without printing tokens, headers, or raw artifact contents.
 
 With explicit review-window roots:
 

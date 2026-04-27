@@ -122,10 +122,16 @@ python3 scripts/screeps-runtime-monitor.py self-test
 
 ## Runtime KPI console capture
 
-The room monitor renders official room summary and alert images; it does not persist in-game console output. When a Hermes worker or manual operator has raw Screeps console text, use the offline capture utility to write KPI evidence artifacts:
+The room monitor renders official room summary and alert images; runtime KPI console summaries are persisted by the capture utility. When a Hermes worker or manual operator has raw Screeps console text, use the offline path:
 
 ```bash
 python3 scripts/screeps_runtime_summary_console_capture.py saved-console.log
+```
+
+For a bounded official-client websocket capture, load `SCREEPS_AUTH_TOKEN` from the local secret environment and run live mode. `SCREEPS_API_URL` defaults to `https://screeps.com`; `SCREEPS_CONSOLE_CHANNELS` or repeated `--console-channel` values can override the default requested channel list, which includes `console`.
+
+```bash
+python3 scripts/screeps_runtime_summary_console_capture.py --live-official-console --live-timeout-seconds 20 --live-max-messages 50
 ```
 
 The default output directory is:
@@ -134,7 +140,7 @@ The default output directory is:
 /root/screeps/runtime-artifacts/runtime-summary-console
 ```
 
-Only lines starting exactly `#runtime-summary ` are written. Embedded, quoted, timestamp-prefixed, or noisy markers are skipped. The next live #29 wiring step is to feed an authenticated official console capture stream or saved console output into this utility; do not add cron jobs or print tokens from this runbook step.
+Only lines starting exactly `#runtime-summary ` are written. Embedded, quoted, timestamp-prefixed, or noisy markers are skipped. The command output reports counts, output path, and requested websocket channels without printing tokens, headers, or raw artifact contents. Do not add cron jobs from this runbook step.
 
 Live smoke:
 
