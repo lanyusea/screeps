@@ -156,10 +156,37 @@ describe('planSpawn', () => {
     });
   });
 
-  it('waits for the full planned worker body when existing workers can keep harvesting', () => {
-    const { colony } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 600 });
+  it('keeps zero-worker recovery on the emergency basic worker body when full body is unavailable', () => {
+    const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 600 });
 
-    expect(planSpawn(colony, { worker: 2 }, 135)).toBeNull();
+    expect(planSpawn(colony, { worker: 0 }, 135)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-135',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
+  it('plans an affordable worker body below the minimum functional worker target', () => {
+    const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 600 });
+
+    expect(planSpawn(colony, { worker: 2 }, 136)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N1-136',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
+  it('waits for the full planned worker body when existing workers can keep harvesting', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N7',
+      sourceCount: 2,
+      energyAvailable: 400,
+      energyCapacityAvailable: 600
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 137)).toBeNull();
   });
 
   it('does not plan an emergency body that costs more than available energy', () => {
@@ -171,7 +198,7 @@ describe('planSpawn', () => {
   it('does not plan a non-emergency worker body below the minimum worker energy', () => {
     const { colony } = makeColony({ energyAvailable: 199, energyCapacityAvailable: 400 });
 
-    expect(planSpawn(colony, { worker: 2 }, 136)).toBeNull();
+    expect(planSpawn(colony, { worker: 2 }, 138)).toBeNull();
   });
 
   it('does not plan when all spawns are busy', () => {
