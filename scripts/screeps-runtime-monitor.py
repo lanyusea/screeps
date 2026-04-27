@@ -665,6 +665,7 @@ def build_hostile_reason(ref: RoomRef, hostile: dict[str, Any]) -> dict[str, Any
 def build_damage_reason(ref: RoomRef, object_id: str, previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
     old_hits = previous.get("hits")
     new_hits = current.get("hits")
+    hits_max = current.get("hitsMax")
     return {
         "kind": "structure_damage",
         "room": ref.key,
@@ -674,6 +675,7 @@ def build_damage_reason(ref: RoomRef, object_id: str, previous: dict[str, Any], 
         "y": current.get("y"),
         "previous_hits": old_hits,
         "current_hits": new_hits,
+        "hitsMax": hits_max,
         "delta": old_hits - new_hits if isinstance(old_hits, (int, float)) and isinstance(new_hits, (int, float)) else None,
         "message": (
             f"{current.get('type')} hits decreased "

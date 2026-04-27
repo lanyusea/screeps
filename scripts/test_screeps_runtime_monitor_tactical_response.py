@@ -45,6 +45,17 @@ HOSTILE_ALERT_FIXTURE = {
 }
 
 
+def make_snapshot(objects: dict[str, dict[str, object]]) -> monitor.RoomSnapshot:
+    return monitor.RoomSnapshot(
+        ref=monitor.RoomRef("shardX", "E48S28"),
+        terrain="0" * monitor.TERRAIN_CELLS,
+        objects=monitor.normalize_objects(objects),
+        tick=1,
+        owner="owner",
+        info={},
+    )
+
+
 class TacticalResponseBridgeTest(unittest.TestCase):
     def test_no_alert_fixture_is_machine_readable_silent(self) -> None:
         report = monitor.build_tactical_response_report(NO_ALERT_FIXTURE)
@@ -68,6 +79,55 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertTrue(report["scheduler"]["should_post"])
         self.assertEqual(report["scheduler"]["recommended_output"], "TACTICAL_EMERGENCY_REPORT")
         self.assertIn("capture_runtime_context", {action["id"] for action in report["next_actions"]})
+
+    def test_generated_critical_owned_structure_damage_is_critical(self) -> None:
+        previous = {
+            "baseline_established": True,
+            "structures": {
+                "spawn1": {
+                    "type": "spawn",
+                    "x": 25,
+                    "y": 25,
+                    "hits": 5000,
+                    "hitsMax": 5000,
+                    "owned": True,
+                    "damageable": True,
+                    "critical": True,
+                }
+            },
+        }
+        snapshot = make_snapshot(
+            {
+                "spawn1": {
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "owner"},
+                    "x": 25,
+                    "y": 25,
+                    "hits": 1250,
+                    "hitsMax": 5000,
+                }
+            }
+        )
+        emitted, _suppressed, _next_state = monitor.evaluate_room_alert(snapshot, previous, now=100, debounce_seconds=300)
+
+        self.assertEqual(emitted[0]["kind"], "structure_damage")
+        self.assertEqual(emitted[0]["hitsMax"], 5000)
+
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "alert",
+                "alert": True,
+                "reasons": emitted,
+                "rooms": ["shardX/E48S28"],
+            }
+        )
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["categories"], ["owned_structure_damage"])
+        self.assertEqual(report["triggers"][0]["severity"], "critical")
 
     def test_report_is_json_serializable(self) -> None:
         rendered = json.dumps(monitor.build_tactical_response_report(HOSTILE_ALERT_FIXTURE), sort_keys=True)
