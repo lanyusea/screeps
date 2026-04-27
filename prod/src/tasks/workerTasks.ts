@@ -1,5 +1,6 @@
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
+const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
@@ -36,7 +37,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'build', targetId: extensionConstructionSite.id };
   }
 
-  if (controller && shouldGuardRcl2ControllerProgress(controller)) {
+  if (controller && shouldSustainControllerProgress(creep, controller)) {
     return { type: 'upgrade', targetId: controller.id };
   }
 
@@ -87,8 +88,47 @@ function shouldRushRcl1Controller(controller: StructureController): boolean {
   return controller.my === true && controller.level === 1;
 }
 
-function shouldGuardRcl2ControllerProgress(controller: StructureController): boolean {
-  return controller.my === true && controller.level === 2;
+function shouldSustainControllerProgress(creep: Creep, controller: StructureController): boolean {
+  if (controller.my !== true || controller.level < 2) {
+    return false;
+  }
+
+  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  return (
+    loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS &&
+    !loadedWorkers.some((worker) => worker !== creep && isUpgradingController(worker, controller))
+  );
+}
+
+function getSameRoomLoadedWorkers(creep: Creep): Creep[] {
+  const loadedWorkers = getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
+
+  if (!loadedWorkers.includes(creep) && getUsedEnergy(creep) > 0) {
+    loadedWorkers.push(creep);
+  }
+
+  return loadedWorkers;
+}
+
+function isSameRoomWorkerWithEnergy(creep: Creep, room: Room): boolean {
+  return creep.memory?.role === 'worker' && isInRoom(creep, room) && getUsedEnergy(creep) > 0;
+}
+
+function isInRoom(creep: Creep, room: Room): boolean {
+  if (typeof room.name === 'string' && room.name.length > 0) {
+    return creep.room?.name === room.name;
+  }
+
+  return creep.room === room;
+}
+
+function getUsedEnergy(creep: Creep): number {
+  return creep.store?.getUsedCapacity?.(RESOURCE_ENERGY) ?? 0;
+}
+
+function isUpgradingController(creep: Creep, controller: StructureController): boolean {
+  const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return task?.type === 'upgrade' && task.targetId === controller.id;
 }
 
 function selectHarvestSource(creep: Creep): Source | null {
