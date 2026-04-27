@@ -3,8 +3,8 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-04-27T07:51:00Z",
-  "generatedAtCst": "2026-04-27 15:51:00 CST",
+  "generatedAt": "2026-04-27T07:54:37Z",
+  "generatedAtCst": "2026-04-27 15:54:37 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
@@ -167,7 +167,7 @@
         "status": "Ready",
         "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
         "type": "Issue",
-        "updatedAt": "2026-04-27T07:25:22Z",
+        "updatedAt": "2026-04-27T07:51:54Z",
         "url": "https://github.com/lanyusea/screeps/issues/29"
       },
       {
@@ -195,7 +195,7 @@
       "cards": [
         {
           "domain": "Runtime monitor",
-          "evidence": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Local verification after latest fix: diff-check, py_compile, capture unittest 7 tests, full reducer+bridge+capture unittest 21 tests.",
+          "evidence": "PR #73 merged as 9762b7a: offline exact-prefix runtime-summary console capture is on main with bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite publishing, tests, prod-ci SUCCESS, CodeRabbit SUCCESS, all review threads resolved.",
           "kind": "ops",
           "lane": "Foundation",
           "nextAction": "",
@@ -207,22 +207,6 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/29",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Runtime monitor",
-          "evidence": "PR #73 updated through 3777e2f: offline exact-prefix runtime-summary console capture, bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Verification: diff-check, py_compile, capture unittest 7, full reducer+bridge+capture unittest 21, prod-ci SUCCESS. CodeRabbit still PENDING at 2026-04-27T15:47+08.",
-          "kind": "code",
-          "lane": "Foundation",
-          "nextAction": "",
-          "number": 73,
-          "priority": "P1",
-          "state": "",
-          "status": "In review",
-          "title": "feat: capture runtime summary console artifacts",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/73",
           "visionLayer": "foundation blocker"
         },
         {
@@ -882,6 +866,22 @@
           "visionLayer": "foundation blocker"
         },
         {
+          "domain": "Runtime monitor",
+          "evidence": "Merged PR #73 as 9762b7a at 2026-04-27T07:51Z after prod-ci SUCCESS, CodeRabbit SUCCESS, all review threads resolved, and >=15m gate.",
+          "kind": "code",
+          "lane": "Foundation",
+          "nextAction": "",
+          "number": 73,
+          "priority": "P1",
+          "state": "",
+          "status": "Done",
+          "title": "feat: capture runtime summary console artifacts",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/73",
+          "visionLayer": "foundation blocker"
+        },
+        {
           "domain": "Docs/process",
           "evidence": "Closed issue / PR #19",
           "kind": "docs",
@@ -1216,7 +1216,7 @@
               "cards": [
                 {
                   "domain": "Runtime monitor",
-                  "evidence": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Local verification after latest fix: diff-check, py_compile, capture unittest 7 tests, full reducer+bridge+capture unittest 21 tests.",
+                  "evidence": "PR #73 merged as 9762b7a: offline exact-prefix runtime-summary console capture is on main with bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite publishing, tests, prod-ci SUCCESS, CodeRabbit SUCCESS, all review threads resolved.",
                   "kind": "ops",
                   "lane": "Foundation",
                   "nextAction": "",
@@ -1235,22 +1235,6 @@
             },
             {
               "cards": [
-                {
-                  "domain": "Runtime monitor",
-                  "evidence": "PR #73 updated through 3777e2f: offline exact-prefix runtime-summary console capture, bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Verification: diff-check, py_compile, capture unittest 7, full reducer+bridge+capture unittest 21, prod-ci SUCCESS. CodeRabbit still PENDING at 2026-04-27T15:47+08.",
-                  "kind": "code",
-                  "lane": "Foundation",
-                  "nextAction": "",
-                  "number": 73,
-                  "priority": "P1",
-                  "state": "",
-                  "status": "In review",
-                  "title": "feat: capture runtime summary console artifacts",
-                  "type": "PullRequest",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/pull/73",
-                  "visionLayer": "foundation blocker"
-                },
                 {
                   "domain": "Bot capability",
                   "evidence": "PR #72 head 28f1e17 fixes generator arity/blank KPI buckets, preserves approved v5 visible layout, regenerates docs/index.html + docs/roadmap-data.json + LFS SQLite. Verification PASS: py_compile, generator, HTML required/forbidden/3 KPI cards, SQLite 528 samples/33 metrics/latest enemy_kills NULL instrumented=0, no WAL/SHM, LFS pointer, cached diff-check, secret scan; prod-ci and CodeRabbit status green.",
@@ -1833,6 +1817,22 @@
                   "visionLayer": "foundation blocker"
                 },
                 {
+                  "domain": "Runtime monitor",
+                  "evidence": "Merged PR #73 as 9762b7a at 2026-04-27T07:51Z after prod-ci SUCCESS, CodeRabbit SUCCESS, all review threads resolved, and >=15m gate.",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "nextAction": "",
+                  "number": 73,
+                  "priority": "P1",
+                  "state": "",
+                  "status": "Done",
+                  "title": "feat: capture runtime summary console artifacts",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/73",
+                  "visionLayer": "foundation blocker"
+                },
+                {
                   "domain": "Docs/process",
                   "evidence": "Closed issue / PR #19",
                   "kind": "docs",
@@ -1864,7 +1864,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 2
+        "value": 1
       },
       {
         "instrumented": true,
@@ -1884,7 +1884,7 @@
       {
         "instrumented": true,
         "label": "In review",
-        "value": 2
+        "value": 1
       }
     ],
     "projectItems": [
@@ -2022,7 +2022,7 @@
       {
         "blockedBy": "",
         "domain": "Runtime monitor",
-        "evidence": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Local verification after latest fix: diff-check, py_compile, capture unittest 7 tests, full reducer+bridge+capture unittest 21 tests.",
+        "evidence": "PR #73 merged as 9762b7a: offline exact-prefix runtime-summary console capture is on main with bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite publishing, tests, prod-ci SUCCESS, CodeRabbit SUCCESS, all review threads resolved.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -2824,7 +2824,7 @@
       {
         "blockedBy": "",
         "domain": "Runtime monitor",
-        "evidence": "PR #73 updated through 3777e2f: offline exact-prefix runtime-summary console capture, bridge-compatible default output, mkstemp temp files, exclusive/no-overwrite final artifact publishing, and deterministic tests. Verification: diff-check, py_compile, capture unittest 7, full reducer+bridge+capture unittest 21, prod-ci SUCCESS. CodeRabbit still PENDING at 2026-04-27T15:47+08.",
+        "evidence": "Merged PR #73 as 9762b7a at 2026-04-27T07:51Z after prod-ci SUCCESS, CodeRabbit SUCCESS, all review threads resolved, and >=15m gate.",
         "kind": "code",
         "labels": [],
         "milestone": "",
@@ -2832,7 +2832,7 @@
         "number": 73,
         "priority": "P1",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "feat: capture runtime summary console artifacts",
         "type": "PullRequest",
         "updatedAt": "",
@@ -2840,29 +2840,6 @@
       }
     ],
     "pullRequests": [
-      {
-        "checks": {
-          "failure": 0,
-          "pending": 0,
-          "success": 2,
-          "total": 2
-        },
-        "createdAt": "2026-04-27T07:23:40Z",
-        "domain": "Runtime monitor",
-        "isDraft": false,
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "number": 73,
-        "priority": "P1",
-        "reviewDecision": "",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "feat: capture runtime summary console artifacts",
-        "type": "PullRequest",
-        "updatedAt": "2026-04-27T07:48:29Z",
-        "url": "https://github.com/lanyusea/screeps/pull/73"
-      },
       {
         "checks": {
           "failure": 0,
@@ -2883,7 +2860,7 @@
         "status": "In review",
         "title": "fix: restore roadmap Pages report layout",
         "type": "PullRequest",
-        "updatedAt": "2026-04-27T07:48:33Z",
+        "updatedAt": "2026-04-27T07:54:01Z",
         "url": "https://github.com/lanyusea/screeps/pull/72"
       }
     ],
@@ -3809,6 +3786,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "alert_false_positives": [
@@ -3942,6 +3926,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4079,6 +4070,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "attack_damage": [
@@ -4212,6 +4210,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4349,6 +4354,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "controller_level_sum": [
@@ -4482,6 +4494,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4619,6 +4638,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "cpu_bucket": [
@@ -4752,6 +4778,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4889,6 +4922,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "creeps_destroyed_generic": [
@@ -5022,6 +5062,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5159,6 +5206,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "enemy_kills": [
@@ -5292,6 +5346,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5429,6 +5490,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "harvested_energy": [
@@ -5562,6 +5630,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5699,6 +5774,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "hostile_structures": [
@@ -5832,6 +5914,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5969,6 +6058,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "objects_destroyed": [
@@ -6102,6 +6198,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6239,6 +6342,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "owned_room_delta": [
@@ -6372,6 +6482,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6509,6 +6626,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "reserved_remote_rooms": [
@@ -6642,6 +6766,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6779,6 +6910,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "runtime_summary_samples": [
@@ -6912,6 +7050,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "observed",
           "value": 0.0
         }
@@ -7049,6 +7194,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "spawn_queue_pressure": [
@@ -7182,6 +7334,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7319,6 +7478,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "stored_energy": [
@@ -7452,6 +7618,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7589,6 +7762,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "telemetry_silence_minutes": [
@@ -7722,6 +7902,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7859,6 +8046,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "worker_carried_energy": [
@@ -7992,6 +8186,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T07:51:00Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8129,6 +8330,13 @@
           "sampledAt": "2026-04-27T07:51:00Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:54:37Z",
+          "status": "not instrumented",
+          "value": null
         }
       ]
     }
@@ -8162,18 +8370,11 @@
       {
         "items": [
           {
-            "description": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses bridge-compatible default ou...",
+            "description": "PR #73 merged as 9762b7a: offline exact-prefix runtime-summary console capture is on main with bridge-compati...",
             "number": 29,
             "priority": "P1",
             "title": "#29 P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
             "url": "https://github.com/lanyusea/screeps/issues/29"
-          },
-          {
-            "description": "PR #73 updated through 3777e2f: offline exact-prefix runtime-summary console capture, bridge-compatible defau...",
-            "number": 73,
-            "priority": "P1",
-            "title": "#73 feat: capture runtime summary console artifacts",
-            "url": "https://github.com/lanyusea/screeps/pull/73"
           },
           {
             "description": "PR #72 head 28f1e17 fixes generator arity/blank KPI buckets, preserves approved v5 visible layout, regenerate...",
@@ -8188,6 +8389,13 @@
             "priority": "P1",
             "title": "#62 P1: Phase C: tactical emergency response is not wired to runtime...",
             "url": "https://github.com/lanyusea/screeps/issues/62"
+          },
+          {
+            "description": "Issue created to enforce gameplay-aware normal release cadence and emergency hotfix gates.",
+            "number": 63,
+            "priority": "P1",
+            "title": "#63 P1: Phase E: gameplay release cadence and emergency hotfix gate a...",
+            "url": "https://github.com/lanyusea/screeps/issues/63"
           }
         ],
         "title": "\u5f00\u53d1\u4e2d"
@@ -8613,11 +8821,11 @@
         "delta": "+1",
         "detail": "repository history",
         "label": "\u603b commit \u6570",
-        "value": 122
+        "value": 125
       },
       {
         "delta": "+1",
-        "detail": "45 merged",
+        "detail": "46 merged",
         "label": "\u603b PR \u6570",
         "source": "github",
         "value": 51
@@ -8662,7 +8870,7 @@
       },
       {
         "goal": "\u628a\u5360\u5730\u8f6c\u6362\u6210\u80fd\u91cf\u3001\u77ff\u7269\u3001\u7269\u6d41\u89c4\u6a21",
-        "next": "PR #73 updated through 3777e2f: offline runtime-summary console capture now uses brid...",
+        "next": "PR #73 merged as 9762b7a: offline exact-prefix runtime-summary console capture is on...",
         "progress": 58,
         "status": "#29 In progress \u00b7 GitHub",
         "title": "Resource Economy",
