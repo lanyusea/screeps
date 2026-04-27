@@ -34,6 +34,20 @@ DISCORD_URL = "https://discord.gg/XenFZG9bCE"
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 SCREEPS_SHARD_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 SCREEPS_ROOM_RE = re.compile(r"^[WE]\d+[NS]\d+$")
+CJK_TEXT_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+INTERNAL_PROCESS_ID_RE = re.compile(r"\bproc_[a-z0-9]+\b")
+HOST_ABSOLUTE_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9_:/.-])/(?:root|home|Users|tmp|var|mnt|opt|Volumes)(?:/[^\s\"'<>`,;)]*)*"
+)
+WINDOWS_DRIVE_ROOT_PATH_RE = re.compile(r"(?<![A-Za-z0-9_:/.-])[A-Za-z]:[\\/][^\s\"'<>`,;)]*")
+PUBLIC_CONTROLLER_TEXT_RE = re.compile(
+    r"\b(?:scheduler dispatched|scheduler prompt|codex review-fix|review-fix task|"
+    r"next scheduler action|reconcile codex|process_session|codex session|"
+    r"controller workflow|controller evidence|controller diff-check|controller-side|controller qa|"
+    r"operator-only|worktree|branch feat/|branch behind|local main fast-forwarded|remote/local branch)\b",
+    re.IGNORECASE,
+)
+CACHED_SUFFIX_RE = re.compile(r"(?:\s*·\s*cached)+\s*$")
 
 OBSERVED = "observed"
 NOT_OBSERVED = "not observed"
@@ -461,7 +475,7 @@ KPI_DATES: tuple[str, ...] = ("4/21", "4/22", "4/23", "4/24", "4/25", "4/26", "4
 REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
     {
         "key": "territory",
-        "title": "地盘 / Territory",
+        "title": "Territory",
         "subtitle": "owned rooms · RCL · room gain",
         "pill": "rooms/RCL",
         "ticks": (0, 1.5, 3),
@@ -471,11 +485,11 @@ REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
             {"label": "RCL", "values": (None, None, None, None, None, None, None), "color": "#77716a", "width": 4},
             {"label": "Room gain", "values": (None, None, None, None, None, None, None), "color": "#c8945a", "width": 3, "dash": "6 6"},
         ),
-        "footer": "7d 历史仍在接入；当前点来自 official room monitor / Project evidence。",
+        "footer": "7d history is still being connected; current points come from official room monitor and Project evidence.",
     },
     {
         "key": "resources",
-        "title": "资源 / Resources",
+        "title": "Resources",
         "subtitle": "stored energy · harvest delta · carried energy",
         "pill": "energy",
         "ticks": (0, 0.5, 1),
@@ -485,11 +499,11 @@ REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
             {"label": "Harvest delta", "values": (None, None, None, None, None, None, None), "color": "#66605a", "width": 2},
             {"label": "Worker carried", "values": (None, None, None, None, None, None, None), "color": "#c8945a", "width": 3, "dash": "6 6"},
         ),
-        "footer": "PR #65 已加入资源字段；reducer/7d 聚合仍属 #29。",
+        "footer": "PR #65 added resource fields; reducer and 7d aggregation remain part of #29.",
     },
     {
         "key": "combat",
-        "title": "击杀 / Combat",
+        "title": "Combat",
         "subtitle": "enemy kills · hostile count · own loss",
         "pill": "events",
         "ticks": (0, 0.5, 1),
@@ -499,56 +513,56 @@ REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
             {"label": "Hostiles seen", "values": (None, None, None, None, None, None, None), "color": "#77716a", "width": 4},
             {"label": "Own loss", "values": (None, None, None, None, None, None, None), "color": "#c8945a", "width": 3, "dash": "6 6"},
         ),
-        "footer": "kill/loss 事件 7d reducer 未接入；当前 hostile monitor no-alert。",
+        "footer": "Kill/loss 7d reducers are not connected yet; the current hostile monitor reports no alerts.",
     },
 )
 
 REPORT_ROADMAP_CARDS: tuple[JsonObject, ...] = (
     {
         "title": "Gameplay Evolution",
-        "goal": "真实游戏结果驱动 roadmap / task / release",
-        "next": "#59 统筹；#60 done；#61 bridge in progress",
+        "goal": "Use real game outcomes to drive roadmap, task, and release decisions.",
+        "next": "#59 coordinates the review loop; #60 is done; #61 bridge work is in progress.",
         "progress": 10,
-        "status": "✓ 12h review job 已建；PR #66 已合并",
+        "status": "12h review job created; PR #66 merged.",
         "issue": 59,
     },
     {
-        "title": "Territory / 占地",
-        "goal": "先拿下并守住更大版图",
+        "title": "Territory",
+        "goal": "Claim, hold, and grow the controlled room footprint first.",
         "next": "owned/reserved/room gain/RCL KPI",
         "progress": 15,
-        "status": "✓ E48S28 Spawn1；多房间策略待开发",
+        "status": "E48S28 Spawn1 observed; multi-room strategy is pending.",
     },
     {
         "title": "Resource Economy",
-        "goal": "把占地转换成能量、矿物、物流规模",
+        "goal": "Convert territory into energy, minerals, logistics, and spawn scale.",
         "next": "harvest/transfer/store deltas",
         "progress": 15,
-        "status": "✓ PR #65 payload；#29 reducer 待接入",
+        "status": "PR #65 payload merged; #29 reducer remains pending.",
         "issue": 29,
     },
     {
-        "title": "Combat / 敌人击杀",
-        "goal": "防御/进攻服务于领土和经济控制",
+        "title": "Combat",
+        "goal": "Make defense and offense serve territorial and economic control.",
         "next": "event-log kills/losses + tactical bridge",
         "progress": 5,
-        "status": "✓ #62 Ready；kill KPI reducer 未接入",
+        "status": "#62 Ready; kill KPI reducer remains pending.",
         "issue": 62,
     },
     {
         "title": "Reliability / P0",
-        "goal": "自动化系统健康只在阻塞时压过游戏目标",
+        "goal": "Let automation health override game goals only when it blocks delivery.",
         "next": "P0 monitor watch / no silent scheduler failures",
         "progress": 100,
-        "status": "✓ #27 Done watch-only",
+        "status": "#27 Done watch-only.",
         "issue": 27,
     },
     {
         "title": "Foundation Gates",
-        "goal": "私服验证 / release gate / official MMO",
+        "goal": "Private smoke proof, release gates, and official MMO deployment evidence.",
         "next": "private smoke + release/hotfix evidence",
         "progress": 85,
-        "status": "✓ #28 Ready；#63 Ready；#33 blocked",
+        "status": "#28 Ready; #63 Ready; #33 blocked.",
         "issue": 28,
     },
 )
@@ -560,42 +574,42 @@ REPORT_GAMEPLAY_KANBAN: tuple[JsonObject, ...] = (
             {
                 "number": 30,
                 "priority": "P1",
-                "title": "#30 P1:Phase B:mock harness 缺少多 tick spawn.spawning 生命周期仿真",
-                "description": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke…",
+                "title": "#30 Mock harness multi-tick spawn lifecycle",
+                "description": "Queue a bounded Codex/test slice after the current KPI telemetry bridge (#29).",
             },
             {
                 "number": 31,
                 "priority": "P1",
-                "title": "#31 P1:Phase B:zero-creep/insufficient-energy emergency r…",
-                "description": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke…",
+                "title": "#31 Zero-creep emergency recovery coverage",
+                "description": "Confirm worker recovery when creeps are gone or energy is insufficient.",
             },
             {
                 "number": 62,
                 "priority": "P1",
-                "title": "#62 P1: Phase C: tactical emergency response is not wired…",
-                "description": "Define trigger matrix, report template, and no-alert/simulated dry-run before automatic eme…",
+                "title": "#62 Tactical emergency response wiring",
+                "description": "Define trigger matrix, report template, and no-alert dry-run before emergency routing.",
             },
         ),
     },
     {
-        "title": "开发中",
+        "title": "Active",
         "items": (
             {
                 "number": 59,
                 "priority": "P1",
-                "title": "#59 P1: Gameplay Evolution专项：vision-driven game-result re…",
-                "description": "Use merged PR #70 static report plus PR #68 artifact bridge in the next #29 reporting-wirin…",
+                "title": "#59 Gameplay Evolution review loop",
+                "description": "Use game-result evidence to drive roadmap, task, and release updates.",
             },
             {
                 "number": 29,
                 "priority": "P1",
-                "title": "#29 P1:Phase C:runtime-summary/runtime-alert 定时监控投递尚未完成",
-                "description": "Codex-owned prod slice: persist emitted runtime-summary console lines into ignored local ar…",
+                "title": "#29 Runtime summary and alert scheduled delivery",
+                "description": "Persist runtime-summary lines, reduce KPI evidence, and deliver monitor reports.",
             },
         ),
     },
-    {"title": "私服验证中", "items": ()},
-    {"title": "已上线", "items": ()},
+    {"title": "Private Smoke", "items": ()},
+    {"title": "Done", "items": ()},
 )
 
 REPORT_KPI_SERIES_METRICS: dict[str, tuple[str, ...]] = {
@@ -613,31 +627,94 @@ REPORT_FOUNDATION_KANBAN: tuple[JsonObject, ...] = (
             {
                 "number": 33,
                 "priority": "P1",
-                "title": "#33 P1:Phase E:官方 MMO 部署仍受私服 smoke release gate 阻塞",
-                "description": "Do not deploy until Phase D private-smoke gate and monitor proof are complete, unless owner…",
+                "title": "#33 Official MMO deployment gate",
+                "description": "Do not deploy until private-smoke gate and monitor proof are complete.",
             },
             {
                 "number": 63,
                 "priority": "P1",
-                "title": "#63 P1: Phase E: gameplay release cadence and emergency h…",
-                "description": "Update release docs/checklist so every gameplay release records expected KPI movement and p…",
+                "title": "#63 Gameplay release cadence and hotfix evidence",
+                "description": "Record expected KPI movement and proof for gameplay releases and emergency hotfixes.",
             },
         ),
     },
-    {"title": "开发中", "items": ()},
+    {"title": "Active", "items": ()},
     {
-        "title": "私服验证中",
+        "title": "Private Smoke",
         "items": (
             {
                 "number": 28,
                 "priority": "P1",
-                "title": "#28 P1:Phase D:私服 smoke harness clean live rerun 未完成",
+                "title": "#28 Private smoke harness clean live rerun",
                 "description": "Run clean ignored-workdir private smoke harness and attach/report redacted evidence.",
             },
         ),
     },
-    {"title": "已上线", "items": ()},
+    {"title": "Done", "items": ()},
 )
+
+REPORT_ISSUE_DISPLAY_OVERRIDES: dict[int, JsonObject] = {
+    26: {
+        "title": "Main branch protection and required CI gate",
+        "description": "Keep required checks and merge gates enforceable before bot changes land.",
+    },
+    27: {
+        "title": "P0 monitoring and Discord route health",
+        "description": "Keep watch-only P0 monitor evidence current.",
+    },
+    28: {
+        "title": "Private smoke harness clean live rerun",
+        "description": "Run a clean private-server smoke check and publish redacted evidence.",
+    },
+    29: {
+        "title": "Runtime summary and alert scheduled monitor delivery",
+        "description": "Persist runtime-summary lines, reduce KPI evidence, and deliver scheduled monitor reports.",
+    },
+    30: {
+        "title": "Mock harness multi-tick spawn lifecycle",
+        "description": "Cover spawn.spawning lifecycle behavior across multiple simulated ticks.",
+    },
+    31: {
+        "title": "Zero-creep emergency recovery coverage",
+        "description": "Confirm worker recovery when creeps are gone or energy is insufficient.",
+    },
+    32: {
+        "title": "Alert-level telemetry from private smoke failures",
+        "description": "Backfill alert telemetry based on private-smoke failure modes.",
+    },
+    33: {
+        "title": "Official MMO deployment blocked by private smoke gate",
+        "description": "Hold official deploys until private-smoke and monitor proof are complete.",
+    },
+    59: {
+        "title": "Gameplay Evolution: game-result review to roadmap loop",
+        "description": "Use game-result evidence to drive roadmap, task, and release updates.",
+    },
+    60: {
+        "title": "Gameplay review cadence",
+        "description": "Keep game-result review evidence tied to roadmap decisions.",
+    },
+    61: {
+        "title": "Runtime KPI artifact bridge",
+        "description": "Bridge runtime KPI artifacts into the Pages report data flow.",
+    },
+    62: {
+        "title": "Tactical emergency response wiring",
+        "description": "Connect alert signals to bounded tactical emergency triage.",
+    },
+    63: {
+        "title": "Gameplay release cadence and emergency hotfix evidence",
+        "description": "Record expected KPI movement and proof for gameplay releases and hotfixes.",
+    },
+    75: {
+        "title": "Pages roadmap visual fidelity follow-up",
+        "description": "Refine the public roadmap report presentation and English visible copy.",
+    },
+    77: {
+        "title": "Roadmap report public artifact polish",
+        "description": "Polish the generated roadmap page and publish sanitized public artifacts.",
+    },
+}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -663,6 +740,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     runtime_report = load_runtime_kpi_report(repo_root)
     metrics = build_current_metrics(runtime_report)
+    cached_page_data = load_cached_page_data(docs_dir / "roadmap-data.json")
     conn = open_history_db(db_path)
     try:
         write_metric_definitions(conn)
@@ -678,6 +756,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         repo_full_name=repo_full_name,
         project_owner=args.project_owner,
         project_number=args.project_number,
+        cached_snapshot=cached_page_data.get("github") if isinstance(cached_page_data.get("github"), dict) else None,
     )
     repo_snapshot = build_repo_snapshot(repo_full_name)
     data = build_page_data(
@@ -689,7 +768,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         github_snapshot=github_snapshot,
         docs_dir=docs_dir,
         repo_root=repo_root,
+        cached_page_data=cached_page_data,
     )
+    data = sanitize_public_data(data)
 
     json_path = docs_dir / "roadmap-data.json"
     html_path = docs_dir / "index.html"
@@ -707,6 +788,16 @@ def relative_to_cwd(path: Path) -> str:
         return str(path.relative_to(Path.cwd()))
     except ValueError:
         return str(path)
+
+
+def load_cached_page_data(json_path: Path) -> JsonObject:
+    if not json_path.exists():
+        return {}
+    try:
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def detect_repo_full_name(repo_root: Path) -> str:
@@ -732,6 +823,34 @@ def parse_github_remote(remote_url: str) -> str | None:
 
 def strip_trailing_whitespace(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.splitlines()) + "\n"
+
+
+def sanitize_public_data(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: sanitize_public_data(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize_public_data(item) for item in value]
+    if isinstance(value, tuple):
+        return [sanitize_public_data(item) for item in value]
+    if isinstance(value, str):
+        return sanitize_public_text(value)
+    return value
+
+
+def sanitize_public_text(value: str) -> str:
+    text = INTERNAL_PROCESS_ID_RE.sub("proc_[redacted]", value)
+    text = HOST_ABSOLUTE_PATH_RE.sub("[redacted-path]", text)
+    text = WINDOWS_DRIVE_ROOT_PATH_RE.sub("[redacted-path]", text)
+    if "[redacted-path]" in text or PUBLIC_CONTROLLER_TEXT_RE.search(text):
+        return ""
+    return text
+
+
+def public_visible_report_text(value: Any) -> str:
+    text = sanitize_public_text(str(value or "")).strip()
+    if not text or has_stale_visible_report_marker(text) or has_cjk_text(text):
+        return ""
+    return text
 
 
 def build_repo_snapshot(repo_full_name: str) -> JsonObject:
@@ -1290,6 +1409,7 @@ def fetch_github_snapshot(
     repo_full_name: str,
     project_owner: str,
     project_number: int,
+    cached_snapshot: JsonObject | None = None,
 ) -> JsonObject:
     errors: list[JsonObject] = []
 
@@ -1338,18 +1458,35 @@ def fetch_github_snapshot(
     if project_error:
         errors.append({"source": "project", **project_error})
 
+    used_cache = False
     issues = [normalize_issue(item) for item in issues_json] if isinstance(issues_json, list) else []
+    if issue_error and cached_snapshot is not None:
+        cached_issues = cached_github_collection(cached_snapshot, "issues")
+        if cached_issues:
+            issues = cached_issues
+            used_cache = True
     seeded_issue_count = 0
     if issue_error or not issues:
         issues, seeded_issue_count = merge_static_support_issues(issues, repo_full_name)
     pull_requests = [normalize_pull_request(item) for item in prs_json] if isinstance(prs_json, list) else []
+    if pr_error and cached_snapshot is not None:
+        cached_prs = cached_github_collection(cached_snapshot, "pullRequests")
+        if cached_prs:
+            pull_requests = cached_prs
+            used_cache = True
     project_items = normalize_project_items(project_json)
+    if project_error and cached_snapshot is not None:
+        cached_project_items = cached_github_collection(cached_snapshot, "projectItems")
+        if cached_project_items:
+            project_items = cached_project_items
+            used_cache = True
 
     roadmap_cards = build_roadmap_cards(project_items, issues, pull_requests)
     kanban_cards = build_kanban_cards(project_items, issues, pull_requests)
     return {
         "fetched": not errors,
-        "sourceMode": github_source_mode(errors, seeded_issue_count),
+        "sourceMode": github_source_mode(errors, seeded_issue_count, used_cache),
+        "usedCachedSnapshot": used_cache,
         "seededFallbackIssueCount": seeded_issue_count,
         "fetchErrors": errors,
         "issues": issues,
@@ -1362,6 +1499,13 @@ def fetch_github_snapshot(
         },
         "processMetrics": build_process_metrics(issues, pull_requests, project_items, errors),
     }
+
+
+def cached_github_collection(cached_snapshot: JsonObject, key: str) -> list[JsonObject]:
+    value = cached_snapshot.get(key)
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
 
 
 def merge_static_support_issues(issues: Sequence[JsonObject], repo_full_name: str) -> tuple[list[JsonObject], int]:
@@ -1381,9 +1525,11 @@ def merge_static_support_issues(issues: Sequence[JsonObject], repo_full_name: st
     return merged, added
 
 
-def github_source_mode(errors: Sequence[JsonObject], seeded_issue_count: int) -> str:
+def github_source_mode(errors: Sequence[JsonObject], seeded_issue_count: int, used_cache: bool) -> str:
     if not errors:
         return "live"
+    if used_cache:
+        return "cached"
     if seeded_issue_count:
         return "fallback"
     return "incomplete"
@@ -1558,9 +1704,17 @@ def build_roadmap_cards(project_items: Sequence[JsonObject], issues: Sequence[Js
 
     cards = []
     for item in source_items:
+        override = report_issue_display_override(item.get("number"))
+        title = first_visible_report_text(override.get("title"), item.get("title"), item.get("domain"), "Roadmap item")
+        if override.get("description"):
+            next_action = first_visible_report_text(override.get("description"))
+            evidence = ""
+        else:
+            next_action = first_visible_report_text(item.get("nextAction"))
+            evidence = first_visible_report_text(item.get("evidence"))
         cards.append(
             {
-                "title": item.get("title", ""),
+                "title": title,
                 "url": item.get("url", ""),
                 "type": item.get("type", ""),
                 "number": item.get("number"),
@@ -1569,8 +1723,8 @@ def build_roadmap_cards(project_items: Sequence[JsonObject], issues: Sequence[Js
                 "domain": item.get("domain", "Bot capability"),
                 "milestone": item.get("milestone", ""),
                 "visionLayer": classify_vision_layer(item),
-                "nextAction": item.get("nextAction", ""),
-                "evidence": item.get("evidence", ""),
+                "nextAction": next_action,
+                "evidence": evidence,
             }
         )
     return sorted(cards, key=roadmap_sort_key)[:12]
@@ -1587,9 +1741,17 @@ def build_kanban_cards(
         if not item.get("title"):
             continue
         vision_layer = classify_vision_layer(item)
+        override = report_issue_display_override(item.get("number"))
+        title = first_visible_report_text(override.get("title"), item.get("title"), item.get("domain"), "Roadmap item")
+        if override.get("description"):
+            next_action = first_visible_report_text(override.get("description"))
+            evidence = ""
+        else:
+            next_action = first_visible_report_text(item.get("nextAction"))
+            evidence = first_visible_report_text(item.get("evidence"))
         cards.append(
             {
-                "title": item.get("title", ""),
+                "title": title,
                 "url": item.get("url", ""),
                 "type": item.get("type", ""),
                 "number": item.get("number"),
@@ -1599,8 +1761,8 @@ def build_kanban_cards(
                 "kind": item.get("kind", "code"),
                 "visionLayer": vision_layer,
                 "lane": "Gameplay" if vision_layer in {"territory", "resources", "enemy kills"} else "Foundation",
-                "nextAction": item.get("nextAction", ""),
-                "evidence": item.get("evidence", ""),
+                "nextAction": next_action,
+                "evidence": evidence,
                 "state": item.get("state", ""),
                 "updatedAt": item.get("updatedAt", ""),
             }
@@ -1743,6 +1905,7 @@ def build_page_data(
     github_snapshot: JsonObject,
     docs_dir: Path,
     repo_root: Path,
+    cached_page_data: JsonObject | None = None,
 ) -> JsonObject:
     logo_path = docs_dir / "assets" / "screeps-community-logo.png"
     return {
@@ -1775,7 +1938,14 @@ def build_page_data(
             "source": summarize_runtime_source(runtime_report.get("source")),
         },
         "github": github_snapshot,
-        "report": build_approved_report_model(generated_at, history, github_snapshot, repo_root, repo),
+        "report": build_approved_report_model(
+            generated_at,
+            history,
+            github_snapshot,
+            repo_root,
+            repo,
+            cached_page_data or {},
+        ),
     }
 
 
@@ -1798,6 +1968,7 @@ def build_approved_report_model(
     github_snapshot: JsonObject,
     repo_root: Path,
     repo: JsonObject,
+    cached_page_data: JsonObject,
 ) -> JsonObject:
     return {
         "id": APPROVED_REPORT_MODEL_ID,
@@ -1809,7 +1980,7 @@ def build_approved_report_model(
         "roadmapCards": build_report_roadmap_cards(github_snapshot, repo),
         "gameplayKanban": build_report_kanban(github_snapshot, "Gameplay"),
         "foundationKanban": build_report_kanban(github_snapshot, "Foundation"),
-        "processCards": build_report_process_cards(repo_root, repo, github_snapshot),
+        "processCards": build_report_process_cards(repo_root, repo, github_snapshot, cached_page_data),
     }
 
 
@@ -2044,11 +2215,14 @@ def build_report_roadmap_card(
     item_url = item.get("url")
     if isinstance(item_url, str) and item_url:
         card["url"] = item_url
+    override = report_issue_display_override(item.get("number"))
     card["next"] = shorten_text(
         first_visible_report_text(
+            override.get("description"),
             item.get("nextAction"),
             item.get("evidence"),
             item.get("title"),
+            template.get("next"),
             "Track current GitHub/Project evidence.",
         ),
         88,
@@ -2068,8 +2242,8 @@ def first_text(*values: Any) -> str:
 
 def first_visible_report_text(*values: Any) -> str:
     for value in values:
-        text = str(value or "").strip()
-        if text and not has_stale_visible_report_marker(text):
+        text = public_visible_report_text(value)
+        if text:
             return text
     return ""
 
@@ -2077,6 +2251,16 @@ def first_visible_report_text(*values: Any) -> str:
 def has_stale_visible_report_marker(value: str) -> bool:
     text = value.lower()
     return any(marker in text for marker in STALE_VISIBLE_REPORT_MARKERS)
+
+
+def has_cjk_text(value: Any) -> bool:
+    return bool(CJK_TEXT_RE.search(str(value or "")))
+
+
+def report_issue_display_override(number: Any) -> JsonObject:
+    if not isinstance(number, int):
+        return {}
+    return REPORT_ISSUE_DISPLAY_OVERRIDES.get(number, {})
 
 
 def shorten_text(value: str, limit: int) -> str:
@@ -2103,7 +2287,7 @@ def report_progress(item: JsonObject) -> int:
 def report_item_status(item: JsonObject, github_snapshot: JsonObject) -> str:
     number = f"#{item['number']} " if isinstance(item.get("number"), int) else ""
     status = normalize_status(item.get("status"))
-    domain = str(item.get("domain") or item.get("visionLayer") or "GitHub")
+    domain = first_visible_report_text(item.get("domain"), item.get("visionLayer"), "GitHub")
     suffix = ""
     if github_snapshot.get("sourceMode") != "live":
         suffix = f" · {github_snapshot.get('sourceMode') or 'snapshot'}"
@@ -2125,9 +2309,9 @@ def build_report_kanban(github_snapshot: JsonObject, lane: str) -> list[JsonObje
     ]
     columns = [
         {"title": "Backlog", "items": []},
-        {"title": "开发中", "items": []},
-        {"title": "私服验证中", "items": []},
-        {"title": "已上线", "items": []},
+        {"title": "Active", "items": []},
+        {"title": "Private Smoke", "items": []},
+        {"title": "Done", "items": []},
     ]
     columns_by_title = {column["title"]: column for column in columns}
     for card in cards:
@@ -2141,26 +2325,33 @@ def build_report_kanban(github_snapshot: JsonObject, lane: str) -> list[JsonObje
 def report_kanban_column_title(card: JsonObject) -> str:
     state = str(card.get("state") or "").upper()
     if state in {"CLOSED", "MERGED"} or normalize_status(card.get("status")) == "Done":
-        return "已上线"
+        return "Done"
     haystack = roadmap_item_haystack(card)
     if "private" in haystack or "smoke" in haystack:
-        return "私服验证中"
+        return "Private Smoke"
     status = normalize_status(card.get("status"))
     if status in {"In progress", "In review", "Ready"}:
-        return "开发中"
+        return "Active"
     return "Backlog"
 
 
 def report_kanban_item(card: JsonObject) -> JsonObject:
+    override = report_issue_display_override(card.get("number"))
     number = f"#{card['number']} " if isinstance(card.get("number"), int) else ""
+    title = first_visible_report_text(override.get("title"), card.get("title"), card.get("domain"), "Roadmap item")
+    description = first_visible_report_text(
+        override.get("description"),
+        card.get("nextAction"),
+        card.get("evidence"),
+        card.get("domain"),
+        card.get("status"),
+        "Track Project evidence and next action.",
+    )
     return {
         "number": card.get("number"),
         "priority": card.get("priority") or "P1",
-        "title": shorten_text(f"{number}{card.get('title') or 'Untitled'}", 72),
-        "description": shorten_text(
-            first_visible_report_text(card.get("nextAction"), card.get("evidence"), card.get("domain"), card.get("status")),
-            112,
-        ),
+        "title": shorten_text(f"{number}{title}", 72),
+        "description": shorten_text(description, 112),
         "url": card.get("url") or "",
     }
 
@@ -2241,22 +2432,34 @@ def issue_url(repo: JsonObject, number: int) -> str:
     return f"{repo['url']}/issues/{number}"
 
 
-def build_report_process_cards(repo_root: Path, repo: JsonObject, github_snapshot: JsonObject) -> list[JsonObject]:
+def build_report_process_cards(
+    repo_root: Path,
+    repo: JsonObject,
+    github_snapshot: JsonObject,
+    cached_page_data: JsonObject,
+) -> list[JsonObject]:
     commit_count = parse_count(run_text(["git", "rev-list", "--count", "HEAD"], repo_root))
     prs, pr_error = fetch_all_prs(repo_root, str(repo["fullName"]))
     issues, issue_error = fetch_all_issues(repo_root, str(repo["fullName"]))
+    cached_process_cards = cached_report_process_cards(cached_page_data)
+    cached_pr_card = cached_process_card(cached_process_cards, "Total PRs", "\u603b PR \u6570")
+    cached_issue_card = cached_process_card(cached_process_cards, "Total issues", "\u603b issue \u6570")
     total_prs: int | str = len(prs) if pr_error is None else INSUFFICIENT_EVIDENCE
     merged_prs: int | str = (
         sum(1 for item in prs if str(item.get("state") or "").upper() == "MERGED")
         if pr_error is None
         else INSUFFICIENT_EVIDENCE
     )
+    if pr_error is not None and cached_pr_card:
+        total_prs = cached_pr_card.get("value", INSUFFICIENT_EVIDENCE)
     total_issues: int | str = len(issues) if issue_error is None else INSUFFICIENT_EVIDENCE
     open_issues: int | str = (
         sum(1 for item in issues if str(item.get("state") or "").upper() == "OPEN")
         if issue_error is None
         else INSUFFICIENT_EVIDENCE
     )
+    if issue_error is not None and cached_issue_card:
+        total_issues = cached_issue_card.get("value", INSUFFICIENT_EVIDENCE)
     official_deploy_count = count_process_evidence(
         repo_root,
         required_terms=("official", "deploy evidence"),
@@ -2265,35 +2468,78 @@ def build_report_process_cards(repo_root: Path, repo: JsonObject, github_snapsho
     private_smoke_count = count_private_smoke_process_reports(repo_root)
 
     return [
-        {"value": commit_count, "label": "总 commit 数", "detail": "repository history", "delta": "+1"},
+        {"value": commit_count, "label": "Total commits", "detail": "repository history", "delta": "+1"},
         {
             "value": total_prs,
-            "label": "总 PR 数",
-            "detail": f"{merged_prs} merged" if pr_error is None else format_fetch_error("gh pr list", pr_error),
-            "delta": "+1" if pr_error is None else "n/a",
-            "source": "github" if pr_error is None else "unavailable",
+            "label": "Total PRs",
+            "detail": process_detail(
+                pr_error,
+                "gh pr list",
+                f"{merged_prs} merged",
+                cached_pr_card,
+            ),
+            "delta": "+1" if pr_error is None else cached_pr_card.get("delta", "cached") if cached_pr_card else "n/a",
+            "source": "github" if pr_error is None else "cached" if cached_pr_card else "unavailable",
         },
         {
             "value": total_issues,
-            "label": "总 issue 数",
-            "detail": f"{open_issues} open" if issue_error is None else format_fetch_error("gh issue list", issue_error),
-            "delta": "+0" if issue_error is None else "n/a",
-            "source": "github" if issue_error is None else "unavailable",
+            "label": "Total issues",
+            "detail": process_detail(
+                issue_error,
+                "gh issue list",
+                f"{open_issues} open",
+                cached_issue_card,
+            ),
+            "delta": "+0" if issue_error is None else cached_issue_card.get("delta", "cached") if cached_issue_card else "n/a",
+            "source": "github" if issue_error is None else "cached" if cached_issue_card else "unavailable",
         },
         {
             "value": official_deploy_count,
-            "label": "发版到官方游戏",
+            "label": "Official deploys",
             "detail": "official deploy evidence",
             "delta": "+0",
         },
         {
             "value": private_smoke_count,
-            "label": "私服内总测试次数",
+            "label": "Private smoke tests",
             "detail": "smoke/report evidence",
             "delta": "+0",
             "source": "approved process report count",
         },
     ]
+
+
+def cached_report_process_cards(cached_page_data: JsonObject) -> list[JsonObject]:
+    report = cached_page_data.get("report")
+    if not isinstance(report, dict):
+        return []
+    cards = report.get("processCards")
+    if not isinstance(cards, list):
+        return []
+    return [dict(card) for card in cards if isinstance(card, dict)]
+
+
+def cached_process_card(cards: Sequence[JsonObject], *labels: str) -> JsonObject:
+    label_set = set(labels)
+    for card in cards:
+        if str(card.get("label") or "") in label_set:
+            return card
+    return {}
+
+
+def process_detail(
+    error: JsonObject | None,
+    command_label: str,
+    live_detail: str,
+    cached_card: JsonObject,
+) -> str:
+    if error is None:
+        return live_detail
+    cached_detail = str(cached_card.get("detail") or "").strip()
+    if cached_detail:
+        cached_detail = CACHED_SUFFIX_RE.sub("", cached_detail).strip()
+        return f"{cached_detail} · cached"
+    return format_fetch_error(command_label, error)
 
 
 def fetch_all_prs(repo_root: Path, repo_full_name: str) -> tuple[list[JsonObject], JsonObject | None]:
@@ -3050,7 +3296,7 @@ def render_html(data: JsonObject) -> str:
     repo = data["repo"]
     generated_at = esc(data["generatedAt"])
     return f"""<!doctype html>
-<html lang="zh-Hans">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -3065,8 +3311,8 @@ def render_html(data: JsonObject) -> str:
     <main>
       {render_report_kpis(data)}
       {render_report_roadmap(data)}
-      {render_kanban_section("gameplay-kanban", "03 游戏策略开发 Kanban", data["report"]["gameplayKanban"])}
-      {render_kanban_section("foundation-kanban", "04 基建开发 Kanban", data["report"]["foundationKanban"])}
+      {render_kanban_section("gameplay-kanban", "03 Gameplay Strategy Kanban", data["report"]["gameplayKanban"])}
+      {render_kanban_section("foundation-kanban", "04 Foundation Delivery Kanban", data["report"]["foundationKanban"])}
       {render_report_process(data)}
     </main>
     <footer class="report-footer">format {esc(data["format"])} · repo {esc(repo["url"])} · generated {generated_at}</footer>
@@ -3118,7 +3364,7 @@ a {
 .hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 390px;
+  grid-template-columns: minmax(0, 1fr) 410px;
   align-items: center;
   min-height: 390px;
   gap: 40px;
@@ -3142,11 +3388,11 @@ a {
 
 h1 {
   margin: 0;
-  max-width: 930px;
-  font-size: clamp(4.3rem, 5.7vw, 5.6rem);
+  max-width: 820px;
+  font-size: clamp(3.35rem, 4.35vw, 4.45rem);
   font-weight: 900;
   letter-spacing: 0;
-  line-height: 0.91;
+  line-height: 0.96;
 }
 
 h1 span {
@@ -3186,27 +3432,24 @@ h1 span {
   justify-content: center;
 }
 
-.brand-logo {
-  position: relative;
-  z-index: 1;
-  width: 288px;
-  height: 288px;
-  justify-self: center;
-  object-fit: cover;
+.brand-logo-frame {
+  display: grid;
+  width: 334px;
+  height: 334px;
+  place-items: center;
+  border: 1px solid rgba(189, 159, 123, 0.72);
+  border-radius: 50%;
+  padding: 18px;
+  background: rgba(255, 250, 240, 0.82);
   box-shadow: 0 25px 36px rgba(46, 31, 17, 0.18);
 }
 
-.logo-badge {
-  position: absolute;
-  right: 18px;
-  bottom: 24px;
-  z-index: 2;
-  border-radius: 999px;
-  padding: 8px 17px;
-  background: rgba(255, 243, 220, 0.86);
-  color: var(--copper-dark);
-  font-weight: 900;
-  box-shadow: 0 8px 20px rgba(73, 48, 24, 0.12);
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 main {
@@ -3256,12 +3499,19 @@ main {
 }
 
 .chart-card h3,
-.roadmap-card h3,
-.kanban-column h3 {
+.roadmap-card h3 {
   margin: 0;
   font-size: 1.48rem;
   line-height: 1.12;
   font-weight: 900;
+}
+
+.kanban-column h3 {
+  margin: 0;
+  font-size: 0.96rem;
+  line-height: 1.12;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .chart-card p {
@@ -3373,7 +3623,7 @@ main {
 
 .column-count {
   color: var(--copper-dark);
-  font-size: 1.08rem;
+  font-size: 0.88rem;
   font-weight: 900;
 }
 
@@ -3419,7 +3669,7 @@ main {
   border: 1px dashed #d7bea4;
   border-radius: 12px;
   color: #9f846a;
-  font-size: 1.08rem;
+  font-size: 0.9rem;
 }
 
 .process-grid {
@@ -3485,8 +3735,13 @@ main {
   }
 
   .brand-logo {
-    width: 230px;
-    height: 230px;
+    width: 100%;
+    height: 100%;
+  }
+
+  .brand-logo-frame {
+    width: 268px;
+    height: 268px;
   }
 
   .kanban-grid {
@@ -3514,23 +3769,17 @@ main {
   }
 
   h1 {
-    font-size: 3.3rem;
+    font-size: 2.78rem;
   }
 
   .summary {
     font-size: 1.1rem;
   }
 
-  .brand-logo {
+  .brand-logo-frame {
     justify-self: start;
-    width: 190px;
-    height: 190px;
-  }
-
-  .logo-badge {
-    left: 126px;
-    right: auto;
-    bottom: 14px;
+    width: 212px;
+    height: 212px;
   }
 }
 """
@@ -3538,33 +3787,26 @@ main {
 
 def render_report_hero(data: JsonObject) -> str:
     repo = data["repo"]
-    room_target = repo.get("screepsRoom") if isinstance(repo.get("screepsRoom"), dict) else {}
-    target_label = str(room_target.get("label") or "unknown")
-    target_status = str(room_target.get("status") or "unknown")
-    target_message = str(room_target.get("message") or "")
-    target_url = str(room_target.get("url") or "")
-    if target_url:
-        target_html = f'<a href="{esc(target_url)}" title="{esc(target_message)}">{esc(target_label)}</a>'
-    else:
-        target_html = f'<span title="{esc(target_message)}">{esc(target_label)}</span>'
     logo = data["assets"].get("logo") or ""
-    logo_html = f'<img class="brand-logo" src="{esc(logo)}" alt="Screeps community logo">' if logo else ""
+    logo_html = (
+        f'<div class="brand-logo-frame"><img class="brand-logo" src="{esc(logo)}" alt="Screeps community logo"></div>'
+        if logo
+        else ""
+    )
     return f"""
     <header class="hero">
       <div>
         <p class="eyebrow">PERSISTENT MMO AI COLONY · AUTONOMOUS ROADMAP</p>
         <h1><span>Hermes Screeps Project</span><span>Roadmap Report</span></h1>
-        <p class="summary">用真实游戏 KPI 驱动 bot 能力、策略开发、基建门禁和发版节奏。</p>
+        <p class="summary">Harness live Screeps KPI evidence for Agentic strategy, bot capability growth, delivery gates, and release cadence.</p>
         <div class="hero-meta">
-          <p><strong>Project</strong> · 长期运行的 Screeps: World AI / 自动化运营项目。</p>
-          <p><strong>Links</strong> · <a href="{esc(repo['url'])}">{esc(repo['url'])}</a> · <a href="https://screeps.com/">https://screeps.com/</a></p>
-          <p><strong>Target</strong> · {target_html} · {esc(target_status)} · 地盘 &gt; 资源 &gt; 击杀。</p>
+          <p><strong>Project</strong> · Long-running Screeps: World AI and autonomous operations project.</p>
+          <p><strong>Links</strong> · <a href="{esc(repo['url'])}">{esc(repo['url'])}</a></p>
         </div>
         <p class="published"><strong>PUBLISHED</strong> · {esc(data["generatedAtCst"])}</p>
       </div>
       <div class="hero-art">
         {logo_html}
-        <div class="logo-badge">KPI/Kanban · v5</div>
       </div>
     </header>
 """
@@ -3574,7 +3816,7 @@ def render_report_kpis(data: JsonObject) -> str:
     cards = "\n".join(render_kpi_chart_card(card) for card in data["report"]["kpiCards"])
     return f"""
       <section class="section" id="kpi">
-        <h2 class="section-title">01 游戏内部 KPI · 7d 趋势</h2>
+        <h2 class="section-title">01 Game KPI - 7d Trend</h2>
         <div class="kpi-report-grid">
           {cards}
         </div>
@@ -3705,7 +3947,7 @@ def render_report_roadmap(data: JsonObject) -> str:
     cards = "\n".join(render_report_roadmap_card(card) for card in data["report"]["roadmapCards"])
     return f"""
       <section class="section" id="roadmap">
-        <h2 class="section-title">02 开发 Roadmap · 六项状态</h2>
+        <h2 class="section-title">02 Development Roadmap - Six Tracks</h2>
         <div class="roadmap-grid">
           {cards}
         </div>
@@ -3721,8 +3963,8 @@ def render_report_roadmap_card(card: JsonObject) -> str:
           <{tag} class="roadmap-card"{href}>
             <h3>{esc(card["title"])}</h3>
             <div class="roadmap-table">
-              <span class="roadmap-label">目标</span><span>{esc(card["goal"])}</span>
-              <span class="roadmap-label">下个点</span><span>{esc(card["next"])}</span>
+              <span class="roadmap-label">Goal</span><span>{esc(card["goal"])}</span>
+              <span class="roadmap-label">Next</span><span>{esc(card["next"])}</span>
             </div>
             <div class="progress-row">
               <span class="progress-value">{progress}%</span>
@@ -3776,7 +4018,7 @@ def render_report_process(data: JsonObject) -> str:
     cards = "\n".join(render_process_card(card) for card in data["report"]["processCards"])
     return f"""
       <section class="section" id="process">
-        <h2 class="section-title">05 开发过程数据</h2>
+        <h2 class="section-title">05 Development Process Data</h2>
         <div class="process-grid">
           {cards}
         </div>
