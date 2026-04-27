@@ -31,6 +31,15 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'upgrade', targetId: controller.id };
   }
 
+  const extensionConstructionSite = constructionSites.find(isExtensionConstructionSite);
+  if (extensionConstructionSite) {
+    return { type: 'build', targetId: extensionConstructionSite.id };
+  }
+
+  if (controller && shouldGuardRcl2ControllerProgress(controller)) {
+    return { type: 'upgrade', targetId: controller.id };
+  }
+
   if (constructionSites[0]) {
     return { type: 'build', targetId: constructionSites[0].id };
   }
@@ -55,6 +64,10 @@ function isSpawnConstructionSite(site: ConstructionSite): boolean {
   return matchesStructureType(site.structureType, 'STRUCTURE_SPAWN', 'spawn');
 }
 
+function isExtensionConstructionSite(site: ConstructionSite): boolean {
+  return matchesStructureType(site.structureType, 'STRUCTURE_EXTENSION', 'extension');
+}
+
 type StructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
 
 function matchesStructureType(actual: string | undefined, globalName: StructureConstantGlobal, fallback: string): boolean {
@@ -72,6 +85,10 @@ function shouldGuardControllerDowngrade(controller: StructureController | undefi
 
 function shouldRushRcl1Controller(controller: StructureController): boolean {
   return controller.my === true && controller.level === 1;
+}
+
+function shouldGuardRcl2ControllerProgress(controller: StructureController): boolean {
+  return controller.my === true && controller.level === 2;
 }
 
 function selectHarvestSource(creep: Creep): Source | null {
