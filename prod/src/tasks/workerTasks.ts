@@ -1,5 +1,6 @@
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
+export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
 
@@ -118,7 +119,7 @@ function findVisibleRoomStructures(room: Room): AnyStructure[] {
 }
 
 function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWorkerStructure {
-  if (structure.hits >= structure.hitsMax) {
+  if (isWorkerRepairTargetComplete(structure)) {
     return false;
   }
 
@@ -132,7 +133,19 @@ function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWor
   return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure);
 }
 
-function isOwnedRampart(structure: AnyStructure): structure is StructureRampart {
+export function isWorkerRepairTargetComplete(structure: Structure): boolean {
+  return structure.hits >= getWorkerRepairHitsCeiling(structure);
+}
+
+function getWorkerRepairHitsCeiling(structure: Structure): number {
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure)) {
+    return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING);
+  }
+
+  return structure.hitsMax;
+}
+
+function isOwnedRampart(structure: Structure): structure is StructureRampart {
   return (structure as Partial<StructureRampart>).my === true;
 }
 

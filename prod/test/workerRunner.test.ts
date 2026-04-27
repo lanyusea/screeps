@@ -1,5 +1,5 @@
 import { runWorker } from '../src/creeps/workerRunner';
-import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
+import { CONTROLLER_DOWNGRADE_GUARD_TICKS, IDLE_RAMPART_REPAIR_HITS_CEILING } from '../src/tasks/workerTasks';
 
 describe('runWorker', () => {
   beforeEach(() => {
@@ -280,7 +280,7 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('preserves existing RCL3 upgrade execution for assigned upgrade tasks', () => {
+  it('preempts an RCL3 upgrade task for extension construction when downgrade is safe', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -297,6 +297,38 @@ describe('runWorker', () => {
       room: {
         controller,
         find: jest.fn((type) => (type === FIND_CONSTRUCTION_SITES ? [site] : []))
+      },
+      upgradeController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'extension-site1' });
+    expect(Game.getObjectById).not.toHaveBeenCalled();
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps an RCL3 upgrade task when selection still prefers the same controller', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        controller,
+        find: jest.fn().mockReturnValue([])
       },
       upgradeController: jest.fn().mockReturnValue(0),
       moveTo: jest.fn()
@@ -372,7 +404,7 @@ describe('runWorker', () => {
     expect(moveTo).not.toHaveBeenCalled();
   });
 
-  it('clears missing upgrade targets and reassigns without upgrading the stale target', () => {
+  it('reassigns stale upgrade tasks when selection chooses a different controller', () => {
     const controller = { id: 'controller2', my: true } as StructureController;
     const upgradeController = jest.fn();
     const moveTo = jest.fn();
@@ -393,7 +425,7 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(getObjectById).toHaveBeenCalledWith('missing');
+    expect(getObjectById).not.toHaveBeenCalled();
     expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller2' });
     expect(upgradeController).not.toHaveBeenCalled();
     expect(moveTo).not.toHaveBeenCalled();
@@ -425,6 +457,43 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(getObjectById).toHaveBeenCalledWith('road-full');
+    expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'road-damaged' });
+    expect(repair).not.toHaveBeenCalled();
+    expect(moveTo).not.toHaveBeenCalled();
+  });
+
+  it('clears owned rampart repair targets at the idle ceiling and reassigns without repairing them', () => {
+    const rampart = {
+      id: 'rampart-ceiling',
+      structureType: 'rampart',
+      hits: IDLE_RAMPART_REPAIR_HITS_CEILING,
+      hitsMax: 300_000_000,
+      my: true
+    } as StructureRampart;
+    const damagedRoad = { id: 'road-damaged', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;
+    const repair = jest.fn();
+    const moveTo = jest.fn();
+    const creep = {
+      memory: { task: { type: 'repair', targetId: 'rampart-ceiling' as Id<Structure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        controller: { id: 'controller1', my: true } as StructureController,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [rampart, damagedRoad] : []))
+      },
+      repair,
+      moveTo
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(rampart);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('rampart-ceiling');
     expect(creep.memory.task).toEqual({ type: 'repair', targetId: 'road-damaged' });
     expect(repair).not.toHaveBeenCalled();
     expect(moveTo).not.toHaveBeenCalled();

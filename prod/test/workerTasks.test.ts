@@ -1,4 +1,8 @@
-import { CONTROLLER_DOWNGRADE_GUARD_TICKS, selectWorkerTask } from '../src/tasks/workerTasks';
+import {
+  CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  IDLE_RAMPART_REPAIR_HITS_CEILING,
+  selectWorkerTask
+} from '../src/tasks/workerTasks';
 
 function makeLoadedWorker(room: Room, task?: CreepTaskMemory): Creep {
   return {
@@ -619,6 +623,67 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-a' });
+  });
+
+  it('selects owned ramparts below the idle repair ceiling', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const rampart = makeStructure(
+      'rampart-low',
+      'rampart' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 1,
+      300_000_000,
+      { my: true }
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [rampart] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-low' });
+  });
+
+  it('skips owned ramparts at the idle repair ceiling without blocking container repair', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const rampart = makeStructure(
+      'rampart-ceiling',
+      'rampart' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING,
+      300_000_000,
+      { my: true }
+    );
+    const container = makeStructure('container-damaged', 'container' as StructureConstant, 1_000, 2_000);
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [rampart, container] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-damaged' });
+  });
+
+  it('falls back to upgrade when only owned ramparts above the idle repair ceiling are damaged', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const rampart = makeStructure(
+      'rampart-high',
+      'rampart' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING + 1,
+      300_000_000,
+      { my: true }
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [rampart] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('falls back to upgrade when no safe damaged repair targets exist', () => {

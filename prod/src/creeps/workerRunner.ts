@@ -1,4 +1,4 @@
-import { selectWorkerTask } from '../tasks/workerTasks';
+import { isWorkerRepairTargetComplete, selectWorkerTask } from '../tasks/workerTasks';
 
 export function runWorker(creep: Creep): void {
   if (!creep.memory.task) {
@@ -81,7 +81,7 @@ function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean 
     return false;
   }
 
-  return nextTask.type === 'repair' || controller.level === 2;
+  return true;
 }
 
 function shouldReplaceTarget(
@@ -92,7 +92,7 @@ function shouldReplaceTarget(
     return true;
   }
 
-  return task.type === 'repair' && 'hits' in target && target.hits >= target.hitsMax;
+  return task.type === 'repair' && 'hits' in target && isWorkerRepairTargetComplete(target);
 }
 
 function executeTask(

@@ -216,6 +216,7 @@ function canSatisfyWorkerCapacity(creep) {
 
 // src/tasks/workerTasks.ts
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
+var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
 function selectWorkerTask(creep) {
@@ -299,13 +300,22 @@ function findVisibleRoomStructures(room) {
   return room.find(FIND_STRUCTURES);
 }
 function isSafeRepairTarget(structure) {
-  if (structure.hits >= structure.hitsMax) {
+  if (isWorkerRepairTargetComplete(structure)) {
     return false;
   }
   if (matchesStructureType(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
     return true;
   }
   return matchesStructureType(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
+}
+function isWorkerRepairTargetComplete(structure) {
+  return structure.hits >= getWorkerRepairHitsCeiling(structure);
+}
+function getWorkerRepairHitsCeiling(structure) {
+  if (matchesStructureType(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure)) {
+    return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING);
+  }
+  return structure.hitsMax;
 }
 function isOwnedRampart(structure) {
   return structure.my === true;
@@ -510,13 +520,13 @@ function shouldPreemptUpgradeTask(creep, task) {
   if (nextTask === null || nextTask.type === task.type && nextTask.targetId === task.targetId) {
     return false;
   }
-  return nextTask.type === "repair" || controller.level === 2;
+  return true;
 }
 function shouldReplaceTarget(task, target) {
   if (task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
     return true;
   }
-  return task.type === "repair" && "hits" in target && target.hits >= target.hitsMax;
+  return task.type === "repair" && "hits" in target && isWorkerRepairTargetComplete(target);
 }
 function executeTask(creep, task, target) {
   switch (task.type) {
