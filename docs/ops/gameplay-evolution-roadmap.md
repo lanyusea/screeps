@@ -66,13 +66,25 @@ Inputs:
 - recent merged PRs/deploys;
 - open GitHub roadmap issues and Project fields.
 
-Saved `#runtime-summary` console logs can be reduced into KPI evidence without live API access:
+Preferred persisted-artifact feeder for KPI evidence:
+
+```bash
+python3 scripts/screeps_runtime_kpi_artifact_bridge.py > runtime-kpi-report.json
+```
+
+With no paths, the bridge scans safe local artifact roots such as `/root/screeps/runtime-artifacts` and `/root/.hermes/cron/output`, tolerates missing directories, skips binary/oversized files, and attaches source counts without file contents. Pass explicit files or directories to bound a review window:
+
+```bash
+python3 scripts/screeps_runtime_kpi_artifact_bridge.py /path/to/runtime-artifacts > runtime-kpi-report.json
+```
+
+Use `--format human` for a compact reviewer-facing readout. If a worker has only one raw saved console log and does not need artifact discovery, use the reducer fallback:
 
 ```bash
 python3 scripts/screeps_runtime_kpi_reducer.py saved-runtime-summary.log > runtime-kpi-report.json
 ```
 
-Use `-` for stdin, and add `--format human` for a compact reviewer-facing readout. The JSON output is deterministic and marks missing KPI sections as `not instrumented`.
+The reducer also accepts `-` for stdin. Both JSON outputs are deterministic and mark missing KPI sections as `not instrumented`.
 
 Required output:
 
