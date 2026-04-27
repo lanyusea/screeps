@@ -4,6 +4,8 @@ import { ColonySnapshot } from '../src/colony/colonyRegistry';
 describe('planSpawn', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+    delete (globalThis as { Memory?: Partial<Memory> }).Memory;
   });
 
   function makeColony({
@@ -11,13 +13,15 @@ describe('planSpawn', () => {
     energyAvailable = 300,
     energyCapacityAvailable = 300,
     roomName = 'W1N1',
-    spawning = null
+    spawning = null,
+    controller
   }: {
     sourceCount?: number;
     energyAvailable?: number;
     energyCapacityAvailable?: number;
     roomName?: string;
     spawning?: Spawning | null;
+    controller?: StructureController;
   } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<Source[], [number]> } {
     const sources = Array.from({ length: sourceCount }, (_, index) => ({ id: `source${index}` }) as Source);
     const find = jest.fn((type: number) => (type === FIND_SOURCES ? sources : []));
@@ -25,7 +29,8 @@ describe('planSpawn', () => {
       name: roomName,
       energyAvailable,
       energyCapacityAvailable,
-      find
+      find,
+      ...(controller ? { controller } : {})
     } as unknown as Room;
     const spawn = { name: 'Spawn1', room, spawning } as StructureSpawn;
     const colony: ColonySnapshot = {
@@ -81,6 +86,109 @@ describe('planSpawn', () => {
     const { colony } = makeColony();
 
     expect(planSpawn(colony, { worker: 3 }, 124)).toBeNull();
+  });
+
+  it('plans a claimer-role reserver for an explicit memory target when home survival is safe', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 139)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-139',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve' }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 139
+      }
+    ]);
+  });
+
+  it('records territory intent while waiting for claim body energy', () => {
+    const { colony } = makeColony({
+      energyAvailable: 600,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim', controllerId: 'controller2' as Id<StructureController> }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 141)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 141,
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('keeps territory control absent when the home worker floor is unsafe', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 140)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N1-140',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('does not plan another claimer while one has active target capacity', () => {
+    const { colony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 1, claimersByTargetRoom: { W2N1: 1 } }, 143)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 143
+      }
+    ]);
   });
 
   it('targets a fourth worker for two-source rooms', () => {

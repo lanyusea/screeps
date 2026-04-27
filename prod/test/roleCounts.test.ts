@@ -3,11 +3,16 @@ import { countCreepsByRole, WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../src/cree
 describe('countCreepsByRole', () => {
   it('counts creeps by memory role and colony', () => {
     const worker = { memory: { role: 'worker', colony: 'W1N1' } } as Creep;
+    const claimer = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } }
+    } as Creep;
     const otherColonyWorker = { memory: { role: 'worker', colony: 'W2N2' } } as Creep;
     const unassigned = { memory: {} } as Creep;
 
-    expect(countCreepsByRole([worker, otherColonyWorker, unassigned], 'W1N1')).toEqual({
-      worker: 1
+    expect(countCreepsByRole([worker, claimer, otherColonyWorker, unassigned], 'W1N1')).toEqual({
+      worker: 1,
+      claimer: 1,
+      claimersByTargetRoom: { W2N1: 1 }
     });
   });
 
@@ -36,7 +41,30 @@ describe('countCreepsByRole', () => {
         'W1N1'
       )
     ).toEqual({
-      worker: 2
+      worker: 2,
+      claimer: 0,
+      claimersByTargetRoom: {}
+    });
+  });
+
+  it('excludes colony claimers at replacement age from territory capacity', () => {
+    const healthyClaimer = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'claim' } },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+    } as Creep;
+    const expiringClaimer = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'claim' } },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE
+    } as Creep;
+    const foreignClaimer = {
+      memory: { role: 'claimer', colony: 'W2N2', territory: { targetRoom: 'W2N1', action: 'claim' } },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+    } as Creep;
+
+    expect(countCreepsByRole([healthyClaimer, expiringClaimer, foreignClaimer], 'W1N1')).toEqual({
+      worker: 0,
+      claimer: 1,
+      claimersByTargetRoom: { W2N1: 1 }
     });
   });
 });

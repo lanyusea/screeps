@@ -1,5 +1,7 @@
 const WORKER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 const WORKER_PATTERN_COST = 200;
+const TERRITORY_CONTROLLER_BODY: BodyPartConstant[] = ['claim', 'move'];
+export const TERRITORY_CONTROLLER_BODY_COST = 650;
 const MAX_CREEP_PARTS = 50;
 // General workers cover harvest, haul, build, and upgrade duties. Cap them at
 // four 200-energy patterns (800 energy) so early rooms do not sink capacity into
@@ -34,6 +36,14 @@ export function buildEmergencyWorkerBody(energyAvailable: number): BodyPartConst
   }
 
   return [...WORKER_PATTERN];
+}
+
+export function buildTerritoryControllerBody(energyAvailable: number): BodyPartConstant[] {
+  if (energyAvailable < TERRITORY_CONTROLLER_BODY_COST) {
+    return [];
+  }
+
+  return [...TERRITORY_CONTROLLER_BODY];
 }
 
 export function getBodyCost(body: BodyPartConstant[]): number {
