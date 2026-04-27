@@ -1,10 +1,10 @@
 # Active Work State
 
-Last updated: 2026-04-27T14:36:00+08:00
+Last updated: 2026-04-27T15:18:00+08:00
 
 ## Current active objective
 
-P0 agent operating-system health is repaired/watch-only in the current cron window: `/root/.hermes/cron/jobs.json` shows the continuation worker, P0 monitor, runtime summary, runtime alert, typed fanouts, 6h report, and Gameplay Evolution Review enabled with `workdir: null`, current `last_run_at`, and non-overdue `next_run_at` values at slice start. Normal development may proceed while routine P0 monitor watch continues. The active gameplay priority remains #29: PR #65's runtime KPI telemetry, PR #67's reducer, PR #68's persisted-artifact bridge, and PR #70's Pages/KPI report are merged on `main`. A 2026-04-27 default artifact scan still found `0` persisted `#runtime-summary ` lines, so the next #29 step is not another static report layer; it is a Codex-owned persistence/wiring slice that captures real in-game console summary lines into ignored local artifacts before wiring the 12h Gameplay Evolution and roadmap jobs to consume them. #61's durable finding-to-Codex bridge is done/watch. The competition-map vision ordering remains territory first, resource scale second, enemy kills third; foundation work outranks that order only when it blocks evidence, implementation, release, or rollback. Canonical operating contract: `docs/ops/agent-operating-system.md`. Vision contract: `docs/ops/project-vision.md`. Owner decisions on 2026-04-26: use the automated review口径 with no formal GitHub approval requirement, add every active agent PR to Project `screeps`, and let known P0 monitoring/routing/scheduler health block normal development and non-P0 merges until repaired/proven healthy.
+P0 agent operating-system health is repaired/watch-only in the current cron window: `/root/.hermes/cron/jobs.json` shows the continuation worker, P0 monitor, runtime summary, runtime alert, typed fanouts, 6h report, and Gameplay Evolution Review enabled with `workdir: null`, current `last_run_at`, and non-overdue `next_run_at` values at slice start. Normal development may proceed while routine P0 monitor watch continues. The active gameplay priority remains #29: PR #65's runtime KPI telemetry, PR #67's reducer, PR #68's persisted-artifact bridge, and PR #70's Pages/KPI report are merged on `main`. A 2026-04-27 default artifact scan still found `0` persisted `#runtime-summary ` lines, so the current Codex slice adds an offline persistence primitive for raw console captures; the next #29 step is live official-console wiring that feeds real in-game summary lines into ignored artifacts, then verifies a nonzero bridge scan before wiring the 12h Gameplay Evolution and roadmap jobs to consume them. #61's durable finding-to-Codex bridge is done/watch. The competition-map vision ordering remains territory first, resource scale second, enemy kills third; foundation work outranks that order only when it blocks evidence, implementation, release, or rollback. Canonical operating contract: `docs/ops/agent-operating-system.md`. Vision contract: `docs/ops/project-vision.md`. Owner decisions on 2026-04-26: use the automated review口径 with no formal GitHub approval requirement, add every active agent PR to Project `screeps`, and let known P0 monitoring/routing/scheduler health block normal development and non-P0 merges until repaired/proven healthy.
 
 ## Completed tasks
 
@@ -258,11 +258,12 @@ P0 agent operating-system health is repaired/watch-only in the current cron wind
 
 ### runtime-kpi-artifact-bridge
 
-- Status: merged to `main`; follow-up persistence gap documented
+- Status: merged to `main`; offline console persistence primitive added in current #29 slice, live official-console wiring still pending
 - Process notes: `docs/process/2026-04-27-runtime-kpi-artifact-bridge.md`, `docs/process/2026-04-27-kpi-persistence-wiring-checkpoint.md`
 - Pull request: https://github.com/lanyusea/screeps/pull/68
 - Implemented:
   - `scripts/screeps_runtime_kpi_artifact_bridge.py` scans files/directories for persisted `#runtime-summary ` lines, defaults to `/root/screeps/runtime-artifacts` and `/root/.hermes/cron/output`, tolerates missing dirs, and skips binary/oversized files.
+  - `scripts/screeps_runtime_summary_console_capture.py` reads stdin or saved console logs, writes only exact-prefix `#runtime-summary ` lines under `runtime-artifacts/runtime-summary-console/`, and emits counts/paths without artifact contents.
   - JSON output remains deterministic and adds source metadata without artifact contents: input paths, scanned files, matched files, runtime-summary line count, and skipped file paths/reasons.
   - `--format human` emits a concise source/reducer summary.
   - `scripts/test_screeps_runtime_kpi_artifact_bridge.py` covers file scanning, recursive directory scans, binary/oversized skips, default no-match/no-input behavior, reducer integration, and human output.
@@ -272,7 +273,7 @@ P0 agent operating-system health is repaired/watch-only in the current cron wind
   - 2026-04-27 default bridge check: scanned `71528` files, matched `0`, runtime-summary lines `0`, skipped `1643`; territory/resources/combat remain not instrumented until real in-game summary lines are persisted.
   - 2026-04-27 Pages generator dry run wrote `/tmp/screeps-pages-check/index.html`, `/tmp/screeps-pages-check/roadmap-data.json`, and `/tmp/screeps-roadmap-kpi-check.sqlite`; `enemy_kills` stayed `NULL`, `instrumented=0`, source `future ownership-aware combat reducer`.
 - Remaining next step:
-  - Run the Codex prompt in `docs/process/2026-04-27-kpi-persistence-wiring-checkpoint.md` to implement or wire a safe persistence path for real in-game `#runtime-summary ` console lines. Only after nonzero real summary lines are captured should a worker wire `python3 scripts/screeps_runtime_kpi_artifact_bridge.py` into the 12h Gameplay Evolution Review and roadmap KPI snapshot job prompts. Keep #29 active until that wiring is merged and observed.
+  - Wire a live official-console capture source or Hermes job prompt to `python3 scripts/screeps_runtime_summary_console_capture.py`, then prove `python3 scripts/screeps_runtime_kpi_artifact_bridge.py --format human` finds nonzero real `#runtime-summary ` lines. Only after that proof should a worker wire the bridge into the 12h Gameplay Evolution Review and roadmap KPI snapshot job prompts. Keep #29 active until that wiring is merged and observed.
 
 ## General production verification reminder
 
