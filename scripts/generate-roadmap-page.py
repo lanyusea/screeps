@@ -133,8 +133,17 @@ class KpiPoint:
     note: str
 
 
+def is_lfs_pointer(path: Path) -> bool:
+    try:
+        return path.exists() and path.read_bytes()[:128].startswith(b"version https://git-lfs.github.com/spec/v1")
+    except OSError:
+        return False
+
+
 def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    if is_lfs_pointer(db_path):
+        db_path.unlink()
     with sqlite3.connect(db_path) as conn:
         conn.executescript(
             """

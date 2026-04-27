@@ -1,11 +1,11 @@
 {
   "formatVersion": "roadmap-live-page-v1",
-  "publishedAt": "2026-04-27 13:06:03 CST",
-  "capturedAt": "2026-04-27T05:06:03Z",
+  "publishedAt": "2026-04-27 13:07:59 CST",
+  "capturedAt": "2026-04-27T05:07:59Z",
   "repo": {
     "slug": "lanyusea/screeps",
     "url": "https://github.com/lanyusea/screeps",
-    "head": "0df5835",
+    "head": "b8deeb3",
     "projectBoardUrl": "https://github.com/users/lanyusea/projects/3"
   },
   "game": {
@@ -564,7 +564,7 @@
   "kpiHistory": {
     "attack_count": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "attack_count",
         "label": "Attack events",
@@ -577,7 +577,7 @@
     ],
     "attack_damage": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "attack_damage",
         "label": "Attack damage",
@@ -590,7 +590,7 @@
     ],
     "creep_destroyed_count": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "creep_destroyed_count",
         "label": "Creeps destroyed",
@@ -603,7 +603,7 @@
     ],
     "defensive_readiness": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "defensive_readiness",
         "label": "Defensive readiness",
@@ -616,7 +616,7 @@
     ],
     "enemy_kills": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "enemy_kills",
         "label": "Enemy kills",
@@ -629,7 +629,7 @@
     ],
     "hostile_creep_count": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "hostile_creep_count",
         "label": "Hostile creeps",
@@ -642,7 +642,7 @@
     ],
     "hostile_structure_count": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "hostile_structure_count",
         "label": "Hostile structures",
@@ -655,7 +655,7 @@
     ],
     "object_destroyed_count": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "object_destroyed_count",
         "label": "Objects destroyed",
@@ -668,7 +668,7 @@
     ],
     "own_loss": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "combat",
         "metric": "own_loss",
         "label": "Own loss",
@@ -681,7 +681,7 @@
     ],
     "cpu_bucket": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "guardrails",
         "metric": "cpu_bucket",
         "label": "CPU bucket",
@@ -694,7 +694,7 @@
     ],
     "cpu_used": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "guardrails",
         "metric": "cpu_used",
         "label": "CPU used",
@@ -707,7 +707,7 @@
     ],
     "exceptions": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "guardrails",
         "metric": "exceptions",
         "label": "Loop exceptions",
@@ -720,7 +720,7 @@
     ],
     "resets": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "guardrails",
         "metric": "resets",
         "label": "Runtime resets",
@@ -733,7 +733,7 @@
     ],
     "spawn_collapse": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "guardrails",
         "metric": "spawn_collapse",
         "label": "Spawn collapse",
@@ -746,7 +746,7 @@
     ],
     "telemetry_silence": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "guardrails",
         "metric": "telemetry_silence",
         "label": "Telemetry silence",
@@ -759,7 +759,7 @@
     ],
     "dropped_energy": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "dropped_energy",
         "label": "Dropped energy",
@@ -772,7 +772,7 @@
     ],
     "harvest_delta": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "harvest_delta",
         "label": "Harvest delta",
@@ -785,7 +785,7 @@
     ],
     "harvested_energy": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "harvested_energy",
         "label": "Harvested energy",
@@ -798,7 +798,7 @@
     ],
     "remote_uptime": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "remote_uptime",
         "label": "Remote uptime",
@@ -811,7 +811,7 @@
     ],
     "source_count": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "source_count",
         "label": "Source count",
@@ -824,7 +824,7 @@
     ],
     "spawn_utilization": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "spawn_utilization",
         "label": "Spawn utilization",
@@ -837,7 +837,7 @@
     ],
     "stored_energy": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "stored_energy",
         "label": "Stored energy",
@@ -850,7 +850,7 @@
     ],
     "transferred_energy": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "transferred_energy",
         "label": "Transferred energy",
@@ -863,7 +863,7 @@
     ],
     "worker_carried_energy": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "resources",
         "metric": "worker_carried_energy",
         "label": "Worker carried",
@@ -876,7 +876,7 @@
     ],
     "controller_level": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "territory",
         "metric": "controller_level",
         "label": "Controller level",
@@ -889,7 +889,7 @@
     ],
     "controller_progress": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "territory",
         "metric": "controller_progress",
         "label": "Controller progress",
@@ -902,7 +902,7 @@
     ],
     "controller_progress_total": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "territory",
         "metric": "controller_progress_total",
         "label": "Controller progress total",
@@ -915,7 +915,7 @@
     ],
     "controller_ticks_to_downgrade": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "territory",
         "metric": "controller_ticks_to_downgrade",
         "label": "Downgrade timer",
@@ -928,7 +928,7 @@
     ],
     "owned_rooms": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "territory",
         "metric": "owned_rooms",
         "label": "Owned rooms",
@@ -941,7 +941,7 @@
     ],
     "reserved_rooms": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "territory",
         "metric": "reserved_rooms",
         "label": "Reserved rooms",
@@ -954,7 +954,7 @@
     ],
     "room_gain": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "territory",
         "metric": "room_gain",
         "label": "Room gain",
@@ -967,7 +967,7 @@
     ],
     "room_loss": [
       {
-        "captured_at": "2026-04-27T05:06:03Z",
+        "captured_at": "2026-04-27T05:07:59Z",
         "domain": "territory",
         "metric": "room_loss",
         "label": "Room loss",
