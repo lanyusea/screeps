@@ -24,6 +24,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'upgrade', targetId: controller.id };
   }
 
+  if (controller && shouldRushRcl1Controller(controller)) {
+    return { type: 'upgrade', targetId: controller.id };
+  }
+
   const [constructionSite] = creep.room.find(FIND_CONSTRUCTION_SITES);
   if (constructionSite) {
     return { type: 'build', targetId: constructionSite.id };
@@ -42,6 +46,10 @@ function shouldGuardControllerDowngrade(controller: StructureController | undefi
     typeof controller.ticksToDowngrade === 'number' &&
     controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS
   );
+}
+
+function shouldRushRcl1Controller(controller: StructureController): boolean {
+  return controller.my === true && controller.level === 1;
 }
 
 function selectHarvestSource(creep: Creep): Source | null {

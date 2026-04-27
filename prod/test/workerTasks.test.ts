@@ -104,11 +104,31 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
-  it('keeps normal build-before-upgrade priority when controller downgrade is safe', () => {
+  it('selects RCL1 controller upgrade before construction when downgrade is safe', () => {
     const site = { id: 'site1' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
+      level: 1,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === 2 ? [site] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps RCL2 build-before-upgrade priority when controller downgrade is safe', () => {
+    const site = { id: 'site1' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const creep = {
@@ -122,11 +142,12 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
-  it('selects upgrade before build when an owned controller is near downgrade', () => {
+  it('keeps low-downgrade guard above construction at RCL2', () => {
     const site = { id: 'site1' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
+      level: 2,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
     } as StructureController;
     const creep = {
@@ -138,6 +159,37 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps spawn refill priority over RCL1 controller rush', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const site = { id: 'site1' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 1,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === 3) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return type === 2 ? [site] : [];
+        })
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
   it('keeps spawn refill priority over the downgrade guard', () => {
