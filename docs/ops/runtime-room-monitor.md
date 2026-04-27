@@ -120,6 +120,22 @@ Offline pure-function tests:
 python3 scripts/screeps-runtime-monitor.py self-test
 ```
 
+## Runtime KPI console capture
+
+The room monitor renders official room summary and alert images; it does not persist in-game console output. When a Hermes worker or manual operator has raw Screeps console text, use the offline capture utility to write KPI evidence artifacts:
+
+```bash
+python3 scripts/screeps_runtime_summary_console_capture.py saved-console.log
+```
+
+The default output directory is:
+
+```text
+/root/screeps/runtime-artifacts/runtime-summary-console
+```
+
+Only lines starting exactly `#runtime-summary ` are written. Embedded, quoted, timestamp-prefixed, or noisy markers are skipped. The next live #29 wiring step is to feed an authenticated official console capture stream or saved console output into this utility; do not add cron jobs or print tokens from this runbook step.
+
 Live smoke:
 
 ```bash
