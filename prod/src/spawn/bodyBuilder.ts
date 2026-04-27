@@ -1,6 +1,10 @@
 const WORKER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 const WORKER_PATTERN_COST = 200;
 const MAX_CREEP_PARTS = 50;
+// General workers cover harvest, haul, build, and upgrade duties. Cap them at
+// four 200-energy patterns (800 energy) so early rooms do not sink capacity into
+// oversized unspecialized bodies before dedicated roles exist.
+const MAX_WORKER_PATTERN_COUNT = 4;
 const BODY_PART_COSTS: Record<BodyPartConstant, number> = {
   move: 50,
   work: 100,
@@ -19,7 +23,7 @@ export function buildWorkerBody(energyAvailable: number): BodyPartConstant[] {
 
   const maxPatternCountByEnergy = Math.floor(energyAvailable / WORKER_PATTERN_COST);
   const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / WORKER_PATTERN.length);
-  const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize);
+  const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize, MAX_WORKER_PATTERN_COUNT);
 
   return Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
 }

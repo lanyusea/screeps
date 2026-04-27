@@ -199,6 +199,7 @@ function canSatisfyWorkerCapacity(creep) {
 
 // src/tasks/workerTasks.ts
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
+var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 function selectWorkerTask(creep) {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   if (carriedEnergy === 0) {
@@ -227,7 +228,7 @@ function selectWorkerTask(creep) {
   if (extensionConstructionSite) {
     return { type: "build", targetId: extensionConstructionSite.id };
   }
-  if (controller && shouldGuardRcl2ControllerProgress(controller)) {
+  if (controller && shouldSustainControllerProgress(creep, controller)) {
     return { type: "upgrade", targetId: controller.id };
   }
   if (constructionSites[0]) {
@@ -258,8 +259,39 @@ function shouldGuardControllerDowngrade(controller) {
 function shouldRushRcl1Controller(controller) {
   return controller.my === true && controller.level === 1;
 }
-function shouldGuardRcl2ControllerProgress(controller) {
-  return controller.my === true && controller.level === 2;
+function shouldSustainControllerProgress(creep, controller) {
+  if (controller.my !== true || controller.level < 2) {
+    return false;
+  }
+  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  return loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS && !loadedWorkers.some((worker) => worker !== creep && isUpgradingController(worker, controller));
+}
+function getSameRoomLoadedWorkers(creep) {
+  const loadedWorkers = getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
+  if (!loadedWorkers.includes(creep) && getUsedEnergy(creep) > 0) {
+    loadedWorkers.push(creep);
+  }
+  return loadedWorkers;
+}
+function isSameRoomWorkerWithEnergy(creep, room) {
+  var _a;
+  return ((_a = creep.memory) == null ? void 0 : _a.role) === "worker" && isInRoom(creep, room) && getUsedEnergy(creep) > 0;
+}
+function isInRoom(creep, room) {
+  var _a;
+  if (typeof room.name === "string" && room.name.length > 0) {
+    return ((_a = creep.room) == null ? void 0 : _a.name) === room.name;
+  }
+  return creep.room === room;
+}
+function getUsedEnergy(creep) {
+  var _a, _b, _c;
+  return (_c = (_b = (_a = creep.store) == null ? void 0 : _a.getUsedCapacity) == null ? void 0 : _b.call(_a, RESOURCE_ENERGY)) != null ? _c : 0;
+}
+function isUpgradingController(creep, controller) {
+  var _a;
+  const task = (_a = creep.memory) == null ? void 0 : _a.task;
+  return (task == null ? void 0 : task.type) === "upgrade" && task.targetId === controller.id;
 }
 function selectHarvestSource(creep) {
   var _a, _b;
@@ -317,6 +349,11 @@ function runWorker(creep) {
     assignNextTask(creep);
     return;
   }
+  if (shouldPreemptRcl2UpgradeTask(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
   const task = creep.memory.task;
   const target = Game.getObjectById(task.targetId);
   if (!target) {
@@ -357,6 +394,18 @@ function shouldReplaceTask(creep, task) {
   }
   return usedEnergy === 0;
 }
+function shouldPreemptRcl2UpgradeTask(creep, task) {
+  var _a;
+  if (task.type !== "upgrade") {
+    return false;
+  }
+  const controller = (_a = creep.room) == null ? void 0 : _a.controller;
+  if ((controller == null ? void 0 : controller.my) !== true || controller.level !== 2) {
+    return false;
+  }
+  const nextTask = selectWorkerTask(creep);
+  return nextTask !== null && (nextTask.type !== task.type || nextTask.targetId !== task.targetId);
+}
 function shouldReplaceTarget(task, target) {
   return task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0;
 }
@@ -377,6 +426,7 @@ function executeTask(creep, task, target) {
 var WORKER_PATTERN = ["work", "carry", "move"];
 var WORKER_PATTERN_COST = 200;
 var MAX_CREEP_PARTS = 50;
+var MAX_WORKER_PATTERN_COUNT = 4;
 var BODY_PART_COSTS = {
   move: 50,
   work: 100,
@@ -393,7 +443,7 @@ function buildWorkerBody(energyAvailable) {
   }
   const maxPatternCountByEnergy = Math.floor(energyAvailable / WORKER_PATTERN_COST);
   const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / WORKER_PATTERN.length);
-  const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize);
+  const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize, MAX_WORKER_PATTERN_COUNT);
   return Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
 }
 function buildEmergencyWorkerBody(energyAvailable) {

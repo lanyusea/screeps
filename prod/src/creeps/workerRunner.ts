@@ -12,6 +12,12 @@ export function runWorker(creep: Creep): void {
     return;
   }
 
+  if (shouldPreemptRcl2UpgradeTask(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
+
   const task = creep.memory.task;
   const target = Game.getObjectById(task.targetId);
   if (!target) {
@@ -58,6 +64,20 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   }
 
   return usedEnergy === 0;
+}
+
+function shouldPreemptRcl2UpgradeTask(creep: Creep, task: CreepTaskMemory): boolean {
+  if (task.type !== 'upgrade') {
+    return false;
+  }
+
+  const controller = creep.room?.controller;
+  if (controller?.my !== true || controller.level !== 2) {
+    return false;
+  }
+
+  const nextTask = selectWorkerTask(creep);
+  return nextTask !== null && (nextTask.type !== task.type || nextTask.targetId !== task.targetId);
 }
 
 function shouldReplaceTarget(task: CreepTaskMemory, target: Source | AnyStoreStructure | ConstructionSite | StructureController): boolean {
