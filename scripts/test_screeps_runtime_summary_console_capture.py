@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -88,6 +89,48 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             self.assertEqual(result.persisted_line_count, 0)
             self.assertEqual(result.output_path, None)
             self.assertFalse(out_dir.exists())
+
+    def test_does_not_overwrite_artifact_created_before_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
+            output_path = out_dir / "capture.log"
+            temp_path = out_dir / ".capture.log.tmp"
+            competing_artifact = "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":999}\n"
+            captured_artifact = "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":1}\n"
+            original_open = Path.open
+
+            class CreateCompetingArtifactOnClose:
+                def __init__(self, wrapped: object) -> None:
+                    self.wrapped = wrapped
+
+                def __enter__(self) -> object:
+                    return self.wrapped.__enter__()
+
+                def __exit__(self, exc_type: object, exc: object, tb: object) -> object:
+                    result = self.wrapped.__exit__(exc_type, exc, tb)
+                    if exc_type is None:
+                        output_path.write_text(competing_artifact, encoding="utf-8")
+                    return result
+
+            def open_with_publish_race(path: Path, *args: object, **kwargs: object) -> object:
+                opened = original_open(path, *args, **kwargs)
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == temp_path and mode == "x":
+                    return CreateCompetingArtifactOnClose(opened)
+                return opened
+
+            with mock.patch.object(Path, "open", open_with_publish_race):
+                result = capture.persist_runtime_summary_artifact(
+                    input_paths=[],
+                    out_dir=out_dir,
+                    artifact_name="capture.log",
+                    stdin=io.StringIO(captured_artifact),
+                )
+
+            self.assertEqual(output_path.read_text(encoding="utf-8"), competing_artifact)
+            self.assertEqual(result.output_path, out_dir / "capture-2.log")
+            self.assertEqual(result.output_path.read_text(encoding="utf-8"), captured_artifact)
+            self.assertFalse(temp_path.exists())
 
     def test_cli_emits_counts_without_artifact_contents(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

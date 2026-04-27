@@ -78,15 +78,16 @@ def validate_artifact_name(name: str) -> str:
     return name
 
 
-def unique_artifact_path(path: Path) -> Path:
-    if not path.exists():
-        return path
-
+def iter_artifact_path_candidates(path: Path) -> Iterable[Path]:
+    yield path
     for index in range(2, 1000):
-        candidate = path.with_name(f"{path.stem}-{index}{path.suffix}")
+        yield path.with_name(f"{path.stem}-{index}{path.suffix}")
+
+
+def unique_artifact_path(path: Path) -> Path:
+    for candidate in iter_artifact_path_candidates(path):
         if not candidate.exists():
             return candidate
-
     raise FileExistsError(f"could not choose a unique artifact path for {path}")
 
 
@@ -103,7 +104,18 @@ def resolve_output_path(
     return unique_artifact_path(out_dir.expanduser() / name)
 
 
-def write_artifact(path: Path, lines: list[str]) -> None:
+def link_artifact_exclusively(temp_path: Path, path: Path) -> Path:
+    for candidate in iter_artifact_path_candidates(path):
+        try:
+            os.link(temp_path, candidate)
+            return candidate
+        except FileExistsError:
+            continue
+
+    raise FileExistsError(f"could not choose a unique artifact path for {path}")
+
+
+def write_artifact(path: Path, lines: list[str]) -> Path:
     if path.exists():
         raise FileExistsError(f"artifact already exists: {path}")
 
@@ -112,13 +124,12 @@ def write_artifact(path: Path, lines: list[str]) -> None:
     try:
         with temp_path.open("x", encoding="utf-8") as output:
             output.writelines(lines)
-        temp_path.replace(path)
-    except BaseException:
+        return link_artifact_exclusively(temp_path, path)
+    finally:
         try:
             temp_path.unlink()
         except OSError:
             pass
-        raise
 
 
 def persist_runtime_summary_artifact(
@@ -150,7 +161,7 @@ def persist_runtime_summary_artifact(
         )
 
     output_path = resolve_output_path(out_dir=out_dir, out_file=out_file, artifact_name=artifact_name, now=now)
-    write_artifact(output_path, persisted_lines)
+    output_path = write_artifact(output_path, persisted_lines)
 
     return PersistResult(
         input_paths=paths,
