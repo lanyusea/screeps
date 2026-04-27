@@ -228,6 +228,30 @@ def resolve_host_ports(args: argparse.Namespace) -> tuple[int, int]:
     return http_port, cli_port
 
 
+def host_ports_are_default(http_port: int, cli_port: int) -> bool:
+    """Return whether selected host ports match the pinned default stack."""
+    return http_port == DEFAULT_HTTP_PORT and cli_port == DEFAULT_CLI_PORT
+
+
+def default_work_dir_for_ports(http_port: int, cli_port: int) -> Path:
+    """Return the default smoke workdir for the selected host ports."""
+    if host_ports_are_default(http_port, cli_port):
+        return DEFAULT_WORK_DIR
+    return DEFAULT_WORK_DIR.with_name(f"{DEFAULT_WORK_DIR.name}-{http_port}-{cli_port}")
+
+
+def assert_host_port_work_dir_isolated(work_dir: Path, http_port: int, cli_port: int) -> None:
+    """Reject alternate host ports when they explicitly reuse the default workdir."""
+    if host_ports_are_default(http_port, cli_port):
+        return
+    if work_dir.resolve() == DEFAULT_WORK_DIR.resolve():
+        derived = default_work_dir_for_ports(http_port, cli_port)
+        raise SmokeError(
+            "non-default host ports cannot reuse the default private-smoke work dir; "
+            f"omit --work-dir to use {derived} or pass a distinct --work-dir"
+        )
+
+
 def env_bool(name: str, default: bool) -> bool:
     """Read a permissive boolean environment variable."""
     raw = os.environ.get(name)
@@ -348,14 +372,15 @@ def prepare_container_writable_work_dir(cfg: SmokeConfig) -> list[str]:
 
 def config_from_env(args: argparse.Namespace) -> SmokeConfig:
     """Build a SmokeConfig from CLI arguments and environment variables."""
-    work_dir = resolve_path(
-        args.work_dir or os.environ.get("SCREEPS_PRIVATE_SMOKE_WORKDIR"),
-        DEFAULT_WORK_DIR,
-    )
-    assert work_dir is not None
-    assert_safe_work_dir(work_dir)
     server_host = os.environ.get("SCREEPS_PRIVATE_SMOKE_HOST", "127.0.0.1")
     http_port, cli_port = resolve_host_ports(args)
+    work_dir = resolve_path(
+        args.work_dir or os.environ.get("SCREEPS_PRIVATE_SMOKE_WORKDIR"),
+        default_work_dir_for_ports(http_port, cli_port),
+    )
+    assert work_dir is not None
+    assert_host_port_work_dir_isolated(work_dir, http_port, cli_port)
+    assert_safe_work_dir(work_dir)
     username = os.environ.get("SCREEPS_PRIVATE_SMOKE_USERNAME", DEFAULT_USERNAME)
     room = os.environ.get("SCREEPS_PRIVATE_SMOKE_ROOM", DEFAULT_ROOM)
     shard = os.environ.get("SCREEPS_PRIVATE_SMOKE_SHARD", DEFAULT_SHARD)
@@ -695,6 +720,7 @@ def prepare_work_dir(cfg: SmokeConfig) -> dict[str, Any]:
         write_generated_bytes(cfg.work_dir, cfg.bot_main_path, cfg.code_path.read_bytes())
     return {
         "work_dir": str(cfg.work_dir),
+        "compose_project": cfg.compose_project,
         "config": str(cfg.config_path),
         "compose": str(cfg.compose_path),
         "ports": {
@@ -1200,6 +1226,7 @@ def run_live(cfg: SmokeConfig) -> dict[str, Any]:
         "dry_run": False,
         "started_at": started_at,
         "work_dir": str(cfg.work_dir),
+        "compose_project": cfg.compose_project,
         "server_url": cfg.server_url,
         "ports": {
             "host": {"http": cfg.http_port, "cli": cfg.cli_port},
@@ -1373,6 +1400,7 @@ def run_dry(cfg: SmokeConfig) -> dict[str, Any]:
         "ok": True,
         "dry_run": True,
         "work_dir": str(dry_cfg.work_dir),
+        "compose_project": dry_cfg.compose_project,
         "server_url": dry_cfg.server_url,
         "ports": {
             "host": {"http": dry_cfg.http_port, "cli": dry_cfg.cli_port},
@@ -1850,6 +1878,128 @@ class SmokeSelfTest(unittest.TestCase):
             if old_steam_key is not None:
                 os.environ["STEAM_KEY"] = old_steam_key
         self.assertTrue(any("STEAM_KEY" in error for error in errors))
+
+    def test_default_ports_use_pinned_default_work_dir(self) -> None:
+        """The pinned default port pair should keep the historical workdir/project."""
+        env_names = (
+            "SCREEPS_PRIVATE_SMOKE_WORKDIR",
+            "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+            "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+            "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            "SCREEPS_PRIVATE_SMOKE_COMPOSE_PROJECT",
+        )
+        old_values = {name: os.environ.get(name) for name in env_names}
+        try:
+            for name in env_names:
+                os.environ.pop(name, None)
+            cfg = config_from_env(self.make_args(dry_run=True, work_dir=None))
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        expected_seed = hashlib.sha1(str(DEFAULT_WORK_DIR).encode("utf-8")).hexdigest()[:8]
+        self.assertEqual(cfg.work_dir, DEFAULT_WORK_DIR)
+        self.assertEqual(cfg.compose_project, f"screeps-private-smoke-{expected_seed}")
+
+    def test_alternate_ports_derive_distinct_default_work_dir_and_project(self) -> None:
+        """Alternate host ports should not target the pinned default stack by default."""
+        env_names = (
+            "SCREEPS_PRIVATE_SMOKE_WORKDIR",
+            "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+            "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+            "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            "SCREEPS_PRIVATE_SMOKE_COMPOSE_PROJECT",
+        )
+        old_values = {name: os.environ.get(name) for name in env_names}
+        try:
+            for name in env_names:
+                os.environ.pop(name, None)
+            default_cfg = config_from_env(self.make_args(dry_run=True, work_dir=None))
+            dry_cfg = config_from_env(
+                self.make_args(dry_run=True, work_dir=None, host_http_port=22125, host_cli_port=22126)
+            )
+            live_cfg = config_from_env(
+                self.make_args(dry_run=False, work_dir=None, host_http_port=22125, host_cli_port=22126)
+            )
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        expected_work_dir = DEFAULT_WORK_DIR.with_name("screeps-private-smoke-22125-22126")
+        self.assertEqual(dry_cfg.work_dir, expected_work_dir)
+        self.assertEqual(live_cfg.work_dir, expected_work_dir)
+        self.assertNotEqual(dry_cfg.work_dir, default_cfg.work_dir)
+        self.assertNotEqual(dry_cfg.compose_project, default_cfg.compose_project)
+        self.assertEqual(dry_cfg.server_url, "http://127.0.0.1:22125")
+        self.assertEqual(live_cfg.server_url, "http://127.0.0.1:22125")
+
+    def test_alternate_ports_reject_explicit_default_work_dir(self) -> None:
+        """Live alternate ports should fail safely if pinned to the default workdir."""
+        env_names = (
+            "SCREEPS_PRIVATE_SMOKE_WORKDIR",
+            "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+            "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+            "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            "SCREEPS_PRIVATE_SMOKE_COMPOSE_PROJECT",
+        )
+        old_values = {name: os.environ.get(name) for name in env_names}
+        try:
+            for name in env_names:
+                os.environ.pop(name, None)
+            with self.assertRaisesRegex(SmokeError, "cannot reuse the default private-smoke work dir"):
+                config_from_env(
+                    self.make_args(
+                        dry_run=False,
+                        work_dir=str(DEFAULT_WORK_DIR),
+                        host_http_port=22125,
+                        host_cli_port=22126,
+                    )
+                )
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+    def test_alternate_ports_allow_explicit_non_default_work_dir(self) -> None:
+        """Live alternate ports can use a caller-supplied isolated workdir."""
+        env_names = (
+            "SCREEPS_PRIVATE_SMOKE_WORKDIR",
+            "SCREEPS_PRIVATE_SMOKE_HOST_PORT_START",
+            "SCREEPS_PRIVATE_SMOKE_HTTP_PORT",
+            "SCREEPS_PRIVATE_SMOKE_CLI_PORT",
+            "SCREEPS_PRIVATE_SMOKE_COMPOSE_PROJECT",
+        )
+        old_values = {name: os.environ.get(name) for name in env_names}
+        try:
+            for name in env_names:
+                os.environ.pop(name, None)
+            with tempfile.TemporaryDirectory() as temp_dir:
+                cfg = config_from_env(
+                    self.make_args(
+                        dry_run=False,
+                        work_dir=temp_dir,
+                        host_http_port=22125,
+                        host_cli_port=22126,
+                    )
+                )
+        finally:
+            for name, value in old_values.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(cfg.work_dir, Path(temp_dir).resolve())
+        self.assertEqual(cfg.http_port, 22125)
+        self.assertEqual(cfg.cli_port, 22126)
 
     def test_config_from_cli_host_port_start_sets_host_pair(self) -> None:
         """CLI port-start should configure adjacent host HTTP/CLI ports."""
@@ -2443,7 +2593,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dry_parser.add_argument(
         "--work-dir",
-        help=f"Ignored local work directory. Default: {DEFAULT_WORK_DIR}",
+        help=(
+            f"Ignored local work directory. Default: {DEFAULT_WORK_DIR}; "
+            "non-default host ports derive a port-specific default workdir."
+        ),
     )
     dry_parser.add_argument(
         "--host-port-start",
@@ -2483,7 +2636,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--work-dir",
-        help=f"Ignored local work directory. Default: {DEFAULT_WORK_DIR}",
+        help=(
+            f"Ignored local work directory. Default: {DEFAULT_WORK_DIR}; "
+            "non-default host ports derive a port-specific default workdir."
+        ),
     )
     run_parser.add_argument(
         "--host-port-start",
