@@ -151,8 +151,9 @@ def normalize_api_url(raw_url: str) -> str:
         raise DeployError("SCREEPS_API_URL must not include credentials")
     if parsed.query or parsed.fragment:
         raise DeployError("SCREEPS_API_URL must not include query strings or fragments")
-    path = parsed.path.rstrip("/")
-    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+    if parsed.path.rstrip("/"):
+        raise DeployError("SCREEPS_API_URL must not include path prefixes")
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
 
 
 def require_https_api_url(api_url: str) -> None:

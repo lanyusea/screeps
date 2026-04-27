@@ -88,7 +88,9 @@ class OfficialDeployTest(unittest.TestCase):
         with self.assertRaisesRegex(deploy.DeployError, "https://screeps.com"):
             deploy.normalize_api_url("http://localhost:21025/")
         with self.assertRaisesRegex(deploy.DeployError, "https://screeps.com"):
-            deploy.normalize_api_url("ftp://screeps.com")
+            deploy.normalize_api_url("https://example.com")
+        with self.assertRaisesRegex(deploy.DeployError, "path prefixes"):
+            deploy.normalize_api_url("https://screeps.com/api")
 
     def test_artifact_metadata_reports_hash_and_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
