@@ -75,6 +75,24 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
         self.assertEqual(report["input"]["runtimeSummaryCount"], 2)
         self.assertEqual(report["window"], {"firstTick": 10, "latestTick": 20})
 
+    def test_default_out_dir_matches_bridge_default_runtime_artifacts_tree(self) -> None:
+        expected = Path("/root/screeps/runtime-artifacts/runtime-summary-console")
+
+        self.assertEqual(capture.DEFAULT_OUT_DIR, expected)
+        self.assertIn(str(expected.parent), bridge.DEFAULT_INPUT_PATHS)
+        self.assertEqual(Path(capture.build_parser().parse_args([]).out_dir), expected)
+
+        env_override = Path("/tmp/runtime-summary-console-env")
+        with mock.patch.dict(capture.os.environ, {capture.OUT_DIR_ENV: str(env_override)}):
+            self.assertEqual(Path(capture.build_parser().parse_args([]).out_dir), env_override)
+
+        cli_override = Path("/tmp/runtime-summary-console-cli")
+        with mock.patch.dict(capture.os.environ, {capture.OUT_DIR_ENV: str(env_override)}):
+            self.assertEqual(
+                Path(capture.build_parser().parse_args(["--out-dir", str(cli_override)]).out_dir),
+                cli_override,
+            )
+
     def test_does_not_write_artifact_when_no_summary_lines_match(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
@@ -90,36 +108,50 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             self.assertEqual(result.output_path, None)
             self.assertFalse(out_dir.exists())
 
+    def test_temp_path_collision_does_not_drop_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
+            output_path = out_dir / "capture.log"
+            vulnerable_temp_path = out_dir / ".capture.log.tmp"
+            captured_artifact = "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":1}\n"
+            original_open = Path.open
+
+            def open_with_temp_collision(path: Path, *args: object, **kwargs: object) -> object:
+                mode = args[0] if args else kwargs.get("mode", "r")
+                if path == vulnerable_temp_path and mode == "x":
+                    vulnerable_temp_path.write_text("competing temp\n", encoding="utf-8")
+                    raise FileExistsError(vulnerable_temp_path)
+                return original_open(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "open", open_with_temp_collision):
+                result = capture.persist_runtime_summary_artifact(
+                    input_paths=[],
+                    out_dir=out_dir,
+                    artifact_name="capture.log",
+                    stdin=io.StringIO(captured_artifact),
+                )
+
+            self.assertEqual(result.output_path, output_path)
+            self.assertEqual(output_path.read_text(encoding="utf-8"), captured_artifact)
+
     def test_does_not_overwrite_artifact_created_before_publish(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             out_dir = Path(temp_dir) / "runtime-artifacts" / "runtime-summary-console"
             output_path = out_dir / "capture.log"
-            temp_path = out_dir / ".capture.log.tmp"
             competing_artifact = "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":999}\n"
             captured_artifact = "#runtime-summary {\"type\":\"runtime-summary\",\"tick\":1}\n"
-            original_open = Path.open
+            original_link = capture.os.link
+            state = {"raced": False}
 
-            class CreateCompetingArtifactOnClose:
-                def __init__(self, wrapped: object) -> None:
-                    self.wrapped = wrapped
+            def link_with_publish_race(src: object, dst: object, *args: object, **kwargs: object) -> object:
+                destination = Path(dst)
+                if destination == output_path and not state["raced"]:
+                    state["raced"] = True
+                    output_path.write_text(competing_artifact, encoding="utf-8")
+                    raise FileExistsError(output_path)
+                return original_link(src, dst, *args, **kwargs)
 
-                def __enter__(self) -> object:
-                    return self.wrapped.__enter__()
-
-                def __exit__(self, exc_type: object, exc: object, tb: object) -> object:
-                    result = self.wrapped.__exit__(exc_type, exc, tb)
-                    if exc_type is None:
-                        output_path.write_text(competing_artifact, encoding="utf-8")
-                    return result
-
-            def open_with_publish_race(path: Path, *args: object, **kwargs: object) -> object:
-                opened = original_open(path, *args, **kwargs)
-                mode = args[0] if args else kwargs.get("mode", "r")
-                if path == temp_path and mode == "x":
-                    return CreateCompetingArtifactOnClose(opened)
-                return opened
-
-            with mock.patch.object(Path, "open", open_with_publish_race):
+            with mock.patch.object(capture.os, "link", link_with_publish_race):
                 result = capture.persist_runtime_summary_artifact(
                     input_paths=[],
                     out_dir=out_dir,
@@ -130,7 +162,7 @@ class RuntimeSummaryConsoleCaptureTest(unittest.TestCase):
             self.assertEqual(output_path.read_text(encoding="utf-8"), competing_artifact)
             self.assertEqual(result.output_path, out_dir / "capture-2.log")
             self.assertEqual(result.output_path.read_text(encoding="utf-8"), captured_artifact)
-            self.assertFalse(temp_path.exists())
+            self.assertEqual(list(out_dir.glob(".capture.log.*")), [])
 
     def test_cli_emits_counts_without_artifact_contents(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

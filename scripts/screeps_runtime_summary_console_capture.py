@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,8 +17,7 @@ from typing import Iterable, TextIO
 import screeps_runtime_kpi_reducer as reducer
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_OUT_DIR = REPO_ROOT / "runtime-artifacts" / "runtime-summary-console"
+DEFAULT_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-summary-console")
 OUT_DIR_ENV = "SCREEPS_RUNTIME_SUMMARY_CONSOLE_OUT_DIR"
 OUT_FILE_ENV = "SCREEPS_RUNTIME_SUMMARY_CONSOLE_OUT_FILE"
 SAFE_ARTIFACT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -120,14 +120,23 @@ def write_artifact(path: Path, lines: list[str]) -> Path:
         raise FileExistsError(f"artifact already exists: {path}")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = unique_artifact_path(path.with_name(f".{path.name}.tmp"))
+    temp_fd: int | None = None
+    temp_path: Path | None = None
     try:
-        with temp_path.open("x", encoding="utf-8") as output:
+        temp_fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        temp_path = Path(temp_name)
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as output:
+            temp_fd = None
             output.writelines(lines)
+            output.flush()
+            os.fsync(output.fileno())
         return link_artifact_exclusively(temp_path, path)
     finally:
+        if temp_fd is not None:
+            os.close(temp_fd)
         try:
-            temp_path.unlink()
+            if temp_path is not None:
+                temp_path.unlink()
         except OSError:
             pass
 
