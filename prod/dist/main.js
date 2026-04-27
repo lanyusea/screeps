@@ -206,7 +206,7 @@ function selectWorkerTask(creep) {
     return source ? { type: "harvest", targetId: source.id } : null;
   }
   const [energySink] = creep.room.find(FIND_MY_STRUCTURES, {
-    filter: (structure) => (structure.structureType === STRUCTURE_SPAWN || structure.structureType === STRUCTURE_EXTENSION) && "store" in structure && structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+    filter: isFillableEnergySink
   });
   if (energySink) {
     return { type: "transfer", targetId: energySink.id };
@@ -215,17 +215,32 @@ function selectWorkerTask(creep) {
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: "upgrade", targetId: controller.id };
   }
+  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+  const spawnConstructionSite = constructionSites.find(isSpawnConstructionSite);
+  if (spawnConstructionSite) {
+    return { type: "build", targetId: spawnConstructionSite.id };
+  }
   if (controller && shouldRushRcl1Controller(controller)) {
     return { type: "upgrade", targetId: controller.id };
   }
-  const [constructionSite] = creep.room.find(FIND_CONSTRUCTION_SITES);
-  if (constructionSite) {
-    return { type: "build", targetId: constructionSite.id };
+  if (constructionSites[0]) {
+    return { type: "build", targetId: constructionSites[0].id };
   }
   if (controller == null ? void 0 : controller.my) {
     return { type: "upgrade", targetId: controller.id };
   }
   return null;
+}
+function isFillableEnergySink(structure) {
+  return (matchesStructureType(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure && structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+}
+function isSpawnConstructionSite(site) {
+  return matchesStructureType(site.structureType, "STRUCTURE_SPAWN", "spawn");
+}
+function matchesStructureType(actual, globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 function shouldGuardControllerDowngrade(controller) {
   return (controller == null ? void 0 : controller.my) === true && typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;

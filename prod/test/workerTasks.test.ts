@@ -104,8 +104,39 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
-  it('selects RCL1 controller upgrade before construction when downgrade is safe', () => {
-    const site = { id: 'site1' } as ConstructionSite;
+  it('selects RCL1 controller upgrade before non-spawn construction when downgrade is safe', () => {
+    const fullSpawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const site = { id: 'site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 1,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === 3) {
+            const structures = [fullSpawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return type === 2 ? [site] : [];
+        })
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('builds spawn construction before RCL1 controller rush', () => {
+    const site = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -120,7 +151,31 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
+  });
+
+  it('builds spawn construction before RCL1 rush when STRUCTURE_SPAWN is missing from the mock globals', () => {
+    delete (globalThis as unknown as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN;
+    const site = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 1,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        controller,
+        find: jest.fn((type) => (type === 2 ? [site] : []))
+      }
+    } as unknown as Creep;
+    let task: CreepTaskMemory | null | undefined;
+
+    expect(() => {
+      task = selectWorkerTask(creep);
+    }).not.toThrow();
+    expect(task).toEqual({ type: 'build', targetId: 'spawn-site1' });
   });
 
   it('keeps RCL2 build-before-upgrade priority when controller downgrade is safe', () => {
