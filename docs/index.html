@@ -1,23 +1,23 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hans">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Screeps Roadmap Live Report</title>
+  <title>Hermes Screeps Project Roadmap Report</title>
   <style>
 
 :root {
   color-scheme: light;
-  --ink: #172026;
-  --muted: #52616b;
-  --paper: #f4f7f8;
-  --surface: #ffffff;
-  --line: #d7e0e5;
-  --gold: #b7791f;
-  --green: #18876f;
-  --red: #b8433f;
-  --blue: #2563a7;
-  --shadow: 0 14px 34px rgba(23, 32, 38, 0.1);
+  --ink: #211d18;
+  --muted: #76685c;
+  --paper: #f2ece2;
+  --card: #fffdf7;
+  --line: #d8c7b3;
+  --line-soft: #e8dacb;
+  --copper: #a56a36;
+  --copper-dark: #875322;
+  --green: #4f7b43;
+  --shadow: 0 18px 36px rgba(91, 64, 34, 0.11);
 }
 
 * {
@@ -29,1685 +29,830 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.5;
+  line-height: 1.38;
 }
 
 a {
   color: inherit;
+  text-decoration: none;
 }
 
-.poster {
+.page-shell {
+  width: min(100%, 1600px);
+  margin: 0 auto;
+  padding: 62px 48px 72px;
+}
+
+.hero {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 280px);
+  grid-template-columns: minmax(0, 1fr) 390px;
   align-items: center;
-  gap: 36px;
-  padding: clamp(28px, 5vw, 58px);
-  border-bottom: 1px solid var(--line);
+  min-height: 390px;
+  gap: 40px;
+  overflow: hidden;
+  border-radius: 30px;
+  padding: 34px 36px;
   background:
-    linear-gradient(135deg, rgba(24, 135, 111, 0.12), rgba(37, 99, 167, 0.08)),
-    var(--surface);
-}
-
-.poster-copy {
-  max-width: 980px;
+    radial-gradient(circle at 88% 44%, rgba(255, 255, 255, 0.58) 0 118px, rgba(255, 255, 255, 0.24) 119px 174px, transparent 175px),
+    linear-gradient(105deg, #fffaf0 0%, #f7eddd 58%, #e8d3b8 100%);
+  box-shadow: var(--shadow);
 }
 
 .eyebrow {
-  margin: 0 0 12px;
-  color: var(--green);
-  font-size: 0.8rem;
+  margin: 0 0 10px;
+  color: var(--copper-dark);
+  font-size: 1.03rem;
   font-weight: 800;
-  letter-spacing: 0;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 h1 {
-  max-width: 980px;
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(2.35rem, 5vw, 5.2rem);
-  line-height: 1;
+  max-width: 930px;
+  font-size: clamp(4.3rem, 5.7vw, 5.6rem);
+  font-weight: 900;
   letter-spacing: 0;
+  line-height: 0.91;
+}
+
+h1 span {
+  display: block;
 }
 
 .summary {
-  max-width: 760px;
-  margin: 28px 0 0;
-  color: #33434c;
-  font-size: clamp(1rem, 1.5vw, 1.25rem);
+  max-width: 850px;
+  margin: 20px 0 0;
+  color: #665242;
+  font-size: 1.45rem;
+  font-weight: 500;
 }
 
-.published {
-  margin: 18px 0 0;
-  color: var(--muted);
-  font-size: 0.95rem;
-}
-
-.brand-logo {
-  width: min(100%, 220px);
-  justify-self: end;
-  filter: drop-shadow(0 14px 30px rgba(23, 32, 38, 0.16));
-}
-
-.link-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 28px;
-}
-
-.link-row a,
-.link-row .link-status,
-.card-link {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 9px 13px;
-  background: rgba(255, 255, 255, 0.82);
-  color: var(--ink);
-  font-size: 0.92rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.link-row .link-status {
-  display: inline-flex;
-}
-
-main {
-  padding: 42px clamp(18px, 4vw, 64px) 80px;
-}
-
-.section {
-  margin: 0 auto 48px;
-  max-width: 1320px;
-}
-
-.section-header {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 18px;
-}
-
-.section-header h2 {
-  margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(1.9rem, 3vw, 3rem);
-  letter-spacing: 0;
-}
-
-.section-header p {
-  max-width: 620px;
-  margin: 0;
-  color: var(--muted);
-}
-
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 14px;
-}
-
-.metric-card,
-.roadmap-card,
-.kanban-card,
-.process-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.metric-card {
-  min-height: 220px;
-  padding: 18px;
-}
-
-.metric-top {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.metric-label {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-  font-weight: 800;
-}
-
-.metric-value {
-  margin: 10px 0 0;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(1.9rem, 4vw, 3.1rem);
-  line-height: 1;
-  overflow-wrap: anywhere;
-}
-
-.metric-unit {
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 0.86rem;
-}
-
-.status {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  border-radius: 999px;
-  padding: 4px 9px;
-  color: #fff;
-  font-size: 0.76rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.status.observed {
-  background: var(--green);
-}
-
-.status.not-observed {
-  background: var(--blue);
-}
-
-.status.not-instrumented {
-  background: var(--red);
-}
-
-.sparkline {
-  width: 100%;
-  height: 68px;
-  margin-top: 18px;
-}
-
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
-}
-
-.roadmap-card {
-  position: relative;
-  min-height: 190px;
-  padding: 18px;
-}
-
-.roadmap-card h3,
-.kanban-card h4 {
-  margin: 0;
-  font-size: 1rem;
-  line-height: 1.35;
-}
-
-.meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.hero-meta {
   margin-top: 14px;
 }
 
-.pill {
+.hero-meta p,
+.published {
+  margin: 7px 0;
+  color: var(--muted);
+  font-size: 1.02rem;
+  font-weight: 650;
+}
+
+.hero-meta strong,
+.published strong {
+  color: var(--copper-dark);
+  font-weight: 900;
+}
+
+.hero-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-logo {
+  position: relative;
+  z-index: 1;
+  width: 288px;
+  height: 288px;
+  justify-self: center;
+  object-fit: cover;
+  box-shadow: 0 25px 36px rgba(46, 31, 17, 0.18);
+}
+
+.logo-badge {
+  position: absolute;
+  right: 18px;
+  bottom: 24px;
+  z-index: 2;
+  border-radius: 999px;
+  padding: 8px 17px;
+  background: rgba(255, 243, 220, 0.86);
+  color: var(--copper-dark);
+  font-weight: 900;
+  box-shadow: 0 8px 20px rgba(73, 48, 24, 0.12);
+}
+
+main {
+  margin-top: 28px;
+}
+
+.section {
+  margin-top: 26px;
+}
+
+.section-title {
+  margin: 0 0 14px;
+  font-size: 2.15rem;
+  line-height: 1.08;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.kpi-report-grid,
+.roadmap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 17px;
+}
+
+.chart-card,
+.roadmap-card,
+.kanban-column,
+.process-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 253, 247, 0.86);
+  box-shadow: 0 12px 26px rgba(72, 48, 24, 0.06);
+}
+
+.chart-card {
+  min-height: 374px;
+  padding: 18px;
+}
+
+.card-heading,
+.column-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chart-card h3,
+.roadmap-card h3,
+.kanban-column h3 {
+  margin: 0;
+  font-size: 1.48rem;
+  line-height: 1.12;
+  font-weight: 900;
+}
+
+.chart-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.mini-pill {
+  flex: 0 0 auto;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 4px 8px;
+  padding: 7px 12px;
+  background: #f3e7d7;
+  color: var(--copper-dark);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.chart-svg {
+  width: 100%;
+  height: 244px;
+  margin-top: 8px;
+  overflow: visible;
+}
+
+.chart-footer {
+  margin: 3px 0 0;
   color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.92rem;
+  font-weight: 520;
 }
 
-.card-link {
-  display: inline-flex;
-  margin-top: 18px;
+.roadmap-card {
+  display: block;
+  min-height: 188px;
+  padding: 18px;
 }
 
-.empty {
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  padding: 22px;
+.roadmap-card:hover,
+.kanban-item:hover {
+  border-color: #bd9f7b;
+}
+
+.roadmap-table {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 7px 16px;
+  margin-top: 8px;
+  font-size: 1rem;
+}
+
+.roadmap-label {
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.72);
+  font-weight: 900;
 }
 
-.notice {
-  border-left: 5px solid var(--blue);
-  border-radius: 8px;
-  padding: 16px 18px;
-  background: #edf4f8;
-  color: #2d3d46;
+.progress-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-top: 13px;
 }
 
-.notice strong {
-  color: var(--ink);
+.progress-value {
+  color: var(--copper-dark);
+  font-size: 1.18rem;
+  font-weight: 800;
 }
 
-.kanban-lane {
-  margin-top: 24px;
+.progress-track {
+  height: 11px;
+  overflow: hidden;
+  border: 1px solid #d4c0a9;
+  border-radius: 999px;
+  background: #efe5d7;
 }
 
-.kanban-lane h3 {
-  margin: 0 0 12px;
-  color: var(--ink);
-  font-size: 1.2rem;
+.progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #bd844b, #8f5d2c);
+}
+
+.roadmap-status {
+  margin-top: 13px;
+  color: var(--green);
+  font-size: 0.95rem;
+  font-weight: 900;
 }
 
 .kanban-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(190px, 1fr));
-  gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .kanban-column {
-  min-width: 190px;
-  border-top: 3px solid var(--gold);
-  padding-top: 10px;
-}
-
-.kanban-column-title {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.kanban-card {
-  display: block;
-  margin-bottom: 10px;
+  min-height: 335px;
   padding: 12px;
-  color: var(--ink);
-  text-decoration: none;
-  box-shadow: none;
+  background: rgba(250, 245, 238, 0.72);
 }
 
-.kanban-card h4 {
-  font-size: 0.92rem;
+.column-heading {
+  margin-bottom: 10px;
+}
+
+.column-count {
+  color: var(--copper-dark);
+  font-size: 1.08rem;
+  font-weight: 900;
+}
+
+.kanban-item {
+  position: relative;
+  display: block;
+  min-height: 88px;
+  margin-top: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  padding: 12px 40px 12px 12px;
+  background: var(--card);
+}
+
+.kanban-item h4 {
+  margin: 0;
+  font-size: 0.94rem;
+  line-height: 1.16;
+  font-weight: 900;
+}
+
+.kanban-item p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.22;
+}
+
+.kanban-priority {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: var(--copper-dark);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.kanban-empty {
+  display: grid;
+  min-height: 88px;
+  margin-top: 10px;
+  place-items: center;
+  border: 1px dashed #d7bea4;
+  border-radius: 12px;
+  color: #9f846a;
+  font-size: 1.08rem;
 }
 
 .process-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 17px;
 }
 
 .process-card {
-  padding: 16px;
-  box-shadow: none;
+  min-height: 138px;
+  padding: 19px 18px 14px;
 }
 
 .process-value {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 2.4rem;
+  color: var(--copper-dark);
+  font-size: 3rem;
   line-height: 1;
-  overflow-wrap: anywhere;
-}
-
-.process-value-text {
-  font-family: inherit;
-  font-size: 1rem;
   font-weight: 900;
-  line-height: 1.25;
 }
 
 .process-label {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-weight: 800;
+  margin: 10px 0 0;
+  color: #4d4136;
+  font-size: 1rem;
+  font-weight: 650;
 }
 
-@media (max-width: 760px) {
-  .poster {
-    min-height: auto;
+.process-detail {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.83rem;
+}
+
+.process-chip {
+  float: right;
+  margin-top: -3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #f6ead9;
+  color: var(--copper-dark);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.report-footer {
+  margin-top: 28px;
+  color: #9a8775;
+  font-size: 0.86rem;
+  text-align: right;
+}
+
+@media (max-width: 1180px) {
+  .kpi-report-grid,
+  .roadmap-grid,
+  .process-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+
+  .brand-logo {
+    width: 230px;
+    height: 230px;
+  }
+
+  .kanban-grid {
+    overflow-x: auto;
+    grid-template-columns: repeat(4, minmax(260px, 1fr));
+    padding-bottom: 4px;
+  }
+}
+
+@media (max-width: 820px) {
+  .page-shell {
+    padding: 24px 16px 42px;
+  }
+
+  .hero,
+  .kpi-report-grid,
+  .roadmap-grid,
+  .process-grid {
     grid-template-columns: 1fr;
-    gap: 28px;
+  }
+
+  .hero {
+    min-height: auto;
+    padding: 26px 22px;
+  }
+
+  h1 {
+    font-size: 3.3rem;
+  }
+
+  .summary {
+    font-size: 1.1rem;
   }
 
   .brand-logo {
     justify-self: start;
-    width: 160px;
+    width: 190px;
+    height: 190px;
   }
 
-  .section-header {
-    display: block;
-  }
-
-  .section-header p {
-    margin-top: 8px;
+  .logo-badge {
+    left: 126px;
+    right: auto;
+    bottom: 14px;
   }
 }
 
   </style>
 </head>
 <body>
-  <header class="poster">
-    <div class="poster-copy">
-      <p class="eyebrow">Screeps: World automation roadmap</p>
-      <h1>Screeps Roadmap Live Report</h1>
-      <p class="summary">A static Pages dashboard for the live roadmap: territory first, resource scale second, enemy-kill capability third, with reliability guardrails called out when evidence is missing.</p>
-      <nav class="link-row" aria-label="Project links">
-        <a href="https://github.com/lanyusea/screeps">GitHub repository</a>
-        <a href="https://github.com/users/lanyusea/projects/3">Project board</a>
-        <a href="https://screeps.com/a/#!/room/shardX/E48S28" title="Target room from the AGENTS.md official deployment target.">Target room: shardX/E48S28 (official target)</a>
-        <a href="https://discord.gg/XenFZG9bCE">Discord</a>
-        <a href="https://lanyusea.github.io/screeps/">Pages URL</a>
-      </nav>
-      <p class="published">Published 2026-04-27T06:03:19Z</p>
-    </div>
-    <img class="brand-logo" src="assets/screeps-community-logo.png" alt="Screeps community logo">
-  </header>
+  <div class="page-shell">
 
-  <main>
-
-    <section class="section" id="kpi-territory">
-      <div class="section-header">
-        <h2>Territory</h2>
-        <p>Control, expansion, controller progress, and downgrade pressure remain the first-priority outcome surface.</p>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">PERSISTENT MMO AI COLONY · AUTONOMOUS ROADMAP</p>
+        <h1><span>Hermes Screeps Project</span><span>Roadmap Report</span></h1>
+        <p class="summary">用真实游戏 KPI 驱动 bot 能力、策略开发、基建门禁和发版节奏。</p>
+        <div class="hero-meta">
+          <p><strong>Project</strong> · 长期运行的 Screeps: World AI / 自动化运营项目。</p>
+          <p><strong>Links</strong> · <a href="https://github.com/lanyusea/screeps">https://github.com/lanyusea/screeps</a> · <a href="https://screeps.com/">https://screeps.com/</a></p>
+          <p><strong>Target</strong> · Official MMO shardX / E48S28 · 地盘 &gt; 资源 &gt; 击杀。</p>
+        </div>
+        <p class="published"><strong>PUBLISHED</strong> · 2026-04-27 15:14:03 CST</p>
       </div>
-      <div class="kpi-grid">
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Owned rooms</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">rooms · runtime-summary rooms</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Owned-room delta</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">rooms/window · runtime-summary rooms</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Reserved / remote rooms</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">rooms · future room-footprint telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Controller level sum</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">RCL · runtime-summary controller fields</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Controller progress delta</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">progress/window · runtime-summary controller fields</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
+      <div class="hero-art">
+        <img class="brand-logo" src="assets/screeps-community-logo.png" alt="Screeps community logo">
+        <div class="logo-badge">KPI/Kanban · 454e2cf</div>
       </div>
-    </section>
+    </header>
 
+    <main>
 
-    <section class="section" id="kpi-resources">
-      <div class="section-header">
-        <h2>Resources / Economy</h2>
-        <p>Economy metrics show whether territory is converting into stored energy, harvest flow, and spawn capacity.</p>
-      </div>
-      <div class="kpi-grid">
+      <section class="section" id="kpi">
+        <h2 class="section-title">01 游戏内部 KPI · 7d 趋势</h2>
+        <div class="kpi-report-grid">
 
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Stored energy</p>
-              <p class="metric-value">not instrumented</p>
+          <article class="chart-card">
+            <div class="card-heading">
+              <div>
+                <h3>地盘 / Territory</h3>
+                <p>owned rooms · RCL · room gain</p>
+              </div>
+              <span class="mini-pill">rooms/RCL</span>
             </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">energy · runtime-summary resource fields</div>
 
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
+            <svg class="chart-svg" role="img" aria-label="地盘 / Territory 7 day trend" viewBox="0 0 560 260">
+              <text x="70.0" y="12" fill="#9a5d25" font-size="14" font-weight="900">rooms/RCL</text>
+              <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="195.0" text-anchor="end" fill="#8b6d55" font-size="15">0</text><line x1="70.0" y1="107.0" x2="500.0" y2="107.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="112.0" text-anchor="end" fill="#8b6d55" font-size="15">1.5</text><line x1="70.0" y1="24.0" x2="500.0" y2="24.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="29.0" text-anchor="end" fill="#8b6d55" font-size="15">3</text>
+              <line x1="70.0" y1="24.0" x2="70.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
+              <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
+              <polyline fill="none" stroke="#9f6a3a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" points="70.0,134.7 141.7,134.7 213.3,134.7 285.0,134.7 356.7,134.7 428.3,134.7 500.0,134.7"/><circle cx="70.0" cy="134.7" r="4" fill="#9f6a3a"/><text x="70.0" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><circle cx="141.7" cy="134.7" r="4" fill="#9f6a3a"/><text x="141.7" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><circle cx="213.3" cy="134.7" r="4" fill="#9f6a3a"/><text x="213.3" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><circle cx="285.0" cy="134.7" r="4" fill="#9f6a3a"/><text x="285.0" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><circle cx="356.7" cy="134.7" r="4" fill="#9f6a3a"/><text x="356.7" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><circle cx="428.3" cy="134.7" r="4" fill="#9f6a3a"/><text x="428.3" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><circle cx="500.0" cy="134.7" r="4" fill="#9f6a3a"/><text x="500.0" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><polyline fill="none" stroke="#77716a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" points="70.0,24.0 141.7,24.0 213.3,24.0 285.0,24.0 356.7,24.0 428.3,24.0 500.0,24.0"/><circle cx="70.0" cy="24.0" r="4" fill="#77716a"/><text x="70.0" y="46.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">3</text><circle cx="141.7" cy="24.0" r="4" fill="#77716a"/><text x="141.7" y="46.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">3</text><circle cx="213.3" cy="24.0" r="4" fill="#77716a"/><text x="213.3" y="46.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">3</text><circle cx="285.0" cy="24.0" r="4" fill="#77716a"/><text x="285.0" y="46.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">3</text><circle cx="356.7" cy="24.0" r="4" fill="#77716a"/><text x="356.7" y="46.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">3</text><circle cx="428.3" cy="24.0" r="4" fill="#77716a"/><text x="428.3" y="46.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">3</text><circle cx="500.0" cy="24.0" r="4" fill="#77716a"/><text x="500.0" y="46.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">3</text><polyline fill="none" stroke="#c8945a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 6" points="70.0,190.0 141.7,190.0 213.3,190.0 285.0,190.0 356.7,190.0 428.3,190.0 500.0,190.0"/><circle cx="70.0" cy="190.0" r="4" fill="#c8945a"/><text x="70.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="141.7" cy="190.0" r="4" fill="#c8945a"/><text x="141.7" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="213.3" cy="190.0" r="4" fill="#c8945a"/><text x="213.3" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="285.0" cy="190.0" r="4" fill="#c8945a"/><text x="285.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="356.7" cy="190.0" r="4" fill="#c8945a"/><text x="356.7" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="428.3" cy="190.0" r="4" fill="#c8945a"/><text x="428.3" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="500.0" cy="190.0" r="4" fill="#c8945a"/><text x="500.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text>
+              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/21</text>
+<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/22</text>
+<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/23</text>
+<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/24</text>
+<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
+<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
+<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
+              <line x1="8" y1="250" x2="30" y2="250" stroke="#9f6a3a" stroke-width="3"/><text x="38" y="255" fill="#4f443a" font-size="14">Owned rooms</text><line x1="172" y1="250" x2="194" y2="250" stroke="#77716a" stroke-width="3"/><text x="202" y="255" fill="#4f443a" font-size="14">RCL</text><line x1="314" y1="250" x2="336" y2="250" stroke="#c8945a" stroke-width="3" stroke-dasharray="6 6"/><text x="344" y="255" fill="#4f443a" font-size="14">Room gain</text>
+            </svg>
 
-        </article>
+            <p class="chart-footer">7d 历史仍在接入；当前点来自 official room monitor / Project evidence。</p>
+          </article>
 
 
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Stored-energy delta</p>
-              <p class="metric-value">not instrumented</p>
+          <article class="chart-card">
+            <div class="card-heading">
+              <div>
+                <h3>资源 / Resources</h3>
+                <p>stored energy · harvest delta · carried energy</p>
+              </div>
+              <span class="mini-pill">energy</span>
             </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">energy/window · runtime-summary resource fields</div>
 
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
+            <svg class="chart-svg" role="img" aria-label="资源 / Resources 7 day trend" viewBox="0 0 560 260">
+              <text x="70.0" y="12" fill="#9a5d25" font-size="14" font-weight="900">energy</text>
+              <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="195.0" text-anchor="end" fill="#8b6d55" font-size="15">0</text><line x1="70.0" y1="107.0" x2="500.0" y2="107.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="112.0" text-anchor="end" fill="#8b6d55" font-size="15">0.5</text><line x1="70.0" y1="24.0" x2="500.0" y2="24.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="29.0" text-anchor="end" fill="#8b6d55" font-size="15">1</text>
+              <line x1="70.0" y1="24.0" x2="70.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
+              <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
+              <polyline fill="none" stroke="#25211c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="70.0,190.0 141.7,190.0 213.3,190.0 285.0,190.0 356.7,190.0 428.3,190.0 500.0,190.0"/><circle cx="70.0" cy="190.0" r="4" fill="#25211c"/><text x="70.0" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="141.7" cy="190.0" r="4" fill="#25211c"/><text x="141.7" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="213.3" cy="190.0" r="4" fill="#25211c"/><text x="213.3" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="285.0" cy="190.0" r="4" fill="#25211c"/><text x="285.0" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="356.7" cy="190.0" r="4" fill="#25211c"/><text x="356.7" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="428.3" cy="190.0" r="4" fill="#25211c"/><text x="428.3" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="500.0" cy="190.0" r="4" fill="#25211c"/><text x="500.0" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><polyline fill="none" stroke="#66605a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="70.0,190.0 141.7,190.0 213.3,190.0 285.0,190.0 356.7,190.0 428.3,190.0 500.0,190.0"/><circle cx="70.0" cy="190.0" r="4" fill="#66605a"/><text x="70.0" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="141.7" cy="190.0" r="4" fill="#66605a"/><text x="141.7" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="213.3" cy="190.0" r="4" fill="#66605a"/><text x="213.3" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="285.0" cy="190.0" r="4" fill="#66605a"/><text x="285.0" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="356.7" cy="190.0" r="4" fill="#66605a"/><text x="356.7" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="428.3" cy="190.0" r="4" fill="#66605a"/><text x="428.3" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="500.0" cy="190.0" r="4" fill="#66605a"/><text x="500.0" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><polyline fill="none" stroke="#c8945a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 6" points="70.0,190.0 141.7,190.0 213.3,190.0 285.0,190.0 356.7,190.0 428.3,190.0 500.0,190.0"/><circle cx="70.0" cy="190.0" r="4" fill="#c8945a"/><text x="70.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="141.7" cy="190.0" r="4" fill="#c8945a"/><text x="141.7" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="213.3" cy="190.0" r="4" fill="#c8945a"/><text x="213.3" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="285.0" cy="190.0" r="4" fill="#c8945a"/><text x="285.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="356.7" cy="190.0" r="4" fill="#c8945a"/><text x="356.7" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="428.3" cy="190.0" r="4" fill="#c8945a"/><text x="428.3" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="500.0" cy="190.0" r="4" fill="#c8945a"/><text x="500.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text>
+              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/21</text>
+<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/22</text>
+<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/23</text>
+<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/24</text>
+<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
+<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
+<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
+              <line x1="8" y1="250" x2="30" y2="250" stroke="#25211c" stroke-width="3"/><text x="38" y="255" fill="#4f443a" font-size="14">Stored energy</text><line x1="172" y1="250" x2="194" y2="250" stroke="#66605a" stroke-width="3"/><text x="202" y="255" fill="#4f443a" font-size="14">Harvest delta</text><line x1="336" y1="250" x2="358" y2="250" stroke="#c8945a" stroke-width="3" stroke-dasharray="6 6"/><text x="366" y="255" fill="#4f443a" font-size="14">Worker carried</text>
+            </svg>
 
-        </article>
+            <p class="chart-footer">PR #65 已加入资源字段；reducer/7d 聚合仍属 #29。</p>
+          </article>
 
 
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Worker carried energy</p>
-              <p class="metric-value">not instrumented</p>
+          <article class="chart-card">
+            <div class="card-heading">
+              <div>
+                <h3>击杀 / Combat</h3>
+                <p>enemy kills · hostile count · own loss</p>
+              </div>
+              <span class="mini-pill">events</span>
             </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">energy · runtime-summary resource fields</div>
 
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Dropped energy</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">energy · runtime-summary resource fields</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Source count</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">sources · runtime-summary resource fields</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Harvested energy</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">energy/window · runtime-summary resource events</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Transferred energy</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">energy/window · runtime-summary resource events</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Spawn utilization</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">ratio · future spawn telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Spawn queue pressure</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">requests · future spawn telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-      </div>
-    </section>
-
-
-    <section class="section" id="kpi-combat">
-      <div class="section-header">
-        <h2>Combat / Enemy Kills</h2>
-        <p>Combat metrics stay conservative: generic destroy counts are shown separately, while enemy_kills remains empty until ownership-aware evidence exists.</p>
-      </div>
-      <div class="kpi-grid">
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Hostile creeps</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">creeps · runtime-summary combat fields</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Hostile structures</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">structures · runtime-summary combat fields</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Attack events</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">events/window · runtime-summary combat events</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Attack damage</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">damage/window · runtime-summary combat events</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Objects destroyed</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">objects/window · runtime-summary combat events</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Creeps destroyed, generic</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">creeps/window · runtime-summary combat events</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Enemy kills</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">kills/window · future ownership-aware combat reducer</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Own losses</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">creeps/window · future ownership-aware combat reducer</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-      </div>
-    </section>
-
-
-    <section class="section" id="kpi-guardrails">
-      <div class="section-header">
-        <h2>Guardrails / Reliability</h2>
-        <p>Reliability metrics keep runtime health visible so short-term gains do not hide an unstable bot.</p>
-      </div>
-      <div class="kpi-grid">
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Runtime summary samples</p>
-              <p class="metric-value">0</p>
-            </div>
-            <span class="status observed">observed</span>
-          </div>
-          <div class="metric-unit">samples · runtime KPI artifact bridge</div>
-
-          <svg class="sparkline" role="img" aria-label="Metric history" viewBox="0 0 240 68">
-            <line x1="8" y1="56" x2="232" y2="56" stroke="#ded2c3" stroke-width="1"/>
-            <polyline fill="none" stroke="#244c73" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="8.0,33.0 40.0,33.0 72.0,33.0 104.0,33.0 136.0,33.0 168.0,33.0 200.0,33.0 232.0,33.0"/>
-            <circle cx="8.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="40.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="72.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="104.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="136.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="168.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="200.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="232.0" cy="33.0" r="3" fill="#244c73"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">KPI artifact files</p>
-              <p class="metric-value">0</p>
-            </div>
-            <span class="status observed">observed</span>
-          </div>
-          <div class="metric-unit">files · runtime KPI artifact bridge</div>
-
-          <svg class="sparkline" role="img" aria-label="Metric history" viewBox="0 0 240 68">
-            <line x1="8" y1="56" x2="232" y2="56" stroke="#ded2c3" stroke-width="1"/>
-            <polyline fill="none" stroke="#244c73" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="8.0,33.0 40.0,33.0 72.0,33.0 104.0,33.0 136.0,33.0 168.0,33.0 200.0,33.0 232.0,33.0"/>
-            <circle cx="8.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="40.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="72.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="104.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="136.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="168.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="200.0" cy="33.0" r="3" fill="#244c73"/>
-<circle cx="232.0" cy="33.0" r="3" fill="#244c73"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Downgrade risk</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">ticks · runtime-summary controller fields</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">CPU used</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">cpu · future reliability telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">CPU bucket</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">bucket · future reliability telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Runtime exceptions</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">exceptions · future reliability telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Global resets</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">resets · future reliability telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Telemetry silence</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">minutes · future reliability telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Alert false positives</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">alerts · future alert review telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Alert false negatives</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">alerts · future alert review telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-
-        <article class="metric-card">
-          <div class="metric-top">
-            <div>
-              <p class="metric-label">Worker recovery state</p>
-              <p class="metric-value">not instrumented</p>
-            </div>
-            <span class="status not-instrumented">not instrumented</span>
-          </div>
-          <div class="metric-unit">state · future reliability telemetry</div>
-
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
-
-        </article>
-
-      </div>
-    </section>
-
-
-
-    <section class="section" id="roadmap">
-      <div class="section-header">
-        <h2>Roadmap Cards</h2>
-        <p>Current roadmap work is linked to GitHub issues, pull requests, or Project items whenever a public URL is available.</p>
-      </div>
-      <div class="card-grid">
-        <article class="roadmap-card">
-          <h3>Establish dedicated QA acceptance-check agent gate</h3>
-          <div class="meta-row">
-            <span class="pill">#41</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Agent OS</span>
-            <span class="pill">P0: Agent OS / Discord visibility gate</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/issues/41">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>P0:P0 agent-ops:P0 监控与 Discord 路由健康需要持续验证</h3>
-          <div class="meta-row">
-            <span class="pill">#27</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Agent OS</span>
-            <span class="pill">P0: Agent OS / Discord visibility gate</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/issues/27">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>P0:P0 change-control:GitHub Milestones/Project roadmap source-of-truth 合同未入库</h3>
-          <div class="meta-row">
-            <span class="pill">#36</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Change-control</span>
-            <span class="pill">P0: Change-control / CI / branch protection gate</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/issues/36">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>P0:P0 change-control:main 分支保护与 CI 必过门禁尚未确认</h3>
-          <div class="meta-row">
-            <span class="pill">#26</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Change-control</span>
-            <span class="pill">P0: Change-control / CI / branch protection gate</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/issues/26">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>P0:P0 change-control:owner roadmap governance decisions need durable contract sync</h3>
-          <div class="meta-row">
-            <span class="pill">#47</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Change-control</span>
-            <span class="pill">P0: Change-control / CI / branch protection gate</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/issues/47">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>P0:P0 change-control:已知问题未强制进入 GitHub issue 与 PR 关联流程</h3>
-          <div class="meta-row">
-            <span class="pill">#22</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Change-control</span>
-            <span class="pill">P0: Change-control / CI / branch protection gate</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/issues/22">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>P0:P0 change-control:所有 agent 任务完成标准缺少 GitHub 状态更新门禁</h3>
-          <div class="meta-row">
-            <span class="pill">#39</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Change-control</span>
-            <span class="pill">P0: Change-control / CI / branch protection gate</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/issues/39">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>docs: record GitHub roadmap management contract</h3>
-          <div class="meta-row">
-            <span class="pill">#37</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Change-control</span>
-            <span class="pill">No milestone</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/pull/37">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>docs: record P0 cron finalization gap</h3>
-          <div class="meta-row">
-            <span class="pill">#53</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Agent OS</span>
-            <span class="pill">No milestone</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/pull/53">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>docs: record P0 scheduler recovery</h3>
-          <div class="meta-row">
-            <span class="pill">#54</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Agent OS</span>
-            <span class="pill">No milestone</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/pull/54">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>docs: record P0 visibility repair</h3>
-          <div class="meta-row">
-            <span class="pill">#21</span>
-            <span class="pill">P0</span>
-            <span class="pill">Done</span>
-            <span class="pill">foundation blocker</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Agent OS</span>
-            <span class="pill">No milestone</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/pull/21">Open on GitHub</a>
-        </article>
-
-
-        <article class="roadmap-card">
-          <h3>P1: Gameplay Evolution专项：vision-driven game-result review to roadmap/task loop</h3>
-          <div class="meta-row">
-            <span class="pill">#59</span>
-            <span class="pill">P1</span>
-            <span class="pill">In progress</span>
-            <span class="pill">territory</span>
-          </div>
-          <div class="meta-row">
-            <span class="pill">Docs/process</span>
-            <span class="pill">Phase C: Runtime telemetry / monitor gate</span>
-          </div>
-          <a class="card-link" href="https://github.com/lanyusea/screeps/issues/59">Open on GitHub</a>
-        </article>
-</div>
-    </section>
-
-
-    <section class="section" id="kanban">
-      <div class="section-header">
-        <h2>Gameplay / Foundation Kanban</h2>
-        <p>Gameplay cards serve territory, resources, and enemy-kill outcomes; foundation cards keep the autonomous delivery system safe.</p>
-      </div>
-
-      <div class="kanban-lane">
-        <h3>Gameplay</h3>
-        <div class="kanban-grid">
-
-          <div class="kanban-column">
-            <p class="kanban-column-title">Backlog</p>
-            <div class="empty">No cards</div>
-          </div>
-
-          <div class="kanban-column">
-            <p class="kanban-column-title">Ready</p>
-            <a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/30">
-            <h4>P1:Phase B:mock harness 缺少多 tick spawn.spawning 生命周期仿真</h4>
-            <div class="meta-row">
-              <span class="pill">#30</span>
-              <span class="pill">P1</span>
-              <span class="pill">resources</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/31">
-            <h4>P1:Phase B:zero-creep/insufficient-energy emergency recovery 覆盖需确认</h4>
-            <div class="meta-row">
-              <span class="pill">#31</span>
-              <span class="pill">P1</span>
-              <span class="pill">resources</span>
-            </div>
-</a>
-          </div>
-
-          <div class="kanban-column">
-            <p class="kanban-column-title">In progress</p>
-            <a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/59">
-            <h4>P1: Gameplay Evolution专项：vision-driven game-result review to roadmap/task loop</h4>
-            <div class="meta-row">
-              <span class="pill">#59</span>
-              <span class="pill">P1</span>
-              <span class="pill">territory</span>
-            </div>
-</a>
-          </div>
-
-          <div class="kanban-column">
-            <p class="kanban-column-title">In review</p>
-            <div class="empty">No cards</div>
-          </div>
-
-          <div class="kanban-column">
-            <p class="kanban-column-title">Done</p>
-            <a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/61">
-            <h4>P1: Phase B: gameplay findings do not yet bridge into Codex task pipeline</h4>
-            <div class="meta-row">
-              <span class="pill">#61</span>
-              <span class="pill">P1</span>
-              <span class="pill">resources</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/60">
-            <h4>P1: Phase C: 12h gameplay evolution review loop is not automated</h4>
-            <div class="meta-row">
-              <span class="pill">#60</span>
-              <span class="pill">P1</span>
-              <span class="pill">territory</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/64">
-            <h4>docs: add gameplay evolution roadmap</h4>
-            <div class="meta-row">
-              <span class="pill">#64</span>
-              <span class="pill">P1</span>
-              <span class="pill">territory</span>
-            </div>
-</a>
-          </div>
+            <svg class="chart-svg" role="img" aria-label="击杀 / Combat 7 day trend" viewBox="0 0 560 260">
+              <text x="70.0" y="12" fill="#9a5d25" font-size="14" font-weight="900">events</text>
+              <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="195.0" text-anchor="end" fill="#8b6d55" font-size="15">0</text><line x1="70.0" y1="107.0" x2="500.0" y2="107.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="112.0" text-anchor="end" fill="#8b6d55" font-size="15">0.5</text><line x1="70.0" y1="24.0" x2="500.0" y2="24.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="29.0" text-anchor="end" fill="#8b6d55" font-size="15">1</text>
+              <line x1="70.0" y1="24.0" x2="70.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
+              <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
+              <polyline fill="none" stroke="#25211c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="70.0,190.0 141.7,190.0 213.3,190.0 285.0,190.0 356.7,190.0 428.3,190.0 500.0,190.0"/><circle cx="70.0" cy="190.0" r="4" fill="#25211c"/><text x="70.0" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="141.7" cy="190.0" r="4" fill="#25211c"/><text x="141.7" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="213.3" cy="190.0" r="4" fill="#25211c"/><text x="213.3" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="285.0" cy="190.0" r="4" fill="#25211c"/><text x="285.0" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="356.7" cy="190.0" r="4" fill="#25211c"/><text x="356.7" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="428.3" cy="190.0" r="4" fill="#25211c"/><text x="428.3" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="500.0" cy="190.0" r="4" fill="#25211c"/><text x="500.0" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><polyline fill="none" stroke="#77716a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" points="70.0,190.0 141.7,190.0 213.3,190.0 285.0,190.0 356.7,190.0 428.3,190.0 500.0,190.0"/><circle cx="70.0" cy="190.0" r="4" fill="#77716a"/><text x="70.0" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="141.7" cy="190.0" r="4" fill="#77716a"/><text x="141.7" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="213.3" cy="190.0" r="4" fill="#77716a"/><text x="213.3" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="285.0" cy="190.0" r="4" fill="#77716a"/><text x="285.0" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="356.7" cy="190.0" r="4" fill="#77716a"/><text x="356.7" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="428.3" cy="190.0" r="4" fill="#77716a"/><text x="428.3" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="500.0" cy="190.0" r="4" fill="#77716a"/><text x="500.0" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><polyline fill="none" stroke="#c8945a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 6" points="70.0,190.0 141.7,190.0 213.3,190.0 285.0,190.0 356.7,190.0 428.3,190.0 500.0,190.0"/><circle cx="70.0" cy="190.0" r="4" fill="#c8945a"/><text x="70.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="141.7" cy="190.0" r="4" fill="#c8945a"/><text x="141.7" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="213.3" cy="190.0" r="4" fill="#c8945a"/><text x="213.3" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="285.0" cy="190.0" r="4" fill="#c8945a"/><text x="285.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="356.7" cy="190.0" r="4" fill="#c8945a"/><text x="356.7" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="428.3" cy="190.0" r="4" fill="#c8945a"/><text x="428.3" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="500.0" cy="190.0" r="4" fill="#c8945a"/><text x="500.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text>
+              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/21</text>
+<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/22</text>
+<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/23</text>
+<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/24</text>
+<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
+<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
+<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
+              <line x1="8" y1="250" x2="30" y2="250" stroke="#25211c" stroke-width="3"/><text x="38" y="255" fill="#4f443a" font-size="14">Enemy kills</text><line x1="172" y1="250" x2="194" y2="250" stroke="#77716a" stroke-width="3"/><text x="202" y="255" fill="#4f443a" font-size="14">Hostiles seen</text><line x1="336" y1="250" x2="358" y2="250" stroke="#c8945a" stroke-width="3" stroke-dasharray="6 6"/><text x="366" y="255" fill="#4f443a" font-size="14">Own loss</text>
+            </svg>
+
+            <p class="chart-footer">kill/loss 事件 7d reducer 未接入；当前 hostile monitor no-alert。</p>
+          </article>
 
         </div>
-      </div>
+      </section>
 
-      <div class="kanban-lane">
-        <h3>Foundation</h3>
-        <div class="kanban-grid">
 
-          <div class="kanban-column">
-            <p class="kanban-column-title">Backlog</p>
-            <a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/33">
-            <h4>P1:Phase E:官方 MMO 部署仍受私服 smoke release gate 阻塞</h4>
-            <div class="meta-row">
-              <span class="pill">#33</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/32">
-            <h4>P2:Phase C:alert-level telemetry 需要基于私服 smoke 失败模式补齐</h4>
-            <div class="meta-row">
-              <span class="pill">#32</span>
-              <span class="pill">P2</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-          </div>
+      <section class="section" id="roadmap">
+        <h2 class="section-title">02 开发 Roadmap · 六项状态</h2>
+        <div class="roadmap-grid">
 
-          <div class="kanban-column">
-            <p class="kanban-column-title">Ready</p>
-            <a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/62">
-            <h4>P1: Phase C: tactical emergency response is not wired to runtime alerts</h4>
-            <div class="meta-row">
-              <span class="pill">#62</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/59">
+            <h3>Gameplay Evolution</h3>
+            <div class="roadmap-table">
+              <span class="roadmap-label">目标</span><span>真实游戏结果驱动 roadmap / task / release</span>
+              <span class="roadmap-label">下个点</span><span>#59 统筹；#60 done；#61 bridge in progress</span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/63">
-            <h4>P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced</h4>
-            <div class="meta-row">
-              <span class="pill">#63</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
+            <div class="progress-row">
+              <span class="progress-value">10%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 10%"></span></span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/28">
-            <h4>P1:Phase D:私服 smoke harness clean live rerun 未完成</h4>
-            <div class="meta-row">
-              <span class="pill">#28</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-          </div>
+            <div class="roadmap-status">✓ 12h review job 已建；PR #66 在 review</div>
+          </a>
 
-          <div class="kanban-column">
-            <p class="kanban-column-title">In progress</p>
-            <a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/29">
-            <h4>P1:Phase C:runtime-summary/runtime-alert 定时监控投递尚未完成</h4>
-            <div class="meta-row">
-              <span class="pill">#29</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-          </div>
 
-          <div class="kanban-column">
-            <p class="kanban-column-title">In review</p>
-            <a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/70">
-            <h4>feat: add Codex-authored Pages roadmap report</h4>
-            <div class="meta-row">
-              <span class="pill">#70</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
+          <article class="roadmap-card">
+            <h3>Territory / 占地</h3>
+            <div class="roadmap-table">
+              <span class="roadmap-label">目标</span><span>先拿下并守住更大版图</span>
+              <span class="roadmap-label">下个点</span><span>owned/reserved/room gain/RCL KPI</span>
             </div>
-</a>
-          </div>
+            <div class="progress-row">
+              <span class="progress-value">15%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 15%"></span></span>
+            </div>
+            <div class="roadmap-status">✓ E48S28 Spawn1；多房间策略待开发</div>
+          </article>
 
-          <div class="kanban-column">
-            <p class="kanban-column-title">Done</p>
-            <a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/41">
-            <h4>Establish dedicated QA acceptance-check agent gate</h4>
-            <div class="meta-row">
-              <span class="pill">#41</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
+
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/29">
+            <h3>Resource Economy</h3>
+            <div class="roadmap-table">
+              <span class="roadmap-label">目标</span><span>把占地转换成能量、矿物、物流规模</span>
+              <span class="roadmap-label">下个点</span><span>harvest/transfer/store deltas</span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/27">
-            <h4>P0:P0 agent-ops:P0 监控与 Discord 路由健康需要持续验证</h4>
-            <div class="meta-row">
-              <span class="pill">#27</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
+            <div class="progress-row">
+              <span class="progress-value">15%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 15%"></span></span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/36">
-            <h4>P0:P0 change-control:GitHub Milestones/Project roadmap source-of-truth 合同未入库</h4>
-            <div class="meta-row">
-              <span class="pill">#36</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
+            <div class="roadmap-status">✓ PR #65 payload；#29 reducer 待接入</div>
+          </a>
+
+
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/62">
+            <h3>Combat / 敌人击杀</h3>
+            <div class="roadmap-table">
+              <span class="roadmap-label">目标</span><span>防御/进攻服务于领土和经济控制</span>
+              <span class="roadmap-label">下个点</span><span>event-log kills/losses + tactical bridge</span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/26">
-            <h4>P0:P0 change-control:main 分支保护与 CI 必过门禁尚未确认</h4>
-            <div class="meta-row">
-              <span class="pill">#26</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
+            <div class="progress-row">
+              <span class="progress-value">5%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 5%"></span></span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/47">
-            <h4>P0:P0 change-control:owner roadmap governance decisions need durable contract sync</h4>
-            <div class="meta-row">
-              <span class="pill">#47</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
+            <div class="roadmap-status">✓ #62 Ready；kill KPI reducer 未接入</div>
+          </a>
+
+
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/27">
+            <h3>Reliability / P0</h3>
+            <div class="roadmap-table">
+              <span class="roadmap-label">目标</span><span>自动化系统健康只在阻塞时压过游戏目标</span>
+              <span class="roadmap-label">下个点</span><span>P0 monitor watch / no silent scheduler failures</span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/22">
-            <h4>P0:P0 change-control:已知问题未强制进入 GitHub issue 与 PR 关联流程</h4>
-            <div class="meta-row">
-              <span class="pill">#22</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
+            <div class="progress-row">
+              <span class="progress-value">100%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 100%"></span></span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/39">
-            <h4>P0:P0 change-control:所有 agent 任务完成标准缺少 GitHub 状态更新门禁</h4>
-            <div class="meta-row">
-              <span class="pill">#39</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
+            <div class="roadmap-status">✓ #27 Done watch-only</div>
+          </a>
+
+
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/28">
+            <h3>Foundation Gates</h3>
+            <div class="roadmap-table">
+              <span class="roadmap-label">目标</span><span>私服验证 / release gate / official MMO</span>
+              <span class="roadmap-label">下个点</span><span>private smoke + release/hotfix evidence</span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/34">
-            <h4>chore: add issue and PR management templates</h4>
-            <div class="meta-row">
-              <span class="pill">#34</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
+            <div class="progress-row">
+              <span class="progress-value">85%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 85%"></span></span>
             </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/45">
-            <h4>ci: make prod verification required-check friendly</h4>
-            <div class="meta-row">
-              <span class="pill">#45</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/42">
-            <h4>docs: add QA acceptance gate</h4>
-            <div class="meta-row">
-              <span class="pill">#42</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/37">
-            <h4>docs: record GitHub roadmap management contract</h4>
-            <div class="meta-row">
-              <span class="pill">#37</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/53">
-            <h4>docs: record P0 cron finalization gap</h4>
-            <div class="meta-row">
-              <span class="pill">#53</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/54">
-            <h4>docs: record P0 scheduler recovery</h4>
-            <div class="meta-row">
-              <span class="pill">#54</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/21">
-            <h4>docs: record P0 visibility repair</h4>
-            <div class="meta-row">
-              <span class="pill">#21</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/38">
-            <h4>docs: record PR 37 merge checkpoint</h4>
-            <div class="meta-row">
-              <span class="pill">#38</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/46">
-            <h4>docs: record ci required gate completion</h4>
-            <div class="meta-row">
-              <span class="pill">#46</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/48">
-            <h4>docs: record owner governance decisions</h4>
-            <div class="meta-row">
-              <span class="pill">#48</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/43">
-            <h4>docs: record scheduler alert gap audit</h4>
-            <div class="meta-row">
-              <span class="pill">#43</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/49">
-            <h4>docs: record scheduler cadence audit</h4>
-            <div class="meta-row">
-              <span class="pill">#49</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/52">
-            <h4>docs: record scheduler cadence audit at 1948</h4>
-            <div class="meta-row">
-              <span class="pill">#52</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/50">
-            <h4>docs: record scheduler cadence audit follow-up</h4>
-            <div class="meta-row">
-              <span class="pill">#50</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/44">
-            <h4>docs: record scheduler cadence follow-up</h4>
-            <div class="meta-row">
-              <span class="pill">#44</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/56">
-            <h4>docs: record scheduler cadence regression</h4>
-            <div class="meta-row">
-              <span class="pill">#56</span>
-              <span class="pill">P0</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/23">
-            <h4>P1:Phase D:私服 smoke STEAM_KEY 文件权限曾导致容器不可读</h4>
-            <div class="meta-row">
-              <span class="pill">#23</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/66">
-            <h4>docs: define gameplay finding Codex bridge</h4>
-            <div class="meta-row">
-              <span class="pill">#66</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/55">
-            <h4>docs: prepare community-facing README</h4>
-            <div class="meta-row">
-              <span class="pill">#55</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/57">
-            <h4>docs: record P0 scheduler recovery checkpoint</h4>
-            <div class="meta-row">
-              <span class="pill">#57</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/58">
-            <h4>docs: record P0 scheduler repair completion</h4>
-            <div class="meta-row">
-              <span class="pill">#58</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/40">
-            <h4>docs: require GitHub state updates before agent completion</h4>
-            <div class="meta-row">
-              <span class="pill">#40</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/69">
-            <h4>feat: add GitHub Pages roadmap live report</h4>
-            <div class="meta-row">
-              <span class="pill">#69</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/68">
-            <h4>feat: add runtime KPI artifact bridge</h4>
-            <div class="meta-row">
-              <span class="pill">#68</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/67">
-            <h4>feat: add runtime KPI reducer</h4>
-            <div class="meta-row">
-              <span class="pill">#67</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/pull/65">
-            <h4>feat: add runtime KPI telemetry</h4>
-            <div class="meta-row">
-              <span class="pill">#65</span>
-              <span class="pill">P1</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-<a class="kanban-card" href="https://github.com/lanyusea/screeps/issues/24">
-            <h4>P2:Phase A:根目录 AGENT.md 指针文件已废弃但曾残留</h4>
-            <div class="meta-row">
-              <span class="pill">#24</span>
-              <span class="pill">P2</span>
-              <span class="pill">foundation blocker</span>
-            </div>
-</a>
-          </div>
+            <div class="roadmap-status">✓ #28 Ready；#63 Ready；#33 blocked</div>
+          </a>
 
         </div>
-      </div>
-
-    </section>
+      </section>
 
 
-    <section class="section" id="process">
-      <div class="section-header">
-        <h2>Process Metrics</h2>
-        <p>These numbers come from the current GitHub snapshot and are intentionally kept out of the SQLite KPI history.</p>
-      </div>
-      <div class="process-grid">
+      <section class="section" id="gameplay-kanban">
+        <h2 class="section-title">03 游戏策略开发 Kanban</h2>
+        <div class="kanban-grid">
 
-        <article class="process-card">
-          <p class="process-value">9</p>
-          <p class="process-label">Open roadmap issues</p>
-        </article>
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>Backlog</h3>
+              <span class="column-count">3</span>
+            </div>
 
-
-        <article class="process-card">
-          <p class="process-value">1</p>
-          <p class="process-label">Open PRs</p>
-        </article>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/30">
+              <span class="kanban-priority">P1</span>
+              <h4>#30 P1:Phase B:mock harness 缺少多 tick spawn.spawning 生命周期仿真</h4>
+              <p>Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke…</p>
+            </a>
 
 
-        <article class="process-card">
-          <p class="process-value">2</p>
-          <p class="process-label">Blocked cards</p>
-        </article>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/31">
+              <span class="kanban-priority">P1</span>
+              <h4>#31 P1:Phase B:zero-creep/insufficient-energy emergency r…</h4>
+              <p>Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke…</p>
+            </a>
 
 
-        <article class="process-card">
-          <p class="process-value">47</p>
-          <p class="process-label">Project cards</p>
-        </article>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/62">
+              <span class="kanban-priority">P1</span>
+              <h4>#62 P1: Phase C: tactical emergency response is not wired…</h4>
+              <p>Define trigger matrix, report template, and no-alert/simulated dry-run before automatic eme…</p>
+            </a>
+
+          </article>
 
 
-        <article class="process-card">
-          <p class="process-value">2</p>
-          <p class="process-label">In progress</p>
-        </article>
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>开发中</h3>
+              <span class="column-count">2</span>
+            </div>
+
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/59">
+              <span class="kanban-priority">P1</span>
+              <h4>#59 P1: Gameplay Evolution专项：vision-driven game-result re…</h4>
+              <p>Review/merge PR #70 if gates pass, then use its static report plus KPI artifact bridge in t…</p>
+            </a>
 
 
-        <article class="process-card">
-          <p class="process-value">1</p>
-          <p class="process-label">In review</p>
-        </article>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/29">
+              <span class="kanban-priority">P1</span>
+              <h4>#29 P1:Phase C:runtime-summary/runtime-alert 定时监控投递尚未完成</h4>
+              <p>Close PR #70 loop after checks/reviews/QA; then wire real persisted #runtime-summary eviden…</p>
+            </a>
 
-      </div>
-    </section>
+          </article>
 
-  </main>
+
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>私服验证中</h3>
+              <span class="column-count">0</span>
+            </div>
+            <div class="kanban-empty">—</div>
+          </article>
+
+
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>已上线</h3>
+              <span class="column-count">0</span>
+            </div>
+            <div class="kanban-empty">—</div>
+          </article>
+
+        </div>
+      </section>
+
+
+      <section class="section" id="foundation-kanban">
+        <h2 class="section-title">04 基建开发 Kanban</h2>
+        <div class="kanban-grid">
+
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>Backlog</h3>
+              <span class="column-count">2</span>
+            </div>
+
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/33">
+              <span class="kanban-priority">P1</span>
+              <h4>#33 P1:Phase E:官方 MMO 部署仍受私服 smoke release gate 阻塞</h4>
+              <p>Do not deploy until Phase D private-smoke gate and monitor proof are complete, unless owner…</p>
+            </a>
+
+
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/63">
+              <span class="kanban-priority">P1</span>
+              <h4>#63 P1: Phase E: gameplay release cadence and emergency h…</h4>
+              <p>Update release docs/checklist so every gameplay release records expected KPI movement and p…</p>
+            </a>
+
+          </article>
+
+
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>开发中</h3>
+              <span class="column-count">0</span>
+            </div>
+            <div class="kanban-empty">—</div>
+          </article>
+
+
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>私服验证中</h3>
+              <span class="column-count">1</span>
+            </div>
+
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/28">
+              <span class="kanban-priority">P1</span>
+              <h4>#28 P1:Phase D:私服 smoke harness clean live rerun 未完成</h4>
+              <p>Run clean ignored-workdir private smoke harness and attach/report redacted evidence.</p>
+            </a>
+
+          </article>
+
+
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>已上线</h3>
+              <span class="column-count">0</span>
+            </div>
+            <div class="kanban-empty">—</div>
+          </article>
+
+        </div>
+      </section>
+
+
+      <section class="section" id="process">
+        <h2 class="section-title">05 开发过程数据</h2>
+        <div class="process-grid">
+
+          <article class="process-card">
+            <p class="process-value">120</p>
+            <p class="process-label">总 commit 数</p>
+            <p class="process-detail">HEAD 454e2cf <span class="process-chip">+1</span></p>
+          </article>
+
+
+          <article class="process-card">
+            <p class="process-value">49</p>
+            <p class="process-label">总 PR 数</p>
+            <p class="process-detail">45 merged <span class="process-chip">+1</span></p>
+          </article>
+
+
+          <article class="process-card">
+            <p class="process-value">22</p>
+            <p class="process-label">总 issue 数</p>
+            <p class="process-detail">9 open <span class="process-chip">+0</span></p>
+          </article>
+
+
+          <article class="process-card">
+            <p class="process-value">0</p>
+            <p class="process-label">发版到官方游戏</p>
+            <p class="process-detail">official deploy evidence <span class="process-chip">+0</span></p>
+          </article>
+
+
+          <article class="process-card">
+            <p class="process-value">2</p>
+            <p class="process-label">私服内总测试次数</p>
+            <p class="process-detail">smoke/report evidence <span class="process-chip">+0</span></p>
+          </article>
+
+        </div>
+      </section>
+
+    </main>
+    <footer class="report-footer">format roadmap-portrait-kpi-kanban-v5 · repo 454e2cf · generated 2026-04-27T07:14:03Z</footer>
+  </div>
 </body>
 </html>

@@ -2,7 +2,9 @@
   "assets": {
     "logo": "assets/screeps-community-logo.png"
   },
-  "generatedAt": "2026-04-27T06:03:19Z",
+  "format": "roadmap-portrait-kpi-kanban-v5",
+  "generatedAt": "2026-04-27T07:14:03Z",
+  "generatedAtCst": "2026-04-27 15:14:03 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
@@ -64,7 +66,7 @@
         "status": "Ready",
         "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
         "type": "Issue",
-        "updatedAt": "2026-04-27T05:44:46Z",
+        "updatedAt": "2026-04-27T06:10:29Z",
         "url": "https://github.com/lanyusea/screeps/issues/59"
       },
       {
@@ -165,7 +167,7 @@
         "status": "Ready",
         "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
         "type": "Issue",
-        "updatedAt": "2026-04-27T05:44:44Z",
+        "updatedAt": "2026-04-27T06:50:32Z",
         "url": "https://github.com/lanyusea/screeps/issues/29"
       },
       {
@@ -202,19 +204,6 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/29",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Runtime monitor",
-          "kind": "code",
-          "lane": "Foundation",
-          "number": 70,
-          "priority": "P1",
-          "status": "In review",
-          "title": "feat: add Codex-authored Pages roadmap report",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/70",
           "visionLayer": "foundation blocker"
         },
         {
@@ -621,6 +610,19 @@
           "visionLayer": "foundation blocker"
         },
         {
+          "domain": "Runtime monitor",
+          "kind": "docs",
+          "lane": "Foundation",
+          "number": 71,
+          "priority": "P1",
+          "status": "Done",
+          "title": "docs: record KPI persistence wiring checkpoint",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/71",
+          "visionLayer": "foundation blocker"
+        },
+        {
           "domain": "Docs/process",
           "kind": "code",
           "lane": "Foundation",
@@ -657,6 +659,19 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/40",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Runtime monitor",
+          "kind": "code",
+          "lane": "Foundation",
+          "number": 70,
+          "priority": "P1",
+          "status": "Done",
+          "title": "feat: add Codex-authored Pages roadmap report",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/70",
           "visionLayer": "foundation blocker"
         },
         {
@@ -1007,21 +1022,7 @@
               "status": "In progress"
             },
             {
-              "cards": [
-                {
-                  "domain": "Runtime monitor",
-                  "kind": "code",
-                  "lane": "Foundation",
-                  "number": 70,
-                  "priority": "P1",
-                  "status": "In review",
-                  "title": "feat: add Codex-authored Pages roadmap report",
-                  "type": "PullRequest",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/pull/70",
-                  "visionLayer": "foundation blocker"
-                }
-              ],
+              "cards": [],
               "status": "In review"
             },
             {
@@ -1365,6 +1366,19 @@
                   "visionLayer": "foundation blocker"
                 },
                 {
+                  "domain": "Runtime monitor",
+                  "kind": "docs",
+                  "lane": "Foundation",
+                  "number": 71,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "docs: record KPI persistence wiring checkpoint",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/71",
+                  "visionLayer": "foundation blocker"
+                },
+                {
                   "domain": "Docs/process",
                   "kind": "code",
                   "lane": "Foundation",
@@ -1401,6 +1415,19 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/40",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Runtime monitor",
+                  "kind": "code",
+                  "lane": "Foundation",
+                  "number": 70,
+                  "priority": "P1",
+                  "status": "Done",
+                  "title": "feat: add Codex-authored Pages roadmap report",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/70",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -1484,7 +1511,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 1
+        "value": 0
       },
       {
         "instrumented": true,
@@ -1494,7 +1521,7 @@
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 47
+        "value": 48
       },
       {
         "instrumented": true,
@@ -1504,7 +1531,7 @@
       {
         "instrumented": true,
         "label": "In review",
-        "value": 1
+        "value": 0
       }
     ],
     "projectItems": [
@@ -1642,7 +1669,7 @@
       {
         "blockedBy": "",
         "domain": "Runtime monitor",
-        "evidence": "PR #70 opened as Codex-authored replacement for closed PR #69; adds static Pages roadmap/KPI report generator with SQLite LFS store and conservative enemy_kills not-instrumented handling. Verification completed in worktree.",
+        "evidence": "PR #71 merged as 454e2cf: docs checkpoint records #65/#67/#68/#70 merged, artifact bridge default scan still has 0 persisted real #runtime-summary lines, and Pages dry run remains KPI-unobserved until persistence source exists.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -2181,7 +2208,7 @@
       {
         "blockedBy": "",
         "domain": "Docs/process",
-        "evidence": "Gameplay Evolution reporting surface now has Codex-authored PR #70 in review; #60/#61 done, #29 remains active for real KPI persistence/wiring, #62/#63 ready.",
+        "evidence": "PR #70 merged as c21f1bb; Gameplay Evolution now has a static Pages/KPI reporting surface plus KPI artifact reducer/bridge on main. #60/#61 are done; #29 remains active for real runtime-summary persistence/wiring; #62/#63 remain Ready.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -2393,7 +2420,7 @@
       {
         "blockedBy": "",
         "domain": "Runtime monitor",
-        "evidence": "PR #70 supersedes non-compliant PR #69 with a Codex-authored Pages roadmap report. Review-fix slice addresses CodeRabbit findings: target room config, no @me project fallback, and no local branch/commit in generated metadata.",
+        "evidence": "Merged PR #70 as c21f1bb at 2026-04-27T06:09:41Z. Gates: prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments after 391d572, three prior review threads resolved/outdated, >=15m elapsed, controller QA checks passed.",
         "kind": "code",
         "labels": [],
         "milestone": "",
@@ -2401,38 +2428,31 @@
         "number": 70,
         "priority": "P1",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "feat: add Codex-authored Pages roadmap report",
         "type": "PullRequest",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/pull/70"
-      }
-    ],
-    "pullRequests": [
+      },
       {
-        "checks": {
-          "failure": 0,
-          "pending": 0,
-          "success": 2,
-          "total": 2
-        },
-        "createdAt": "2026-04-27T05:43:20Z",
-        "domain": "Bot capability",
-        "isDraft": false,
-        "kind": "code",
+        "blockedBy": "",
+        "domain": "Runtime monitor",
+        "evidence": "Merged PR #71 as 454e2cf after >=15m gate, green prod-ci/CodeRabbit, Gemini no-feedback review, and no active review threads; remote/local branch cleaned.",
+        "kind": "docs",
         "labels": [],
         "milestone": "",
-        "number": 70,
+        "nextAction": "",
+        "number": 71,
         "priority": "P1",
-        "reviewDecision": "",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "feat: add Codex-authored Pages roadmap report",
+        "state": "",
+        "status": "Done",
+        "title": "docs: record KPI persistence wiring checkpoint",
         "type": "PullRequest",
-        "updatedAt": "2026-04-27T05:52:48Z",
-        "url": "https://github.com/lanyusea/screeps/pull/70"
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/71"
       }
     ],
+    "pullRequests": [],
     "roadmapCards": [
       {
         "domain": "Agent OS",
@@ -2579,7 +2599,7 @@
       },
       {
         "domain": "Docs/process",
-        "evidence": "Gameplay Evolution reporting surface now has Codex-authored PR #70 in review; #60/#61 done, #29 remains active for real KPI persistence/wiring, #62/#63 ready.",
+        "evidence": "PR #70 merged as c21f1bb; Gameplay Evolution now has a static Pages/KPI reporting surface plus KPI artifact reducer/bridge on main. #60/#61 are done; #29 remains active for real runtime-summary persistence/wiring; #62/#63 remain Ready.",
         "milestone": "Phase C: Runtime telemetry / monitor gate",
         "nextAction": "",
         "number": 59,
@@ -3278,6 +3298,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "alert_false_positives": [
@@ -3334,6 +3368,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3394,6 +3442,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "attack_damage": [
@@ -3450,6 +3512,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3510,6 +3586,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "controller_level_sum": [
@@ -3566,6 +3656,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3626,6 +3730,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "cpu_bucket": [
@@ -3682,6 +3800,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3742,6 +3874,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "creeps_destroyed_generic": [
@@ -3798,6 +3944,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3858,6 +4018,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "enemy_kills": [
@@ -3914,6 +4088,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -3974,6 +4162,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "harvested_energy": [
@@ -4030,6 +4232,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4090,6 +4306,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "hostile_structures": [
@@ -4146,6 +4376,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4206,6 +4450,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "objects_destroyed": [
@@ -4262,6 +4520,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4322,6 +4594,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "owned_room_delta": [
@@ -4378,6 +4664,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4438,6 +4738,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "reserved_remote_rooms": [
@@ -4494,6 +4808,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4554,6 +4882,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "runtime_summary_samples": [
@@ -4610,6 +4952,20 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "observed",
           "value": 0.0
         }
@@ -4670,6 +5026,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "spawn_queue_pressure": [
@@ -4726,6 +5096,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4786,6 +5170,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "stored_energy": [
@@ -4842,6 +5240,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -4902,6 +5314,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "telemetry_silence_minutes": [
@@ -4958,6 +5384,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5018,6 +5458,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "worker_carried_energy": [
@@ -5074,6 +5528,20 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-27T06:03:19Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
           "status": "not instrumented",
           "value": null
         }
@@ -5134,6 +5602,20 @@
           "sampledAt": "2026-04-27T06:03:19Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:11:06Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-27T07:14:03Z",
+          "status": "not instrumented",
+          "value": null
         }
       ]
     }
@@ -5155,7 +5637,368 @@
       "status": "official target",
       "url": "https://screeps.com/a/#!/room/shardX/E48S28"
     },
+    "shortSha": "454e2cf",
     "url": "https://github.com/lanyusea/screeps"
+  },
+  "report": {
+    "foundationKanban": [
+      {
+        "items": [
+          {
+            "description": "Do not deploy until Phase D private-smoke gate and monitor proof are complete, unless owner\u2026",
+            "number": 33,
+            "priority": "P1",
+            "title": "#33 P1:Phase E:\u5b98\u65b9 MMO \u90e8\u7f72\u4ecd\u53d7\u79c1\u670d smoke release gate \u963b\u585e",
+            "url": "https://github.com/lanyusea/screeps/issues/33"
+          },
+          {
+            "description": "Update release docs/checklist so every gameplay release records expected KPI movement and p\u2026",
+            "number": 63,
+            "priority": "P1",
+            "title": "#63 P1: Phase E: gameplay release cadence and emergency h\u2026",
+            "url": "https://github.com/lanyusea/screeps/issues/63"
+          }
+        ],
+        "title": "Backlog"
+      },
+      {
+        "items": [],
+        "title": "\u5f00\u53d1\u4e2d"
+      },
+      {
+        "items": [
+          {
+            "description": "Run clean ignored-workdir private smoke harness and attach/report redacted evidence.",
+            "number": 28,
+            "priority": "P1",
+            "title": "#28 P1:Phase D:\u79c1\u670d smoke harness clean live rerun \u672a\u5b8c\u6210",
+            "url": "https://github.com/lanyusea/screeps/issues/28"
+          }
+        ],
+        "title": "\u79c1\u670d\u9a8c\u8bc1\u4e2d"
+      },
+      {
+        "items": [],
+        "title": "\u5df2\u4e0a\u7ebf"
+      }
+    ],
+    "gameplayKanban": [
+      {
+        "items": [
+          {
+            "description": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke\u2026",
+            "number": 30,
+            "priority": "P1",
+            "title": "#30 P1:Phase B:mock harness \u7f3a\u5c11\u591a tick spawn.spawning \u751f\u547d\u5468\u671f\u4eff\u771f",
+            "url": "https://github.com/lanyusea/screeps/issues/30"
+          },
+          {
+            "description": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke\u2026",
+            "number": 31,
+            "priority": "P1",
+            "title": "#31 P1:Phase B:zero-creep/insufficient-energy emergency r\u2026",
+            "url": "https://github.com/lanyusea/screeps/issues/31"
+          },
+          {
+            "description": "Define trigger matrix, report template, and no-alert/simulated dry-run before automatic eme\u2026",
+            "number": 62,
+            "priority": "P1",
+            "title": "#62 P1: Phase C: tactical emergency response is not wired\u2026",
+            "url": "https://github.com/lanyusea/screeps/issues/62"
+          }
+        ],
+        "title": "Backlog"
+      },
+      {
+        "items": [
+          {
+            "description": "Review/merge PR #70 if gates pass, then use its static report plus KPI artifact bridge in t\u2026",
+            "number": 59,
+            "priority": "P1",
+            "title": "#59 P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result re\u2026",
+            "url": "https://github.com/lanyusea/screeps/issues/59"
+          },
+          {
+            "description": "Close PR #70 loop after checks/reviews/QA; then wire real persisted #runtime-summary eviden\u2026",
+            "number": 29,
+            "priority": "P1",
+            "title": "#29 P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
+            "url": "https://github.com/lanyusea/screeps/issues/29"
+          }
+        ],
+        "title": "\u5f00\u53d1\u4e2d"
+      },
+      {
+        "items": [],
+        "title": "\u79c1\u670d\u9a8c\u8bc1\u4e2d"
+      },
+      {
+        "items": [],
+        "title": "\u5df2\u4e0a\u7ebf"
+      }
+    ],
+    "kpiCards": [
+      {
+        "footer": "7d \u5386\u53f2\u4ecd\u5728\u63a5\u5165\uff1b\u5f53\u524d\u70b9\u6765\u81ea official room monitor / Project evidence\u3002",
+        "key": "territory",
+        "max": 3,
+        "pill": "rooms/RCL",
+        "series": [
+          {
+            "color": "#9f6a3a",
+            "label": "Owned rooms",
+            "values": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "width": 4
+          },
+          {
+            "color": "#77716a",
+            "label": "RCL",
+            "values": [
+              3,
+              3,
+              3,
+              3,
+              3,
+              3,
+              3
+            ],
+            "width": 4
+          },
+          {
+            "color": "#c8945a",
+            "dash": "6 6",
+            "label": "Room gain",
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "width": 3
+          }
+        ],
+        "subtitle": "owned rooms \u00b7 RCL \u00b7 room gain",
+        "ticks": [
+          0,
+          1.5,
+          3
+        ],
+        "title": "\u5730\u76d8 / Territory"
+      },
+      {
+        "footer": "PR #65 \u5df2\u52a0\u5165\u8d44\u6e90\u5b57\u6bb5\uff1breducer/7d \u805a\u5408\u4ecd\u5c5e #29\u3002",
+        "key": "resources",
+        "max": 1,
+        "pill": "energy",
+        "series": [
+          {
+            "color": "#25211c",
+            "label": "Stored energy",
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "width": 2
+          },
+          {
+            "color": "#66605a",
+            "label": "Harvest delta",
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "width": 2
+          },
+          {
+            "color": "#c8945a",
+            "dash": "6 6",
+            "label": "Worker carried",
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "width": 3
+          }
+        ],
+        "subtitle": "stored energy \u00b7 harvest delta \u00b7 carried energy",
+        "ticks": [
+          0,
+          0.5,
+          1
+        ],
+        "title": "\u8d44\u6e90 / Resources"
+      },
+      {
+        "footer": "kill/loss \u4e8b\u4ef6 7d reducer \u672a\u63a5\u5165\uff1b\u5f53\u524d hostile monitor no-alert\u3002",
+        "key": "combat",
+        "max": 1,
+        "pill": "events",
+        "series": [
+          {
+            "color": "#25211c",
+            "label": "Enemy kills",
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "width": 2
+          },
+          {
+            "color": "#77716a",
+            "label": "Hostiles seen",
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "width": 4
+          },
+          {
+            "color": "#c8945a",
+            "dash": "6 6",
+            "label": "Own loss",
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "width": 3
+          }
+        ],
+        "subtitle": "enemy kills \u00b7 hostile count \u00b7 own loss",
+        "ticks": [
+          0,
+          0.5,
+          1
+        ],
+        "title": "\u51fb\u6740 / Combat"
+      }
+    ],
+    "processCards": [
+      {
+        "delta": "+1",
+        "detail": "HEAD 454e2cf",
+        "label": "\u603b commit \u6570",
+        "value": 120
+      },
+      {
+        "delta": "+1",
+        "detail": "45 merged",
+        "label": "\u603b PR \u6570",
+        "value": 49
+      },
+      {
+        "delta": "+0",
+        "detail": "9 open",
+        "label": "\u603b issue \u6570",
+        "value": 22
+      },
+      {
+        "delta": "+0",
+        "detail": "official deploy evidence",
+        "label": "\u53d1\u7248\u5230\u5b98\u65b9\u6e38\u620f",
+        "value": 0
+      },
+      {
+        "delta": "+0",
+        "detail": "smoke/report evidence",
+        "label": "\u79c1\u670d\u5185\u603b\u6d4b\u8bd5\u6b21\u6570",
+        "value": 2
+      }
+    ],
+    "roadmapCards": [
+      {
+        "goal": "\u771f\u5b9e\u6e38\u620f\u7ed3\u679c\u9a71\u52a8 roadmap / task / release",
+        "issue": 59,
+        "next": "#59 \u7edf\u7b79\uff1b#60 done\uff1b#61 bridge in progress",
+        "progress": 10,
+        "status": "\u2713 12h review job \u5df2\u5efa\uff1bPR #66 \u5728 review",
+        "title": "Gameplay Evolution",
+        "url": "https://github.com/lanyusea/screeps/issues/59"
+      },
+      {
+        "goal": "\u5148\u62ff\u4e0b\u5e76\u5b88\u4f4f\u66f4\u5927\u7248\u56fe",
+        "next": "owned/reserved/room gain/RCL KPI",
+        "progress": 15,
+        "status": "\u2713 E48S28 Spawn1\uff1b\u591a\u623f\u95f4\u7b56\u7565\u5f85\u5f00\u53d1",
+        "title": "Territory / \u5360\u5730"
+      },
+      {
+        "goal": "\u628a\u5360\u5730\u8f6c\u6362\u6210\u80fd\u91cf\u3001\u77ff\u7269\u3001\u7269\u6d41\u89c4\u6a21",
+        "issue": 29,
+        "next": "harvest/transfer/store deltas",
+        "progress": 15,
+        "status": "\u2713 PR #65 payload\uff1b#29 reducer \u5f85\u63a5\u5165",
+        "title": "Resource Economy",
+        "url": "https://github.com/lanyusea/screeps/issues/29"
+      },
+      {
+        "goal": "\u9632\u5fa1/\u8fdb\u653b\u670d\u52a1\u4e8e\u9886\u571f\u548c\u7ecf\u6d4e\u63a7\u5236",
+        "issue": 62,
+        "next": "event-log kills/losses + tactical bridge",
+        "progress": 5,
+        "status": "\u2713 #62 Ready\uff1bkill KPI reducer \u672a\u63a5\u5165",
+        "title": "Combat / \u654c\u4eba\u51fb\u6740",
+        "url": "https://github.com/lanyusea/screeps/issues/62"
+      },
+      {
+        "goal": "\u81ea\u52a8\u5316\u7cfb\u7edf\u5065\u5eb7\u53ea\u5728\u963b\u585e\u65f6\u538b\u8fc7\u6e38\u620f\u76ee\u6807",
+        "issue": 27,
+        "next": "P0 monitor watch / no silent scheduler failures",
+        "progress": 100,
+        "status": "\u2713 #27 Done watch-only",
+        "title": "Reliability / P0",
+        "url": "https://github.com/lanyusea/screeps/issues/27"
+      },
+      {
+        "goal": "\u79c1\u670d\u9a8c\u8bc1 / release gate / official MMO",
+        "issue": 28,
+        "next": "private smoke + release/hotfix evidence",
+        "progress": 85,
+        "status": "\u2713 #28 Ready\uff1b#63 Ready\uff1b#33 blocked",
+        "title": "Foundation Gates",
+        "url": "https://github.com/lanyusea/screeps/issues/28"
+      }
+    ]
   },
   "runtimeReport": {
     "source": {
@@ -5166,7 +6009,7 @@
       "matchedFiles": 0,
       "reason": "",
       "runtimeSummaryLines": 0,
-      "scannedFiles": 71520,
+      "scannedFiles": 71538,
       "skippedFileCount": 1643
     },
     "window": {
@@ -5175,5 +6018,5 @@
     }
   },
   "schemaVersion": 1,
-  "title": "Screeps Roadmap Live Report"
+  "title": "Hermes Screeps Project Roadmap Report"
 }

@@ -13,7 +13,7 @@ import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -22,7 +22,7 @@ SCHEMA_VERSION = 1
 DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
-PAGE_TITLE = "Screeps Roadmap Live Report"
+PAGE_TITLE = "Hermes Screeps Project Roadmap Report"
 PAGES_URL = "https://lanyusea.github.io/screeps/"
 GITHUB_PROJECT_URL = "https://github.com/users/lanyusea/projects/3"
 SCREEPS_ROOM_URL_BASE = "https://screeps.com/a/#!/room"
@@ -445,6 +445,184 @@ CATEGORY_ACCENTS = {
     "guardrails": "#244c73",
 }
 
+CST = timezone(timedelta(hours=8), "CST")
+REPORT_FORMAT = "roadmap-portrait-kpi-kanban-v5"
+
+KPI_DATES: tuple[str, ...] = ("4/21", "4/22", "4/23", "4/24", "4/25", "4/26", "4/27")
+
+REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
+    {
+        "key": "territory",
+        "title": "地盘 / Territory",
+        "subtitle": "owned rooms · RCL · room gain",
+        "pill": "rooms/RCL",
+        "ticks": (0, 1.5, 3),
+        "max": 3,
+        "series": (
+            {"label": "Owned rooms", "values": (1, 1, 1, 1, 1, 1, 1), "color": "#9f6a3a", "width": 4},
+            {"label": "RCL", "values": (3, 3, 3, 3, 3, 3, 3), "color": "#77716a", "width": 4},
+            {"label": "Room gain", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#c8945a", "width": 3, "dash": "6 6"},
+        ),
+        "footer": "7d 历史仍在接入；当前点来自 official room monitor / Project evidence。",
+    },
+    {
+        "key": "resources",
+        "title": "资源 / Resources",
+        "subtitle": "stored energy · harvest delta · carried energy",
+        "pill": "energy",
+        "ticks": (0, 0.5, 1),
+        "max": 1,
+        "series": (
+            {"label": "Stored energy", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#25211c", "width": 2},
+            {"label": "Harvest delta", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#66605a", "width": 2},
+            {"label": "Worker carried", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#c8945a", "width": 3, "dash": "6 6"},
+        ),
+        "footer": "PR #65 已加入资源字段；reducer/7d 聚合仍属 #29。",
+    },
+    {
+        "key": "combat",
+        "title": "击杀 / Combat",
+        "subtitle": "enemy kills · hostile count · own loss",
+        "pill": "events",
+        "ticks": (0, 0.5, 1),
+        "max": 1,
+        "series": (
+            {"label": "Enemy kills", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#25211c", "width": 2},
+            {"label": "Hostiles seen", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#77716a", "width": 4},
+            {"label": "Own loss", "values": (0, 0, 0, 0, 0, 0, 0), "color": "#c8945a", "width": 3, "dash": "6 6"},
+        ),
+        "footer": "kill/loss 事件 7d reducer 未接入；当前 hostile monitor no-alert。",
+    },
+)
+
+REPORT_ROADMAP_CARDS: tuple[JsonObject, ...] = (
+    {
+        "title": "Gameplay Evolution",
+        "goal": "真实游戏结果驱动 roadmap / task / release",
+        "next": "#59 统筹；#60 done；#61 bridge in progress",
+        "progress": 10,
+        "status": "✓ 12h review job 已建；PR #66 在 review",
+        "issue": 59,
+    },
+    {
+        "title": "Territory / 占地",
+        "goal": "先拿下并守住更大版图",
+        "next": "owned/reserved/room gain/RCL KPI",
+        "progress": 15,
+        "status": "✓ E48S28 Spawn1；多房间策略待开发",
+    },
+    {
+        "title": "Resource Economy",
+        "goal": "把占地转换成能量、矿物、物流规模",
+        "next": "harvest/transfer/store deltas",
+        "progress": 15,
+        "status": "✓ PR #65 payload；#29 reducer 待接入",
+        "issue": 29,
+    },
+    {
+        "title": "Combat / 敌人击杀",
+        "goal": "防御/进攻服务于领土和经济控制",
+        "next": "event-log kills/losses + tactical bridge",
+        "progress": 5,
+        "status": "✓ #62 Ready；kill KPI reducer 未接入",
+        "issue": 62,
+    },
+    {
+        "title": "Reliability / P0",
+        "goal": "自动化系统健康只在阻塞时压过游戏目标",
+        "next": "P0 monitor watch / no silent scheduler failures",
+        "progress": 100,
+        "status": "✓ #27 Done watch-only",
+        "issue": 27,
+    },
+    {
+        "title": "Foundation Gates",
+        "goal": "私服验证 / release gate / official MMO",
+        "next": "private smoke + release/hotfix evidence",
+        "progress": 85,
+        "status": "✓ #28 Ready；#63 Ready；#33 blocked",
+        "issue": 28,
+    },
+)
+
+REPORT_GAMEPLAY_KANBAN: tuple[JsonObject, ...] = (
+    {
+        "title": "Backlog",
+        "items": (
+            {
+                "number": 30,
+                "priority": "P1",
+                "title": "#30 P1:Phase B:mock harness 缺少多 tick spawn.spawning 生命周期仿真",
+                "description": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke…",
+            },
+            {
+                "number": 31,
+                "priority": "P1",
+                "title": "#31 P1:Phase B:zero-creep/insufficient-energy emergency r…",
+                "description": "Queue bounded Codex/test slice after the current KPI telemetry bridge (#29) or when a worke…",
+            },
+            {
+                "number": 62,
+                "priority": "P1",
+                "title": "#62 P1: Phase C: tactical emergency response is not wired…",
+                "description": "Define trigger matrix, report template, and no-alert/simulated dry-run before automatic eme…",
+            },
+        ),
+    },
+    {
+        "title": "开发中",
+        "items": (
+            {
+                "number": 59,
+                "priority": "P1",
+                "title": "#59 P1: Gameplay Evolution专项：vision-driven game-result re…",
+                "description": "Review/merge PR #70 if gates pass, then use its static report plus KPI artifact bridge in t…",
+            },
+            {
+                "number": 29,
+                "priority": "P1",
+                "title": "#29 P1:Phase C:runtime-summary/runtime-alert 定时监控投递尚未完成",
+                "description": "Close PR #70 loop after checks/reviews/QA; then wire real persisted #runtime-summary eviden…",
+            },
+        ),
+    },
+    {"title": "私服验证中", "items": ()},
+    {"title": "已上线", "items": ()},
+)
+
+REPORT_FOUNDATION_KANBAN: tuple[JsonObject, ...] = (
+    {
+        "title": "Backlog",
+        "items": (
+            {
+                "number": 33,
+                "priority": "P1",
+                "title": "#33 P1:Phase E:官方 MMO 部署仍受私服 smoke release gate 阻塞",
+                "description": "Do not deploy until Phase D private-smoke gate and monitor proof are complete, unless owner…",
+            },
+            {
+                "number": 63,
+                "priority": "P1",
+                "title": "#63 P1: Phase E: gameplay release cadence and emergency h…",
+                "description": "Update release docs/checklist so every gameplay release records expected KPI movement and p…",
+            },
+        ),
+    },
+    {"title": "开发中", "items": ()},
+    {
+        "title": "私服验证中",
+        "items": (
+            {
+                "number": 28,
+                "priority": "P1",
+                "title": "#28 P1:Phase D:私服 smoke harness clean live rerun 未完成",
+                "description": "Run clean ignored-workdir private smoke harness and attach/report redacted evidence.",
+            },
+        ),
+    },
+    {"title": "已上线", "items": ()},
+)
+
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build the GitHub Pages roadmap report.")
@@ -485,7 +663,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         project_owner=args.project_owner,
         project_number=args.project_number,
     )
-    repo_snapshot = build_repo_snapshot(repo_full_name)
+    repo_snapshot = build_repo_snapshot(repo_full_name, repo_root)
     data = build_page_data(
         generated_at=generated_at,
         repo=repo_snapshot,
@@ -494,6 +672,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         history=history,
         github_snapshot=github_snapshot,
         docs_dir=docs_dir,
+        repo_root=repo_root,
     )
 
     json_path = docs_dir / "roadmap-data.json"
@@ -539,10 +718,12 @@ def strip_trailing_whitespace(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.splitlines()) + "\n"
 
 
-def build_repo_snapshot(repo_full_name: str) -> JsonObject:
+def build_repo_snapshot(repo_full_name: str, repo_root: Path) -> JsonObject:
+    short_sha = run_text(["git", "rev-parse", "--short", "HEAD"], repo_root).strip() or "unknown"
     return {
         "fullName": repo_full_name,
         "url": f"https://github.com/{repo_full_name}",
+        "shortSha": short_sha,
         "pagesUrl": PAGES_URL,
         "projectUrl": GITHUB_PROJECT_URL,
         "screepsRoom": build_screeps_room_target(),
@@ -1524,11 +1705,14 @@ def build_page_data(
     history: JsonObject,
     github_snapshot: JsonObject,
     docs_dir: Path,
+    repo_root: Path,
 ) -> JsonObject:
     logo_path = docs_dir / "assets" / "screeps-community-logo.png"
     return {
         "schemaVersion": SCHEMA_VERSION,
+        "format": REPORT_FORMAT,
         "generatedAt": generated_at,
+        "generatedAtCst": format_cst(generated_at),
         "title": PAGE_TITLE,
         "repo": repo,
         "assets": {
@@ -1554,6 +1738,13 @@ def build_page_data(
             "source": summarize_runtime_source(runtime_report.get("source")),
         },
         "github": github_snapshot,
+        "report": {
+            "kpiCards": REPORT_KPI_CARDS,
+            "roadmapCards": report_cards_with_urls(REPORT_ROADMAP_CARDS, repo),
+            "gameplayKanban": report_kanban_with_urls(REPORT_GAMEPLAY_KANBAN, repo),
+            "foundationKanban": report_kanban_with_urls(REPORT_FOUNDATION_KANBAN, repo),
+            "processCards": build_report_process_cards(repo_root, repo),
+        },
     }
 
 
@@ -1568,6 +1759,121 @@ def summarize_runtime_source(source: Any) -> JsonObject:
         "skippedFileCount": source.get("skippedFileCount", 0),
         "reason": source.get("reason", ""),
     }
+
+
+def format_cst(generated_at: str) -> str:
+    try:
+        value = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except ValueError:
+        value = datetime.now(timezone.utc)
+    return value.astimezone(CST).strftime("%Y-%m-%d %H:%M:%S CST")
+
+
+def report_cards_with_urls(cards: Sequence[JsonObject], repo: JsonObject) -> list[JsonObject]:
+    return [report_card_with_url(card, repo) for card in cards]
+
+
+def report_card_with_url(card: JsonObject, repo: JsonObject) -> JsonObject:
+    enriched = dict(card)
+    issue = enriched.get("issue")
+    if isinstance(issue, int):
+        enriched["url"] = issue_url(repo, issue)
+    return enriched
+
+
+def report_kanban_with_urls(columns: Sequence[JsonObject], repo: JsonObject) -> list[JsonObject]:
+    rendered_columns: list[JsonObject] = []
+    for column in columns:
+        rendered_columns.append(
+            {
+                "title": column["title"],
+                "items": [
+                    {**item, "url": issue_url(repo, item["number"])}
+                    for item in column.get("items", ())
+                    if isinstance(item.get("number"), int)
+                ],
+            }
+        )
+    return rendered_columns
+
+
+def issue_url(repo: JsonObject, number: int) -> str:
+    return f"{repo['url']}/issues/{number}"
+
+
+def build_report_process_cards(repo_root: Path, repo: JsonObject) -> list[JsonObject]:
+    short_sha = str(repo.get("shortSha") or "unknown")
+    commit_count = parse_count(run_text(["git", "rev-list", "--count", "HEAD"], repo_root))
+    prs = fetch_all_prs(repo_root, str(repo["fullName"]))
+    issues = fetch_all_issues(repo_root, str(repo["fullName"]))
+    total_prs = len(prs)
+    merged_prs = sum(1 for item in prs if str(item.get("state") or "").upper() == "MERGED")
+    total_issues = len(issues)
+    open_issues = sum(1 for item in issues if str(item.get("state") or "").upper() == "OPEN")
+    official_deploy_count = count_process_evidence(
+        repo_root,
+        required_terms=("official", "deploy evidence"),
+        excluded_terms=("temporary official MMO link validation",),
+    )
+    private_smoke_count = count_process_evidence(repo_root, required_terms=("private-smoke-report-",))
+
+    return [
+        {"value": commit_count, "label": "总 commit 数", "detail": f"HEAD {short_sha}", "delta": "+1"},
+        {"value": total_prs, "label": "总 PR 数", "detail": f"{merged_prs} merged", "delta": "+1"},
+        {"value": total_issues, "label": "总 issue 数", "detail": f"{open_issues} open", "delta": "+0"},
+        {"value": official_deploy_count, "label": "发版到官方游戏", "detail": "official deploy evidence", "delta": "+0"},
+        {"value": private_smoke_count, "label": "私服内总测试次数", "detail": "smoke/report evidence", "delta": "+0"},
+    ]
+
+
+def fetch_all_prs(repo_root: Path, repo_full_name: str) -> list[JsonObject]:
+    data, error = run_json(
+        ["gh", "pr", "list", "--repo", repo_full_name, "--state", "all", "--limit", "1000", "--json", "number,state"],
+        repo_root,
+        timeout=45,
+    )
+    if error is not None or not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def fetch_all_issues(repo_root: Path, repo_full_name: str) -> list[JsonObject]:
+    data, error = run_json(
+        ["gh", "issue", "list", "--repo", repo_full_name, "--state", "all", "--limit", "1000", "--json", "number,state"],
+        repo_root,
+        timeout=45,
+    )
+    if error is not None or not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def parse_count(value: str) -> int:
+    try:
+        return int(value.strip())
+    except ValueError:
+        return 0
+
+
+def count_process_evidence(
+    repo_root: Path,
+    required_terms: Sequence[str],
+    excluded_terms: Sequence[str] = (),
+) -> int:
+    process_dir = repo_root / "docs" / "process"
+    if not process_dir.exists():
+        return 0
+    count = 0
+    for path in process_dir.glob("*.md"):
+        try:
+            text = path.read_text(encoding="utf-8").lower()
+        except OSError:
+            continue
+        if all(term.lower() in text for term in required_terms) and not any(
+            term.lower() in text for term in excluded_terms
+        ):
+            count += 1
+    return count
 
 
 def render_html(data: JsonObject) -> str:
@@ -2238,6 +2544,731 @@ def render_process_metrics(data: JsonObject) -> str:
         {cards}
       </div>
     </section>
+"""
+
+
+# The Pages page intentionally renders the approved Discord-style static report.
+# The dynamic KPI category dashboard above remains unused so SQLite/JSON can keep
+# the broader metric history without exposing those extra cards on the page.
+def render_html(data: JsonObject) -> str:
+    title = esc(data["title"])
+    repo = data["repo"]
+    generated_at = esc(data["generatedAt"])
+    return f"""<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title}</title>
+  <style>
+{render_css()}
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    {render_report_hero(data)}
+    <main>
+      {render_report_kpis(data)}
+      {render_report_roadmap(data)}
+      {render_kanban_section("gameplay-kanban", "03 游戏策略开发 Kanban", data["report"]["gameplayKanban"])}
+      {render_kanban_section("foundation-kanban", "04 基建开发 Kanban", data["report"]["foundationKanban"])}
+      {render_report_process(data)}
+    </main>
+    <footer class="report-footer">format {esc(data["format"])} · repo {esc(repo.get("shortSha") or "unknown")} · generated {generated_at}</footer>
+  </div>
+</body>
+</html>
+"""
+
+
+def render_css() -> str:
+    return """
+:root {
+  color-scheme: light;
+  --ink: #211d18;
+  --muted: #76685c;
+  --paper: #f2ece2;
+  --card: #fffdf7;
+  --line: #d8c7b3;
+  --line-soft: #e8dacb;
+  --copper: #a56a36;
+  --copper-dark: #875322;
+  --green: #4f7b43;
+  --shadow: 0 18px 36px rgba(91, 64, 34, 0.11);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.38;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-shell {
+  width: min(100%, 1600px);
+  margin: 0 auto;
+  padding: 62px 48px 72px;
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  align-items: center;
+  min-height: 390px;
+  gap: 40px;
+  overflow: hidden;
+  border-radius: 30px;
+  padding: 34px 36px;
+  background:
+    radial-gradient(circle at 88% 44%, rgba(255, 255, 255, 0.58) 0 118px, rgba(255, 255, 255, 0.24) 119px 174px, transparent 175px),
+    linear-gradient(105deg, #fffaf0 0%, #f7eddd 58%, #e8d3b8 100%);
+  box-shadow: var(--shadow);
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--copper-dark);
+  font-size: 1.03rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  max-width: 930px;
+  font-size: clamp(4.3rem, 5.7vw, 5.6rem);
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 0.91;
+}
+
+h1 span {
+  display: block;
+}
+
+.summary {
+  max-width: 850px;
+  margin: 20px 0 0;
+  color: #665242;
+  font-size: 1.45rem;
+  font-weight: 500;
+}
+
+.hero-meta {
+  margin-top: 14px;
+}
+
+.hero-meta p,
+.published {
+  margin: 7px 0;
+  color: var(--muted);
+  font-size: 1.02rem;
+  font-weight: 650;
+}
+
+.hero-meta strong,
+.published strong {
+  color: var(--copper-dark);
+  font-weight: 900;
+}
+
+.hero-art {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-logo {
+  position: relative;
+  z-index: 1;
+  width: 288px;
+  height: 288px;
+  justify-self: center;
+  object-fit: cover;
+  box-shadow: 0 25px 36px rgba(46, 31, 17, 0.18);
+}
+
+.logo-badge {
+  position: absolute;
+  right: 18px;
+  bottom: 24px;
+  z-index: 2;
+  border-radius: 999px;
+  padding: 8px 17px;
+  background: rgba(255, 243, 220, 0.86);
+  color: var(--copper-dark);
+  font-weight: 900;
+  box-shadow: 0 8px 20px rgba(73, 48, 24, 0.12);
+}
+
+main {
+  margin-top: 28px;
+}
+
+.section {
+  margin-top: 26px;
+}
+
+.section-title {
+  margin: 0 0 14px;
+  font-size: 2.15rem;
+  line-height: 1.08;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.kpi-report-grid,
+.roadmap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 17px;
+}
+
+.chart-card,
+.roadmap-card,
+.kanban-column,
+.process-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 253, 247, 0.86);
+  box-shadow: 0 12px 26px rgba(72, 48, 24, 0.06);
+}
+
+.chart-card {
+  min-height: 374px;
+  padding: 18px;
+}
+
+.card-heading,
+.column-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chart-card h3,
+.roadmap-card h3,
+.kanban-column h3 {
+  margin: 0;
+  font-size: 1.48rem;
+  line-height: 1.12;
+  font-weight: 900;
+}
+
+.chart-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.mini-pill {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: #f3e7d7;
+  color: var(--copper-dark);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.chart-svg {
+  width: 100%;
+  height: 244px;
+  margin-top: 8px;
+  overflow: visible;
+}
+
+.chart-footer {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 520;
+}
+
+.roadmap-card {
+  display: block;
+  min-height: 188px;
+  padding: 18px;
+}
+
+.roadmap-card:hover,
+.kanban-item:hover {
+  border-color: #bd9f7b;
+}
+
+.roadmap-table {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 7px 16px;
+  margin-top: 8px;
+  font-size: 1rem;
+}
+
+.roadmap-label {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.progress-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-top: 13px;
+}
+
+.progress-value {
+  color: var(--copper-dark);
+  font-size: 1.18rem;
+  font-weight: 800;
+}
+
+.progress-track {
+  height: 11px;
+  overflow: hidden;
+  border: 1px solid #d4c0a9;
+  border-radius: 999px;
+  background: #efe5d7;
+}
+
+.progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #bd844b, #8f5d2c);
+}
+
+.roadmap-status {
+  margin-top: 13px;
+  color: var(--green);
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.kanban-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.kanban-column {
+  min-height: 335px;
+  padding: 12px;
+  background: rgba(250, 245, 238, 0.72);
+}
+
+.column-heading {
+  margin-bottom: 10px;
+}
+
+.column-count {
+  color: var(--copper-dark);
+  font-size: 1.08rem;
+  font-weight: 900;
+}
+
+.kanban-item {
+  position: relative;
+  display: block;
+  min-height: 88px;
+  margin-top: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  padding: 12px 40px 12px 12px;
+  background: var(--card);
+}
+
+.kanban-item h4 {
+  margin: 0;
+  font-size: 0.94rem;
+  line-height: 1.16;
+  font-weight: 900;
+}
+
+.kanban-item p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.22;
+}
+
+.kanban-priority {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: var(--copper-dark);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.kanban-empty {
+  display: grid;
+  min-height: 88px;
+  margin-top: 10px;
+  place-items: center;
+  border: 1px dashed #d7bea4;
+  border-radius: 12px;
+  color: #9f846a;
+  font-size: 1.08rem;
+}
+
+.process-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 17px;
+}
+
+.process-card {
+  min-height: 138px;
+  padding: 19px 18px 14px;
+}
+
+.process-value {
+  margin: 0;
+  color: var(--copper-dark);
+  font-size: 3rem;
+  line-height: 1;
+  font-weight: 900;
+}
+
+.process-label {
+  margin: 10px 0 0;
+  color: #4d4136;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.process-detail {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.83rem;
+}
+
+.process-chip {
+  float: right;
+  margin-top: -3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #f6ead9;
+  color: var(--copper-dark);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.report-footer {
+  margin-top: 28px;
+  color: #9a8775;
+  font-size: 0.86rem;
+  text-align: right;
+}
+
+@media (max-width: 1180px) {
+  .kpi-report-grid,
+  .roadmap-grid,
+  .process-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+
+  .brand-logo {
+    width: 230px;
+    height: 230px;
+  }
+
+  .kanban-grid {
+    overflow-x: auto;
+    grid-template-columns: repeat(4, minmax(260px, 1fr));
+    padding-bottom: 4px;
+  }
+}
+
+@media (max-width: 820px) {
+  .page-shell {
+    padding: 24px 16px 42px;
+  }
+
+  .hero,
+  .kpi-report-grid,
+  .roadmap-grid,
+  .process-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    min-height: auto;
+    padding: 26px 22px;
+  }
+
+  h1 {
+    font-size: 3.3rem;
+  }
+
+  .summary {
+    font-size: 1.1rem;
+  }
+
+  .brand-logo {
+    justify-self: start;
+    width: 190px;
+    height: 190px;
+  }
+
+  .logo-badge {
+    left: 126px;
+    right: auto;
+    bottom: 14px;
+  }
+}
+"""
+
+
+def render_report_hero(data: JsonObject) -> str:
+    repo = data["repo"]
+    logo = data["assets"].get("logo") or ""
+    logo_html = f'<img class="brand-logo" src="{esc(logo)}" alt="Screeps community logo">' if logo else ""
+    return f"""
+    <header class="hero">
+      <div>
+        <p class="eyebrow">PERSISTENT MMO AI COLONY · AUTONOMOUS ROADMAP</p>
+        <h1><span>Hermes Screeps Project</span><span>Roadmap Report</span></h1>
+        <p class="summary">用真实游戏 KPI 驱动 bot 能力、策略开发、基建门禁和发版节奏。</p>
+        <div class="hero-meta">
+          <p><strong>Project</strong> · 长期运行的 Screeps: World AI / 自动化运营项目。</p>
+          <p><strong>Links</strong> · <a href="{esc(repo['url'])}">https://github.com/lanyusea/screeps</a> · <a href="https://screeps.com/">https://screeps.com/</a></p>
+          <p><strong>Target</strong> · Official MMO shardX / E48S28 · 地盘 &gt; 资源 &gt; 击杀。</p>
+        </div>
+        <p class="published"><strong>PUBLISHED</strong> · {esc(data["generatedAtCst"])}</p>
+      </div>
+      <div class="hero-art">
+        {logo_html}
+        <div class="logo-badge">KPI/Kanban · {esc(repo.get("shortSha") or "unknown")}</div>
+      </div>
+    </header>
+"""
+
+
+def render_report_kpis(data: JsonObject) -> str:
+    cards = "\n".join(render_kpi_chart_card(card) for card in data["report"]["kpiCards"])
+    return f"""
+      <section class="section" id="kpi">
+        <h2 class="section-title">01 游戏内部 KPI · 7d 趋势</h2>
+        <div class="kpi-report-grid">
+          {cards}
+        </div>
+      </section>
+"""
+
+
+def render_kpi_chart_card(card: JsonObject) -> str:
+    return f"""
+          <article class="chart-card">
+            <div class="card-heading">
+              <div>
+                <h3>{esc(card["title"])}</h3>
+                <p>{esc(card["subtitle"])}</p>
+              </div>
+              <span class="mini-pill">{esc(card["pill"])}</span>
+            </div>
+            {render_kpi_svg(card)}
+            <p class="chart-footer">{esc(card["footer"])}</p>
+          </article>
+"""
+
+
+def render_kpi_svg(card: JsonObject) -> str:
+    x0 = 70.0
+    y0 = 24.0
+    width = 430.0
+    height = 166.0
+    y_max = float(card["max"])
+
+    def x_for(index: int) -> float:
+        return x0 + (width / (len(KPI_DATES) - 1)) * index
+
+    def y_for(value: float) -> float:
+        return y0 + height - (float(value) / y_max) * height
+
+    grid_parts: list[str] = []
+    for tick in card["ticks"]:
+        y = y_for(float(tick))
+        grid_parts.append(
+            f'<line x1="{x0:.1f}" y1="{y:.1f}" x2="{x0 + width:.1f}" y2="{y:.1f}" stroke="#e4d7c8" stroke-width="1"/>'
+        )
+        grid_parts.append(
+            f'<text x="{x0 - 12:.1f}" y="{y + 5:.1f}" text-anchor="end" fill="#8b6d55" font-size="15">{esc(format_tick(tick))}</text>'
+        )
+
+    date_labels = "\n".join(
+        f'<text x="{x_for(index):.1f}" y="226" text-anchor="middle" fill="#7b6654" font-size="15">{esc(label)}</text>'
+        for index, label in enumerate(KPI_DATES)
+    )
+
+    series_parts: list[str] = []
+    legend_parts: list[str] = []
+    legend_x = 8
+    for series_index, series in enumerate(card["series"]):
+        values = [float(value) for value in series["values"]]
+        coords = [(x_for(index), y_for(value)) for index, value in enumerate(values)]
+        points = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
+        dash = f' stroke-dasharray="{esc(series["dash"])}"' if series.get("dash") else ""
+        color = esc(series["color"])
+        width_attr = esc(series.get("width", 3))
+        series_parts.append(
+            f'<polyline fill="none" stroke="{color}" stroke-width="{width_attr}" stroke-linecap="round" stroke-linejoin="round"{dash} points="{points}"/>'
+        )
+        for point_index, (x, y) in enumerate(coords):
+            value = values[point_index]
+            if value == y_max:
+                text_y = y + 22
+            elif value == 0:
+                text_y = y - 8 - (series_index * 13)
+            else:
+                text_y = y - 11
+            series_parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{color}"/>')
+            series_parts.append(
+                f'<text x="{x:.1f}" y="{text_y:.1f}" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">{esc(format_chart_value(value))}</text>'
+            )
+        legend_parts.append(
+            f'<line x1="{legend_x}" y1="250" x2="{legend_x + 22}" y2="250" stroke="{color}" stroke-width="3"{dash}/>'
+        )
+        legend_parts.append(
+            f'<text x="{legend_x + 30}" y="255" fill="#4f443a" font-size="14">{esc(series["label"])}</text>'
+        )
+        legend_x += 142 if len(series["label"]) < 11 else 164
+
+    return f"""
+            <svg class="chart-svg" role="img" aria-label="{esc(card["title"])} 7 day trend" viewBox="0 0 560 260">
+              <text x="{x0:.1f}" y="12" fill="#9a5d25" font-size="14" font-weight="900">{esc(card["pill"])}</text>
+              {''.join(grid_parts)}
+              <line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x0:.1f}" y2="{y0 + height:.1f}" stroke="#cdbba7" stroke-width="1.5"/>
+              <line x1="{x0:.1f}" y1="{y0 + height:.1f}" x2="{x0 + width:.1f}" y2="{y0 + height:.1f}" stroke="#cdbba7" stroke-width="1.5"/>
+              {''.join(series_parts)}
+              {date_labels}
+              {''.join(legend_parts)}
+            </svg>
+"""
+
+
+def format_tick(value: Any) -> str:
+    number = float(value)
+    if number.is_integer():
+        return str(int(number))
+    return str(number).rstrip("0").rstrip(".")
+
+
+def format_chart_value(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else format_tick(value)
+
+
+def render_report_roadmap(data: JsonObject) -> str:
+    cards = "\n".join(render_report_roadmap_card(card) for card in data["report"]["roadmapCards"])
+    return f"""
+      <section class="section" id="roadmap">
+        <h2 class="section-title">02 开发 Roadmap · 六项状态</h2>
+        <div class="roadmap-grid">
+          {cards}
+        </div>
+      </section>
+"""
+
+
+def render_report_roadmap_card(card: JsonObject) -> str:
+    tag = "a" if card.get("url") else "article"
+    href = f' href="{esc(card["url"])}"' if card.get("url") else ""
+    progress = int(card["progress"])
+    return f"""
+          <{tag} class="roadmap-card"{href}>
+            <h3>{esc(card["title"])}</h3>
+            <div class="roadmap-table">
+              <span class="roadmap-label">目标</span><span>{esc(card["goal"])}</span>
+              <span class="roadmap-label">下个点</span><span>{esc(card["next"])}</span>
+            </div>
+            <div class="progress-row">
+              <span class="progress-value">{progress}%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: {progress}%"></span></span>
+            </div>
+            <div class="roadmap-status">{esc(card["status"])}</div>
+          </{tag}>
+"""
+
+
+def render_kanban_section(section_id: str, title: str, columns: Sequence[JsonObject]) -> str:
+    rendered_columns = "\n".join(render_kanban_column(column) for column in columns)
+    return f"""
+      <section class="section" id="{esc(section_id)}">
+        <h2 class="section-title">{esc(title)}</h2>
+        <div class="kanban-grid">
+          {rendered_columns}
+        </div>
+      </section>
+"""
+
+
+def render_kanban_column(column: JsonObject) -> str:
+    items = column.get("items", [])
+    count = len(items)
+    rendered_items = "\n".join(render_kanban_item(item) for item in items) if items else '<div class="kanban-empty">—</div>'
+    return f"""
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>{esc(column["title"])}</h3>
+              <span class="column-count">{count}</span>
+            </div>
+            {rendered_items}
+          </article>
+"""
+
+
+def render_kanban_item(item: JsonObject) -> str:
+    tag = "a" if item.get("url") else "div"
+    href = f' href="{esc(item["url"])}"' if item.get("url") else ""
+    return f"""
+            <{tag} class="kanban-item"{href}>
+              <span class="kanban-priority">{esc(item["priority"])}</span>
+              <h4>{esc(item["title"])}</h4>
+              <p>{esc(item["description"])}</p>
+            </{tag}>
+"""
+
+
+def render_report_process(data: JsonObject) -> str:
+    cards = "\n".join(render_process_card(card) for card in data["report"]["processCards"])
+    return f"""
+      <section class="section" id="process">
+        <h2 class="section-title">05 开发过程数据</h2>
+        <div class="process-grid">
+          {cards}
+        </div>
+      </section>
+"""
+
+
+def render_process_card(card: JsonObject) -> str:
+    return f"""
+          <article class="process-card">
+            <p class="process-value">{esc(card["value"])}</p>
+            <p class="process-label">{esc(card["label"])}</p>
+            <p class="process-detail">{esc(card["detail"])} <span class="process-chip">{esc(card["delta"])}</span></p>
+          </article>
 """
 
 
