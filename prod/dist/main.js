@@ -55,6 +55,101 @@ function getOwnedColonies() {
   }));
 }
 
+// src/construction/extensionPlanner.ts
+var EXTENSION_LIMITS_BY_RCL = {
+  2: 5,
+  3: 10,
+  4: 20,
+  5: 30,
+  6: 40,
+  7: 50,
+  8: 60
+};
+var MAX_EXTENSION_PLANNER_RADIUS = 6;
+var ROOM_EDGE_MIN = 1;
+var ROOM_EDGE_MAX = 48;
+var DEFAULT_TERRAIN_WALL_MASK = 1;
+function planExtensionConstruction(colony) {
+  var _a;
+  const allowedExtensions = getExtensionLimitForRcl((_a = colony.room.controller) == null ? void 0 : _a.level);
+  if (allowedExtensions <= 0) {
+    return null;
+  }
+  const plannedExtensions = countExistingAndPendingExtensions(colony.room);
+  if (plannedExtensions >= allowedExtensions) {
+    return null;
+  }
+  const anchor = selectExtensionAnchor(colony);
+  if (!anchor) {
+    return null;
+  }
+  const position = findNextExtensionPosition(colony.room, anchor);
+  if (!position) {
+    return null;
+  }
+  return colony.room.createConstructionSite(position.x, position.y, STRUCTURE_EXTENSION);
+}
+function getExtensionLimitForRcl(level) {
+  var _a;
+  return level ? (_a = EXTENSION_LIMITS_BY_RCL[level]) != null ? _a : 0 : 0;
+}
+function countExistingAndPendingExtensions(room) {
+  const existingExtensions = room.find(FIND_MY_STRUCTURES, {
+    filter: (structure) => structure.structureType === STRUCTURE_EXTENSION
+  });
+  const pendingExtensions = room.find(FIND_MY_CONSTRUCTION_SITES, {
+    filter: (site) => site.structureType === STRUCTURE_EXTENSION
+  });
+  return existingExtensions.length + pendingExtensions.length;
+}
+function selectExtensionAnchor(colony) {
+  var _a, _b, _c;
+  const [primarySpawn] = colony.spawns.filter((spawn) => spawn.pos).sort((left, right) => left.name.localeCompare(right.name));
+  return (_c = (_b = primarySpawn == null ? void 0 : primarySpawn.pos) != null ? _b : (_a = colony.room.controller) == null ? void 0 : _a.pos) != null ? _c : null;
+}
+function findNextExtensionPosition(room, anchor) {
+  for (let radius = 1; radius <= MAX_EXTENSION_PLANNER_RADIUS; radius += 1) {
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) {
+          continue;
+        }
+        const position = { x: anchor.x + dx, y: anchor.y + dy };
+        if (canPlaceExtension(room, position)) {
+          return position;
+        }
+      }
+    }
+  }
+  return null;
+}
+function canPlaceExtension(room, position) {
+  if (position.x < ROOM_EDGE_MIN || position.x > ROOM_EDGE_MAX || position.y < ROOM_EDGE_MIN || position.y > ROOM_EDGE_MAX) {
+    return false;
+  }
+  if (isTerrainWall(room, position)) {
+    return false;
+  }
+  return !hasBlockingObject(room, position);
+}
+function isTerrainWall(room, position) {
+  var _a;
+  const terrain = (_a = Game.map) == null ? void 0 : _a.getRoomTerrain(room.name).get(position.x, position.y);
+  return terrain === getTerrainWallMask();
+}
+function hasBlockingObject(room, position) {
+  var _a;
+  const lookAt = room.lookAt;
+  const lookEntries = (_a = lookAt == null ? void 0 : lookAt.call(room, position.x, position.y)) != null ? _a : [];
+  return lookEntries.some((entry) => entry.terrain === "wall" || hasNonTerrainLookResult(entry));
+}
+function hasNonTerrainLookResult(entry) {
+  return Object.entries(entry).some(([key, value]) => key !== "type" && key !== "terrain" && value !== void 0);
+}
+function getTerrainWallMask() {
+  return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK;
+}
+
 // src/creeps/roleCounts.ts
 var WORKER_REPLACEMENT_TICKS_TO_LIVE = 100;
 function countCreepsByRole(creeps, colonyName) {
@@ -543,6 +638,7 @@ function runEconomy() {
   const colonies = getOwnedColonies();
   const telemetryEvents = [];
   for (const colony of colonies) {
+    planExtensionConstruction(colony);
     const roleCounts = countCreepsByRole(creeps, colony.room.name);
     const spawnRequest = planSpawn(colony, roleCounts, Game.time);
     if (spawnRequest) {
