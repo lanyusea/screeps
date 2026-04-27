@@ -409,6 +409,7 @@ function executeTask(creep, task, target) {
 var WORKER_PATTERN = ["work", "carry", "move"];
 var WORKER_PATTERN_COST = 200;
 var MAX_CREEP_PARTS = 50;
+var MAX_WORKER_PATTERN_COUNT = 4;
 var BODY_PART_COSTS = {
   move: 50,
   work: 100,
@@ -425,7 +426,7 @@ function buildWorkerBody(energyAvailable) {
   }
   const maxPatternCountByEnergy = Math.floor(energyAvailable / WORKER_PATTERN_COST);
   const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / WORKER_PATTERN.length);
-  const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize);
+  const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize, MAX_WORKER_PATTERN_COUNT);
   return Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
 }
 function buildEmergencyWorkerBody(energyAvailable) {
