@@ -39,6 +39,69 @@ describe('runEconomy', () => {
     });
   });
 
+  it('spawns an emergency worker when an owned colony has zero creeps and only basic worker energy', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 200,
+      energyCapacityAvailable: 400,
+      controller: { my: true } as StructureController
+    } as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 125,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-125', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
+  it('waits through critical energy without invalid spawn attempts and recovers when an emergency body is affordable', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 199,
+      energyCapacityAvailable: 400,
+      controller: { my: true } as StructureController
+    } as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 126,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    runEconomy();
+    Game.time = 127;
+    runEconomy();
+
+    expect(spawn.spawnCreep).not.toHaveBeenCalled();
+
+    room.energyAvailable = 200;
+    Game.time = 128;
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-128', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('retries another idle spawn when the planned spawn reports busy and emits both outcomes', () => {
     const room = {
       name: 'W1N1',
