@@ -135,7 +135,7 @@ def scan_file(path: Path, result: ScanResult, max_file_bytes: int) -> None:
     matching_lines = [
         line if line.endswith("\n") else f"{line}\n"
         for line in text.splitlines()
-        if reducer.RUNTIME_SUMMARY_PREFIX in line
+        if line.startswith(reducer.RUNTIME_SUMMARY_PREFIX)
     ]
     if not matching_lines:
         return

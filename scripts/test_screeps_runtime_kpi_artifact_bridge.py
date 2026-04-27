@@ -40,6 +40,30 @@ class RuntimeKpiArtifactBridgeTest(unittest.TestCase):
         self.assertEqual(report["input"]["runtimeSummaryCount"], 1)
         self.assertEqual(report["territory"]["ownedRooms"]["latest"], ["W1N1"])
 
+    def test_ignores_embedded_runtime_summary_markers(self) -> None:
+        embedded = {"type": "runtime-summary", "tick": 5, "rooms": [{"roomName": "W9N9"}]}
+        accepted = {"type": "runtime-summary", "tick": 10, "rooms": [{"roomName": "W1N1"}]}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "console.log"
+            embedded_json = json.dumps(embedded, sort_keys=True)
+            path.write_text(
+                f"noise #runtime-summary {embedded_json}\n"
+                f'"noise #runtime-summary {embedded_json}"\n'
+                f"{runtime_line(accepted)}",
+                encoding="utf-8",
+            )
+
+            report = bridge.build_bridge_report([str(path)])
+
+        self.assertEqual(report["source"]["matchedFiles"], 1)
+        self.assertEqual(report["source"]["runtimeSummaryLines"], 1)
+        self.assertEqual(report["input"]["lineCount"], 1)
+        self.assertEqual(report["input"]["runtimeSummaryCount"], 1)
+        self.assertEqual(report["input"]["malformedRuntimeSummaryCount"], 0)
+        self.assertEqual(report["window"], {"firstTick": 10, "latestTick": 10})
+        self.assertEqual(report["territory"]["ownedRooms"]["latest"], ["W1N1"])
+
     def test_recurses_directories_in_deterministic_order(self) -> None:
         first = {"type": "runtime-summary", "tick": 10, "rooms": [{"roomName": "W1N1"}]}
         latest = {"type": "runtime-summary", "tick": 20, "rooms": [{"roomName": "W1N1"}, {"roomName": "W2N2"}]}
