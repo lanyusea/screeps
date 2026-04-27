@@ -40,14 +40,39 @@ jobs:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
         run: |
           set -o pipefail
-          npm ci --ignore-scripts 2>&1 | tee "$RUNNER_TEMP/npm-ci.log"
-          npm_ci_status=${PIPESTATUS[0]}
+          max_attempts=3
+          npm_ci_status=1
+
+          for attempt in 1 2 3; do
+            log_path="$RUNNER_TEMP/npm-ci-attempt-${attempt}.log"
+            echo "Running npm ci attempt ${attempt}/${max_attempts}"
+
+            set +e
+            npm ci 2>&1 | tee "$log_path"
+            npm_ci_status=${PIPESTATUS[0]}
+            set -e
+
+            cp "$log_path" "$RUNNER_TEMP/npm-ci.log"
+
+            if [ "$npm_ci_status" -eq 0 ]; then
+              if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
+                echo "::error::npm ci emitted npm error output; aborting before verification."
+                exit 1
+              fi
+              break
+            fi
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "npm ci attempt ${attempt}/${max_attempts} failed with exit code ${npm_ci_status}; retrying shortly."
+              sleep 10
+            fi
+          done
+
           if [ "$npm_ci_status" -ne 0 ]; then
+            if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
+              echo "::error::npm ci emitted npm error output; aborting before verification."
+            fi
             exit "$npm_ci_status"
-          fi
-          if grep -Eq "^npm (ERR!|error) " "$RUNNER_TEMP/npm-ci.log"; then
-            echo "::error::npm ci emitted npm error output; aborting before verification."
-            exit 1
           fi
 
       - name: Verify dependency tree
