@@ -24,6 +24,8 @@ The documented code API endpoint is:
 
 The deploy artifact is the bundled JavaScript module set, normally our generated `prod/dist/main.js` or equivalent.
 
+Current safe deploy procedure: `docs/ops/official-mmo-deploy.md`.
+
 ## What the user needs to provide
 
 ### Required for public MMO deployment
@@ -51,6 +53,8 @@ Current public MMO deployment target confirmed by user:
 SCREEPS_AUTH_TOKEN=***
 SCREEPS_BRANCH=main
 SCREEPS_API_URL=https://screeps.com
+SCREEPS_SHARD=shardX
+SCREEPS_ROOM=E48S28
 ```
 
 For private-server smoke tests:
@@ -90,11 +94,11 @@ Likely private-server inputs:
 
 1. Build/test locally without any Screeps token.
 2. Run private-server smoke when local/private-server secrets are available.
-3. Add a deploy script that reads token/config from untracked local env only.
+3. Use `scripts/screeps_official_deploy.py --dry-run` to verify artifact metadata without reading a token.
 4. User creates Screeps auth token in account settings.
-5. User installs token into local secret storage, not Discord.
-6. We verify deploy with a harmless branch or limited release branch before touching the live active branch.
-7. After deployment is stable, document the exact command and keep secrets out of committed files.
+5. User installs token into local secret storage or GitHub environment secret `SCREEPS_AUTH_TOKEN`, not Discord.
+6. Run the gated live deploy command only with exact confirmation and record the emitted evidence JSON.
+7. After deployment, run the runtime monitor and console capture checks from `docs/ops/official-mmo-deploy.md`.
 
 ## Confirmed public MMO decisions
 

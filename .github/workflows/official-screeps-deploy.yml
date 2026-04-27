@@ -1,0 +1,134 @@
+name: official-screeps-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run a metadata-only dry run or perform the official upload."
+        required: true
+        type: choice
+        default: dry-run
+        options:
+          - dry-run
+          - deploy
+      environment:
+        description: "GitHub environment holding the official deploy secret and approvals."
+        required: true
+        type: choice
+        default: official-screeps
+        options:
+          - official-screeps
+      activate_world:
+        description: "Set main as activeWorld after upload."
+        required: true
+        type: boolean
+        default: false
+      confirmation:
+        description: "Required for deploy mode: deploy main to shardX/E48S28"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: official-screeps-deploy-main-shardX-E48S28
+  cancel-in-progress: false
+
+jobs:
+  verify-and-deploy:
+    name: Verify and manually deploy official Screeps
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    env:
+      SCREEPS_API_URL: https://screeps.com
+      SCREEPS_BRANCH: main
+      SCREEPS_SHARD: shardX
+      SCREEPS_ROOM: E48S28
+      EVIDENCE_DIR: runtime-artifacts/official-screeps-deploy
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: prod/package-lock.json
+
+      - name: Run deploy helper unit tests
+        run: python3 -m unittest scripts/test_screeps_official_deploy.py
+
+      - name: Install production dependencies
+        working-directory: prod
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: prod
+        run: npm run typecheck
+
+      - name: Run Jest in-band
+        working-directory: prod
+        run: npm test -- --runInBand
+
+      - name: Build bundled Screeps artifact
+        working-directory: prod
+        run: npm run build
+
+      - name: Dry-run official deploy evidence
+        if: ${{ inputs.mode == 'dry-run' }}
+        env:
+          ACTIVATE_WORLD: ${{ inputs.activate_world }}
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          activate_flag=""
+          if [ "$ACTIVATE_WORLD" = "true" ]; then
+            activate_flag="--activate-world"
+          fi
+          python3 scripts/screeps_official_deploy.py \
+            --dry-run \
+            $activate_flag \
+            --evidence-path "$EVIDENCE_DIR/official-screeps-deploy-dry-run.json"
+
+      - name: Check deploy confirmation
+        if: ${{ inputs.mode == 'deploy' }}
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [ "$CONFIRMATION" != "deploy main to shardX/E48S28" ]; then
+            echo "::error::Deploy mode requires exact confirmation: deploy main to shardX/E48S28"
+            exit 1
+          fi
+
+      - name: Deploy to official Screeps
+        if: ${{ inputs.mode == 'deploy' }}
+        env:
+          ACTIVATE_WORLD: ${{ inputs.activate_world }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          activate_flag=""
+          if [ "$ACTIVATE_WORLD" = "true" ]; then
+            activate_flag="--activate-world"
+          fi
+          python3 scripts/screeps_official_deploy.py \
+            --deploy \
+            $activate_flag \
+            --confirm "$CONFIRMATION" \
+            --evidence-path "$EVIDENCE_DIR/official-screeps-deploy.json"
+
+      - name: Upload deploy evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-screeps-deploy-evidence
+          path: runtime-artifacts/official-screeps-deploy/
+          if-no-files-found: ignore
