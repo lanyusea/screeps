@@ -20,9 +20,16 @@ interface CandidatePosition {
   y: number;
 }
 
-interface LookEntry {
-  [key: string]: unknown;
-  terrain?: string;
+interface ScanBounds {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+}
+
+interface PlannerLookups {
+  terrain: RoomTerrain;
+  blockingPositions: Set<string>;
 }
 
 export function planExtensionConstruction(colony: ColonySnapshot): ScreepsReturnCode | null {
@@ -73,6 +80,9 @@ function selectExtensionAnchor(colony: ColonySnapshot): RoomPosition | null {
 }
 
 function findNextExtensionPosition(room: Room, anchor: RoomPosition): CandidatePosition | null {
+  const lookups = createPlannerLookups(room, anchor);
+  const anchorParity = getPositionParity(anchor);
+
   for (let radius = 1; radius <= MAX_EXTENSION_PLANNER_RADIUS; radius += 1) {
     for (let dy = -radius; dy <= radius; dy += 1) {
       for (let dx = -radius; dx <= radius; dx += 1) {
@@ -81,7 +91,7 @@ function findNextExtensionPosition(room: Room, anchor: RoomPosition): CandidateP
         }
 
         const position = { x: anchor.x + dx, y: anchor.y + dy };
-        if (canPlaceExtension(room, position)) {
+        if (canPlaceExtension(lookups, anchorParity, position)) {
           return position;
         }
       }
@@ -91,32 +101,66 @@ function findNextExtensionPosition(room: Room, anchor: RoomPosition): CandidateP
   return null;
 }
 
-function canPlaceExtension(room: Room, position: CandidatePosition): boolean {
+function createPlannerLookups(room: Room, anchor: RoomPosition): PlannerLookups {
+  const bounds = getScanBounds(anchor);
+
+  return {
+    terrain: Game.map.getRoomTerrain(room.name),
+    blockingPositions: getBlockingPositions(room, bounds)
+  };
+}
+
+function getScanBounds(anchor: RoomPosition): ScanBounds {
+  return {
+    top: Math.max(ROOM_EDGE_MIN, anchor.y - MAX_EXTENSION_PLANNER_RADIUS),
+    left: Math.max(ROOM_EDGE_MIN, anchor.x - MAX_EXTENSION_PLANNER_RADIUS),
+    bottom: Math.min(ROOM_EDGE_MAX, anchor.y + MAX_EXTENSION_PLANNER_RADIUS),
+    right: Math.min(ROOM_EDGE_MAX, anchor.x + MAX_EXTENSION_PLANNER_RADIUS)
+  };
+}
+
+function getBlockingPositions(room: Room, bounds: ScanBounds): Set<string> {
+  const blockingPositions = new Set<string>();
+  const structures = room.lookForAtArea(LOOK_STRUCTURES, bounds.top, bounds.left, bounds.bottom, bounds.right, true);
+  const constructionSites = room.lookForAtArea(LOOK_CONSTRUCTION_SITES, bounds.top, bounds.left, bounds.bottom, bounds.right, true);
+
+  for (const structure of structures) {
+    blockingPositions.add(getPositionKey(structure));
+  }
+
+  for (const constructionSite of constructionSites) {
+    blockingPositions.add(getPositionKey(constructionSite));
+  }
+
+  return blockingPositions;
+}
+
+function canPlaceExtension(lookups: PlannerLookups, anchorParity: number, position: CandidatePosition): boolean {
   if (position.x < ROOM_EDGE_MIN || position.x > ROOM_EDGE_MAX || position.y < ROOM_EDGE_MIN || position.y > ROOM_EDGE_MAX) {
     return false;
   }
 
-  if (isTerrainWall(room, position)) {
+  if (getPositionParity(position) !== anchorParity) {
     return false;
   }
 
-  return !hasBlockingObject(room, position);
+  if (isTerrainWall(lookups.terrain, position)) {
+    return false;
+  }
+
+  return !lookups.blockingPositions.has(getPositionKey(position));
 }
 
-function isTerrainWall(room: Room, position: CandidatePosition): boolean {
-  const terrain = Game.map?.getRoomTerrain(room.name).get(position.x, position.y);
-  return terrain === getTerrainWallMask();
+function getPositionParity(position: CandidatePosition): number {
+  return (position.x + position.y) % 2;
 }
 
-function hasBlockingObject(room: Room, position: CandidatePosition): boolean {
-  const lookAt = (room as unknown as { lookAt?: (x: number, y: number) => LookEntry[] }).lookAt;
-  const lookEntries = lookAt?.call(room, position.x, position.y) ?? [];
-
-  return lookEntries.some((entry) => entry.terrain === 'wall' || hasNonTerrainLookResult(entry));
+function isTerrainWall(terrain: RoomTerrain, position: CandidatePosition): boolean {
+  return (terrain.get(position.x, position.y) & getTerrainWallMask()) !== 0;
 }
 
-function hasNonTerrainLookResult(entry: LookEntry): boolean {
-  return Object.entries(entry).some(([key, value]) => key !== 'type' && key !== 'terrain' && value !== undefined);
+function getPositionKey(position: CandidatePosition): string {
+  return `${position.x},${position.y}`;
 }
 
 function getTerrainWallMask(): number {

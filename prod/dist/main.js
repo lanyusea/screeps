@@ -108,6 +108,8 @@ function selectExtensionAnchor(colony) {
   return (_c = (_b = primarySpawn == null ? void 0 : primarySpawn.pos) != null ? _b : (_a = colony.room.controller) == null ? void 0 : _a.pos) != null ? _c : null;
 }
 function findNextExtensionPosition(room, anchor) {
+  const lookups = createPlannerLookups(room, anchor);
+  const anchorParity = getPositionParity(anchor);
   for (let radius = 1; radius <= MAX_EXTENSION_PLANNER_RADIUS; radius += 1) {
     for (let dy = -radius; dy <= radius; dy += 1) {
       for (let dx = -radius; dx <= radius; dx += 1) {
@@ -115,7 +117,7 @@ function findNextExtensionPosition(room, anchor) {
           continue;
         }
         const position = { x: anchor.x + dx, y: anchor.y + dy };
-        if (canPlaceExtension(room, position)) {
+        if (canPlaceExtension(lookups, anchorParity, position)) {
           return position;
         }
       }
@@ -123,28 +125,53 @@ function findNextExtensionPosition(room, anchor) {
   }
   return null;
 }
-function canPlaceExtension(room, position) {
+function createPlannerLookups(room, anchor) {
+  const bounds = getScanBounds(anchor);
+  return {
+    terrain: Game.map.getRoomTerrain(room.name),
+    blockingPositions: getBlockingPositions(room, bounds)
+  };
+}
+function getScanBounds(anchor) {
+  return {
+    top: Math.max(ROOM_EDGE_MIN, anchor.y - MAX_EXTENSION_PLANNER_RADIUS),
+    left: Math.max(ROOM_EDGE_MIN, anchor.x - MAX_EXTENSION_PLANNER_RADIUS),
+    bottom: Math.min(ROOM_EDGE_MAX, anchor.y + MAX_EXTENSION_PLANNER_RADIUS),
+    right: Math.min(ROOM_EDGE_MAX, anchor.x + MAX_EXTENSION_PLANNER_RADIUS)
+  };
+}
+function getBlockingPositions(room, bounds) {
+  const blockingPositions = /* @__PURE__ */ new Set();
+  const structures = room.lookForAtArea(LOOK_STRUCTURES, bounds.top, bounds.left, bounds.bottom, bounds.right, true);
+  const constructionSites = room.lookForAtArea(LOOK_CONSTRUCTION_SITES, bounds.top, bounds.left, bounds.bottom, bounds.right, true);
+  for (const structure of structures) {
+    blockingPositions.add(getPositionKey(structure));
+  }
+  for (const constructionSite of constructionSites) {
+    blockingPositions.add(getPositionKey(constructionSite));
+  }
+  return blockingPositions;
+}
+function canPlaceExtension(lookups, anchorParity, position) {
   if (position.x < ROOM_EDGE_MIN || position.x > ROOM_EDGE_MAX || position.y < ROOM_EDGE_MIN || position.y > ROOM_EDGE_MAX) {
     return false;
   }
-  if (isTerrainWall(room, position)) {
+  if (getPositionParity(position) !== anchorParity) {
     return false;
   }
-  return !hasBlockingObject(room, position);
+  if (isTerrainWall(lookups.terrain, position)) {
+    return false;
+  }
+  return !lookups.blockingPositions.has(getPositionKey(position));
 }
-function isTerrainWall(room, position) {
-  var _a;
-  const terrain = (_a = Game.map) == null ? void 0 : _a.getRoomTerrain(room.name).get(position.x, position.y);
-  return terrain === getTerrainWallMask();
+function getPositionParity(position) {
+  return (position.x + position.y) % 2;
 }
-function hasBlockingObject(room, position) {
-  var _a;
-  const lookAt = room.lookAt;
-  const lookEntries = (_a = lookAt == null ? void 0 : lookAt.call(room, position.x, position.y)) != null ? _a : [];
-  return lookEntries.some((entry) => entry.terrain === "wall" || hasNonTerrainLookResult(entry));
+function isTerrainWall(terrain, position) {
+  return (terrain.get(position.x, position.y) & getTerrainWallMask()) !== 0;
 }
-function hasNonTerrainLookResult(entry) {
-  return Object.entries(entry).some(([key, value]) => key !== "type" && key !== "terrain" && value !== void 0);
+function getPositionKey(position) {
+  return `${position.x},${position.y}`;
 }
 function getTerrainWallMask() {
   return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK;

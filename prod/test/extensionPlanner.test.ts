@@ -5,7 +5,9 @@ const TEST_GLOBALS = {
   FIND_MY_STRUCTURES: 1,
   FIND_MY_CONSTRUCTION_SITES: 2,
   STRUCTURE_EXTENSION: 'extension',
-  TERRAIN_MASK_WALL: 1
+  TERRAIN_MASK_WALL: 1,
+  LOOK_STRUCTURES: 'structure',
+  LOOK_CONSTRUCTION_SITES: 'constructionSite'
 } as const;
 
 describe('extension construction planner', () => {
@@ -69,23 +71,49 @@ describe('extension construction planner', () => {
   it('avoids occupied, wall, and duplicate positions before choosing the next candidate', () => {
     const { room, colony } = makeColony({
       controllerLevel: 2,
-      wallPositions: new Set(['25,24']),
-      lookEntriesByPosition: {
-        '24,24': [{ structure: makeExtension('existing-at-first-candidate') }],
-        '26,24': [{ constructionSite: makeExtensionSite('pending-at-third-candidate') }]
-      }
+      wallPositions: new Set(['24,26']),
+      structures: [makeExtension('existing-at-first-candidate', { x: 24, y: 24 })],
+      constructionSites: [makeExtensionSite('pending-at-second-candidate', { x: 26, y: 24 })]
     });
 
     expect(planExtensionConstruction(colony)).toBe(0);
 
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
-    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 25, STRUCTURE_EXTENSION);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(26, 26, STRUCTURE_EXTENSION);
+    expect(room.lookForAt).not.toHaveBeenCalled();
+    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_STRUCTURES, 19, 19, 31, 31, true);
+    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_CONSTRUCTION_SITES, 19, 19, 31, 31, true);
+    expect(room.lookForAtArea).toHaveBeenCalledTimes(2);
+    expect((Game.map.getRoomTerrain as jest.Mock).mock.calls).toHaveLength(1);
+  });
+
+  it('keeps adjacent cardinal paths open while filling RCL2 extension sites', () => {
+    const { room, colony } = makeColony({ controllerLevel: 2 });
+
+    for (let site = 0; site < 5; site += 1) {
+      expect(planExtensionConstruction(colony)).toBe(0);
+    }
+
+    const placedPositions = new Set(room.createConstructionSite.mock.calls.map(([x, y]) => `${x},${y}`));
+
+    expect(placedPositions).toEqual(new Set(['24,24', '26,24', '24,26', '26,26', '23,23']));
+    expect(placedPositions.has('25,24')).toBe(false);
+    expect(placedPositions.has('24,25')).toBe(false);
+    expect(placedPositions.has('26,25')).toBe(false);
+    expect(placedPositions.has('25,26')).toBe(false);
   });
 });
 
 interface MockRoom extends Room {
   find: jest.Mock;
   createConstructionSite: jest.Mock;
+  lookForAt: jest.Mock;
+  lookForAtArea: jest.Mock;
+}
+
+interface TestPosition {
+  x: number;
+  y: number;
 }
 
 function makeColony(options: {
@@ -93,12 +121,10 @@ function makeColony(options: {
   structures?: Structure[];
   constructionSites?: ConstructionSite[];
   wallPositions?: Set<string>;
-  lookEntriesByPosition?: Record<string, Array<Partial<LookAtResult>>>;
 }): { room: MockRoom; colony: ColonySnapshot } {
   const structures = options.structures ?? [];
-  const constructionSites = options.constructionSites ?? [];
+  const constructionSites = [...(options.constructionSites ?? [])];
   const wallPositions = options.wallPositions ?? new Set<string>();
-  const lookEntriesByPosition = options.lookEntriesByPosition ?? {};
   const roomName = 'W1N1';
   const controller = {
     my: true,
@@ -120,8 +146,29 @@ function makeColony(options: {
 
       return findOptions?.filter ? targets.filter(findOptions.filter) : targets;
     }),
-    lookAt: jest.fn((x: number, y: number) => lookEntriesByPosition[`${x},${y}`] ?? []),
-    createConstructionSite: jest.fn().mockReturnValue(0)
+    lookForAt: jest.fn(() => {
+      throw new Error('extension planner should use cached occupancy instead of per-candidate lookups');
+    }),
+    lookForAtArea: jest.fn((lookType: string, top: number, left: number, bottom: number, right: number) => {
+      if (lookType === TEST_GLOBALS.LOOK_STRUCTURES) {
+        return getStructureLookResults(structures, top, left, bottom, right);
+      }
+
+      if (lookType === TEST_GLOBALS.LOOK_CONSTRUCTION_SITES) {
+        return getConstructionSiteLookResults(constructionSites, top, left, bottom, right);
+      }
+
+      return [];
+    }),
+    createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+      constructionSites.push({
+        id: `site-${x}-${y}`,
+        structureType,
+        pos: { x, y, roomName } as RoomPosition
+      } as ConstructionSite);
+
+      return 0;
+    })
   } as unknown as MockRoom;
   const spawn = {
     name: 'Spawn1',
@@ -148,16 +195,50 @@ function makeColony(options: {
   };
 }
 
-function makeExtension(id: string): Structure {
+function makeExtension(id: string, position: TestPosition = { x: 40, y: 40 }): Structure {
   return {
     id,
-    structureType: TEST_GLOBALS.STRUCTURE_EXTENSION
+    structureType: TEST_GLOBALS.STRUCTURE_EXTENSION,
+    pos: makeRoomPosition(position)
   } as unknown as Structure;
 }
 
-function makeExtensionSite(id: string): ConstructionSite {
+function makeExtensionSite(id: string, position: TestPosition = { x: 41, y: 41 }): ConstructionSite {
   return {
     id,
-    structureType: TEST_GLOBALS.STRUCTURE_EXTENSION
+    structureType: TEST_GLOBALS.STRUCTURE_EXTENSION,
+    pos: makeRoomPosition(position)
   } as unknown as ConstructionSite;
+}
+
+function makeRoomPosition(position: TestPosition): RoomPosition {
+  return { ...position, roomName: 'W1N1' } as RoomPosition;
+}
+
+function getStructureLookResults(structures: Structure[], top: number, left: number, bottom: number, right: number): LookAtResultWithPos[] {
+  return structures.flatMap((structure) => {
+    const position = (structure as { pos?: RoomPosition }).pos;
+    return position && isWithinBounds(position, top, left, bottom, right)
+      ? [{ x: position.x, y: position.y, structure } as LookAtResultWithPos]
+      : [];
+  });
+}
+
+function getConstructionSiteLookResults(
+  constructionSites: ConstructionSite[],
+  top: number,
+  left: number,
+  bottom: number,
+  right: number
+): LookAtResultWithPos[] {
+  return constructionSites.flatMap((constructionSite) => {
+    const position = (constructionSite as { pos?: RoomPosition }).pos;
+    return position && isWithinBounds(position, top, left, bottom, right)
+      ? [{ x: position.x, y: position.y, constructionSite } as LookAtResultWithPos]
+      : [];
+  });
+}
+
+function isWithinBounds(position: TestPosition, top: number, left: number, bottom: number, right: number): boolean {
+  return position.x >= left && position.x <= right && position.y >= top && position.y <= bottom;
 }

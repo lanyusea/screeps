@@ -217,12 +217,16 @@ describe('runEconomy', () => {
       RESOURCE_ENERGY: ResourceConstant;
       STRUCTURE_EXTENSION: StructureConstant;
       TERRAIN_MASK_WALL: number;
+      LOOK_STRUCTURES: LOOK_STRUCTURES;
+      LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
     }).FIND_MY_STRUCTURES = 1;
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+    (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES = 'constructionSite';
 
     const constructionSites: ConstructionSite[] = [];
     const room = {
@@ -231,9 +235,12 @@ describe('runEconomy', () => {
       energyCapacityAvailable: 0,
       controller: { my: true, level: 2, id: 'controller1' } as StructureController,
       find: jest.fn((type: number) => (type === 3 ? constructionSites : [])),
-      lookAt: jest.fn().mockReturnValue([]),
+      lookForAt: jest.fn(() => {
+        throw new Error('extension planner should use cached occupancy instead of per-candidate lookups');
+      }),
+      lookForAtArea: jest.fn().mockReturnValue([]),
       createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
-        constructionSites.push({ id: `site-${x}-${y}`, structureType } as ConstructionSite);
+        constructionSites.push({ id: `site-${x}-${y}`, structureType, pos: { x, y, roomName: 'W1N1' } as RoomPosition } as ConstructionSite);
         return OK_CODE;
       })
     } as unknown as Room;
