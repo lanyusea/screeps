@@ -42,7 +42,11 @@ export function planSpawn(
   options: SpawnPlanningOptions = {}
 ): SpawnRequest | null {
   const workerTarget = getWorkerTarget(colony, roleCounts);
-  if (getWorkerCapacity(roleCounts) < workerTarget) {
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  const shouldPlanWorkerRecovery = workerCapacity < workerTarget;
+  const nearWorkerTarget = workerCapacity >= workerTarget - 1;
+
+  if (shouldPlanWorkerRecovery && (!nearWorkerTarget || options.workersOnly)) {
     return planWorkerSpawn(colony, roleCounts, gameTime, options);
   }
 
@@ -50,6 +54,26 @@ export function planSpawn(
     return null;
   }
 
+  const territoryWorkerTarget = shouldPlanWorkerRecovery ? workerTarget - 1 : workerTarget;
+  const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryWorkerTarget, gameTime, options);
+  if (territorySpawn) {
+    return territorySpawn;
+  }
+
+  if (shouldPlanWorkerRecovery) {
+    return planWorkerSpawn(colony, roleCounts, gameTime, options);
+  }
+
+  return null;
+}
+
+function planTerritorySpawn(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  workerTarget: number,
+  gameTime: number,
+  options: SpawnPlanningOptions
+): SpawnRequest | null {
   const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
   if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
     return null;

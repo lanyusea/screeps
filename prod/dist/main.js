@@ -3465,12 +3465,26 @@ var MAX_WORKER_TARGET = 6;
 var sourceCountByRoomName = /* @__PURE__ */ new Map();
 function planSpawn(colony, roleCounts, gameTime, options = {}) {
   const workerTarget = getWorkerTarget(colony, roleCounts);
-  if (getWorkerCapacity(roleCounts) < workerTarget) {
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  const shouldPlanWorkerRecovery = workerCapacity < workerTarget;
+  const nearWorkerTarget = workerCapacity >= workerTarget - 1;
+  if (shouldPlanWorkerRecovery && (!nearWorkerTarget || options.workersOnly)) {
     return planWorkerSpawn(colony, roleCounts, gameTime, options);
   }
   if (options.workersOnly) {
     return null;
   }
+  const territoryWorkerTarget = shouldPlanWorkerRecovery ? workerTarget - 1 : workerTarget;
+  const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryWorkerTarget, gameTime, options);
+  if (territorySpawn) {
+    return territorySpawn;
+  }
+  if (shouldPlanWorkerRecovery) {
+    return planWorkerSpawn(colony, roleCounts, gameTime, options);
+  }
+  return null;
+}
+function planTerritorySpawn(colony, roleCounts, workerTarget, gameTime, options) {
   const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
   if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
     return null;
