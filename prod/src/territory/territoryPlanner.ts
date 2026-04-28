@@ -1165,19 +1165,18 @@ function normalizeTerritoryFollowUp(rawFollowUp: unknown): TerritoryFollowUpMemo
     return null;
   }
 
-  const originAction = isTerritoryFollowUpSource(rawFollowUp.source)
-    ? getTerritoryFollowUpOriginAction(rawFollowUp.source)
-    : null;
-  if (
-    originAction === null ||
-    !isNonEmptyString(rawFollowUp.originRoom) ||
-    rawFollowUp.originAction !== originAction
-  ) {
+  if (!isTerritoryFollowUpSource(rawFollowUp.source)) {
+    return null;
+  }
+
+  const source = rawFollowUp.source;
+  const originAction = getTerritoryFollowUpOriginAction(source);
+  if (originAction === null || !isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
     return null;
   }
 
   return {
-    source: rawFollowUp.source,
+    source,
     originRoom: rawFollowUp.originRoom,
     originAction
   };

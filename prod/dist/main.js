@@ -1328,13 +1328,18 @@ function normalizeTerritoryFollowUp(rawFollowUp) {
   if (!isRecord(rawFollowUp)) {
     return null;
   }
-  if (!isTerritoryFollowUpSource(rawFollowUp.source) || !isNonEmptyString(rawFollowUp.originRoom) || !isTerritoryControlAction(rawFollowUp.originAction)) {
+  if (!isTerritoryFollowUpSource(rawFollowUp.source)) {
+    return null;
+  }
+  const source = rawFollowUp.source;
+  const originAction = getTerritoryFollowUpOriginAction(source);
+  if (originAction === null || !isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
     return null;
   }
   return {
-    source: rawFollowUp.source,
+    source,
     originRoom: rawFollowUp.originRoom,
-    originAction: rawFollowUp.originAction
+    originAction
   };
 }
 function getTerritoryCreepCountForTarget(roleCounts, targetRoom, action) {
