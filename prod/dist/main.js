@@ -571,8 +571,10 @@ var TERRITORY_CLAIMER_ROLE = "claimer";
 var TERRITORY_SCOUT_ROLE = "scout";
 var TERRITORY_DOWNGRADE_GUARD_TICKS = 5e3;
 var TERRITORY_RESERVATION_RENEWAL_TICKS = 1e3;
+var TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var EXIT_DIRECTION_ORDER = ["1", "3", "5", "7"];
+var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
@@ -630,7 +632,18 @@ function selectVisibleTerritoryControllerTask(creep) {
     return null;
   }
   if (intent.action === "reserve") {
-    return canUseControllerClaimPart(creep) ? { type: "reserve", targetId: controller.id } : null;
+    const activeClaimParts = getActiveControllerClaimPartCount(creep);
+    if (activeClaimParts <= 0) {
+      return null;
+    }
+    const reservationTicksToEnd = getUrgentOwnReservationTicksToEnd(
+      controller,
+      getTerritoryActorUsername(creep, intent.colony)
+    );
+    if (reservationTicksToEnd !== null && !canRenewReservation(activeClaimParts, reservationTicksToEnd)) {
+      return null;
+    }
+    return { type: "reserve", targetId: controller.id };
   }
   if (controller.my === true) {
     return getStoredEnergy(creep) > 0 ? { type: "upgrade", targetId: controller.id } : null;
@@ -639,11 +652,22 @@ function selectVisibleTerritoryControllerTask(creep) {
 }
 function selectUrgentVisibleReservationRenewalTask(creep) {
   const intent = selectVisibleTerritoryControllerIntent(creep);
-  if (!intent || intent.action !== "reserve" || !canUseControllerClaimPart(creep)) {
+  if (!intent || intent.action !== "reserve") {
+    return null;
+  }
+  const activeClaimParts = getActiveControllerClaimPartCount(creep);
+  if (activeClaimParts <= 0) {
     return null;
   }
   const controller = selectCreepRoomController(creep, intent.controllerId);
-  if (!controller || getUrgentOwnReservationTicksToEnd(controller, getTerritoryActorUsername(creep, intent.colony)) === null) {
+  if (!controller) {
+    return null;
+  }
+  const reservationTicksToEnd = getUrgentOwnReservationTicksToEnd(
+    controller,
+    getTerritoryActorUsername(creep, intent.colony)
+  );
+  if (reservationTicksToEnd === null || !canRenewReservation(activeClaimParts, reservationTicksToEnd)) {
     return null;
   }
   return { type: "reserve", targetId: controller.id };
@@ -1034,13 +1058,19 @@ function getCreepOwnerUsername(creep) {
   return isNonEmptyString(username) ? username : null;
 }
 function canUseControllerClaimPart(creep) {
+  return getActiveControllerClaimPartCount(creep) > 0;
+}
+function canRenewReservation(activeClaimParts, reservationTicksToEnd) {
+  return activeClaimParts >= MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS || reservationTicksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
+}
+function getActiveControllerClaimPartCount(creep) {
   var _a;
   const claimPart = getBodyPartConstant("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
-    return activeClaimParts > 0;
+    return activeClaimParts;
   }
-  return Array.isArray(creep.body) && creep.body.some((part) => part.type === claimPart && part.hits > 0);
+  return Array.isArray(creep.body) ? creep.body.filter((part) => part.type === claimPart && part.hits > 0).length : 0;
 }
 function getBodyPartConstant(globalName, fallback) {
   var _a;

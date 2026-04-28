@@ -4,7 +4,10 @@ import {
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
-import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
+import {
+  TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
+  TERRITORY_RESERVATION_RENEWAL_TICKS
+} from '../src/territory/territoryPlanner';
 
 function makeLoadedWorker(room: Room, task?: CreepTaskMemory): Creep {
   return {
@@ -1091,7 +1094,34 @@ describe('selectWorkerTask', () => {
     expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
-  it('renews an urgent own visible reservation before local construction', () => {
+  it('renews an urgent own visible reservation before local construction with enough CLAIM parts', () => {
+    const controller = {
+      id: 'controller2',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS }
+    } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'active', updatedAt: 106 }]
+      }
+    };
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'worker', colony: 'W1N1' },
+      getActiveBodyparts: jest.fn().mockReturnValue(2),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
+  });
+
+  it('keeps local construction before a normal-threshold own reservation renewal with one CLAIM part', () => {
     const controller = {
       id: 'controller2',
       my: false,
@@ -1115,7 +1145,61 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
 
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+  });
+
+  it('renews an emergency own visible reservation before local construction with one CLAIM part', () => {
+    const controller = {
+      id: 'controller2',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS }
+    } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'active', updatedAt: 106 }]
+      }
+    };
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'worker', colony: 'W1N1' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
+  });
+
+  it('keeps local construction before a non-emergency own reservation renewal with one CLAIM part', () => {
+    const controller = {
+      id: 'controller2',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS + 1 }
+    } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'active', updatedAt: 106 }]
+      }
+    };
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'worker', colony: 'W1N1' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
   it('keeps local construction before a comfortable own visible reservation', () => {
