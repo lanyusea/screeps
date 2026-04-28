@@ -38,18 +38,36 @@ function makeEnergySink(
   } as unknown as StructureSpawn | StructureExtension;
 }
 
+function makeStoredEnergyStructure(
+  id: string,
+  structureType: StructureConstant,
+  energy: number,
+  extra: Record<string, unknown> = {}
+): StructureContainer | StructureStorage | StructureTerminal {
+  return {
+    id,
+    structureType,
+    store: { getUsedCapacity: jest.fn().mockReturnValue(energy) },
+    ...extra
+  } as unknown as StructureContainer | StructureStorage | StructureTerminal;
+}
+
 describe('selectWorkerTask', () => {
   beforeEach(() => {
-    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; FIND_HOSTILE_CREEPS: number; FIND_HOSTILE_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
     (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
+    (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
   });
@@ -88,6 +106,246 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
     expect(findClosestByRange).toHaveBeenCalledWith([farDroppedEnergy, nearDroppedEnergy]);
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('selects withdraw from safe stored energy before harvesting', () => {
+    const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 100);
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 200, { my: true });
+    const source = { id: 'source1' } as Source;
+    const findClosestByRange = jest.fn().mockReturnValue(storage);
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [container, storage];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { findClosestByRange },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
+    expect(findClosestByRange).toHaveBeenCalledWith([container, storage]);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('selects withdraw from a reserved remote container before harvesting', () => {
+    const container = makeStoredEnergyStructure('remote-container', 'container' as StructureConstant, 100);
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [container];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      owner: { username: 'me' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: {
+        controller: { my: false, reservation: { username: 'me' } },
+        find: roomFind
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'remote-container' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('selects withdraw from a neutral non-hostile container before harvesting', () => {
+    const container = makeStoredEnergyStructure('neutral-container', 'container' as StructureConstant, 100);
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [container];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller: { my: false }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'neutral-container' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('keeps dropped energy priority over stored energy withdraw', () => {
+    const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
+    const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 100);
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [container];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop1' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_STRUCTURES);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('does not drain spawn, extension, hostile, or enemy-room structures for energy', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(200),
+        getFreeCapacity: jest.fn().mockReturnValue(100)
+      }
+    } as unknown as StructureSpawn;
+    const extension = {
+      id: 'extension1',
+      structureType: 'extension',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(25)
+      }
+    } as unknown as StructureExtension;
+    const hostileStorage = makeStoredEnergyStructure('hostile-storage', 'storage' as StructureConstant, 1_000, {
+      my: false
+    });
+    const unownedContainer = makeStoredEnergyStructure('unowned-container', 'container' as StructureConstant, 100);
+    const source = { id: 'source1' } as Source;
+    const room = {
+      controller: { my: false, owner: { username: 'enemy' } },
+      find: jest.fn((type: number) => {
+        if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+          return [];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [spawn, extension, hostileStorage, unownedContainer];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('does not withdraw from containers in foreign-reserved or hostile rooms', () => {
+    const source = { id: 'source1' } as Source;
+    const hostileCreep = { id: 'hostile1' } as Creep;
+
+    for (const room of [
+      {
+        controller: { my: false, reservation: { username: 'enemy' } },
+        hostiles: []
+      },
+      {
+        controller: { my: false },
+        hostiles: [hostileCreep]
+      }
+    ]) {
+      const container = makeStoredEnergyStructure('remote-container', 'container' as StructureConstant, 100);
+      const roomFind = jest.fn((type: number) => {
+        if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_STRUCTURES) {
+          return [];
+        }
+
+        if (type === FIND_HOSTILE_CREEPS) {
+          return room.hostiles;
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [container];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      });
+      const creep = {
+        owner: { username: 'me' },
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(50)
+        },
+        room: { controller: room.controller, find: roomFind }
+      } as unknown as Creep;
+
+      expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    }
+  });
+
+  it('falls back to balanced harvesting when stored energy is unavailable', () => {
+    const emptyContainer = makeStoredEnergyStructure('container-empty', 'container' as StructureConstant, 0);
+    const source1 = { id: 'source1' } as Source;
+    const source2 = { id: 'source2' } as Source;
+    const room = {
+      name: 'W1N1',
+      controller: { my: true },
+      find: jest.fn((type: number) => {
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [emptyContainer];
+        }
+
+        return type === FIND_SOURCES ? [source1, source2] : [];
+      })
+    } as unknown as Room;
+    setGameCreeps({
+      Assigned: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
   it('ignores non-energy and trivial dropped resources before falling back to balanced harvesting', () => {

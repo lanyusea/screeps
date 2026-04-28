@@ -48,6 +48,7 @@ declare global {
   type CreepTaskMemory =
     | { type: 'harvest'; targetId: Id<Source> }
     | { type: 'pickup'; targetId: Id<Resource<ResourceConstant>> }
+    | { type: 'withdraw'; targetId: Id<AnyStoreStructure> }
     | { type: 'transfer'; targetId: Id<AnyStoreStructure> }
     | { type: 'build'; targetId: Id<ConstructionSite> }
     | { type: 'repair'; targetId: Id<Structure> }

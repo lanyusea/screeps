@@ -514,6 +514,10 @@ function selectWorkerTask(creep) {
       if (droppedEnergy) {
         return { type: "pickup", targetId: droppedEnergy.id };
       }
+      const storedEnergy = selectStoredEnergySource(creep);
+      if (storedEnergy) {
+        return { type: "withdraw", targetId: storedEnergy.id };
+      }
     }
     const source = selectHarvestSource(creep);
     return source ? { type: "harvest", targetId: source.id } : null;
@@ -576,6 +580,74 @@ function matchesStructureType2(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
+}
+function selectStoredEnergySource(creep) {
+  const context = {
+    creepOwnerUsername: getCreepOwnerUsername(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const storedEnergySources = findVisibleRoomStructures(creep.room).filter(
+    (structure) => isSafeStoredEnergySource(structure, context)
+  );
+  if (storedEnergySources.length === 0) {
+    return null;
+  }
+  const closestStoredEnergy = findClosestByRange(creep, storedEnergySources);
+  return closestStoredEnergy != null ? closestStoredEnergy : storedEnergySources[0];
+}
+function isSafeStoredEnergySource(structure, context) {
+  return isStoredWorkerEnergySource(structure) && hasStoredEnergy(structure) && isFriendlyStoredEnergySource(structure, context);
+}
+function isStoredWorkerEnergySource(structure) {
+  return matchesStructureType2(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType2(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType2(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
+}
+function hasStoredEnergy(structure) {
+  var _a;
+  return ((_a = structure.store.getUsedCapacity(RESOURCE_ENERGY)) != null ? _a : 0) > 0;
+}
+function isFriendlyStoredEnergySource(structure, context) {
+  var _a;
+  const ownership = structure.my;
+  if (typeof ownership === "boolean") {
+    return ownership;
+  }
+  if (((_a = context.room.controller) == null ? void 0 : _a.my) === true) {
+    return true;
+  }
+  return matchesStructureType2(structure.structureType, "STRUCTURE_CONTAINER", "container") && isRoomSafeForUnownedContainerWithdrawal(context);
+}
+function isRoomSafeForUnownedContainerWithdrawal(context) {
+  var _a;
+  if (context.hasHostilePresence) {
+    return false;
+  }
+  const controller = context.room.controller;
+  if (!controller) {
+    return true;
+  }
+  if (controller.owner != null) {
+    return false;
+  }
+  const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
+  if (reservationUsername == null) {
+    return true;
+  }
+  return reservationUsername === context.creepOwnerUsername;
+}
+function getCreepOwnerUsername(creep) {
+  var _a;
+  const username = (_a = creep.owner) == null ? void 0 : _a.username;
+  return typeof username === "string" && username.length > 0 ? username : null;
+}
+function hasVisibleHostilePresence(room) {
+  return findHostileCreeps(room).length > 0 || findHostileStructures(room).length > 0;
+}
+function findHostileCreeps(room) {
+  return typeof FIND_HOSTILE_CREEPS === "number" ? room.find(FIND_HOSTILE_CREEPS) : [];
+}
+function findHostileStructures(room) {
+  return typeof FIND_HOSTILE_STRUCTURES === "number" ? room.find(FIND_HOSTILE_STRUCTURES) : [];
 }
 function selectRepairTarget(creep) {
   var _a;
@@ -807,7 +879,7 @@ function shouldReplaceTask(creep, task) {
   }
   const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
-  if (task.type === "harvest" || task.type === "pickup") {
+  if (task.type === "harvest" || task.type === "pickup" || task.type === "withdraw") {
     return freeEnergyCapacity === 0;
   }
   return usedEnergy === 0;
@@ -828,7 +900,11 @@ function shouldPreemptUpgradeTask(creep, task) {
   return true;
 }
 function shouldReplaceTarget(task, target) {
+  var _a;
   if (task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+    return true;
+  }
+  if (task.type === "withdraw" && "store" in target && ((_a = target.store.getUsedCapacity(RESOURCE_ENERGY)) != null ? _a : 0) === 0) {
     return true;
   }
   return task.type === "repair" && "hits" in target && isWorkerRepairTargetComplete(target);
@@ -839,6 +915,8 @@ function executeTask(creep, task, target) {
       return creep.harvest(target);
     case "pickup":
       return creep.pickup(target);
+    case "withdraw":
+      return creep.withdraw(target, RESOURCE_ENERGY);
     case "transfer":
       return creep.transfer(target, RESOURCE_ENERGY);
     case "build":

@@ -59,7 +59,7 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
 
-  if (task.type === 'harvest' || task.type === 'pickup') {
+  if (task.type === 'harvest' || task.type === 'pickup' || task.type === 'withdraw') {
     return freeEnergyCapacity === 0;
   }
 
@@ -92,6 +92,10 @@ function shouldReplaceTarget(
     return true;
   }
 
+  if (task.type === 'withdraw' && 'store' in target && (target.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) === 0) {
+    return true;
+  }
+
   return task.type === 'repair' && 'hits' in target && isWorkerRepairTargetComplete(target);
 }
 
@@ -105,6 +109,8 @@ function executeTask(
       return creep.harvest(target as Source);
     case 'pickup':
       return creep.pickup(target as Resource<ResourceConstant>);
+    case 'withdraw':
+      return creep.withdraw(target as AnyStoreStructure, RESOURCE_ENERGY);
     case 'transfer':
       return creep.transfer(target as AnyStoreStructure, RESOURCE_ENERGY);
     case 'build':

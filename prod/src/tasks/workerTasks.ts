@@ -5,6 +5,13 @@ const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
+type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
+
+interface StoredEnergySourceContext {
+  creepOwnerUsername: string | null;
+  hasHostilePresence: boolean;
+  room: Room;
+}
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
@@ -14,6 +21,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       const droppedEnergy = selectDroppedEnergy(creep);
       if (droppedEnergy) {
         return { type: 'pickup', targetId: droppedEnergy.id };
+      }
+
+      const storedEnergy = selectStoredEnergySource(creep);
+      if (storedEnergy) {
+        return { type: 'withdraw', targetId: storedEnergy.id as Id<AnyStoreStructure> };
       }
     }
 
@@ -101,11 +113,105 @@ type StructureConstantGlobal =
   | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_STORAGE'
+  | 'STRUCTURE_TERMINAL'
   | 'STRUCTURE_RAMPART';
 
 function matchesStructureType(actual: string | undefined, globalName: StructureConstantGlobal, fallback: string): boolean {
   const constants = globalThis as unknown as Partial<Record<StructureConstantGlobal, string>>;
   return actual === (constants[globalName] ?? fallback);
+}
+
+function selectStoredEnergySource(creep: Creep): StoredWorkerEnergySource | null {
+  const context: StoredEnergySourceContext = {
+    creepOwnerUsername: getCreepOwnerUsername(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const storedEnergySources = findVisibleRoomStructures(creep.room).filter((structure): structure is StoredWorkerEnergySource =>
+    isSafeStoredEnergySource(structure, context)
+  );
+
+  if (storedEnergySources.length === 0) {
+    return null;
+  }
+
+  const closestStoredEnergy = findClosestByRange(creep, storedEnergySources);
+  return closestStoredEnergy ?? storedEnergySources[0];
+}
+
+function isSafeStoredEnergySource(
+  structure: AnyStructure,
+  context: StoredEnergySourceContext
+): structure is StoredWorkerEnergySource {
+  return isStoredWorkerEnergySource(structure) && hasStoredEnergy(structure) && isFriendlyStoredEnergySource(structure, context);
+}
+
+function isStoredWorkerEnergySource(structure: AnyStructure): structure is StoredWorkerEnergySource {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')
+  );
+}
+
+function hasStoredEnergy(structure: StoredWorkerEnergySource): boolean {
+  return (structure.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0;
+}
+
+function isFriendlyStoredEnergySource(structure: StoredWorkerEnergySource, context: StoredEnergySourceContext): boolean {
+  const ownership = (structure as StoredWorkerEnergySource & { my?: boolean }).my;
+  if (typeof ownership === 'boolean') {
+    return ownership;
+  }
+
+  if (context.room.controller?.my === true) {
+    return true;
+  }
+
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') &&
+    isRoomSafeForUnownedContainerWithdrawal(context)
+  );
+}
+
+function isRoomSafeForUnownedContainerWithdrawal(context: StoredEnergySourceContext): boolean {
+  if (context.hasHostilePresence) {
+    return false;
+  }
+
+  const controller = context.room.controller;
+  if (!controller) {
+    return true;
+  }
+
+  if (controller.owner != null) {
+    return false;
+  }
+
+  const reservationUsername = controller.reservation?.username;
+  if (reservationUsername == null) {
+    return true;
+  }
+
+  return reservationUsername === context.creepOwnerUsername;
+}
+
+function getCreepOwnerUsername(creep: Creep): string | null {
+  const username = (creep as Creep & { owner?: { username?: string } }).owner?.username;
+  return typeof username === 'string' && username.length > 0 ? username : null;
+}
+
+function hasVisibleHostilePresence(room: Room): boolean {
+  return findHostileCreeps(room).length > 0 || findHostileStructures(room).length > 0;
+}
+
+function findHostileCreeps(room: Room): Creep[] {
+  return typeof FIND_HOSTILE_CREEPS === 'number' ? room.find(FIND_HOSTILE_CREEPS) : [];
+}
+
+function findHostileStructures(room: Room): AnyStructure[] {
+  return typeof FIND_HOSTILE_STRUCTURES === 'number' ? room.find(FIND_HOSTILE_STRUCTURES) : [];
 }
 
 function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
