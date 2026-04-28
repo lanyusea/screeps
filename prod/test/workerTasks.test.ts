@@ -272,6 +272,126 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
   });
 
+  it('uses dropped energy when it ties harvest delivery under spawn pressure', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 50);
+    const droppedEnergy = withRangeTo(
+      { id: 'drop-equal', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>,
+      { spawn1: 1 }
+    );
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { spawn1: 1 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-equal': 1,
+        source1: 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedEnergy];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      getActiveBodyparts: jest.fn().mockReturnValue(50),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-equal' });
+  });
+
+  it('uses stored energy when it ties harvest delivery under extension pressure', () => {
+    const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 50);
+    const storedEnergy = withRangeTo(
+      makeStoredEnergyStructure('storage-equal', 'storage' as StructureConstant, 50, { my: true }),
+      { extension1: 1 }
+    );
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { extension1: 1 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'storage-equal': 1,
+        source1: 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [extension as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [storedEnergy];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      getActiveBodyparts: jest.fn().mockReturnValue(50),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-equal' });
+  });
+
+  it('uses salvage energy when it ties harvest delivery under extension pressure', () => {
+    const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 50);
+    const salvageEnergy = withRangeTo(makeSalvageEnergySource('tombstone-equal', 50), { extension1: 1 });
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { extension1: 1 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'tombstone-equal': 1,
+        source1: 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [extension as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_TOMBSTONES) {
+          return [salvageEnergy];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      getActiveBodyparts: jest.fn().mockReturnValue(50),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'tombstone-equal' });
+  });
+
   it('uses recoverable dropped energy under spawn pressure when the creep has no active work parts', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const droppedEnergy = withRangeTo(

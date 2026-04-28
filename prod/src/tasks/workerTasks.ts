@@ -444,7 +444,7 @@ function selectSpawnRecoveryEnergyAcquisitionTask(
   const candidates = findWorkerEnergyAcquisitionCandidates(creep)
     .map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink))
     .filter((candidate): candidate is SpawnRecoveryEnergyAcquisitionCandidate => candidate !== null)
-    .filter((candidate) => harvestEta === null || candidate.deliveryEta < harvestEta);
+    .filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
 
   if (candidates.length === 0) {
     return null;
