@@ -2233,51 +2233,55 @@ function getGameCreeps() {
 
 // src/creeps/workerRunner.ts
 function runWorker(creep) {
-  if (!creep.memory.task) {
-    assignNextTask(creep);
+  const selectedTask = selectWorkerTask(creep);
+  const currentTask = creep.memory.task;
+  if (!currentTask) {
+    assignSelectedTask(creep, selectedTask);
+  } else if (shouldReplaceTask(creep, currentTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptForVisibleTerritoryControllerTask(currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptSpendingTaskForEnergySink(currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptSpendingTaskForControllerPressure(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptUpgradeTask(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  }
+  executeAssignedTask(creep, selectedTask);
+}
+function executeAssignedTask(creep, selectedTask) {
+  let task = creep.memory.task;
+  if (!task || !canExecuteTask(creep, task)) {
     return;
   }
-  if (shouldReplaceTask(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-  if (shouldPreemptForVisibleTerritoryControllerTask(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-  if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-  if (shouldPreemptSpendingTaskForEnergySink(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-  if (shouldPreemptSpendingTaskForControllerPressure(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-  if (shouldPreemptUpgradeTask(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-  const task = creep.memory.task;
-  const target = Game.getObjectById(task.targetId);
+  let target = Game.getObjectById(task.targetId);
   if (!target) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
+    if (selectedTask && isSameTask(task, selectedTask)) {
+      return;
+    }
+    task = assignSelectedTask(creep, selectedTask, task);
+    if (!task || !canExecuteTask(creep, task)) {
+      return;
+    }
+    target = Game.getObjectById(task.targetId);
+    if (!target) {
+      return;
+    }
   }
   if (shouldReplaceTarget(task, target)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
+    task = assignSelectedTask(creep, selectedTask, task);
+    if (!task || !canExecuteTask(creep, task)) {
+      return;
+    }
+    target = Game.getObjectById(task.targetId);
+    if (!target || shouldReplaceTarget(task, target)) {
+      return;
+    }
   }
   const result = executeTask(creep, task, target);
   if (task.type === "transfer" && result === ERR_FULL) {
@@ -2287,6 +2291,36 @@ function runWorker(creep) {
   }
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target);
+  }
+}
+function assignSelectedTask(creep, selectedTask, previousTask) {
+  if (!selectedTask || previousTask && isSameTask(previousTask, selectedTask)) {
+    delete creep.memory.task;
+    return null;
+  }
+  creep.memory.task = selectedTask;
+  return selectedTask;
+}
+function canExecuteTask(creep, task) {
+  switch (task.type) {
+    case "harvest":
+      return typeof creep.harvest === "function";
+    case "pickup":
+      return typeof creep.pickup === "function";
+    case "withdraw":
+      return typeof creep.withdraw === "function";
+    case "transfer":
+      return typeof creep.transfer === "function";
+    case "build":
+      return typeof creep.build === "function";
+    case "repair":
+      return typeof creep.repair === "function";
+    case "claim":
+      return typeof creep.claimController === "function";
+    case "reserve":
+      return typeof creep.reserveController === "function";
+    case "upgrade":
+      return typeof creep.upgradeController === "function";
   }
 }
 function assignNextTask(creep) {
@@ -2310,28 +2344,19 @@ function shouldReplaceTask(creep, task) {
   }
   return usedEnergy === 0;
 }
-function shouldPreemptForVisibleTerritoryControllerTask(creep, task) {
-  const controllerTask = selectVisibleTerritoryControllerTask(creep);
-  if (!controllerTask) {
-    return isTerritoryControlTask2(task);
+function shouldPreemptForVisibleTerritoryControllerTask(task, selectedTask) {
+  if (isTerritoryControlTask2(task)) {
+    return !selectedTask || !isSameTask(task, selectedTask);
   }
-  const selectedTask = selectWorkerTask(creep);
-  if (!selectedTask || !isSameTask(selectedTask, controllerTask)) {
-    return false;
-  }
-  return !isSameTask(task, controllerTask);
+  return isTerritoryControlTask2(selectedTask);
 }
-function shouldPreemptSpendingTaskForEnergySink(creep, task) {
+function shouldPreemptSpendingTaskForEnergySink(task, selectedTask) {
   if (!isEnergySpendingTask(task)) {
     return false;
   }
-  if (!creep.room) {
-    return false;
-  }
-  const nextTask = selectWorkerTask(creep);
-  return (nextTask == null ? void 0 : nextTask.type) === "transfer" && !isSameTask(task, nextTask);
+  return (selectedTask == null ? void 0 : selectedTask.type) === "transfer" && !isSameTask(task, selectedTask);
 }
-function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task) {
+function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task, selectedTask) {
   var _a, _b, _c;
   if (!isEnergyAcquisitionTask(task)) {
     return false;
@@ -2347,10 +2372,33 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task) {
   if (usedEnergy !== 0 || freeEnergyCapacity <= 0) {
     return false;
   }
-  const nextTask = selectWorkerTask(creep);
-  return isRecoverableEnergyTask(nextTask) && !isSameTask(task, nextTask);
+  return isRecoverableEnergyTask(selectedTask) && !isSameTask(task, selectedTask);
 }
-function shouldPreemptSpendingTaskForControllerPressure(creep, task) {
+function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask) {
+  var _a, _b;
+  if (task.type !== "transfer") {
+    return false;
+  }
+  if ((selectedTask == null ? void 0 : selectedTask.type) !== "transfer" || isSameTask(task, selectedTask)) {
+    return false;
+  }
+  if (!((_a = creep.store) == null ? void 0 : _a.getUsedCapacity)) {
+    return false;
+  }
+  if (typeof ((_b = creep.room) == null ? void 0 : _b.find) !== "function") {
+    return false;
+  }
+  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
+    return false;
+  }
+  const currentTarget = Game.getObjectById(task.targetId);
+  if (!isValidTransferTarget(currentTarget)) {
+    return true;
+  }
+  const selectedTarget = Game.getObjectById(selectedTask.targetId);
+  return getTransferSinkPriority(selectedTarget) > getTransferSinkPriority(currentTarget);
+}
+function shouldPreemptSpendingTaskForControllerPressure(creep, task, selectedTask) {
   var _a;
   if (!isEnergySpendingTask(task) || task.type === "upgrade") {
     return false;
@@ -2358,10 +2406,9 @@ function shouldPreemptSpendingTaskForControllerPressure(creep, task) {
   if (typeof ((_a = creep.room) == null ? void 0 : _a.find) !== "function") {
     return false;
   }
-  const nextTask = selectWorkerTask(creep);
-  return isOwnedControllerUpgradeTask(creep, nextTask) && !isSameTask(task, nextTask);
+  return isOwnedControllerUpgradeTask(creep, selectedTask) && !isSameTask(task, selectedTask);
 }
-function shouldPreemptUpgradeTask(creep, task) {
+function shouldPreemptUpgradeTask(creep, task, selectedTask) {
   var _a;
   if (task.type !== "upgrade") {
     return false;
@@ -2370,8 +2417,7 @@ function shouldPreemptUpgradeTask(creep, task) {
   if ((controller == null ? void 0 : controller.my) !== true) {
     return false;
   }
-  const nextTask = selectWorkerTask(creep);
-  if (nextTask === null || nextTask.type === task.type && nextTask.targetId === task.targetId) {
+  if (selectedTask === null || isSameTask(task, selectedTask)) {
     return false;
   }
   return true;
@@ -2393,7 +2439,34 @@ function isRecoverableEnergyTask(task) {
   return (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
 }
 function isTerritoryControlTask2(task) {
-  return task.type === "claim" || task.type === "reserve";
+  return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve";
+}
+function isValidTransferTarget(target) {
+  return getFreeTransferEnergyCapacity(target) > 0;
+}
+function getFreeTransferEnergyCapacity(target) {
+  var _a;
+  const store = target == null ? void 0 : target.store;
+  const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, RESOURCE_ENERGY);
+  return typeof freeCapacity === "number" ? freeCapacity : 0;
+}
+function getTransferSinkPriority(target) {
+  const structureType = target == null ? void 0 : target.structureType;
+  if (typeof structureType !== "string") {
+    return 0;
+  }
+  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_SPAWN", "spawn")) {
+    return 3;
+  }
+  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_EXTENSION", "extension")) {
+    return 2;
+  }
+  return matchesTransferSinkStructureType(structureType, "STRUCTURE_TOWER", "tower") ? 1 : 0;
+}
+function matchesTransferSinkStructureType(actual, globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 function shouldReplaceTarget(task, target) {
   var _a;
