@@ -473,7 +473,7 @@ var WORKER_REPLACEMENT_TICKS_TO_LIVE = 100;
 function countCreepsByRole(creeps, colonyName) {
   const counts = creeps.reduce(
     (counts2, creep) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
       if (isColonyWorker(creep, colonyName)) {
         counts2.worker += 1;
         if (canSatisfyRoleCapacity(creep)) {
@@ -487,14 +487,15 @@ function countCreepsByRole(creeps, colonyName) {
           const claimersByTargetRoom = (_d = counts2.claimersByTargetRoom) != null ? _d : {};
           claimersByTargetRoom[targetRoom] = ((_e = claimersByTargetRoom[targetRoom]) != null ? _e : 0) + 1;
           counts2.claimersByTargetRoom = claimersByTargetRoom;
+          incrementTargetRoomActionCount(counts2, (_f = creep.memory.territory) == null ? void 0 : _f.action, targetRoom);
         }
       }
       if (isColonyScout(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
-        counts2.scout = ((_f = counts2.scout) != null ? _f : 0) + 1;
-        const targetRoom = (_g = creep.memory.territory) == null ? void 0 : _g.targetRoom;
+        counts2.scout = ((_g = counts2.scout) != null ? _g : 0) + 1;
+        const targetRoom = (_h = creep.memory.territory) == null ? void 0 : _h.targetRoom;
         if (targetRoom) {
-          const scoutsByTargetRoom = (_h = counts2.scoutsByTargetRoom) != null ? _h : {};
-          scoutsByTargetRoom[targetRoom] = ((_i = scoutsByTargetRoom[targetRoom]) != null ? _i : 0) + 1;
+          const scoutsByTargetRoom = (_i = counts2.scoutsByTargetRoom) != null ? _i : {};
+          scoutsByTargetRoom[targetRoom] = ((_j = scoutsByTargetRoom[targetRoom]) != null ? _j : 0) + 1;
           counts2.scoutsByTargetRoom = scoutsByTargetRoom;
         }
       }
@@ -510,6 +511,17 @@ function countCreepsByRole(creeps, colonyName) {
 function getWorkerCapacity(roleCounts) {
   var _a;
   return (_a = roleCounts.workerCapacity) != null ? _a : roleCounts.worker;
+}
+function incrementTargetRoomActionCount(counts, action, targetRoom) {
+  var _a, _b, _c;
+  if (action !== "claim" && action !== "reserve") {
+    return;
+  }
+  const claimersByTargetRoomAction = (_a = counts.claimersByTargetRoomAction) != null ? _a : {};
+  const claimersForAction = (_b = claimersByTargetRoomAction[action]) != null ? _b : {};
+  claimersForAction[targetRoom] = ((_c = claimersForAction[targetRoom]) != null ? _c : 0) + 1;
+  claimersByTargetRoomAction[action] = claimersForAction;
+  counts.claimersByTargetRoomAction = claimersByTargetRoomAction;
 }
 function isColonyWorker(creep, colonyName) {
   return creep.memory.colony === colonyName && creep.memory.role === "worker";
@@ -947,11 +959,14 @@ function normalizeTerritoryIntent(rawIntent) {
   };
 }
 function getTerritoryCreepCountForTarget(roleCounts, targetRoom, action) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e, _f;
   if (action === "scout") {
     return (_b = (_a = roleCounts.scoutsByTargetRoom) == null ? void 0 : _a[targetRoom]) != null ? _b : 0;
   }
-  return (_d = (_c = roleCounts.claimersByTargetRoom) == null ? void 0 : _c[targetRoom]) != null ? _d : 0;
+  if (roleCounts.claimersByTargetRoomAction) {
+    return (_d = (_c = roleCounts.claimersByTargetRoomAction[action]) == null ? void 0 : _c[targetRoom]) != null ? _d : 0;
+  }
+  return (_f = (_e = roleCounts.claimersByTargetRoom) == null ? void 0 : _e[targetRoom]) != null ? _f : 0;
 }
 function isTerritoryTargetSuppressed(target, intents, gameTime) {
   return isSuppressedTerritoryIntentForAction(intents, target.colony, target.roomName, target.action, gameTime);
