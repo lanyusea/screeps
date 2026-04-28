@@ -1747,6 +1747,11 @@ function runWorker(creep) {
     assignNextTask(creep);
     return;
   }
+  if (shouldPreemptSpendingTaskForEnergySink(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
   if (shouldPreemptUpgradeTask(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
@@ -1806,6 +1811,16 @@ function shouldPreemptForVisibleTerritoryControllerTask(creep, task) {
   }
   return !isSameTask(task, controllerTask);
 }
+function shouldPreemptSpendingTaskForEnergySink(creep, task) {
+  if (!isEnergySpendingTask(task)) {
+    return false;
+  }
+  if (!creep.room) {
+    return false;
+  }
+  const nextTask = selectWorkerTask(creep);
+  return (nextTask == null ? void 0 : nextTask.type) === "transfer" && !isSameTask(task, nextTask);
+}
 function shouldPreemptUpgradeTask(creep, task) {
   var _a;
   if (task.type !== "upgrade") {
@@ -1823,6 +1838,9 @@ function shouldPreemptUpgradeTask(creep, task) {
 }
 function isSameTask(left, right) {
   return left.type === right.type && left.targetId === right.targetId;
+}
+function isEnergySpendingTask(task) {
+  return task.type === "build" || task.type === "repair" || task.type === "upgrade";
 }
 function isTerritoryControlTask2(task) {
   return task.type === "claim" || task.type === "reserve";

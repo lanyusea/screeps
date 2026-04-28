@@ -19,6 +19,12 @@ export function runWorker(creep: Creep): void {
     return;
   }
 
+  if (shouldPreemptSpendingTaskForEnergySink(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
+
   if (shouldPreemptUpgradeTask(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
@@ -91,6 +97,19 @@ function shouldPreemptForVisibleTerritoryControllerTask(creep: Creep, task: Cree
   return !isSameTask(task, controllerTask);
 }
 
+function shouldPreemptSpendingTaskForEnergySink(creep: Creep, task: CreepTaskMemory): boolean {
+  if (!isEnergySpendingTask(task)) {
+    return false;
+  }
+
+  if (!creep.room) {
+    return false;
+  }
+
+  const nextTask = selectWorkerTask(creep);
+  return nextTask?.type === 'transfer' && !isSameTask(task, nextTask);
+}
+
 function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean {
   if (task.type !== 'upgrade') {
     return false;
@@ -111,6 +130,13 @@ function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean 
 
 function isSameTask(left: CreepTaskMemory, right: CreepTaskMemory): boolean {
   return left.type === right.type && left.targetId === right.targetId;
+}
+
+function isEnergySpendingTask(task: CreepTaskMemory): task is Extract<
+  CreepTaskMemory,
+  { type: 'build' | 'repair' | 'upgrade' }
+> {
+  return task.type === 'build' || task.type === 'repair' || task.type === 'upgrade';
 }
 
 function isTerritoryControlTask(task: CreepTaskMemory): task is Extract<CreepTaskMemory, { type: 'claim' | 'reserve' }> {
