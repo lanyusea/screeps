@@ -2410,6 +2410,10 @@ function selectWorkerTask(creep) {
     return { type: "build", targetId: roadConstructionSite.id };
   }
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
+    const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller);
+    if (productiveEnergySinkTask) {
+      return productiveEnergySinkTask;
+    }
     return { type: "upgrade", targetId: controller.id };
   }
   const constructionSite = selectConstructionSite(creep, constructionSites);
@@ -2502,6 +2506,41 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
 }
 function compareConstructionSiteId(left, right) {
   return String(left.id).localeCompare(String(right.id));
+}
+function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller) {
+  const controllerRange = getRangeBetweenRoomObjects(creep, controller);
+  if (controllerRange === null) {
+    return null;
+  }
+  const candidates = [
+    ...constructionSites.map(
+      (site) => createProductiveEnergySinkCandidate(creep, site, { type: "build", targetId: site.id }, 0)
+    ),
+    ...findVisibleRoomStructures(creep.room).filter(isSafeRepairTarget).map(
+      (structure) => createProductiveEnergySinkCandidate(
+        creep,
+        structure,
+        { type: "repair", targetId: structure.id },
+        1
+      )
+    )
+  ].filter(
+    (candidate) => candidate !== null && candidate.range <= controllerRange
+  );
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareProductiveEnergySinkCandidates)[0].task;
+}
+function createProductiveEnergySinkCandidate(creep, target, task, taskPriority) {
+  const range = getRangeBetweenRoomObjects(creep, target);
+  if (range === null) {
+    return null;
+  }
+  return { range, task, taskPriority };
+}
+function compareProductiveEnergySinkCandidates(left, right) {
+  return left.range - right.range || left.taskPriority - right.taskPriority || String(left.task.targetId).localeCompare(String(right.task.targetId));
 }
 function selectCapacityEnablingConstructionSite(creep, constructionSites, controller) {
   const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);

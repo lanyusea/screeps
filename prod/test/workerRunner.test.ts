@@ -876,6 +876,67 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts controller upgrade for nearby non-critical construction under controller pressure', () => {
+    const fullSpawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const controller = { id: 'controller1', my: true, level: 3 } as StructureController;
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        'tower-site1': 2,
+        controller1: 7
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 200 }]
+      }
+    };
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [fullSpawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return type === FIND_CONSTRUCTION_SITES ? [site] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: { getRangeTo },
+      room,
+      build: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'tower-site1' ? site : controller))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(creep.build).toHaveBeenCalledWith(site);
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('keeps spawn recovery transfer ahead of controller pressure preemption', () => {
     const spawn = {
       id: 'spawn1',

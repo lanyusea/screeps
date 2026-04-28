@@ -27,6 +27,7 @@ type WorkerEnergyAcquisitionSource =
   | SalvageableWorkerEnergySource
   | Resource<ResourceConstant>;
 type WorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'pickup' | 'withdraw' }>;
+type ProductiveEnergySinkTask = Extract<CreepTaskMemory, { type: 'build' | 'repair' }>;
 
 interface StoredEnergySourceContext {
   creepOwnerUsername: string | null;
@@ -123,6 +124,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
+    const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller);
+    if (productiveEnergySinkTask) {
+      return productiveEnergySinkTask;
+    }
+
     return { type: 'upgrade', targetId: controller.id };
   }
 
@@ -263,6 +269,67 @@ function selectConstructionSite(
 
 function compareConstructionSiteId(left: ConstructionSite, right: ConstructionSite): number {
   return String(left.id).localeCompare(String(right.id));
+}
+
+function selectNearbyProductiveEnergySinkTask(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  controller: StructureController
+): ProductiveEnergySinkTask | null {
+  const controllerRange = getRangeBetweenRoomObjects(creep, controller);
+  if (controllerRange === null) {
+    return null;
+  }
+
+  const candidates = [
+    ...constructionSites.map((site) =>
+      createProductiveEnergySinkCandidate(creep, site, { type: 'build', targetId: site.id }, 0)
+    ),
+    ...findVisibleRoomStructures(creep.room)
+      .filter(isSafeRepairTarget)
+      .map((structure) =>
+        createProductiveEnergySinkCandidate(
+          creep,
+          structure,
+          { type: 'repair', targetId: structure.id as Id<Structure> },
+          1
+        )
+      )
+  ].filter(
+    (candidate): candidate is ProductiveEnergySinkCandidate =>
+      candidate !== null && candidate.range <= controllerRange
+  );
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareProductiveEnergySinkCandidates)[0].task;
+}
+
+function createProductiveEnergySinkCandidate(
+  creep: Creep,
+  target: ConstructionSite | RepairableWorkerStructure,
+  task: ProductiveEnergySinkTask,
+  taskPriority: number
+): ProductiveEnergySinkCandidate | null {
+  const range = getRangeBetweenRoomObjects(creep, target);
+  if (range === null) {
+    return null;
+  }
+
+  return { range, task, taskPriority };
+}
+
+function compareProductiveEnergySinkCandidates(
+  left: ProductiveEnergySinkCandidate,
+  right: ProductiveEnergySinkCandidate
+): number {
+  return (
+    left.range - right.range ||
+    left.taskPriority - right.taskPriority ||
+    String(left.task.targetId).localeCompare(String(right.task.targetId))
+  );
 }
 
 function selectCapacityEnablingConstructionSite(
@@ -441,6 +508,12 @@ interface WorkerEnergyAcquisitionCandidate {
 
 interface SpawnRecoveryEnergyAcquisitionCandidate extends WorkerEnergyAcquisitionCandidate {
   deliveryEta: number;
+}
+
+interface ProductiveEnergySinkCandidate {
+  range: number;
+  task: ProductiveEnergySinkTask;
+  taskPriority: number;
 }
 
 function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
