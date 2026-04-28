@@ -850,6 +850,9 @@ function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyNa
     if (!target || target.colony !== colonyName) {
       return false;
     }
+    if (hasKnownNoRoute(colonyName, target.roomName)) {
+      return false;
+    }
     if (target.enabled === false || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime)) {
       return true;
     }
@@ -892,7 +895,7 @@ function getAdjacentReserveCandidates(colonyName, colonyOwnerUsername, territory
   });
 }
 function scoreTerritoryCandidate(selection, source, order, colonyName, colonyOwnerUsername) {
-  if (getKnownRouteLength(colonyName, selection.target.roomName) === null) {
+  if (hasKnownNoRoute(colonyName, selection.target.roomName)) {
     return null;
   }
   const renewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(selection.target, colonyOwnerUsername);
@@ -927,6 +930,9 @@ function getTerritoryCandidateSourcePriority(source) {
 }
 function isTerritoryTargetVisible(target) {
   return isVisibleRoomKnown(target.roomName) || getVisibleController(target.roomName, target.controllerId) !== null;
+}
+function hasKnownNoRoute(fromRoom, targetRoom) {
+  return getKnownRouteLength(fromRoom, targetRoom) === null;
 }
 function getKnownRouteLength(fromRoom, targetRoom) {
   var _a;

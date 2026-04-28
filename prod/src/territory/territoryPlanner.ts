@@ -420,6 +420,10 @@ function hasBlockingConfiguredTerritoryTargetForColony(
       return false;
     }
 
+    if (hasKnownNoRoute(colonyName, target.roomName)) {
+      return false;
+    }
+
     if (
       target.enabled === false ||
       target.roomName === colonyName ||
@@ -497,7 +501,7 @@ function scoreTerritoryCandidate(
   colonyName: string,
   colonyOwnerUsername: string | null
 ): ScoredTerritoryTarget | null {
-  if (getKnownRouteLength(colonyName, selection.target.roomName) === null) {
+  if (hasKnownNoRoute(colonyName, selection.target.roomName)) {
     return null;
   }
 
@@ -555,6 +559,10 @@ function getTerritoryCandidateSourcePriority(source: TerritoryCandidateSource): 
 
 function isTerritoryTargetVisible(target: TerritoryTargetMemory): boolean {
   return isVisibleRoomKnown(target.roomName) || getVisibleController(target.roomName, target.controllerId) !== null;
+}
+
+function hasKnownNoRoute(fromRoom: string, targetRoom: string): boolean {
+  return getKnownRouteLength(fromRoom, targetRoom) === null;
 }
 
 function getKnownRouteLength(fromRoom: string, targetRoom: string): number | null | undefined {

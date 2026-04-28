@@ -1245,6 +1245,44 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('plans an adjacent scout when configured targets have no known route', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = -2 as ScreepsReturnCode;
+    const describeExits = jest.fn(() => ({ '1': 'W1N2' }));
+    const findRoute = jest.fn((fromRoom: string, toRoom: string) =>
+      fromRoom === 'W1N1' && toRoom === 'W3N1' ? -2 : [{ exit: 1, room: toRoom }]
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits, findRoute } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 552);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W1N2', action: 'scout' });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W3N1');
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W1N2');
+    expect(Memory.territory?.routeDistances).toEqual({
+      'W1N1>W3N1': null,
+      'W1N1>W1N2': 1
+    });
+    expect(Memory.territory?.targets).toEqual([{ colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 552
+      }
+    ]);
+  });
+
   it('reuses cached route lengths while scoring repeated configured targets', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = -2 as ScreepsReturnCode;
