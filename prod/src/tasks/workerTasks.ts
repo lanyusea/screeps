@@ -162,14 +162,9 @@ function selectFillableEnergySink(creep: Creep): FillableEnergySink | null {
     filter: isFillableEnergySink
   });
 
-  const spawn = selectClosestEnergySink(creep, energySinks.filter(isSpawnEnergySink));
-  if (spawn) {
-    return spawn;
-  }
-
-  const extension = selectClosestEnergySink(creep, energySinks.filter(isExtensionEnergySink));
-  if (extension) {
-    return extension;
+  const spawnOrExtension = selectClosestEnergySink(creep, energySinks.filter(isSpawnOrExtensionEnergySink));
+  if (spawnOrExtension) {
+    return spawnOrExtension;
   }
 
   return selectClosestEnergySink(creep, energySinks.filter(isPriorityTowerEnergySink));
@@ -177,6 +172,10 @@ function selectFillableEnergySink(creep: Creep): FillableEnergySink | null {
 
 function isSpawnEnergySink(structure: FillableEnergySink): structure is StructureSpawn {
   return matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn');
+}
+
+function isSpawnOrExtensionEnergySink(structure: FillableEnergySink): structure is StructureSpawn | StructureExtension {
+  return isSpawnEnergySink(structure) || isExtensionEnergySink(structure);
 }
 
 function isExtensionEnergySink(structure: FillableEnergySink): structure is StructureExtension {
