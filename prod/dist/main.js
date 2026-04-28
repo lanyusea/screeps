@@ -627,7 +627,6 @@ function selectVisibleTerritoryControllerTask(creep) {
   return canUseControllerClaimPart(creep) ? { type: "claim", targetId: controller.id } : null;
 }
 function isVisibleTerritoryAssignmentSafe(assignment, colony, creep) {
-  var _a;
   if (!isNonEmptyString(assignment.targetRoom)) {
     return false;
   }
@@ -643,15 +642,22 @@ function isVisibleTerritoryAssignmentSafe(assignment, colony, creep) {
   if (isNonEmptyString(colony) && isTerritoryIntentSuppressed(colony, assignment.targetRoom, assignment.action)) {
     return false;
   }
-  const controller = ((_a = creep == null ? void 0 : creep.room) == null ? void 0 : _a.name) === assignment.targetRoom ? selectCreepRoomController(creep, assignment.controllerId) : getVisibleController(assignment.targetRoom, assignment.controllerId);
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
   if (!controller) {
     return !isVisibleRoomMissingController(assignment.targetRoom);
   }
   if (assignment.action === "claim" && controller.my === true) {
-    return true;
+    return false;
   }
   const actorUsername = getTerritoryActorUsername(creep, colony);
   return getTerritoryControllerTargetState(controller, assignment.action, actorUsername) === "available";
+}
+function isVisibleTerritoryAssignmentComplete(assignment, creep) {
+  if (assignment.action !== "claim" || !isNonEmptyString(assignment.targetRoom)) {
+    return false;
+  }
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
+  return (controller == null ? void 0 : controller.my) === true;
 }
 function suppressTerritoryIntent(colony, assignment, gameTime) {
   if (!isNonEmptyString(colony) || !isNonEmptyString(assignment.targetRoom) || !isTerritoryIntentAction(assignment.action)) {
@@ -968,6 +974,10 @@ function isCreepVisibleTerritoryIntentActionable(creep, intent) {
     return true;
   }
   return getTerritoryControllerTargetState(controller, intent.action, getTerritoryActorUsername(creep, intent.colony)) === "available";
+}
+function selectVisibleTerritoryAssignmentController(assignment, creep) {
+  var _a;
+  return ((_a = creep == null ? void 0 : creep.room) == null ? void 0 : _a.name) === assignment.targetRoom ? selectCreepRoomController(creep, assignment.controllerId) : getVisibleController(assignment.targetRoom, assignment.controllerId);
 }
 function selectCreepRoomController(creep, controllerId) {
   var _a;
@@ -1356,18 +1366,18 @@ function selectWorkerEnergyAcquisitionTask(creep) {
 }
 function findWorkerEnergyAcquisitionCandidates(creep) {
   const context = {
-    creepOwnerUsername: getCreepOwnerUsername(creep),
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
     hasHostilePresence: hasVisibleHostilePresence(creep.room),
     room: creep.room
   };
   const storedEnergyCandidates = findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).map(
-    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy(source), {
+    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
       type: "withdraw",
       targetId: source.id
     })
   );
   const salvageEnergyCandidates = [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).map(
-    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy(source), {
+    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
       type: "withdraw",
       targetId: source.id
     })
@@ -2193,6 +2203,10 @@ function runTerritoryControllerCreep(creep) {
   if (!isTerritoryAssignment(assignment)) {
     return;
   }
+  if (isVisibleTerritoryAssignmentComplete(assignment, creep)) {
+    completeTerritoryAssignment(creep);
+    return;
+  }
   if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
     suppressTerritoryAssignment(creep, assignment);
     return;
@@ -2212,6 +2226,8 @@ function runTerritoryControllerCreep(creep) {
   if (controller.my === true) {
     if (assignment.action === "reserve") {
       suppressTerritoryAssignment(creep, assignment);
+    } else {
+      completeTerritoryAssignment(creep);
     }
     return;
   }
@@ -2226,6 +2242,9 @@ function runTerritoryControllerCreep(creep) {
 }
 function suppressTerritoryAssignment(creep, assignment) {
   suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime3());
+  completeTerritoryAssignment(creep);
+}
+function completeTerritoryAssignment(creep) {
   delete creep.memory.territory;
 }
 function selectTargetController(creep, assignment) {

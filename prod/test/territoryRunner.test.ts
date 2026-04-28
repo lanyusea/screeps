@@ -131,6 +131,36 @@ describe('runTerritoryControllerCreep', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
+  it('clears completed claim assignments without suppressing shared upgrade intent', () => {
+    const sharedIntents: TerritoryIntentMemory[] = [
+      { colony: 'W1N1', targetRoom: 'W1N2', action: 'claim', status: 'active', updatedAt: 508 }
+    ];
+    const controller = { id: 'controller1', my: true, owner: { username: 'me' } } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 509,
+      rooms: {
+        W1N2: { name: 'W1N2', controller } as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: { intents: sharedIntents }
+    };
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N1' },
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual(sharedIntents);
+  });
+
   it('suppresses a claim assignment when the target room has no controller', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 506,

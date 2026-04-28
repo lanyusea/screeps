@@ -143,19 +143,29 @@ export function isVisibleTerritoryAssignmentSafe(
     return false;
   }
 
-  const controller = creep?.room?.name === assignment.targetRoom
-    ? selectCreepRoomController(creep, assignment.controllerId)
-    : getVisibleController(assignment.targetRoom, assignment.controllerId);
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
   if (!controller) {
     return !isVisibleRoomMissingController(assignment.targetRoom);
   }
 
   if (assignment.action === 'claim' && controller.my === true) {
-    return true;
+    return false;
   }
 
   const actorUsername = getTerritoryActorUsername(creep, colony);
   return getTerritoryControllerTargetState(controller, assignment.action, actorUsername) === 'available';
+}
+
+export function isVisibleTerritoryAssignmentComplete(
+  assignment: CreepTerritoryMemory,
+  creep?: Creep
+): boolean {
+  if (assignment.action !== 'claim' || !isNonEmptyString(assignment.targetRoom)) {
+    return false;
+  }
+
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
+  return controller?.my === true;
 }
 
 export function suppressTerritoryIntent(
@@ -675,6 +685,15 @@ function isCreepVisibleTerritoryIntentActionable(creep: Creep, intent: Territory
     getTerritoryControllerTargetState(controller, intent.action, getTerritoryActorUsername(creep, intent.colony)) ===
     'available'
   );
+}
+
+function selectVisibleTerritoryAssignmentController(
+  assignment: CreepTerritoryMemory,
+  creep?: Creep
+): StructureController | null {
+  return creep?.room?.name === assignment.targetRoom
+    ? selectCreepRoomController(creep, assignment.controllerId)
+    : getVisibleController(assignment.targetRoom, assignment.controllerId);
 }
 
 function selectCreepRoomController(creep: Creep, controllerId?: Id<StructureController>): StructureController | null {
