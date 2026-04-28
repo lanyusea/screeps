@@ -1119,12 +1119,12 @@ function selectAdjacentReserveTarget(colonyName, territoryMemory, intents) {
   const existingTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
   for (const roomName of adjacentRooms) {
     const target = { colony: colonyName, roomName, action: "reserve" };
-    if (roomName !== colonyName && !existingTargetRooms.has(roomName) && !isTerritoryTargetSuppressed(target, intents) && !isTerritoryIntentForActionSuppressed(colonyName, roomName, "scout")) {
+    if (roomName !== colonyName && !existingTargetRooms.has(roomName) && !isTerritoryTargetSuppressed(target, intents)) {
       const candidateState = getAdjacentReserveCandidateState(roomName);
       if (candidateState === "safe") {
         return { target, intentAction: "reserve", commitTarget: true };
       }
-      if (candidateState === "unknown") {
+      if (candidateState === "unknown" && !isTerritoryIntentForActionSuppressed(colonyName, roomName, "scout")) {
         return { target, intentAction: "scout", commitTarget: false };
       }
     }
