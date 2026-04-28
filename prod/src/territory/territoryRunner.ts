@@ -24,7 +24,6 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   }
 
   if (assignment.action === 'scout') {
-    delete creep.memory.territory;
     return;
   }
 

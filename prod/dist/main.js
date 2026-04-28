@@ -1616,7 +1616,6 @@ function runTerritoryControllerCreep(creep) {
     return;
   }
   if (assignment.action === "scout") {
-    delete creep.memory.territory;
     return;
   }
   const controller = selectTargetController(creep, assignment);

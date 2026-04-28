@@ -26,7 +26,7 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.reserveController).not.toHaveBeenCalled();
   });
 
-  it('finishes a scout assignment after entering the target room', () => {
+  it('keeps scout target attribution after entering the target room', () => {
     const creep = {
       memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } },
       room: { name: 'W1N2' },
@@ -36,7 +36,7 @@ describe('runTerritoryControllerCreep', () => {
     runTerritoryControllerCreep(creep);
 
     expect(creep.moveTo).not.toHaveBeenCalled();
-    expect(creep.memory.territory).toBeUndefined();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'scout' });
     expect(Memory.territory).toBeUndefined();
   });
 
