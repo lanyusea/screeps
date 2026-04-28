@@ -1,5 +1,6 @@
 import { runWorker } from '../src/creeps/workerRunner';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS, IDLE_RAMPART_REPAIR_HITS_CEILING } from '../src/tasks/workerTasks';
+import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
 function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Record<string, number>): T {
@@ -278,6 +279,104 @@ describe('runWorker', () => {
     expect(getObjectById).toHaveBeenCalledWith('controller1');
     expect(upgradeController).toHaveBeenCalledWith(controller);
     expect(moveTo).toHaveBeenCalledWith(controller);
+  });
+
+  it('signs an incorrectly signed owned upgrade target while upgrading it', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'other', text: 'old sign', time: 123, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const signController = jest.fn().mockReturnValue(0);
+    const upgradeController = jest.fn().mockReturnValue(0);
+    const moveTo = jest.fn();
+    const creep = {
+      memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller, find: jest.fn().mockReturnValue([]) },
+      signController,
+      upgradeController,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+
+    runWorker(creep);
+
+    expect(signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(upgradeController).toHaveBeenCalledWith(controller);
+    expect(moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps upgrading when signing requires inaccessible range-1 movement', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'other', text: 'old sign', time: 123, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const signController = jest.fn().mockReturnValue(ERR_NOT_IN_RANGE);
+    const upgradeController = jest.fn().mockReturnValue(0);
+    const moveTo = jest.fn().mockReturnValue(-2);
+    const creep = {
+      memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller, find: jest.fn().mockReturnValue([]) },
+      signController,
+      upgradeController,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+
+    runWorker(creep);
+
+    expect(signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(moveTo).toHaveBeenCalledWith(controller);
+    expect(upgradeController).toHaveBeenCalledWith(controller);
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('does not repeat signing for a correctly signed owned upgrade target', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: {
+        username: 'me',
+        text: OCCUPIED_CONTROLLER_SIGN_TEXT,
+        time: 123,
+        datetime: '2026-04-29T00:00:00.000Z'
+      }
+    } as unknown as StructureController;
+    const signController = jest.fn();
+    const upgradeController = jest.fn().mockReturnValue(0);
+    const creep = {
+      memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller, find: jest.fn().mockReturnValue([]) },
+      signController,
+      upgradeController,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+
+    runWorker(creep);
+
+    expect(signController).not.toHaveBeenCalled();
+    expect(upgradeController).toHaveBeenCalledWith(controller);
   });
 
   it('preempts an RCL2 upgrade task for extension construction when downgrade is safe', () => {
@@ -861,6 +960,7 @@ describe('runWorker', () => {
       },
       room,
       reserveController: jest.fn(),
+      signController: jest.fn(),
       moveTo: jest.fn()
     } as unknown as Creep;
     const getObjectById = jest.fn().mockReturnValue(controller);
@@ -874,6 +974,7 @@ describe('runWorker', () => {
     expect(getObjectById).toHaveBeenCalledWith('controller2');
     expect(creep.memory.task).toEqual({ type: 'reserve', targetId: 'controller2' });
     expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 

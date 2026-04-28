@@ -2386,6 +2386,30 @@ function getGameCreeps() {
   return creeps ? Object.values(creeps) : [];
 }
 
+// src/territory/controllerSigning.ts
+var OCCUPIED_CONTROLLER_SIGN_TEXT = "by Hermes Screeps Project";
+var ERR_NOT_IN_RANGE_CODE = -9;
+var ERR_TIRED_CODE = -11;
+var OK_CODE = 0;
+function shouldSignOccupiedController(controller) {
+  var _a;
+  return (controller == null ? void 0 : controller.my) === true && ((_a = controller.sign) == null ? void 0 : _a.text) !== OCCUPIED_CONTROLLER_SIGN_TEXT;
+}
+function signOccupiedControllerIfNeeded(creep, controller) {
+  if (!controller || !shouldSignOccupiedController(controller) || typeof creep.signController !== "function") {
+    return "skipped";
+  }
+  const result = creep.signController(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+  if (result === ERR_NOT_IN_RANGE_CODE) {
+    if (typeof creep.moveTo !== "function") {
+      return "blocked";
+    }
+    const moveResult = creep.moveTo(controller);
+    return moveResult === OK_CODE || moveResult === ERR_TIRED_CODE ? "moving" : "blocked";
+  }
+  return result === OK_CODE ? "signed" : "skipped";
+}
+
 // src/creeps/workerRunner.ts
 function runWorker(creep) {
   const selectedTask = selectWorkerTask(creep);
@@ -2649,6 +2673,7 @@ function executeTask(creep, task, target) {
     case "reserve":
       return creep.reserveController(target);
     case "upgrade":
+      signOccupiedControllerIfNeeded(creep, target);
       return creep.upgradeController(target);
   }
 }
@@ -3829,10 +3854,10 @@ function getGameTime2() {
 }
 
 // src/territory/territoryRunner.ts
-var ERR_NOT_IN_RANGE_CODE = -9;
+var ERR_NOT_IN_RANGE_CODE2 = -9;
 var ERR_INVALID_TARGET_CODE = -7;
 var ERR_GCL_NOT_ENOUGH_CODE = -15;
-var OK_CODE = 0;
+var OK_CODE2 = 0;
 var CLAIM_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([
   ERR_INVALID_TARGET_CODE,
   ERR_GCL_NOT_ENOUGH_CODE
@@ -3876,7 +3901,7 @@ function runTerritoryControllerCreep(creep) {
     return;
   }
   const result = assignment.action === "claim" ? executeControllerAction(creep, controller, "claimController") : executeControllerAction(creep, controller, "reserveController");
-  if (result === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === "function") {
+  if (result === ERR_NOT_IN_RANGE_CODE2 && typeof creep.moveTo === "function") {
     creep.moveTo(controller);
     return;
   }
@@ -3908,7 +3933,7 @@ function selectTargetController(creep, assignment) {
 function executeControllerAction(creep, controller, action) {
   const controllerAction = creep[action];
   if (typeof controllerAction !== "function") {
-    return OK_CODE;
+    return OK_CODE2;
   }
   return controllerAction.call(creep, controller);
 }
@@ -3930,7 +3955,7 @@ function isTerritoryAssignment(assignment) {
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
-var OK_CODE2 = 0;
+var OK_CODE3 = 0;
 function runEconomy() {
   const creeps = Object.values(Game.creeps);
   const colonies = getOwnedColonies();
@@ -3964,7 +3989,7 @@ function runEconomy() {
         telemetryEvents,
         planningColony.spawns
       );
-      if (!outcome || outcome.result !== OK_CODE2) {
+      if (!outcome || outcome.result !== OK_CODE3) {
         break;
       }
       usedSpawns.add(outcome.spawn);

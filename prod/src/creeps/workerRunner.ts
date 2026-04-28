@@ -1,4 +1,5 @@
 import { isWorkerRepairTargetComplete, selectWorkerTask } from '../tasks/workerTasks';
+import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 
 type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
 
@@ -371,6 +372,7 @@ function executeTask(
     case 'reserve':
       return creep.reserveController(target as StructureController);
     case 'upgrade':
+      signOccupiedControllerIfNeeded(creep, target as StructureController);
       return creep.upgradeController(target as StructureController);
   }
 }

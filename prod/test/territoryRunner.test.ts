@@ -72,12 +72,14 @@ describe('runTerritoryControllerCreep', () => {
     const creep = {
       memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } },
       room: { name: 'W1N2' },
-      moveTo: jest.fn()
+      moveTo: jest.fn(),
+      signController: jest.fn()
     } as unknown as Creep;
 
     runTerritoryControllerCreep(creep);
 
     expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'scout' });
     expect(Memory.territory).toBeUndefined();
   });
@@ -222,6 +224,7 @@ describe('runTerritoryControllerCreep', () => {
       },
       room: { name: 'W1N2', controller: { id: 'fallback', my: false } as StructureController },
       claimController: jest.fn().mockReturnValue(0),
+      signController: jest.fn(),
       moveTo: jest.fn()
     } as unknown as Creep;
 
@@ -229,6 +232,7 @@ describe('runTerritoryControllerCreep', () => {
 
     expect(getObjectById).toHaveBeenCalledWith('controller1');
     expect(creep.claimController).toHaveBeenCalledWith(controller);
+    expect(creep.signController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
