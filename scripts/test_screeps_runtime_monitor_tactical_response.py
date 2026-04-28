@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 import sys
 import unittest
@@ -43,6 +44,78 @@ HOSTILE_ALERT_FIXTURE = {
     ],
     "rooms": ["shardX/E48S28"],
 }
+
+
+PRIVATE_SMOKE_PHASES = [
+    "host-port-preflight",
+    "prepare-workdir",
+    "prepare-map",
+    "code-artifact",
+    "compose-detected",
+    "compose-up",
+    "wait-http",
+    "reset-data",
+    "import-map",
+    "restart-screeps",
+    "wait-http-after-import",
+    "resume-simulation",
+    "register-user",
+    "signin",
+    "upload-code",
+    "roundtrip-code",
+    "place-spawn",
+    "user-overview",
+    "room-overview",
+    "poll-stats",
+    "mongo-summary",
+]
+
+
+def clean_private_smoke_fixture() -> dict[str, object]:
+    phases = [{"name": name, "ok": True, "details": {}} for name in PRIVATE_SMOKE_PHASES]
+    phase_by_name = {str(phase["name"]): phase for phase in phases}
+    phase_by_name["poll-stats"]["details"] = {
+        "ok": True,
+        "samples": 2,
+        "criteria": {"min_creeps": 1},
+        "first": {
+            "gametime": 6,
+            "ownedRooms": 1,
+            "totalRooms": 169,
+            "user": {"username": "smoke", "rooms": 1, "creeps": 0},
+        },
+        "last": {
+            "gametime": 31,
+            "ownedRooms": 1,
+            "totalRooms": 169,
+            "user": {"username": "smoke", "rooms": 1, "creeps": 1},
+        },
+    }
+    phase_by_name["mongo-summary"]["details"] = {
+        "ok": True,
+        "summary": {
+            "room": "E1S1",
+            "user": {"username": "smoke", "id": "user-1"},
+            "counts": {"controller": 1, "creep": 1, "mineral": 1, "source": 2, "spawn": 1},
+            "spawns": [{"name": "Spawn1", "x": 20, "y": 20, "hits": 5000, "hitsMax": 5000, "user": "user-1"}],
+            "creeps": [{"name": "worker-E1S1-7", "x": 10, "y": 14, "body": ["work", "carry", "move"], "user": "user-1"}],
+            "controller": {"level": 1, "x": 15, "y": 12, "user": "user-1"},
+        },
+    }
+    return {
+        "ok": True,
+        "dry_run": False,
+        "started_at": "2026-04-28T10:58:58Z",
+        "finished_at": "2026-04-28T11:01:11Z",
+        "smoke": {
+            "username": "smoke",
+            "room": "E1S1",
+            "shard": "shardX",
+            "spawn": {"name": "Spawn1", "x": 20, "y": 20},
+            "branch": "default",
+        },
+        "phases": phases,
+    }
 
 
 def make_snapshot(objects: dict[str, dict[str, object]]) -> monitor.RoomSnapshot:
@@ -182,6 +255,84 @@ class TacticalResponseBridgeTest(unittest.TestCase):
 
         self.assertIn('"mode": "tactical-response"', rendered)
         self.assertIn('"severity": "high"', rendered)
+
+    def test_clean_private_smoke_report_stays_silent(self) -> None:
+        report = monitor.build_tactical_response_report(clean_private_smoke_fixture())
+
+        self.assertFalse(report["emergency"])
+        self.assertTrue(report["silent"])
+        self.assertEqual(report["severity"], "none")
+        self.assertEqual(report["categories"], [])
+        self.assertEqual(report["source"]["mode"], "private-smoke")
+        self.assertEqual(report["source"]["rooms"], ["shardX/E1S1"])
+        self.assertEqual(report["source"]["failed_phase_count"], 0)
+        self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
+
+    def test_private_smoke_min_creeps_zero_stays_silent_with_zero_creeps(self) -> None:
+        fixture = copy.deepcopy(clean_private_smoke_fixture())
+        for phase in fixture["phases"]:
+            if phase["name"] == "poll-stats":
+                phase["details"]["criteria"]["min_creeps"] = 0
+                phase["details"]["last"]["user"]["creeps"] = 0
+                break
+
+        report = monitor.build_tactical_response_report(fixture)
+
+        self.assertFalse(report["emergency"])
+        self.assertTrue(report["silent"])
+        self.assertEqual(report["categories"], [])
+
+    def test_message_based_tactical_category_inference_has_message_scope(self) -> None:
+        categories = monitor.infer_tactical_categories(
+            {
+                "kind": "custom_alert",
+                "message": "private smoke no-progress deadlock detected",
+            }
+        )
+
+        self.assertIn("runtime_deadlock", categories)
+        self.assertIn("private_smoke_failure", categories)
+
+    def test_private_smoke_poll_stats_without_samples_is_telemetry_silence(self) -> None:
+        fixture = copy.deepcopy(clean_private_smoke_fixture())
+        fixture["ok"] = False
+        for phase in fixture["phases"]:
+            if phase["name"] == "poll-stats":
+                phase["ok"] = False
+                phase["details"] = {
+                    "ok": False,
+                    "samples": 0,
+                    "first": None,
+                    "last": None,
+                    "criteria": {"min_creeps": 1},
+                    "error": "stats criteria were not met before timeout",
+                }
+                break
+
+        report = monitor.build_tactical_response_report(fixture)
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["categories"], ["telemetry_silence", "private_smoke_failure"])
+        self.assertEqual(report["triggers"][0]["reason_kind"], "private_smoke_telemetry_silence")
+        self.assertEqual(report["triggers"][0]["decision"], "rollback_or_monitor_fix")
+        self.assertIn("inspect_recent_deploy", {action["id"] for action in report["next_actions"]})
+
+    def test_private_smoke_missing_spawn_evidence_is_spawn_collapse(self) -> None:
+        fixture = copy.deepcopy(clean_private_smoke_fixture())
+        for phase in fixture["phases"]:
+            if phase["name"] == "mongo-summary":
+                phase["details"]["summary"]["counts"]["spawn"] = 0
+                phase["details"]["summary"]["spawns"] = []
+                break
+
+        report = monitor.build_tactical_response_report(fixture)
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["categories"], ["spawn_collapse", "private_smoke_failure"])
+        self.assertEqual(report["triggers"][0]["reason_kind"], "private_smoke_spawn_collapse")
+        self.assertEqual(report["triggers"][0]["structure_type"], "spawn")
 
 
 if __name__ == "__main__":
