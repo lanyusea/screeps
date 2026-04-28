@@ -1370,7 +1370,7 @@ function isTerritoryControlTask(task) {
   return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve";
 }
 function isFillableEnergySink(structure) {
-  return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
+  return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType2(structure.structureType, "STRUCTURE_TOWER", "tower")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
 function selectFillableEnergySink(creep) {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
@@ -1380,13 +1380,20 @@ function selectFillableEnergySink(creep) {
   if (spawn) {
     return spawn;
   }
-  return selectClosestEnergySink(creep, energySinks.filter(isExtensionEnergySink));
+  const extension = selectClosestEnergySink(creep, energySinks.filter(isExtensionEnergySink));
+  if (extension) {
+    return extension;
+  }
+  return selectClosestEnergySink(creep, energySinks.filter(isTowerEnergySink));
 }
 function isSpawnEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function isExtensionEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension");
+}
+function isTowerEnergySink(structure) {
+  return matchesStructureType2(structure.structureType, "STRUCTURE_TOWER", "tower");
 }
 function selectClosestEnergySink(creep, energySinks) {
   var _a;

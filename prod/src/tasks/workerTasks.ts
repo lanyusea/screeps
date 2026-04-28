@@ -19,7 +19,7 @@ type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureR
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
 type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
-type FillableEnergySink = StructureSpawn | StructureExtension;
+type FillableEnergySink = StructureSpawn | StructureExtension | StructureTower;
 type WorkerEnergyAcquisitionSource =
   | StoredWorkerEnergySource
   | SalvageableWorkerEnergySource
@@ -145,7 +145,8 @@ function isTerritoryControlTask(task: CreepTaskMemory | null): task is Extract<C
 function isFillableEnergySink(structure: AnyOwnedStructure): structure is FillableEnergySink {
   return (
     (matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
-      matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension')) &&
+      matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension') ||
+      matchesStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower')) &&
     'store' in structure &&
     getFreeStoredEnergyCapacity(structure) > 0
   );
@@ -161,7 +162,12 @@ function selectFillableEnergySink(creep: Creep): FillableEnergySink | null {
     return spawn;
   }
 
-  return selectClosestEnergySink(creep, energySinks.filter(isExtensionEnergySink));
+  const extension = selectClosestEnergySink(creep, energySinks.filter(isExtensionEnergySink));
+  if (extension) {
+    return extension;
+  }
+
+  return selectClosestEnergySink(creep, energySinks.filter(isTowerEnergySink));
 }
 
 function isSpawnEnergySink(structure: FillableEnergySink): structure is StructureSpawn {
@@ -170,6 +176,10 @@ function isSpawnEnergySink(structure: FillableEnergySink): structure is Structur
 
 function isExtensionEnergySink(structure: FillableEnergySink): structure is StructureExtension {
   return matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension');
+}
+
+function isTowerEnergySink(structure: FillableEnergySink): structure is StructureTower {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower');
 }
 
 function selectClosestEnergySink<T extends FillableEnergySink>(creep: Creep, energySinks: T[]): T | null {
@@ -266,6 +276,7 @@ function isRoadConstructionSite(site: ConstructionSite): boolean {
 type StructureConstantGlobal =
   | 'STRUCTURE_SPAWN'
   | 'STRUCTURE_EXTENSION'
+  | 'STRUCTURE_TOWER'
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_STORAGE'
