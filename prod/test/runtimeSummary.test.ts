@@ -161,6 +161,10 @@ describe('runtime telemetry summaries', () => {
               expectedKpiMovement: ['improves spawn/controller survivability under pressure'],
               risk: ['decays without sustained repair budget']
             }
+          },
+          territoryRecommendation: {
+            candidates: [],
+            next: null
           }
         }
       ],
@@ -241,6 +245,39 @@ describe('runtime telemetry summaries', () => {
     expect((room.combat as Record<string, unknown>).events).toBeUndefined();
   });
 
+  it('emits the next occupation recommendation in room telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        routeDistances: { 'W1N1>W2N1': 2 }
+      }
+    };
+    (Game.rooms as Record<string, Room>).W2N1 = makeRemoteRoom('W2N1', {
+      controller: { my: false } as StructureController,
+      sourceCount: 2
+    });
+
+    emitRuntimeSummary([colony], [
+      makeWorker({ role: 'worker', colony: 'W1N1' }),
+      makeWorker({ role: 'worker', colony: 'W1N1' }),
+      makeWorker({ role: 'worker', colony: 'W1N1' })
+    ]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const recommendation = room.territoryRecommendation as Record<string, unknown>;
+
+    expect(recommendation.next).toMatchObject({
+      roomName: 'W2N1',
+      action: 'occupy',
+      evidenceStatus: 'sufficient',
+      source: 'configured',
+      routeDistance: 2,
+      sourceCount: 2
+    });
+  });
+
   it('keeps emission gating deterministic', () => {
     expect(shouldEmitRuntimeSummary(1, [])).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [])).toBe(true);
@@ -280,6 +317,8 @@ function clearRuntimeTelemetryGlobals(): void {
   for (const key of RUNTIME_GLOBAL_KEYS) {
     delete globals[key];
   }
+  delete globals.Game;
+  delete globals.Memory;
 }
 
 function makeColony(options: {
@@ -376,6 +415,38 @@ function makeWorker(memory: CreepMemory, energy = 0): Creep {
     memory,
     store: makeEnergyStore(energy)
   } as unknown as Creep;
+}
+
+function makeRemoteRoom(
+  roomName: string,
+  options: {
+    controller?: StructureController;
+    sourceCount?: number;
+    hostileCreepCount?: number;
+    hostileStructureCount?: number;
+  }
+): Room {
+  return {
+    name: roomName,
+    controller: options.controller,
+    find: jest.fn((findType: number): unknown[] => {
+      switch (findType) {
+        case TEST_GLOBALS.FIND_SOURCES:
+          return Array.from({ length: options.sourceCount ?? 0 }, (_value, index) => ({ id: `source${index}` }));
+        case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
+          return Array.from({ length: options.hostileCreepCount ?? 0 }, (_value, index) => ({ id: `hostile${index}` }));
+        case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:
+          return Array.from({ length: options.hostileStructureCount ?? 0 }, (_value, index) => ({
+            id: `hostile-structure${index}`
+          }));
+        case TEST_GLOBALS.FIND_MY_STRUCTURES:
+        case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
+          return [];
+        default:
+          return [];
+      }
+    })
+  } as unknown as Room;
 }
 
 function makeEnergyStore(energy: number): { getUsedCapacity: (resource?: ResourceConstant) => number } {
