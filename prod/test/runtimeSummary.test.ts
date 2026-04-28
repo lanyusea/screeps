@@ -13,11 +13,19 @@ const TEST_GLOBALS = {
   FIND_SOURCES: 103,
   FIND_HOSTILE_CREEPS: 104,
   FIND_HOSTILE_STRUCTURES: 105,
+  FIND_MY_STRUCTURES: 106,
+  FIND_MY_CONSTRUCTION_SITES: 107,
   EVENT_HARVEST: 201,
   EVENT_TRANSFER: 202,
   EVENT_ATTACK: 203,
   EVENT_OBJECT_DESTROYED: 204,
-  RESOURCE_ENERGY: 'energy'
+  RESOURCE_ENERGY: 'energy',
+  STRUCTURE_EXTENSION: 'extension',
+  STRUCTURE_TOWER: 'tower',
+  STRUCTURE_RAMPART: 'rampart',
+  STRUCTURE_ROAD: 'road',
+  STRUCTURE_CONTAINER: 'container',
+  STRUCTURE_STORAGE: 'storage'
 } as const;
 
 const RUNTIME_GLOBAL_KEYS = Object.keys(TEST_GLOBALS);
@@ -100,6 +108,58 @@ describe('runtime telemetry summaries', () => {
               attackDamage: 30,
               objectDestroyedCount: 1,
               creepDestroyedCount: 1
+            }
+          },
+          constructionPriority: {
+            candidates: [
+              {
+                buildItem: 'build rampart defense',
+                room: 'W1N1',
+                score: 49,
+                urgency: 'critical',
+                preconditions: [],
+                expectedKpiMovement: ['improves spawn/controller survivability under pressure'],
+                risk: ['decays without sustained repair budget']
+              },
+              {
+                buildItem: 'build extension capacity',
+                room: 'W1N1',
+                score: 45,
+                urgency: 'high',
+                preconditions: [],
+                expectedKpiMovement: [
+                  'raises spawn energy capacity',
+                  'unlocks larger workers and faster RCL progress'
+                ],
+                risk: ['adds build backlog before roads/containers if worker capacity is low']
+              },
+              {
+                buildItem: 'build source containers',
+                room: 'W1N1',
+                score: 25,
+                urgency: 'low',
+                preconditions: [],
+                expectedKpiMovement: ['raises harvest throughput', 'reduces dropped-energy waste'],
+                risk: ['large early build cost and decay upkeep']
+              },
+              {
+                buildItem: 'build source/controller roads',
+                room: 'W1N1',
+                score: 21,
+                urgency: 'low',
+                preconditions: [],
+                expectedKpiMovement: ['reduces worker travel time', 'improves harvest-to-spawn throughput'],
+                risk: ['road decay creates recurring repair load']
+              }
+            ],
+            nextPrimary: {
+              buildItem: 'build rampart defense',
+              room: 'W1N1',
+              score: 49,
+              urgency: 'critical',
+              preconditions: [],
+              expectedKpiMovement: ['improves spawn/controller survivability under pressure'],
+              risk: ['decays without sustained repair budget']
             }
           }
         }
@@ -261,6 +321,10 @@ function makeColony(options: {
       switch (findType) {
         case TEST_GLOBALS.FIND_STRUCTURES:
           return structures;
+        case TEST_GLOBALS.FIND_MY_STRUCTURES:
+          return structures;
+        case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
+          return [];
         case TEST_GLOBALS.FIND_DROPPED_RESOURCES:
           return [
             { resourceType: TEST_GLOBALS.RESOURCE_ENERGY, amount: 25 },
