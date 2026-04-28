@@ -3611,7 +3611,6 @@ function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
   };
 }
 function buildRuntimeOccupationCandidates(colonyName) {
-  var _a;
   const candidatesByRoom = /* @__PURE__ */ new Map();
   const territoryMemory = getTerritoryMemoryRecord2();
   let order = 0;
@@ -3634,13 +3633,14 @@ function buildRuntimeOccupationCandidates(colonyName) {
     }
   }
   for (const roomName of getAdjacentRoomNames2(colonyName)) {
+    const cachedRouteDistance = getCachedRouteDistance(colonyName, roomName);
     upsertOccupationCandidate(candidatesByRoom, {
       roomName,
       source: "adjacent",
       order,
       adjacent: true,
       visible: false,
-      routeDistance: (_a = getCachedRouteDistance(colonyName, roomName)) != null ? _a : 1
+      routeDistance: cachedRouteDistance === void 0 ? 1 : cachedRouteDistance
     });
     order += 1;
   }

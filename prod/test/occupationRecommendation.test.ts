@@ -1,10 +1,16 @@
 import {
+  buildRuntimeOccupationRecommendationReport,
   scoreOccupationRecommendations,
   type OccupationRecommendationCandidateInput,
   type OccupationRecommendationInput
 } from '../src/territory/occupationRecommendation';
 
 describe('occupation recommendation scoring', () => {
+  afterEach(() => {
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+    delete (globalThis as { Memory?: Partial<Memory> }).Memory;
+  });
+
   it('keeps occupy recommendations ahead of richer reserve rooms', () => {
     const report = scoreOccupationRecommendations(
       makeInput([
@@ -148,6 +154,44 @@ describe('occupation recommendation scoring', () => {
       ]
     });
   });
+
+  it('preserves cached no-route distances for adjacent runtime candidates', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {
+        describeExits: jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }))
+      } as unknown as GameMap,
+      rooms: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        routeDistances: { 'W1N1>W1N2': null }
+      }
+    };
+
+    const report = buildRuntimeOccupationRecommendationReport(makeRuntimeColony(), [
+      {} as Creep,
+      {} as Creep,
+      {} as Creep
+    ]);
+
+    const unreachable = report.candidates.find((candidate) => candidate.roomName === 'W1N2');
+    const uncachedAdjacent = report.candidates.find((candidate) => candidate.roomName === 'W2N1');
+
+    expect(unreachable).toMatchObject({
+      roomName: 'W1N2',
+      source: 'adjacent',
+      evidenceStatus: 'unavailable',
+      risks: ['no known route from colony']
+    });
+    expect(unreachable).not.toHaveProperty('routeDistance');
+    expect(uncachedAdjacent).toMatchObject({
+      roomName: 'W2N1',
+      source: 'adjacent',
+      evidenceStatus: 'insufficient-evidence',
+      routeDistance: 1
+    });
+    expect(report.next?.roomName).toBe('W2N1');
+  });
 });
 
 function makeInput(
@@ -184,5 +228,22 @@ function makeCandidate(
     constructionSiteCount: 0,
     ownedStructureCount: 0,
     ...overrides
+  };
+}
+
+function makeRuntimeColony(): { room: Room; spawns: StructureSpawn[]; energyAvailable: number; energyCapacityAvailable: number } {
+  return {
+    room: {
+      name: 'W1N1',
+      controller: {
+        my: true,
+        level: 3,
+        owner: { username: 'me' },
+        ticksToDowngrade: 10_000
+      } as StructureController
+    } as Room,
+    spawns: [],
+    energyAvailable: 650,
+    energyCapacityAvailable: 650
   };
 }

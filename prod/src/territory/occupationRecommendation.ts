@@ -134,13 +134,14 @@ function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecomme
   }
 
   for (const roomName of getAdjacentRoomNames(colonyName)) {
+    const cachedRouteDistance = getCachedRouteDistance(colonyName, roomName);
     upsertOccupationCandidate(candidatesByRoom, {
       roomName,
       source: 'adjacent',
       order,
       adjacent: true,
       visible: false,
-      routeDistance: getCachedRouteDistance(colonyName, roomName) ?? 1
+      routeDistance: cachedRouteDistance === undefined ? 1 : cachedRouteDistance
     });
     order += 1;
   }
