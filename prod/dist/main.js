@@ -1690,6 +1690,7 @@ var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
+var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 function selectWorkerTask(creep) {
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
@@ -1983,12 +1984,12 @@ function findWorkerEnergyAcquisitionCandidates(creep) {
       targetId: source.id
     })
   );
-  const droppedEnergyCandidates = findDroppedResources(creep.room).filter((source) => isUsefulDroppedEnergy(source) && isReachable(creep, source)).map(
+  const droppedEnergyCandidates = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).map(
     (source) => createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
       type: "pickup",
       targetId: source.id
     })
-  );
+  ).sort(compareDroppedEnergyReachabilityPriority).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
   return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
 function createWorkerEnergyAcquisitionCandidate(creep, source, energy, task) {
@@ -2089,6 +2090,9 @@ function isReachable(creep, target) {
 }
 function compareWorkerEnergyAcquisitionCandidates(left, right) {
   return right.score - left.score || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+}
+function compareDroppedEnergyReachabilityPriority(left, right) {
+  return compareOptionalRanges(left.range, right.range) || right.energy - left.energy || right.score - left.score || String(left.source.id).localeCompare(String(right.source.id));
 }
 function compareSpawnRecoveryEnergyAcquisitionCandidates(left, right) {
   return left.deliveryEta - right.deliveryEta || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);

@@ -15,6 +15,7 @@ const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
+const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -475,13 +476,16 @@ function findWorkerEnergyAcquisitionCandidates(creep: Creep): WorkerEnergyAcquis
       })
     );
   const droppedEnergyCandidates = findDroppedResources(creep.room)
-    .filter((source): source is Resource<ResourceConstant> => isUsefulDroppedEnergy(source) && isReachable(creep, source))
+    .filter(isUsefulDroppedEnergy)
     .map((source) =>
       createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
         type: 'pickup',
         targetId: source.id
       })
-    );
+    )
+    .sort(compareDroppedEnergyReachabilityPriority)
+    .slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS)
+    .filter((candidate) => isReachable(creep, candidate.source));
 
   return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
@@ -639,6 +643,18 @@ function compareWorkerEnergyAcquisitionCandidates(
     right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id)) ||
     left.task.type.localeCompare(right.task.type)
+  );
+}
+
+function compareDroppedEnergyReachabilityPriority(
+  left: WorkerEnergyAcquisitionCandidate,
+  right: WorkerEnergyAcquisitionCandidate
+): number {
+  return (
+    compareOptionalRanges(left.range, right.range) ||
+    right.energy - left.energy ||
+    right.score - left.score ||
+    String(left.source.id).localeCompare(String(right.source.id))
   );
 }
 
