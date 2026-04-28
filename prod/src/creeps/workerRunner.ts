@@ -314,11 +314,10 @@ function getTransferSinkPriority(target: unknown): number {
     return 0;
   }
 
-  if (matchesTransferSinkStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn')) {
-    return 3;
-  }
-
-  if (matchesTransferSinkStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')) {
+  if (
+    matchesTransferSinkStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+    matchesTransferSinkStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')
+  ) {
     return 2;
   }
 

@@ -1783,18 +1783,17 @@ function selectFillableEnergySink(creep) {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
-  const spawn = selectClosestEnergySink(creep, energySinks.filter(isSpawnEnergySink));
-  if (spawn) {
-    return spawn;
-  }
-  const extension = selectClosestEnergySink(creep, energySinks.filter(isExtensionEnergySink));
-  if (extension) {
-    return extension;
+  const spawnOrExtension = selectClosestEnergySink(creep, energySinks.filter(isSpawnOrExtensionEnergySink));
+  if (spawnOrExtension) {
+    return spawnOrExtension;
   }
   return selectClosestEnergySink(creep, energySinks.filter(isPriorityTowerEnergySink));
 }
 function isSpawnEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn");
+}
+function isSpawnOrExtensionEnergySink(structure) {
+  return isSpawnEnergySink(structure) || isExtensionEnergySink(structure);
 }
 function isExtensionEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension");
@@ -2606,10 +2605,7 @@ function getTransferSinkPriority(target) {
   if (typeof structureType !== "string") {
     return 0;
   }
-  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_SPAWN", "spawn")) {
-    return 3;
-  }
-  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_EXTENSION", "extension")) {
+  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_SPAWN", "spawn") || matchesTransferSinkStructureType(structureType, "STRUCTURE_EXTENSION", "extension")) {
     return 2;
   }
   return matchesTransferSinkStructureType(structureType, "STRUCTURE_TOWER", "tower") ? 1 : 0;
