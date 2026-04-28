@@ -3576,6 +3576,346 @@ function matchesStructureType3(actual, globalName, fallback) {
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 
+// src/territory/occupationRecommendation.ts
+var EXIT_DIRECTION_ORDER2 = ["1", "3", "5", "7"];
+var TERRITORY_BODY_ENERGY_CAPACITY = 650;
+var MIN_READY_WORKERS = 3;
+var DOWNGRADE_GUARD_TICKS = 5e3;
+var RESERVATION_RENEWAL_TICKS = 1e3;
+var TERRITORY_ROUTE_DISTANCE_SEPARATOR2 = ">";
+var ACTION_SCORE = {
+  occupy: 1e3,
+  reserve: 800,
+  scout: 420
+};
+function buildRuntimeOccupationRecommendationReport(colony, colonyWorkers) {
+  return scoreOccupationRecommendations(buildRuntimeOccupationRecommendationInput(colony, colonyWorkers));
+}
+function scoreOccupationRecommendations(input) {
+  var _a;
+  const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreOccupationCandidate(input, candidate)).sort(compareOccupationRecommendationScores);
+  const next = (_a = candidates.find((candidate) => candidate.evidenceStatus !== "unavailable")) != null ? _a : null;
+  return { candidates, next };
+}
+function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
+  var _a, _b;
+  const colonyName = colony.room.name;
+  return {
+    colonyName,
+    colonyOwnerUsername: getControllerOwnerUsername2(colony.room.controller),
+    energyCapacityAvailable: colony.energyCapacityAvailable,
+    workerCount: colonyWorkers.length,
+    ...typeof ((_a = colony.room.controller) == null ? void 0 : _a.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
+    ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
+    candidates: buildRuntimeOccupationCandidates(colonyName)
+  };
+}
+function buildRuntimeOccupationCandidates(colonyName) {
+  var _a;
+  const candidatesByRoom = /* @__PURE__ */ new Map();
+  const territoryMemory = getTerritoryMemoryRecord2();
+  let order = 0;
+  if (Array.isArray(territoryMemory == null ? void 0 : territoryMemory.targets)) {
+    for (const rawTarget of territoryMemory.targets) {
+      const target = normalizeTerritoryTarget2(rawTarget);
+      if (!target || target.colony !== colonyName || target.enabled === false) {
+        continue;
+      }
+      upsertOccupationCandidate(candidatesByRoom, {
+        roomName: target.roomName,
+        source: "configured",
+        order,
+        adjacent: false,
+        visible: false,
+        actionHint: target.action,
+        routeDistance: getCachedRouteDistance(colonyName, target.roomName)
+      });
+      order += 1;
+    }
+  }
+  for (const roomName of getAdjacentRoomNames2(colonyName)) {
+    upsertOccupationCandidate(candidatesByRoom, {
+      roomName,
+      source: "adjacent",
+      order,
+      adjacent: true,
+      visible: false,
+      routeDistance: (_a = getCachedRouteDistance(colonyName, roomName)) != null ? _a : 1
+    });
+    order += 1;
+  }
+  return Array.from(candidatesByRoom.values()).map(enrichVisibleOccupationCandidate);
+}
+function upsertOccupationCandidate(candidatesByRoom, candidate) {
+  const existing = candidatesByRoom.get(candidate.roomName);
+  if (!existing) {
+    candidatesByRoom.set(candidate.roomName, candidate);
+    return;
+  }
+  if (candidate.source === "configured" && existing.source !== "configured") {
+    existing.source = "configured";
+    existing.actionHint = candidate.actionHint;
+    existing.order = Math.min(existing.order, candidate.order);
+  }
+  existing.adjacent = existing.adjacent || candidate.adjacent;
+  if (existing.routeDistance === void 0 && candidate.routeDistance !== void 0) {
+    existing.routeDistance = candidate.routeDistance;
+  }
+}
+function enrichVisibleOccupationCandidate(candidate) {
+  var _a;
+  const room = (_a = getGameRooms()) == null ? void 0 : _a[candidate.roomName];
+  if (!room) {
+    return candidate;
+  }
+  const hostileCreeps = findRoomObjects2(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects2(room, "FIND_HOSTILE_STRUCTURES");
+  const sources = findRoomObjects2(room, "FIND_SOURCES");
+  const constructionSites = findRoomObjects2(room, "FIND_MY_CONSTRUCTION_SITES");
+  const ownedStructures = findRoomObjects2(room, "FIND_MY_STRUCTURES");
+  return {
+    ...candidate,
+    visible: true,
+    ...room.controller ? { controller: summarizeController(room.controller) } : {},
+    ...sources ? { sourceCount: sources.length } : {},
+    ...hostileCreeps ? { hostileCreepCount: hostileCreeps.length } : {},
+    ...hostileStructures ? { hostileStructureCount: hostileStructures.length } : {},
+    ...constructionSites ? { constructionSiteCount: constructionSites.length } : {},
+    ...ownedStructures ? { ownedStructureCount: ownedStructures.length } : {}
+  };
+}
+function scoreOccupationCandidate(input, candidate) {
+  var _a, _b;
+  const evidence = [];
+  const preconditions = getColonyReadinessPreconditions(input);
+  const risks = [];
+  const routeDistance = typeof candidate.routeDistance === "number" ? candidate.routeDistance : void 0;
+  let action = "scout";
+  let evidenceStatus = "sufficient";
+  if (candidate.routeDistance === null) {
+    risks.push("no known route from colony");
+    evidenceStatus = "unavailable";
+  } else if (!candidate.visible) {
+    evidence.push("room visibility missing");
+    risks.push("controller, source, and hostile evidence unavailable");
+    evidenceStatus = "insufficient-evidence";
+  } else if (!candidate.controller) {
+    evidence.push("room visible");
+    risks.push("visible room has no controller");
+    evidenceStatus = "unavailable";
+  } else {
+    evidence.push("room visible", "controller visible");
+    const unavailableReason = getControllerUnavailableReason(input, candidate.controller);
+    if (unavailableReason) {
+      risks.push(unavailableReason);
+      evidenceStatus = "unavailable";
+      action = candidate.actionHint === "claim" ? "occupy" : "reserve";
+    } else if (isOwnHealthyReservation(input, candidate.controller)) {
+      evidence.push("own reservation is healthy");
+      evidenceStatus = "unavailable";
+      action = "reserve";
+    } else if (isOwnReservationDueForRenewal(input, candidate.controller)) {
+      evidence.push("own reservation needs renewal");
+      action = "reserve";
+    } else if (candidate.sourceCount === void 0) {
+      evidence.push("controller is available");
+      risks.push("source count evidence missing");
+      evidenceStatus = "insufficient-evidence";
+    } else {
+      evidence.push("controller is available", `${candidate.sourceCount} sources visible`);
+      action = candidate.actionHint === "claim" ? "occupy" : "reserve";
+    }
+  }
+  const hostileCreepCount = (_a = candidate.hostileCreepCount) != null ? _a : 0;
+  const hostileStructureCount = (_b = candidate.hostileStructureCount) != null ? _b : 0;
+  if (hostileCreepCount > 0 || hostileStructureCount > 0) {
+    risks.push("hostile presence visible");
+    evidenceStatus = "unavailable";
+  }
+  const score = calculateOccupationScore(input, candidate, action, evidenceStatus);
+  return {
+    roomName: candidate.roomName,
+    action,
+    score,
+    evidenceStatus,
+    source: candidate.source,
+    evidence,
+    preconditions,
+    risks,
+    ...routeDistance !== void 0 ? { routeDistance } : {},
+    ...candidate.sourceCount !== void 0 ? { sourceCount: candidate.sourceCount } : {},
+    ...candidate.hostileCreepCount !== void 0 ? { hostileCreepCount: candidate.hostileCreepCount } : {},
+    ...candidate.hostileStructureCount !== void 0 ? { hostileStructureCount: candidate.hostileStructureCount } : {}
+  };
+}
+function calculateOccupationScore(input, candidate, action, evidenceStatus) {
+  var _a, _b, _c, _d, _e;
+  const distanceScore = typeof candidate.routeDistance === "number" ? Math.max(0, 80 - candidate.routeDistance * 15) : 0;
+  const sourceScore = typeof candidate.sourceCount === "number" ? Math.min(candidate.sourceCount, 2) * 70 : 0;
+  const supportScore = Math.min((_a = candidate.ownedStructureCount) != null ? _a : 0, 3) * 8 + Math.min((_b = candidate.constructionSiteCount) != null ? _b : 0, 3) * 5;
+  const sourcePriorityScore = candidate.source === "configured" ? 50 : 25;
+  const adjacencyScore = candidate.adjacent ? 25 : 0;
+  const readinessScore = Math.min(input.workerCount, MIN_READY_WORKERS) * 12 + (input.energyCapacityAvailable >= TERRITORY_BODY_ENERGY_CAPACITY ? 30 : 0) + (((_c = input.controllerLevel) != null ? _c : 0) >= 2 ? 30 : 0) + (input.ticksToDowngrade === void 0 || input.ticksToDowngrade > DOWNGRADE_GUARD_TICKS ? 20 : 0);
+  const riskPenalty = ((_d = candidate.hostileCreepCount) != null ? _d : 0) * 160 + ((_e = candidate.hostileStructureCount) != null ? _e : 0) * 120;
+  const evidencePenalty = evidenceStatus === "insufficient-evidence" ? 260 : 0;
+  const unavailablePenalty = evidenceStatus === "unavailable" ? 2e3 : 0;
+  return ACTION_SCORE[action] + sourcePriorityScore + adjacencyScore + distanceScore + sourceScore + supportScore + readinessScore - riskPenalty - evidencePenalty - unavailablePenalty;
+}
+function getColonyReadinessPreconditions(input) {
+  var _a;
+  const preconditions = [];
+  if (input.workerCount < MIN_READY_WORKERS) {
+    preconditions.push("raise worker count before dispatching territory creeps");
+  }
+  if (input.energyCapacityAvailable < TERRITORY_BODY_ENERGY_CAPACITY) {
+    preconditions.push("reach 650 energy capacity for controller work");
+  }
+  if (((_a = input.controllerLevel) != null ? _a : 0) < 2) {
+    preconditions.push("reach controller level 2 before expansion");
+  }
+  if (typeof input.ticksToDowngrade === "number" && input.ticksToDowngrade <= DOWNGRADE_GUARD_TICKS) {
+    preconditions.push("stabilize home controller downgrade timer");
+  }
+  return preconditions;
+}
+function getControllerUnavailableReason(input, controller) {
+  if (isControllerOwnedByColony2(input, controller)) {
+    return "controller already owned by colony account";
+  }
+  if (controller.ownerUsername) {
+    return "controller owned by another account";
+  }
+  if (controller.reservationUsername && controller.reservationUsername !== input.colonyOwnerUsername) {
+    return "controller reserved by another account";
+  }
+  return null;
+}
+function isOwnHealthyReservation(input, controller) {
+  return isOwnReservation(input, controller) && typeof controller.reservationTicksToEnd === "number" && controller.reservationTicksToEnd > RESERVATION_RENEWAL_TICKS;
+}
+function isOwnReservationDueForRenewal(input, controller) {
+  return isOwnReservation(input, controller) && typeof controller.reservationTicksToEnd === "number" && controller.reservationTicksToEnd <= RESERVATION_RENEWAL_TICKS;
+}
+function isOwnReservation(input, controller) {
+  return input.colonyOwnerUsername !== void 0 && controller.reservationUsername === input.colonyOwnerUsername;
+}
+function isControllerOwnedByColony2(input, controller) {
+  return controller.my === true || !!controller.ownerUsername && controller.ownerUsername === input.colonyOwnerUsername;
+}
+function compareOccupationRecommendationScores(left, right) {
+  return right.score - left.score || getEvidenceStatusPriority(left.evidenceStatus) - getEvidenceStatusPriority(right.evidenceStatus) || getActionPriority(left.action) - getActionPriority(right.action) || getSourcePriority(left.source) - getSourcePriority(right.source) || compareOptionalNumbers2(left.routeDistance, right.routeDistance) || left.roomName.localeCompare(right.roomName);
+}
+function getEvidenceStatusPriority(status) {
+  if (status === "sufficient") {
+    return 0;
+  }
+  return status === "insufficient-evidence" ? 1 : 2;
+}
+function getActionPriority(action) {
+  if (action === "occupy") {
+    return 0;
+  }
+  return action === "reserve" ? 1 : 2;
+}
+function getSourcePriority(source) {
+  return source === "configured" ? 0 : 1;
+}
+function compareOptionalNumbers2(left, right) {
+  return (left != null ? left : Number.POSITIVE_INFINITY) - (right != null ? right : Number.POSITIVE_INFINITY);
+}
+function summarizeController(controller) {
+  const ownerUsername = getControllerOwnerUsername2(controller);
+  const reservationUsername = getReservationUsername(controller);
+  const reservationTicksToEnd = getReservationTicksToEnd(controller);
+  return {
+    ...controller.my === true ? { my: true } : {},
+    ...ownerUsername ? { ownerUsername } : {},
+    ...reservationUsername ? { reservationUsername } : {},
+    ...typeof reservationTicksToEnd === "number" ? { reservationTicksToEnd } : {}
+  };
+}
+function getAdjacentRoomNames2(roomName) {
+  var _a;
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (!gameMap || typeof gameMap.describeExits !== "function") {
+    return [];
+  }
+  const exits = gameMap.describeExits(roomName);
+  if (!isRecord3(exits)) {
+    return [];
+  }
+  return EXIT_DIRECTION_ORDER2.flatMap((direction) => {
+    const exitRoom = exits[direction];
+    return typeof exitRoom === "string" && exitRoom.length > 0 ? [exitRoom] : [];
+  });
+}
+function normalizeTerritoryTarget2(rawTarget) {
+  if (!isRecord3(rawTarget)) {
+    return null;
+  }
+  if (typeof rawTarget.colony !== "string" || rawTarget.colony.length === 0 || typeof rawTarget.roomName !== "string" || rawTarget.roomName.length === 0 || rawTarget.action !== "claim" && rawTarget.action !== "reserve") {
+    return null;
+  }
+  return {
+    colony: rawTarget.colony,
+    roomName: rawTarget.roomName,
+    action: rawTarget.action,
+    ...rawTarget.enabled === false ? { enabled: false } : {}
+  };
+}
+function getCachedRouteDistance(fromRoom, targetRoom) {
+  var _a;
+  const routeDistances = (_a = getTerritoryMemoryRecord2()) == null ? void 0 : _a.routeDistances;
+  if (!isRecord3(routeDistances)) {
+    return void 0;
+  }
+  const distance = routeDistances[`${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR2}${targetRoom}`];
+  return typeof distance === "number" || distance === null ? distance : void 0;
+}
+function findRoomObjects2(room, constantName) {
+  const findConstant = getGlobalNumber(constantName);
+  const find = room.find;
+  if (typeof findConstant !== "number" || typeof find !== "function") {
+    return void 0;
+  }
+  try {
+    const result = find.call(room, findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return void 0;
+  }
+}
+function getGlobalNumber(name) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : void 0;
+}
+function getControllerOwnerUsername2(controller) {
+  var _a;
+  const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
+  return typeof username === "string" && username.length > 0 ? username : void 0;
+}
+function getReservationUsername(controller) {
+  var _a;
+  const username = (_a = controller.reservation) == null ? void 0 : _a.username;
+  return typeof username === "string" && username.length > 0 ? username : void 0;
+}
+function getReservationTicksToEnd(controller) {
+  var _a;
+  const ticksToEnd = (_a = controller.reservation) == null ? void 0 : _a.ticksToEnd;
+  return typeof ticksToEnd === "number" ? ticksToEnd : void 0;
+}
+function getGameRooms() {
+  var _a;
+  return (_a = globalThis.Game) == null ? void 0 : _a.rooms;
+}
+function getTerritoryMemoryRecord2() {
+  var _a;
+  return (_a = globalThis.Memory) == null ? void 0 : _a.territory;
+}
+function isRecord3(value) {
+  return typeof value === "object" && value !== null;
+}
+
 // src/telemetry/runtimeSummary.ts
 var RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
 var RUNTIME_SUMMARY_INTERVAL = 20;
@@ -3616,7 +3956,8 @@ function summarizeRoom(colony, creeps) {
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers)
+    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
+    territoryRecommendation: buildRuntimeOccupationRecommendationReport(colony, colonyWorkers)
   };
 }
 function summarizeSpawn(spawn) {
@@ -3676,9 +4017,9 @@ function buildControllerSummary(room) {
 }
 function summarizeResources(colony, colonyWorkers, events) {
   var _a, _b, _c;
-  const roomStructures = (_a = findRoomObjects2(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
-  const droppedResources = (_b = findRoomObjects2(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _b : [];
-  const sources = (_c = findRoomObjects2(colony.room, "FIND_SOURCES")) != null ? _c : [];
+  const roomStructures = (_a = findRoomObjects3(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
+  const droppedResources = (_b = findRoomObjects3(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _b : [];
+  const sources = (_c = findRoomObjects3(colony.room, "FIND_SOURCES")) != null ? _c : [];
   return {
     storedEnergy: sumEnergyInStores(roomStructures),
     workerCarriedEnergy: sumEnergyInStores(colonyWorkers),
@@ -3689,8 +4030,8 @@ function summarizeResources(colony, colonyWorkers, events) {
 }
 function summarizeCombat(room, events) {
   var _a, _b;
-  const hostileCreeps = (_a = findRoomObjects2(room, "FIND_HOSTILE_CREEPS")) != null ? _a : [];
-  const hostileStructures = (_b = findRoomObjects2(room, "FIND_HOSTILE_STRUCTURES")) != null ? _b : [];
+  const hostileCreeps = (_a = findRoomObjects3(room, "FIND_HOSTILE_CREEPS")) != null ? _a : [];
+  const hostileStructures = (_b = findRoomObjects3(room, "FIND_HOSTILE_STRUCTURES")) != null ? _b : [];
   return {
     hostileCreepCount: hostileCreeps.length,
     hostileStructureCount: hostileStructures.length,
@@ -3720,10 +4061,10 @@ function summarizeRoomEventMetrics(room) {
   if (!eventLog) {
     return {};
   }
-  const harvestEvent = getGlobalNumber("EVENT_HARVEST");
-  const transferEvent = getGlobalNumber("EVENT_TRANSFER");
-  const attackEvent = getGlobalNumber("EVENT_ATTACK");
-  const objectDestroyedEvent = getGlobalNumber("EVENT_OBJECT_DESTROYED");
+  const harvestEvent = getGlobalNumber2("EVENT_HARVEST");
+  const transferEvent = getGlobalNumber2("EVENT_TRANSFER");
+  const attackEvent = getGlobalNumber2("EVENT_ATTACK");
+  const objectDestroyedEvent = getGlobalNumber2("EVENT_OBJECT_DESTROYED");
   const resourceEvents = {
     harvestedEnergy: 0,
     transferredEnergy: 0
@@ -3737,10 +4078,10 @@ function summarizeRoomEventMetrics(room) {
   let hasResourceEvents = false;
   let hasCombatEvents = false;
   for (const entry of eventLog) {
-    if (!isRecord3(entry) || typeof entry.event !== "number") {
+    if (!isRecord4(entry) || typeof entry.event !== "number") {
       continue;
     }
-    const data = isRecord3(entry.data) ? entry.data : {};
+    const data = isRecord4(entry.data) ? entry.data : {};
     if (entry.event === harvestEvent && isEnergyEventData(data)) {
       resourceEvents.harvestedEnergy += getNumericEventData(data, "amount");
       hasResourceEvents = true;
@@ -3767,8 +4108,8 @@ function summarizeRoomEventMetrics(room) {
     ...hasCombatEvents ? { combat: combatEvents } : {}
   };
 }
-function findRoomObjects2(room, constantName) {
-  const findConstant = getGlobalNumber(constantName);
+function findRoomObjects3(room, constantName) {
+  const findConstant = getGlobalNumber2(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
     return void 0;
@@ -3796,7 +4137,7 @@ function sumEnergyInStores(objects) {
   return objects.reduce((total, object) => total + getEnergyInStore(object), 0);
 }
 function getEnergyInStore(object) {
-  if (!isRecord3(object) || !isRecord3(object.store)) {
+  if (!isRecord4(object) || !isRecord4(object.store)) {
     return 0;
   }
   const getUsedCapacity = object.store.getUsedCapacity;
@@ -3810,7 +4151,7 @@ function getEnergyInStore(object) {
 function sumDroppedEnergy(droppedResources) {
   const energyResource = getEnergyResource2();
   return droppedResources.reduce((total, droppedResource) => {
-    if (!isRecord3(droppedResource) || droppedResource.resourceType !== energyResource) {
+    if (!isRecord4(droppedResource) || droppedResource.resourceType !== energyResource) {
       return total;
     }
     return total + (typeof droppedResource.amount === "number" ? droppedResource.amount : 0);
@@ -3823,7 +4164,7 @@ function getNumericEventData(data, key) {
   const value = data[key];
   return typeof value === "number" ? value : 0;
 }
-function getGlobalNumber(name) {
+function getGlobalNumber2(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
@@ -3831,7 +4172,7 @@ function getEnergyResource2() {
   const value = globalThis.RESOURCE_ENERGY;
   return typeof value === "string" ? value : "energy";
 }
-function isRecord3(value) {
+function isRecord4(value) {
   return typeof value === "object" && value !== null;
 }
 function buildCpuSummary() {
