@@ -800,6 +800,18 @@ function selectTerritoryTarget(colony, gameTime) {
       ...configuredCandidates,
       ...getAdjacentReserveCandidates(
         colonyName,
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        !hasBlockingConfiguredTarget,
+        "adjacent",
+        0,
+        routeDistanceLookupContext
+      ),
+      ...getSatisfiedClaimAdjacentReserveCandidates(
+        colonyName,
         colonyOwnerUsername,
         territoryMemory,
         intents,
@@ -864,8 +876,8 @@ function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyNa
     return getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "satisfied";
   });
 }
-function getAdjacentReserveCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, includeScoutCandidates, routeDistanceLookupContext) {
-  const adjacentRooms = getAdjacentRoomNames(colonyName);
+function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUsername, territoryMemory, intents, gameTime, includeScoutCandidates, source, orderOffset, routeDistanceLookupContext) {
+  const adjacentRooms = getAdjacentRoomNames(originRoomName);
   if (adjacentRooms.length === 0) {
     return [];
   }
@@ -879,8 +891,8 @@ function getAdjacentReserveCandidates(colonyName, colonyOwnerUsername, territory
     if (candidateState === "safe") {
       const candidate = scoreTerritoryCandidate(
         { target, intentAction: "reserve", commitTarget: true },
-        "adjacent",
-        order,
+        source,
+        orderOffset + order,
         colonyName,
         colonyOwnerUsername,
         routeDistanceLookupContext
@@ -890,8 +902,8 @@ function getAdjacentReserveCandidates(colonyName, colonyOwnerUsername, territory
     if (candidateState === "unknown" && includeScoutCandidates && !isSuppressedTerritoryIntentForAction(intents, colonyName, roomName, "scout", gameTime)) {
       const candidate = scoreTerritoryCandidate(
         { target, intentAction: "scout", commitTarget: false },
-        "adjacent",
-        order,
+        source,
+        orderOffset + order,
         colonyName,
         colonyOwnerUsername,
         routeDistanceLookupContext
@@ -899,6 +911,41 @@ function getAdjacentReserveCandidates(colonyName, colonyOwnerUsername, territory
       return candidate ? [candidate] : [];
     }
     return [];
+  });
+}
+function getSatisfiedClaimAdjacentReserveCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, includeScoutCandidates, routeDistanceLookupContext) {
+  return getSatisfiedConfiguredClaimTargets(
+    colonyName,
+    colonyOwnerUsername,
+    territoryMemory,
+    intents,
+    gameTime,
+    routeDistanceLookupContext
+  ).flatMap(
+    ({ target, order }) => getAdjacentReserveCandidates(
+      colonyName,
+      target.roomName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      includeScoutCandidates,
+      "satisfiedClaimAdjacent",
+      (order + 1) * EXIT_DIRECTION_ORDER.length,
+      routeDistanceLookupContext
+    )
+  );
+}
+function getSatisfiedConfiguredClaimTargets(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, routeDistanceLookupContext) {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return [];
+  }
+  return territoryMemory.targets.flatMap((rawTarget, order) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (!target || target.enabled === false || target.colony !== colonyName || target.action !== "claim" || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime) || hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext) || getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "satisfied") {
+      return [];
+    }
+    return [{ target, order }];
   });
 }
 function scoreTerritoryCandidate(selection, source, order, colonyName, colonyOwnerUsername, routeDistanceLookupContext) {
@@ -933,7 +980,10 @@ function compareOptionalNumbers(left, right) {
   return (left != null ? left : Number.POSITIVE_INFINITY) - (right != null ? right : Number.POSITIVE_INFINITY);
 }
 function getTerritoryCandidateSourcePriority(source) {
-  return source === "configured" ? 0 : 1;
+  if (source === "configured") {
+    return 0;
+  }
+  return source === "satisfiedClaimAdjacent" ? 1 : 2;
 }
 function isTerritoryTargetVisible(target) {
   return isVisibleRoomKnown(target.roomName) || getVisibleController(target.roomName, target.controllerId) !== null;
