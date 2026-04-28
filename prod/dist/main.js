@@ -1501,12 +1501,13 @@ function isRecord(value) {
 // src/spawn/spawnPlanner.ts
 var MIN_WORKER_TARGET = 3;
 var WORKERS_PER_SOURCE = 2;
+var CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
 var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST = 50;
 var MAX_WORKER_TARGET = 6;
 var sourceCountByRoomName = /* @__PURE__ */ new Map();
 function planSpawn(colony, roleCounts, gameTime) {
-  const workerTarget = getWorkerTarget(colony);
+  const workerTarget = getWorkerTarget(colony, roleCounts);
   if (roleCounts.worker < workerTarget) {
     return planWorkerSpawn(colony, roleCounts, gameTime);
   }
@@ -1565,10 +1566,26 @@ function buildTerritorySpawnBody(energyAvailable, action) {
   }
   return buildTerritoryControllerBody(energyAvailable);
 }
-function getWorkerTarget(colony) {
+function getWorkerTarget(colony, roleCounts) {
   const sourceCount = getSourceCount(colony.room);
   const sourceAwareTarget = sourceCount * WORKERS_PER_SOURCE;
-  return Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
+  const baseTarget = Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
+  if (!shouldAddConstructionBacklogWorkerBonus(colony, roleCounts, baseTarget)) {
+    return baseTarget;
+  }
+  return Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
+}
+function shouldAddConstructionBacklogWorkerBonus(colony, roleCounts, baseWorkerTarget) {
+  return roleCounts.worker >= baseWorkerTarget && isConstructionBonusHomeSafe(colony.room.controller) && hasActiveConstructionBacklog(colony.room);
+}
+function isConstructionBonusHomeSafe(controller) {
+  return (controller == null ? void 0 : controller.my) === true && (typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS);
+}
+function hasActiveConstructionBacklog(room) {
+  if (typeof room.find !== "function" || typeof FIND_MY_CONSTRUCTION_SITES !== "number") {
+    return false;
+  }
+  return room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
 }
 function getSourceCount(room) {
   const roomName = typeof room.name === "string" && room.name.length > 0 ? room.name : void 0;

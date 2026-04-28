@@ -9,7 +9,8 @@ import {
 import {
   buildTerritoryCreepMemory,
   planTerritoryIntent,
-  shouldSpawnTerritoryControllerCreep
+  shouldSpawnTerritoryControllerCreep,
+  TERRITORY_DOWNGRADE_GUARD_TICKS
 } from '../territory/territoryPlanner';
 
 export interface SpawnRequest {
@@ -21,6 +22,7 @@ export interface SpawnRequest {
 
 const MIN_WORKER_TARGET = 3;
 const WORKERS_PER_SOURCE = 2;
+const CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
 const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 const TERRITORY_SCOUT_BODY_COST = 50;
 // Keep source-aware scaling bounded so unusual source data cannot create runaway early-room spawn pressure.
@@ -28,7 +30,7 @@ const MAX_WORKER_TARGET = 6;
 const sourceCountByRoomName = new Map<string, number>();
 
 export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
-  const workerTarget = getWorkerTarget(colony);
+  const workerTarget = getWorkerTarget(colony, roleCounts);
   if (roleCounts.worker < workerTarget) {
     return planWorkerSpawn(colony, roleCounts, gameTime);
   }
@@ -101,11 +103,44 @@ function buildTerritorySpawnBody(energyAvailable: number, action: TerritoryInten
   return buildTerritoryControllerBody(energyAvailable);
 }
 
-function getWorkerTarget(colony: ColonySnapshot): number {
+function getWorkerTarget(colony: ColonySnapshot, roleCounts: RoleCounts): number {
   const sourceCount = getSourceCount(colony.room);
   const sourceAwareTarget = sourceCount * WORKERS_PER_SOURCE;
+  const baseTarget = Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
 
-  return Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
+  if (!shouldAddConstructionBacklogWorkerBonus(colony, roleCounts, baseTarget)) {
+    return baseTarget;
+  }
+
+  return Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
+}
+
+function shouldAddConstructionBacklogWorkerBonus(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  baseWorkerTarget: number
+): boolean {
+  return (
+    roleCounts.worker >= baseWorkerTarget &&
+    isConstructionBonusHomeSafe(colony.room.controller) &&
+    hasActiveConstructionBacklog(colony.room)
+  );
+}
+
+function isConstructionBonusHomeSafe(controller: StructureController | undefined): boolean {
+  return (
+    controller?.my === true &&
+    (typeof controller.ticksToDowngrade !== 'number' ||
+      controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS)
+  );
+}
+
+function hasActiveConstructionBacklog(room: Room): boolean {
+  if (typeof room.find !== 'function' || typeof FIND_MY_CONSTRUCTION_SITES !== 'number') {
+    return false;
+  }
+
+  return room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
 }
 
 function getSourceCount(room: Room): number {
