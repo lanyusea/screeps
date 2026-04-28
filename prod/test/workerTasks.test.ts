@@ -215,6 +215,143 @@ describe('selectWorkerTask', () => {
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it('prefers much richer safe stored energy over nearby tiny stored energy', () => {
+    const nearbyTinyContainer = makeStoredEnergyStructure('container-tiny', 'container' as StructureConstant, 25);
+    const richStorage = makeStoredEnergyStructure('storage-rich', 'storage' as StructureConstant, 1_000, { my: true });
+    const source = { id: 'source1' } as Source;
+    const getRangeTo = jest.fn((target: StructureContainer | StructureStorage) => {
+      const ranges: Record<string, number> = {
+        'container-tiny': 1,
+        'storage-rich': 8
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [nearbyTinyContainer, richStorage];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-rich' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('keeps closest safe stored energy when stored amounts are comparable', () => {
+    const nearbyContainer = makeStoredEnergyStructure('container-near', 'container' as StructureConstant, 100);
+    const fartherStorage = makeStoredEnergyStructure('storage-far', 'storage' as StructureConstant, 150, { my: true });
+    const source = { id: 'source1' } as Source;
+    const getRangeTo = jest.fn((target: StructureContainer | StructureStorage) => {
+      const ranges: Record<string, number> = {
+        'container-near': 1,
+        'storage-far': 3
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [fartherStorage, nearbyContainer];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('breaks equal stored energy score ties by id', () => {
+    const secondContainer = makeStoredEnergyStructure('container-b', 'container' as StructureConstant, 100);
+    const firstContainer = makeStoredEnergyStructure('container-a', 'container' as StructureConstant, 100);
+    const source = { id: 'source1' } as Source;
+    const getRangeTo = jest.fn().mockReturnValue(2);
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [secondContainer, firstContainer];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-a' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('ignores hostile-owned stored energy even when it would score higher', () => {
+    const safeContainer = makeStoredEnergyStructure('container-safe', 'container' as StructureConstant, 50);
+    const hostileStorage = makeStoredEnergyStructure('storage-hostile', 'storage' as StructureConstant, 10_000, {
+      my: false
+    });
+    const source = { id: 'source1' } as Source;
+    const getRangeTo = jest.fn((target: StructureContainer | StructureStorage) => {
+      const ranges: Record<string, number> = {
+        'container-safe': 6,
+        'storage-hostile': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [hostileStorage, safeContainer];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-safe' });
+    expect(getRangeTo).not.toHaveBeenCalledWith(hostileStorage);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
   it('selects withdraw from a reserved remote container before harvesting', () => {
     const container = makeStoredEnergyStructure('remote-container', 'container' as StructureConstant, 100);
     const source = { id: 'source1' } as Source;
