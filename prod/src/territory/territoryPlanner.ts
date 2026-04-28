@@ -189,20 +189,30 @@ function seedAdjacentReserveTarget(
   const existingTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
   for (const roomName of adjacentRooms) {
     const target: TerritoryTargetMemory = { colony: colonyName, roomName, action: 'reserve' };
-    const controller = getVisibleController(roomName);
     if (
       roomName !== colonyName &&
       !existingTargetRooms.has(roomName) &&
       !isTerritoryTargetSuppressed(target, intents) &&
-      controller != null &&
-      !isControllerOwned(controller) &&
-      controller.reservation == null
+      isAdjacentReserveTargetSeedable(roomName)
     ) {
       return target;
     }
   }
 
   return null;
+}
+
+function isAdjacentReserveTargetSeedable(targetRoom: string): boolean {
+  if (isVisibleRoomMissingController(targetRoom)) {
+    return false;
+  }
+
+  const controller = getVisibleController(targetRoom);
+  if (!controller) {
+    return true;
+  }
+
+  return !isControllerOwned(controller) && controller.reservation == null;
 }
 
 function getConfiguredTargetRoomsForColony(
