@@ -2,6 +2,15 @@ import { runWorker } from '../src/creeps/workerRunner';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS, IDLE_RAMPART_REPAIR_HITS_CEILING } from '../src/tasks/workerTasks';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
+function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Record<string, number>): T {
+  return {
+    ...object,
+    pos: {
+      getRangeTo: jest.fn((target: RoomObject) => rangesByTargetId[String((target as { id?: string }).id)] ?? 99)
+    }
+  };
+}
+
 describe('runWorker', () => {
   beforeEach(() => {
     (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).ERR_NOT_IN_RANGE = -9;
@@ -878,6 +887,67 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('preempts an empty harvest trip for faster local spawn recovery energy', () => {
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { spawn1: 5 });
+    const droppedEnergy = withRangeTo(
+      { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>,
+      { spawn1: 1 }
+    );
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-near': 1,
+        source1: 2,
+        spawn1: 3
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      memory: { task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+            if (type === FIND_MY_STRUCTURES) {
+              const structures = [spawn];
+              return options?.filter ? structures.filter(options.filter) : structures;
+            }
+
+            if (type === FIND_DROPPED_RESOURCES) {
+              return [droppedEnergy];
+            }
+
+            if (type === FIND_STRUCTURES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+              return [];
+            }
+
+            return type === FIND_SOURCES ? [source] : [];
+          }
+        )
+      },
+      harvest: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(source)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'pickup', targetId: 'drop-near' });
+    expect(Game.getObjectById).not.toHaveBeenCalled();
+    expect(creep.harvest).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
   it('switches from spending tasks when creep is empty', () => {
