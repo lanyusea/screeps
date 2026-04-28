@@ -1,5 +1,6 @@
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
@@ -50,6 +51,38 @@ function makeStoredEnergyStructure(
     store: { getUsedCapacity: jest.fn().mockReturnValue(energy) },
     ...extra
   } as unknown as StructureContainer | StructureStorage | StructureTerminal;
+}
+
+function makeWorkerTaskRoom({
+  constructionSites = [],
+  controller = { id: 'controller1', my: true, level: 3 } as StructureController,
+  myStructures = [],
+  structures = []
+}: {
+  constructionSites?: ConstructionSite[];
+  controller?: StructureController;
+  myStructures?: AnyOwnedStructure[];
+  structures?: AnyStructure[];
+} = {}): Room {
+  return {
+    name: 'W1N1',
+    controller,
+    find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+      if (type === FIND_MY_STRUCTURES) {
+        return options?.filter ? myStructures.filter(options.filter) : myStructures;
+      }
+
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return structures;
+      }
+
+      return [];
+    })
+  } as unknown as Room;
 }
 
 describe('selectWorkerTask', () => {
@@ -598,6 +631,137 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+  });
+
+  it.each([
+    ['road', 5_000],
+    ['container', 2_000]
+  ])('repairs critical %s damage before generic construction', (structureType, hitsMax) => {
+    const site = { id: 'generic-site1', structureType: 'road' } as ConstructionSite;
+    const repairTarget = makeStructure(
+      `${structureType}-critical`,
+      structureType as StructureConstant,
+      Math.floor(hitsMax * CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO),
+      hitsMax
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], structures: [repairTarget] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: `${structureType}-critical` });
+  });
+
+  it('keeps non-critical road and container repair behind generic construction', () => {
+    const site = { id: 'generic-site1', structureType: 'road' } as ConstructionSite;
+    const road = makeStructure(
+      'road-non-critical',
+      'road' as StructureConstant,
+      Math.floor(5_000 * CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO) + 1,
+      5_000
+    );
+    const container = makeStructure(
+      'container-non-critical',
+      'container' as StructureConstant,
+      Math.floor(2_000 * CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO) + 1,
+      2_000
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], structures: [road, container] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
+  });
+
+  it.each([
+    ['spawn', 'spawn1'],
+    ['extension', 'extension1']
+  ])('keeps %s refill before critical road repair', (structureType, id) => {
+    const energySink = makeEnergySink(id, structureType as StructureConstant, 300);
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        myStructures: [energySink as AnyOwnedStructure],
+        structures: [road]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
+  });
+
+  it('keeps controller downgrade guard before critical road repair', () => {
+    const site = { id: 'generic-site1', structureType: 'road' } as ConstructionSite;
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [road] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it.each([
+    ['spawn', 'spawn-site1'],
+    ['extension', 'extension-site1']
+  ])('keeps %s construction before critical container repair', (structureType, id) => {
+    const site = { id, structureType } as ConstructionSite;
+    const container = makeStructure('container-critical', 'container' as StructureConstant, 400, 2_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [container] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: id });
+  });
+
+  it('keeps RCL1 controller rush before critical road repair', () => {
+    const site = { id: 'generic-site1', structureType: 'road' } as ConstructionSite;
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 1,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [road] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps sustained controller progress before critical road repair', () => {
+    const site = { id: 'generic-site1', structureType: 'road' } as ConstructionSite;
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [road] });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: makeLoadedWorker(room) });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('selects RCL1 controller upgrade before non-spawn construction when downgrade is safe', () => {
