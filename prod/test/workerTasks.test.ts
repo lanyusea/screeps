@@ -44,6 +44,15 @@ function makeEnergySink(
   } as unknown as StructureSpawn | StructureExtension;
 }
 
+function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Record<string, number>): T {
+  return {
+    ...object,
+    pos: {
+      getRangeTo: jest.fn((target: RoomObject) => rangesByTargetId[String((target as { id?: string }).id)] ?? 99)
+    }
+  };
+}
+
 function makeStoredEnergyStructure(
   id: string,
   structureType: StructureConstant,
@@ -196,6 +205,99 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop1' });
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('uses the fastest local recoverable energy path under spawn pressure', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const droppedEnergy = withRangeTo(
+      { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>,
+      { spawn1: 1 }
+    );
+    const richStorage = withRangeTo(
+      makeStoredEnergyStructure('storage-rich', 'storage' as StructureConstant, 1_000, { my: true }),
+      { spawn1: 8 }
+    );
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { spawn1: 5 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-near': 1,
+        source1: 2,
+        'storage-rich': 8
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+          return type === FIND_DROPPED_RESOURCES ? [droppedEnergy] : [];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [richStorage];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
+  });
+
+  it('falls back to harvesting under spawn pressure when recoverable energy cannot beat a harvest trip', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const farStorage = withRangeTo(
+      makeStoredEnergyStructure('storage-far', 'storage' as StructureConstant, 1_000, { my: true }),
+      { spawn1: 100 }
+    );
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { spawn1: 1 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        source1: 1,
+        'storage-far': 100
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+          return [];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [farStorage];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
   it('selects withdraw from safe stored energy before harvesting', () => {
@@ -1068,8 +1170,10 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
-  it('reserves a safe visible territory target before local resource collection', () => {
+  it('reserves a safe visible territory target before spawn recovery resource collection', () => {
     const controller = { id: 'controller2', my: false } as StructureController;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
     const source = { id: 'source1' } as Source;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -1079,7 +1183,18 @@ describe('selectWorkerTask', () => {
     const room = {
       name: 'W2N1',
       controller,
-      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedEnergy];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      })
     } as unknown as Room;
     const creep = {
       memory: { role: 'worker', colony: 'W1N1' },
@@ -1092,6 +1207,8 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
+    expect(room.find).not.toHaveBeenCalledWith(FIND_MY_STRUCTURES, expect.anything());
+    expect(room.find).not.toHaveBeenCalledWith(FIND_DROPPED_RESOURCES);
     expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 

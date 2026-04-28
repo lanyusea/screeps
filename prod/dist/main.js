@@ -1263,6 +1263,8 @@ var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
+var ENERGY_ACQUISITION_ACTION_TICKS = 1;
+var HARVEST_ENERGY_PER_WORK_PART = 2;
 function selectWorkerTask(creep) {
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
@@ -1275,9 +1277,17 @@ function selectWorkerTask(creep) {
       return territoryControllerTask;
     }
     if (getFreeEnergyCapacity(creep) > 0) {
-      const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
-      if (energyAcquisitionTask) {
-        return energyAcquisitionTask;
+      const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
+      if (spawnRecoveryEnergySink) {
+        const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(creep, spawnRecoveryEnergySink);
+        if (spawnRecoveryTask) {
+          return spawnRecoveryTask;
+        }
+      } else {
+        const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
+        if (energyAcquisitionTask) {
+          return energyAcquisitionTask;
+        }
       }
     }
     const source = selectHarvestSource(creep);
@@ -1475,6 +1485,14 @@ function selectWorkerEnergyAcquisitionTask(creep) {
   }
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
+function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink) {
+  const harvestEta = estimateHarvestDeliveryEta(creep, energySink);
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep).map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta < harvestEta);
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareSpawnRecoveryEnergyAcquisitionCandidates)[0].task;
+}
 function findWorkerEnergyAcquisitionCandidates(creep) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
@@ -1511,6 +1529,52 @@ function createWorkerEnergyAcquisitionCandidate(creep, source, energy, task) {
     task
   };
 }
+function createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink) {
+  if (candidate.range === null) {
+    return null;
+  }
+  const sourceToSinkRange = getRangeBetweenRoomObjects(candidate.source, energySink);
+  if (sourceToSinkRange === null) {
+    return null;
+  }
+  return {
+    ...candidate,
+    deliveryEta: candidate.range + ENERGY_ACQUISITION_ACTION_TICKS + sourceToSinkRange
+  };
+}
+function estimateHarvestDeliveryEta(creep, energySink) {
+  const source = selectHarvestSource(creep);
+  if (!source) {
+    return null;
+  }
+  const creepToSourceRange = getRangeBetweenRoomObjects(creep, source);
+  const sourceToSinkRange = getRangeBetweenRoomObjects(source, energySink);
+  if (creepToSourceRange === null || sourceToSinkRange === null) {
+    return null;
+  }
+  return creepToSourceRange + estimateHarvestTicks(creep, energySink) + sourceToSinkRange;
+}
+function estimateHarvestTicks(creep, energySink) {
+  const energyNeeded = Math.max(1, Math.min(getFreeEnergyCapacity(creep), getFreeStoredEnergyCapacity(energySink)));
+  const workParts = getActiveWorkParts(creep);
+  return Math.ceil(energyNeeded / Math.max(HARVEST_ENERGY_PER_WORK_PART, workParts * HARVEST_ENERGY_PER_WORK_PART));
+}
+function getActiveWorkParts(creep) {
+  const workPart = globalThis.WORK;
+  if (typeof workPart !== "string" || typeof creep.getActiveBodyparts !== "function") {
+    return 1;
+  }
+  const activeWorkParts = creep.getActiveBodyparts(workPart);
+  return Number.isFinite(activeWorkParts) && activeWorkParts > 0 ? activeWorkParts : 1;
+}
+function getRangeBetweenRoomObjects(left, right) {
+  const position = left.pos;
+  if (typeof (position == null ? void 0 : position.getRangeTo) !== "function") {
+    return null;
+  }
+  const range = position.getRangeTo(right);
+  return Number.isFinite(range) ? Math.max(0, range) : null;
+}
 function getRangeToWorkerEnergyAcquisitionSource(creep, source) {
   const position = creep.pos;
   if (typeof (position == null ? void 0 : position.getRangeTo) !== "function") {
@@ -1521,6 +1585,9 @@ function getRangeToWorkerEnergyAcquisitionSource(creep, source) {
 }
 function compareWorkerEnergyAcquisitionCandidates(left, right) {
   return right.score - left.score || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+}
+function compareSpawnRecoveryEnergyAcquisitionCandidates(left, right) {
+  return left.deliveryEta - right.deliveryEta || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
 }
 function compareOptionalRanges(left, right) {
   if (left !== null && right !== null) {
@@ -1817,6 +1884,11 @@ function runWorker(creep) {
     assignNextTask(creep);
     return;
   }
+  if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
   if (shouldPreemptSpendingTaskForEnergySink(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
@@ -1891,6 +1963,25 @@ function shouldPreemptSpendingTaskForEnergySink(creep, task) {
   const nextTask = selectWorkerTask(creep);
   return (nextTask == null ? void 0 : nextTask.type) === "transfer" && !isSameTask(task, nextTask);
 }
+function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task) {
+  var _a, _b, _c;
+  if (!isEnergyAcquisitionTask(task)) {
+    return false;
+  }
+  if (!((_a = creep.store) == null ? void 0 : _a.getUsedCapacity) || !((_b = creep.store) == null ? void 0 : _b.getFreeCapacity)) {
+    return false;
+  }
+  if (typeof ((_c = creep.room) == null ? void 0 : _c.find) !== "function") {
+    return false;
+  }
+  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
+  const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  if (usedEnergy !== 0 || freeEnergyCapacity <= 0) {
+    return false;
+  }
+  const nextTask = selectWorkerTask(creep);
+  return isRecoverableEnergyTask(nextTask) && !isSameTask(task, nextTask);
+}
 function shouldPreemptUpgradeTask(creep, task) {
   var _a;
   if (task.type !== "upgrade") {
@@ -1911,6 +2002,12 @@ function isSameTask(left, right) {
 }
 function isEnergySpendingTask(task) {
   return task.type === "build" || task.type === "repair" || task.type === "upgrade";
+}
+function isEnergyAcquisitionTask(task) {
+  return task.type === "harvest" || task.type === "pickup" || task.type === "withdraw";
+}
+function isRecoverableEnergyTask(task) {
+  return (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
 }
 function isTerritoryControlTask2(task) {
   return task.type === "claim" || task.type === "reserve";

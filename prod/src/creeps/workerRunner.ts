@@ -19,6 +19,12 @@ export function runWorker(creep: Creep): void {
     return;
   }
 
+  if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
+
   if (shouldPreemptSpendingTaskForEnergySink(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
@@ -110,6 +116,29 @@ function shouldPreemptSpendingTaskForEnergySink(creep: Creep, task: CreepTaskMem
   return nextTask?.type === 'transfer' && !isSameTask(task, nextTask);
 }
 
+function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep: Creep, task: CreepTaskMemory): boolean {
+  if (!isEnergyAcquisitionTask(task)) {
+    return false;
+  }
+
+  if (!creep.store?.getUsedCapacity || !creep.store?.getFreeCapacity) {
+    return false;
+  }
+
+  if (typeof creep.room?.find !== 'function') {
+    return false;
+  }
+
+  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
+  const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  if (usedEnergy !== 0 || freeEnergyCapacity <= 0) {
+    return false;
+  }
+
+  const nextTask = selectWorkerTask(creep);
+  return isRecoverableEnergyTask(nextTask) && !isSameTask(task, nextTask);
+}
+
 function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean {
   if (task.type !== 'upgrade') {
     return false;
@@ -137,6 +166,19 @@ function isEnergySpendingTask(task: CreepTaskMemory): task is Extract<
   { type: 'build' | 'repair' | 'upgrade' }
 > {
   return task.type === 'build' || task.type === 'repair' || task.type === 'upgrade';
+}
+
+function isEnergyAcquisitionTask(task: CreepTaskMemory): task is Extract<
+  CreepTaskMemory,
+  { type: 'harvest' | 'pickup' | 'withdraw' }
+> {
+  return task.type === 'harvest' || task.type === 'pickup' || task.type === 'withdraw';
+}
+
+function isRecoverableEnergyTask(
+  task: CreepTaskMemory | null
+): task is Extract<CreepTaskMemory, { type: 'pickup' | 'withdraw' }> {
+  return task?.type === 'pickup' || task?.type === 'withdraw';
 }
 
 function isTerritoryControlTask(task: CreepTaskMemory): task is Extract<CreepTaskMemory, { type: 'claim' | 'reserve' }> {
