@@ -88,7 +88,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-  const spawnConstructionSite = constructionSites.find(isSpawnConstructionSite);
+  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
   if (spawnConstructionSite) {
     return { type: 'build', targetId: spawnConstructionSite.id };
   }
@@ -97,7 +97,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'upgrade', targetId: controller.id };
   }
 
-  const extensionConstructionSite = constructionSites.find(isExtensionConstructionSite);
+  const extensionConstructionSite = selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
   if (extensionConstructionSite) {
     return { type: 'build', targetId: extensionConstructionSite.id };
   }
@@ -107,12 +107,12 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
   }
 
-  const containerConstructionSite = constructionSites.find(isContainerConstructionSite);
+  const containerConstructionSite = selectConstructionSite(creep, constructionSites, isContainerConstructionSite);
   if (containerConstructionSite) {
     return { type: 'build', targetId: containerConstructionSite.id };
   }
 
-  const roadConstructionSite = constructionSites.find(isRoadConstructionSite);
+  const roadConstructionSite = selectConstructionSite(creep, constructionSites, isRoadConstructionSite);
   if (roadConstructionSite) {
     return { type: 'build', targetId: roadConstructionSite.id };
   }
@@ -121,8 +121,9 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'upgrade', targetId: controller.id };
   }
 
-  if (constructionSites[0]) {
-    return { type: 'build', targetId: constructionSites[0].id };
+  const constructionSite = selectConstructionSite(creep, constructionSites);
+  if (constructionSite) {
+    return { type: 'build', targetId: constructionSite.id };
   }
 
   const repairTarget = selectRepairTarget(creep);
@@ -203,6 +204,46 @@ function selectClosestEnergySink<T extends FillableEnergySink>(creep: Creep, ene
 }
 
 function compareEnergySinkId(left: FillableEnergySink, right: FillableEnergySink): number {
+  return String(left.id).localeCompare(String(right.id));
+}
+
+function selectConstructionSite(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  predicate: (site: ConstructionSite) => boolean = () => true
+): ConstructionSite | null {
+  const candidates = constructionSites.filter(predicate);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const position = (creep as Creep & {
+    pos?: {
+      findClosestByRange?: (objects: ConstructionSite[]) => ConstructionSite | null;
+      getRangeTo?: (target: ConstructionSite) => number;
+    };
+  }).pos;
+
+  if (typeof position?.getRangeTo === 'function') {
+    return [...candidates].sort(compareConstructionSiteId).reduce((closest, candidate) => {
+      const closestRange = position.getRangeTo?.(closest) ?? Infinity;
+      const candidateRange = position.getRangeTo?.(candidate) ?? Infinity;
+      return candidateRange < closestRange ||
+        (candidateRange === closestRange && compareConstructionSiteId(candidate, closest) < 0)
+        ? candidate
+        : closest;
+    });
+  }
+
+  if (typeof position?.findClosestByRange === 'function') {
+    const candidatesByStableId = [...candidates].sort(compareConstructionSiteId);
+    return position.findClosestByRange(candidatesByStableId) ?? candidatesByStableId[0];
+  }
+
+  return candidates[0];
+}
+
+function compareConstructionSiteId(left: ConstructionSite, right: ConstructionSite): number {
   return String(left.id).localeCompare(String(right.id));
 }
 
