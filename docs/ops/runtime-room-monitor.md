@@ -117,6 +117,13 @@ python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28 --force-al
 
 The tactical bridge is an offline API mode that consumes the JSON emitted by `alert` mode and returns a bounded machine-readable next-action payload. It does not call Screeps APIs, does not create cron jobs, and does not send Discord messages directly.
 
+It also accepts redacted private-smoke report JSON from `scripts/screeps-private-smoke.py run`. Clean successful smoke reports stay silent, while failed phases and missing runtime evidence are promoted into alert categories:
+
+- failed private-smoke phase: `private_smoke_failure`
+- `/stats` timeout with no usable samples: `telemetry_silence`
+- `/stats` samples that never satisfy owned-room/creep criteria: `runtime_deadlock`
+- missing spawn or worker evidence in the Mongo room summary: `spawn_collapse`
+
 Pipe usage:
 
 ```bash
@@ -128,6 +135,7 @@ File usage:
 
 ```bash
 python3 scripts/screeps-runtime-monitor.py tactical-response --input runtime-alert.json
+python3 scripts/screeps-runtime-monitor.py tactical-response --input private-smoke-report.json
 ```
 
 No-alert dry run:
@@ -184,6 +192,10 @@ Expected emergency fields:
 | `spawn_collapse` | spawn missing/destroyed/collapsed/no recovery signal | critical | Codex hotfix or owner action |
 | `downgrade_risk` | controller downgrade signal | high; critical at 2000 ticks or less | owner action or Codex hotfix |
 | `telemetry_silence` | `alert` payload has `ok:false`, runtime-summary silence, loop exception, or telemetry silence signal | critical | rollback or monitor fix |
+| `runtime_exception` | loop/runtime exception signal | critical | Codex hotfix or rollback decision |
+| `runtime_deadlock` | private-smoke stats exist but never reach owned-room/creep success criteria | critical | Codex hotfix or rollback decision |
+| `resource_crisis` | runtime resource crisis signal | high | owner action or Codex hotfix |
+| `private_smoke_failure` | private-smoke phase failure, upload/roundtrip failure, or unclassified smoke failure | high | main-agent triage |
 | `monitor_integrity` | monitor miss/spam signal | high | monitor fix |
 | `unknown_runtime_alert` | emitted alert reason that does not match a known category | high | main-agent triage |
 
