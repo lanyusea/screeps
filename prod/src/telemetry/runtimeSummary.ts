@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { buildRuntimeConstructionPriorityReport, type ConstructionPriorityScore } from '../construction/constructionPriority';
 
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
@@ -38,6 +39,7 @@ interface RuntimeRoomSummary {
   controller?: RuntimeControllerSummary;
   resources: RuntimeResourceSummary;
   combat: RuntimeCombatSummary;
+  constructionPriority: RuntimeConstructionPrioritySummary;
 }
 
 interface RuntimeControllerSummary {
@@ -71,6 +73,21 @@ interface RuntimeCombatSummary {
   hostileCreepCount: number;
   hostileStructureCount: number;
   events?: RuntimeCombatEventSummary;
+}
+
+interface RuntimeConstructionPrioritySummary {
+  candidates: RuntimeConstructionPriorityCandidateSummary[];
+  nextPrimary: RuntimeConstructionPriorityCandidateSummary | null;
+}
+
+interface RuntimeConstructionPriorityCandidateSummary {
+  buildItem: string;
+  room: string;
+  score: number;
+  urgency: ConstructionPriorityScore['urgency'];
+  preconditions: string[];
+  expectedKpiMovement: string[];
+  risk: string[];
 }
 
 interface RuntimeRoomEventMetrics {
@@ -132,7 +149,8 @@ function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSumm
     taskCounts: countWorkerTasks(colonyWorkers),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
-    combat: summarizeCombat(colony.room, eventMetrics.combat)
+    combat: summarizeCombat(colony.room, eventMetrics.combat),
+    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers)
   };
 }
 
@@ -228,6 +246,32 @@ function summarizeCombat(room: Room, events: RuntimeCombatEventSummary | undefin
     hostileCreepCount: hostileCreeps.length,
     hostileStructureCount: hostileStructures.length,
     ...(events ? { events } : {})
+  };
+}
+
+function summarizeConstructionPriority(
+  colony: ColonySnapshot,
+  colonyWorkers: Creep[]
+): RuntimeConstructionPrioritySummary {
+  const report = buildRuntimeConstructionPriorityReport(colony, colonyWorkers);
+
+  return {
+    candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
+    nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
+  };
+}
+
+function toRuntimeConstructionPriorityCandidateSummary(
+  score: ConstructionPriorityScore
+): RuntimeConstructionPriorityCandidateSummary {
+  return {
+    buildItem: score.buildItem,
+    room: score.room,
+    score: score.score,
+    urgency: score.urgency,
+    preconditions: score.preconditions,
+    expectedKpiMovement: score.expectedKpiMovement,
+    risk: score.risk
   };
 }
 
