@@ -50,6 +50,10 @@ interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
 
 type TerritoryTargetVisibilityState = 'available' | 'satisfied' | 'unavailable';
 
+interface RouteDistanceLookupContext {
+  revalidatedNoRouteCacheKeys: Set<string>;
+}
+
 export function planTerritoryIntent(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
@@ -312,19 +316,22 @@ function selectTerritoryTarget(colony: ColonySnapshot, gameTime: number): Select
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord();
   const intents = normalizeTerritoryIntents(territoryMemory?.intents);
+  const routeDistanceLookupContext = createRouteDistanceLookupContext();
   const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
     territoryMemory,
     colonyName,
     colonyOwnerUsername,
     intents,
-    gameTime
+    gameTime,
+    routeDistanceLookupContext
   );
   const configuredCandidates = getConfiguredTerritoryCandidates(
     colonyName,
     colonyOwnerUsername,
     territoryMemory,
     intents,
-    gameTime
+    gameTime,
+    routeDistanceLookupContext
   );
   const bestConfiguredCandidate = selectBestScoredTerritoryCandidate(configuredCandidates);
   if (bestConfiguredCandidate && bestConfiguredCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
@@ -340,7 +347,8 @@ function selectTerritoryTarget(colony: ColonySnapshot, gameTime: number): Select
         territoryMemory,
         intents,
         gameTime,
-        !hasBlockingConfiguredTarget
+        !hasBlockingConfiguredTarget,
+        routeDistanceLookupContext
       )
     ])
   );
@@ -372,7 +380,8 @@ function getConfiguredTerritoryCandidates(
   colonyOwnerUsername: string | null,
   territoryMemory: Record<string, unknown> | null,
   intents: TerritoryIntentMemory[],
-  gameTime: number
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext
 ): ScoredTerritoryTarget[] {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return [];
@@ -397,7 +406,8 @@ function getConfiguredTerritoryCandidates(
       'configured',
       order,
       colonyName,
-      colonyOwnerUsername
+      colonyOwnerUsername,
+      routeDistanceLookupContext
     );
     return candidate ? [candidate] : [];
   });
@@ -408,7 +418,8 @@ function hasBlockingConfiguredTerritoryTargetForColony(
   colonyName: string,
   colonyOwnerUsername: string | null,
   intents: TerritoryIntentMemory[],
-  gameTime: number
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext
 ): boolean {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return false;
@@ -420,7 +431,7 @@ function hasBlockingConfiguredTerritoryTargetForColony(
       return false;
     }
 
-    if (hasKnownNoRoute(colonyName, target.roomName)) {
+    if (hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext)) {
       return false;
     }
 
@@ -445,7 +456,8 @@ function getAdjacentReserveCandidates(
   territoryMemory: Record<string, unknown> | null,
   intents: TerritoryIntentMemory[],
   gameTime: number,
-  includeScoutCandidates: boolean
+  includeScoutCandidates: boolean,
+  routeDistanceLookupContext: RouteDistanceLookupContext
 ): ScoredTerritoryTarget[] {
   const adjacentRooms = getAdjacentRoomNames(colonyName);
   if (adjacentRooms.length === 0) {
@@ -470,7 +482,8 @@ function getAdjacentReserveCandidates(
         'adjacent',
         order,
         colonyName,
-        colonyOwnerUsername
+        colonyOwnerUsername,
+        routeDistanceLookupContext
       );
       return candidate ? [candidate] : [];
     }
@@ -485,7 +498,8 @@ function getAdjacentReserveCandidates(
         'adjacent',
         order,
         colonyName,
-        colonyOwnerUsername
+        colonyOwnerUsername,
+        routeDistanceLookupContext
       );
       return candidate ? [candidate] : [];
     }
@@ -499,9 +513,10 @@ function scoreTerritoryCandidate(
   source: TerritoryCandidateSource,
   order: number,
   colonyName: string,
-  colonyOwnerUsername: string | null
+  colonyOwnerUsername: string | null,
+  routeDistanceLookupContext: RouteDistanceLookupContext
 ): ScoredTerritoryTarget | null {
-  if (hasKnownNoRoute(colonyName, selection.target.roomName)) {
+  if (hasKnownNoRoute(colonyName, selection.target.roomName, routeDistanceLookupContext)) {
     return null;
   }
 
@@ -561,11 +576,23 @@ function isTerritoryTargetVisible(target: TerritoryTargetMemory): boolean {
   return isVisibleRoomKnown(target.roomName) || getVisibleController(target.roomName, target.controllerId) !== null;
 }
 
-function hasKnownNoRoute(fromRoom: string, targetRoom: string): boolean {
-  return getKnownRouteLength(fromRoom, targetRoom) === null;
+function createRouteDistanceLookupContext(): RouteDistanceLookupContext {
+  return { revalidatedNoRouteCacheKeys: new Set() };
 }
 
-function getKnownRouteLength(fromRoom: string, targetRoom: string): number | null | undefined {
+function hasKnownNoRoute(
+  fromRoom: string,
+  targetRoom: string,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): boolean {
+  return getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) === null;
+}
+
+function getKnownRouteLength(
+  fromRoom: string,
+  targetRoom: string,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): number | null | undefined {
   if (fromRoom === targetRoom) {
     return 0;
   }
@@ -573,8 +600,12 @@ function getKnownRouteLength(fromRoom: string, targetRoom: string): number | nul
   const cache = getTerritoryRouteDistanceCache();
   const cacheKey = getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom);
   const cachedRouteLength = cache?.[cacheKey];
-  if (typeof cachedRouteLength === 'number' || cachedRouteLength === null) {
+  if (typeof cachedRouteLength === 'number') {
     return cachedRouteLength;
+  }
+
+  if (cachedRouteLength === null && routeDistanceLookupContext.revalidatedNoRouteCacheKeys.has(cacheKey)) {
+    return null;
   }
 
   const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map as
@@ -591,6 +622,7 @@ function getKnownRouteLength(fromRoom: string, targetRoom: string): number | nul
     if (cache) {
       cache[cacheKey] = null;
     }
+    routeDistanceLookupContext.revalidatedNoRouteCacheKeys.add(cacheKey);
     return null;
   }
 
