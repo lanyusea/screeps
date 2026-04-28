@@ -626,6 +626,17 @@ function selectVisibleTerritoryControllerTask(creep) {
   }
   return canUseControllerClaimPart(creep) ? { type: "claim", targetId: controller.id } : null;
 }
+function selectUrgentVisibleReservationRenewalTask(creep) {
+  const intent = selectVisibleTerritoryControllerIntent(creep);
+  if (!intent || intent.action !== "reserve" || !canUseControllerClaimPart(creep)) {
+    return null;
+  }
+  const controller = selectCreepRoomController(creep, intent.controllerId);
+  if (!controller || getUrgentOwnReservationTicksToEnd(controller, getTerritoryActorUsername(creep, intent.colony)) === null) {
+    return null;
+  }
+  return { type: "reserve", targetId: controller.id };
+}
 function isVisibleTerritoryAssignmentSafe(assignment, colony, creep) {
   if (!isNonEmptyString(assignment.targetRoom)) {
     return false;
@@ -1101,7 +1112,7 @@ function getReserveControllerTargetState(controller, colonyOwnerUsername) {
   if (!isNonEmptyString(reservation.username) || reservation.username !== colonyOwnerUsername) {
     return "unavailable";
   }
-  return typeof reservation.ticksToEnd === "number" && reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? "available" : "satisfied";
+  return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) === null ? "satisfied" : "available";
 }
 function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
   if (target.action !== "reserve" || colonyOwnerUsername === null) {
@@ -1111,11 +1122,17 @@ function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
   if (!controller || isControllerOwned(controller)) {
     return null;
   }
-  const reservation = controller.reservation;
-  if (!reservation || reservation.username !== colonyOwnerUsername || typeof reservation.ticksToEnd !== "number") {
+  return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+}
+function getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
+  if (isControllerOwned(controller) || !isNonEmptyString(colonyOwnerUsername)) {
     return null;
   }
-  return reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? reservation.ticksToEnd : null;
+  const reservation = controller.reservation;
+  if (!reservation || reservation.username !== colonyOwnerUsername || typeof reservation.ticksToEnd !== "number" || reservation.ticksToEnd > TERRITORY_RESERVATION_RENEWAL_TICKS) {
+    return null;
+  }
+  return reservation.ticksToEnd;
 }
 function getVisibleColonyOwnerUsername(colonyName) {
   const controller = getVisibleController(colonyName);
@@ -1191,8 +1208,12 @@ var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
 function selectWorkerTask(creep) {
   const carriedEnergy = getUsedEnergy(creep);
+  const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
   if (carriedEnergy === 0) {
+    if (urgentReservationRenewalTask) {
+      return urgentReservationRenewalTask;
+    }
     if (isTerritoryControlTask(territoryControllerTask)) {
       return territoryControllerTask;
     }
@@ -1212,6 +1233,9 @@ function selectWorkerTask(creep) {
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: "upgrade", targetId: controller.id };
+  }
+  if (urgentReservationRenewalTask) {
+    return urgentReservationRenewalTask;
   }
   if (territoryControllerTask) {
     return territoryControllerTask;
