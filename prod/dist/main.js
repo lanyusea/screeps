@@ -1900,7 +1900,7 @@ function selectWorkerEnergyAcquisitionTask(creep) {
 }
 function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink) {
   const harvestEta = estimateHarvestDeliveryEta(creep, energySink);
-  const candidates = findWorkerEnergyAcquisitionCandidates(creep).map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta < harvestEta);
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep).map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
   if (candidates.length === 0) {
     return null;
   }
