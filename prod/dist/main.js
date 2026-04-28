@@ -2330,10 +2330,13 @@ var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST = 50;
 var MAX_WORKER_TARGET = 6;
 var sourceCountByRoomName = /* @__PURE__ */ new Map();
-function planSpawn(colony, roleCounts, gameTime) {
+function planSpawn(colony, roleCounts, gameTime, options = {}) {
   const workerTarget = getWorkerTarget(colony, roleCounts);
   if (getWorkerCapacity(roleCounts) < workerTarget) {
-    return planWorkerSpawn(colony, roleCounts, gameTime);
+    return planWorkerSpawn(colony, roleCounts, gameTime, options);
+  }
+  if (options.workersOnly) {
+    return null;
   }
   const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
   if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
@@ -2351,11 +2354,11 @@ function planSpawn(colony, roleCounts, gameTime) {
   return {
     spawn,
     body,
-    name: `${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`,
+    name: appendSpawnNameSuffix(`${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`, options),
     memory: buildTerritoryCreepMemory(territoryIntent)
   };
 }
-function planWorkerSpawn(colony, roleCounts, gameTime) {
+function planWorkerSpawn(colony, roleCounts, gameTime, options) {
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
   if (!spawn) {
     return null;
@@ -2367,9 +2370,12 @@ function planWorkerSpawn(colony, roleCounts, gameTime) {
   return {
     spawn,
     body,
-    name: `worker-${colony.room.name}-${gameTime}`,
+    name: appendSpawnNameSuffix(`worker-${colony.room.name}-${gameTime}`, options),
     memory: { role: "worker", colony: colony.room.name }
   };
+}
+function appendSpawnNameSuffix(baseName, options) {
+  return options.nameSuffix ? `${baseName}-${options.nameSuffix}` : baseName;
 }
 function selectWorkerBody(colony, roleCounts) {
   const normalBody = buildWorkerBody(colony.energyCapacityAvailable);
@@ -2792,6 +2798,7 @@ function isTerritoryAssignment(assignment) {
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
+var OK_CODE2 = 0;
 function runEconomy() {
   const creeps = Object.values(Game.creeps);
   const colonies = getOwnedColonies();
@@ -2801,15 +2808,40 @@ function runEconomy() {
     if (extensionResult === null) {
       planEarlyRoadConstruction(colony);
     }
-    const roleCounts = countCreepsByRole(creeps, colony.room.name);
-    const spawnRequest = planSpawn(colony, roleCounts, Game.time);
-    if (spawnRequest) {
-      for (const spawn of getSpawnAttemptOrder(spawnRequest, colony.spawns)) {
-        const result = attemptSpawn({ ...spawnRequest, spawn }, colony.room.name, telemetryEvents);
-        if (result !== ERR_BUSY_CODE) {
-          break;
-        }
+    let roleCounts = countCreepsByRole(creeps, colony.room.name);
+    let availableEnergy = colony.energyAvailable;
+    let successfulSpawnCount = 0;
+    const usedSpawns = /* @__PURE__ */ new Set();
+    while (true) {
+      const planningColony = createSpawnPlanningColony(colony, availableEnergy, usedSpawns);
+      const spawnRequest = planSpawn(
+        planningColony,
+        roleCounts,
+        Game.time,
+        getSpawnPlanningOptions(successfulSpawnCount)
+      );
+      if (!spawnRequest) {
+        break;
       }
+      if (successfulSpawnCount > 0 && spawnRequest.memory.role !== "worker") {
+        break;
+      }
+      const outcome = attemptSpawnRequest(
+        spawnRequest,
+        colony.room.name,
+        telemetryEvents,
+        planningColony.spawns
+      );
+      if (!outcome || outcome.result !== OK_CODE2) {
+        break;
+      }
+      usedSpawns.add(outcome.spawn);
+      availableEnergy = Math.max(0, availableEnergy - getBodyCost(spawnRequest.body));
+      successfulSpawnCount += 1;
+      if (spawnRequest.memory.role !== "worker") {
+        break;
+      }
+      roleCounts = addPlannedWorker(roleCounts);
     }
   }
   for (const creep of creeps) {
@@ -2820,6 +2852,40 @@ function runEconomy() {
     }
   }
   emitRuntimeSummary(colonies, creeps, telemetryEvents);
+}
+function createSpawnPlanningColony(colony, energyAvailable, usedSpawns) {
+  return {
+    ...colony,
+    energyAvailable,
+    spawns: colony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn))
+  };
+}
+function getSpawnPlanningOptions(successfulSpawnCount) {
+  return successfulSpawnCount > 0 ? { nameSuffix: String(successfulSpawnCount + 1), workersOnly: true } : {};
+}
+function attemptSpawnRequest(spawnRequest, roomName, telemetryEvents, spawns) {
+  let lastOutcome = null;
+  for (const spawn of getSpawnAttemptOrder(spawnRequest, spawns)) {
+    const result = attemptSpawn({ ...spawnRequest, spawn }, roomName, telemetryEvents);
+    lastOutcome = { spawn, result };
+    if (result !== ERR_BUSY_CODE) {
+      return lastOutcome;
+    }
+  }
+  return lastOutcome;
+}
+function addPlannedWorker(roleCounts) {
+  const nextRoleCounts = {
+    ...roleCounts,
+    worker: roleCounts.worker + 1
+  };
+  const workerCapacity = getWorkerCapacity(roleCounts) + 1;
+  if (workerCapacity === nextRoleCounts.worker) {
+    delete nextRoleCounts.workerCapacity;
+  } else {
+    nextRoleCounts.workerCapacity = workerCapacity;
+  }
+  return nextRoleCounts;
 }
 function getSpawnAttemptOrder(spawnRequest, spawns) {
   return [spawnRequest.spawn, ...spawns.filter((spawn) => spawn !== spawnRequest.spawn && !spawn.spawning)];
