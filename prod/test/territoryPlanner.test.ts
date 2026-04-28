@@ -1069,6 +1069,48 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('prefers the satisfied claim target as the next adjacent scout origin', () => {
+    const colony = makeSafeColony();
+    const claimedTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'claim' };
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'W2N1' ? { '3': 'W3N1' } : { '1': 'W1N2' }
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false, owner: { username: 'me' } } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [claimedTarget]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 555)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'scout'
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(describeExits).toHaveBeenCalledWith('W2N1');
+    expect(Memory.territory?.targets).toEqual([claimedTarget]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 555
+      }
+    ]);
+  });
+
   it('skips visible hostile-owned claim targets and plans the next eligible target', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
