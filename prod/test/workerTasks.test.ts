@@ -2668,6 +2668,76 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('uses nearby non-critical construction before controller pressure upgrade after urgent refill', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        'tower-site1': 2,
+        controller1: 7
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 200 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+  });
+
+  it('keeps controller pressure upgrade when non-critical construction is farther than the controller', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        'tower-site1': 9,
+        controller1: 3
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 200 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it.each([
     ['missing', { role: 'worker' }],
     ['empty', { role: 'worker', colony: '' }]
@@ -2754,6 +2824,60 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
     expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('uses nearby non-critical repair before stored-surplus controller upgrading', () => {
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const road = makeStructure('road-damaged', 'road' as StructureConstant, 4_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        'road-damaged': 2,
+        controller1: 8
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({ controller, structures: [storage, road] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-damaged' });
+  });
+
+  it('keeps controller upgrade when a nearby repair target is already complete', () => {
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const fullRoad = makeStructure('road-full', 'road' as StructureConstant, 5_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        'road-full': 1,
+        controller1: 8
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({ controller, structures: [storage, fullRoad] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('keeps extension construction before stored-surplus controller upgrading', () => {
