@@ -652,6 +652,33 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: `${structureType}-critical` });
   });
 
+  it.each([
+    ['road', 5_000],
+    ['container', 2_000]
+  ])('repairs critical %s damage before matching construction', (structureType, hitsMax) => {
+    const site = { id: `${structureType}-site1`, structureType } as ConstructionSite;
+    const repairTarget = makeStructure(
+      `${structureType}-critical`,
+      structureType as StructureConstant,
+      Math.floor(hitsMax * CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO),
+      hitsMax
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [repairTarget] });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Builder: makeLoadedWorker(room) });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: `${structureType}-critical` });
+  });
+
   it('keeps non-critical road and container repair behind generic construction', () => {
     const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
     const road = makeStructure(
@@ -745,7 +772,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
-  it('keeps sustained controller progress before critical road repair', () => {
+  it('keeps critical road repair before sustained controller progress', () => {
     const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
     const controller = {
       id: 'controller1',
@@ -760,7 +787,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     setGameCreeps({ Builder: makeLoadedWorker(room) });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
   });
 
   it('selects RCL1 controller upgrade before non-spawn construction when downgrade is safe', () => {

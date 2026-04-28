@@ -60,6 +60,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'build', targetId: extensionConstructionSite.id };
   }
 
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
+  }
+
   const roadOrContainerConstructionSite = constructionSites.find(isRoadOrContainerConstructionSite);
   if (roadOrContainerConstructionSite) {
     return { type: 'build', targetId: roadOrContainerConstructionSite.id };
@@ -67,11 +72,6 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (controller && shouldSustainControllerProgress(creep, controller)) {
     return { type: 'upgrade', targetId: controller.id };
-  }
-
-  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
-  if (criticalRepairTarget) {
-    return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
   }
 
   if (constructionSites[0]) {

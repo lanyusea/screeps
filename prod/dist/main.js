@@ -555,16 +555,16 @@ function selectWorkerTask(creep) {
   if (extensionConstructionSite) {
     return { type: "build", targetId: extensionConstructionSite.id };
   }
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return { type: "repair", targetId: criticalRepairTarget.id };
+  }
   const roadOrContainerConstructionSite = constructionSites.find(isRoadOrContainerConstructionSite);
   if (roadOrContainerConstructionSite) {
     return { type: "build", targetId: roadOrContainerConstructionSite.id };
   }
   if (controller && shouldSustainControllerProgress(creep, controller)) {
     return { type: "upgrade", targetId: controller.id };
-  }
-  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
-  if (criticalRepairTarget) {
-    return { type: "repair", targetId: criticalRepairTarget.id };
   }
   if (constructionSites[0]) {
     return { type: "build", targetId: constructionSites[0].id };
