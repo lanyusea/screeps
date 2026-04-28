@@ -4,6 +4,7 @@ import { ColonySnapshot } from '../src/colony/colonyRegistry';
 describe('planSpawn', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
     delete (globalThis as { Game?: Partial<Game> }).Game;
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
   });
@@ -13,6 +14,7 @@ describe('planSpawn', () => {
     energyAvailable = 300,
     energyCapacityAvailable = 300,
     roomName = 'W1N1',
+    constructionSiteCount = 0,
     spawning = null,
     controller
   }: {
@@ -20,11 +22,26 @@ describe('planSpawn', () => {
     energyAvailable?: number;
     energyCapacityAvailable?: number;
     roomName?: string;
+    constructionSiteCount?: number;
     spawning?: Spawning | null;
     controller?: StructureController;
-  } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<Source[], [number]> } {
+  } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
     const sources = Array.from({ length: sourceCount }, (_, index) => ({ id: `source${index}` }) as Source);
-    const find = jest.fn((type: number) => (type === FIND_SOURCES ? sources : []));
+    const constructionSites = Array.from(
+      { length: constructionSiteCount },
+      (_, index) => ({ id: `site${index}` }) as ConstructionSite
+    );
+    const find = jest.fn((type: number) => {
+      if (type === FIND_SOURCES) {
+        return sources;
+      }
+
+      if (type === FIND_MY_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
+      return [];
+    });
     const room = {
       name: roomName,
       energyAvailable,
@@ -41,6 +58,10 @@ describe('planSpawn', () => {
     };
 
     return { colony, spawn, find };
+  }
+
+  function makeSafeOwnedController(): StructureController {
+    return { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController;
   }
 
   it('plans a worker when the colony has no workers and an idle spawn', () => {
@@ -88,6 +109,32 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 124)).toBeNull();
   });
 
+  it('adds one worker target for active construction backlog after the baseline target is safe', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N8',
+      constructionSiteCount: 1,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 145)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N8-145',
+      memory: { role: 'worker', colony: 'W1N8' }
+    });
+    expect(planSpawn(colony, { worker: 4 }, 146)).toBeNull();
+  });
+
+  it('does not spend the construction backlog bonus while the home controller needs downgrade recovery', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N9',
+      constructionSiteCount: 1,
+      controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 147)).toBeNull();
+  });
+
   it('plans a claimer-role reserver for an explicit memory target when home survival is safe', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
@@ -117,6 +164,41 @@ describe('planSpawn', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: 139
+      }
+    ]);
+  });
+
+  it('plans territory control once the construction-adjusted worker target is satisfied', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N10',
+      constructionSiteCount: 1,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N10', roomName: 'W2N10', action: 'reserve' }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 148)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N10-W2N10-148',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N10',
+        territory: { targetRoom: 'W2N10', action: 'reserve' }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N10',
+        targetRoom: 'W2N10',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 148
       }
     ]);
   });
@@ -278,8 +360,13 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 126)).toBeNull();
   });
 
-  it('caps the source-aware worker target', () => {
-    const { colony, spawn } = makeColony({ roomName: 'W1N3', sourceCount: 10 });
+  it('caps the source-aware worker target even with active construction backlog', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N3',
+      sourceCount: 10,
+      constructionSiteCount: 1,
+      controller: makeSafeOwnedController()
+    });
 
     expect(planSpawn(colony, { worker: 5 }, 127)).toEqual({
       spawn,
@@ -339,14 +426,20 @@ describe('planSpawn', () => {
     });
   });
 
-  it('keeps zero-worker recovery on the emergency basic worker body when full body is unavailable', () => {
-    const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 600 });
+  it('keeps zero-worker recovery on the emergency basic worker body when construction backlog exists', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N11',
+      constructionSiteCount: 1,
+      energyAvailable: 400,
+      energyCapacityAvailable: 600,
+      controller: makeSafeOwnedController()
+    });
 
     expect(planSpawn(colony, { worker: 0 }, 135)).toEqual({
       spawn,
       body: ['work', 'carry', 'move'],
-      name: 'worker-W1N1-135',
-      memory: { role: 'worker', colony: 'W1N1' }
+      name: 'worker-W1N11-135',
+      memory: { role: 'worker', colony: 'W1N11' }
     });
   });
 
