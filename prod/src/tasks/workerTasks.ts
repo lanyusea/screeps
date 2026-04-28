@@ -1,4 +1,7 @@
-import { selectVisibleTerritoryControllerTask } from '../territory/territoryPlanner';
+import {
+  selectUrgentVisibleReservationRenewalTask,
+  selectVisibleTerritoryControllerTask
+} from '../territory/territoryPlanner';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -28,9 +31,14 @@ interface StoredEnergySourceContext {
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const carriedEnergy = getUsedEnergy(creep);
+  const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
 
   if (carriedEnergy === 0) {
+    if (urgentReservationRenewalTask) {
+      return urgentReservationRenewalTask;
+    }
+
     if (isTerritoryControlTask(territoryControllerTask)) {
       return territoryControllerTask;
     }
@@ -54,6 +62,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  if (urgentReservationRenewalTask) {
+    return urgentReservationRenewalTask;
   }
 
   if (territoryControllerTask) {

@@ -1,5 +1,6 @@
 import { runWorker } from '../src/creeps/workerRunner';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS, IDLE_RAMPART_REPAIR_HITS_CEILING } from '../src/tasks/workerTasks';
+import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
 describe('runWorker', () => {
   beforeEach(() => {
@@ -629,6 +630,53 @@ describe('runWorker', () => {
     expect(getObjectById).not.toHaveBeenCalled();
     expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller2' });
     expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('clears a normal-threshold reservation task for a one-CLAIM worker before executing it', () => {
+    const controller = {
+      id: 'controller2',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS }
+    } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'active', updatedAt: 201 }]
+      }
+    };
+    const room = {
+      name: 'W2N1',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_CONSTRUCTION_SITES ? [site] : []))
+    } as unknown as Room;
+    const creep = {
+      owner: { username: 'me' },
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'reserve', targetId: 'controller2' as Id<StructureController> }
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      reserveController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(controller);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(creep.reserveController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
