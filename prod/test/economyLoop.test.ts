@@ -383,6 +383,7 @@ describe('runEconomy', () => {
     const creep = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
       room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
       reserveController: jest.fn().mockReturnValue(0),
       moveTo: jest.fn()
     } as unknown as Creep;

@@ -633,7 +633,7 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('clears a normal-threshold reservation task for a one-CLAIM worker before executing it', () => {
+  it('executes a normal-threshold reservation task for a one-CLAIM worker', () => {
     const controller = {
       id: 'controller2',
       my: false,
@@ -674,9 +674,9 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(getObjectById).not.toHaveBeenCalled();
-    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
-    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(getObjectById).toHaveBeenCalledWith('controller2');
+    expect(creep.memory.task).toEqual({ type: 'reserve', targetId: 'controller2' });
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 

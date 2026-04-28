@@ -1,4 +1,5 @@
 import {
+  canCreepReserveTerritoryController,
   isVisibleTerritoryAssignmentComplete,
   isVisibleTerritoryAssignmentSafe,
   suppressTerritoryIntent
@@ -53,6 +54,13 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     } else {
       completeTerritoryAssignment(creep);
     }
+    return;
+  }
+
+  if (
+    assignment.action === 'reserve' &&
+    !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)
+  ) {
     return;
   }
 
