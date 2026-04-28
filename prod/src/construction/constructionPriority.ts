@@ -715,7 +715,7 @@ function buildRuntimeConstructionPriorityState(
   const hostileCreeps = findRoomObjects(room, 'FIND_HOSTILE_CREEPS') as Creep[] | null;
   const hostileStructures = findRoomObjects(room, 'FIND_HOSTILE_STRUCTURES') as Structure[] | null;
   const sources = findRoomObjects(room, 'FIND_SOURCES') as Source[] | null;
-  const colonyWorkers = creeps.filter((creep) => creep.memory.role === 'worker' && creep.memory.colony === room.name);
+  const colonyWorkers = creeps.filter((creep) => creep.memory?.role === 'worker' && creep.memory?.colony === room.name);
   const repairSignals = summarizeRepairSignals(visibleStructures);
   const territoryIntentCounts = countTerritoryIntents(room.name);
 
@@ -1101,6 +1101,10 @@ function countTerritoryIntents(roomName: string): { active: number; planned: num
 
   return intents.reduce(
     (counts, intent) => {
+      if (!isRecord(intent)) {
+        return counts;
+      }
+
       if (intent.colony !== roomName) {
         return counts;
       }
@@ -1115,6 +1119,10 @@ function countTerritoryIntents(roomName: string): { active: number; planned: num
     },
     { active: 0, planned: 0 }
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function matchesStructureType(

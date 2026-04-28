@@ -3199,7 +3199,10 @@ function buildRuntimeConstructionPriorityState(colony, creeps) {
   const hostileCreeps = findRoomObjects(room, "FIND_HOSTILE_CREEPS");
   const hostileStructures = findRoomObjects(room, "FIND_HOSTILE_STRUCTURES");
   const sources = findRoomObjects(room, "FIND_SOURCES");
-  const colonyWorkers = creeps.filter((creep) => creep.memory.role === "worker" && creep.memory.colony === room.name);
+  const colonyWorkers = creeps.filter((creep) => {
+    var _a2, _b2;
+    return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && ((_b2 = creep.memory) == null ? void 0 : _b2.colony) === room.name;
+  });
   const repairSignals = summarizeRepairSignals(visibleStructures);
   const territoryIntentCounts = countTerritoryIntents(room.name);
   return {
@@ -3523,6 +3526,9 @@ function countTerritoryIntents(roomName) {
   }
   return intents.reduce(
     (counts, intent) => {
+      if (!isRecord2(intent)) {
+        return counts;
+      }
       if (intent.colony !== roomName) {
         return counts;
       }
@@ -3535,6 +3541,9 @@ function countTerritoryIntents(roomName) {
     },
     { active: 0, planned: 0 }
   );
+}
+function isRecord2(value) {
+  return typeof value === "object" && value !== null;
 }
 function matchesStructureType3(actual, globalName, fallback) {
   var _a;
@@ -3703,10 +3712,10 @@ function summarizeRoomEventMetrics(room) {
   let hasResourceEvents = false;
   let hasCombatEvents = false;
   for (const entry of eventLog) {
-    if (!isRecord2(entry) || typeof entry.event !== "number") {
+    if (!isRecord3(entry) || typeof entry.event !== "number") {
       continue;
     }
-    const data = isRecord2(entry.data) ? entry.data : {};
+    const data = isRecord3(entry.data) ? entry.data : {};
     if (entry.event === harvestEvent && isEnergyEventData(data)) {
       resourceEvents.harvestedEnergy += getNumericEventData(data, "amount");
       hasResourceEvents = true;
@@ -3762,7 +3771,7 @@ function sumEnergyInStores(objects) {
   return objects.reduce((total, object) => total + getEnergyInStore(object), 0);
 }
 function getEnergyInStore(object) {
-  if (!isRecord2(object) || !isRecord2(object.store)) {
+  if (!isRecord3(object) || !isRecord3(object.store)) {
     return 0;
   }
   const getUsedCapacity = object.store.getUsedCapacity;
@@ -3776,7 +3785,7 @@ function getEnergyInStore(object) {
 function sumDroppedEnergy(droppedResources) {
   const energyResource = getEnergyResource2();
   return droppedResources.reduce((total, droppedResource) => {
-    if (!isRecord2(droppedResource) || droppedResource.resourceType !== energyResource) {
+    if (!isRecord3(droppedResource) || droppedResource.resourceType !== energyResource) {
       return total;
     }
     return total + (typeof droppedResource.amount === "number" ? droppedResource.amount : 0);
@@ -3797,7 +3806,7 @@ function getEnergyResource2() {
   const value = globalThis.RESOURCE_ENERGY;
   return typeof value === "string" ? value : "energy";
 }
-function isRecord2(value) {
+function isRecord3(value) {
   return typeof value === "object" && value !== null;
 }
 function buildCpuSummary() {

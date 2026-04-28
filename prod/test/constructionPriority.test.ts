@@ -1,8 +1,26 @@
 import {
+  buildRuntimeConstructionPriorityReport,
   scoreConstructionPriorities,
   type ConstructionBuildCandidate,
   type ConstructionPriorityRoomState
 } from '../src/construction/constructionPriority';
+import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+
+const TEST_GLOBALS = {
+  FIND_MY_CONSTRUCTION_SITES: 101,
+  FIND_MY_STRUCTURES: 102,
+  FIND_STRUCTURES: 103,
+  FIND_HOSTILE_CREEPS: 104,
+  FIND_HOSTILE_STRUCTURES: 105,
+  FIND_SOURCES: 106,
+  STRUCTURE_EXTENSION: 'extension',
+  STRUCTURE_SPAWN: 'spawn',
+  STRUCTURE_TOWER: 'tower',
+  STRUCTURE_RAMPART: 'rampart',
+  STRUCTURE_ROAD: 'road',
+  STRUCTURE_CONTAINER: 'container',
+  STRUCTURE_STORAGE: 'storage'
+} as const;
 
 describe('construction priority scoring', () => {
   it('hard-gates survival and worker recovery above normal energy-capacity construction', () => {
@@ -197,6 +215,64 @@ describe('construction priority scoring', () => {
   });
 });
 
+describe('runtime construction priority report', () => {
+  beforeEach(() => {
+    const globals = globalThis as Record<string, unknown>;
+    for (const [key, value] of Object.entries(TEST_GLOBALS)) {
+      globals[key] = value;
+    }
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+  });
+
+  afterEach(() => {
+    const globals = globalThis as Record<string, unknown>;
+    for (const key of Object.keys(TEST_GLOBALS)) {
+      delete globals[key];
+    }
+    delete globals.Memory;
+  });
+
+  it('ignores creeps with missing memory while counting runtime workers', () => {
+    const { colony } = makeRuntimeColony();
+    const report = buildRuntimeConstructionPriorityReport(colony, [
+      {} as unknown as Creep,
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep
+    ]);
+
+    expect(scoreByName(report.candidates, 'build extension capacity').blocked).toBe(false);
+  });
+
+  it('skips malformed territory intent entries while counting runtime intent pressure', () => {
+    const { colony } = makeRuntimeColony();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          null,
+          undefined,
+          'stale',
+          7,
+          { status: 'active' },
+          makeTerritoryIntent('W1N1', 'W2N1', 'active'),
+          makeTerritoryIntent('W1N1', 'W3N1', 'planned'),
+          makeTerritoryIntent('W2N2', 'W4N1', 'active'),
+          makeTerritoryIntent('W1N1', 'W5N1', 'suppressed')
+        ] as unknown as TerritoryIntentMemory[]
+      }
+    };
+
+    const report = buildRuntimeConstructionPriorityReport(colony, [
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep
+    ]);
+
+    expect(scoreByName(report.candidates, 'build remote road/container logistics')).toMatchObject({
+      blocked: true,
+      missingObservations: ['remote-paths']
+    });
+  });
+});
+
 function makeRoomState(overrides: Partial<ConstructionPriorityRoomState> = {}): ConstructionPriorityRoomState {
   return {
     roomName: 'W1N1',
@@ -246,6 +322,52 @@ function makeTowerCandidate(): ConstructionBuildCandidate {
     hostileExposure: 'medium',
     signals: { defense: 0.9, enemyKillPotential: 0.7 },
     vision: { survival: 0.9, territory: 0.9, enemyKills: 0.5 }
+  };
+}
+
+function makeRuntimeColony(): { colony: ColonySnapshot; room: Room } {
+  const room = {
+    name: 'W1N1',
+    controller: { my: true, level: 2, ticksToDowngrade: 20_000 } as StructureController,
+    find: jest.fn((findType: number) => {
+      switch (findType) {
+        case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
+        case TEST_GLOBALS.FIND_MY_STRUCTURES:
+        case TEST_GLOBALS.FIND_STRUCTURES:
+        case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
+        case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:
+          return [];
+        case TEST_GLOBALS.FIND_SOURCES:
+          return [{ id: 'source1' }, { id: 'source2' }] as Source[];
+        default:
+          return [];
+      }
+    })
+  } as unknown as Room;
+  const spawn = { structureType: TEST_GLOBALS.STRUCTURE_SPAWN, room } as unknown as StructureSpawn;
+
+  return {
+    room,
+    colony: {
+      room,
+      spawns: [spawn],
+      energyAvailable: 300,
+      energyCapacityAvailable: 550
+    }
+  };
+}
+
+function makeTerritoryIntent(
+  colony: string,
+  targetRoom: string,
+  status: TerritoryIntentMemory['status']
+): TerritoryIntentMemory {
+  return {
+    colony,
+    targetRoom,
+    action: 'reserve',
+    status,
+    updatedAt: 1
   };
 }
 
