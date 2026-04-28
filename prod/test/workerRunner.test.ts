@@ -1122,21 +1122,21 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('keeps same-priority transfer work stable instead of chasing a closer fillable sink', () => {
+  it('keeps primary transfer work stable instead of chasing a closer fillable sink', () => {
     const farExtension = {
       id: 'extension-far',
       structureType: 'extension',
       store: { getFreeCapacity: jest.fn().mockReturnValue(50) }
     } as unknown as StructureExtension;
-    const nearExtension = {
-      id: 'extension-near',
-      structureType: 'extension',
+    const nearSpawn = {
+      id: 'spawn-near',
+      structureType: 'spawn',
       store: { getFreeCapacity: jest.fn().mockReturnValue(50) }
-    } as unknown as StructureExtension;
-    const getRangeTo = jest.fn((target: StructureExtension) => {
+    } as unknown as StructureSpawn;
+    const getRangeTo = jest.fn((target: StructureExtension | StructureSpawn) => {
       const ranges: Record<string, number> = {
         'extension-far': 8,
-        'extension-near': 1
+        'spawn-near': 1
       };
       return ranges[String(target.id)] ?? 99;
     });
@@ -1149,12 +1149,12 @@ describe('runWorker', () => {
       pos: { getRangeTo },
       room: {
         find: jest.fn(
-          (type: number, options?: { filter?: (structure: StructureExtension) => boolean }) => {
+          (type: number, options?: { filter?: (structure: StructureExtension | StructureSpawn) => boolean }) => {
             if (type !== FIND_MY_STRUCTURES) {
               return [];
             }
 
-            const structures = [farExtension, nearExtension];
+            const structures = [farExtension, nearSpawn];
             return options?.filter ? structures.filter(options.filter) : structures;
           }
         )
@@ -1163,7 +1163,7 @@ describe('runWorker', () => {
       moveTo: jest.fn()
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      getObjectById: jest.fn().mockReturnValue(farExtension)
+      getObjectById: jest.fn((id: string) => (id === 'spawn-near' ? nearSpawn : farExtension))
     };
 
     runWorker(creep);
@@ -1173,31 +1173,31 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('preempts transfer work for a higher-priority fillable energy sink and executes it immediately', () => {
+  it('preempts tower transfer work for a primary fillable energy sink and executes it immediately', () => {
     const extension = {
       id: 'extension1',
       structureType: 'extension',
       store: { getFreeCapacity: jest.fn().mockReturnValue(50) }
     } as unknown as StructureExtension;
-    const spawn = {
-      id: 'spawn1',
-      structureType: 'spawn',
+    const tower = {
+      id: 'tower1',
+      structureType: 'tower',
       store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
-    } as unknown as StructureSpawn;
+    } as unknown as StructureTower;
     const creep = {
-      memory: { task: { type: 'transfer', targetId: 'extension1' as Id<AnyStoreStructure> } },
+      memory: { task: { type: 'transfer', targetId: 'tower1' as Id<AnyStoreStructure> } },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(50),
         getFreeCapacity: jest.fn().mockReturnValue(0)
       },
       room: {
         find: jest.fn(
-          (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+          (type: number, options?: { filter?: (structure: StructureExtension | StructureTower) => boolean }) => {
             if (type !== FIND_MY_STRUCTURES) {
               return [];
             }
 
-            const structures = [extension, spawn];
+            const structures = [extension, tower];
             return options?.filter ? structures.filter(options.filter) : structures;
           }
         )
@@ -1206,13 +1206,13 @@ describe('runWorker', () => {
       moveTo: jest.fn()
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : extension))
+      getObjectById: jest.fn((id: string) => (id === 'tower1' ? tower : extension))
     };
 
     runWorker(creep);
 
-    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
-    expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'extension1' });
+    expect(creep.transfer).toHaveBeenCalledWith(extension, 'energy');
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
