@@ -122,7 +122,7 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve' });
   });
 
-  it('idles a one-CLAIM reserver at the normal renewal threshold until emergency', () => {
+  it('lets a one-CLAIM reserver renew at the normal renewal threshold', () => {
     const controller = {
       id: 'controller1',
       my: false,
@@ -139,7 +139,7 @@ describe('runTerritoryControllerCreep', () => {
 
     runTerritoryControllerCreep(creep);
 
-    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
     expect(creep.moveTo).not.toHaveBeenCalled();
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve' });
   });

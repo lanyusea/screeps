@@ -1073,7 +1073,7 @@ function canUseControllerClaimPart(creep) {
   return getActiveControllerClaimPartCount(creep) > 0;
 }
 function canRenewReservation(activeClaimParts, reservationTicksToEnd) {
-  return activeClaimParts >= MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS || reservationTicksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
+  return reservationTicksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS || reservationTicksToEnd <= TERRITORY_RESERVATION_COMFORT_TICKS && activeClaimParts >= MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS;
 }
 function getActiveControllerClaimPartCount(creep) {
   var _a;

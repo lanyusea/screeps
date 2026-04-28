@@ -1122,7 +1122,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
   });
 
-  it('keeps local construction before a normal-threshold own reservation renewal with one CLAIM part', () => {
+  it('renews a normal-threshold own visible reservation before local construction with one CLAIM part', () => {
     const controller = {
       id: 'controller2',
       my: false,
@@ -1146,7 +1146,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     (creep.room as Room & { name: string }).name = 'W2N1';
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
   });
 
   it('renews an emergency own visible reservation before local construction with one CLAIM part', () => {
@@ -1176,11 +1176,11 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
   });
 
-  it('keeps local construction before a non-emergency own reservation renewal with one CLAIM part', () => {
+  it('keeps local construction before an above-normal own reservation renewal with one CLAIM part', () => {
     const controller = {
       id: 'controller2',
       my: false,
-      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS + 1 }
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 1 }
     } as StructureController;
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {

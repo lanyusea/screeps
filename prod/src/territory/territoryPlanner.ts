@@ -815,8 +815,9 @@ function canUseControllerClaimPart(creep: Creep): boolean {
 
 function canRenewReservation(activeClaimParts: number, reservationTicksToEnd: number): boolean {
   return (
-    activeClaimParts >= MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS ||
-    reservationTicksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS
+    reservationTicksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ||
+    (reservationTicksToEnd <= TERRITORY_RESERVATION_COMFORT_TICKS &&
+      activeClaimParts >= MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS)
   );
 }
 
