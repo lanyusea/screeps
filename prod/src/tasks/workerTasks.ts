@@ -3,7 +3,7 @@ export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
-const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
+const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
@@ -18,15 +18,10 @@ interface StoredEnergySourceContext {
 }
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
-  const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
+  const carriedEnergy = getUsedEnergy(creep);
 
   if (carriedEnergy === 0) {
     if (getFreeEnergyCapacity(creep) > 0) {
-      const droppedEnergy = selectDroppedEnergy(creep);
-      if (droppedEnergy) {
-        return { type: 'pickup', targetId: droppedEnergy.id };
-      }
-
       const storedEnergy = selectStoredEnergySource(creep);
       if (storedEnergy) {
         return { type: 'withdraw', targetId: storedEnergy.id as Id<AnyStoreStructure> };
@@ -35,6 +30,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       const salvageEnergy = selectSalvageEnergySource(creep);
       if (salvageEnergy) {
         return { type: 'withdraw', targetId: salvageEnergy.id as unknown as Id<AnyStoreStructure> };
+      }
+
+      const droppedEnergy = selectDroppedEnergy(creep);
+      if (droppedEnergy) {
+        return { type: 'pickup', targetId: droppedEnergy.id };
       }
     }
 
@@ -102,7 +102,7 @@ function isFillableEnergySink(structure: AnyOwnedStructure): structure is Struct
     (matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
       matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension')) &&
     'store' in structure &&
-    structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+    getFreeStoredEnergyCapacity(structure) > 0
   );
 }
 
@@ -182,7 +182,7 @@ function isStoredWorkerEnergySource(structure: AnyStructure): structure is Store
 }
 
 function hasStoredEnergy(structure: StoredWorkerEnergySource): boolean {
-  return (structure.store?.getUsedCapacity?.(RESOURCE_ENERGY) ?? 0) > 0;
+  return getStoredEnergy(structure) > 0;
 }
 
 function isFriendlyStoredEnergySource(structure: StoredWorkerEnergySource, context: StoredEnergySourceContext): boolean {
@@ -250,7 +250,7 @@ function findRuins(room: Room): Ruin[] {
 }
 
 function hasSalvageableEnergy(source: SalvageableWorkerEnergySource): boolean {
-  return (source.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) >= MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT;
+  return getStoredEnergy(source) >= MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT;
 }
 
 function getCreepOwnerUsername(creep: Creep): string | null {
@@ -431,11 +431,59 @@ function isInRoom(creep: Creep, room: Room): boolean {
 }
 
 function getUsedEnergy(creep: Creep): number {
-  return creep.store?.getUsedCapacity?.(RESOURCE_ENERGY) ?? 0;
+  return getStoredEnergy(creep);
 }
 
 function getFreeEnergyCapacity(creep: Creep): number {
-  return creep.store?.getFreeCapacity?.(RESOURCE_ENERGY) ?? 0;
+  return getFreeStoredEnergyCapacity(creep);
+}
+
+interface StoreLike {
+  getUsedCapacity?: (resource?: ResourceConstant) => number | null;
+  getFreeCapacity?: (resource?: ResourceConstant) => number | null;
+  [resource: string]: unknown;
+}
+
+function getStoredEnergy(object: unknown): number {
+  const store = getStore(object);
+  if (!store) {
+    return 0;
+  }
+
+  const usedCapacity = store.getUsedCapacity?.(getWorkerEnergyResource());
+  if (typeof usedCapacity === 'number') {
+    return usedCapacity;
+  }
+
+  const storedEnergy = store[getWorkerEnergyResource()];
+  return typeof storedEnergy === 'number' ? storedEnergy : 0;
+}
+
+function getFreeStoredEnergyCapacity(object: unknown): number {
+  const store = getStore(object);
+  if (!store) {
+    return 0;
+  }
+
+  const freeCapacity = store.getFreeCapacity?.(getWorkerEnergyResource());
+  return typeof freeCapacity === 'number' ? freeCapacity : 0;
+}
+
+function getStore(object: unknown): StoreLike | null {
+  if (!isWorkerTaskRecord(object) || !isWorkerTaskRecord(object.store)) {
+    return null;
+  }
+
+  return object.store as StoreLike;
+}
+
+function getWorkerEnergyResource(): ResourceConstant {
+  const value = (globalThis as unknown as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY;
+  return (typeof value === 'string' ? value : 'energy') as ResourceConstant;
+}
+
+function isWorkerTaskRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function isUpgradingController(creep: Creep, controller: StructureController): boolean {
@@ -443,7 +491,7 @@ function isUpgradingController(creep: Creep, controller: StructureController): b
   return task?.type === 'upgrade' && task.targetId === controller.id;
 }
 
-function selectDroppedEnergy(creep: Creep): Resource<RESOURCE_ENERGY> | null {
+function selectDroppedEnergy(creep: Creep): Resource<ResourceConstant> | null {
   const droppedEnergy = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy);
   if (droppedEnergy.length === 0) {
     return null;
@@ -461,8 +509,8 @@ function findDroppedResources(room: Room): Resource[] {
   return room.find(FIND_DROPPED_RESOURCES);
 }
 
-function isUsefulDroppedEnergy(resource: Resource): resource is Resource<RESOURCE_ENERGY> {
-  return resource.resourceType === RESOURCE_ENERGY && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+function isUsefulDroppedEnergy(resource: Resource): resource is Resource<ResourceConstant> {
+  return resource.resourceType === getWorkerEnergyResource() && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
 }
 
 function findClosestByRange<T extends RoomObject>(creep: Creep, objects: T[]): T | null {
