@@ -1166,7 +1166,7 @@ function selectTerritoryTarget(colony) {
   if (configuredTarget) {
     return { target: configuredTarget, intentAction: configuredTarget.action, commitTarget: false };
   }
-  if (hasConfiguredTerritoryTargetForColony(territoryMemory, colonyName)) {
+  if (hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents)) {
     return null;
   }
   return selectAdjacentReserveTarget(colonyName, colonyOwnerUsername, territoryMemory, intents);
@@ -1188,8 +1188,20 @@ function selectConfiguredTerritoryTarget(colonyName, colonyOwnerUsername, territ
   }
   return null;
 }
-function hasConfiguredTerritoryTargetForColony(territoryMemory, colonyName) {
-  return getConfiguredTargetRoomsForColony(territoryMemory, colonyName).size > 0;
+function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents) {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return false;
+  }
+  return territoryMemory.targets.some((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (!target || target.colony !== colonyName) {
+      return false;
+    }
+    if (target.enabled === false || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents)) {
+      return true;
+    }
+    return getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "satisfied";
+  });
 }
 function selectAdjacentReserveTarget(colonyName, colonyOwnerUsername, territoryMemory, intents) {
   const adjacentRooms = getAdjacentRoomNames(colonyName);
