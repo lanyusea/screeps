@@ -5,6 +5,7 @@ import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
 export const TERRITORY_DOWNGRADE_GUARD_TICKS = 5_000;
+export const TERRITORY_RESERVATION_RENEWAL_TICKS = 1_000;
 
 const EXIT_DIRECTION_ORDER: ExitKey[] = ['1', '3', '5', '7'];
 
@@ -25,6 +26,8 @@ interface SelectedTerritoryTarget {
   commitTarget: boolean;
 }
 
+type TerritoryTargetVisibilityState = 'available' | 'satisfied' | 'unavailable';
+
 export function planTerritoryIntent(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
@@ -35,7 +38,7 @@ export function planTerritoryIntent(
     return null;
   }
 
-  const selection = selectTerritoryTarget(colony.room.name);
+  const selection = selectTerritoryTarget(colony);
   if (!selection) {
     return null;
   }
@@ -62,7 +65,14 @@ export function shouldSpawnTerritoryControllerCreep(plan: TerritoryIntentPlan, r
     return false;
   }
 
-  if (isVisibleTerritoryTargetUnavailable(plan.targetRoom, plan.controllerId)) {
+  if (
+    getVisibleTerritoryTargetState(
+      plan.targetRoom,
+      plan.action,
+      plan.controllerId,
+      getVisibleColonyOwnerUsername(plan.colony)
+    ) !== 'available'
+  ) {
     return false;
   }
 
@@ -133,10 +143,12 @@ export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCoun
   );
 }
 
-function selectTerritoryTarget(colonyName: string): SelectedTerritoryTarget | null {
+function selectTerritoryTarget(colony: ColonySnapshot): SelectedTerritoryTarget | null {
+  const colonyName = colony.room.name;
+  const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord();
   const intents = normalizeTerritoryIntents(territoryMemory?.intents);
-  const configuredTarget = selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents);
+  const configuredTarget = selectConfiguredTerritoryTarget(colonyName, colonyOwnerUsername, territoryMemory, intents);
   if (configuredTarget) {
     return { target: configuredTarget, intentAction: configuredTarget.action, commitTarget: false };
   }
@@ -145,11 +157,12 @@ function selectTerritoryTarget(colonyName: string): SelectedTerritoryTarget | nu
     return null;
   }
 
-  return selectAdjacentReserveTarget(colonyName, territoryMemory, intents);
+  return selectAdjacentReserveTarget(colonyName, colonyOwnerUsername, territoryMemory, intents);
 }
 
 function selectConfiguredTerritoryTarget(
   colonyName: string,
+  colonyOwnerUsername: string | null,
   territoryMemory: Record<string, unknown> | null,
   intents: TerritoryIntentMemory[]
 ): TerritoryTargetMemory | null {
@@ -165,7 +178,12 @@ function selectConfiguredTerritoryTarget(
       target.colony === colonyName &&
       target.roomName !== colonyName &&
       !isTerritoryTargetSuppressed(target, intents) &&
-      !isVisibleTerritoryTargetUnavailable(target.roomName, target.controllerId)
+      getVisibleTerritoryTargetState(
+        target.roomName,
+        target.action,
+        target.controllerId,
+        colonyOwnerUsername
+      ) === 'available'
     ) {
       return target;
     }
@@ -183,6 +201,7 @@ function hasConfiguredTerritoryTargetForColony(
 
 function selectAdjacentReserveTarget(
   colonyName: string,
+  colonyOwnerUsername: string | null,
   territoryMemory: Record<string, unknown> | null,
   intents: TerritoryIntentMemory[]
 ): SelectedTerritoryTarget | null {
@@ -199,7 +218,7 @@ function selectAdjacentReserveTarget(
       !existingTargetRooms.has(roomName) &&
       !isTerritoryTargetSuppressed(target, intents)
     ) {
-      const candidateState = getAdjacentReserveCandidateState(roomName);
+      const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
       if (candidateState === 'safe') {
         return { target, intentAction: 'reserve', commitTarget: true };
       }
@@ -216,7 +235,10 @@ function selectAdjacentReserveTarget(
   return null;
 }
 
-function getAdjacentReserveCandidateState(targetRoom: string): 'safe' | 'unknown' | 'unavailable' {
+function getAdjacentReserveCandidateState(
+  targetRoom: string,
+  colonyOwnerUsername: string | null
+): 'safe' | 'unknown' | 'unavailable' {
   if (isVisibleRoomMissingController(targetRoom)) {
     return 'unavailable';
   }
@@ -226,7 +248,8 @@ function getAdjacentReserveCandidateState(targetRoom: string): 'safe' | 'unknown
     return 'unknown';
   }
 
-  return !isControllerOwned(controller) && controller.reservation == null ? 'safe' : 'unavailable';
+  const targetState = getReserveControllerTargetState(controller, colonyOwnerUsername);
+  return targetState === 'available' ? 'safe' : 'unavailable';
 }
 
 function getConfiguredTargetRoomsForColony(
@@ -436,20 +459,26 @@ function isTerritoryIntentForActionSuppressed(
   );
 }
 
-function isVisibleTerritoryTargetUnavailable(
+function getVisibleTerritoryTargetState(
   targetRoom: string,
-  controllerId?: Id<StructureController>
-): boolean {
+  action: TerritoryIntentAction,
+  controllerId?: Id<StructureController>,
+  colonyOwnerUsername?: string | null
+): TerritoryTargetVisibilityState {
   if (isVisibleRoomMissingController(targetRoom)) {
-    return true;
+    return 'unavailable';
   }
 
   const controller = getVisibleController(targetRoom, controllerId);
   if (!controller) {
-    return false;
+    return 'available';
   }
 
-  return isControllerOwned(controller);
+  if (action === 'reserve') {
+    return getReserveControllerTargetState(controller, colonyOwnerUsername ?? null);
+  }
+
+  return isControllerOwned(controller) ? 'unavailable' : 'available';
 }
 
 function isVisibleRoomKnown(targetRoom: string): boolean {
@@ -465,6 +494,40 @@ function isVisibleRoomMissingController(targetRoom: string): boolean {
 
 function isControllerOwned(controller: StructureController): boolean {
   return controller.owner != null || controller.my === true;
+}
+
+function getReserveControllerTargetState(
+  controller: StructureController,
+  colonyOwnerUsername: string | null
+): TerritoryTargetVisibilityState {
+  if (isControllerOwned(controller)) {
+    return 'unavailable';
+  }
+
+  const reservation = controller.reservation;
+  if (!reservation) {
+    return 'available';
+  }
+
+  if (!isNonEmptyString(reservation.username) || reservation.username !== colonyOwnerUsername) {
+    return 'unavailable';
+  }
+
+  return typeof reservation.ticksToEnd === 'number' &&
+    reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS
+    ? 'available'
+    : 'satisfied';
+}
+
+function getVisibleColonyOwnerUsername(colonyName: string): string | null {
+  const controller = getVisibleController(colonyName);
+  return getControllerOwnerUsername(controller ?? undefined);
+}
+
+function getControllerOwnerUsername(controller: StructureController | undefined): string | null {
+  const username = (controller as (StructureController & { owner?: { username?: string } }) | undefined)?.owner
+    ?.username;
+  return isNonEmptyString(username) ? username : null;
 }
 
 function getVisibleController(targetRoom: string, controllerId?: Id<StructureController>): StructureController | null {
