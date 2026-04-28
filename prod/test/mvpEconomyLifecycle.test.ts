@@ -152,13 +152,14 @@ describe('MVP economy lifecycle', () => {
       rooms: {},
       spawns: {},
       creeps: { Worker1: worker },
-      getObjectById: jest.fn().mockReturnValue(fullSpawn)
+      getObjectById: jest.fn((id: string) => (id === 'site1' ? site : fullSpawn))
     };
 
     runEconomy();
 
     expect(worker.memory.task).toEqual({ type: 'build', targetId: 'site1' });
     expect((worker as unknown as { transfer: jest.Mock }).transfer).not.toHaveBeenCalled();
+    expect((worker as unknown as { build: jest.Mock }).build).toHaveBeenCalledWith(site);
 
     (worker as unknown as { room: Room }).room = {
       name: 'W1N1',
@@ -172,12 +173,14 @@ describe('MVP economy lifecycle', () => {
         return [];
       })
     } as unknown as Room;
-    (Game.getObjectById as jest.Mock).mockReturnValue(null);
+    (worker as unknown as { build: jest.Mock }).build.mockClear();
+    (Game.getObjectById as jest.Mock).mockImplementation((id: string) => (id === 'controller1' ? controller : null));
 
     runEconomy();
 
     expect(worker.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
     expect((worker as unknown as { build: jest.Mock }).build).not.toHaveBeenCalled();
+    expect((worker as unknown as { upgradeController: jest.Mock }).upgradeController).toHaveBeenCalledWith(controller);
   });
 
   it('plans a replacement before a colony worker expires without counting unrelated workers', () => {

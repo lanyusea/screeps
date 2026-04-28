@@ -1,66 +1,65 @@
 import { isWorkerRepairTargetComplete, selectWorkerTask } from '../tasks/workerTasks';
-import { selectVisibleTerritoryControllerTask } from '../territory/territoryPlanner';
+
+type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
 
 export function runWorker(creep: Creep): void {
-  if (!creep.memory.task) {
-    assignNextTask(creep);
+  const selectedTask = selectWorkerTask(creep);
+  const currentTask = creep.memory.task;
+
+  if (!currentTask) {
+    assignSelectedTask(creep, selectedTask);
+  } else if (shouldReplaceTask(creep, currentTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptForVisibleTerritoryControllerTask(currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptSpendingTaskForEnergySink(currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptSpendingTaskForControllerPressure(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptUpgradeTask(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  }
+
+  executeAssignedTask(creep, selectedTask);
+}
+
+function executeAssignedTask(creep: Creep, selectedTask: CreepTaskMemory | null): void {
+  let task: CreepTaskMemory | null | undefined = creep.memory.task;
+  if (!task || !canExecuteTask(creep, task)) {
     return;
   }
 
-  if (shouldReplaceTask(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-
-  if (shouldPreemptForVisibleTerritoryControllerTask(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-
-  if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-
-  if (shouldPreemptTransferTaskForBetterEnergySink(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-
-  if (shouldPreemptSpendingTaskForEnergySink(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-
-  if (shouldPreemptSpendingTaskForControllerPressure(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-
-  if (shouldPreemptUpgradeTask(creep, creep.memory.task)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
-  }
-
-  const task = creep.memory.task;
-  const target = Game.getObjectById(task.targetId);
+  let target = Game.getObjectById(task.targetId);
   if (!target) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
+    if (selectedTask && isSameTask(task, selectedTask)) {
+      return;
+    }
+
+    task = assignSelectedTask(creep, selectedTask, task);
+    if (!task || !canExecuteTask(creep, task)) {
+      return;
+    }
+
+    target = Game.getObjectById(task.targetId);
+    if (!target) {
+      return;
+    }
   }
 
   if (shouldReplaceTarget(task, target)) {
-    delete creep.memory.task;
-    assignNextTask(creep);
-    return;
+    task = assignSelectedTask(creep, selectedTask, task);
+    if (!task || !canExecuteTask(creep, task)) {
+      return;
+    }
+
+    target = Game.getObjectById(task.targetId);
+    if (!target || shouldReplaceTarget(task, target)) {
+      return;
+    }
   }
 
   const result = executeTask(creep, task, target);
@@ -72,6 +71,43 @@ export function runWorker(creep: Creep): void {
 
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target as RoomObject);
+  }
+}
+
+function assignSelectedTask(
+  creep: Creep,
+  selectedTask: CreepTaskMemory | null,
+  previousTask?: CreepTaskMemory
+): CreepTaskMemory | null {
+  if (!selectedTask || (previousTask && isSameTask(previousTask, selectedTask))) {
+    delete creep.memory.task;
+    return null;
+  }
+
+  creep.memory.task = selectedTask;
+  return selectedTask;
+}
+
+function canExecuteTask(creep: Creep, task: CreepTaskMemory): boolean {
+  switch (task.type) {
+    case 'harvest':
+      return typeof creep.harvest === 'function';
+    case 'pickup':
+      return typeof creep.pickup === 'function';
+    case 'withdraw':
+      return typeof creep.withdraw === 'function';
+    case 'transfer':
+      return typeof creep.transfer === 'function';
+    case 'build':
+      return typeof creep.build === 'function';
+    case 'repair':
+      return typeof creep.repair === 'function';
+    case 'claim':
+      return typeof creep.claimController === 'function';
+    case 'reserve':
+      return typeof creep.reserveController === 'function';
+    case 'upgrade':
+      return typeof creep.upgradeController === 'function';
   }
 }
 
@@ -101,34 +137,33 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   return usedEnergy === 0;
 }
 
-function shouldPreemptForVisibleTerritoryControllerTask(creep: Creep, task: CreepTaskMemory): boolean {
-  const controllerTask = selectVisibleTerritoryControllerTask(creep);
-  if (!controllerTask) {
-    return isTerritoryControlTask(task);
+function shouldPreemptForVisibleTerritoryControllerTask(
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (isTerritoryControlTask(task)) {
+    return !selectedTask || !isSameTask(task, selectedTask);
   }
 
-  const selectedTask = selectWorkerTask(creep);
-  if (!selectedTask || !isSameTask(selectedTask, controllerTask)) {
-    return false;
-  }
-
-  return !isSameTask(task, controllerTask);
+  return isTerritoryControlTask(selectedTask);
 }
 
-function shouldPreemptSpendingTaskForEnergySink(creep: Creep, task: CreepTaskMemory): boolean {
+function shouldPreemptSpendingTaskForEnergySink(
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
   if (!isEnergySpendingTask(task)) {
     return false;
   }
 
-  if (!creep.room) {
-    return false;
-  }
-
-  const nextTask = selectWorkerTask(creep);
-  return nextTask?.type === 'transfer' && !isSameTask(task, nextTask);
+  return selectedTask?.type === 'transfer' && !isSameTask(task, selectedTask);
 }
 
-function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep: Creep, task: CreepTaskMemory): boolean {
+function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
   if (!isEnergyAcquisitionTask(task)) {
     return false;
   }
@@ -147,12 +182,19 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep: Creep, task: 
     return false;
   }
 
-  const nextTask = selectWorkerTask(creep);
-  return isRecoverableEnergyTask(nextTask) && !isSameTask(task, nextTask);
+  return isRecoverableEnergyTask(selectedTask) && !isSameTask(task, selectedTask);
 }
 
-function shouldPreemptTransferTaskForBetterEnergySink(creep: Creep, task: CreepTaskMemory): boolean {
+function shouldPreemptTransferTaskForBetterEnergySink(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
   if (task.type !== 'transfer') {
+    return false;
+  }
+
+  if (selectedTask?.type !== 'transfer' || isSameTask(task, selectedTask)) {
     return false;
   }
 
@@ -168,11 +210,20 @@ function shouldPreemptTransferTaskForBetterEnergySink(creep: Creep, task: CreepT
     return false;
   }
 
-  const nextTask = selectWorkerTask(creep);
-  return nextTask?.type === 'transfer' && !isSameTask(task, nextTask);
+  const currentTarget = Game.getObjectById(task.targetId);
+  if (!isValidTransferTarget(currentTarget)) {
+    return true;
+  }
+
+  const selectedTarget = Game.getObjectById(selectedTask.targetId);
+  return getTransferSinkPriority(selectedTarget) > getTransferSinkPriority(currentTarget);
 }
 
-function shouldPreemptSpendingTaskForControllerPressure(creep: Creep, task: CreepTaskMemory): boolean {
+function shouldPreemptSpendingTaskForControllerPressure(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
   if (!isEnergySpendingTask(task) || task.type === 'upgrade') {
     return false;
   }
@@ -181,11 +232,14 @@ function shouldPreemptSpendingTaskForControllerPressure(creep: Creep, task: Cree
     return false;
   }
 
-  const nextTask = selectWorkerTask(creep);
-  return isOwnedControllerUpgradeTask(creep, nextTask) && !isSameTask(task, nextTask);
+  return isOwnedControllerUpgradeTask(creep, selectedTask) && !isSameTask(task, selectedTask);
 }
 
-function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean {
+function shouldPreemptUpgradeTask(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
   if (task.type !== 'upgrade') {
     return false;
   }
@@ -195,8 +249,7 @@ function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean 
     return false;
   }
 
-  const nextTask = selectWorkerTask(creep);
-  if (nextTask === null || (nextTask.type === task.type && nextTask.targetId === task.targetId)) {
+  if (selectedTask === null || isSameTask(task, selectedTask)) {
     return false;
   }
 
@@ -238,8 +291,47 @@ function isRecoverableEnergyTask(
   return task?.type === 'pickup' || task?.type === 'withdraw';
 }
 
-function isTerritoryControlTask(task: CreepTaskMemory): task is Extract<CreepTaskMemory, { type: 'claim' | 'reserve' }> {
-  return task.type === 'claim' || task.type === 'reserve';
+function isTerritoryControlTask(
+  task: CreepTaskMemory | null
+): task is Extract<CreepTaskMemory, { type: 'claim' | 'reserve' }> {
+  return task?.type === 'claim' || task?.type === 'reserve';
+}
+
+function isValidTransferTarget(target: unknown): target is AnyStoreStructure {
+  return getFreeTransferEnergyCapacity(target) > 0;
+}
+
+function getFreeTransferEnergyCapacity(target: unknown): number {
+  const store = (target as { store?: { getFreeCapacity?: (resource?: ResourceConstant) => number | null } } | null)
+    ?.store;
+  const freeCapacity = store?.getFreeCapacity?.(RESOURCE_ENERGY);
+  return typeof freeCapacity === 'number' ? freeCapacity : 0;
+}
+
+function getTransferSinkPriority(target: unknown): number {
+  const structureType = (target as { structureType?: unknown } | null)?.structureType;
+  if (typeof structureType !== 'string') {
+    return 0;
+  }
+
+  if (matchesTransferSinkStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn')) {
+    return 3;
+  }
+
+  if (matchesTransferSinkStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')) {
+    return 2;
+  }
+
+  return matchesTransferSinkStructureType(structureType, 'STRUCTURE_TOWER', 'tower') ? 1 : 0;
+}
+
+function matchesTransferSinkStructureType(
+  actual: string,
+  globalName: TransferSinkStructureConstantGlobal,
+  fallback: string
+): boolean {
+  const constants = globalThis as unknown as Partial<Record<TransferSinkStructureConstantGlobal, string>>;
+  return actual === (constants[globalName] ?? fallback);
 }
 
 function shouldReplaceTarget(
