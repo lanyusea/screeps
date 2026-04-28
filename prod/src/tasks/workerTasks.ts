@@ -5,6 +5,7 @@ const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
+type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
@@ -14,6 +15,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       const droppedEnergy = selectDroppedEnergy(creep);
       if (droppedEnergy) {
         return { type: 'pickup', targetId: droppedEnergy.id };
+      }
+
+      const storedEnergy = selectStoredEnergySource(creep);
+      if (storedEnergy) {
+        return { type: 'withdraw', targetId: storedEnergy.id as Id<AnyStoreStructure> };
       }
     }
 
@@ -101,11 +107,51 @@ type StructureConstantGlobal =
   | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_STORAGE'
+  | 'STRUCTURE_TERMINAL'
   | 'STRUCTURE_RAMPART';
 
 function matchesStructureType(actual: string | undefined, globalName: StructureConstantGlobal, fallback: string): boolean {
   const constants = globalThis as unknown as Partial<Record<StructureConstantGlobal, string>>;
   return actual === (constants[globalName] ?? fallback);
+}
+
+function selectStoredEnergySource(creep: Creep): StoredWorkerEnergySource | null {
+  const storedEnergySources = findVisibleRoomStructures(creep.room).filter((structure): structure is StoredWorkerEnergySource =>
+    isSafeStoredEnergySource(structure, creep.room)
+  );
+
+  if (storedEnergySources.length === 0) {
+    return null;
+  }
+
+  const closestStoredEnergy = findClosestByRange(creep, storedEnergySources);
+  return closestStoredEnergy ?? storedEnergySources[0];
+}
+
+function isSafeStoredEnergySource(structure: AnyStructure, room: Room): structure is StoredWorkerEnergySource {
+  return isStoredWorkerEnergySource(structure) && hasStoredEnergy(structure) && isFriendlyStoredEnergySource(structure, room);
+}
+
+function isStoredWorkerEnergySource(structure: AnyStructure): structure is StoredWorkerEnergySource {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')
+  );
+}
+
+function hasStoredEnergy(structure: StoredWorkerEnergySource): boolean {
+  return (structure.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0;
+}
+
+function isFriendlyStoredEnergySource(structure: StoredWorkerEnergySource, room: Room): boolean {
+  const ownership = (structure as StoredWorkerEnergySource & { my?: boolean }).my;
+  if (typeof ownership === 'boolean') {
+    return ownership;
+  }
+
+  return room.controller?.my === true;
 }
 
 function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
