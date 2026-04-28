@@ -1908,6 +1908,111 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('prefers a visible adjacent reserve follow-up over a lower-confidence distant reserve', () => {
+    const colony = makeSafeColony();
+    const distantTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W9N1', action: 'reserve' };
+    const satisfiedTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const describeExits = jest.fn((roomName: string) => (roomName === 'W1N2' ? { '3': 'W2N2' } : {}));
+    const findRoute = jest.fn((_fromRoom: string, toRoom: string) =>
+      Array.from({ length: toRoom === 'W9N1' ? 4 : toRoom === 'W2N2' ? 2 : 1 }, (_value, index) => ({
+        exit: 3,
+        room: `${toRoom}-${index}`
+      }))
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits, findRoute } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2', {
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 500 }
+          } as StructureController
+        }),
+        W2N2: makeRecommendationRoom('W2N2', { sourceCount: 2 }),
+        W9N1: makeRecommendationRoom('W9N1', { sourceCount: 1 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [distantTarget, satisfiedTarget]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 577);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N2', action: 'reserve', followUp });
+    expect(describeExits).toHaveBeenCalledWith('W1N2');
+    expect(describeExits).not.toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.targets).toEqual([
+      distantTarget,
+      satisfiedTarget,
+      {
+        colony: 'W1N1',
+        roomName: 'W2N2',
+        action: 'reserve'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 577,
+        followUp
+      }
+    ]);
+  });
+
+  it('keeps a stronger visible configured reserve before adjacent follow-up expansion', () => {
+    const colony = makeSafeColony();
+    const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W9N1', action: 'reserve' };
+    const satisfiedTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const describeExits = jest.fn((roomName: string) => (roomName === 'W1N2' ? { '3': 'W2N2' } : {}));
+    const findRoute = jest.fn((_fromRoom: string, toRoom: string) =>
+      Array.from({ length: toRoom === 'W9N1' ? 2 : toRoom === 'W2N2' ? 3 : 1 }, (_value, index) => ({
+        exit: 3,
+        room: `${toRoom}-${index}`
+      }))
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits, findRoute } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2', {
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 500 }
+          } as StructureController
+        }),
+        W2N2: makeRecommendationRoom('W2N2', { sourceCount: 1 }),
+        W9N1: makeRecommendationRoom('W9N1', { sourceCount: 2 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [configuredTarget, satisfiedTarget]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 578);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W9N1', action: 'reserve' });
+    expect(describeExits).toHaveBeenCalledWith('W1N2');
+    expect(Memory.territory?.targets).toEqual([configuredTarget, satisfiedTarget]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W9N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 578
+      }
+    ]);
+  });
+
   it('extends from an actively covered visible reservation before home-adjacent reserve pressure', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
