@@ -2218,6 +2218,33 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('routes carried energy to controller upgrade before non-critical construction once spawn recovery is safe', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 200 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('routes carried energy to controller upgrade before non-critical construction when stored surplus exists', () => {
     const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
@@ -2444,6 +2471,44 @@ describe('selectWorkerTask', () => {
           }
 
           return type === 2 ? [site] : [];
+        })
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('keeps spawn refill priority over the controller pressure lane', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 200 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        name: 'W1N1',
+        controller,
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return type === FIND_CONSTRUCTION_SITES ? [site] : [];
         })
       }
     } as unknown as Creep;
