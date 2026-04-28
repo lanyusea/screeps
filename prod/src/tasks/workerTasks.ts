@@ -11,6 +11,8 @@ const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
+const ENERGY_ACQUISITION_ACTION_TICKS = 1;
+const HARVEST_ENERGY_PER_WORK_PART = 2;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -44,9 +46,17 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
 
     if (getFreeEnergyCapacity(creep) > 0) {
-      const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
-      if (energyAcquisitionTask) {
-        return energyAcquisitionTask;
+      const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
+      if (spawnRecoveryEnergySink) {
+        const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(creep, spawnRecoveryEnergySink);
+        if (spawnRecoveryTask) {
+          return spawnRecoveryTask;
+        }
+      } else {
+        const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
+        if (energyAcquisitionTask) {
+          return energyAcquisitionTask;
+        }
       }
     }
 
@@ -341,6 +351,10 @@ interface WorkerEnergyAcquisitionCandidate {
   task: WorkerEnergyAcquisitionTask;
 }
 
+interface SpawnRecoveryEnergyAcquisitionCandidate extends WorkerEnergyAcquisitionCandidate {
+  deliveryEta: number;
+}
+
 function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
   const candidates = findWorkerEnergyAcquisitionCandidates(creep);
   if (candidates.length === 0) {
@@ -348,6 +362,23 @@ function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitio
   }
 
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+}
+
+function selectSpawnRecoveryEnergyAcquisitionTask(
+  creep: Creep,
+  energySink: FillableEnergySink
+): WorkerEnergyAcquisitionTask | null {
+  const harvestEta = estimateHarvestDeliveryEta(creep, energySink);
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep)
+    .map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink))
+    .filter((candidate): candidate is SpawnRecoveryEnergyAcquisitionCandidate => candidate !== null)
+    .filter((candidate) => harvestEta === null || candidate.deliveryEta < harvestEta);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareSpawnRecoveryEnergyAcquisitionCandidates)[0].task;
 }
 
 function findWorkerEnergyAcquisitionCandidates(creep: Creep): WorkerEnergyAcquisitionCandidate[] {
@@ -401,6 +432,96 @@ function createWorkerEnergyAcquisitionCandidate(
   };
 }
 
+function createSpawnRecoveryEnergyAcquisitionCandidate(
+  candidate: WorkerEnergyAcquisitionCandidate,
+  energySink: FillableEnergySink
+): SpawnRecoveryEnergyAcquisitionCandidate | null {
+  if (candidate.range === null) {
+    return null;
+  }
+
+  const sourceToSinkRange = getRangeBetweenRoomObjects(candidate.source, energySink);
+  if (sourceToSinkRange === null) {
+    return null;
+  }
+
+  return {
+    ...candidate,
+    deliveryEta: candidate.range + ENERGY_ACQUISITION_ACTION_TICKS + sourceToSinkRange
+  };
+}
+
+function estimateHarvestDeliveryEta(creep: Creep, energySink: FillableEnergySink): number | null {
+  const source = selectHarvestSource(creep);
+  if (!source) {
+    return null;
+  }
+
+  const sourceAvailabilityDelay = estimateHarvestSourceAvailabilityDelay(source);
+  if (sourceAvailabilityDelay === null) {
+    return null;
+  }
+
+  const creepToSourceRange = getRangeBetweenRoomObjects(creep, source);
+  const sourceToSinkRange = getRangeBetweenRoomObjects(source, energySink);
+  if (creepToSourceRange === null || sourceToSinkRange === null) {
+    return null;
+  }
+
+  return creepToSourceRange + sourceAvailabilityDelay + estimateHarvestTicks(creep, energySink) + sourceToSinkRange;
+}
+
+function estimateHarvestTicks(creep: Creep, energySink: FillableEnergySink): number {
+  const energyNeeded = Math.max(1, Math.min(getFreeEnergyCapacity(creep), getFreeStoredEnergyCapacity(energySink)));
+  const workParts = getActiveWorkParts(creep);
+  if (workParts === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.ceil(energyNeeded / Math.max(HARVEST_ENERGY_PER_WORK_PART, workParts * HARVEST_ENERGY_PER_WORK_PART));
+}
+
+function estimateHarvestSourceAvailabilityDelay(source: Source): number | null {
+  if (typeof source.energy !== 'number') {
+    return 0;
+  }
+
+  if (source.energy > 0) {
+    return 0;
+  }
+
+  const ticksToRegeneration = source.ticksToRegeneration;
+  return Number.isFinite(ticksToRegeneration) && ticksToRegeneration > 0 ? Math.ceil(ticksToRegeneration) : null;
+}
+
+function getActiveWorkParts(creep: Creep): number {
+  const workPart = (globalThis as unknown as { WORK?: BodyPartConstant }).WORK;
+  if (typeof workPart !== 'string' || typeof creep.getActiveBodyparts !== 'function') {
+    return 1;
+  }
+
+  const activeWorkParts = creep.getActiveBodyparts(workPart);
+  if (activeWorkParts === 0) {
+    return 0;
+  }
+
+  return Number.isFinite(activeWorkParts) && activeWorkParts > 0 ? activeWorkParts : 1;
+}
+
+function getRangeBetweenRoomObjects(left: RoomObject, right: RoomObject): number | null {
+  const position = (left as RoomObject & {
+    pos?: {
+      getRangeTo?: (target: RoomObject) => number;
+    };
+  }).pos;
+  if (typeof position?.getRangeTo !== 'function') {
+    return null;
+  }
+
+  const range = position.getRangeTo(right);
+  return Number.isFinite(range) ? Math.max(0, range) : null;
+}
+
 function getRangeToWorkerEnergyAcquisitionSource(
   creep: Creep,
   source: WorkerEnergyAcquisitionSource
@@ -424,6 +545,19 @@ function compareWorkerEnergyAcquisitionCandidates(
 ): number {
   return (
     right.score - left.score ||
+    compareOptionalRanges(left.range, right.range) ||
+    right.energy - left.energy ||
+    String(left.source.id).localeCompare(String(right.source.id)) ||
+    left.task.type.localeCompare(right.task.type)
+  );
+}
+
+function compareSpawnRecoveryEnergyAcquisitionCandidates(
+  left: SpawnRecoveryEnergyAcquisitionCandidate,
+  right: SpawnRecoveryEnergyAcquisitionCandidate
+): number {
+  return (
+    left.deliveryEta - right.deliveryEta ||
     compareOptionalRanges(left.range, right.range) ||
     right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id)) ||
