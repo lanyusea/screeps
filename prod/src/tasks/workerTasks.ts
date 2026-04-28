@@ -77,7 +77,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'build', targetId: roadOrContainerConstructionSite.id };
   }
 
-  if (controller && shouldSustainControllerProgress(creep, controller)) {
+  if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     return { type: 'upgrade', targetId: controller.id };
   }
 
@@ -182,7 +182,7 @@ function isStoredWorkerEnergySource(structure: AnyStructure): structure is Store
 }
 
 function hasStoredEnergy(structure: StoredWorkerEnergySource): boolean {
-  return (structure.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0;
+  return (structure.store?.getUsedCapacity?.(RESOURCE_ENERGY) ?? 0) > 0;
 }
 
 function isFriendlyStoredEnergySource(structure: StoredWorkerEnergySource, context: StoredEnergySourceContext): boolean {
@@ -394,6 +394,18 @@ function shouldSustainControllerProgress(creep: Creep, controller: StructureCont
     loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS &&
     !loadedWorkers.some((worker) => worker !== creep && isUpgradingController(worker, controller))
   );
+}
+
+function shouldUseSurplusForControllerProgress(creep: Creep, controller: StructureController): boolean {
+  if (shouldSustainControllerProgress(creep, controller)) {
+    return true;
+  }
+
+  return controller.my === true && controller.level >= 2 && hasWithdrawableSurplusEnergy(creep);
+}
+
+function hasWithdrawableSurplusEnergy(creep: Creep): boolean {
+  return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null;
 }
 
 function getSameRoomLoadedWorkers(creep: Creep): Creep[] {
