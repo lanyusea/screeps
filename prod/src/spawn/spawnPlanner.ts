@@ -36,7 +36,7 @@ export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTi
   }
 
   const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
-  if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts)) {
+  if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
     return null;
   }
 

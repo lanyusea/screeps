@@ -3,7 +3,8 @@ import {
   planTerritoryIntent,
   shouldSpawnTerritoryControllerCreep,
   TERRITORY_DOWNGRADE_GUARD_TICKS,
-  TERRITORY_RESERVATION_RENEWAL_TICKS
+  TERRITORY_RESERVATION_RENEWAL_TICKS,
+  TERRITORY_SUPPRESSION_RETRY_TICKS
 } from '../src/territory/territoryPlanner';
 
 describe('planTerritoryIntent', () => {
@@ -240,6 +241,47 @@ describe('planTerritoryIntent', () => {
     expect(describeExits).toHaveBeenCalledWith('W1N1');
     expect(Memory.territory?.targets).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([suppressedScout]);
+  });
+
+  it('retries stale scout suppression for an unknown adjacent room', () => {
+    const colony = makeSafeColony();
+    const suppressionTime = 531;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const describeExits = jest.fn(() => ({ '1': 'W1N2' }));
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'scout',
+            status: 'suppressed',
+            updatedAt: suppressionTime
+          }
+        ]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: retryTime
+      }
+    ]);
   });
 
   it('skips unavailable, owned, and reserved adjacent rooms before seeding reserve targets', () => {
@@ -669,7 +711,8 @@ describe('planTerritoryIntent', () => {
     expect(
       shouldSpawnTerritoryControllerCreep(
         { colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' },
-        { worker: 3, claimer: 0, claimersByTargetRoom: {} }
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        511
       )
     ).toBe(false);
     expect(Memory.territory?.intents).toEqual([
@@ -679,6 +722,40 @@ describe('planTerritoryIntent', () => {
         action: 'claim',
         status: 'suppressed',
         updatedAt: 510
+      }
+    ]);
+  });
+
+  it('retries stale suppressed claim targets', () => {
+    const colony = makeSafeColony();
+    const suppressionTime = 510;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const roleCounts = { worker: 3, claimer: 0, claimersByTargetRoom: {} };
+    const plan = { colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' } as const;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'suppressed',
+            updatedAt: suppressionTime
+          }
+        ]
+      }
+    };
+
+    expect(shouldSpawnTerritoryControllerCreep(plan, roleCounts, retryTime)).toBe(true);
+    expect(planTerritoryIntent(colony, roleCounts, 3, retryTime)).toEqual(plan);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: retryTime
       }
     ]);
   });
@@ -1323,6 +1400,59 @@ describe('planTerritoryIntent', () => {
       )
     ).toBe(false);
     expect(Memory.territory?.intents).toEqual([suppressedIntent]);
+  });
+
+  it('renews a stale suppressed own reserve target near expiry', () => {
+    const colony = makeSafeColony();
+    const suppressionTime = 537;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W1N2: {
+          name: 'W1N2',
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS }
+          } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W1N2', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            status: 'suppressed',
+            updatedAt: suppressionTime
+          }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      retryTime
+    );
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve' });
+    expect(
+      shouldSpawnTerritoryControllerCreep(plan!, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, retryTime)
+    ).toBe(true);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: retryTime
+      }
+    ]);
   });
 
   it('still requests claimers for visible unowned reserve targets', () => {
