@@ -2,6 +2,8 @@ import { runTerritoryControllerCreep } from '../src/territory/territoryRunner';
 
 describe('runTerritoryControllerCreep', () => {
   beforeEach(() => {
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
     (globalThis as unknown as { RoomPosition: typeof RoomPosition }).RoomPosition = jest.fn(
       (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
     ) as unknown as typeof RoomPosition;
@@ -24,6 +26,41 @@ describe('runTerritoryControllerCreep', () => {
 
     expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W1N2' });
     expect(creep.reserveController).not.toHaveBeenCalled();
+  });
+
+  it('suppresses and does not move toward a visible hostile target room', () => {
+    const hostile = { id: 'enemy1' } as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 501,
+      rooms: {
+        W1N2: {
+          name: 'W1N2',
+          controller: { id: 'controller1', my: false } as StructureController,
+          find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [hostile] : []))
+        } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve', status: 'active', updatedAt: 500 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N1' },
+      moveTo: jest.fn(),
+      reserveController: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      { colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve', status: 'suppressed', updatedAt: 501 }
+    ]);
   });
 
   it('keeps scout target attribution after entering the target room', () => {
@@ -53,6 +90,51 @@ describe('runTerritoryControllerCreep', () => {
 
     expect(creep.reserveController).toHaveBeenCalledWith(controller);
     expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve' });
+    expect(Memory.territory).toBeUndefined();
+  });
+
+  it('keeps a visible healthy own reservation active without suppressing it', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: 4_000 }
+    } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 500
+          }
+        ]
+      }
+    };
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      reserveController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve' });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 500
+      }
+    ]);
   });
 
   it('claims a configured controller id when claim action is requested', () => {
@@ -92,6 +174,36 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(controller);
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim' });
     expect(Memory.territory).toBeUndefined();
+  });
+
+  it('clears completed claim assignments without suppressing shared upgrade intent', () => {
+    const sharedIntents: TerritoryIntentMemory[] = [
+      { colony: 'W1N1', targetRoom: 'W1N2', action: 'claim', status: 'active', updatedAt: 508 }
+    ];
+    const controller = { id: 'controller1', my: true, owner: { username: 'me' } } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 509,
+      rooms: {
+        W1N2: { name: 'W1N2', controller } as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: { intents: sharedIntents }
+    };
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N1' },
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual(sharedIntents);
   });
 
   it('suppresses a claim assignment when the target room has no controller', () => {
@@ -221,7 +333,7 @@ describe('runTerritoryControllerCreep', () => {
     ]);
   });
 
-  it('suppresses a reserve target and stops the creep assignment when reserve is impossible', () => {
+  it('suppresses an enemy-owned reserve target without issuing the impossible reserve call', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 504,
       getObjectById: jest.fn().mockReturnValue(null)
@@ -249,7 +361,7 @@ describe('runTerritoryControllerCreep', () => {
 
     runTerritoryControllerCreep(creep);
 
-    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.reserveController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
     expect(creep.memory.territory).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([

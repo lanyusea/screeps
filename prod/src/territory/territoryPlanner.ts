@@ -96,6 +96,79 @@ export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemor
   };
 }
 
+export function selectVisibleTerritoryControllerTask(creep: Creep): CreepTaskMemory | null {
+  const intent = selectVisibleTerritoryControllerIntent(creep);
+  if (!intent) {
+    return null;
+  }
+
+  const controller = selectCreepRoomController(creep, intent.controllerId);
+  if (!controller) {
+    return null;
+  }
+
+  if (intent.action === 'reserve') {
+    return canUseControllerClaimPart(creep) ? { type: 'reserve', targetId: controller.id } : null;
+  }
+
+  if (controller.my === true) {
+    return getStoredEnergy(creep) > 0 ? { type: 'upgrade', targetId: controller.id } : null;
+  }
+
+  return canUseControllerClaimPart(creep) ? { type: 'claim', targetId: controller.id } : null;
+}
+
+export function isVisibleTerritoryAssignmentSafe(
+  assignment: CreepTerritoryMemory,
+  colony: string | undefined,
+  creep?: Creep
+): boolean {
+  if (!isNonEmptyString(assignment.targetRoom)) {
+    return false;
+  }
+
+  if (isVisibleRoomUnsafeForTerritoryControllerWork(assignment.targetRoom)) {
+    return false;
+  }
+
+  if (assignment.action === 'scout') {
+    return true;
+  }
+
+  if (!isTerritoryControlAction(assignment.action)) {
+    return false;
+  }
+
+  if (isNonEmptyString(colony) && isTerritoryIntentSuppressed(colony, assignment.targetRoom, assignment.action)) {
+    return false;
+  }
+
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
+  if (!controller) {
+    return !isVisibleRoomMissingController(assignment.targetRoom);
+  }
+
+  if (assignment.action === 'claim' && controller.my === true) {
+    return false;
+  }
+
+  const actorUsername = getTerritoryActorUsername(creep, colony);
+  const targetState = getTerritoryControllerTargetState(controller, assignment.action, actorUsername);
+  return targetState === 'available' || (assignment.action === 'reserve' && targetState === 'satisfied');
+}
+
+export function isVisibleTerritoryAssignmentComplete(
+  assignment: CreepTerritoryMemory,
+  creep?: Creep
+): boolean {
+  if (assignment.action !== 'claim' || !isNonEmptyString(assignment.targetRoom)) {
+    return false;
+  }
+
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
+  return controller?.my === true;
+}
+
 export function suppressTerritoryIntent(
   colony: string | undefined,
   assignment: CreepTerritoryMemory,
@@ -294,6 +367,10 @@ function getAdjacentReserveCandidateState(
   targetRoom: string,
   colonyOwnerUsername: string | null
 ): 'safe' | 'unknown' | 'unavailable' {
+  if (isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
+    return 'unavailable';
+  }
+
   if (isVisibleRoomMissingController(targetRoom)) {
     return 'unavailable';
   }
@@ -494,7 +571,7 @@ function isTerritoryIntentSuppressed(
   colony: string,
   targetRoom: string,
   action: TerritoryIntentAction,
-  gameTime: number
+  gameTime = getGameTime()
 ): boolean {
   const territoryMemory = getTerritoryMemoryRecord();
   if (!territoryMemory) {
@@ -514,14 +591,226 @@ function isTerritorySuppressionFresh(intent: TerritoryIntentMemory, gameTime: nu
   return intent.status === 'suppressed' && gameTime - intent.updatedAt <= TERRITORY_SUPPRESSION_RETRY_TICKS;
 }
 
+function selectVisibleTerritoryControllerIntent(creep: Creep): TerritoryIntentMemory | null {
+  const roomName = creep.room?.name;
+  if (!isNonEmptyString(roomName) || isVisibleRoomUnsafe(creep.room)) {
+    return null;
+  }
+
+  const assignmentIntent = normalizeCreepTerritoryIntent(creep, roomName);
+  if (assignmentIntent && isCreepVisibleTerritoryIntentActionable(creep, assignmentIntent)) {
+    return assignmentIntent;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  const colony = creep.memory?.colony;
+  const intents = normalizeTerritoryIntents(territoryMemory?.intents)
+    .filter((intent) => isActiveVisibleControllerIntentForCreep(intent, roomName, colony))
+    .sort(compareVisibleControllerIntents);
+
+  return intents.find((intent) => isCreepVisibleTerritoryIntentActionable(creep, intent)) ?? null;
+}
+
+function normalizeCreepTerritoryIntent(creep: Creep, roomName: string): TerritoryIntentMemory | null {
+  const assignment = creep.memory?.territory;
+  if (
+    !assignment ||
+    assignment.targetRoom !== roomName ||
+    !isTerritoryControlAction(assignment.action) ||
+    (isNonEmptyString(creep.memory?.colony) &&
+      isTerritoryIntentSuppressed(creep.memory.colony, assignment.targetRoom, assignment.action))
+  ) {
+    return null;
+  }
+
+  return {
+    colony: creep.memory?.colony ?? '',
+    targetRoom: assignment.targetRoom,
+    action: assignment.action,
+    status: 'active',
+    updatedAt: getGameTime(),
+    ...(assignment.controllerId ? { controllerId: assignment.controllerId } : {})
+  };
+}
+
+function isActiveVisibleControllerIntentForCreep(
+  intent: TerritoryIntentMemory,
+  roomName: string,
+  creepColony: string | undefined
+): boolean {
+  return (
+    intent.targetRoom === roomName &&
+    intent.targetRoom !== intent.colony &&
+    isTerritoryControlAction(intent.action) &&
+    (intent.status === 'planned' || intent.status === 'active') &&
+    (!isNonEmptyString(creepColony) || intent.colony === creepColony)
+  );
+}
+
+function compareVisibleControllerIntents(left: TerritoryIntentMemory, right: TerritoryIntentMemory): number {
+  return (
+    getIntentStatusPriority(left.status) - getIntentStatusPriority(right.status) ||
+    getIntentActionPriority(left.action) - getIntentActionPriority(right.action) ||
+    right.updatedAt - left.updatedAt ||
+    left.colony.localeCompare(right.colony)
+  );
+}
+
+function getIntentStatusPriority(status: TerritoryIntentMemory['status']): number {
+  return status === 'active' ? 0 : 1;
+}
+
+function getIntentActionPriority(action: TerritoryIntentAction): number {
+  return action === 'claim' ? 0 : 1;
+}
+
+function isCreepVisibleTerritoryIntentActionable(creep: Creep, intent: TerritoryIntentMemory): boolean {
+  if (!isTerritoryControlAction(intent.action)) {
+    return false;
+  }
+
+  const controller = selectCreepRoomController(creep, intent.controllerId);
+  if (!controller) {
+    return false;
+  }
+
+  if (!isVisibleRoomSafe(creep.room)) {
+    return false;
+  }
+
+  if (intent.action === 'claim' && controller.my === true) {
+    return true;
+  }
+
+  return (
+    getTerritoryControllerTargetState(controller, intent.action, getTerritoryActorUsername(creep, intent.colony)) ===
+    'available'
+  );
+}
+
+function selectVisibleTerritoryAssignmentController(
+  assignment: CreepTerritoryMemory,
+  creep?: Creep
+): StructureController | null {
+  return creep?.room?.name === assignment.targetRoom
+    ? selectCreepRoomController(creep, assignment.controllerId)
+    : getVisibleController(assignment.targetRoom, assignment.controllerId);
+}
+
+function selectCreepRoomController(creep: Creep, controllerId?: Id<StructureController>): StructureController | null {
+  const roomController = creep.room?.controller;
+  if (!controllerId) {
+    return roomController ?? null;
+  }
+
+  if (roomController?.id === controllerId) {
+    return roomController;
+  }
+
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  const getObjectById = game?.getObjectById;
+  if (typeof getObjectById !== 'function') {
+    return null;
+  }
+
+  return getObjectById.call(game, controllerId) as StructureController | null;
+}
+
+function getTerritoryControllerTargetState(
+  controller: StructureController,
+  action: TerritoryControlAction,
+  colonyOwnerUsername: string | null
+): TerritoryTargetVisibilityState {
+  if (action === 'reserve') {
+    return getReserveControllerTargetState(controller, colonyOwnerUsername);
+  }
+
+  return isControllerOwned(controller) ? 'unavailable' : 'available';
+}
+
+function getTerritoryActorUsername(creep: Creep | undefined, colony: string | undefined): string | null {
+  return getCreepOwnerUsername(creep) ?? (isNonEmptyString(colony) ? getVisibleColonyOwnerUsername(colony) : null);
+}
+
+function getCreepOwnerUsername(creep: Creep | undefined): string | null {
+  const username = (creep as (Creep & { owner?: { username?: string } }) | undefined)?.owner?.username;
+  return isNonEmptyString(username) ? username : null;
+}
+
+function canUseControllerClaimPart(creep: Creep): boolean {
+  const claimPart = getBodyPartConstant('CLAIM', 'claim');
+  const activeClaimParts = creep.getActiveBodyparts?.(claimPart);
+  if (typeof activeClaimParts === 'number') {
+    return activeClaimParts > 0;
+  }
+
+  return Array.isArray(creep.body) && creep.body.some((part) => part.type === claimPart && part.hits > 0);
+}
+
+function getBodyPartConstant(globalName: 'CLAIM', fallback: BodyPartConstant): BodyPartConstant {
+  const constants = globalThis as unknown as Partial<Record<'CLAIM', BodyPartConstant>>;
+  return constants[globalName] ?? fallback;
+}
+
+function getStoredEnergy(object: unknown): number {
+  const store = (object as { store?: { getUsedCapacity?: (resource?: ResourceConstant) => number | null } } | null)
+    ?.store;
+  const energyResource = getEnergyResource();
+  const usedCapacity = store?.getUsedCapacity?.(energyResource);
+  if (typeof usedCapacity === 'number') {
+    return usedCapacity;
+  }
+
+  const storedEnergy = (store as Record<string, unknown> | undefined)?.[energyResource];
+  return typeof storedEnergy === 'number' ? storedEnergy : 0;
+}
+
+function getEnergyResource(): ResourceConstant {
+  const resource = (globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY;
+  return (typeof resource === 'string' ? resource : 'energy') as ResourceConstant;
+}
+
+function isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom: string): boolean {
+  const room = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
+  return room ? isVisibleRoomUnsafe(room) : false;
+}
+
+function isVisibleRoomSafe(room: Room): boolean {
+  return !isVisibleRoomUnsafe(room);
+}
+
+function isVisibleRoomUnsafe(room: Room): boolean {
+  return findVisibleHostileCreeps(room).length > 0 || findVisibleHostileStructures(room).length > 0;
+}
+
+function findVisibleHostileCreeps(room: Room): Creep[] {
+  return typeof FIND_HOSTILE_CREEPS === 'number' && typeof room.find === 'function'
+    ? room.find(FIND_HOSTILE_CREEPS)
+    : [];
+}
+
+function findVisibleHostileStructures(room: Room): AnyStructure[] {
+  return typeof FIND_HOSTILE_STRUCTURES === 'number' && typeof room.find === 'function'
+    ? room.find(FIND_HOSTILE_STRUCTURES)
+    : [];
+}
+
 function getVisibleTerritoryTargetState(
   targetRoom: string,
   action: TerritoryIntentAction,
   controllerId?: Id<StructureController>,
   colonyOwnerUsername?: string | null
 ): TerritoryTargetVisibilityState {
+  if (isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
+    return 'unavailable';
+  }
+
   if (isVisibleRoomMissingController(targetRoom)) {
     return 'unavailable';
+  }
+
+  if (action === 'scout') {
+    return isVisibleRoomKnown(targetRoom) ? 'unavailable' : 'available';
   }
 
   const controller = getVisibleController(targetRoom, controllerId);
@@ -530,10 +819,10 @@ function getVisibleTerritoryTargetState(
   }
 
   if (action === 'reserve') {
-    return getReserveControllerTargetState(controller, colonyOwnerUsername ?? null);
+    return getTerritoryControllerTargetState(controller, action, colonyOwnerUsername ?? null);
   }
 
-  return isControllerOwned(controller) ? 'unavailable' : 'available';
+  return getTerritoryControllerTargetState(controller, action, colonyOwnerUsername ?? null);
 }
 
 function isVisibleRoomKnown(targetRoom: string): boolean {

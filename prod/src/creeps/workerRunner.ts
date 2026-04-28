@@ -1,4 +1,5 @@
 import { isWorkerRepairTargetComplete, selectWorkerTask } from '../tasks/workerTasks';
+import { selectVisibleTerritoryControllerTask } from '../territory/territoryPlanner';
 
 export function runWorker(creep: Creep): void {
   if (!creep.memory.task) {
@@ -7,6 +8,12 @@ export function runWorker(creep: Creep): void {
   }
 
   if (shouldReplaceTask(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
+
+  if (shouldPreemptForVisibleTerritoryControllerTask(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
     return;
@@ -52,6 +59,10 @@ function assignNextTask(creep: Creep): void {
 }
 
 function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
+  if (isTerritoryControlTask(task)) {
+    return false;
+  }
+
   if (!creep.store?.getUsedCapacity || !creep.store?.getFreeCapacity) {
     return false;
   }
@@ -64,6 +75,20 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   }
 
   return usedEnergy === 0;
+}
+
+function shouldPreemptForVisibleTerritoryControllerTask(creep: Creep, task: CreepTaskMemory): boolean {
+  const controllerTask = selectVisibleTerritoryControllerTask(creep);
+  if (!controllerTask) {
+    return isTerritoryControlTask(task);
+  }
+
+  const selectedTask = selectWorkerTask(creep);
+  if (!selectedTask || !isSameTask(selectedTask, controllerTask)) {
+    return false;
+  }
+
+  return !isSameTask(task, controllerTask);
 }
 
 function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean {
@@ -82,6 +107,14 @@ function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean 
   }
 
   return true;
+}
+
+function isSameTask(left: CreepTaskMemory, right: CreepTaskMemory): boolean {
+  return left.type === right.type && left.targetId === right.targetId;
+}
+
+function isTerritoryControlTask(task: CreepTaskMemory): task is Extract<CreepTaskMemory, { type: 'claim' | 'reserve' }> {
+  return task.type === 'claim' || task.type === 'reserve';
 }
 
 function shouldReplaceTarget(
@@ -117,6 +150,10 @@ function executeTask(
       return creep.build(target as ConstructionSite);
     case 'repair':
       return creep.repair(target as Structure);
+    case 'claim':
+      return creep.claimController(target as StructureController);
+    case 'reserve':
+      return creep.reserveController(target as StructureController);
     case 'upgrade':
       return creep.upgradeController(target as StructureController);
   }

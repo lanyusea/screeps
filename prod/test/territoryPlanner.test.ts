@@ -9,6 +9,8 @@ import {
 
 describe('planTerritoryIntent', () => {
   beforeEach(() => {
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     delete (globalThis as { Game?: Partial<Game> }).Game;
   });
@@ -525,6 +527,41 @@ describe('planTerritoryIntent', () => {
 
     expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 516)).toBeNull();
     expect(Memory.territory).toBeUndefined();
+  });
+
+  it('does not seed visible adjacent rooms with hostile presence', () => {
+    const colony = makeSafeColony();
+    const hostile = { id: 'enemy1' } as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' })) } as unknown as GameMap,
+      rooms: {
+        W1N2: {
+          name: 'W1N2',
+          controller: { my: false } as StructureController,
+          find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [hostile] : []))
+        } as unknown as Room,
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false } as StructureController,
+          find: jest.fn().mockReturnValue([])
+        } as unknown as Room
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 517)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve'
+      }
+    ]);
   });
 
   it('skips visible adjacent rooms without controllers', () => {

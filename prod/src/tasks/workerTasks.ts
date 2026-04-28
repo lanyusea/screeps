@@ -1,3 +1,5 @@
+import { selectVisibleTerritoryControllerTask } from '../territory/territoryPlanner';
+
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
@@ -26,8 +28,13 @@ interface StoredEnergySourceContext {
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const carriedEnergy = getUsedEnergy(creep);
+  const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
 
   if (carriedEnergy === 0) {
+    if (isTerritoryControlTask(territoryControllerTask)) {
+      return territoryControllerTask;
+    }
+
     if (getFreeEnergyCapacity(creep) > 0) {
       const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
       if (energyAcquisitionTask) {
@@ -47,6 +54,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  if (territoryControllerTask) {
+    return territoryControllerTask;
   }
 
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
@@ -92,6 +103,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   return null;
+}
+
+function isTerritoryControlTask(task: CreepTaskMemory | null): task is Extract<CreepTaskMemory, { type: 'claim' | 'reserve' }> {
+  return task?.type === 'claim' || task?.type === 'reserve';
 }
 
 function isFillableEnergySink(structure: AnyOwnedStructure): structure is FillableEnergySink {

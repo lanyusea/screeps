@@ -117,6 +117,8 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+    (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
   });
 
@@ -1059,6 +1061,120 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+  });
+
+  it('reserves a safe visible territory target before local resource collection', () => {
+    const controller = { id: 'controller2', my: false } as StructureController;
+    const source = { id: 'source1' } as Source;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 100 }]
+      }
+    };
+    const room = {
+      name: 'W2N1',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
+    expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('claims a safe visible territory target before local construction', () => {
+    const controller = { id: 'controller2', my: false } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim', status: 'active', updatedAt: 101 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'claim', targetId: 'controller2' });
+  });
+
+  it('upgrades a claimed territory target before unrelated construction support', () => {
+    const controller = { id: 'controller2', my: true, level: 1 } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim', status: 'active', updatedAt: 102 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller2' });
+  });
+
+  it('does not prioritize a freshly suppressed visible territory target', () => {
+    const controller = { id: 'controller2', my: false } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'suppressed', updatedAt: 103 }]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 104 };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+  });
+
+  it('keeps spawn refill before claimed territory upgrade support', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const controller = { id: 'controller2', my: true, level: 2 } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim', status: 'active', updatedAt: 105 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
   it('selects build when worker has energy and construction sites exist', () => {

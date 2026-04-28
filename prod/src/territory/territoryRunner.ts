@@ -1,4 +1,8 @@
-import { suppressTerritoryIntent } from './territoryPlanner';
+import {
+  isVisibleTerritoryAssignmentComplete,
+  isVisibleTerritoryAssignmentSafe,
+  suppressTerritoryIntent
+} from './territoryPlanner';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -15,6 +19,16 @@ type RoomPositionConstructor = new (x: number, y: number, roomName: string) => R
 export function runTerritoryControllerCreep(creep: Creep): void {
   const assignment = creep.memory.territory;
   if (!isTerritoryAssignment(assignment)) {
+    return;
+  }
+
+  if (isVisibleTerritoryAssignmentComplete(assignment, creep)) {
+    completeTerritoryAssignment(creep);
+    return;
+  }
+
+  if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
+    suppressTerritoryAssignment(creep, assignment);
     return;
   }
 
@@ -36,6 +50,8 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   if (controller.my === true) {
     if (assignment.action === 'reserve') {
       suppressTerritoryAssignment(creep, assignment);
+    } else {
+      completeTerritoryAssignment(creep);
     }
     return;
   }
@@ -60,6 +76,10 @@ export function runTerritoryControllerCreep(creep: Creep): void {
 
 function suppressTerritoryAssignment(creep: Creep, assignment: CreepTerritoryMemory): void {
   suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime());
+  completeTerritoryAssignment(creep);
+}
+
+function completeTerritoryAssignment(creep: Creep): void {
   delete creep.memory.territory;
 }
 
