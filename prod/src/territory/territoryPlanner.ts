@@ -153,7 +153,8 @@ export function isVisibleTerritoryAssignmentSafe(
   }
 
   const actorUsername = getTerritoryActorUsername(creep, colony);
-  return getTerritoryControllerTargetState(controller, assignment.action, actorUsername) === 'available';
+  const targetState = getTerritoryControllerTargetState(controller, assignment.action, actorUsername);
+  return targetState === 'available' || (assignment.action === 'reserve' && targetState === 'satisfied');
 }
 
 export function isVisibleTerritoryAssignmentComplete(
