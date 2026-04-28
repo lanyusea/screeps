@@ -924,7 +924,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
   });
 
-  it('selects the nearest fillable energy sink when worker position range helpers are available', () => {
+  it('prefers a fillable spawn over a nearer fillable extension', () => {
     const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
     const fullExtension = makeEnergySink('extension-full', 'extension' as StructureConstant, 0);
     const nearExtension = makeEnergySink('extension-near', 'extension' as StructureConstant, 50);
@@ -953,14 +953,73 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-near' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-far' });
     expect(getRangeTo).not.toHaveBeenCalledWith(fullExtension);
+    expect(getRangeTo).not.toHaveBeenCalledWith(nearExtension);
   });
 
-  it('keeps room.find order as the stable energy sink fallback when position helpers are unavailable', () => {
-    const firstExtension = makeEnergySink('extension-first', 'extension' as StructureConstant, 50);
-    const secondSpawn = makeEnergySink('spawn-second', 'spawn' as StructureConstant, 300);
-    const structures = [firstExtension, secondSpawn];
+  it('selects the closest fillable spawn before considering fillable extensions', () => {
+    const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
+    const nearSpawn = makeEnergySink('spawn-near', 'spawn' as StructureConstant, 100);
+    const closerExtension = makeEnergySink('extension-closer', 'extension' as StructureConstant, 50);
+    const structures = [farSpawn, closerExtension, nearSpawn];
+    const getRangeTo = jest.fn((target: StructureSpawn | StructureExtension) => {
+      const ranges: Record<string, number> = {
+        'extension-closer': 1,
+        'spawn-far': 8,
+        'spawn-near': 3
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-near' });
+    expect(getRangeTo).not.toHaveBeenCalledWith(closerExtension);
+  });
+
+  it('breaks same-class fillable energy sink range ties by id', () => {
+    const laterSpawn = makeEnergySink('spawn-b', 'spawn' as StructureConstant, 300);
+    const firstSpawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);
+    const structures = [laterSpawn, firstSpawn];
+    const getRangeTo = jest.fn().mockReturnValue(4);
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
+  });
+
+  it('keeps id order as the stable energy sink fallback when position helpers are unavailable', () => {
+    const extension = makeEnergySink('extension-first', 'extension' as StructureConstant, 50);
+    const laterSpawn = makeEnergySink('spawn-z', 'spawn' as StructureConstant, 300);
+    const firstSpawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);
+    const structures = [extension, laterSpawn, firstSpawn];
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: {
@@ -976,7 +1035,7 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-first' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
   });
 
   it('preserves no-sink fallback behavior when all energy sinks are full', () => {

@@ -11,6 +11,7 @@ type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureR
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
 type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
+type FillableEnergySink = StructureSpawn | StructureExtension;
 type WorkerEnergyAcquisitionSource =
   | StoredWorkerEnergySource
   | SalvageableWorkerEnergySource
@@ -93,7 +94,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   return null;
 }
 
-function isFillableEnergySink(structure: AnyOwnedStructure): structure is StructureSpawn | StructureExtension {
+function isFillableEnergySink(structure: AnyOwnedStructure): structure is FillableEnergySink {
   return (
     (matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
       matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension')) &&
@@ -102,17 +103,60 @@ function isFillableEnergySink(structure: AnyOwnedStructure): structure is Struct
   );
 }
 
-function selectFillableEnergySink(creep: Creep): StructureSpawn | StructureExtension | null {
+function selectFillableEnergySink(creep: Creep): FillableEnergySink | null {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
 
+  const spawn = selectClosestEnergySink(creep, energySinks.filter(isSpawnEnergySink));
+  if (spawn) {
+    return spawn;
+  }
+
+  return selectClosestEnergySink(creep, energySinks.filter(isExtensionEnergySink));
+}
+
+function isSpawnEnergySink(structure: FillableEnergySink): structure is StructureSpawn {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn');
+}
+
+function isExtensionEnergySink(structure: FillableEnergySink): structure is StructureExtension {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension');
+}
+
+function selectClosestEnergySink<T extends FillableEnergySink>(creep: Creep, energySinks: T[]): T | null {
   if (energySinks.length === 0) {
     return null;
   }
 
-  const closestEnergySink = findClosestByRange(creep, energySinks);
-  return closestEnergySink ?? energySinks[0];
+  const energySinksByStableId = [...energySinks].sort(compareEnergySinkId);
+  const position = (creep as Creep & {
+    pos?: {
+      findClosestByRange?: (objects: T[]) => T | null;
+      getRangeTo?: (target: T) => number;
+    };
+  }).pos;
+
+  if (typeof position?.getRangeTo === 'function') {
+    return energySinksByStableId.reduce((closest, candidate) => {
+      const closestRange = position.getRangeTo?.(closest) ?? Infinity;
+      const candidateRange = position.getRangeTo?.(candidate) ?? Infinity;
+      return candidateRange < closestRange ||
+        (candidateRange === closestRange && compareEnergySinkId(candidate, closest) < 0)
+        ? candidate
+        : closest;
+    });
+  }
+
+  if (typeof position?.findClosestByRange === 'function') {
+    return position.findClosestByRange(energySinksByStableId) ?? energySinksByStableId[0];
+  }
+
+  return energySinksByStableId[0];
+}
+
+function compareEnergySinkId(left: FillableEnergySink, right: FillableEnergySink): number {
+  return String(left.id).localeCompare(String(right.id));
 }
 
 function isSpawnConstructionSite(site: ConstructionSite): boolean {
