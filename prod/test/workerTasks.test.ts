@@ -1456,6 +1456,25 @@ describe('selectWorkerTask', () => {
     expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it('keeps a visible reserve target before spawn refill under concurrent energy pressure', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const controller = { id: 'controller2', my: false } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'worker', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
+    expect(spawn.store.getFreeCapacity).not.toHaveBeenCalled();
+  });
+
   it('renews an urgent own visible reservation before local construction with enough CLAIM parts', () => {
     const controller = {
       id: 'controller2',

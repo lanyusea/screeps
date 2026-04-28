@@ -64,6 +64,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return source ? { type: 'harvest', targetId: source.id } : null;
   }
 
+  if (urgentReservationRenewalTask) {
+    return urgentReservationRenewalTask;
+  }
+
+  if (isTerritoryControlTask(territoryControllerTask)) {
+    return territoryControllerTask;
+  }
+
   const energySink = selectFillableEnergySink(creep);
   if (energySink) {
     return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
@@ -72,10 +80,6 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: 'upgrade', targetId: controller.id };
-  }
-
-  if (urgentReservationRenewalTask) {
-    return urgentReservationRenewalTask;
   }
 
   if (territoryControllerTask) {

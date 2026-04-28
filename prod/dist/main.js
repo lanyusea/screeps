@@ -1293,6 +1293,12 @@ function selectWorkerTask(creep) {
     const source = selectHarvestSource(creep);
     return source ? { type: "harvest", targetId: source.id } : null;
   }
+  if (urgentReservationRenewalTask) {
+    return urgentReservationRenewalTask;
+  }
+  if (isTerritoryControlTask(territoryControllerTask)) {
+    return territoryControllerTask;
+  }
   const energySink = selectFillableEnergySink(creep);
   if (energySink) {
     return { type: "transfer", targetId: energySink.id };
@@ -1300,9 +1306,6 @@ function selectWorkerTask(creep) {
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: "upgrade", targetId: controller.id };
-  }
-  if (urgentReservationRenewalTask) {
-    return urgentReservationRenewalTask;
   }
   if (territoryControllerTask) {
     return territoryControllerTask;
