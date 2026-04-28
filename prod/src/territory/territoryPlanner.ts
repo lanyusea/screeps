@@ -21,6 +21,7 @@ const TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE = 4;
 const TERRITORY_CANDIDATE_PRIORITY_SCOUT = 5;
 const MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
+const TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 
 export interface TerritoryIntentPlan {
   colony: string;
@@ -106,7 +107,10 @@ export function shouldSpawnTerritoryControllerCreep(
     return false;
   }
 
-  return getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action) === 0;
+  const activeCoverageCount = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action);
+  return (
+    activeCoverageCount === 0 || shouldSpawnEmergencyReservationRenewal(plan, activeCoverageCount)
+  );
 }
 
 export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemory {
@@ -404,9 +408,28 @@ function getSpawnableTerritoryCandidates(
   candidates: ScoredTerritoryTarget[],
   roleCounts: RoleCounts
 ): ScoredTerritoryTarget[] {
-  return candidates.filter(
-    (candidate) =>
-      getTerritoryCreepCountForTarget(roleCounts, candidate.target.roomName, candidate.intentAction) === 0
+  return candidates.filter((candidate) => {
+    const activeCoverageCount = getTerritoryCreepCountForTarget(
+      roleCounts,
+      candidate.target.roomName,
+      candidate.intentAction
+    );
+    return (
+      activeCoverageCount === 0 ||
+      shouldSpawnEmergencyReservationRenewalCandidate(candidate, activeCoverageCount)
+    );
+  });
+}
+
+function shouldSpawnEmergencyReservationRenewalCandidate(
+  candidate: ScoredTerritoryTarget,
+  activeCoverageCount: number
+): boolean {
+  return (
+    activeCoverageCount < TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET &&
+    candidate.intentAction === 'reserve' &&
+    typeof candidate.renewalTicksToEnd === 'number' &&
+    candidate.renewalTicksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS
   );
 }
 
@@ -1309,6 +1332,27 @@ function getConfiguredReserveRenewalTicksToEnd(
   }
 
   return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+}
+
+function shouldSpawnEmergencyReservationRenewal(
+  plan: TerritoryIntentPlan,
+  activeCoverageCount: number
+): boolean {
+  if (
+    activeCoverageCount >= TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET ||
+    plan.action !== 'reserve'
+  ) {
+    return false;
+  }
+
+  const controller = getVisibleController(plan.targetRoom, plan.controllerId);
+  if (!controller || isControllerOwned(controller)) {
+    return false;
+  }
+
+  const colonyOwnerUsername = getVisibleColonyOwnerUsername(plan.colony);
+  const ticksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+  return ticksToEnd !== null && ticksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
 }
 
 function getUrgentOwnReservationTicksToEnd(

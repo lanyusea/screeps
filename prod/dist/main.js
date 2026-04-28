@@ -607,6 +607,7 @@ var TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE = 4;
 var TERRITORY_CANDIDATE_PRIORITY_SCOUT = 5;
 var MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
+var TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
@@ -641,7 +642,8 @@ function shouldSpawnTerritoryControllerCreep(plan, roleCounts, gameTime = getGam
   ) !== "available") {
     return false;
   }
-  return getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action) === 0;
+  const activeCoverageCount = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action);
+  return activeCoverageCount === 0 || shouldSpawnEmergencyReservationRenewal(plan, activeCoverageCount);
 }
 function buildTerritoryCreepMemory(plan) {
   return {
@@ -854,9 +856,17 @@ function toSelectedTerritoryTarget(candidate) {
   } : null;
 }
 function getSpawnableTerritoryCandidates(candidates, roleCounts) {
-  return candidates.filter(
-    (candidate) => getTerritoryCreepCountForTarget(roleCounts, candidate.target.roomName, candidate.intentAction) === 0
-  );
+  return candidates.filter((candidate) => {
+    const activeCoverageCount = getTerritoryCreepCountForTarget(
+      roleCounts,
+      candidate.target.roomName,
+      candidate.intentAction
+    );
+    return activeCoverageCount === 0 || shouldSpawnEmergencyReservationRenewalCandidate(candidate, activeCoverageCount);
+  });
+}
+function shouldSpawnEmergencyReservationRenewalCandidate(candidate, activeCoverageCount) {
+  return activeCoverageCount < TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET && candidate.intentAction === "reserve" && typeof candidate.renewalTicksToEnd === "number" && candidate.renewalTicksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
 }
 function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, routeDistanceLookupContext) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
@@ -1421,6 +1431,18 @@ function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
     return null;
   }
   return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+}
+function shouldSpawnEmergencyReservationRenewal(plan, activeCoverageCount) {
+  if (activeCoverageCount >= TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET || plan.action !== "reserve") {
+    return false;
+  }
+  const controller = getVisibleController(plan.targetRoom, plan.controllerId);
+  if (!controller || isControllerOwned(controller)) {
+    return false;
+  }
+  const colonyOwnerUsername = getVisibleColonyOwnerUsername(plan.colony);
+  const ticksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+  return ticksToEnd !== null && ticksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
 }
 function getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
   const ticksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
