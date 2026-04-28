@@ -1413,7 +1413,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
   });
 
-  it('prefers a fillable spawn over nearer fillable extension and tower targets', () => {
+  it('selects the closest spawn or extension before fillable towers', () => {
     const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
     const fullExtension = makeEnergySink('extension-full', 'extension' as StructureConstant, 0);
     const nearExtension = makeEnergySink('extension-near', 'extension' as StructureConstant, 50);
@@ -1444,13 +1444,12 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-far' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-near' });
     expect(getRangeTo).not.toHaveBeenCalledWith(fullExtension);
-    expect(getRangeTo).not.toHaveBeenCalledWith(nearExtension);
     expect(getRangeTo).not.toHaveBeenCalledWith(nearTower);
   });
 
-  it('selects the closest fillable spawn before considering fillable extensions', () => {
+  it('selects the closest fillable spawn or extension', () => {
     const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
     const nearSpawn = makeEnergySink('spawn-near', 'spawn' as StructureConstant, 100);
     const closerExtension = makeEnergySink('extension-closer', 'extension' as StructureConstant, 50);
@@ -1479,8 +1478,7 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-near' });
-    expect(getRangeTo).not.toHaveBeenCalledWith(closerExtension);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-closer' });
   });
 
   it('selects fillable extensions before fillable towers', () => {
@@ -1583,7 +1581,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
   });
 
-  it('keeps id order as the stable energy sink fallback when position helpers are unavailable', () => {
+  it('keeps id order across primary energy sinks when position helpers are unavailable', () => {
     const extension = makeEnergySink('extension-first', 'extension' as StructureConstant, 50);
     const laterSpawn = makeEnergySink('spawn-z', 'spawn' as StructureConstant, 300);
     const firstSpawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);
@@ -1603,7 +1601,7 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-first' });
   });
 
   it('preserves no-sink fallback behavior when all energy sinks are full', () => {
