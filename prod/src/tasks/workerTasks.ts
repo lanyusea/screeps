@@ -4,10 +4,12 @@ export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
+const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
 type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
+type SalvageableWorkerEnergySource = Tombstone | Ruin;
 
 interface StoredEnergySourceContext {
   creepOwnerUsername: string | null;
@@ -28,6 +30,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       const storedEnergy = selectStoredEnergySource(creep);
       if (storedEnergy) {
         return { type: 'withdraw', targetId: storedEnergy.id as Id<AnyStoreStructure> };
+      }
+
+      const salvageEnergy = selectSalvageEnergySource(creep);
+      if (salvageEnergy) {
+        return { type: 'withdraw', targetId: salvageEnergy.id as unknown as Id<AnyStoreStructure> };
       }
     }
 
@@ -214,6 +221,36 @@ function isRoomSafeForUnownedContainerWithdrawal(context: StoredEnergySourceCont
   }
 
   return reservationUsername === context.creepOwnerUsername;
+}
+
+function selectSalvageEnergySource(creep: Creep): SalvageableWorkerEnergySource | null {
+  const salvageEnergySources = [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy);
+  if (salvageEnergySources.length === 0) {
+    return null;
+  }
+
+  const closestSalvageEnergy = findClosestByRange(creep, salvageEnergySources);
+  return closestSalvageEnergy ?? salvageEnergySources[0];
+}
+
+function findTombstones(room: Room): Tombstone[] {
+  if (typeof FIND_TOMBSTONES !== 'number') {
+    return [];
+  }
+
+  return room.find(FIND_TOMBSTONES);
+}
+
+function findRuins(room: Room): Ruin[] {
+  if (typeof FIND_RUINS !== 'number') {
+    return [];
+  }
+
+  return room.find(FIND_RUINS);
+}
+
+function hasSalvageableEnergy(source: SalvageableWorkerEnergySource): boolean {
+  return (source.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) >= MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT;
 }
 
 function getCreepOwnerUsername(creep: Creep): string | null {
