@@ -2,6 +2,7 @@ import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { buildRuntimeConstructionPriorityReport, type ConstructionPriorityScore } from '../construction/constructionPriority';
 import {
   buildRuntimeOccupationRecommendationReport,
+  persistOccupationRecommendationFollowUpIntent,
   type OccupationRecommendationReport
 } from '../territory/occupationRecommendation';
 
@@ -144,6 +145,8 @@ export function shouldEmitRuntimeSummary(tick: number, events: RuntimeTelemetryE
 function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSummary {
   const colonyWorkers = creeps.filter((creep) => creep.memory.role === 'worker' && creep.memory.colony === colony.room.name);
   const eventMetrics = summarizeRoomEventMetrics(colony.room);
+  const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
 
   return {
     roomName: colony.room.name,
@@ -156,7 +159,7 @@ function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSumm
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
-    territoryRecommendation: buildRuntimeOccupationRecommendationReport(colony, colonyWorkers)
+    territoryRecommendation
   };
 }
 

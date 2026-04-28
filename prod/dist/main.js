@@ -594,6 +594,7 @@ var TERRITORY_BODY_ENERGY_CAPACITY = 650;
 var MIN_READY_WORKERS = 3;
 var DOWNGRADE_GUARD_TICKS = 5e3;
 var RESERVATION_RENEWAL_TICKS = 1e3;
+var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
 var ACTION_SCORE = {
   occupy: 1e3,
@@ -607,7 +608,37 @@ function scoreOccupationRecommendations(input) {
   var _a;
   const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreOccupationCandidate(input, candidate)).sort(compareOccupationRecommendationScores);
   const next = (_a = candidates.find((candidate) => candidate.evidenceStatus !== "unavailable")) != null ? _a : null;
-  return { candidates, next };
+  return { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) };
+}
+function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGameTime()) {
+  var _a, _b;
+  const followUpIntent = report.followUpIntent;
+  if (!followUpIntent) {
+    return null;
+  }
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return null;
+  }
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  const existingIntent = intents.find((intent) => isSameTerritoryIntent(intent, followUpIntent));
+  if (existingIntent && isTerritorySuppressionFresh(existingIntent, gameTime)) {
+    return null;
+  }
+  const controllerId = (_a = followUpIntent.controllerId) != null ? _a : existingIntent == null ? void 0 : existingIntent.controllerId;
+  const followUp = (_b = normalizeTerritoryFollowUp(followUpIntent.followUp)) != null ? _b : existingIntent == null ? void 0 : existingIntent.followUp;
+  const nextIntent = {
+    colony: followUpIntent.colony,
+    targetRoom: followUpIntent.targetRoom,
+    action: followUpIntent.action,
+    status: (existingIntent == null ? void 0 : existingIntent.status) === "active" ? "active" : "planned",
+    updatedAt: gameTime,
+    ...controllerId ? { controllerId } : {},
+    ...followUp ? { followUp } : {}
+  };
+  upsertTerritoryIntent(intents, nextIntent);
+  return nextIntent;
 }
 function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
   var _a, _b;
@@ -639,6 +670,7 @@ function buildRuntimeOccupationCandidates(colonyName) {
         adjacent: false,
         visible: false,
         actionHint: target.action,
+        ...target.controllerId ? { controllerId: target.controllerId } : {},
         routeDistance: getCachedRouteDistance(colonyName, target.roomName)
       });
       order += 1;
@@ -667,9 +699,15 @@ function upsertOccupationCandidate(candidatesByRoom, candidate) {
   if (candidate.source === "configured" && existing.source !== "configured") {
     existing.source = "configured";
     existing.actionHint = candidate.actionHint;
+    if (candidate.controllerId) {
+      existing.controllerId = candidate.controllerId;
+    }
     existing.order = Math.min(existing.order, candidate.order);
   }
   existing.adjacent = existing.adjacent || candidate.adjacent;
+  if (!existing.controllerId && candidate.controllerId) {
+    existing.controllerId = candidate.controllerId;
+  }
   if (existing.routeDistance === void 0 && candidate.routeDistance !== void 0) {
     existing.routeDistance = candidate.routeDistance;
   }
@@ -755,10 +793,25 @@ function scoreOccupationCandidate(input, candidate) {
     preconditions,
     risks,
     ...routeDistance !== void 0 ? { routeDistance } : {},
+    ...candidate.controllerId ? { controllerId: candidate.controllerId } : {},
     ...candidate.sourceCount !== void 0 ? { sourceCount: candidate.sourceCount } : {},
     ...candidate.hostileCreepCount !== void 0 ? { hostileCreepCount: candidate.hostileCreepCount } : {},
     ...candidate.hostileStructureCount !== void 0 ? { hostileStructureCount: candidate.hostileStructureCount } : {}
   };
+}
+function buildOccupationRecommendationFollowUpIntent(input, next) {
+  if (!next) {
+    return null;
+  }
+  return {
+    colony: input.colonyName,
+    targetRoom: next.roomName,
+    action: getTerritoryIntentAction(next.action),
+    ...next.controllerId ? { controllerId: next.controllerId } : {}
+  };
+}
+function getTerritoryIntentAction(action) {
+  return action === "occupy" ? "claim" : action;
 }
 function calculateOccupationScore(input, candidate, action, evidenceStatus) {
   var _a, _b, _c, _d, _e;
@@ -872,6 +925,7 @@ function normalizeTerritoryTarget(rawTarget) {
     colony: rawTarget.colony,
     roomName: rawTarget.roomName,
     action: rawTarget.action,
+    ...typeof rawTarget.controllerId === "string" ? { controllerId: rawTarget.controllerId } : {},
     ...rawTarget.enabled === false ? { enabled: false } : {}
   };
 }
@@ -920,12 +974,94 @@ function getGameRooms() {
   var _a;
   return (_a = globalThis.Game) == null ? void 0 : _a.rooms;
 }
+function getGameTime() {
+  var _a;
+  const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
+  return typeof gameTime === "number" ? gameTime : 0;
+}
 function getTerritoryMemoryRecord() {
   var _a;
   return (_a = globalThis.Memory) == null ? void 0 : _a.territory;
 }
+function getWritableTerritoryMemoryRecord() {
+  const memory = globalThis.Memory;
+  if (!memory) {
+    return null;
+  }
+  if (!isRecord(memory.territory)) {
+    memory.territory = {};
+  }
+  return memory.territory;
+}
+function normalizeTerritoryIntents(rawIntents) {
+  return Array.isArray(rawIntents) ? rawIntents.flatMap((intent) => {
+    const normalizedIntent = normalizeTerritoryIntent(intent);
+    return normalizedIntent ? [normalizedIntent] : [];
+  }) : [];
+}
+function normalizeTerritoryIntent(rawIntent) {
+  if (!isRecord(rawIntent)) {
+    return null;
+  }
+  if (!isNonEmptyString(rawIntent.colony) || !isNonEmptyString(rawIntent.targetRoom) || !isTerritoryIntentAction(rawIntent.action) || !isTerritoryIntentStatus(rawIntent.status) || typeof rawIntent.updatedAt !== "number") {
+    return null;
+  }
+  const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
+  return {
+    colony: rawIntent.colony,
+    targetRoom: rawIntent.targetRoom,
+    action: rawIntent.action,
+    status: rawIntent.status,
+    updatedAt: rawIntent.updatedAt,
+    ...typeof rawIntent.controllerId === "string" ? { controllerId: rawIntent.controllerId } : {},
+    ...followUp ? { followUp } : {}
+  };
+}
+function normalizeTerritoryFollowUp(rawFollowUp) {
+  if (!isRecord(rawFollowUp) || !isTerritoryFollowUpSource(rawFollowUp.source)) {
+    return null;
+  }
+  const originAction = getTerritoryFollowUpOriginAction(rawFollowUp.source);
+  if (!isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
+    return null;
+  }
+  return {
+    source: rawFollowUp.source,
+    originRoom: rawFollowUp.originRoom,
+    originAction
+  };
+}
+function getTerritoryFollowUpOriginAction(source) {
+  return source === "satisfiedClaimAdjacent" ? "claim" : "reserve";
+}
+function upsertTerritoryIntent(intents, nextIntent) {
+  const existingIndex = intents.findIndex((intent) => isSameTerritoryIntent(intent, nextIntent));
+  if (existingIndex >= 0) {
+    intents[existingIndex] = nextIntent;
+    return;
+  }
+  intents.push(nextIntent);
+}
+function isSameTerritoryIntent(intent, followUpIntent) {
+  return intent.colony === followUpIntent.colony && intent.targetRoom === followUpIntent.targetRoom && intent.action === followUpIntent.action;
+}
+function isTerritorySuppressionFresh(intent, gameTime) {
+  return intent.status === "suppressed" && gameTime - intent.updatedAt <= TERRITORY_SUPPRESSION_RETRY_TICKS;
+}
+function isTerritoryIntentAction(action) {
+  return action === "claim" || action === "reserve" || action === "scout";
+}
+function isTerritoryIntentStatus(status) {
+  return status === "planned" || status === "active" || status === "suppressed";
+}
+function isTerritoryFollowUpSource(source) {
+  return source === "satisfiedClaimAdjacent" || source === "satisfiedReserveAdjacent" || source === "activeReserveAdjacent";
+}
 function isRecord(value) {
   return typeof value === "object" && value !== null;
+}
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
 }
 
 // src/territory/territoryPlanner.ts
@@ -935,7 +1071,7 @@ var TERRITORY_DOWNGRADE_GUARD_TICKS = 5e3;
 var TERRITORY_RESERVATION_RENEWAL_TICKS = 1e3;
 var TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
 var TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 2;
-var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
+var TERRITORY_SUPPRESSION_RETRY_TICKS2 = 1500;
 var EXIT_DIRECTION_ORDER2 = ["1", "3", "5", "7"];
 var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
 var ERR_NO_PATH_CODE = -2;
@@ -968,7 +1104,7 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   recordTerritoryIntent(plan, status, gameTime, selection.commitTarget ? target : null);
   return plan;
 }
-function shouldSpawnTerritoryControllerCreep(plan, roleCounts, gameTime = getGameTime()) {
+function shouldSpawnTerritoryControllerCreep(plan, roleCounts, gameTime = getGameTime2()) {
   if (isTerritoryIntentSuppressed(plan.colony, plan.targetRoom, plan.action, gameTime)) {
     return false;
   }
@@ -1028,7 +1164,7 @@ function canCreepReserveTerritoryController(creep, controller, colony) {
     return true;
   }
   const actorUsername = getTerritoryActorUsername(creep, colony);
-  if (!isNonEmptyString(actorUsername) || !isNonEmptyString(reservation.username) || reservation.username !== actorUsername || typeof reservation.ticksToEnd !== "number") {
+  if (!isNonEmptyString2(actorUsername) || !isNonEmptyString2(reservation.username) || reservation.username !== actorUsername || typeof reservation.ticksToEnd !== "number") {
     return false;
   }
   const reservationTicksToEnd = reservation.ticksToEnd;
@@ -1057,7 +1193,7 @@ function selectUrgentVisibleReservationRenewalTask(creep) {
   return { type: "reserve", targetId: controller.id };
 }
 function isVisibleTerritoryAssignmentSafe(assignment, colony, creep) {
-  if (!isNonEmptyString(assignment.targetRoom)) {
+  if (!isNonEmptyString2(assignment.targetRoom)) {
     return false;
   }
   if (isVisibleRoomUnsafeForTerritoryControllerWork(assignment.targetRoom)) {
@@ -1069,7 +1205,7 @@ function isVisibleTerritoryAssignmentSafe(assignment, colony, creep) {
   if (!isTerritoryControlAction(assignment.action)) {
     return false;
   }
-  if (isNonEmptyString(colony) && isTerritoryIntentSuppressed(colony, assignment.targetRoom, assignment.action)) {
+  if (isNonEmptyString2(colony) && isTerritoryIntentSuppressed(colony, assignment.targetRoom, assignment.action)) {
     return false;
   }
   const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
@@ -1084,23 +1220,23 @@ function isVisibleTerritoryAssignmentSafe(assignment, colony, creep) {
   return targetState === "available" || assignment.action === "reserve" && targetState === "satisfied";
 }
 function isVisibleTerritoryAssignmentComplete(assignment, creep) {
-  if (assignment.action !== "claim" || !isNonEmptyString(assignment.targetRoom)) {
+  if (assignment.action !== "claim" || !isNonEmptyString2(assignment.targetRoom)) {
     return false;
   }
   const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
   return (controller == null ? void 0 : controller.my) === true;
 }
 function suppressTerritoryIntent(colony, assignment, gameTime) {
-  if (!isNonEmptyString(colony) || !isNonEmptyString(assignment.targetRoom) || !isTerritoryIntentAction(assignment.action)) {
+  if (!isNonEmptyString2(colony) || !isNonEmptyString2(assignment.targetRoom) || !isTerritoryIntentAction2(assignment.action)) {
     return;
   }
-  const territoryMemory = getWritableTerritoryMemoryRecord();
+  const territoryMemory = getWritableTerritoryMemoryRecord2();
   if (!territoryMemory) {
     return;
   }
-  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  const intents = normalizeTerritoryIntents2(territoryMemory.intents);
   territoryMemory.intents = intents;
-  const followUp = normalizeTerritoryFollowUp(assignment.followUp);
+  const followUp = normalizeTerritoryFollowUp2(assignment.followUp);
   const suppressedIntent = {
     colony,
     targetRoom: assignment.targetRoom,
@@ -1110,7 +1246,7 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
     ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
     ...followUp ? { followUp } : {}
   };
-  upsertTerritoryIntent(intents, suppressedIntent);
+  upsertTerritoryIntent2(intents, suppressedIntent);
 }
 function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
@@ -1130,7 +1266,7 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername2(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord2();
-  const intents = normalizeTerritoryIntents(territoryMemory == null ? void 0 : territoryMemory.intents);
+  const intents = normalizeTerritoryIntents2(territoryMemory == null ? void 0 : territoryMemory.intents);
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
   const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
     territoryMemory,
@@ -1534,7 +1670,7 @@ function summarizeOccupationController(controller) {
 function getControllerReservationUsername(controller) {
   var _a;
   const username = (_a = controller.reservation) == null ? void 0 : _a.username;
-  return isNonEmptyString(username) ? username : void 0;
+  return isNonEmptyString2(username) ? username : void 0;
 }
 function getControllerReservationTicksToEnd(controller) {
   var _a;
@@ -1598,8 +1734,8 @@ function getTerritoryCandidateSourcePriority(source) {
   return source === "activeReserveAdjacent" ? 3 : 4;
 }
 function buildTerritoryFollowUp(source, originRoom) {
-  const originAction = getTerritoryFollowUpOriginAction(source);
-  if (originAction === null || !isTerritoryFollowUpSource(source) || !isNonEmptyString(originRoom)) {
+  const originAction = getTerritoryFollowUpOriginAction2(source);
+  if (originAction === null || !isTerritoryFollowUpSource2(source) || !isNonEmptyString2(originRoom)) {
     return {};
   }
   return {
@@ -1610,7 +1746,7 @@ function buildTerritoryFollowUp(source, originRoom) {
     }
   };
 }
-function getTerritoryFollowUpOriginAction(source) {
+function getTerritoryFollowUpOriginAction2(source) {
   if (source === "satisfiedClaimAdjacent") {
     return "claim";
   }
@@ -1719,14 +1855,14 @@ function getAdjacentRoomNames2(roomName) {
   }
   return EXIT_DIRECTION_ORDER2.flatMap((direction) => {
     const exitRoom = exits[direction];
-    return isNonEmptyString(exitRoom) ? [exitRoom] : [];
+    return isNonEmptyString2(exitRoom) ? [exitRoom] : [];
   });
 }
 function normalizeTerritoryTarget2(rawTarget) {
   if (!isRecord2(rawTarget)) {
     return null;
   }
-  if (!isNonEmptyString(rawTarget.colony) || !isNonEmptyString(rawTarget.roomName) || !isTerritoryControlAction(rawTarget.action)) {
+  if (!isNonEmptyString2(rawTarget.colony) || !isNonEmptyString2(rawTarget.roomName) || !isTerritoryControlAction(rawTarget.action)) {
     return null;
   }
   return {
@@ -1738,14 +1874,14 @@ function normalizeTerritoryTarget2(rawTarget) {
   };
 }
 function recordTerritoryIntent(plan, status, gameTime, seededTarget = null) {
-  const territoryMemory = getWritableTerritoryMemoryRecord();
+  const territoryMemory = getWritableTerritoryMemoryRecord2();
   if (!territoryMemory) {
     return;
   }
   if (seededTarget) {
     appendTerritoryTarget(territoryMemory, seededTarget);
   }
-  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  const intents = normalizeTerritoryIntents2(territoryMemory.intents);
   territoryMemory.intents = intents;
   const nextIntent = {
     colony: plan.colony,
@@ -1756,15 +1892,15 @@ function recordTerritoryIntent(plan, status, gameTime, seededTarget = null) {
     ...plan.controllerId ? { controllerId: plan.controllerId } : {},
     ...plan.followUp ? { followUp: plan.followUp } : {}
   };
-  upsertTerritoryIntent(intents, nextIntent);
+  upsertTerritoryIntent2(intents, nextIntent);
 }
-function normalizeTerritoryIntents(rawIntents) {
+function normalizeTerritoryIntents2(rawIntents) {
   return Array.isArray(rawIntents) ? rawIntents.flatMap((intent) => {
-    const normalizedIntent = normalizeTerritoryIntent(intent);
+    const normalizedIntent = normalizeTerritoryIntent2(intent);
     return normalizedIntent ? [normalizedIntent] : [];
   }) : [];
 }
-function upsertTerritoryIntent(intents, nextIntent) {
+function upsertTerritoryIntent2(intents, nextIntent) {
   const existingIndex = intents.findIndex(
     (intent) => intent.colony === nextIntent.colony && intent.targetRoom === nextIntent.targetRoom && intent.action === nextIntent.action
   );
@@ -1774,14 +1910,14 @@ function upsertTerritoryIntent(intents, nextIntent) {
   }
   intents.push(nextIntent);
 }
-function normalizeTerritoryIntent(rawIntent) {
+function normalizeTerritoryIntent2(rawIntent) {
   if (!isRecord2(rawIntent)) {
     return null;
   }
-  if (!isNonEmptyString(rawIntent.colony) || !isNonEmptyString(rawIntent.targetRoom) || !isTerritoryIntentAction(rawIntent.action) || !isTerritoryIntentStatus(rawIntent.status) || typeof rawIntent.updatedAt !== "number") {
+  if (!isNonEmptyString2(rawIntent.colony) || !isNonEmptyString2(rawIntent.targetRoom) || !isTerritoryIntentAction2(rawIntent.action) || !isTerritoryIntentStatus2(rawIntent.status) || typeof rawIntent.updatedAt !== "number") {
     return null;
   }
-  const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
+  const followUp = normalizeTerritoryFollowUp2(rawIntent.followUp);
   return {
     colony: rawIntent.colony,
     targetRoom: rawIntent.targetRoom,
@@ -1792,16 +1928,16 @@ function normalizeTerritoryIntent(rawIntent) {
     ...followUp ? { followUp } : {}
   };
 }
-function normalizeTerritoryFollowUp(rawFollowUp) {
+function normalizeTerritoryFollowUp2(rawFollowUp) {
   if (!isRecord2(rawFollowUp)) {
     return null;
   }
-  if (!isTerritoryFollowUpSource(rawFollowUp.source)) {
+  if (!isTerritoryFollowUpSource2(rawFollowUp.source)) {
     return null;
   }
   const source = rawFollowUp.source;
-  const originAction = getTerritoryFollowUpOriginAction(source);
-  if (originAction === null || !isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
+  const originAction = getTerritoryFollowUpOriginAction2(source);
+  if (originAction === null || !isNonEmptyString2(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
     return null;
   }
   return {
@@ -1825,25 +1961,25 @@ function isTerritoryTargetSuppressed(target, intents, gameTime) {
 }
 function isSuppressedTerritoryIntentForAction(intents, colony, targetRoom, action, gameTime) {
   return intents.some(
-    (intent) => isTerritorySuppressionFresh(intent, gameTime) && intent.colony === colony && intent.targetRoom === targetRoom && intent.action === action
+    (intent) => isTerritorySuppressionFresh2(intent, gameTime) && intent.colony === colony && intent.targetRoom === targetRoom && intent.action === action
   );
 }
-function isTerritoryIntentSuppressed(colony, targetRoom, action, gameTime = getGameTime()) {
+function isTerritoryIntentSuppressed(colony, targetRoom, action, gameTime = getGameTime2()) {
   const territoryMemory = getTerritoryMemoryRecord2();
   if (!territoryMemory) {
     return false;
   }
-  return normalizeTerritoryIntents(territoryMemory.intents).some(
-    (intent) => isTerritorySuppressionFresh(intent, gameTime) && intent.colony === colony && intent.targetRoom === targetRoom && intent.action === action
+  return normalizeTerritoryIntents2(territoryMemory.intents).some(
+    (intent) => isTerritorySuppressionFresh2(intent, gameTime) && intent.colony === colony && intent.targetRoom === targetRoom && intent.action === action
   );
 }
-function isTerritorySuppressionFresh(intent, gameTime) {
-  return intent.status === "suppressed" && gameTime - intent.updatedAt <= TERRITORY_SUPPRESSION_RETRY_TICKS;
+function isTerritorySuppressionFresh2(intent, gameTime) {
+  return intent.status === "suppressed" && gameTime - intent.updatedAt <= TERRITORY_SUPPRESSION_RETRY_TICKS2;
 }
 function selectVisibleTerritoryControllerIntent(creep) {
   var _a, _b, _c;
   const roomName = (_a = creep.room) == null ? void 0 : _a.name;
-  if (!isNonEmptyString(roomName) || isVisibleRoomUnsafe(creep.room)) {
+  if (!isNonEmptyString2(roomName) || isVisibleRoomUnsafe(creep.room)) {
     return null;
   }
   const assignmentIntent = normalizeCreepTerritoryIntent(creep, roomName);
@@ -1852,28 +1988,28 @@ function selectVisibleTerritoryControllerIntent(creep) {
   }
   const territoryMemory = getTerritoryMemoryRecord2();
   const colony = (_b = creep.memory) == null ? void 0 : _b.colony;
-  const intents = normalizeTerritoryIntents(territoryMemory == null ? void 0 : territoryMemory.intents).filter((intent) => isActiveVisibleControllerIntentForCreep(intent, roomName, colony)).sort(compareVisibleControllerIntents);
+  const intents = normalizeTerritoryIntents2(territoryMemory == null ? void 0 : territoryMemory.intents).filter((intent) => isActiveVisibleControllerIntentForCreep(intent, roomName, colony)).sort(compareVisibleControllerIntents);
   return (_c = intents.find((intent) => isCreepVisibleTerritoryIntentActionable(creep, intent))) != null ? _c : null;
 }
 function normalizeCreepTerritoryIntent(creep, roomName) {
   var _a, _b, _c, _d;
   const assignment = (_a = creep.memory) == null ? void 0 : _a.territory;
-  if (!assignment || assignment.targetRoom !== roomName || !isTerritoryControlAction(assignment.action) || isNonEmptyString((_b = creep.memory) == null ? void 0 : _b.colony) && isTerritoryIntentSuppressed(creep.memory.colony, assignment.targetRoom, assignment.action)) {
+  if (!assignment || assignment.targetRoom !== roomName || !isTerritoryControlAction(assignment.action) || isNonEmptyString2((_b = creep.memory) == null ? void 0 : _b.colony) && isTerritoryIntentSuppressed(creep.memory.colony, assignment.targetRoom, assignment.action)) {
     return null;
   }
-  const followUp = normalizeTerritoryFollowUp(assignment.followUp);
+  const followUp = normalizeTerritoryFollowUp2(assignment.followUp);
   return {
     colony: (_d = (_c = creep.memory) == null ? void 0 : _c.colony) != null ? _d : "",
     targetRoom: assignment.targetRoom,
     action: assignment.action,
     status: "active",
-    updatedAt: getGameTime(),
+    updatedAt: getGameTime2(),
     ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
     ...followUp ? { followUp } : {}
   };
 }
 function isActiveVisibleControllerIntentForCreep(intent, roomName, creepColony) {
-  return intent.targetRoom === roomName && intent.targetRoom !== intent.colony && isTerritoryControlAction(intent.action) && (intent.status === "planned" || intent.status === "active") && (!isNonEmptyString(creepColony) || intent.colony === creepColony);
+  return intent.targetRoom === roomName && intent.targetRoom !== intent.colony && isTerritoryControlAction(intent.action) && (intent.status === "planned" || intent.status === "active") && (!isNonEmptyString2(creepColony) || intent.colony === creepColony);
 }
 function compareVisibleControllerIntents(left, right) {
   return getIntentStatusPriority(left.status) - getIntentStatusPriority(right.status) || getIntentActionPriority(left.action) - getIntentActionPriority(right.action) || right.updatedAt - left.updatedAt || left.colony.localeCompare(right.colony);
@@ -1934,12 +2070,12 @@ function getTerritoryControllerTargetState(controller, action, colonyOwnerUserna
 }
 function getTerritoryActorUsername(creep, colony) {
   var _a;
-  return (_a = getCreepOwnerUsername(creep)) != null ? _a : isNonEmptyString(colony) ? getVisibleColonyOwnerUsername(colony) : null;
+  return (_a = getCreepOwnerUsername(creep)) != null ? _a : isNonEmptyString2(colony) ? getVisibleColonyOwnerUsername(colony) : null;
 }
 function getCreepOwnerUsername(creep) {
   var _a;
   const username = (_a = creep == null ? void 0 : creep.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString(username) ? username : null;
+  return isNonEmptyString2(username) ? username : null;
 }
 function canUseControllerClaimPart(creep) {
   return getActiveControllerClaimPartCount(creep) > 0;
@@ -2028,7 +2164,7 @@ function isControllerOwned(controller) {
 }
 function isControllerOwnedByColony2(controller, colonyOwnerUsername) {
   const ownerUsername = getControllerOwnerUsername2(controller);
-  return controller.my === true || isNonEmptyString(ownerUsername) && ownerUsername === colonyOwnerUsername;
+  return controller.my === true || isNonEmptyString2(ownerUsername) && ownerUsername === colonyOwnerUsername;
 }
 function getReserveControllerTargetState(controller, colonyOwnerUsername) {
   if (isControllerOwned(controller)) {
@@ -2038,7 +2174,7 @@ function getReserveControllerTargetState(controller, colonyOwnerUsername) {
   if (!reservation) {
     return "available";
   }
-  if (!isNonEmptyString(reservation.username) || reservation.username !== colonyOwnerUsername) {
+  if (!isNonEmptyString2(reservation.username) || reservation.username !== colonyOwnerUsername) {
     return "unavailable";
   }
   return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) === null ? "satisfied" : "available";
@@ -2070,7 +2206,7 @@ function getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
   return ticksToEnd !== null && ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? ticksToEnd : null;
 }
 function getOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
-  if (isControllerOwned(controller) || !isNonEmptyString(colonyOwnerUsername)) {
+  if (isControllerOwned(controller) || !isNonEmptyString2(colonyOwnerUsername)) {
     return null;
   }
   const reservation = controller.reservation;
@@ -2086,7 +2222,7 @@ function getVisibleColonyOwnerUsername(colonyName) {
 function getControllerOwnerUsername2(controller) {
   var _a;
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString(username) ? username : null;
+  return isNonEmptyString2(username) ? username : null;
 }
 function getVisibleController(targetRoom, controllerId) {
   var _a, _b;
@@ -2101,12 +2237,12 @@ function getVisibleController(targetRoom, controllerId) {
   }
   return null;
 }
-function getGameTime() {
+function getGameTime2() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
 }
-function getWritableTerritoryMemoryRecord() {
+function getWritableTerritoryMemoryRecord2() {
   const memory = getMemoryRecord();
   if (!memory) {
     return null;
@@ -2130,16 +2266,16 @@ function getMemoryRecord() {
 function isTerritoryControlAction(action) {
   return action === "claim" || action === "reserve";
 }
-function isTerritoryIntentAction(action) {
+function isTerritoryIntentAction2(action) {
   return isTerritoryControlAction(action) || action === "scout";
 }
-function isTerritoryFollowUpSource(source) {
+function isTerritoryFollowUpSource2(source) {
   return source === "satisfiedClaimAdjacent" || source === "satisfiedReserveAdjacent" || source === "activeReserveAdjacent";
 }
-function isTerritoryIntentStatus(status) {
+function isTerritoryIntentStatus2(status) {
   return status === "planned" || status === "active" || status === "suppressed";
 }
-function isNonEmptyString(value) {
+function isNonEmptyString2(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isRecord2(value) {
@@ -4069,7 +4205,7 @@ function emitRuntimeSummary(colonies, creeps, events = []) {
   if (colonies.length === 0 && events.length === 0) {
     return;
   }
-  const tick = getGameTime2();
+  const tick = getGameTime3();
   if (!shouldEmitRuntimeSummary(tick, events)) {
     return;
   }
@@ -4090,6 +4226,8 @@ function shouldEmitRuntimeSummary(tick, events) {
 function summarizeRoom(colony, creeps) {
   const colonyWorkers = creeps.filter((creep) => creep.memory.role === "worker" && creep.memory.colony === colony.room.name);
   const eventMetrics = summarizeRoomEventMetrics(colony.room);
+  const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime3());
   return {
     roomName: colony.room.name,
     energyAvailable: colony.energyAvailable,
@@ -4101,7 +4239,7 @@ function summarizeRoom(colony, creeps) {
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
-    territoryRecommendation: buildRuntimeOccupationRecommendationReport(colony, colonyWorkers)
+    territoryRecommendation
   };
 }
 function summarizeSpawn(spawn) {
@@ -4334,7 +4472,7 @@ function buildCpuSummary() {
   }
   return Object.keys(summary).length > 0 ? { cpu: summary } : {};
 }
-function getGameTime2() {
+function getGameTime3() {
   return typeof Game.time === "number" ? Game.time : 0;
 }
 
@@ -4395,7 +4533,7 @@ function runTerritoryControllerCreep(creep) {
   }
 }
 function suppressTerritoryAssignment(creep, assignment) {
-  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime3());
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime4());
   completeTerritoryAssignment(creep);
 }
 function completeTerritoryAssignment(creep) {
@@ -4429,7 +4567,7 @@ function moveTowardTargetRoom(creep, targetRoom) {
   }
   creep.moveTo(new RoomPositionCtor(25, 25, targetRoom));
 }
-function getGameTime3() {
+function getGameTime4() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
