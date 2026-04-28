@@ -596,6 +596,7 @@ var TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_CLAIM = 3;
 var TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE = 4;
 var TERRITORY_CANDIDATE_PRIORITY_SCOUT = 5;
 var MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
+var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
@@ -932,15 +933,43 @@ function getKnownRouteLength(fromRoom, targetRoom) {
   if (fromRoom === targetRoom) {
     return 0;
   }
+  const cache = getTerritoryRouteDistanceCache();
+  const cacheKey = getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom);
+  const cachedRouteLength = cache == null ? void 0 : cache[cacheKey];
+  if (typeof cachedRouteLength === "number" || cachedRouteLength === null) {
+    return cachedRouteLength;
+  }
   const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
   if (typeof (gameMap == null ? void 0 : gameMap.findRoute) !== "function") {
     return void 0;
   }
   const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
   if (route === getNoPathResultCode()) {
+    if (cache) {
+      cache[cacheKey] = null;
+    }
     return null;
   }
-  return Array.isArray(route) ? route.length : void 0;
+  if (!Array.isArray(route)) {
+    return void 0;
+  }
+  if (cache) {
+    cache[cacheKey] = route.length;
+  }
+  return route.length;
+}
+function getTerritoryRouteDistanceCache() {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return void 0;
+  }
+  if (!isRecord(territoryMemory.routeDistances)) {
+    territoryMemory.routeDistances = {};
+  }
+  return territoryMemory.routeDistances;
+}
+function getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom) {
+  return `${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}`;
 }
 function getNoPathResultCode() {
   const noPathCode = globalThis.ERR_NO_PATH;

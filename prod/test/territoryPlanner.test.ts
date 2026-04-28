@@ -1230,6 +1230,10 @@ describe('planTerritoryIntent', () => {
     expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W3N1', action: 'reserve' });
     expect(findRoute).toHaveBeenCalledWith('W1N1', 'W2N1');
     expect(findRoute).toHaveBeenCalledWith('W1N1', 'W3N1');
+    expect(Memory.territory?.routeDistances).toEqual({
+      'W1N1>W2N1': null,
+      'W1N1>W3N1': 1
+    });
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
@@ -1239,6 +1243,43 @@ describe('planTerritoryIntent', () => {
         updatedAt: 549
       }
     ]);
+  });
+
+  it('reuses cached route lengths while scoring repeated configured targets', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = -2 as ScreepsReturnCode;
+    const findRoute = jest.fn((fromRoom: string, toRoom: string) =>
+      fromRoom === 'W1N1' && toRoom === 'W2N1' ? -2 : [{ exit: 3, room: toRoom }]
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W2N1: { name: 'W2N1', controller: { my: false } as StructureController } as Room,
+        W3N1: { name: 'W3N1', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 550);
+    const nextPlan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 551);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W3N1', action: 'reserve' });
+    expect(nextPlan).toEqual({ colony: 'W1N1', targetRoom: 'W3N1', action: 'reserve' });
+    expect(findRoute).toHaveBeenCalledTimes(2);
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W2N1');
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W3N1');
+    expect(Memory.territory?.routeDistances).toEqual({
+      'W1N1>W2N1': null,
+      'W1N1>W3N1': 1
+    });
   });
 
   it('prioritizes a neutral adjacent reserve target over a healthy own configured reservation', () => {

@@ -20,6 +20,7 @@ const TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_CLAIM = 3;
 const TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE = 4;
 const TERRITORY_CANDIDATE_PRIORITY_SCOUT = 5;
 const MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
+const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 
 export interface TerritoryIntentPlan {
   colony: string;
@@ -561,6 +562,13 @@ function getKnownRouteLength(fromRoom: string, targetRoom: string): number | nul
     return 0;
   }
 
+  const cache = getTerritoryRouteDistanceCache();
+  const cacheKey = getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom);
+  const cachedRouteLength = cache?.[cacheKey];
+  if (typeof cachedRouteLength === 'number' || cachedRouteLength === null) {
+    return cachedRouteLength;
+  }
+
   const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map as
     | (Partial<GameMap> & {
         findRoute?: (fromRoom: string, toRoom: string) => unknown;
@@ -572,10 +580,37 @@ function getKnownRouteLength(fromRoom: string, targetRoom: string): number | nul
 
   const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
   if (route === getNoPathResultCode()) {
+    if (cache) {
+      cache[cacheKey] = null;
+    }
     return null;
   }
 
-  return Array.isArray(route) ? route.length : undefined;
+  if (!Array.isArray(route)) {
+    return undefined;
+  }
+
+  if (cache) {
+    cache[cacheKey] = route.length;
+  }
+  return route.length;
+}
+
+function getTerritoryRouteDistanceCache(): TerritoryMemory['routeDistances'] | undefined {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return undefined;
+  }
+
+  if (!isRecord(territoryMemory.routeDistances)) {
+    territoryMemory.routeDistances = {};
+  }
+
+  return territoryMemory.routeDistances as TerritoryMemory['routeDistances'];
+}
+
+function getTerritoryRouteDistanceCacheKey(fromRoom: string, targetRoom: string): string {
+  return `${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}`;
 }
 
 function getNoPathResultCode(): ScreepsReturnCode {
