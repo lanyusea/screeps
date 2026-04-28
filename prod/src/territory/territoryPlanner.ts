@@ -1,6 +1,12 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
+import {
+  scoreOccupationRecommendations,
+  type OccupationControllerEvidence,
+  type OccupationRecommendationCandidateInput,
+  type OccupationRecommendationScore
+} from './occupationRecommendation';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -53,6 +59,8 @@ interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
   order: number;
   priority: number;
   source: TerritoryCandidateSource;
+  recommendationScore?: number;
+  routeDistance?: number;
   renewalTicksToEnd?: number;
 }
 
@@ -345,13 +353,17 @@ function selectTerritoryTarget(
     roleCounts,
     routeDistanceLookupContext
   );
-  const configuredCandidates = getConfiguredTerritoryCandidates(
-    colonyName,
-    colonyOwnerUsername,
-    territoryMemory,
-    intents,
-    gameTime,
-    routeDistanceLookupContext
+  const configuredCandidates = applyOccupationRecommendationScores(
+    colony,
+    roleCounts,
+    getConfiguredTerritoryCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      routeDistanceLookupContext
+    )
   );
   const bestSpawnableConfiguredCandidate = selectBestScoredTerritoryCandidate(
     getSpawnableTerritoryCandidates(configuredCandidates, roleCounts)
@@ -363,7 +375,7 @@ function selectTerritoryTarget(
     return toSelectedTerritoryTarget(bestSpawnableConfiguredCandidate);
   }
 
-  const adjacentCandidates = [
+  const adjacentCandidates = applyOccupationRecommendationScores(colony, roleCounts, [
     ...getAdjacentReserveCandidates(
       colonyName,
       colonyName,
@@ -404,7 +416,7 @@ function selectTerritoryTarget(
       !hasBlockingConfiguredTarget,
       routeDistanceLookupContext
     )
-  ];
+  ]);
   const candidates = [...configuredCandidates, ...adjacentCandidates];
 
   return toSelectedTerritoryTarget(
@@ -809,7 +821,8 @@ function scoreTerritoryCandidate(
   colonyOwnerUsername: string | null,
   routeDistanceLookupContext: RouteDistanceLookupContext
 ): ScoredTerritoryTarget | null {
-  if (hasKnownNoRoute(colonyName, selection.target.roomName, routeDistanceLookupContext)) {
+  const routeDistance = getKnownRouteLength(colonyName, selection.target.roomName, routeDistanceLookupContext);
+  if (routeDistance === null) {
     return null;
   }
 
@@ -819,8 +832,173 @@ function scoreTerritoryCandidate(
     source,
     order,
     priority: getTerritoryCandidatePriority(selection, renewalTicksToEnd),
+    ...(routeDistance !== undefined ? { routeDistance } : {}),
     ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {})
   };
+}
+
+function applyOccupationRecommendationScores(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  candidates: ScoredTerritoryTarget[]
+): ScoredTerritoryTarget[] {
+  const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller) ?? undefined;
+  return candidates.flatMap((candidate) => {
+    const recommendation = scoreOccupationRecommendations({
+      colonyName: colony.room.name,
+      ...(colonyOwnerUsername ? { colonyOwnerUsername } : {}),
+      energyCapacityAvailable: colony.energyCapacityAvailable,
+      workerCount: getWorkerCapacity(roleCounts),
+      ...(typeof colony.room.controller?.level === 'number' ? { controllerLevel: colony.room.controller.level } : {}),
+      ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
+        ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
+        : {}),
+      candidates: [buildOccupationRecommendationCandidate(candidate)]
+    }).candidates[0];
+
+    if (!recommendation || recommendation.evidenceStatus === 'unavailable') {
+      return [];
+    }
+
+    return [applyOccupationRecommendationScore(candidate, recommendation, roleCounts)];
+  });
+}
+
+function applyOccupationRecommendationScore(
+  candidate: ScoredTerritoryTarget,
+  recommendation: OccupationRecommendationScore,
+  roleCounts: RoleCounts
+): ScoredTerritoryTarget {
+  const intentAction = getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
+  const nextSelection: SelectedTerritoryTarget = {
+    target: candidate.target,
+    intentAction,
+    commitTarget: recommendation.evidenceStatus === 'sufficient' && intentAction !== 'scout' && candidate.commitTarget,
+    ...(candidate.followUp ? { followUp: candidate.followUp } : {})
+  };
+  const renewalTicksToEnd = intentAction === 'reserve' ? candidate.renewalTicksToEnd ?? null : null;
+
+  return {
+    ...candidate,
+    intentAction,
+    commitTarget: nextSelection.commitTarget,
+    priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
+    recommendationScore: recommendation.score,
+    ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {})
+  };
+}
+
+function getRecommendedTerritoryIntentAction(
+  candidate: ScoredTerritoryTarget,
+  recommendation: OccupationRecommendationScore,
+  roleCounts: RoleCounts
+): TerritoryIntentAction {
+  if (recommendation.evidenceStatus === 'insufficient-evidence') {
+    if (
+      candidate.source === 'configured' &&
+      getTerritoryCreepCountForTarget(roleCounts, candidate.target.roomName, candidate.target.action) > 0
+    ) {
+      return candidate.intentAction;
+    }
+
+    return 'scout';
+  }
+
+  if (recommendation.action === 'occupy') {
+    return 'claim';
+  }
+
+  return recommendation.action === 'reserve' ? 'reserve' : candidate.intentAction;
+}
+
+function buildOccupationRecommendationCandidate(
+  candidate: ScoredTerritoryTarget
+): OccupationRecommendationCandidateInput {
+  const room = getVisibleRoom(candidate.target.roomName);
+  return {
+    roomName: candidate.target.roomName,
+    source: candidate.source === 'configured' ? 'configured' : 'adjacent',
+    order: candidate.order,
+    adjacent: candidate.source !== 'configured',
+    visible: room != null,
+    actionHint: candidate.target.action,
+    ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
+    ...(room ? buildVisibleOccupationRecommendationEvidence(room, candidate.target.controllerId) : {})
+  };
+}
+
+function buildVisibleOccupationRecommendationEvidence(
+  room: Room,
+  controllerId?: Id<StructureController>
+): Pick<
+  OccupationRecommendationCandidateInput,
+  | 'controller'
+  | 'sourceCount'
+  | 'hostileCreepCount'
+  | 'hostileStructureCount'
+  | 'constructionSiteCount'
+  | 'ownedStructureCount'
+> {
+  const controller = getVisibleController(room.name, controllerId);
+  return {
+    ...(controller ? { controller: summarizeOccupationController(controller) } : {}),
+    sourceCount: countVisibleRoomObjects(room, getFindConstant('FIND_SOURCES')),
+    hostileCreepCount: findVisibleHostileCreeps(room).length,
+    hostileStructureCount: findVisibleHostileStructures(room).length,
+    constructionSiteCount: countVisibleRoomObjects(room, getFindConstant('FIND_MY_CONSTRUCTION_SITES')),
+    ownedStructureCount: countVisibleRoomObjects(room, getFindConstant('FIND_MY_STRUCTURES'))
+  };
+}
+
+function summarizeOccupationController(controller: StructureController): OccupationControllerEvidence {
+  const ownerUsername = getControllerOwnerUsername(controller);
+  const reservationUsername = getControllerReservationUsername(controller);
+  const reservationTicksToEnd = getControllerReservationTicksToEnd(controller);
+
+  return {
+    ...(controller.my === true ? { my: true } : {}),
+    ...(ownerUsername ? { ownerUsername } : {}),
+    ...(reservationUsername ? { reservationUsername } : {}),
+    ...(typeof reservationTicksToEnd === 'number' ? { reservationTicksToEnd } : {})
+  };
+}
+
+function getControllerReservationUsername(controller: StructureController): string | undefined {
+  const username = (controller as StructureController & { reservation?: { username?: string } }).reservation?.username;
+  return isNonEmptyString(username) ? username : undefined;
+}
+
+function getControllerReservationTicksToEnd(controller: StructureController): number | undefined {
+  const ticksToEnd = (controller as StructureController & { reservation?: { ticksToEnd?: number } }).reservation
+    ?.ticksToEnd;
+  return typeof ticksToEnd === 'number' ? ticksToEnd : undefined;
+}
+
+function getVisibleRoom(roomName: string): Room | null {
+  return (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[roomName] ?? null;
+}
+
+function countVisibleRoomObjects(room: Room, findConstant: number | undefined): number {
+  if (typeof findConstant !== 'number') {
+    return 0;
+  }
+
+  const find = (room as unknown as { find?: (type: number) => unknown }).find;
+  if (typeof find !== 'function') {
+    return 0;
+  }
+
+  try {
+    const result = find.call(room, findConstant);
+    return Array.isArray(result) ? result.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function getFindConstant(name: string): number | undefined {
+  const value = (globalThis as Record<string, unknown>)[name];
+  return typeof value === 'number' ? value : undefined;
 }
 
 function getTerritoryCandidatePriority(
@@ -851,6 +1029,7 @@ function compareTerritoryCandidates(left: ScoredTerritoryTarget, right: ScoredTe
     left.priority - right.priority ||
     compareOptionalNumbers(left.renewalTicksToEnd, right.renewalTicksToEnd) ||
     getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) ||
+    compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) ||
     left.order - right.order ||
     left.target.roomName.localeCompare(right.target.roomName) ||
     left.intentAction.localeCompare(right.intentAction)
@@ -859,6 +1038,10 @@ function compareTerritoryCandidates(left: ScoredTerritoryTarget, right: ScoredTe
 
 function compareOptionalNumbers(left: number | undefined, right: number | undefined): number {
   return (left ?? Number.POSITIVE_INFINITY) - (right ?? Number.POSITIVE_INFINITY);
+}
+
+function compareOptionalNumbersDescending(left: number | undefined, right: number | undefined): number {
+  return (right ?? Number.NEGATIVE_INFINITY) - (left ?? Number.NEGATIVE_INFINITY);
 }
 
 function getTerritoryCandidateSourcePriority(source: TerritoryCandidateSource): number {
