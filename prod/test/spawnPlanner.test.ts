@@ -114,6 +114,21 @@ describe('planSpawn', () => {
     });
   });
 
+  it('uses mid-capacity room energy for worker carry and move throughput', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N13',
+      energyAvailable: 550,
+      energyCapacityAvailable: 550
+    });
+
+    expect(planSpawn(colony, { worker: 2 }, 151)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'carry', 'move'],
+      name: 'worker-W1N13-151',
+      memory: { role: 'worker', colony: 'W1N13' }
+    });
+  });
+
   it('does not overbuild when replacement-aware worker capacity is at target', () => {
     const { colony } = makeColony();
 

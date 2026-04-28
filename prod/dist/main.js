@@ -539,6 +539,8 @@ function canSatisfyRoleCapacity(creep) {
 // src/spawn/bodyBuilder.ts
 var WORKER_PATTERN = ["work", "carry", "move"];
 var WORKER_PATTERN_COST = 200;
+var WORKER_LOGISTICS_PAIR = ["carry", "move"];
+var WORKER_LOGISTICS_PAIR_COST = 100;
 var TERRITORY_CONTROLLER_BODY = ["claim", "move"];
 var TERRITORY_CONTROLLER_BODY_COST = 650;
 var MAX_CREEP_PARTS = 50;
@@ -560,7 +562,15 @@ function buildWorkerBody(energyAvailable) {
   const maxPatternCountByEnergy = Math.floor(energyAvailable / WORKER_PATTERN_COST);
   const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / WORKER_PATTERN.length);
   const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize, MAX_WORKER_PATTERN_COUNT);
-  return Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
+  const body = Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
+  if (shouldAddWorkerLogisticsPair(energyAvailable, patternCount, body.length)) {
+    return [...body, ...WORKER_LOGISTICS_PAIR];
+  }
+  return body;
+}
+function shouldAddWorkerLogisticsPair(energyAvailable, patternCount, bodyPartCount) {
+  const remainingEnergy = energyAvailable - patternCount * WORKER_PATTERN_COST;
+  return patternCount >= 2 && patternCount < MAX_WORKER_PATTERN_COUNT && remainingEnergy >= WORKER_LOGISTICS_PAIR_COST && bodyPartCount + WORKER_LOGISTICS_PAIR.length <= MAX_CREEP_PARTS;
 }
 function buildEmergencyWorkerBody(energyAvailable) {
   if (energyAvailable < WORKER_PATTERN_COST) {

@@ -31,6 +31,12 @@ describe('buildWorkerBody', () => {
     expect(buildWorkerBody(600)).toEqual(repeatWorkerPattern(3));
   });
 
+  it('uses mid-capacity remainders for carry and move throughput', () => {
+    expect(buildWorkerBody(500)).toEqual([...repeatWorkerPattern(2), 'carry', 'move']);
+    expect(buildWorkerBody(550)).toEqual([...repeatWorkerPattern(2), 'carry', 'move']);
+    expect(buildWorkerBody(700)).toEqual([...repeatWorkerPattern(3), 'carry', 'move']);
+  });
+
   it('caps general-purpose worker bodies at 800 energy', () => {
     expect(buildWorkerBody(800)).toEqual(repeatWorkerPattern(4));
     expect(buildWorkerBody(10000)).toEqual(repeatWorkerPattern(4));
@@ -41,15 +47,16 @@ describe('buildWorkerBody', () => {
     expect(buildWorkerBody(199)).toEqual([]);
   });
 
-  it('builds only complete affordable worker patterns within the safe cap', () => {
-    for (const energyAvailable of [0, 199, 200, 201, 399, 400, 1000, 10000]) {
+  it('builds only affordable worker parts within the safe cap', () => {
+    for (const energyAvailable of [0, 199, 200, 201, 399, 400, 500, 550, 600, 700, 1000, 10000]) {
       const body = buildWorkerBody(energyAvailable);
 
       expect(body.length).toBeLessThanOrEqual(repeatWorkerPattern(4).length);
-      expect(body.length % WORKER_PATTERN.length).toBe(0);
       expect(getBodyCost(body)).toBeLessThanOrEqual(energyAvailable);
+      expect(getBodyCost(body)).toBeLessThanOrEqual(800);
 
-      for (let i = 0; i < body.length; i += WORKER_PATTERN.length) {
+      const completePatternPartCount = body.length - (body.length % WORKER_PATTERN.length);
+      for (let i = 0; i < completePatternPartCount; i += WORKER_PATTERN.length) {
         expect(body.slice(i, i + WORKER_PATTERN.length)).toEqual(WORKER_PATTERN);
       }
     }
