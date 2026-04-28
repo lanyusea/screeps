@@ -60,6 +60,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'build', targetId: extensionConstructionSite.id };
   }
 
+  const roadOrContainerConstructionSite = constructionSites.find(isRoadOrContainerConstructionSite);
+  if (roadOrContainerConstructionSite) {
+    return { type: 'build', targetId: roadOrContainerConstructionSite.id };
+  }
+
   if (controller && shouldSustainControllerProgress(creep, controller)) {
     return { type: 'upgrade', targetId: controller.id };
   }
@@ -113,6 +118,13 @@ function isSpawnConstructionSite(site: ConstructionSite): boolean {
 
 function isExtensionConstructionSite(site: ConstructionSite): boolean {
   return matchesStructureType(site.structureType, 'STRUCTURE_EXTENSION', 'extension');
+}
+
+function isRoadOrContainerConstructionSite(site: ConstructionSite): boolean {
+  return (
+    matchesStructureType(site.structureType, 'STRUCTURE_ROAD', 'road') ||
+    matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container')
+  );
 }
 
 type StructureConstantGlobal =

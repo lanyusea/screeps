@@ -555,6 +555,10 @@ function selectWorkerTask(creep) {
   if (extensionConstructionSite) {
     return { type: "build", targetId: extensionConstructionSite.id };
   }
+  const roadOrContainerConstructionSite = constructionSites.find(isRoadOrContainerConstructionSite);
+  if (roadOrContainerConstructionSite) {
+    return { type: "build", targetId: roadOrContainerConstructionSite.id };
+  }
   if (controller && shouldSustainControllerProgress(creep, controller)) {
     return { type: "upgrade", targetId: controller.id };
   }
@@ -592,6 +596,9 @@ function isSpawnConstructionSite(site) {
 }
 function isExtensionConstructionSite(site) {
   return matchesStructureType2(site.structureType, "STRUCTURE_EXTENSION", "extension");
+}
+function isRoadOrContainerConstructionSite(site) {
+  return matchesStructureType2(site.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType2(site.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function matchesStructureType2(actual, globalName, fallback) {
   var _a;
