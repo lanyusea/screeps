@@ -2,12 +2,23 @@
 const fs = require('fs');
 const { execSync } = require('child_process');
 const path = require('path');
-const { chromium } = require('/root/.hermes/hermes-agent/node_modules/playwright');
+let chromium;
+try {
+  ({ chromium } = require('playwright'));
+} catch (error) {
+  console.error([
+    'Failed to load Playwright for the Screeps roadmap renderer.',
+    'Run `npm install` from the repository root, then retry this script.',
+    `Original error: ${error.message}`
+  ].join('\n'));
+  process.exit(1);
+}
 
 const repo = process.argv[2] || '/root/screeps';
 const out = process.argv[3] || '/tmp/screeps-roadmap-snapshot.png';
 const preview = process.env.SCREEPS_ROADMAP_PREVIEW === '1';
-const statePath = '/root/.hermes/screeps-reporters/roadmap-render-state-v5.json';
+const statePath = process.env.SCREEPS_ROADMAP_STATE_PATH
+  || path.join(repo, 'runtime-artifacts', 'roadmap-render-state-v5.json');
 const formatVersion = 'roadmap-portrait-kpi-kanban-v5';
 
 const logoPath = path.join(repo, 'docs/assets/screeps-community-logo.png');
@@ -145,7 +156,9 @@ function visibleKanbanItems(items) {
 
 const officialDeploys = 0;
 let privateTests = num(sh("find /root/screeps /root/.hermes -type f \( -iname '*private*smoke*report*.json' -o -iname '*screeps-private-smoke*.json' \) 2>/dev/null | wc -l", '0'));
-if (privateTests === 0) privateTests = 1;
+if (privateTests === 0) {
+  console.warn('No private smoke test reports found; rendering actual private smoke count 0.');
+}
 const metrics = {
   commits: commitCount,
   prs: prs.length,
@@ -231,11 +244,11 @@ ${kanban('04 Foundation Kanban', 'Reliability / P0 and Foundation Gates; data co
     chromiumSandbox: false,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   };
-  for (const executablePath of [process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE, '/root/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome']) {
-    if (executablePath && fs.existsSync(executablePath)) {
-      launchOptions.executablePath = executablePath;
-      break;
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) {
+    if (!fs.existsSync(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE)) {
+      throw new Error(`PLAYWRIGHT_CHROMIUM_EXECUTABLE does not exist: ${process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}`);
     }
+    launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
   }
   const browser = await chromium.launch(launchOptions);
   const page = await browser.newPage({viewport:{width:1600,height:2490}, deviceScaleFactor:1});
