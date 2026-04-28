@@ -1028,6 +1028,10 @@ function getTerritoryControllerTargetState(
     return getReserveControllerTargetState(controller, colonyOwnerUsername);
   }
 
+  if (isControllerOwnedByColony(controller, colonyOwnerUsername)) {
+    return 'satisfied';
+  }
+
   return isControllerOwned(controller) ? 'unavailable' : 'available';
 }
 
@@ -1153,6 +1157,11 @@ function isVisibleRoomMissingController(targetRoom: string): boolean {
 
 function isControllerOwned(controller: StructureController): boolean {
   return controller.owner != null || controller.my === true;
+}
+
+function isControllerOwnedByColony(controller: StructureController, colonyOwnerUsername: string | null): boolean {
+  const ownerUsername = getControllerOwnerUsername(controller);
+  return controller.my === true || (isNonEmptyString(ownerUsername) && ownerUsername === colonyOwnerUsername);
 }
 
 function getReserveControllerTargetState(

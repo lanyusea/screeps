@@ -1223,6 +1223,9 @@ function getTerritoryControllerTargetState(controller, action, colonyOwnerUserna
   if (action === "reserve") {
     return getReserveControllerTargetState(controller, colonyOwnerUsername);
   }
+  if (isControllerOwnedByColony(controller, colonyOwnerUsername)) {
+    return "satisfied";
+  }
   return isControllerOwned(controller) ? "unavailable" : "available";
 }
 function getTerritoryActorUsername(creep, colony) {
@@ -1318,6 +1321,10 @@ function isVisibleRoomMissingController(targetRoom) {
 }
 function isControllerOwned(controller) {
   return controller.owner != null || controller.my === true;
+}
+function isControllerOwnedByColony(controller, colonyOwnerUsername) {
+  const ownerUsername = getControllerOwnerUsername(controller);
+  return controller.my === true || isNonEmptyString(ownerUsername) && ownerUsername === colonyOwnerUsername;
 }
 function getReserveControllerTargetState(controller, colonyOwnerUsername) {
   if (isControllerOwned(controller)) {
