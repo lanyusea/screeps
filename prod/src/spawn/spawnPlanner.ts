@@ -20,6 +20,11 @@ export interface SpawnRequest {
   memory: CreepMemory;
 }
 
+export interface SpawnPlanningOptions {
+  nameSuffix?: string;
+  workersOnly?: boolean;
+}
+
 const MIN_WORKER_TARGET = 3;
 const WORKERS_PER_SOURCE = 2;
 const CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
@@ -29,10 +34,19 @@ const TERRITORY_SCOUT_BODY_COST = 50;
 const MAX_WORKER_TARGET = 6;
 const sourceCountByRoomName = new Map<string, number>();
 
-export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
+export function planSpawn(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  gameTime: number,
+  options: SpawnPlanningOptions = {}
+): SpawnRequest | null {
   const workerTarget = getWorkerTarget(colony, roleCounts);
   if (getWorkerCapacity(roleCounts) < workerTarget) {
-    return planWorkerSpawn(colony, roleCounts, gameTime);
+    return planWorkerSpawn(colony, roleCounts, gameTime, options);
+  }
+
+  if (options.workersOnly) {
+    return null;
   }
 
   const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
@@ -54,12 +68,17 @@ export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTi
   return {
     spawn,
     body,
-    name: `${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`,
+    name: appendSpawnNameSuffix(`${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`, options),
     memory: buildTerritoryCreepMemory(territoryIntent)
   };
 }
 
-function planWorkerSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
+function planWorkerSpawn(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  gameTime: number,
+  options: SpawnPlanningOptions
+): SpawnRequest | null {
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
   if (!spawn) {
     return null;
@@ -73,9 +92,13 @@ function planWorkerSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTim
   return {
     spawn,
     body,
-    name: `worker-${colony.room.name}-${gameTime}`,
+    name: appendSpawnNameSuffix(`worker-${colony.room.name}-${gameTime}`, options),
     memory: { role: 'worker', colony: colony.room.name }
   };
+}
+
+function appendSpawnNameSuffix(baseName: string, options: SpawnPlanningOptions): string {
+  return options.nameSuffix ? `${baseName}-${options.nameSuffix}` : baseName;
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {

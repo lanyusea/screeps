@@ -67,6 +67,78 @@ describe('runEconomy', () => {
     });
   });
 
+  it('uses multiple idle spawns in one tick when worker recovery has enough room energy', () => {
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 4;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const ownedStructures: AnyOwnedStructure[] = [];
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 1200,
+      energyCapacityAvailable: 1200,
+      controller: { my: true } as StructureController,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          return options?.filter ? ownedStructures.filter(options.filter) : ownedStructures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const spawn1 = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      room,
+      structureType: 'spawn',
+      spawning: null,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) },
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    const spawn2 = {
+      id: 'spawn2',
+      name: 'Spawn2',
+      room,
+      structureType: 'spawn',
+      spawning: null,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) },
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    ownedStructures.push(spawn1 as unknown as AnyOwnedStructure, spawn2 as unknown as AnyOwnedStructure);
+    const existingWorker = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 126,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn1, Spawn2: spawn2 },
+      creeps: { ExistingWorker: existingWorker }
+    };
+
+    runEconomy();
+
+    expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn1.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      'worker-W1N1-126',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+    expect(spawn2.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      'worker-W1N1-126-2',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+  });
+
   it('waits through critical energy without invalid spawn attempts and recovers when an emergency body is affordable', () => {
     const room = {
       name: 'W1N1',
