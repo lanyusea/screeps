@@ -1,5 +1,7 @@
 const WORKER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 const WORKER_PATTERN_COST = 200;
+const WORKER_LOGISTICS_PAIR: BodyPartConstant[] = ['carry', 'move'];
+const WORKER_LOGISTICS_PAIR_COST = 100;
 const TERRITORY_CONTROLLER_BODY: BodyPartConstant[] = ['claim', 'move'];
 export const TERRITORY_CONTROLLER_BODY_COST = 650;
 const MAX_CREEP_PARTS = 50;
@@ -26,8 +28,28 @@ export function buildWorkerBody(energyAvailable: number): BodyPartConstant[] {
   const maxPatternCountByEnergy = Math.floor(energyAvailable / WORKER_PATTERN_COST);
   const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / WORKER_PATTERN.length);
   const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize, MAX_WORKER_PATTERN_COUNT);
+  const body = Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
 
-  return Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
+  if (shouldAddWorkerLogisticsPair(energyAvailable, patternCount, body.length)) {
+    return [...body, ...WORKER_LOGISTICS_PAIR];
+  }
+
+  return body;
+}
+
+function shouldAddWorkerLogisticsPair(
+  energyAvailable: number,
+  patternCount: number,
+  bodyPartCount: number
+): boolean {
+  const remainingEnergy = energyAvailable - patternCount * WORKER_PATTERN_COST;
+
+  return (
+    patternCount >= 2 &&
+    patternCount < MAX_WORKER_PATTERN_COUNT &&
+    remainingEnergy >= WORKER_LOGISTICS_PAIR_COST &&
+    bodyPartCount + WORKER_LOGISTICS_PAIR.length <= MAX_CREEP_PARTS
+  );
 }
 
 export function buildEmergencyWorkerBody(energyAvailable: number): BodyPartConstant[] {
