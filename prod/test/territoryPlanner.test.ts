@@ -1211,6 +1211,120 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toEqual([persistedIntent]);
   });
 
+  it('prioritizes lower reservation TTL among persisted occupation claim follow-up intents', () => {
+    const colony = makeSafeColony();
+    const followUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim');
+    const lessUrgentIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 571,
+      followUp
+    };
+    const urgentIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 572,
+      followUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: 800 }
+          } as StructureController
+        } as Room,
+        W3N1: {
+          name: 'W3N1',
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: 200 }
+          } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [lessUrgentIntent, urgentIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 573)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      followUp
+    });
+    expect(Memory.territory?.intents).toEqual([
+      lessUrgentIntent,
+      {
+        ...urgentIntent,
+        updatedAt: 573
+      }
+    ]);
+  });
+
+  it('prioritizes unreserved persisted occupation claim follow-up intents before reserved claims', () => {
+    const colony = makeSafeColony();
+    const followUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim');
+    const reservedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 574,
+      followUp
+    };
+    const unreservedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 575,
+      followUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: 100 }
+          } as StructureController
+        } as Room,
+        W3N1: { name: 'W3N1', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [reservedIntent, unreservedIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 576)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      followUp
+    });
+    expect(Memory.territory?.intents).toEqual([
+      reservedIntent,
+      {
+        ...unreservedIntent,
+        updatedAt: 576
+      }
+    ]);
+  });
+
   it('scouts adjacent rooms after a configured claim target is owned by the colony account', () => {
     const colony = makeSafeColony();
     const claimedTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'claim' };

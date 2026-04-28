@@ -1615,13 +1615,15 @@ function scoreTerritoryCandidate(selection, source, order, colonyName, colonyOwn
     return null;
   }
   const renewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(selection.target, colonyOwnerUsername);
+  const occupationActionableTicks = source === "occupationIntent" ? getOccupationIntentActionableTicks(selection, colonyOwnerUsername) : void 0;
   return {
     ...selection,
     source,
     order,
     priority: getTerritoryCandidatePriority(selection, renewalTicksToEnd),
     ...routeDistance !== void 0 ? { routeDistance } : {},
-    ...renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}
+    ...renewalTicksToEnd !== null ? { renewalTicksToEnd } : {},
+    ...occupationActionableTicks !== void 0 ? { occupationActionableTicks } : {}
   };
 }
 function applyOccupationRecommendationScores(colony, roleCounts, candidates) {
@@ -1720,6 +1722,27 @@ function getControllerReservationTicksToEnd(controller) {
   const ticksToEnd = (_a = controller.reservation) == null ? void 0 : _a.ticksToEnd;
   return typeof ticksToEnd === "number" ? ticksToEnd : void 0;
 }
+function getOccupationIntentActionableTicks(selection, colonyOwnerUsername) {
+  var _a, _b;
+  if (!isTerritoryControlAction(selection.intentAction)) {
+    return void 0;
+  }
+  const controller = getVisibleController(selection.target.roomName, selection.target.controllerId);
+  if (!controller) {
+    return void 0;
+  }
+  if (selection.intentAction === "reserve") {
+    if (isControllerOwned(controller)) {
+      return void 0;
+    }
+    const ownReservationTicksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+    return (_a = ownReservationTicksToEnd != null ? ownReservationTicksToEnd : getControllerReservationTicksToEnd(controller)) != null ? _a : 0;
+  }
+  if (isControllerOwned(controller)) {
+    return typeof controller.ticksToDowngrade === "number" ? controller.ticksToDowngrade : void 0;
+  }
+  return (_b = getControllerReservationTicksToEnd(controller)) != null ? _b : 0;
+}
 function getVisibleRoom(roomName) {
   var _a, _b, _c;
   return (_c = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName]) != null ? _c : null;
@@ -1756,7 +1779,7 @@ function getTerritoryCandidatePriority(selection, renewalTicksToEnd) {
   return selection.target.action === "claim" ? TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_CLAIM : TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE;
 }
 function compareTerritoryCandidates(left, right) {
-  return left.priority - right.priority || compareOptionalNumbers2(left.renewalTicksToEnd, right.renewalTicksToEnd) || getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) || compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) || left.order - right.order || left.target.roomName.localeCompare(right.target.roomName) || left.intentAction.localeCompare(right.intentAction);
+  return left.priority - right.priority || compareOptionalNumbers2(left.renewalTicksToEnd, right.renewalTicksToEnd) || getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) || compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) || compareOptionalNumbers2(left.occupationActionableTicks, right.occupationActionableTicks) || left.order - right.order || left.target.roomName.localeCompare(right.target.roomName) || left.intentAction.localeCompare(right.intentAction);
 }
 function compareOptionalNumbers2(left, right) {
   return (left != null ? left : Number.POSITIVE_INFINITY) - (right != null ? right : Number.POSITIVE_INFINITY);
