@@ -1,10 +1,12 @@
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
+export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
+type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
 type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
 
 interface StoredEnergySourceContext {
@@ -60,6 +62,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (controller && shouldSustainControllerProgress(creep, controller)) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
   }
 
   if (constructionSites[0]) {
@@ -227,6 +234,19 @@ function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
   return repairTargets.sort(compareRepairTargets)[0];
 }
 
+function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrastructureRepairTarget | null {
+  if (creep.room.controller?.my !== true) {
+    return null;
+  }
+
+  const repairTargets = findVisibleRoomStructures(creep.room).filter(isCriticalInfrastructureRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+
+  return repairTargets.sort(compareRepairTargets)[0];
+}
+
 function findVisibleRoomStructures(room: Room): AnyStructure[] {
   if (typeof FIND_STRUCTURES !== 'number') {
     return [];
@@ -240,14 +260,26 @@ function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWor
     return false;
   }
 
-  if (
-    matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road') ||
-    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')
-  ) {
+  if (isRoadOrContainerRepairTarget(structure)) {
     return true;
   }
 
   return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure);
+}
+
+function isCriticalInfrastructureRepairTarget(structure: AnyStructure): structure is CriticalInfrastructureRepairTarget {
+  return (
+    isSafeRepairTarget(structure) &&
+    isRoadOrContainerRepairTarget(structure) &&
+    getHitsRatio(structure) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO
+  );
+}
+
+function isRoadOrContainerRepairTarget(structure: AnyStructure): structure is StructureRoad | StructureContainer {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')
+  );
 }
 
 export function isWorkerRepairTargetComplete(structure: Structure): boolean {

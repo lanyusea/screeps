@@ -515,6 +515,7 @@ function canSatisfyRoleCapacity(creep) {
 
 // src/tasks/workerTasks.ts
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
+var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
@@ -556,6 +557,10 @@ function selectWorkerTask(creep) {
   }
   if (controller && shouldSustainControllerProgress(creep, controller)) {
     return { type: "upgrade", targetId: controller.id };
+  }
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return { type: "repair", targetId: criticalRepairTarget.id };
   }
   if (constructionSites[0]) {
     return { type: "build", targetId: constructionSites[0].id };
@@ -672,6 +677,17 @@ function selectRepairTarget(creep) {
   }
   return repairTargets.sort(compareRepairTargets)[0];
 }
+function selectCriticalInfrastructureRepairTarget(creep) {
+  var _a;
+  if (((_a = creep.room.controller) == null ? void 0 : _a.my) !== true) {
+    return null;
+  }
+  const repairTargets = findVisibleRoomStructures(creep.room).filter(isCriticalInfrastructureRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+  return repairTargets.sort(compareRepairTargets)[0];
+}
 function findVisibleRoomStructures(room) {
   if (typeof FIND_STRUCTURES !== "number") {
     return [];
@@ -682,10 +698,16 @@ function isSafeRepairTarget(structure) {
   if (isWorkerRepairTargetComplete(structure)) {
     return false;
   }
-  if (matchesStructureType2(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType2(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+  if (isRoadOrContainerRepairTarget(structure)) {
     return true;
   }
   return matchesStructureType2(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
+}
+function isCriticalInfrastructureRepairTarget(structure) {
+  return isSafeRepairTarget(structure) && isRoadOrContainerRepairTarget(structure) && getHitsRatio(structure) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO;
+}
+function isRoadOrContainerRepairTarget(structure) {
+  return matchesStructureType2(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType2(structure.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function isWorkerRepairTargetComplete(structure) {
   return structure.hits >= getWorkerRepairHitsCeiling(structure);
