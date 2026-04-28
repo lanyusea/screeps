@@ -697,6 +697,112 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts non-critical construction for controller pressure once spawn recovery is safe', () => {
+    const fullSpawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const controller = { id: 'controller1', my: true, level: 3 } as StructureController;
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 200 }]
+      }
+    };
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [fullSpawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return type === FIND_CONSTRUCTION_SITES ? [site] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'build', targetId: 'tower-site1' as Id<ConstructionSite> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(site);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps spawn recovery transfer ahead of controller pressure preemption', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const controller = { id: 'controller1', my: true, level: 3 } as StructureController;
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 200 }]
+      }
+    };
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return type === FIND_CONSTRUCTION_SITES ? [site] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'build', targetId: 'tower-site1' as Id<ConstructionSite> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(site);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('executes a normal-threshold reservation task for a one-CLAIM worker', () => {
     const controller = {
       id: 'controller2',

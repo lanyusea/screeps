@@ -8,6 +8,7 @@ export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
+const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
@@ -746,20 +747,21 @@ function shouldRushRcl1Controller(controller: StructureController): boolean {
   return controller.my === true && controller.level === 1;
 }
 
-function shouldSustainControllerProgress(creep: Creep, controller: StructureController): boolean {
+function shouldApplyControllerPressureLane(creep: Creep, controller: StructureController): boolean {
   if (controller.my !== true || controller.level < 2) {
     return false;
   }
 
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
   return (
-    loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS &&
+    (loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS ||
+      (loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE && hasActiveTerritoryPressure(creep))) &&
     !loadedWorkers.some((worker) => worker !== creep && isUpgradingController(worker, controller))
   );
 }
 
 function shouldUseSurplusForControllerProgress(creep: Creep, controller: StructureController): boolean {
-  if (shouldSustainControllerProgress(creep, controller)) {
+  if (shouldApplyControllerPressureLane(creep, controller)) {
     return true;
   }
 
@@ -768,6 +770,42 @@ function shouldUseSurplusForControllerProgress(creep: Creep, controller: Structu
 
 function hasWithdrawableSurplusEnergy(creep: Creep): boolean {
   return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null;
+}
+
+function hasActiveTerritoryPressure(creep: Creep): boolean {
+  const colonyName = getCreepColonyName(creep);
+  if (!colonyName) {
+    return false;
+  }
+
+  const territoryMemory = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory;
+  if (!territoryMemory || !Array.isArray(territoryMemory.intents)) {
+    return false;
+  }
+
+  return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
+}
+
+function getCreepColonyName(creep: Creep): string | null {
+  const colony = creep.memory?.colony;
+  if (typeof colony === 'string' && colony.length > 0) {
+    return colony;
+  }
+
+  return null;
+}
+
+function isActiveTerritoryPressureIntent(intent: unknown, colonyName: string): boolean {
+  if (!isWorkerTaskRecord(intent)) {
+    return false;
+  }
+
+  return (
+    intent.colony === colonyName &&
+    intent.targetRoom !== colonyName &&
+    (intent.status === 'planned' || intent.status === 'active') &&
+    (intent.action === 'claim' || intent.action === 'reserve' || intent.action === 'scout')
+  );
 }
 
 function getSameRoomLoadedWorkers(creep: Creep): Creep[] {

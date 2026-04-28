@@ -31,6 +31,12 @@ export function runWorker(creep: Creep): void {
     return;
   }
 
+  if (shouldPreemptSpendingTaskForControllerPressure(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
+
   if (shouldPreemptUpgradeTask(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
@@ -139,6 +145,19 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep: Creep, task: 
   return isRecoverableEnergyTask(nextTask) && !isSameTask(task, nextTask);
 }
 
+function shouldPreemptSpendingTaskForControllerPressure(creep: Creep, task: CreepTaskMemory): boolean {
+  if (!isEnergySpendingTask(task) || task.type === 'upgrade') {
+    return false;
+  }
+
+  if (typeof creep.room?.find !== 'function') {
+    return false;
+  }
+
+  const nextTask = selectWorkerTask(creep);
+  return isOwnedControllerUpgradeTask(creep, nextTask) && !isSameTask(task, nextTask);
+}
+
 function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean {
   if (task.type !== 'upgrade') {
     return false;
@@ -155,6 +174,17 @@ function shouldPreemptUpgradeTask(creep: Creep, task: CreepTaskMemory): boolean 
   }
 
   return true;
+}
+
+function isOwnedControllerUpgradeTask(
+  creep: Creep,
+  task: CreepTaskMemory | null
+): task is Extract<CreepTaskMemory, { type: 'upgrade' }> {
+  return (
+    task?.type === 'upgrade' &&
+    creep.room?.controller?.my === true &&
+    task.targetId === creep.room.controller.id
+  );
 }
 
 function isSameTask(left: CreepTaskMemory, right: CreepTaskMemory): boolean {

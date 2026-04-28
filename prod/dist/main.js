@@ -1260,6 +1260,7 @@ var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
+var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
@@ -1737,21 +1738,47 @@ function shouldGuardControllerDowngrade(controller) {
 function shouldRushRcl1Controller(controller) {
   return controller.my === true && controller.level === 1;
 }
-function shouldSustainControllerProgress(creep, controller) {
+function shouldApplyControllerPressureLane(creep, controller) {
   if (controller.my !== true || controller.level < 2) {
     return false;
   }
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
-  return loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS && !loadedWorkers.some((worker) => worker !== creep && isUpgradingController(worker, controller));
+  return (loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS || loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE && hasActiveTerritoryPressure(creep)) && !loadedWorkers.some((worker) => worker !== creep && isUpgradingController(worker, controller));
 }
 function shouldUseSurplusForControllerProgress(creep, controller) {
-  if (shouldSustainControllerProgress(creep, controller)) {
+  if (shouldApplyControllerPressureLane(creep, controller)) {
     return true;
   }
   return controller.my === true && controller.level >= 2 && hasWithdrawableSurplusEnergy(creep);
 }
 function hasWithdrawableSurplusEnergy(creep) {
   return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null;
+}
+function hasActiveTerritoryPressure(creep) {
+  var _a;
+  const colonyName = getCreepColonyName(creep);
+  if (!colonyName) {
+    return false;
+  }
+  const territoryMemory = (_a = globalThis.Memory) == null ? void 0 : _a.territory;
+  if (!territoryMemory || !Array.isArray(territoryMemory.intents)) {
+    return false;
+  }
+  return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
+}
+function getCreepColonyName(creep) {
+  var _a;
+  const colony = (_a = creep.memory) == null ? void 0 : _a.colony;
+  if (typeof colony === "string" && colony.length > 0) {
+    return colony;
+  }
+  return null;
+}
+function isActiveTerritoryPressureIntent(intent, colonyName) {
+  if (!isWorkerTaskRecord(intent)) {
+    return false;
+  }
+  return intent.colony === colonyName && intent.targetRoom !== colonyName && (intent.status === "planned" || intent.status === "active") && (intent.action === "claim" || intent.action === "reserve" || intent.action === "scout");
 }
 function getSameRoomLoadedWorkers(creep) {
   const loadedWorkers = getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
@@ -1917,6 +1944,11 @@ function runWorker(creep) {
     assignNextTask(creep);
     return;
   }
+  if (shouldPreemptSpendingTaskForControllerPressure(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
   if (shouldPreemptUpgradeTask(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
@@ -2005,6 +2037,17 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task) {
   const nextTask = selectWorkerTask(creep);
   return isRecoverableEnergyTask(nextTask) && !isSameTask(task, nextTask);
 }
+function shouldPreemptSpendingTaskForControllerPressure(creep, task) {
+  var _a;
+  if (!isEnergySpendingTask(task) || task.type === "upgrade") {
+    return false;
+  }
+  if (typeof ((_a = creep.room) == null ? void 0 : _a.find) !== "function") {
+    return false;
+  }
+  const nextTask = selectWorkerTask(creep);
+  return isOwnedControllerUpgradeTask(creep, nextTask) && !isSameTask(task, nextTask);
+}
 function shouldPreemptUpgradeTask(creep, task) {
   var _a;
   if (task.type !== "upgrade") {
@@ -2019,6 +2062,10 @@ function shouldPreemptUpgradeTask(creep, task) {
     return false;
   }
   return true;
+}
+function isOwnedControllerUpgradeTask(creep, task) {
+  var _a, _b;
+  return (task == null ? void 0 : task.type) === "upgrade" && ((_b = (_a = creep.room) == null ? void 0 : _a.controller) == null ? void 0 : _b.my) === true && task.targetId === creep.room.controller.id;
 }
 function isSameTask(left, right) {
   return left.type === right.type && left.targetId === right.targetId;
