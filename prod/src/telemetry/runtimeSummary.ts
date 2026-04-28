@@ -1,5 +1,9 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { buildRuntimeConstructionPriorityReport, type ConstructionPriorityScore } from '../construction/constructionPriority';
+import {
+  buildRuntimeOccupationRecommendationReport,
+  type OccupationRecommendationReport
+} from '../territory/occupationRecommendation';
 
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
@@ -40,6 +44,7 @@ interface RuntimeRoomSummary {
   resources: RuntimeResourceSummary;
   combat: RuntimeCombatSummary;
   constructionPriority: RuntimeConstructionPrioritySummary;
+  territoryRecommendation: OccupationRecommendationReport;
 }
 
 interface RuntimeControllerSummary {
@@ -150,7 +155,8 @@ function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSumm
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
-    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers)
+    constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
+    territoryRecommendation: buildRuntimeOccupationRecommendationReport(colony, colonyWorkers)
   };
 }
 
