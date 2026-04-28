@@ -518,16 +518,12 @@ var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
-var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
+var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 function selectWorkerTask(creep) {
-  const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
+  const carriedEnergy = getUsedEnergy(creep);
   if (carriedEnergy === 0) {
     if (getFreeEnergyCapacity(creep) > 0) {
-      const droppedEnergy = selectDroppedEnergy(creep);
-      if (droppedEnergy) {
-        return { type: "pickup", targetId: droppedEnergy.id };
-      }
       const storedEnergy = selectStoredEnergySource(creep);
       if (storedEnergy) {
         return { type: "withdraw", targetId: storedEnergy.id };
@@ -535,6 +531,10 @@ function selectWorkerTask(creep) {
       const salvageEnergy = selectSalvageEnergySource(creep);
       if (salvageEnergy) {
         return { type: "withdraw", targetId: salvageEnergy.id };
+      }
+      const droppedEnergy = selectDroppedEnergy(creep);
+      if (droppedEnergy) {
+        return { type: "pickup", targetId: droppedEnergy.id };
       }
     }
     const source = selectHarvestSource(creep);
@@ -584,7 +584,7 @@ function selectWorkerTask(creep) {
   return null;
 }
 function isFillableEnergySink(structure) {
-  return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure && structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+  return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
 function selectFillableEnergySink(creep) {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
@@ -632,8 +632,7 @@ function isStoredWorkerEnergySource(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType2(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType2(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
 }
 function hasStoredEnergy(structure) {
-  var _a;
-  return ((_a = structure.store.getUsedCapacity(RESOURCE_ENERGY)) != null ? _a : 0) > 0;
+  return getStoredEnergy(structure) > 0;
 }
 function isFriendlyStoredEnergySource(structure, context) {
   var _a;
@@ -685,8 +684,7 @@ function findRuins(room) {
   return room.find(FIND_RUINS);
 }
 function hasSalvageableEnergy(source) {
-  var _a;
-  return ((_a = source.store.getUsedCapacity(RESOURCE_ENERGY)) != null ? _a : 0) >= MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT;
+  return getStoredEnergy(source) >= MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT;
 }
 function getCreepOwnerUsername(creep) {
   var _a;
@@ -804,12 +802,45 @@ function isInRoom(creep, room) {
   return creep.room === room;
 }
 function getUsedEnergy(creep) {
-  var _a, _b, _c;
-  return (_c = (_b = (_a = creep.store) == null ? void 0 : _a.getUsedCapacity) == null ? void 0 : _b.call(_a, RESOURCE_ENERGY)) != null ? _c : 0;
+  return getStoredEnergy(creep);
 }
 function getFreeEnergyCapacity(creep) {
-  var _a, _b, _c;
-  return (_c = (_b = (_a = creep.store) == null ? void 0 : _a.getFreeCapacity) == null ? void 0 : _b.call(_a, RESOURCE_ENERGY)) != null ? _c : 0;
+  return getFreeStoredEnergyCapacity(creep);
+}
+function getStoredEnergy(object) {
+  var _a;
+  const store = getStore(object);
+  if (!store) {
+    return 0;
+  }
+  const usedCapacity = (_a = store.getUsedCapacity) == null ? void 0 : _a.call(store, getWorkerEnergyResource());
+  if (typeof usedCapacity === "number") {
+    return usedCapacity;
+  }
+  const storedEnergy = store[getWorkerEnergyResource()];
+  return typeof storedEnergy === "number" ? storedEnergy : 0;
+}
+function getFreeStoredEnergyCapacity(object) {
+  var _a;
+  const store = getStore(object);
+  if (!store) {
+    return 0;
+  }
+  const freeCapacity = (_a = store.getFreeCapacity) == null ? void 0 : _a.call(store, getWorkerEnergyResource());
+  return typeof freeCapacity === "number" ? freeCapacity : 0;
+}
+function getStore(object) {
+  if (!isWorkerTaskRecord(object) || !isWorkerTaskRecord(object.store)) {
+    return null;
+  }
+  return object.store;
+}
+function getWorkerEnergyResource() {
+  const value = globalThis.RESOURCE_ENERGY;
+  return typeof value === "string" ? value : "energy";
+}
+function isWorkerTaskRecord(value) {
+  return typeof value === "object" && value !== null;
 }
 function isUpgradingController(creep, controller) {
   var _a;
@@ -831,7 +862,7 @@ function findDroppedResources(room) {
   return room.find(FIND_DROPPED_RESOURCES);
 }
 function isUsefulDroppedEnergy(resource) {
-  return resource.resourceType === RESOURCE_ENERGY && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+  return resource.resourceType === getWorkerEnergyResource() && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
 }
 function findClosestByRange(creep, objects) {
   if (objects.length === 0) {

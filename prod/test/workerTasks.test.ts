@@ -130,14 +130,15 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
-  it('selects nearby useful dropped energy before harvesting when worker has free capacity', () => {
+  it('selects nearest high-value dropped energy before harvesting when worker has free capacity', () => {
+    const lowValueDroppedEnergy = { id: 'drop-low', resourceType: 'energy', amount: 24 } as Resource<ResourceConstant>;
     const farDroppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
     const nearDroppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
     const source = { id: 'source1' } as Source;
     const findClosestByRange = jest.fn().mockReturnValue(nearDroppedEnergy);
     const roomFind = jest.fn((type: number) => {
       if (type === FIND_DROPPED_RESOURCES) {
-        return [farDroppedEnergy, nearDroppedEnergy];
+        return [lowValueDroppedEnergy, farDroppedEnergy, nearDroppedEnergy];
       }
 
       return type === FIND_SOURCES ? [source] : [];
@@ -153,6 +154,34 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
     expect(findClosestByRange).toHaveBeenCalledWith([farDroppedEnergy, nearDroppedEnergy]);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('keeps dropped energy fallback deterministic when energy globals or stores are partially mocked', () => {
+    delete (globalThis as unknown as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY;
+    const partialContainer = { id: 'container1', structureType: 'container' } as AnyStructure;
+    const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_STRUCTURES) {
+        return [partialContainer];
+      }
+
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop1' });
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
@@ -325,17 +354,17 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
-  it('keeps dropped energy priority over stored energy withdraw', () => {
+  it('keeps stored energy withdrawal priority over dropped energy pickup', () => {
     const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
     const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 100);
     const source = { id: 'source1' } as Source;
     const roomFind = jest.fn((type: number) => {
-      if (type === FIND_DROPPED_RESOURCES) {
-        return [droppedEnergy];
-      }
-
       if (type === FIND_STRUCTURES) {
         return [container];
+      }
+
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
       }
 
       return type === FIND_SOURCES ? [source] : [];
@@ -348,27 +377,27 @@ describe('selectWorkerTask', () => {
       room: { controller: { my: true }, find: roomFind }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop1' });
-    expect(roomFind).not.toHaveBeenCalledWith(FIND_STRUCTURES);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_DROPPED_RESOURCES);
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
-  it('keeps dropped energy priority over tombstone and ruin salvage', () => {
+  it('keeps tombstone and ruin salvage priority over dropped energy pickup', () => {
     const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
     const tombstone = makeSalvageEnergySource('tombstone1', 25);
     const ruin = makeSalvageEnergySource('ruin1', 25);
     const source = { id: 'source1' } as Source;
     const roomFind = jest.fn((type: number) => {
-      if (type === FIND_DROPPED_RESOURCES) {
-        return [droppedEnergy];
-      }
-
       if (type === FIND_TOMBSTONES) {
         return [tombstone];
       }
 
       if (type === FIND_RUINS) {
         return [ruin];
+      }
+
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
       }
 
       return type === FIND_SOURCES ? [source] : [];
@@ -381,9 +410,8 @@ describe('selectWorkerTask', () => {
       room: { find: roomFind }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop1' });
-    expect(roomFind).not.toHaveBeenCalledWith(FIND_TOMBSTONES);
-    expect(roomFind).not.toHaveBeenCalledWith(FIND_RUINS);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'tombstone1' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_DROPPED_RESOURCES);
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
@@ -551,12 +579,12 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
-  it('ignores non-energy and trivial dropped resources before falling back to balanced harvesting', () => {
+  it('ignores non-energy and below-threshold dropped resources before falling back to balanced harvesting', () => {
     const source1 = { id: 'source1' } as Source;
     const source2 = { id: 'source2' } as Source;
     const droppedMineral = { id: 'drop-mineral', resourceType: 'H' as ResourceConstant, amount: 100 } as Resource<ResourceConstant>;
     const zeroEnergy = { id: 'drop-zero', resourceType: 'energy', amount: 0 } as Resource<ResourceConstant>;
-    const trivialEnergy = { id: 'drop-trivial', resourceType: 'energy', amount: 1 } as Resource<ResourceConstant>;
+    const trivialEnergy = { id: 'drop-trivial', resourceType: 'energy', amount: 24 } as Resource<ResourceConstant>;
     const room = {
       name: 'W1N1',
       find: jest.fn((type: number) => {
