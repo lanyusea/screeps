@@ -31,10 +31,27 @@ describe('controller signing', () => {
     } as unknown as StructureController;
     const creep = {
       signController: jest.fn().mockReturnValue(-9),
-      moveTo: jest.fn()
+      moveTo: jest.fn().mockReturnValue(0)
     } as unknown as Creep;
 
     expect(signOccupiedControllerIfNeeded(creep, controller)).toBe('moving');
+
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+  });
+
+  it('reports blocked when signing is out of range and movement fails', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'other', text: 'not ours', time: 123, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const creep = {
+      signController: jest.fn().mockReturnValue(-9),
+      moveTo: jest.fn().mockReturnValue(-2)
+    } as unknown as Creep;
+
+    expect(signOccupiedControllerIfNeeded(creep, controller)).toBe('blocked');
 
     expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
     expect(creep.moveTo).toHaveBeenCalledWith(controller);

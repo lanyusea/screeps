@@ -3,8 +3,6 @@ import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 
 type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
 
-const OK_CODE = 0 as ScreepsReturnCode;
-
 export function runWorker(creep: Creep): void {
   const selectedTask = selectWorkerTask(creep);
   const currentTask = creep.memory.task;
@@ -374,10 +372,7 @@ function executeTask(
     case 'reserve':
       return creep.reserveController(target as StructureController);
     case 'upgrade':
-      if (signOccupiedControllerIfNeeded(creep, target as StructureController) !== 'skipped') {
-        return OK_CODE;
-      }
-
+      signOccupiedControllerIfNeeded(creep, target as StructureController);
       return creep.upgradeController(target as StructureController);
   }
 }

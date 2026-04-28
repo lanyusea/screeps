@@ -281,14 +281,14 @@ describe('runWorker', () => {
     expect(moveTo).toHaveBeenCalledWith(controller);
   });
 
-  it('signs an incorrectly signed owned upgrade target before upgrading it', () => {
+  it('signs an incorrectly signed owned upgrade target while upgrading it', () => {
     const controller = {
       id: 'controller1',
       my: true,
       sign: { username: 'other', text: 'old sign', time: 123, datetime: '2026-04-29T00:00:00.000Z' }
     } as unknown as StructureController;
     const signController = jest.fn().mockReturnValue(0);
-    const upgradeController = jest.fn();
+    const upgradeController = jest.fn().mockReturnValue(0);
     const moveTo = jest.fn();
     const creep = {
       memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
@@ -308,8 +308,40 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
-    expect(upgradeController).not.toHaveBeenCalled();
+    expect(upgradeController).toHaveBeenCalledWith(controller);
     expect(moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps upgrading when signing requires inaccessible range-1 movement', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'other', text: 'old sign', time: 123, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const signController = jest.fn().mockReturnValue(ERR_NOT_IN_RANGE);
+    const upgradeController = jest.fn().mockReturnValue(0);
+    const moveTo = jest.fn().mockReturnValue(-2);
+    const creep = {
+      memory: { task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller, find: jest.fn().mockReturnValue([]) },
+      signController,
+      upgradeController,
+      moveTo
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+
+    runWorker(creep);
+
+    expect(signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(moveTo).toHaveBeenCalledWith(controller);
+    expect(upgradeController).toHaveBeenCalledWith(controller);
     expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
