@@ -21,12 +21,16 @@ describe('countCreepsByRole', () => {
     });
   });
 
-  it('excludes colony workers at replacement age from steady-state capacity', () => {
+  it('tracks replacement-aware worker capacity at the deterministic TTL threshold', () => {
     const healthyWorker = {
       memory: { role: 'worker', colony: 'W1N1' },
       ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
     } as Creep;
     const mockWorkerWithoutLifetime = { memory: { role: 'worker', colony: 'W1N1' } } as Creep;
+    const spawningWorker = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      spawning: true
+    } as Creep;
     const expiringWorker = {
       memory: { role: 'worker', colony: 'W1N1' },
       ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE
@@ -42,11 +46,19 @@ describe('countCreepsByRole', () => {
 
     expect(
       countCreepsByRole(
-        [healthyWorker, mockWorkerWithoutLifetime, expiringWorker, otherColonyWorker, unassignedWorker],
+        [
+          healthyWorker,
+          mockWorkerWithoutLifetime,
+          spawningWorker,
+          expiringWorker,
+          otherColonyWorker,
+          unassignedWorker
+        ],
         'W1N1'
       )
     ).toEqual({
-      worker: 2,
+      worker: 4,
+      workerCapacity: 3,
       claimer: 0,
       claimersByTargetRoom: {}
     });

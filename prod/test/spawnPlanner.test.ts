@@ -92,6 +92,17 @@ describe('planSpawn', () => {
     });
   });
 
+  it('plans a replacement when low-TTL workers leave steady-state capacity below target', () => {
+    const { colony, spawn } = makeColony();
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 125)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-125',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('plans the full capacity worker body when currently affordable', () => {
     const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 400 });
 
@@ -106,7 +117,29 @@ describe('planSpawn', () => {
   it('does not overbuild when replacement-aware worker capacity is at target', () => {
     const { colony } = makeColony();
 
-    expect(planSpawn(colony, { worker: 3 }, 124)).toBeNull();
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 3 }, 124)).toBeNull();
+  });
+
+  it('keeps normal replacement body selection when only expiring workers remain', () => {
+    const { colony, spawn } = makeColony({ energyAvailable: 600, energyCapacityAvailable: 800 });
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 0 }, 135)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N1-135',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
+  it('keeps the emergency worker body for true zero-creep recovery', () => {
+    const { colony, spawn } = makeColony({ energyAvailable: 600, energyCapacityAvailable: 800 });
+
+    expect(planSpawn(colony, { worker: 0, workerCapacity: 0 }, 136)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-136',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
   });
 
   it('adds one worker target for active construction backlog after the baseline target is safe', () => {

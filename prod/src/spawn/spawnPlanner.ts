@@ -1,5 +1,5 @@
 import { ColonySnapshot } from '../colony/colonyRegistry';
-import type { RoleCounts } from '../creeps/roleCounts';
+import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import {
   buildEmergencyWorkerBody,
   buildTerritoryControllerBody,
@@ -31,7 +31,7 @@ const sourceCountByRoomName = new Map<string, number>();
 
 export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
   const workerTarget = getWorkerTarget(colony, roleCounts);
-  if (roleCounts.worker < workerTarget) {
+  if (getWorkerCapacity(roleCounts) < workerTarget) {
     return planWorkerSpawn(colony, roleCounts, gameTime);
   }
 
@@ -88,7 +88,7 @@ function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyP
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
 
-  return roleCounts.worker < MIN_WORKER_TARGET ? buildWorkerBody(colony.energyAvailable) : [];
+  return getWorkerCapacity(roleCounts) < MIN_WORKER_TARGET ? buildWorkerBody(colony.energyAvailable) : [];
 }
 
 function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {
@@ -121,7 +121,7 @@ function shouldAddConstructionBacklogWorkerBonus(
   baseWorkerTarget: number
 ): boolean {
   return (
-    roleCounts.worker >= baseWorkerTarget &&
+    getWorkerCapacity(roleCounts) >= baseWorkerTarget &&
     isConstructionBonusHomeSafe(colony.room.controller) &&
     hasActiveConstructionBacklog(colony.room)
   );

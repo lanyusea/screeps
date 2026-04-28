@@ -183,8 +183,8 @@ describe('MVP economy lifecycle', () => {
   it('plans a replacement before a colony worker expires without counting unrelated workers', () => {
     const room = {
       name: 'W1N1',
-      energyAvailable: 300,
-      energyCapacityAvailable: 300,
+      energyAvailable: 600,
+      energyCapacityAvailable: 800,
       controller: { my: true, id: 'controller1' } as StructureController,
       find: jest.fn().mockReturnValue([])
     } as unknown as Room;
@@ -226,8 +226,61 @@ describe('MVP economy lifecycle', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-10', {
-      memory: { role: 'worker', colony: 'W1N1' }
-    });
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      'worker-W1N1-10',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+  });
+
+  it('does not plan a replacement when healthy, lifetime-unknown, and spawning workers satisfy target', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true, id: 'controller1' } as StructureController,
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+    const spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      room,
+      structureType: 'spawn',
+      spawning: null,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) },
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    const makeWorker = (memory: CreepMemory, options: Partial<Creep> = {}): Creep =>
+      ({
+        memory,
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(50)
+        },
+        room: {
+          ...room,
+          find: jest.fn().mockReturnValue([])
+        },
+        ...options
+      }) as unknown as Creep;
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 11,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Healthy: makeWorker({ role: 'worker', colony: 'W1N1' }, {
+          ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+        }),
+        LifetimeUnknown: makeWorker({ role: 'worker', colony: 'W1N1' }),
+        Spawning: makeWorker({ role: 'worker', colony: 'W1N1' }, { spawning: true })
+      }
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).not.toHaveBeenCalled();
   });
 });

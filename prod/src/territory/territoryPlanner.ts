@@ -1,5 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
-import type { RoleCounts } from '../creeps/roleCounts';
+import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
@@ -202,7 +202,7 @@ export function suppressTerritoryIntent(
 }
 
 export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
-  if (roleCounts.worker < workerTarget) {
+  if (getWorkerCapacity(roleCounts) < workerTarget) {
     return false;
   }
 
