@@ -2,6 +2,7 @@ import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
+  TOWER_REFILL_ENERGY_FLOOR,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
 import {
@@ -44,6 +45,17 @@ function makeEnergySink(
     structureType,
     store: { getFreeCapacity: jest.fn().mockReturnValue(freeCapacity) }
   } as unknown as TestEnergySink;
+}
+
+function makeTowerEnergySink(id: string, usedEnergy: number, freeCapacity: number): StructureTower {
+  return {
+    id,
+    structureType: 'tower',
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(usedEnergy),
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity)
+    }
+  } as unknown as StructureTower;
 }
 
 function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Record<string, number>): T {
@@ -1378,6 +1390,53 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-far' });
     expect(getRangeTo).not.toHaveBeenCalledWith(nearTower);
+  });
+
+  it('spends carried energy on construction instead of topping off a healthy tower after recovery', () => {
+    const healthyTower = makeTowerEnergySink('tower-healthy', TOWER_REFILL_ENERGY_FLOOR, 500);
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        myStructures: [healthyTower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+  });
+
+  it('spends carried energy on controller progress instead of topping off a healthy tower when no construction remains', () => {
+    const healthyTower = makeTowerEnergySink('tower-healthy', TOWER_REFILL_ENERGY_FLOOR + 1, 499);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        myStructures: [healthyTower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('keeps low tower refill before construction progress', () => {
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        myStructures: [lowTower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
   });
 
   it('breaks same-class fillable energy sink range ties by id', () => {

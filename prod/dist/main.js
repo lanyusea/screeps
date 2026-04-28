@@ -1481,6 +1481,7 @@ function isRecord(value) {
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
+var TOWER_REFILL_ENERGY_FLOOR = 500;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -1594,7 +1595,7 @@ function selectFillableEnergySink(creep) {
   if (extension) {
     return extension;
   }
-  return selectClosestEnergySink(creep, energySinks.filter(isTowerEnergySink));
+  return selectClosestEnergySink(creep, energySinks.filter(isPriorityTowerEnergySink));
 }
 function isSpawnEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn");
@@ -1604,6 +1605,9 @@ function isExtensionEnergySink(structure) {
 }
 function isTowerEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_TOWER", "tower");
+}
+function isPriorityTowerEnergySink(structure) {
+  return isTowerEnergySink(structure) && getStoredEnergy2(structure) < TOWER_REFILL_ENERGY_FLOOR;
 }
 function selectClosestEnergySink(creep, energySinks) {
   var _a;

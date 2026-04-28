@@ -7,6 +7,7 @@ import {
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
+export const TOWER_REFILL_ENERGY_FLOOR = 500;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -171,7 +172,7 @@ function selectFillableEnergySink(creep: Creep): FillableEnergySink | null {
     return extension;
   }
 
-  return selectClosestEnergySink(creep, energySinks.filter(isTowerEnergySink));
+  return selectClosestEnergySink(creep, energySinks.filter(isPriorityTowerEnergySink));
 }
 
 function isSpawnEnergySink(structure: FillableEnergySink): structure is StructureSpawn {
@@ -184,6 +185,10 @@ function isExtensionEnergySink(structure: FillableEnergySink): structure is Stru
 
 function isTowerEnergySink(structure: FillableEnergySink): structure is StructureTower {
   return matchesStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower');
+}
+
+function isPriorityTowerEnergySink(structure: FillableEnergySink): structure is StructureTower {
+  return isTowerEnergySink(structure) && getStoredEnergy(structure) < TOWER_REFILL_ENERGY_FLOOR;
 }
 
 function selectClosestEnergySink<T extends FillableEnergySink>(creep: Creep, energySinks: T[]): T | null {
