@@ -85,6 +85,12 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'upgrade', targetId: controller.id };
   }
 
+  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+  const capacityConstructionSite = selectCapacityEnablingConstructionSite(creep, constructionSites, controller);
+  if (capacityConstructionSite && !territoryControllerTask) {
+    return { type: 'build', targetId: capacityConstructionSite.id };
+  }
+
   if (energySink) {
     return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
   }
@@ -93,19 +99,12 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return territoryControllerTask;
   }
 
-  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
-  if (spawnConstructionSite) {
-    return { type: 'build', targetId: spawnConstructionSite.id };
+  if (capacityConstructionSite) {
+    return { type: 'build', targetId: capacityConstructionSite.id };
   }
 
   if (controller && shouldRushRcl1Controller(controller)) {
     return { type: 'upgrade', targetId: controller.id };
-  }
-
-  const extensionConstructionSite = selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
-  if (extensionConstructionSite) {
-    return { type: 'build', targetId: extensionConstructionSite.id };
   }
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
@@ -264,6 +263,23 @@ function selectConstructionSite(
 
 function compareConstructionSiteId(left: ConstructionSite, right: ConstructionSite): number {
   return String(left.id).localeCompare(String(right.id));
+}
+
+function selectCapacityEnablingConstructionSite(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  controller: StructureController | undefined
+): ConstructionSite | null {
+  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
+  if (spawnConstructionSite) {
+    return spawnConstructionSite;
+  }
+
+  if (controller && shouldRushRcl1Controller(controller)) {
+    return null;
+  }
+
+  return selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
 }
 
 function isSpawnConstructionSite(site: ConstructionSite): boolean {

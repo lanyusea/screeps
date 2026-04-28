@@ -1627,6 +1627,30 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
   });
 
+  it.each([
+    ['spawn', 'spawn-site1'],
+    ['extension', 'extension-site1']
+  ])('builds capacity-enabling %s construction before low tower refill', (structureType, id) => {
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const site = { id, structureType } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        myStructures: [lowTower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: id });
+  });
+
   it('breaks same-class fillable energy sink range ties by id', () => {
     const laterSpawn = makeEnergySink('spawn-b', 'spawn' as StructureConstant, 300);
     const firstSpawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);

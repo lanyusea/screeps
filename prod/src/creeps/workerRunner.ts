@@ -2,6 +2,7 @@ import { isWorkerRepairTargetComplete, selectWorkerTask } from '../tasks/workerT
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 
 type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
+type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
 
 export function runWorker(creep: Creep): void {
   const selectedTask = selectWorkerTask(creep);
@@ -14,6 +15,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptForVisibleTerritoryControllerTask(currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
@@ -186,6 +189,30 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(
   return isRecoverableEnergyTask(selectedTask) && !isSameTask(task, selectedTask);
 }
 
+function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (!isEnergyAcquisitionTask(task)) {
+    return false;
+  }
+
+  if (!selectedTask || isSameTask(task, selectedTask)) {
+    return false;
+  }
+
+  if (!creep.store?.getUsedCapacity) {
+    return false;
+  }
+
+  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
+    return false;
+  }
+
+  return isUrgentEnergySpendingTask(selectedTask);
+}
+
 function shouldPreemptTransferTaskForBetterEnergySink(
   creep: Creep,
   task: CreepTaskMemory,
@@ -302,6 +329,33 @@ function isValidTransferTarget(target: unknown): target is AnyStoreStructure {
   return getFreeTransferEnergyCapacity(target) > 0;
 }
 
+function isUrgentEnergySpendingTask(task: CreepTaskMemory): boolean {
+  const target = getTaskTarget(task);
+  if (task.type === 'transfer') {
+    return getTransferSinkPriority(target) >= 2;
+  }
+
+  return task.type === 'build' && isCapacityEnablingConstructionSite(target);
+}
+
+function getTaskTarget(task: CreepTaskMemory): unknown {
+  const game = (globalThis as unknown as { Game?: Partial<Pick<Game, 'getObjectById'>> }).Game;
+  const getObjectById = game?.getObjectById as ((id: string) => unknown) | undefined;
+  return typeof getObjectById === 'function' ? getObjectById(String(task.targetId)) : null;
+}
+
+function isCapacityEnablingConstructionSite(target: unknown): target is ConstructionSite {
+  const structureType = (target as { structureType?: unknown } | null)?.structureType;
+  if (typeof structureType !== 'string') {
+    return false;
+  }
+
+  return (
+    matchesCapacityConstructionStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+    matchesCapacityConstructionStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')
+  );
+}
+
 function getFreeTransferEnergyCapacity(target: unknown): number {
   const store = (target as { store?: { getFreeCapacity?: (resource?: ResourceConstant) => number | null } } | null)
     ?.store;
@@ -331,6 +385,15 @@ function matchesTransferSinkStructureType(
   fallback: string
 ): boolean {
   const constants = globalThis as unknown as Partial<Record<TransferSinkStructureConstantGlobal, string>>;
+  return actual === (constants[globalName] ?? fallback);
+}
+
+function matchesCapacityConstructionStructureType(
+  actual: string,
+  globalName: CapacityConstructionStructureConstantGlobal,
+  fallback: string
+): boolean {
+  const constants = globalThis as unknown as Partial<Record<CapacityConstructionStructureConstantGlobal, string>>;
   return actual === (constants[globalName] ?? fallback);
 }
 
