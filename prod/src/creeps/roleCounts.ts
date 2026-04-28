@@ -3,6 +3,7 @@ export interface RoleCounts {
   workerCapacity?: number;
   claimer?: number;
   claimersByTargetRoom?: Record<string, number>;
+  claimersByTargetRoomAction?: Partial<Record<TerritoryControlAction, Record<string, number>>>;
   scout?: number;
   scoutsByTargetRoom?: Record<string, number>;
 }
@@ -28,6 +29,7 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
           const claimersByTargetRoom = counts.claimersByTargetRoom ?? {};
           claimersByTargetRoom[targetRoom] = (claimersByTargetRoom[targetRoom] ?? 0) + 1;
           counts.claimersByTargetRoom = claimersByTargetRoom;
+          incrementTargetRoomActionCount(counts, creep.memory.territory?.action, targetRoom);
         }
       }
       if (isColonyScout(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
@@ -53,6 +55,22 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
 
 export function getWorkerCapacity(roleCounts: RoleCounts): number {
   return roleCounts.workerCapacity ?? roleCounts.worker;
+}
+
+function incrementTargetRoomActionCount(
+  counts: RoleCounts,
+  action: TerritoryIntentAction | undefined,
+  targetRoom: string
+): void {
+  if (action !== 'claim' && action !== 'reserve') {
+    return;
+  }
+
+  const claimersByTargetRoomAction = counts.claimersByTargetRoomAction ?? {};
+  const claimersForAction = claimersByTargetRoomAction[action] ?? {};
+  claimersForAction[targetRoom] = (claimersForAction[targetRoom] ?? 0) + 1;
+  claimersByTargetRoomAction[action] = claimersForAction;
+  counts.claimersByTargetRoomAction = claimersByTargetRoomAction;
 }
 
 function isColonyWorker(creep: Creep, colonyName: string): boolean {

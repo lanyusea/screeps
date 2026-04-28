@@ -16,6 +16,7 @@ describe('countCreepsByRole', () => {
       worker: 1,
       claimer: 1,
       claimersByTargetRoom: { W2N1: 1 },
+      claimersByTargetRoomAction: { reserve: { W2N1: 1 } },
       scout: 1,
       scoutsByTargetRoom: { W1N2: 1 }
     });
@@ -81,7 +82,8 @@ describe('countCreepsByRole', () => {
     expect(countCreepsByRole([healthyClaimer, expiringClaimer, foreignClaimer], 'W1N1')).toEqual({
       worker: 0,
       claimer: 1,
-      claimersByTargetRoom: { W2N1: 1 }
+      claimersByTargetRoom: { W2N1: 1 },
+      claimersByTargetRoomAction: { claim: { W2N1: 1 } }
     });
   });
 });

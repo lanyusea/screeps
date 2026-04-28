@@ -608,6 +608,10 @@ function getTerritoryCreepCountForTarget(
     return roleCounts.scoutsByTargetRoom?.[targetRoom] ?? 0;
   }
 
+  if (roleCounts.claimersByTargetRoomAction) {
+    return roleCounts.claimersByTargetRoomAction[action]?.[targetRoom] ?? 0;
+  }
+
   return roleCounts.claimersByTargetRoom?.[targetRoom] ?? 0;
 }
 

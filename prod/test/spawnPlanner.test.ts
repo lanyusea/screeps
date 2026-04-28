@@ -336,6 +336,50 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('plans a claim creep when only reserve capacity exists for the recovered target room', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { W2N1: 1 },
+          claimersByTargetRoomAction: { reserve: { W2N1: 1 } }
+        },
+        149
+      )
+    ).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-149',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'claim' }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 149
+      }
+    ]);
+  });
+
   it('keeps territory control absent when the home worker floor is unsafe', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
