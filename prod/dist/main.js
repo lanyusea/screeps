@@ -519,6 +519,7 @@ var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 2;
+var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 function selectWorkerTask(creep) {
   const carriedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   if (carriedEnergy === 0) {
@@ -530,6 +531,10 @@ function selectWorkerTask(creep) {
       const storedEnergy = selectStoredEnergySource(creep);
       if (storedEnergy) {
         return { type: "withdraw", targetId: storedEnergy.id };
+      }
+      const salvageEnergy = selectSalvageEnergySource(creep);
+      if (salvageEnergy) {
+        return { type: "withdraw", targetId: salvageEnergy.id };
       }
     }
     const source = selectHarvestSource(creep);
@@ -658,6 +663,30 @@ function isRoomSafeForUnownedContainerWithdrawal(context) {
     return true;
   }
   return reservationUsername === context.creepOwnerUsername;
+}
+function selectSalvageEnergySource(creep) {
+  const salvageEnergySources = [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy);
+  if (salvageEnergySources.length === 0) {
+    return null;
+  }
+  const closestSalvageEnergy = findClosestByRange(creep, salvageEnergySources);
+  return closestSalvageEnergy != null ? closestSalvageEnergy : salvageEnergySources[0];
+}
+function findTombstones(room) {
+  if (typeof FIND_TOMBSTONES !== "number") {
+    return [];
+  }
+  return room.find(FIND_TOMBSTONES);
+}
+function findRuins(room) {
+  if (typeof FIND_RUINS !== "number") {
+    return [];
+  }
+  return room.find(FIND_RUINS);
+}
+function hasSalvageableEnergy(source) {
+  var _a;
+  return ((_a = source.store.getUsedCapacity(RESOURCE_ENERGY)) != null ? _a : 0) >= MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT;
 }
 function getCreepOwnerUsername(creep) {
   var _a;
