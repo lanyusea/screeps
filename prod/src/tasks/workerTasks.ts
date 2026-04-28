@@ -457,19 +457,37 @@ function estimateHarvestDeliveryEta(creep: Creep, energySink: FillableEnergySink
     return null;
   }
 
+  const sourceAvailabilityDelay = estimateHarvestSourceAvailabilityDelay(source);
+  if (sourceAvailabilityDelay === null) {
+    return null;
+  }
+
   const creepToSourceRange = getRangeBetweenRoomObjects(creep, source);
   const sourceToSinkRange = getRangeBetweenRoomObjects(source, energySink);
   if (creepToSourceRange === null || sourceToSinkRange === null) {
     return null;
   }
 
-  return creepToSourceRange + estimateHarvestTicks(creep, energySink) + sourceToSinkRange;
+  return creepToSourceRange + sourceAvailabilityDelay + estimateHarvestTicks(creep, energySink) + sourceToSinkRange;
 }
 
 function estimateHarvestTicks(creep: Creep, energySink: FillableEnergySink): number {
   const energyNeeded = Math.max(1, Math.min(getFreeEnergyCapacity(creep), getFreeStoredEnergyCapacity(energySink)));
   const workParts = getActiveWorkParts(creep);
   return Math.ceil(energyNeeded / Math.max(HARVEST_ENERGY_PER_WORK_PART, workParts * HARVEST_ENERGY_PER_WORK_PART));
+}
+
+function estimateHarvestSourceAvailabilityDelay(source: Source): number | null {
+  if (typeof source.energy !== 'number') {
+    return 0;
+  }
+
+  if (source.energy > 0) {
+    return 0;
+  }
+
+  const ticksToRegeneration = source.ticksToRegeneration;
+  return Number.isFinite(ticksToRegeneration) && ticksToRegeneration > 0 ? Math.ceil(ticksToRegeneration) : null;
 }
 
 function getActiveWorkParts(creep: Creep): number {
