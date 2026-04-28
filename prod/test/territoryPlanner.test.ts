@@ -11,13 +11,16 @@ import {
 
 describe('planTerritoryIntent', () => {
   beforeEach(() => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 5;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 8;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 9;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     delete (globalThis as { Game?: Partial<Game> }).Game;
   });
 
-  it('records the first valid enabled target for the colony', () => {
+  it('scouts the first valid enabled target for the colony when visibility is missing', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -34,14 +37,14 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W3N1',
-      action: 'claim',
+      action: 'scout',
       controllerId: 'controller3'
     });
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
         targetRoom: 'W3N1',
-        action: 'claim',
+        action: 'scout',
         status: 'planned',
         updatedAt: 500,
         controllerId: 'controller3'
@@ -611,7 +614,7 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W3N1',
-      action: 'reserve'
+      action: 'scout'
     });
     expect(describeExits).toHaveBeenCalledWith('W1N1');
     expect(Memory.territory?.targets).toEqual([configuredTarget]);
@@ -658,6 +661,130 @@ describe('planTerritoryIntent', () => {
         updatedAt: 547
       }
     ]);
+  });
+
+  it('uses a sufficient visible occupy recommendation as a claim intent', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', { sourceCount: 2 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 565)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 565
+      }
+    ]);
+  });
+
+  it('uses recommendation scoring to seed the strongest sufficient visible reserve candidate', () => {
+    const colony = makeSafeColony();
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W1N2: makeRecommendationRoom('W1N2', { sourceCount: 1 }),
+        W2N1: makeRecommendationRoom('W2N1', { sourceCount: 2 })
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 566)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve'
+      }
+    ]);
+  });
+
+  it('excludes a cached no-route recommendation before selecting the next visible reserve candidate', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = -2 as ScreepsReturnCode;
+    const findRoute = jest.fn((fromRoom: string, toRoom: string) =>
+      fromRoom === 'W1N1' && toRoom === 'W2N1' ? -2 : [{ exit: 3, room: toRoom }]
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', { sourceCount: 2 }),
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 1 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ],
+        routeDistances: { 'W1N1>W2N1': null }
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 567)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve'
+    });
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W2N1');
+    expect(Memory.territory?.routeDistances).toEqual({
+      'W1N1>W2N1': null,
+      'W1N1>W3N1': 1
+    });
+  });
+
+  it('does not override a safer visible configured target with a higher-scoring adjacent recommendation', () => {
+    const colony = makeSafeColony();
+    const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', { sourceCount: 2 }),
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 1 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [configuredTarget]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 568)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve'
+    });
+    expect(describeExits).not.toHaveBeenCalled();
+    expect(Memory.territory?.targets).toEqual([configuredTarget]);
   });
 
   it('does not seed visible hostile-owned or self-owned adjacent rooms', () => {
@@ -829,7 +956,7 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
-  it('normalizes malformed existing intents before updating a matching intent', () => {
+  it('normalizes malformed existing intents before recording a scout for missing target evidence', () => {
     const colony = makeSafeColony();
     const unrelatedIntent: TerritoryIntentMemory = {
       colony: 'W9N9',
@@ -863,7 +990,7 @@ describe('planTerritoryIntent', () => {
       ).toEqual({
         colony: 'W1N1',
         targetRoom: 'W2N1',
-        action: 'reserve'
+        action: 'scout'
       });
     }).not.toThrow();
     expect(Memory.territory?.intents).toEqual([
@@ -872,6 +999,13 @@ describe('planTerritoryIntent', () => {
         colony: 'W1N1',
         targetRoom: 'W2N1',
         action: 'reserve',
+        status: 'planned',
+        updatedAt: 451
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
         status: 'planned',
         updatedAt: 506
       }
@@ -914,7 +1048,7 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
-  it('retries stale suppressed claim targets', () => {
+  it('scouts stale suppressed claim targets before retrying controller work', () => {
     const colony = makeSafeColony();
     const suppressionTime = 510;
     const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
@@ -936,12 +1070,23 @@ describe('planTerritoryIntent', () => {
     };
 
     expect(shouldSpawnTerritoryControllerCreep(plan, roleCounts, retryTime)).toBe(true);
-    expect(planTerritoryIntent(colony, roleCounts, 3, retryTime)).toEqual(plan);
+    expect(planTerritoryIntent(colony, roleCounts, 3, retryTime)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
         targetRoom: 'W2N1',
         action: 'claim',
+        status: 'suppressed',
+        updatedAt: suppressionTime
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
         status: 'planned',
         updatedAt: retryTime
       }
@@ -974,7 +1119,7 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W3N1',
-      action: 'reserve'
+      action: 'scout'
     });
     expect(Memory.territory?.intents).toEqual([
       {
@@ -987,7 +1132,7 @@ describe('planTerritoryIntent', () => {
       {
         colony: 'W1N1',
         targetRoom: 'W3N1',
-        action: 'reserve',
+        action: 'scout',
         status: 'planned',
         updatedAt: 513
       }
@@ -2283,6 +2428,43 @@ function makeFollowUp(
     originRoom,
     originAction
   };
+}
+
+function makeRecommendationRoom(
+  roomName: string,
+  {
+    controller = { my: false } as StructureController,
+    sourceCount = 1,
+    hostileCreepCount = 0,
+    hostileStructureCount = 0
+  }: {
+    controller?: StructureController;
+    sourceCount?: number;
+    hostileCreepCount?: number;
+    hostileStructureCount?: number;
+  } = {}
+): Room {
+  return {
+    name: roomName,
+    controller,
+    find: jest.fn((findType: number): unknown[] => {
+      switch (findType) {
+        case FIND_SOURCES:
+          return Array.from({ length: sourceCount }, (_value, index) => ({ id: `source${index}` }));
+        case FIND_HOSTILE_CREEPS:
+          return Array.from({ length: hostileCreepCount }, (_value, index) => ({ id: `hostile${index}` }));
+        case FIND_HOSTILE_STRUCTURES:
+          return Array.from({ length: hostileStructureCount }, (_value, index) => ({
+            id: `hostileStructure${index}`
+          }));
+        case FIND_MY_STRUCTURES:
+        case FIND_MY_CONSTRUCTION_SITES:
+          return [];
+        default:
+          return [];
+      }
+    })
+  } as unknown as Room;
 }
 
 function makeSafeColony({
