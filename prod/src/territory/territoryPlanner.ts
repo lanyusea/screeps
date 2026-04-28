@@ -50,6 +50,7 @@ interface SelectedTerritoryTarget {
 
 type TerritoryCandidateSource =
   | 'configured'
+  | 'occupationIntent'
   | 'satisfiedClaimAdjacent'
   | 'satisfiedReserveAdjacent'
   | 'activeReserveAdjacent'
@@ -365,14 +366,23 @@ function selectTerritoryTarget(
       routeDistanceLookupContext
     )
   );
-  const bestSpawnableConfiguredCandidate = selectBestScoredTerritoryCandidate(
-    getSpawnableTerritoryCandidates(configuredCandidates, roleCounts)
+  const persistedIntentCandidates = getPersistedTerritoryIntentCandidates(
+    colonyName,
+    colonyOwnerUsername,
+    territoryMemory,
+    intents,
+    gameTime,
+    routeDistanceLookupContext
+  );
+  const primaryCandidates = [...persistedIntentCandidates, ...configuredCandidates];
+  const bestSpawnablePrimaryCandidate = selectBestScoredTerritoryCandidate(
+    getSpawnableTerritoryCandidates(primaryCandidates, roleCounts)
   );
   if (
-    bestSpawnableConfiguredCandidate &&
-    bestSpawnableConfiguredCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY
+    bestSpawnablePrimaryCandidate &&
+    bestSpawnablePrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY
   ) {
-    return toSelectedTerritoryTarget(bestSpawnableConfiguredCandidate);
+    return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
   }
 
   const adjacentCandidates = applyOccupationRecommendationScores(colony, roleCounts, [
@@ -417,7 +427,7 @@ function selectTerritoryTarget(
       routeDistanceLookupContext
     )
   ]);
-  const candidates = [...configuredCandidates, ...adjacentCandidates];
+  const candidates = [...primaryCandidates, ...adjacentCandidates];
 
   return toSelectedTerritoryTarget(
     selectBestScoredTerritoryCandidate(getSpawnableTerritoryCandidates(candidates, roleCounts)) ??
@@ -510,6 +520,60 @@ function getConfiguredTerritoryCandidates(
       colonyOwnerUsername,
       routeDistanceLookupContext
     );
+    return candidate ? [candidate] : [];
+  });
+}
+
+function getPersistedTerritoryIntentCandidates(
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): ScoredTerritoryTarget[] {
+  const seenIntentKeys = new Set<string>();
+  const configuredTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
+  return intents.flatMap((intent, order) => {
+    if (
+      intent.colony !== colonyName ||
+      intent.targetRoom === colonyName ||
+      configuredTargetRooms.has(intent.targetRoom) ||
+      (intent.status !== 'planned' && intent.status !== 'active') ||
+      !isTerritoryControlAction(intent.action) ||
+      isSuppressedTerritoryIntentForAction(intents, colonyName, intent.targetRoom, intent.action, gameTime) ||
+      getVisibleTerritoryTargetState(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername) !==
+        'available'
+    ) {
+      return [];
+    }
+
+    const intentKey = `${intent.targetRoom}:${intent.action}`;
+    if (seenIntentKeys.has(intentKey)) {
+      return [];
+    }
+    seenIntentKeys.add(intentKey);
+
+    const target: TerritoryTargetMemory = {
+      colony: intent.colony,
+      roomName: intent.targetRoom,
+      action: intent.action,
+      ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+    };
+    const candidate = scoreTerritoryCandidate(
+      {
+        target,
+        intentAction: intent.action,
+        commitTarget: false,
+        ...(intent.followUp ? { followUp: intent.followUp } : {})
+      },
+      'occupationIntent',
+      order,
+      colonyName,
+      colonyOwnerUsername,
+      routeDistanceLookupContext
+    );
+
     return candidate ? [candidate] : [];
   });
 }
@@ -1045,7 +1109,7 @@ function compareOptionalNumbersDescending(left: number | undefined, right: numbe
 }
 
 function getTerritoryCandidateSourcePriority(source: TerritoryCandidateSource): number {
-  if (source === 'configured') {
+  if (source === 'configured' || source === 'occupationIntent') {
     return 0;
   }
 

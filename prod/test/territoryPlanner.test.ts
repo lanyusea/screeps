@@ -1177,6 +1177,40 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
+  it('does not route a persisted claim intent after the visible target is self-owned', () => {
+    const colony = makeSafeColony();
+    const persistedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 569
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: true, owner: { username: 'me' } } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [persistedIntent]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 570)).toBeNull();
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        570
+      )
+    ).toBe(false);
+    expect(Memory.territory?.intents).toEqual([persistedIntent]);
+  });
+
   it('scouts adjacent rooms after a configured claim target is owned by the colony account', () => {
     const colony = makeSafeColony();
     const claimedTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'claim' };
