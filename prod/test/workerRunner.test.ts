@@ -1,5 +1,9 @@
 import { runWorker } from '../src/creeps/workerRunner';
-import { CONTROLLER_DOWNGRADE_GUARD_TICKS, IDLE_RAMPART_REPAIR_HITS_CEILING } from '../src/tasks/workerTasks';
+import {
+  CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  IDLE_RAMPART_REPAIR_HITS_CEILING,
+  URGENT_SPAWN_REFILL_ENERGY_THRESHOLD
+} from '../src/tasks/workerTasks';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
@@ -558,6 +562,7 @@ describe('runWorker', () => {
         getFreeCapacity: jest.fn().mockReturnValue(0)
       },
       room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
         find: jest.fn(
           (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
             if (type === FIND_MY_STRUCTURES) {
@@ -581,6 +586,48 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: id });
     expect(Game.getObjectById).not.toHaveBeenCalled();
     expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps construction work when spawn refill pressure has cleared', () => {
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureSpawn;
+    const build = jest.fn().mockReturnValue(0);
+    const creep = {
+      memory: { task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+            if (type === FIND_MY_STRUCTURES) {
+              const structures = [spawn];
+              return options?.filter ? structures.filter(options.filter) : structures;
+            }
+
+            return type === FIND_CONSTRUCTION_SITES ? [site] : [];
+          }
+        )
+      },
+      build,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(site)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(Game.getObjectById).toHaveBeenCalledWith('site1');
+    expect(build).toHaveBeenCalledWith(site);
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 

@@ -3,6 +3,7 @@ import {
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   TOWER_REFILL_ENERGY_FLOOR,
+  URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
 import {
@@ -97,17 +98,20 @@ function makeSalvageEnergySource(
 function makeWorkerTaskRoom({
   constructionSites = [],
   controller = { id: 'controller1', my: true, level: 3 } as StructureController,
+  energyAvailable,
   myStructures = [],
   structures = []
 }: {
   constructionSites?: ConstructionSite[];
   controller?: StructureController;
+  energyAvailable?: number;
   myStructures?: AnyOwnedStructure[];
   structures?: AnyStructure[];
 } = {}): Room {
   return {
     name: 'W1N1',
     controller,
+    ...(energyAvailable === undefined ? {} : { energyAvailable }),
     find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
       if (type === FIND_MY_STRUCTURES) {
         return options?.filter ? myStructures.filter(options.filter) : myStructures;
@@ -2596,6 +2600,72 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('guards critically low spawn energy from construction spending', () => {
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 101);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite, containerSite],
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('keeps construction spending when spawn refill is no longer urgent', () => {
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 100);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite, containerSite],
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
+  it('keeps controller progress when spawn refill is no longer urgent and no construction remains', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 100);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('builds RCL2 extension construction before controller progress guard when STRUCTURE_EXTENSION is missing', () => {

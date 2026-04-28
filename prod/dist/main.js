@@ -2436,6 +2436,7 @@ var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var TOWER_REFILL_ENERGY_FLOOR = 500;
+var URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -2478,9 +2479,9 @@ function selectWorkerTask(creep) {
   if (isTerritoryControlTask(territoryControllerTask)) {
     return territoryControllerTask;
   }
-  const energySink = selectFillableEnergySink(creep);
-  if (energySink && !isTowerEnergySink(energySink)) {
-    return { type: "transfer", targetId: energySink.id };
+  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  if (spawnOrExtensionEnergySink && shouldGuardUrgentSpawnRefill(creep.room)) {
+    return { type: "transfer", targetId: spawnOrExtensionEnergySink.id };
   }
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
@@ -2491,8 +2492,9 @@ function selectWorkerTask(creep) {
   if (capacityConstructionSite && !territoryControllerTask) {
     return { type: "build", targetId: capacityConstructionSite.id };
   }
-  if (energySink) {
-    return { type: "transfer", targetId: energySink.id };
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink) {
+    return { type: "transfer", targetId: priorityTowerEnergySink.id };
   }
   if (territoryControllerTask) {
     return territoryControllerTask;
@@ -2542,14 +2544,20 @@ function isFillableEnergySink(structure) {
   return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType2(structure.structureType, "STRUCTURE_TOWER", "tower")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
 function selectFillableEnergySink(creep) {
+  var _a;
+  return (_a = selectSpawnOrExtensionEnergySink(creep)) != null ? _a : selectPriorityTowerEnergySink(creep);
+}
+function selectSpawnOrExtensionEnergySink(creep) {
+  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isSpawnOrExtensionEnergySink), creep);
+}
+function selectPriorityTowerEnergySink(creep) {
+  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink), creep);
+}
+function findFillableEnergySinks(creep) {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
-  const spawnOrExtension = selectClosestEnergySink(creep, energySinks.filter(isSpawnOrExtensionEnergySink));
-  if (spawnOrExtension) {
-    return spawnOrExtension;
-  }
-  return selectClosestEnergySink(creep, energySinks.filter(isPriorityTowerEnergySink));
+  return energySinks;
 }
 function isSpawnEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn");
@@ -2566,7 +2574,7 @@ function isTowerEnergySink(structure) {
 function isPriorityTowerEnergySink(structure) {
   return isTowerEnergySink(structure) && getStoredEnergy2(structure) < TOWER_REFILL_ENERGY_FLOOR;
 }
-function selectClosestEnergySink(creep, energySinks) {
+function selectClosestEnergySink(energySinks, creep) {
   var _a;
   if (energySinks.length === 0) {
     return null;
@@ -2585,6 +2593,10 @@ function selectClosestEnergySink(creep, energySinks) {
     return (_a = position.findClosestByRange(energySinksByStableId)) != null ? _a : energySinksByStableId[0];
   }
   return energySinksByStableId[0];
+}
+function shouldGuardUrgentSpawnRefill(room) {
+  const energyAvailable = room.energyAvailable;
+  return typeof energyAvailable !== "number" || !Number.isFinite(energyAvailable) || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
 }
 function compareEnergySinkId(left, right) {
   return String(left.id).localeCompare(String(right.id));
