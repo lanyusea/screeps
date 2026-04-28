@@ -601,7 +601,7 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
   }
-  const selection = selectTerritoryTarget(colony, gameTime);
+  const selection = selectTerritoryTarget(colony, roleCounts, gameTime);
   if (!selection) {
     return null;
   }
@@ -769,7 +769,8 @@ function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   }
   return typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS;
 }
-function selectTerritoryTarget(colony, gameTime) {
+function selectTerritoryTarget(colony, roleCounts, gameTime) {
+  var _a;
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord();
@@ -781,6 +782,7 @@ function selectTerritoryTarget(colony, gameTime) {
     colonyOwnerUsername,
     intents,
     gameTime,
+    roleCounts,
     routeDistanceLookupContext
   );
   const configuredCandidates = getConfiguredTerritoryCandidates(
@@ -791,35 +793,38 @@ function selectTerritoryTarget(colony, gameTime) {
     gameTime,
     routeDistanceLookupContext
   );
-  const bestConfiguredCandidate = selectBestScoredTerritoryCandidate(configuredCandidates);
-  if (bestConfiguredCandidate && bestConfiguredCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
-    return toSelectedTerritoryTarget(bestConfiguredCandidate);
+  const bestSpawnableConfiguredCandidate = selectBestScoredTerritoryCandidate(
+    getSpawnableTerritoryCandidates(configuredCandidates, roleCounts)
+  );
+  if (bestSpawnableConfiguredCandidate && bestSpawnableConfiguredCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
+    return toSelectedTerritoryTarget(bestSpawnableConfiguredCandidate);
   }
+  const adjacentCandidates = [
+    ...getAdjacentReserveCandidates(
+      colonyName,
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      !hasBlockingConfiguredTarget,
+      "adjacent",
+      0,
+      routeDistanceLookupContext
+    ),
+    ...getSatisfiedClaimAdjacentReserveCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      !hasBlockingConfiguredTarget,
+      routeDistanceLookupContext
+    )
+  ];
+  const candidates = [...configuredCandidates, ...adjacentCandidates];
   return toSelectedTerritoryTarget(
-    selectBestScoredTerritoryCandidate([
-      ...configuredCandidates,
-      ...getAdjacentReserveCandidates(
-        colonyName,
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        !hasBlockingConfiguredTarget,
-        "adjacent",
-        0,
-        routeDistanceLookupContext
-      ),
-      ...getSatisfiedClaimAdjacentReserveCandidates(
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        !hasBlockingConfiguredTarget,
-        routeDistanceLookupContext
-      )
-    ])
+    (_a = selectBestScoredTerritoryCandidate(getSpawnableTerritoryCandidates(candidates, roleCounts))) != null ? _a : selectBestScoredTerritoryCandidate(candidates)
   );
 }
 function selectBestScoredTerritoryCandidate(candidates) {
@@ -837,6 +842,11 @@ function toSelectedTerritoryTarget(candidate) {
     intentAction: candidate.intentAction,
     commitTarget: candidate.commitTarget
   } : null;
+}
+function getSpawnableTerritoryCandidates(candidates, roleCounts) {
+  return candidates.filter(
+    (candidate) => getTerritoryCreepCountForTarget(roleCounts, candidate.target.roomName, candidate.intentAction) === 0
+  );
 }
 function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, routeDistanceLookupContext) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
@@ -858,7 +868,7 @@ function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, terri
     return candidate ? [candidate] : [];
   });
 }
-function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents, gameTime, routeDistanceLookupContext) {
+function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents, gameTime, roleCounts, routeDistanceLookupContext) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return false;
   }
@@ -872,6 +882,9 @@ function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyNa
     }
     if (target.enabled === false || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime)) {
       return true;
+    }
+    if (getTerritoryCreepCountForTarget(roleCounts, target.roomName, target.action) > 0) {
+      return false;
     }
     return getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "satisfied";
   });
