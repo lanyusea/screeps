@@ -15,6 +15,7 @@ const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
+const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -481,7 +482,10 @@ function findWorkerEnergyAcquisitionCandidates(creep: Creep): WorkerEnergyAcquis
         type: 'pickup',
         targetId: source.id
       })
-    );
+    )
+    .sort(compareDroppedEnergyReachabilityPriority)
+    .slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS)
+    .filter((candidate) => isReachable(creep, candidate.source));
 
   return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
@@ -610,6 +614,25 @@ function getRangeToWorkerEnergyAcquisitionSource(
   return Number.isFinite(range) ? Math.max(0, range) : null;
 }
 
+function isReachable(creep: Creep, target: RoomObject): boolean {
+  const position = (creep as Creep & {
+    pos?: {
+      findPathTo?: (target: RoomObject, opts?: { ignoreCreeps?: boolean }) => unknown[];
+    };
+  }).pos;
+  if (typeof position?.findPathTo !== 'function') {
+    return true;
+  }
+
+  const range = getRangeBetweenRoomObjects(creep, target);
+  if (range !== null && range <= 1) {
+    return true;
+  }
+
+  const path = position.findPathTo(target, { ignoreCreeps: true });
+  return Array.isArray(path) && path.length > 0;
+}
+
 function compareWorkerEnergyAcquisitionCandidates(
   left: WorkerEnergyAcquisitionCandidate,
   right: WorkerEnergyAcquisitionCandidate
@@ -620,6 +643,18 @@ function compareWorkerEnergyAcquisitionCandidates(
     right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id)) ||
     left.task.type.localeCompare(right.task.type)
+  );
+}
+
+function compareDroppedEnergyReachabilityPriority(
+  left: WorkerEnergyAcquisitionCandidate,
+  right: WorkerEnergyAcquisitionCandidate
+): number {
+  return (
+    compareOptionalRanges(left.range, right.range) ||
+    right.energy - left.energy ||
+    right.score - left.score ||
+    String(left.source.id).localeCompare(String(right.source.id))
   );
 }
 

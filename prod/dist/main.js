@@ -2294,6 +2294,7 @@ var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
+var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 function selectWorkerTask(creep) {
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
@@ -2592,7 +2593,7 @@ function findWorkerEnergyAcquisitionCandidates(creep) {
       type: "pickup",
       targetId: source.id
     })
-  );
+  ).sort(compareDroppedEnergyReachabilityPriority).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
   return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
 function createWorkerEnergyAcquisitionCandidate(creep, source, energy, task) {
@@ -2679,8 +2680,23 @@ function getRangeToWorkerEnergyAcquisitionSource(creep, source) {
   const range = position.getRangeTo(source);
   return Number.isFinite(range) ? Math.max(0, range) : null;
 }
+function isReachable(creep, target) {
+  const position = creep.pos;
+  if (typeof (position == null ? void 0 : position.findPathTo) !== "function") {
+    return true;
+  }
+  const range = getRangeBetweenRoomObjects(creep, target);
+  if (range !== null && range <= 1) {
+    return true;
+  }
+  const path = position.findPathTo(target, { ignoreCreeps: true });
+  return Array.isArray(path) && path.length > 0;
+}
 function compareWorkerEnergyAcquisitionCandidates(left, right) {
   return right.score - left.score || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+}
+function compareDroppedEnergyReachabilityPriority(left, right) {
+  return compareOptionalRanges(left.range, right.range) || right.energy - left.energy || right.score - left.score || String(left.source.id).localeCompare(String(right.source.id));
 }
 function compareSpawnRecoveryEnergyAcquisitionCandidates(left, right) {
   return left.deliveryEta - right.deliveryEta || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
