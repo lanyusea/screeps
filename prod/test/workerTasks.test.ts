@@ -2197,6 +2197,57 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
   });
 
+  it('builds the closest same-priority construction site after spawn refill is satisfied', () => {
+    const farRoadSite = { id: 'road-far', structureType: 'road' } as ConstructionSite;
+    const nearRoadSite = { id: 'road-near', structureType: 'road' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const getRangeTo = jest.fn((target: ConstructionSite) => {
+      const ranges: Record<string, number> = {
+        'road-far': 9,
+        'road-near': 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({
+        constructionSites: [farRoadSite, nearRoadSite],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-near' });
+  });
+
+  it('breaks same-priority construction site range ties by id', () => {
+    const secondRoadSite = { id: 'road-b', structureType: 'road' } as ConstructionSite;
+    const firstRoadSite = { id: 'road-a', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo: jest.fn().mockReturnValue(4) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [secondRoadSite, firstRoadSite],
+        controller
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-a' });
+  });
+
   it('keeps spawn refill before container-first construction throughput', () => {
     const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;

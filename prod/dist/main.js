@@ -1327,14 +1327,14 @@ function selectWorkerTask(creep) {
     return territoryControllerTask;
   }
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-  const spawnConstructionSite = constructionSites.find(isSpawnConstructionSite);
+  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
   if (spawnConstructionSite) {
     return { type: "build", targetId: spawnConstructionSite.id };
   }
   if (controller && shouldRushRcl1Controller(controller)) {
     return { type: "upgrade", targetId: controller.id };
   }
-  const extensionConstructionSite = constructionSites.find(isExtensionConstructionSite);
+  const extensionConstructionSite = selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
   if (extensionConstructionSite) {
     return { type: "build", targetId: extensionConstructionSite.id };
   }
@@ -1342,19 +1342,20 @@ function selectWorkerTask(creep) {
   if (criticalRepairTarget) {
     return { type: "repair", targetId: criticalRepairTarget.id };
   }
-  const containerConstructionSite = constructionSites.find(isContainerConstructionSite);
+  const containerConstructionSite = selectConstructionSite(creep, constructionSites, isContainerConstructionSite);
   if (containerConstructionSite) {
     return { type: "build", targetId: containerConstructionSite.id };
   }
-  const roadConstructionSite = constructionSites.find(isRoadConstructionSite2);
+  const roadConstructionSite = selectConstructionSite(creep, constructionSites, isRoadConstructionSite2);
   if (roadConstructionSite) {
     return { type: "build", targetId: roadConstructionSite.id };
   }
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     return { type: "upgrade", targetId: controller.id };
   }
-  if (constructionSites[0]) {
-    return { type: "build", targetId: constructionSites[0].id };
+  const constructionSite = selectConstructionSite(creep, constructionSites);
+  if (constructionSite) {
+    return { type: "build", targetId: constructionSite.id };
   }
   const repairTarget = selectRepairTarget(creep);
   if (repairTarget) {
@@ -1408,6 +1409,30 @@ function selectClosestEnergySink(creep, energySinks) {
   return energySinksByStableId[0];
 }
 function compareEnergySinkId(left, right) {
+  return String(left.id).localeCompare(String(right.id));
+}
+function selectConstructionSite(creep, constructionSites, predicate = () => true) {
+  var _a;
+  const candidates = constructionSites.filter(predicate);
+  if (candidates.length === 0) {
+    return null;
+  }
+  const position = creep.pos;
+  if (typeof (position == null ? void 0 : position.getRangeTo) === "function") {
+    return [...candidates].sort(compareConstructionSiteId).reduce((closest, candidate) => {
+      var _a2, _b, _c, _d;
+      const closestRange = (_b = (_a2 = position.getRangeTo) == null ? void 0 : _a2.call(position, closest)) != null ? _b : Infinity;
+      const candidateRange = (_d = (_c = position.getRangeTo) == null ? void 0 : _c.call(position, candidate)) != null ? _d : Infinity;
+      return candidateRange < closestRange || candidateRange === closestRange && compareConstructionSiteId(candidate, closest) < 0 ? candidate : closest;
+    });
+  }
+  if (typeof (position == null ? void 0 : position.findClosestByRange) === "function") {
+    const candidatesByStableId = [...candidates].sort(compareConstructionSiteId);
+    return (_a = position.findClosestByRange(candidatesByStableId)) != null ? _a : candidatesByStableId[0];
+  }
+  return candidates[0];
+}
+function compareConstructionSiteId(left, right) {
   return String(left.id).localeCompare(String(right.id));
 }
 function isSpawnConstructionSite(site) {
