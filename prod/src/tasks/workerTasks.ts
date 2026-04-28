@@ -106,9 +106,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
   }
 
-  const roadOrContainerConstructionSite = constructionSites.find(isRoadOrContainerConstructionSite);
-  if (roadOrContainerConstructionSite) {
-    return { type: 'build', targetId: roadOrContainerConstructionSite.id };
+  const containerConstructionSite = constructionSites.find(isContainerConstructionSite);
+  if (containerConstructionSite) {
+    return { type: 'build', targetId: containerConstructionSite.id };
+  }
+
+  const roadConstructionSite = constructionSites.find(isRoadConstructionSite);
+  if (roadConstructionSite) {
+    return { type: 'build', targetId: roadConstructionSite.id };
   }
 
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
@@ -208,11 +213,12 @@ function isExtensionConstructionSite(site: ConstructionSite): boolean {
   return matchesStructureType(site.structureType, 'STRUCTURE_EXTENSION', 'extension');
 }
 
-function isRoadOrContainerConstructionSite(site: ConstructionSite): boolean {
-  return (
-    matchesStructureType(site.structureType, 'STRUCTURE_ROAD', 'road') ||
-    matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container')
-  );
+function isContainerConstructionSite(site: ConstructionSite): boolean {
+  return matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container');
+}
+
+function isRoadConstructionSite(site: ConstructionSite): boolean {
+  return matchesStructureType(site.structureType, 'STRUCTURE_ROAD', 'road');
 }
 
 type StructureConstantGlobal =

@@ -2175,6 +2175,50 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
+  it('builds container construction before road construction after spawn refill is satisfied', () => {
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite, containerSite],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
+  it('keeps spawn refill before container-first construction throughput', () => {
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite, containerSite],
+        controller,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
   it('builds RCL2 extension construction before controller progress guard when STRUCTURE_EXTENSION is missing', () => {
     delete (globalThis as unknown as { STRUCTURE_EXTENSION?: StructureConstant }).STRUCTURE_EXTENSION;
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
