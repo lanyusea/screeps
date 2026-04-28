@@ -621,7 +621,8 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
     colony: colony.room.name,
     targetRoom: target.roomName,
     action: selection.intentAction,
-    ...target.controllerId ? { controllerId: target.controllerId } : {}
+    ...target.controllerId ? { controllerId: target.controllerId } : {},
+    ...selection.followUp ? { followUp: selection.followUp } : {}
   };
   const status = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action) > 0 ? "active" : "planned";
   recordTerritoryIntent(plan, status, gameTime, selection.commitTarget ? target : null);
@@ -652,7 +653,8 @@ function buildTerritoryCreepMemory(plan) {
     territory: {
       targetRoom: plan.targetRoom,
       action: plan.action,
-      ...plan.controllerId ? { controllerId: plan.controllerId } : {}
+      ...plan.controllerId ? { controllerId: plan.controllerId } : {},
+      ...plan.followUp ? { followUp: plan.followUp } : {}
     }
   };
 }
@@ -758,13 +760,15 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
   }
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
+  const followUp = normalizeTerritoryFollowUp(assignment.followUp);
   const suppressedIntent = {
     colony,
     targetRoom: assignment.targetRoom,
     action: assignment.action,
     status: "suppressed",
     updatedAt: gameTime,
-    ...assignment.controllerId ? { controllerId: assignment.controllerId } : {}
+    ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
+    ...followUp ? { followUp } : {}
   };
   upsertTerritoryIntent(intents, suppressedIntent);
 }
@@ -871,7 +875,8 @@ function toSelectedTerritoryTarget(candidate) {
   return candidate ? {
     target: candidate.target,
     intentAction: candidate.intentAction,
-    commitTarget: candidate.commitTarget
+    commitTarget: candidate.commitTarget,
+    ...candidate.followUp ? { followUp: candidate.followUp } : {}
   } : null;
 }
 function getSpawnableTerritoryCandidates(candidates, roleCounts) {
@@ -942,7 +947,12 @@ function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUse
     const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
     if (candidateState === "safe") {
       const candidate = scoreTerritoryCandidate(
-        { target, intentAction: "reserve", commitTarget: true },
+        {
+          target,
+          intentAction: "reserve",
+          commitTarget: true,
+          ...buildTerritoryFollowUp(source, originRoomName)
+        },
         source,
         orderOffset + order,
         colonyName,
@@ -953,7 +963,12 @@ function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUse
     }
     if (candidateState === "unknown" && includeScoutCandidates && !isSuppressedTerritoryIntentForAction(intents, colonyName, roomName, "scout", gameTime)) {
       const candidate = scoreTerritoryCandidate(
-        { target, intentAction: "scout", commitTarget: false },
+        {
+          target,
+          intentAction: "scout",
+          commitTarget: false,
+          ...buildTerritoryFollowUp(source, originRoomName)
+        },
         source,
         orderOffset + order,
         colonyName,
@@ -1114,6 +1129,25 @@ function getTerritoryCandidateSourcePriority(source) {
   }
   return source === "activeReserveAdjacent" ? 3 : 4;
 }
+function buildTerritoryFollowUp(source, originRoom) {
+  const originAction = getTerritoryFollowUpOriginAction(source);
+  if (originAction === null || !isTerritoryFollowUpSource(source) || !isNonEmptyString(originRoom)) {
+    return {};
+  }
+  return {
+    followUp: {
+      source,
+      originRoom,
+      originAction
+    }
+  };
+}
+function getTerritoryFollowUpOriginAction(source) {
+  if (source === "satisfiedClaimAdjacent") {
+    return "claim";
+  }
+  return source === "satisfiedReserveAdjacent" || source === "activeReserveAdjacent" ? "reserve" : null;
+}
 function isTerritoryTargetVisible(target) {
   return isVisibleRoomKnown(target.roomName) || getVisibleController(target.roomName, target.controllerId) !== null;
 }
@@ -1251,7 +1285,8 @@ function recordTerritoryIntent(plan, status, gameTime, seededTarget = null) {
     action: plan.action,
     status,
     updatedAt: gameTime,
-    ...plan.controllerId ? { controllerId: plan.controllerId } : {}
+    ...plan.controllerId ? { controllerId: plan.controllerId } : {},
+    ...plan.followUp ? { followUp: plan.followUp } : {}
   };
   upsertTerritoryIntent(intents, nextIntent);
 }
@@ -1278,13 +1313,28 @@ function normalizeTerritoryIntent(rawIntent) {
   if (!isNonEmptyString(rawIntent.colony) || !isNonEmptyString(rawIntent.targetRoom) || !isTerritoryIntentAction(rawIntent.action) || !isTerritoryIntentStatus(rawIntent.status) || typeof rawIntent.updatedAt !== "number") {
     return null;
   }
+  const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
   return {
     colony: rawIntent.colony,
     targetRoom: rawIntent.targetRoom,
     action: rawIntent.action,
     status: rawIntent.status,
     updatedAt: rawIntent.updatedAt,
-    ...typeof rawIntent.controllerId === "string" ? { controllerId: rawIntent.controllerId } : {}
+    ...typeof rawIntent.controllerId === "string" ? { controllerId: rawIntent.controllerId } : {},
+    ...followUp ? { followUp } : {}
+  };
+}
+function normalizeTerritoryFollowUp(rawFollowUp) {
+  if (!isRecord(rawFollowUp)) {
+    return null;
+  }
+  if (!isTerritoryFollowUpSource(rawFollowUp.source) || !isNonEmptyString(rawFollowUp.originRoom) || !isTerritoryControlAction(rawFollowUp.originAction)) {
+    return null;
+  }
+  return {
+    source: rawFollowUp.source,
+    originRoom: rawFollowUp.originRoom,
+    originAction: rawFollowUp.originAction
   };
 }
 function getTerritoryCreepCountForTarget(roleCounts, targetRoom, action) {
@@ -1338,13 +1388,15 @@ function normalizeCreepTerritoryIntent(creep, roomName) {
   if (!assignment || assignment.targetRoom !== roomName || !isTerritoryControlAction(assignment.action) || isNonEmptyString((_b = creep.memory) == null ? void 0 : _b.colony) && isTerritoryIntentSuppressed(creep.memory.colony, assignment.targetRoom, assignment.action)) {
     return null;
   }
+  const followUp = normalizeTerritoryFollowUp(assignment.followUp);
   return {
     colony: (_d = (_c = creep.memory) == null ? void 0 : _c.colony) != null ? _d : "",
     targetRoom: assignment.targetRoom,
     action: assignment.action,
     status: "active",
     updatedAt: getGameTime(),
-    ...assignment.controllerId ? { controllerId: assignment.controllerId } : {}
+    ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
+    ...followUp ? { followUp } : {}
   };
 }
 function isActiveVisibleControllerIntentForCreep(intent, roomName, creepColony) {
@@ -1607,6 +1659,9 @@ function isTerritoryControlAction(action) {
 }
 function isTerritoryIntentAction(action) {
   return isTerritoryControlAction(action) || action === "scout";
+}
+function isTerritoryFollowUpSource(source) {
+  return source === "satisfiedClaimAdjacent" || source === "satisfiedReserveAdjacent" || source === "activeReserveAdjacent";
 }
 function isTerritoryIntentStatus(status) {
   return status === "planned" || status === "active" || status === "suppressed";
