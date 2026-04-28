@@ -31,6 +31,7 @@ export interface OccupationRecommendationFollowUpIntent {
   targetRoom: string;
   action: TerritoryIntentAction;
   controllerId?: Id<StructureController>;
+  followUp?: TerritoryFollowUpMemory;
 }
 
 export interface OccupationRecommendationInput {
@@ -123,13 +124,15 @@ export function persistOccupationRecommendationFollowUpIntent(
   }
 
   const controllerId = followUpIntent.controllerId ?? existingIntent?.controllerId;
+  const followUp = normalizeTerritoryFollowUp(followUpIntent.followUp) ?? existingIntent?.followUp;
   const nextIntent: TerritoryIntentMemory = {
     colony: followUpIntent.colony,
     targetRoom: followUpIntent.targetRoom,
     action: followUpIntent.action,
     status: existingIntent?.status === 'active' ? 'active' : 'planned',
     updatedAt: gameTime,
-    ...(controllerId ? { controllerId } : {})
+    ...(controllerId ? { controllerId } : {}),
+    ...(followUp ? { followUp } : {})
   };
 
   upsertTerritoryIntent(intents, nextIntent);
@@ -648,6 +651,7 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
     return null;
   }
 
+  const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
   return {
     colony: rawIntent.colony,
     targetRoom: rawIntent.targetRoom,
@@ -656,8 +660,30 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
     updatedAt: rawIntent.updatedAt,
     ...(typeof rawIntent.controllerId === 'string'
       ? { controllerId: rawIntent.controllerId as Id<StructureController> }
-      : {})
+      : {}),
+    ...(followUp ? { followUp } : {})
   };
+}
+
+function normalizeTerritoryFollowUp(rawFollowUp: unknown): TerritoryFollowUpMemory | null {
+  if (!isRecord(rawFollowUp) || !isTerritoryFollowUpSource(rawFollowUp.source)) {
+    return null;
+  }
+
+  const originAction = getTerritoryFollowUpOriginAction(rawFollowUp.source);
+  if (!isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
+    return null;
+  }
+
+  return {
+    source: rawFollowUp.source,
+    originRoom: rawFollowUp.originRoom,
+    originAction
+  };
+}
+
+function getTerritoryFollowUpOriginAction(source: TerritoryFollowUpSource): TerritoryControlAction {
+  return source === 'satisfiedClaimAdjacent' ? 'claim' : 'reserve';
 }
 
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
@@ -691,6 +717,14 @@ function isTerritoryIntentAction(action: unknown): action is TerritoryIntentActi
 
 function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
   return status === 'planned' || status === 'active' || status === 'suppressed';
+}
+
+function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUpSource {
+  return (
+    source === 'satisfiedClaimAdjacent' ||
+    source === 'satisfiedReserveAdjacent' ||
+    source === 'activeReserveAdjacent'
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

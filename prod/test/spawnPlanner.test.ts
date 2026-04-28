@@ -184,7 +184,7 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 147)).toBeNull();
   });
 
-  it('plans a claimer-role reserver for an explicit memory target when home survival is safe', () => {
+  it('plans a scout for an explicit memory target when target visibility is missing', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
@@ -198,26 +198,26 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 139)).toEqual({
       spawn,
-      body: ['claim', 'move'],
-      name: 'claimer-W1N1-W2N1-139',
+      body: ['move'],
+      name: 'scout-W1N1-W2N1-139',
       memory: {
-        role: 'claimer',
+        role: 'scout',
         colony: 'W1N1',
-        territory: { targetRoom: 'W2N1', action: 'reserve' }
+        territory: { targetRoom: 'W2N1', action: 'scout' }
       }
     });
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
         targetRoom: 'W2N1',
-        action: 'reserve',
+        action: 'scout',
         status: 'planned',
         updatedAt: 139
       }
     ]);
   });
 
-  it('plans territory control once the construction-adjusted worker target is satisfied', () => {
+  it('plans territory scouting once the construction-adjusted worker target is satisfied', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N10',
       constructionSiteCount: 1,
@@ -233,19 +233,19 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 148)).toEqual({
       spawn,
-      body: ['claim', 'move'],
-      name: 'claimer-W1N10-W2N10-148',
+      body: ['move'],
+      name: 'scout-W1N10-W2N10-148',
       memory: {
-        role: 'claimer',
+        role: 'scout',
         colony: 'W1N10',
-        territory: { targetRoom: 'W2N10', action: 'reserve' }
+        territory: { targetRoom: 'W2N10', action: 'scout' }
       }
     });
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N10',
         targetRoom: 'W2N10',
-        action: 'reserve',
+        action: 'scout',
         status: 'planned',
         updatedAt: 148
       }
@@ -327,8 +327,8 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('records territory intent while waiting for claim body energy', () => {
-    const { colony } = makeColony({
+  it('spawns a scout while waiting for claim body energy and target visibility', () => {
+    const { colony, spawn } = makeColony({
       energyAvailable: 600,
       energyCapacityAvailable: 650,
       controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
@@ -339,12 +339,21 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 141)).toBeNull();
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 141)).toEqual({
+      spawn,
+      body: ['move'],
+      name: 'scout-W1N1-W2N1-141',
+      memory: {
+        role: 'scout',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'scout', controllerId: 'controller2' as Id<StructureController> }
+      }
+    });
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
         targetRoom: 'W2N1',
-        action: 'claim',
+        action: 'scout',
         status: 'planned',
         updatedAt: 141,
         controllerId: 'controller2'
@@ -352,7 +361,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('plans a claim creep when only reserve capacity exists for the recovered target room', () => {
+  it('plans a scout when only reserve capacity exists for an unseen recovered claim target', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
@@ -377,19 +386,19 @@ describe('planSpawn', () => {
       )
     ).toEqual({
       spawn,
-      body: ['claim', 'move'],
-      name: 'claimer-W1N1-W2N1-149',
+      body: ['move'],
+      name: 'scout-W1N1-W2N1-149',
       memory: {
-        role: 'claimer',
+        role: 'scout',
         colony: 'W1N1',
-        territory: { targetRoom: 'W2N1', action: 'claim' }
+        territory: { targetRoom: 'W2N1', action: 'scout' }
       }
     });
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
         targetRoom: 'W2N1',
-        action: 'claim',
+        action: 'scout',
         status: 'planned',
         updatedAt: 149
       }
