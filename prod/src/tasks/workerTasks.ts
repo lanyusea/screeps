@@ -60,13 +60,18 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'build', targetId: extensionConstructionSite.id };
   }
 
-  if (controller && shouldSustainControllerProgress(creep, controller)) {
-    return { type: 'upgrade', targetId: controller.id };
-  }
-
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
     return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
+  }
+
+  const roadOrContainerConstructionSite = constructionSites.find(isRoadOrContainerConstructionSite);
+  if (roadOrContainerConstructionSite) {
+    return { type: 'build', targetId: roadOrContainerConstructionSite.id };
+  }
+
+  if (controller && shouldSustainControllerProgress(creep, controller)) {
+    return { type: 'upgrade', targetId: controller.id };
   }
 
   if (constructionSites[0]) {
@@ -113,6 +118,13 @@ function isSpawnConstructionSite(site: ConstructionSite): boolean {
 
 function isExtensionConstructionSite(site: ConstructionSite): boolean {
   return matchesStructureType(site.structureType, 'STRUCTURE_EXTENSION', 'extension');
+}
+
+function isRoadOrContainerConstructionSite(site: ConstructionSite): boolean {
+  return (
+    matchesStructureType(site.structureType, 'STRUCTURE_ROAD', 'road') ||
+    matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container')
+  );
 }
 
 type StructureConstantGlobal =
