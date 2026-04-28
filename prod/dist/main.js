@@ -2229,7 +2229,7 @@ function selectWorkerBody(colony, roleCounts) {
   if (roleCounts.worker === 0) {
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
-  return getWorkerCapacity(roleCounts) < MIN_WORKER_TARGET ? buildWorkerBody(colony.energyAvailable) : [];
+  return buildWorkerBody(colony.energyAvailable);
 }
 function canAffordBody(body, energyAvailable) {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;

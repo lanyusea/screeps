@@ -531,15 +531,36 @@ describe('planSpawn', () => {
     });
   });
 
-  it('waits for the full planned worker body when existing workers can keep harvesting', () => {
-    const { colony } = makeColony({
+  it('plans an affordable worker body for a source-aware shortfall before the full worker body is affordable', () => {
+    const { colony, spawn } = makeColony({
       roomName: 'W1N7',
       sourceCount: 2,
       energyAvailable: 400,
       energyCapacityAvailable: 600
     });
 
-    expect(planSpawn(colony, { worker: 3 }, 137)).toBeNull();
+    expect(planSpawn(colony, { worker: 3 }, 137)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N7-137',
+      memory: { role: 'worker', colony: 'W1N7' }
+    });
+  });
+
+  it('plans an affordable worker body when replacement-aware capacity is below the source-aware target', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N12',
+      sourceCount: 2,
+      energyAvailable: 400,
+      energyCapacityAvailable: 600
+    });
+
+    expect(planSpawn(colony, { worker: 4, workerCapacity: 3 }, 150)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N12-150',
+      memory: { role: 'worker', colony: 'W1N12' }
+    });
   });
 
   it('does not plan an emergency body that costs more than available energy', () => {
