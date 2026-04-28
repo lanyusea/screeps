@@ -1181,6 +1181,140 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('routes carried energy to controller upgrade before non-critical construction when stored surplus exists', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [storage] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('routes carried energy to controller upgrade before non-critical construction when salvage surplus exists', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const tombstone = makeSalvageEnergySource('tombstone-surplus', 100);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number) => {
+        if (
+          type === FIND_MY_STRUCTURES ||
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        return type === FIND_TOMBSTONES ? [tombstone] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('keeps extension construction before stored-surplus controller upgrading', () => {
+    const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [storage] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('keeps critical repair before stored-surplus controller upgrading', () => {
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ controller, structures: [storage, road] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
+  });
+
+  it('keeps road construction before stored-surplus controller upgrading', () => {
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [storage] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('does not treat unsafe stored energy as controller upgrade surplus', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const hostileStorage = makeStoredEnergyStructure('hostile-storage', 'storage' as StructureConstant, 1_000, {
+      my: false
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [hostileStorage] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+  });
+
   it('selects RCL3 controller upgrade before non-critical construction when another loaded worker can build', () => {
     const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
     const controller = {

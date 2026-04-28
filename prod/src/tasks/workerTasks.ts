@@ -77,7 +77,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'build', targetId: roadOrContainerConstructionSite.id };
   }
 
-  if (controller && shouldSustainControllerProgress(creep, controller)) {
+  if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     return { type: 'upgrade', targetId: controller.id };
   }
 
@@ -396,6 +396,18 @@ function shouldSustainControllerProgress(creep: Creep, controller: StructureCont
   );
 }
 
+function shouldUseSurplusForControllerProgress(creep: Creep, controller: StructureController): boolean {
+  if (shouldSustainControllerProgress(creep, controller)) {
+    return true;
+  }
+
+  return controller.my === true && controller.level >= 2 && hasWithdrawableSurplusEnergy(creep);
+}
+
+function hasWithdrawableSurplusEnergy(creep: Creep): boolean {
+  return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null;
+}
+
 function getSameRoomLoadedWorkers(creep: Creep): Creep[] {
   const loadedWorkers = getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
 
@@ -465,9 +477,9 @@ function getStore(object: unknown): StoreLike | null {
   return object.store as StoreLike;
 }
 
-function getWorkerEnergyResource(): RESOURCE_ENERGY {
+function getWorkerEnergyResource(): ResourceConstant {
   const value = (globalThis as unknown as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY;
-  return (typeof value === 'string' ? value : 'energy') as RESOURCE_ENERGY;
+  return (typeof value === 'string' ? value : 'energy') as ResourceConstant;
 }
 
 function isWorkerTaskRecord(value: unknown): value is Record<string, unknown> {
@@ -479,7 +491,7 @@ function isUpgradingController(creep: Creep, controller: StructureController): b
   return task?.type === 'upgrade' && task.targetId === controller.id;
 }
 
-function selectDroppedEnergy(creep: Creep): Resource<RESOURCE_ENERGY> | null {
+function selectDroppedEnergy(creep: Creep): Resource<ResourceConstant> | null {
   const droppedEnergy = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy);
   if (droppedEnergy.length === 0) {
     return null;
@@ -497,7 +509,7 @@ function findDroppedResources(room: Room): Resource[] {
   return room.find(FIND_DROPPED_RESOURCES);
 }
 
-function isUsefulDroppedEnergy(resource: Resource): resource is Resource<RESOURCE_ENERGY> {
+function isUsefulDroppedEnergy(resource: Resource): resource is Resource<ResourceConstant> {
   return resource.resourceType === getWorkerEnergyResource() && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
 }
 

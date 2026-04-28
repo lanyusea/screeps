@@ -568,7 +568,7 @@ function selectWorkerTask(creep) {
   if (roadOrContainerConstructionSite) {
     return { type: "build", targetId: roadOrContainerConstructionSite.id };
   }
-  if (controller && shouldSustainControllerProgress(creep, controller)) {
+  if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     return { type: "upgrade", targetId: controller.id };
   }
   if (constructionSites[0]) {
@@ -782,6 +782,15 @@ function shouldSustainControllerProgress(creep, controller) {
   }
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
   return loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS && !loadedWorkers.some((worker) => worker !== creep && isUpgradingController(worker, controller));
+}
+function shouldUseSurplusForControllerProgress(creep, controller) {
+  if (shouldSustainControllerProgress(creep, controller)) {
+    return true;
+  }
+  return controller.my === true && controller.level >= 2 && hasWithdrawableSurplusEnergy(creep);
+}
+function hasWithdrawableSurplusEnergy(creep) {
+  return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null;
 }
 function getSameRoomLoadedWorkers(creep) {
   const loadedWorkers = getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
@@ -1166,7 +1175,7 @@ function selectTerritoryTarget(colony) {
   if (configuredTarget) {
     return { target: configuredTarget, intentAction: configuredTarget.action, commitTarget: false };
   }
-  if (hasConfiguredTerritoryTargetForColony(territoryMemory, colonyName)) {
+  if (hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents)) {
     return null;
   }
   return selectAdjacentReserveTarget(colonyName, colonyOwnerUsername, territoryMemory, intents);
@@ -1188,8 +1197,20 @@ function selectConfiguredTerritoryTarget(colonyName, colonyOwnerUsername, territ
   }
   return null;
 }
-function hasConfiguredTerritoryTargetForColony(territoryMemory, colonyName) {
-  return getConfiguredTargetRoomsForColony(territoryMemory, colonyName).size > 0;
+function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents) {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return false;
+  }
+  return territoryMemory.targets.some((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (!target || target.colony !== colonyName) {
+      return false;
+    }
+    if (target.enabled === false || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents)) {
+      return true;
+    }
+    return getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "satisfied";
+  });
 }
 function selectAdjacentReserveTarget(colonyName, colonyOwnerUsername, territoryMemory, intents) {
   const adjacentRooms = getAdjacentRoomNames(colonyName);
