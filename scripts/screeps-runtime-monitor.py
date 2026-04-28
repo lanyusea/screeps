@@ -1002,7 +1002,9 @@ def classify_private_smoke_stats_evidence(payload: dict[str, Any]) -> list[dict[
         ]
 
     user = last.get("user")
-    min_creeps = numeric_value(nested_value(details, "criteria", "min_creeps")) or 1.0
+    min_creeps = numeric_value(nested_value(details, "criteria", "min_creeps"))
+    if min_creeps is None:
+        min_creeps = 1.0
     creeps = numeric_value(nested_value(user, "creeps")) if isinstance(user, dict) else None
     rooms = numeric_value(nested_value(user, "rooms")) if isinstance(user, dict) else None
     owned_rooms = numeric_value(last.get("ownedRooms"))

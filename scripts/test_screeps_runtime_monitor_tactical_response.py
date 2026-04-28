@@ -268,6 +268,31 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["source"]["failed_phase_count"], 0)
         self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
 
+    def test_private_smoke_min_creeps_zero_stays_silent_with_zero_creeps(self) -> None:
+        fixture = copy.deepcopy(clean_private_smoke_fixture())
+        for phase in fixture["phases"]:
+            if phase["name"] == "poll-stats":
+                phase["details"]["criteria"]["min_creeps"] = 0
+                phase["details"]["last"]["user"]["creeps"] = 0
+                break
+
+        report = monitor.build_tactical_response_report(fixture)
+
+        self.assertFalse(report["emergency"])
+        self.assertTrue(report["silent"])
+        self.assertEqual(report["categories"], [])
+
+    def test_message_based_tactical_category_inference_has_message_scope(self) -> None:
+        categories = monitor.infer_tactical_categories(
+            {
+                "kind": "custom_alert",
+                "message": "private smoke no-progress deadlock detected",
+            }
+        )
+
+        self.assertIn("runtime_deadlock", categories)
+        self.assertIn("private_smoke_failure", categories)
+
     def test_private_smoke_poll_stats_without_samples_is_telemetry_silence(self) -> None:
         fixture = copy.deepcopy(clean_private_smoke_fixture())
         fixture["ok"] = False
