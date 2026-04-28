@@ -5,6 +5,7 @@ export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
+const STORED_ENERGY_RANGE_COST = 50;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -162,8 +163,51 @@ function selectStoredEnergySource(creep: Creep): StoredWorkerEnergySource | null
     return null;
   }
 
+  const scoredStoredEnergy = scoreStoredEnergySources(creep, storedEnergySources);
+  if (scoredStoredEnergy.length > 0) {
+    return scoredStoredEnergy.sort(compareStoredEnergySourceScores)[0].source;
+  }
+
   const closestStoredEnergy = findClosestByRange(creep, storedEnergySources);
   return closestStoredEnergy ?? storedEnergySources[0];
+}
+
+interface StoredEnergySourceScore {
+  energy: number;
+  range: number;
+  score: number;
+  source: StoredWorkerEnergySource;
+}
+
+function scoreStoredEnergySources(
+  creep: Creep,
+  sources: StoredWorkerEnergySource[]
+): StoredEnergySourceScore[] {
+  const position = (creep as Creep & { pos?: { getRangeTo?: (target: StoredWorkerEnergySource) => number } }).pos;
+  if (typeof position?.getRangeTo !== 'function') {
+    return [];
+  }
+
+  return sources.map((source) => {
+    const energy = getStoredEnergy(source);
+    const range = Math.max(0, position.getRangeTo?.(source) ?? 0);
+
+    return {
+      energy,
+      range,
+      score: energy - range * STORED_ENERGY_RANGE_COST,
+      source
+    };
+  });
+}
+
+function compareStoredEnergySourceScores(left: StoredEnergySourceScore, right: StoredEnergySourceScore): number {
+  return (
+    right.score - left.score ||
+    left.range - right.range ||
+    right.energy - left.energy ||
+    String(left.source.id).localeCompare(String(right.source.id))
+  );
 }
 
 function isSafeStoredEnergySource(
