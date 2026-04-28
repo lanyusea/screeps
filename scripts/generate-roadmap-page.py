@@ -3880,7 +3880,8 @@ def render_kpi_svg(card: JsonObject) -> str:
         width_attr = esc(series.get("width", 3))
         segment: list[tuple[float, float, float]] = []
         coords: list[tuple[float, float, float]] = []
-        for index, raw_value in enumerate(series.get("values", ())):
+        values = list(series.get("values", ()))
+        for index, raw_value in enumerate(values):
             value = chart_number(raw_value)
             if value is None:
                 if len(segment) > 1:
@@ -3900,6 +3901,24 @@ def render_kpi_svg(card: JsonObject) -> str:
             series_parts.append(
                 f'<polyline fill="none" stroke="{color}" stroke-width="{width_attr}" stroke-linecap="round" stroke-linejoin="round"{dash} points="{points}"/>'
             )
+        if not coords and values and all(chart_number(raw_value) is None for raw_value in values):
+            # Missing telemetry is not observed data, so it remains out of the JSON
+            # value stream and does not get labels. The public visual still needs a
+            # readable chart shape: render-only zero-baseline placeholders show the
+            # dates without implying that runtime KPI values were observed.
+            placeholder_points = [(x_for(index), y_for(0.0)) for index, _ in enumerate(values)]
+            if len(placeholder_points) > 1:
+                points = " ".join(f"{x:.1f},{y:.1f}" for x, y in placeholder_points)
+                series_parts.append(
+                    f'<polyline data-kpi-placeholder="line" fill="none" stroke="{color}" stroke-width="{width_attr}" '
+                    f'stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 7" '
+                    f'stroke-opacity="0.44" points="{points}"/>'
+                )
+            for x, y in placeholder_points:
+                series_parts.append(
+                    f'<circle data-kpi-placeholder="point" cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="none" '
+                    f'stroke="{color}" stroke-width="2" stroke-opacity="0.68"/>'
+                )
         for x, y, value in coords:
             if value == y_max:
                 text_y = y + 22
