@@ -792,8 +792,7 @@ function getCreepColonyName(creep: Creep): string | null {
     return colony;
   }
 
-  const roomName = creep.room?.name;
-  return typeof roomName === 'string' && roomName.length > 0 ? roomName : null;
+  return null;
 }
 
 function isActiveTerritoryPressureIntent(intent: unknown, colonyName: string): boolean {

@@ -1767,13 +1767,12 @@ function hasActiveTerritoryPressure(creep) {
   return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
 }
 function getCreepColonyName(creep) {
-  var _a, _b;
+  var _a;
   const colony = (_a = creep.memory) == null ? void 0 : _a.colony;
   if (typeof colony === "string" && colony.length > 0) {
     return colony;
   }
-  const roomName = (_b = creep.room) == null ? void 0 : _b.name;
-  return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
+  return null;
 }
 function isActiveTerritoryPressureIntent(intent, colonyName) {
   if (!isWorkerTaskRecord(intent)) {
