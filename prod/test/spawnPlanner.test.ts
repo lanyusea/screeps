@@ -182,14 +182,36 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 146)).toBeNull();
   });
 
-  it('does not spend the construction backlog bonus while the home controller needs downgrade recovery', () => {
+  it('adds a second worker target for substantial construction backlog after the first bonus target is safe', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N14',
+      constructionSiteCount: 5,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 147)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N14-147',
+      memory: { role: 'worker', colony: 'W1N14' }
+    });
+    expect(planSpawn(colony, { worker: 4 }, 148)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N14-148',
+      memory: { role: 'worker', colony: 'W1N14' }
+    });
+    expect(planSpawn(colony, { worker: 5 }, 149)).toBeNull();
+  });
+
+  it('does not spend construction backlog bonuses while the home controller needs downgrade recovery', () => {
     const { colony } = makeColony({
       roomName: 'W1N9',
-      constructionSiteCount: 1,
+      constructionSiteCount: 5,
       controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
     });
 
-    expect(planSpawn(colony, { worker: 3 }, 147)).toBeNull();
+    expect(planSpawn(colony, { worker: 3 }, 150)).toBeNull();
   });
 
   it('plans a scout for an explicit memory target when target visibility is missing', () => {
@@ -792,11 +814,11 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 126)).toBeNull();
   });
 
-  it('caps the source-aware worker target even with active construction backlog', () => {
+  it('caps the source-aware worker target even with substantial construction backlog', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N3',
       sourceCount: 10,
-      constructionSiteCount: 1,
+      constructionSiteCount: 5,
       controller: makeSafeOwnedController()
     });
 

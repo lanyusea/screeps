@@ -28,6 +28,7 @@ export interface SpawnPlanningOptions {
 const MIN_WORKER_TARGET = 3;
 const WORKERS_PER_SOURCE = 2;
 const CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
+const SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT = 5;
 const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 const TERRITORY_SCOUT_BODY_COST = 50;
 // Keep source-aware scaling bounded so unusual source data cannot create runaway early-room spawn pressure.
@@ -154,24 +155,26 @@ function getWorkerTarget(colony: ColonySnapshot, roleCounts: RoleCounts): number
   const sourceCount = getSourceCount(colony.room);
   const sourceAwareTarget = sourceCount * WORKERS_PER_SOURCE;
   const baseTarget = Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
+  const workerCapacity = getWorkerCapacity(roleCounts);
 
-  if (!shouldAddConstructionBacklogWorkerBonus(colony, roleCounts, baseTarget)) {
+  if (workerCapacity < baseTarget || !isConstructionBonusHomeSafe(colony.room.controller)) {
     return baseTarget;
   }
 
-  return Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
-}
+  const constructionBacklogSiteCount = getConstructionBacklogSiteCount(colony.room);
+  if (constructionBacklogSiteCount === 0) {
+    return baseTarget;
+  }
 
-function shouldAddConstructionBacklogWorkerBonus(
-  colony: ColonySnapshot,
-  roleCounts: RoleCounts,
-  baseWorkerTarget: number
-): boolean {
-  return (
-    getWorkerCapacity(roleCounts) >= baseWorkerTarget &&
-    isConstructionBonusHomeSafe(colony.room.controller) &&
-    hasActiveConstructionBacklog(colony.room)
-  );
+  const firstBonusTarget = Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
+  if (
+    workerCapacity < firstBonusTarget ||
+    constructionBacklogSiteCount < SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT
+  ) {
+    return firstBonusTarget;
+  }
+
+  return Math.min(MAX_WORKER_TARGET, firstBonusTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
 }
 
 function isConstructionBonusHomeSafe(controller: StructureController | undefined): boolean {
@@ -182,12 +185,12 @@ function isConstructionBonusHomeSafe(controller: StructureController | undefined
   );
 }
 
-function hasActiveConstructionBacklog(room: Room): boolean {
+function getConstructionBacklogSiteCount(room: Room): number {
   if (typeof room.find !== 'function' || typeof FIND_MY_CONSTRUCTION_SITES !== 'number') {
-    return false;
+    return 0;
   }
 
-  return room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
+  return room.find(FIND_MY_CONSTRUCTION_SITES).length;
 }
 
 function getSourceCount(room: Room): number {
