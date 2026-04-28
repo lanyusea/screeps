@@ -21,6 +21,7 @@ declare global {
   interface TerritoryMemory {
     targets?: TerritoryTargetMemory[];
     intents?: TerritoryIntentMemory[];
+    routeDistances?: Record<string, number | null>;
   }
 
   interface TerritoryTargetMemory {
