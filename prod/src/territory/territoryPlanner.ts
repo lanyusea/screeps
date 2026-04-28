@@ -3,6 +3,7 @@ import type { RoleCounts } from '../creeps/roleCounts';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
+export const TERRITORY_SCOUT_ROLE = 'scout';
 export const TERRITORY_DOWNGRADE_GUARD_TICKS = 5_000;
 
 const EXIT_DIRECTION_ORDER: ExitKey[] = ['1', '3', '5', '7'];
@@ -10,7 +11,7 @@ const EXIT_DIRECTION_ORDER: ExitKey[] = ['1', '3', '5', '7'];
 export interface TerritoryIntentPlan {
   colony: string;
   targetRoom: string;
-  action: TerritoryControlAction;
+  action: TerritoryIntentAction;
   controllerId?: Id<StructureController>;
 }
 
@@ -20,7 +21,8 @@ interface MemoryRecord {
 
 interface SelectedTerritoryTarget {
   target: TerritoryTargetMemory;
-  seeded: boolean;
+  intentAction: TerritoryIntentAction;
+  commitTarget: boolean;
 }
 
 export function planTerritoryIntent(
@@ -42,11 +44,11 @@ export function planTerritoryIntent(
   const plan: TerritoryIntentPlan = {
     colony: colony.room.name,
     targetRoom: target.roomName,
-    action: target.action,
+    action: selection.intentAction,
     ...(target.controllerId ? { controllerId: target.controllerId } : {})
   };
-  const status = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom) > 0 ? 'active' : 'planned';
-  recordTerritoryIntent(plan, status, gameTime, selection.seeded ? target : null);
+  const status = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action) > 0 ? 'active' : 'planned';
+  recordTerritoryIntent(plan, status, gameTime, selection.commitTarget ? target : null);
 
   return plan;
 }
@@ -56,16 +58,20 @@ export function shouldSpawnTerritoryControllerCreep(plan: TerritoryIntentPlan, r
     return false;
   }
 
+  if (plan.action === 'scout' && isVisibleRoomKnown(plan.targetRoom)) {
+    return false;
+  }
+
   if (isVisibleTerritoryTargetUnavailable(plan.targetRoom, plan.controllerId)) {
     return false;
   }
 
-  return getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom) === 0;
+  return getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action) === 0;
 }
 
 export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemory {
   return {
-    role: TERRITORY_CLAIMER_ROLE,
+    role: plan.action === 'scout' ? TERRITORY_SCOUT_ROLE : TERRITORY_CLAIMER_ROLE,
     colony: plan.colony,
     territory: {
       targetRoom: plan.targetRoom,
@@ -83,7 +89,7 @@ export function suppressTerritoryIntent(
   if (
     !isNonEmptyString(colony) ||
     !isNonEmptyString(assignment.targetRoom) ||
-    !isTerritoryAction(assignment.action)
+    !isTerritoryIntentAction(assignment.action)
   ) {
     return;
   }
@@ -132,15 +138,14 @@ function selectTerritoryTarget(colonyName: string): SelectedTerritoryTarget | nu
   const intents = normalizeTerritoryIntents(territoryMemory?.intents);
   const configuredTarget = selectConfiguredTerritoryTarget(colonyName, territoryMemory, intents);
   if (configuredTarget) {
-    return { target: configuredTarget, seeded: false };
+    return { target: configuredTarget, intentAction: configuredTarget.action, commitTarget: false };
   }
 
   if (hasConfiguredTerritoryTargetForColony(territoryMemory, colonyName)) {
     return null;
   }
 
-  const seededTarget = seedAdjacentReserveTarget(colonyName, territoryMemory, intents);
-  return seededTarget ? { target: seededTarget, seeded: true } : null;
+  return selectAdjacentReserveTarget(colonyName, territoryMemory, intents);
 }
 
 function selectConfiguredTerritoryTarget(
@@ -176,11 +181,11 @@ function hasConfiguredTerritoryTargetForColony(
   return getConfiguredTargetRoomsForColony(territoryMemory, colonyName).size > 0;
 }
 
-function seedAdjacentReserveTarget(
+function selectAdjacentReserveTarget(
   colonyName: string,
   territoryMemory: Record<string, unknown> | null,
   intents: TerritoryIntentMemory[]
-): TerritoryTargetMemory | null {
+): SelectedTerritoryTarget | null {
   const adjacentRooms = getAdjacentRoomNames(colonyName);
   if (adjacentRooms.length === 0) {
     return null;
@@ -193,26 +198,33 @@ function seedAdjacentReserveTarget(
       roomName !== colonyName &&
       !existingTargetRooms.has(roomName) &&
       !isTerritoryTargetSuppressed(target, intents) &&
-      isAdjacentReserveTargetSeedable(roomName)
+      !isTerritoryIntentForActionSuppressed(colonyName, roomName, 'scout')
     ) {
-      return target;
+      const candidateState = getAdjacentReserveCandidateState(roomName);
+      if (candidateState === 'safe') {
+        return { target, intentAction: 'reserve', commitTarget: true };
+      }
+
+      if (candidateState === 'unknown') {
+        return { target, intentAction: 'scout', commitTarget: false };
+      }
     }
   }
 
   return null;
 }
 
-function isAdjacentReserveTargetSeedable(targetRoom: string): boolean {
+function getAdjacentReserveCandidateState(targetRoom: string): 'safe' | 'unknown' | 'unavailable' {
   if (isVisibleRoomMissingController(targetRoom)) {
-    return false;
+    return 'unavailable';
   }
 
   const controller = getVisibleController(targetRoom);
   if (!controller) {
-    return true;
+    return 'unknown';
   }
 
-  return !isControllerOwned(controller) && controller.reservation == null;
+  return !isControllerOwned(controller) && controller.reservation == null ? 'safe' : 'unavailable';
 }
 
 function getConfiguredTargetRoomsForColony(
@@ -265,7 +277,7 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
   if (
     !isNonEmptyString(rawTarget.colony) ||
     !isNonEmptyString(rawTarget.roomName) ||
-    !isTerritoryAction(rawTarget.action)
+    !isTerritoryControlAction(rawTarget.action)
   ) {
     return null;
   }
@@ -343,7 +355,7 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
   if (
     !isNonEmptyString(rawIntent.colony) ||
     !isNonEmptyString(rawIntent.targetRoom) ||
-    !isTerritoryAction(rawIntent.action) ||
+    !isTerritoryIntentAction(rawIntent.action) ||
     !isTerritoryIntentStatus(rawIntent.status) ||
     typeof rawIntent.updatedAt !== 'number'
   ) {
@@ -362,7 +374,15 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
   };
 }
 
-function getTerritoryCreepCountForTarget(roleCounts: RoleCounts, targetRoom: string): number {
+function getTerritoryCreepCountForTarget(
+  roleCounts: RoleCounts,
+  targetRoom: string,
+  action: TerritoryIntentAction
+): number {
+  if (action === 'scout') {
+    return roleCounts.scoutsByTargetRoom?.[targetRoom] ?? 0;
+  }
+
   return roleCounts.claimersByTargetRoom?.[targetRoom] ?? 0;
 }
 
@@ -379,7 +399,26 @@ function isTerritoryTargetSuppressed(target: TerritoryTargetMemory, intents: Ter
 function isTerritoryIntentSuppressed(
   colony: string,
   targetRoom: string,
-  action: TerritoryControlAction
+  action: TerritoryIntentAction
+): boolean {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return false;
+  }
+
+  return normalizeTerritoryIntents(territoryMemory.intents).some(
+    (intent) =>
+      intent.status === 'suppressed' &&
+      intent.colony === colony &&
+      intent.targetRoom === targetRoom &&
+      intent.action === action
+  );
+}
+
+function isTerritoryIntentForActionSuppressed(
+  colony: string,
+  targetRoom: string,
+  action: TerritoryIntentAction
 ): boolean {
   const territoryMemory = getTerritoryMemoryRecord();
   if (!territoryMemory) {
@@ -409,6 +448,11 @@ function isVisibleTerritoryTargetUnavailable(
   }
 
   return isControllerOwned(controller);
+}
+
+function isVisibleRoomKnown(targetRoom: string): boolean {
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  return game?.rooms?.[targetRoom] != null;
 }
 
 function isVisibleRoomMissingController(targetRoom: string): boolean {
@@ -463,8 +507,12 @@ function getMemoryRecord(): MemoryRecord | null {
   return memory ?? null;
 }
 
-function isTerritoryAction(action: unknown): action is TerritoryControlAction {
+function isTerritoryControlAction(action: unknown): action is TerritoryControlAction {
   return action === 'claim' || action === 'reserve';
+}
+
+function isTerritoryIntentAction(action: unknown): action is TerritoryIntentAction {
+  return isTerritoryControlAction(action) || action === 'scout';
 }
 
 function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {

@@ -5,7 +5,7 @@ import { countCreepsByRole } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import { planSpawn, type SpawnRequest } from '../spawn/spawnPlanner';
 import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
-import { TERRITORY_CLAIMER_ROLE } from '../territory/territoryPlanner';
+import { TERRITORY_CLAIMER_ROLE, TERRITORY_SCOUT_ROLE } from '../territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../territory/territoryRunner';
 
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
@@ -37,7 +37,7 @@ export function runEconomy(): void {
   for (const creep of creeps) {
     if (creep.memory.role === 'worker') {
       runWorker(creep);
-    } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE) {
+    } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE || creep.memory.role === TERRITORY_SCOUT_ROLE) {
       runTerritoryControllerCreep(creep);
     }
   }

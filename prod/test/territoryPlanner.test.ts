@@ -79,7 +79,7 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
-  it('seeds an unseen adjacent reserve target when no configured targets exist', () => {
+  it('creates a scout intent for an unseen adjacent reserve candidate when no configured targets exist', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -91,9 +91,55 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W1N2',
-      action: 'reserve'
+      action: 'scout'
     });
     expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 525
+      }
+    ]);
+  });
+
+  it('commits a seeded reserve target after scout visibility confirms a safe controller', () => {
+    const colony = makeSafeColony();
+    const describeExits = jest.fn(() => ({ '1': 'W1N2' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 527)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W1N2: { name: 'W1N2', controller: { my: false } as StructureController } as Room
+      }
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 3, claimer: 0, claimersByTargetRoom: {}, scout: 1, scoutsByTargetRoom: { W1N2: 1 } },
+        3,
+        528
+      )
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'reserve'
+    });
     expect(Memory.territory?.targets).toEqual([
       {
         colony: 'W1N1',
@@ -105,9 +151,16 @@ describe('planTerritoryIntent', () => {
       {
         colony: 'W1N1',
         targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 527
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 525
+        updatedAt: 528
       }
     ]);
   });
