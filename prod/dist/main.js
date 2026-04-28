@@ -571,8 +571,10 @@ var TERRITORY_CLAIMER_ROLE = "claimer";
 var TERRITORY_SCOUT_ROLE = "scout";
 var TERRITORY_DOWNGRADE_GUARD_TICKS = 5e3;
 var TERRITORY_RESERVATION_RENEWAL_TICKS = 1e3;
+var TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var EXIT_DIRECTION_ORDER = ["1", "3", "5", "7"];
+var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
@@ -630,12 +632,45 @@ function selectVisibleTerritoryControllerTask(creep) {
     return null;
   }
   if (intent.action === "reserve") {
-    return canUseControllerClaimPart(creep) ? { type: "reserve", targetId: controller.id } : null;
+    const activeClaimParts = getActiveControllerClaimPartCount(creep);
+    if (activeClaimParts <= 0) {
+      return null;
+    }
+    const reservationTicksToEnd = getUrgentOwnReservationTicksToEnd(
+      controller,
+      getTerritoryActorUsername(creep, intent.colony)
+    );
+    if (reservationTicksToEnd !== null && !canRenewReservation(activeClaimParts, reservationTicksToEnd)) {
+      return null;
+    }
+    return { type: "reserve", targetId: controller.id };
   }
   if (controller.my === true) {
     return getStoredEnergy(creep) > 0 ? { type: "upgrade", targetId: controller.id } : null;
   }
   return canUseControllerClaimPart(creep) ? { type: "claim", targetId: controller.id } : null;
+}
+function selectUrgentVisibleReservationRenewalTask(creep) {
+  const intent = selectVisibleTerritoryControllerIntent(creep);
+  if (!intent || intent.action !== "reserve") {
+    return null;
+  }
+  const activeClaimParts = getActiveControllerClaimPartCount(creep);
+  if (activeClaimParts <= 0) {
+    return null;
+  }
+  const controller = selectCreepRoomController(creep, intent.controllerId);
+  if (!controller) {
+    return null;
+  }
+  const reservationTicksToEnd = getUrgentOwnReservationTicksToEnd(
+    controller,
+    getTerritoryActorUsername(creep, intent.colony)
+  );
+  if (reservationTicksToEnd === null || !canRenewReservation(activeClaimParts, reservationTicksToEnd)) {
+    return null;
+  }
+  return { type: "reserve", targetId: controller.id };
 }
 function isVisibleTerritoryAssignmentSafe(assignment, colony, creep) {
   if (!isNonEmptyString(assignment.targetRoom)) {
@@ -1023,13 +1058,19 @@ function getCreepOwnerUsername(creep) {
   return isNonEmptyString(username) ? username : null;
 }
 function canUseControllerClaimPart(creep) {
+  return getActiveControllerClaimPartCount(creep) > 0;
+}
+function canRenewReservation(activeClaimParts, reservationTicksToEnd) {
+  return activeClaimParts >= MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS || reservationTicksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
+}
+function getActiveControllerClaimPartCount(creep) {
   var _a;
   const claimPart = getBodyPartConstant("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
-    return activeClaimParts > 0;
+    return activeClaimParts;
   }
-  return Array.isArray(creep.body) && creep.body.some((part) => part.type === claimPart && part.hits > 0);
+  return Array.isArray(creep.body) ? creep.body.filter((part) => part.type === claimPart && part.hits > 0).length : 0;
 }
 function getBodyPartConstant(globalName, fallback) {
   var _a;
@@ -1112,7 +1153,7 @@ function getReserveControllerTargetState(controller, colonyOwnerUsername) {
   if (!isNonEmptyString(reservation.username) || reservation.username !== colonyOwnerUsername) {
     return "unavailable";
   }
-  return typeof reservation.ticksToEnd === "number" && reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? "available" : "satisfied";
+  return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) === null ? "satisfied" : "available";
 }
 function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
   if (target.action !== "reserve" || colonyOwnerUsername === null) {
@@ -1122,11 +1163,17 @@ function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
   if (!controller || isControllerOwned(controller)) {
     return null;
   }
-  const reservation = controller.reservation;
-  if (!reservation || reservation.username !== colonyOwnerUsername || typeof reservation.ticksToEnd !== "number") {
+  return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+}
+function getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
+  if (isControllerOwned(controller) || !isNonEmptyString(colonyOwnerUsername)) {
     return null;
   }
-  return reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? reservation.ticksToEnd : null;
+  const reservation = controller.reservation;
+  if (!reservation || reservation.username !== colonyOwnerUsername || typeof reservation.ticksToEnd !== "number" || reservation.ticksToEnd > TERRITORY_RESERVATION_RENEWAL_TICKS) {
+    return null;
+  }
+  return reservation.ticksToEnd;
 }
 function getVisibleColonyOwnerUsername(colonyName) {
   const controller = getVisibleController(colonyName);
@@ -1202,8 +1249,12 @@ var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
 function selectWorkerTask(creep) {
   const carriedEnergy = getUsedEnergy(creep);
+  const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
   if (carriedEnergy === 0) {
+    if (urgentReservationRenewalTask) {
+      return urgentReservationRenewalTask;
+    }
     if (isTerritoryControlTask(territoryControllerTask)) {
       return territoryControllerTask;
     }
@@ -1223,6 +1274,9 @@ function selectWorkerTask(creep) {
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: "upgrade", targetId: controller.id };
+  }
+  if (urgentReservationRenewalTask) {
+    return urgentReservationRenewalTask;
   }
   if (territoryControllerTask) {
     return territoryControllerTask;
