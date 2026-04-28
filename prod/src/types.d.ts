@@ -53,5 +53,7 @@ declare global {
     | { type: 'transfer'; targetId: Id<AnyStoreStructure> }
     | { type: 'build'; targetId: Id<ConstructionSite> }
     | { type: 'repair'; targetId: Id<Structure> }
+    | { type: 'claim'; targetId: Id<StructureController> }
+    | { type: 'reserve'; targetId: Id<StructureController> }
     | { type: 'upgrade'; targetId: Id<StructureController> };
 }

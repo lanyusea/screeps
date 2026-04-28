@@ -11,6 +11,8 @@ describe('runWorker', () => {
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
     (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
@@ -18,6 +20,9 @@ describe('runWorker', () => {
     (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+    (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
   });
 
   it('assigns a task when the creep has none', () => {
@@ -452,6 +457,43 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller2' });
     expect(upgradeController).not.toHaveBeenCalled();
     expect(moveTo).not.toHaveBeenCalled();
+  });
+
+  it('preempts local construction when a claimed territory target needs upgrade support', () => {
+    const controller = { id: 'controller2', my: true, level: 1 } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim', status: 'active', updatedAt: 200 }]
+      }
+    };
+    const room = {
+      name: 'W2N1',
+      controller,
+      find: jest.fn((type: number) => (type === FIND_CONSTRUCTION_SITES ? [site] : []))
+    } as unknown as Room;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1', task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      build: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(site);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller2' });
+    expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
   it('clears completed repair targets and reassigns without repairing the stale target', () => {

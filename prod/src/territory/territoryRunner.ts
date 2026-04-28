@@ -1,4 +1,4 @@
-import { suppressTerritoryIntent } from './territoryPlanner';
+import { isVisibleTerritoryAssignmentSafe, suppressTerritoryIntent } from './territoryPlanner';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -15,6 +15,11 @@ type RoomPositionConstructor = new (x: number, y: number, roomName: string) => R
 export function runTerritoryControllerCreep(creep: Creep): void {
   const assignment = creep.memory.territory;
   if (!isTerritoryAssignment(assignment)) {
+    return;
+  }
+
+  if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
+    suppressTerritoryAssignment(creep, assignment);
     return;
   }
 
