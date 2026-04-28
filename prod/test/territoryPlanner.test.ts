@@ -1111,6 +1111,57 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('scouts an adjacent room while a configured claim target already has active coverage', () => {
+    const colony = makeSafeColony();
+    const activeClaimIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'active',
+      updatedAt: 555
+    };
+    const describeExits = jest.fn(() => ({ '1': 'W1N2' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        intents: [activeClaimIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { W2N1: 1 },
+          claimersByTargetRoomAction: { claim: { W2N1: 1 } }
+        },
+        3,
+        556
+      )
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.targets).toEqual([{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }]);
+    expect(Memory.territory?.intents).toEqual([
+      activeClaimIntent,
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 556
+      }
+    ]);
+  });
+
   it('skips visible hostile-owned claim targets and plans the next eligible target', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
