@@ -3,7 +3,7 @@ import { CONTROLLER_DOWNGRADE_GUARD_TICKS, IDLE_RAMPART_REPAIR_HITS_CEILING } fr
 
 describe('runWorker', () => {
   beforeEach(() => {
-    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).ERR_NOT_IN_RANGE = -9;
+    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).ERR_NOT_IN_RANGE = -9;
     (globalThis as unknown as { ERR_FULL: number }).ERR_FULL = -8;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
@@ -15,6 +15,8 @@ describe('runWorker', () => {
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
+    (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
   });
 
@@ -138,6 +140,27 @@ describe('runWorker', () => {
 
     expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
     expect(creep.moveTo).toHaveBeenCalledWith(spawn);
+  });
+
+  it('withdraws energy from a withdraw target and moves when not in range', () => {
+    const container = { id: 'container1' } as StructureContainer;
+    const creep = {
+      memory: { task: { type: 'withdraw', targetId: 'container1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      withdraw: jest.fn().mockReturnValue(-9),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(container)
+    };
+
+    runWorker(creep);
+
+    expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy');
+    expect(creep.moveTo).toHaveBeenCalledWith(container);
   });
 
   it('builds an existing build target and moves when not in range', () => {
