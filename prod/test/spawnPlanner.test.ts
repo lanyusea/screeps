@@ -357,7 +357,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('plans a reserver from a persisted occupation reserve intent with follow-up metadata', () => {
+  it('plans a near-target reserver from a persisted occupation reserve intent with follow-up metadata', () => {
     const followUp: TerritoryFollowUpMemory = {
       source: 'activeReserveAdjacent',
       originRoom: 'W1N2',
@@ -388,7 +388,7 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
+    expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
       spawn,
       body: ['claim', 'move'],
       name: 'claimer-W1N1-W2N2-155',
@@ -617,7 +617,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('keeps territory control absent when the home worker floor is unsafe', () => {
+  it('keeps low worker capacity on worker recovery before territory control', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
@@ -629,7 +629,7 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 140)).toEqual({
+    expect(planSpawn(colony, { worker: 1, claimer: 0, claimersByTargetRoom: {} }, 140)).toEqual({
       spawn,
       body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
       name: 'worker-W1N1-140',
