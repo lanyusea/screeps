@@ -132,6 +132,7 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
     (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
+    (globalThis as unknown as { WORK: BodyPartConstant }).WORK = 'work';
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
   });
@@ -254,6 +255,112 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
+  });
+
+  it('uses recoverable dropped energy under spawn pressure when the creep has no active work parts', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const droppedEnergy = withRangeTo(
+      { id: 'drop-recoverable', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>,
+      { spawn1: 1 }
+    );
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { spawn1: 1 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-recoverable': 30,
+        source1: 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const getActiveBodyparts = jest.fn().mockReturnValue(0);
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedEnergy];
+        }
+
+        if (
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      getActiveBodyparts,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-recoverable' });
+    expect(getActiveBodyparts).toHaveBeenCalledWith('work');
+  });
+
+  it('uses recoverable stored energy under spawn pressure when the creep has no active work parts', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const storedEnergy = withRangeTo(
+      makeStoredEnergyStructure('storage-recoverable', 'storage' as StructureConstant, 1_000, { my: true }),
+      { spawn1: 1 }
+    );
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { spawn1: 1 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'storage-recoverable': 30,
+        source1: 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const getActiveBodyparts = jest.fn().mockReturnValue(0);
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [storedEnergy];
+        }
+
+        if (
+          type === FIND_DROPPED_RESOURCES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      getActiveBodyparts,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-recoverable' });
+    expect(getActiveBodyparts).toHaveBeenCalledWith('work');
   });
 
   it('keeps dropped energy recoverable under spawn pressure when harvest sources are empty', () => {

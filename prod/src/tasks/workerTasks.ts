@@ -474,6 +474,10 @@ function estimateHarvestDeliveryEta(creep: Creep, energySink: FillableEnergySink
 function estimateHarvestTicks(creep: Creep, energySink: FillableEnergySink): number {
   const energyNeeded = Math.max(1, Math.min(getFreeEnergyCapacity(creep), getFreeStoredEnergyCapacity(energySink)));
   const workParts = getActiveWorkParts(creep);
+  if (workParts === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
   return Math.ceil(energyNeeded / Math.max(HARVEST_ENERGY_PER_WORK_PART, workParts * HARVEST_ENERGY_PER_WORK_PART));
 }
 
@@ -497,6 +501,10 @@ function getActiveWorkParts(creep: Creep): number {
   }
 
   const activeWorkParts = creep.getActiveBodyparts(workPart);
+  if (activeWorkParts === 0) {
+    return 0;
+  }
+
   return Number.isFinite(activeWorkParts) && activeWorkParts > 0 ? activeWorkParts : 1;
 }
 
