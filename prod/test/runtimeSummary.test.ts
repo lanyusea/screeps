@@ -164,7 +164,8 @@ describe('runtime telemetry summaries', () => {
           },
           territoryRecommendation: {
             candidates: [],
-            next: null
+            next: null,
+            followUpIntent: null
           }
         }
       ],
@@ -276,6 +277,20 @@ describe('runtime telemetry summaries', () => {
       routeDistance: 2,
       sourceCount: 2
     });
+    expect(recommendation.followUpIntent).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: RUNTIME_SUMMARY_INTERVAL
+      }
+    ]);
   });
 
   it('keeps emission gating deterministic', () => {

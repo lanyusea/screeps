@@ -1,5 +1,6 @@
 import {
   buildRuntimeOccupationRecommendationReport,
+  persistOccupationRecommendationFollowUpIntent,
   scoreOccupationRecommendations,
   type OccupationRecommendationCandidateInput,
   type OccupationRecommendationInput
@@ -26,6 +27,7 @@ describe('occupation recommendation scoring', () => {
           roomName: 'W3N1',
           source: 'configured',
           actionHint: 'claim',
+          controllerId: 'controller3' as Id<StructureController>,
           sourceCount: 1,
           routeDistance: 2
         })
@@ -37,6 +39,12 @@ describe('occupation recommendation scoring', () => {
       action: 'occupy',
       evidenceStatus: 'sufficient',
       sourceCount: 1
+    });
+    expect(report.followUpIntent).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      controllerId: 'controller3'
     });
     expect(report.candidates.map((candidate) => candidate.roomName)).toEqual(['W3N1', 'W2N1']);
   });
@@ -58,6 +66,7 @@ describe('occupation recommendation scoring', () => {
       action: 'scout',
       evidenceStatus: 'insufficient-evidence'
     });
+    expect(report.followUpIntent).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'scout' });
     expect(report.next?.risks).toContain('controller, source, and hostile evidence unavailable');
   });
 
@@ -191,6 +200,90 @@ describe('occupation recommendation scoring', () => {
       routeDistance: 1
     });
     expect(report.next?.roomName).toBe('W2N1');
+  });
+
+  it('persists the selected recommendation as a territory follow-up intent', () => {
+    const unrelatedIntent: TerritoryIntentMemory = {
+      colony: 'W9N9',
+      targetRoom: 'W9N8',
+      action: 'reserve',
+      status: 'active',
+      updatedAt: 600
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          null,
+          unrelatedIntent,
+          { colony: 'W1N1', targetRoom: 'W3N1', action: 'claim', updatedAt: 601 }
+        ] as unknown as TerritoryIntentMemory[]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          actionHint: 'claim',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ])
+    );
+
+    expect(persistOccupationRecommendationFollowUpIntent(report, 700)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 700,
+      controllerId: 'controller3'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      unrelatedIntent,
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 700,
+        controllerId: 'controller3'
+      }
+    ]);
+  });
+
+  it('preserves fresh suppressed territory intents from recommendation persistence', () => {
+    const suppressedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'suppressed',
+      updatedAt: 900
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [suppressedIntent]
+      }
+    };
+    const report = scoreOccupationRecommendations(makeInput([makeCandidate({ roomName: 'W2N1' })]));
+
+    expect(persistOccupationRecommendationFollowUpIntent(report, 1_000)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([suppressedIntent]);
+  });
+
+  it('does not write territory memory when no recommendation exists', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W1N1'
+        })
+      ])
+    );
+
+    expect(report.next).toBeNull();
+    expect(report.followUpIntent).toBeNull();
+    expect(persistOccupationRecommendationFollowUpIntent(report, 710)).toBeNull();
+    expect(Memory.territory).toBeUndefined();
   });
 });
 
