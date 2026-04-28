@@ -40,7 +40,12 @@ interface SelectedTerritoryTarget {
   commitTarget: boolean;
 }
 
-type TerritoryCandidateSource = 'configured' | 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'adjacent';
+type TerritoryCandidateSource =
+  | 'configured'
+  | 'satisfiedClaimAdjacent'
+  | 'satisfiedReserveAdjacent'
+  | 'activeReserveAdjacent'
+  | 'adjacent';
 
 interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
   order: number;
@@ -382,6 +387,16 @@ function selectTerritoryTarget(
       gameTime,
       !hasBlockingConfiguredTarget,
       routeDistanceLookupContext
+    ),
+    ...getActiveReserveAdjacentReserveCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      roleCounts,
+      !hasBlockingConfiguredTarget,
+      routeDistanceLookupContext
     )
   ];
   const candidates = [...configuredCandidates, ...adjacentCandidates];
@@ -648,6 +663,75 @@ function getSatisfiedReserveAdjacentReserveCandidates(
   );
 }
 
+function getActiveReserveAdjacentReserveCandidates(
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  gameTime: number,
+  roleCounts: RoleCounts,
+  includeScoutCandidates: boolean,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): ScoredTerritoryTarget[] {
+  return getActiveCoveredConfiguredReserveTargets(
+    colonyName,
+    colonyOwnerUsername,
+    territoryMemory,
+    intents,
+    gameTime,
+    roleCounts,
+    routeDistanceLookupContext
+  ).flatMap(({ target, order }) =>
+    getAdjacentReserveCandidates(
+      colonyName,
+      target.roomName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      includeScoutCandidates,
+      'activeReserveAdjacent',
+      (order + 1) * EXIT_DIRECTION_ORDER.length,
+      routeDistanceLookupContext
+    )
+  );
+}
+
+function getActiveCoveredConfiguredReserveTargets(
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  gameTime: number,
+  roleCounts: RoleCounts,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): Array<{ target: TerritoryTargetMemory; order: number }> {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return [];
+  }
+
+  return territoryMemory.targets.flatMap((rawTarget, order) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (
+      !target ||
+      target.enabled === false ||
+      target.colony !== colonyName ||
+      target.action !== 'reserve' ||
+      target.roomName === colonyName ||
+      isTerritoryTargetSuppressed(target, intents, gameTime) ||
+      hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext) ||
+      !isVisibleRoomKnown(target.roomName) ||
+      getTerritoryCreepCountForTarget(roleCounts, target.roomName, target.action) <= 0 ||
+      getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !==
+        'available'
+    ) {
+      return [];
+    }
+
+    return [{ target, order }];
+  });
+}
+
 function getSatisfiedConfiguredClaimTargets(
   colonyName: string,
   colonyOwnerUsername: string | null,
@@ -769,7 +853,11 @@ function getTerritoryCandidateSourcePriority(source: TerritoryCandidateSource): 
     return 1;
   }
 
-  return source === 'satisfiedReserveAdjacent' ? 2 : 3;
+  if (source === 'satisfiedReserveAdjacent') {
+    return 2;
+  }
+
+  return source === 'activeReserveAdjacent' ? 3 : 4;
 }
 
 function isTerritoryTargetVisible(target: TerritoryTargetMemory): boolean {

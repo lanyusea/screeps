@@ -1604,6 +1604,110 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('extends from an actively covered visible reservation before home-adjacent reserve pressure', () => {
+    const colony = makeSafeColony();
+    const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'W1N2' ? { '3': 'W2N2' } : { '1': 'W1N2', '3': 'W2N1' }
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: { name: 'W1N2', controller: { my: false } as StructureController } as Room,
+        W2N1: { name: 'W2N1', controller: { my: false } as StructureController } as Room,
+        W2N2: { name: 'W2N2', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [configuredTarget]
+      }
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      {
+        worker: 3,
+        claimer: 1,
+        claimersByTargetRoom: { W1N2: 1 },
+        claimersByTargetRoomAction: { reserve: { W1N2: 1 } }
+      },
+      3,
+      563
+    );
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N2', action: 'reserve' });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(describeExits).toHaveBeenCalledWith('W1N2');
+    expect(Memory.territory?.targets).toEqual([
+      configuredTarget,
+      {
+        colony: 'W1N1',
+        roomName: 'W2N2',
+        action: 'reserve'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 563
+      }
+    ]);
+  });
+
+  it('keeps emergency renewal ahead of active-reserve frontier expansion', () => {
+    const colony = makeSafeColony();
+    const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'W1N2' ? { '3': 'W2N2' } : { '1': 'W1N2' }
+    );
+    const roleCounts = {
+      worker: 3,
+      claimer: 1,
+      claimersByTargetRoom: { W1N2: 1 },
+      claimersByTargetRoomAction: { reserve: { W1N2: 1 } }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: {
+          name: 'W1N2',
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS }
+          } as StructureController
+        } as Room,
+        W2N2: { name: 'W2N2', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [configuredTarget]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, roleCounts, 3, 564);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve' });
+    expect(describeExits).not.toHaveBeenCalled();
+    expect(shouldSpawnTerritoryControllerCreep(plan!, roleCounts, 564)).toBe(true);
+    expect(Memory.territory?.targets).toEqual([configuredTarget]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 564
+      }
+    ]);
+  });
+
   it('skips hostile and suppressed adjacent reserve targets after a satisfied reservation', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
