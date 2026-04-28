@@ -63,6 +63,7 @@ interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
   recommendationScore?: number;
   routeDistance?: number;
   renewalTicksToEnd?: number;
+  occupationActionableTicks?: number;
 }
 
 type TerritoryTargetVisibilityState = 'available' | 'satisfied' | 'unavailable';
@@ -891,13 +892,18 @@ function scoreTerritoryCandidate(
   }
 
   const renewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(selection.target, colonyOwnerUsername);
+  const occupationActionableTicks =
+    source === 'occupationIntent'
+      ? getOccupationIntentActionableTicks(selection, colonyOwnerUsername)
+      : undefined;
   return {
     ...selection,
     source,
     order,
     priority: getTerritoryCandidatePriority(selection, renewalTicksToEnd),
     ...(routeDistance !== undefined ? { routeDistance } : {}),
-    ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {})
+    ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}),
+    ...(occupationActionableTicks !== undefined ? { occupationActionableTicks } : {})
   };
 }
 
@@ -1038,6 +1044,35 @@ function getControllerReservationTicksToEnd(controller: StructureController): nu
   return typeof ticksToEnd === 'number' ? ticksToEnd : undefined;
 }
 
+function getOccupationIntentActionableTicks(
+  selection: SelectedTerritoryTarget,
+  colonyOwnerUsername: string | null
+): number | undefined {
+  if (!isTerritoryControlAction(selection.intentAction)) {
+    return undefined;
+  }
+
+  const controller = getVisibleController(selection.target.roomName, selection.target.controllerId);
+  if (!controller) {
+    return undefined;
+  }
+
+  if (selection.intentAction === 'reserve') {
+    if (isControllerOwned(controller)) {
+      return undefined;
+    }
+
+    const ownReservationTicksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+    return ownReservationTicksToEnd ?? getControllerReservationTicksToEnd(controller) ?? 0;
+  }
+
+  if (isControllerOwned(controller)) {
+    return typeof controller.ticksToDowngrade === 'number' ? controller.ticksToDowngrade : undefined;
+  }
+
+  return getControllerReservationTicksToEnd(controller) ?? 0;
+}
+
 function getVisibleRoom(roomName: string): Room | null {
   return (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[roomName] ?? null;
 }
@@ -1094,6 +1129,7 @@ function compareTerritoryCandidates(left: ScoredTerritoryTarget, right: ScoredTe
     compareOptionalNumbers(left.renewalTicksToEnd, right.renewalTicksToEnd) ||
     getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) ||
     compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) ||
+    compareOptionalNumbers(left.occupationActionableTicks, right.occupationActionableTicks) ||
     left.order - right.order ||
     left.target.roomName.localeCompare(right.target.roomName) ||
     left.intentAction.localeCompare(right.intentAction)
