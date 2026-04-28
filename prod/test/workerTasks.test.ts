@@ -195,6 +195,32 @@ describe('selectWorkerTask', () => {
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it('falls back to harvesting when visible dropped energy is not reachable', () => {
+    const blockedDroppedEnergy = { id: 'drop-blocked', resourceType: 'energy', amount: 200 } as Resource<ResourceConstant>;
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [blockedDroppedEnergy];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id: string }) => (target.id === 'drop-blocked' ? 5 : 1)),
+        findPathTo: jest.fn().mockReturnValue([])
+      },
+      room: { find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.pos.findPathTo).toHaveBeenCalledWith(blockedDroppedEnergy, { ignoreCreeps: true });
+  });
+
   it('keeps dropped energy fallback deterministic when energy globals or stores are partially mocked', () => {
     delete (globalThis as unknown as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY;
     const partialContainer = { id: 'container1', structureType: 'container' } as AnyStructure;

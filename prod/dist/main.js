@@ -1983,7 +1983,7 @@ function findWorkerEnergyAcquisitionCandidates(creep) {
       targetId: source.id
     })
   );
-  const droppedEnergyCandidates = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).map(
+  const droppedEnergyCandidates = findDroppedResources(creep.room).filter((source) => isUsefulDroppedEnergy(source) && isReachable(creep, source)).map(
     (source) => createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
       type: "pickup",
       targetId: source.id
@@ -2074,6 +2074,18 @@ function getRangeToWorkerEnergyAcquisitionSource(creep, source) {
   }
   const range = position.getRangeTo(source);
   return Number.isFinite(range) ? Math.max(0, range) : null;
+}
+function isReachable(creep, target) {
+  const position = creep.pos;
+  if (typeof (position == null ? void 0 : position.findPathTo) !== "function") {
+    return true;
+  }
+  const range = getRangeBetweenRoomObjects(creep, target);
+  if (range !== null && range <= 1) {
+    return true;
+  }
+  const path = position.findPathTo(target, { ignoreCreeps: true });
+  return Array.isArray(path) && path.length > 0;
 }
 function compareWorkerEnergyAcquisitionCandidates(left, right) {
   return right.score - left.score || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);

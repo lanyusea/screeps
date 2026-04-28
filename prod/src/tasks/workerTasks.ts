@@ -475,7 +475,7 @@ function findWorkerEnergyAcquisitionCandidates(creep: Creep): WorkerEnergyAcquis
       })
     );
   const droppedEnergyCandidates = findDroppedResources(creep.room)
-    .filter(isUsefulDroppedEnergy)
+    .filter((source): source is Resource<ResourceConstant> => isUsefulDroppedEnergy(source) && isReachable(creep, source))
     .map((source) =>
       createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
         type: 'pickup',
@@ -608,6 +608,25 @@ function getRangeToWorkerEnergyAcquisitionSource(
 
   const range = position.getRangeTo(source);
   return Number.isFinite(range) ? Math.max(0, range) : null;
+}
+
+function isReachable(creep: Creep, target: RoomObject): boolean {
+  const position = (creep as Creep & {
+    pos?: {
+      findPathTo?: (target: RoomObject, opts?: { ignoreCreeps?: boolean }) => unknown[];
+    };
+  }).pos;
+  if (typeof position?.findPathTo !== 'function') {
+    return true;
+  }
+
+  const range = getRangeBetweenRoomObjects(creep, target);
+  if (range !== null && range <= 1) {
+    return true;
+  }
+
+  const path = position.findPathTo(target, { ignoreCreeps: true });
+  return Array.isArray(path) && path.length > 0;
 }
 
 function compareWorkerEnergyAcquisitionCandidates(
