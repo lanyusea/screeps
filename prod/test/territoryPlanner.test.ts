@@ -1,5 +1,6 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
+  buildTerritoryCreepMemory,
   planTerritoryIntent,
   shouldSpawnTerritoryControllerCreep,
   TERRITORY_DOWNGRADE_GUARD_TICKS,
@@ -1034,6 +1035,7 @@ describe('planTerritoryIntent', () => {
   it('scouts adjacent rooms after a configured claim target is owned by the colony account', () => {
     const colony = makeSafeColony();
     const claimedTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'claim' };
+    const followUp = makeFollowUp('satisfiedClaimAdjacent', 'W2N1', 'claim');
     const describeExits = jest.fn(() => ({ '3': 'W3N1' }));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       map: { describeExits } as unknown as GameMap,
@@ -1055,7 +1057,8 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W3N1',
-      action: 'scout'
+      action: 'scout',
+      followUp
     });
     expect(describeExits).toHaveBeenCalledWith('W1N1');
     expect(Memory.territory?.targets).toEqual([claimedTarget]);
@@ -1065,7 +1068,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W3N1',
         action: 'scout',
         status: 'planned',
-        updatedAt: 554
+        updatedAt: 554,
+        followUp
       }
     ]);
   });
@@ -1073,6 +1077,7 @@ describe('planTerritoryIntent', () => {
   it('prefers the satisfied claim target as the next adjacent scout origin', () => {
     const colony = makeSafeColony();
     const claimedTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'claim' };
+    const followUp = makeFollowUp('satisfiedClaimAdjacent', 'W2N1', 'claim');
     const describeExits = jest.fn((roomName: string) =>
       roomName === 'W2N1' ? { '3': 'W3N1' } : { '1': 'W1N2' }
     );
@@ -1096,7 +1101,8 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W3N1',
-      action: 'scout'
+      action: 'scout',
+      followUp
     });
     expect(describeExits).toHaveBeenCalledWith('W1N1');
     expect(describeExits).toHaveBeenCalledWith('W2N1');
@@ -1107,7 +1113,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W3N1',
         action: 'scout',
         status: 'planned',
-        updatedAt: 555
+        updatedAt: 555,
+        followUp
       }
     ]);
   });
@@ -1500,6 +1507,7 @@ describe('planTerritoryIntent', () => {
   it('prioritizes a neutral adjacent reserve target over a healthy own configured reservation', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       map: { describeExits } as unknown as GameMap,
@@ -1523,7 +1531,7 @@ describe('planTerritoryIntent', () => {
 
     const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 539);
 
-    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' });
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', followUp });
     expect(describeExits).toHaveBeenCalledWith('W1N1');
     expect(
       shouldSpawnTerritoryControllerCreep(
@@ -1548,7 +1556,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W2N1',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 539
+        updatedAt: 539,
+        followUp
       }
     ]);
   });
@@ -1556,6 +1565,7 @@ describe('planTerritoryIntent', () => {
   it('extends from a satisfied configured reservation before home-adjacent reserve pressure', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
     const describeExits = jest.fn((roomName: string) =>
       roomName === 'W1N2' ? { '3': 'W2N2' } : { '3': 'W2N1' }
     );
@@ -1582,7 +1592,7 @@ describe('planTerritoryIntent', () => {
 
     const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 562);
 
-    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N2', action: 'reserve' });
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N2', action: 'reserve', followUp });
     expect(describeExits).toHaveBeenCalledWith('W1N1');
     expect(describeExits).toHaveBeenCalledWith('W1N2');
     expect(Memory.territory?.targets).toEqual([
@@ -1599,7 +1609,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W2N2',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 562
+        updatedAt: 562,
+        followUp
       }
     ]);
   });
@@ -1607,6 +1618,7 @@ describe('planTerritoryIntent', () => {
   it('extends from an actively covered visible reservation before home-adjacent reserve pressure', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const followUp = makeFollowUp('activeReserveAdjacent', 'W1N2', 'reserve');
     const describeExits = jest.fn((roomName: string) =>
       roomName === 'W1N2' ? { '3': 'W2N2' } : { '1': 'W1N2', '3': 'W2N1' }
     );
@@ -1637,7 +1649,7 @@ describe('planTerritoryIntent', () => {
       563
     );
 
-    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N2', action: 'reserve' });
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N2', action: 'reserve', followUp });
     expect(describeExits).toHaveBeenCalledWith('W1N1');
     expect(describeExits).toHaveBeenCalledWith('W1N2');
     expect(Memory.territory?.targets).toEqual([
@@ -1654,7 +1666,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W2N2',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 563
+        updatedAt: 563,
+        followUp
       }
     ]);
   });
@@ -1711,6 +1724,7 @@ describe('planTerritoryIntent', () => {
   it('skips hostile and suppressed adjacent reserve targets after a satisfied reservation', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
     const suppressedIntent: TerritoryIntentMemory = {
       colony: 'W1N1',
       targetRoom: 'W2N1',
@@ -1759,7 +1773,8 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W0N1',
-      action: 'reserve'
+      action: 'reserve',
+      followUp
     });
     expect(Memory.territory?.targets).toEqual([
       configuredTarget,
@@ -1776,7 +1791,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W0N1',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 541
+        updatedAt: 541,
+        followUp
       }
     ]);
   });
@@ -2234,7 +2250,40 @@ describe('planTerritoryIntent', () => {
       shouldSpawnTerritoryControllerCreep(plan!, { worker: 3, claimer: 0, claimersByTargetRoom: {} })
     ).toBe(true);
   });
+
+  it('carries follow-up metadata into territory creep memory', () => {
+    const followUp = makeFollowUp('activeReserveAdjacent', 'W1N2', 'reserve');
+
+    expect(
+      buildTerritoryCreepMemory({
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        followUp
+      })
+    ).toEqual({
+      role: 'claimer',
+      colony: 'W1N1',
+      territory: {
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        followUp
+      }
+    });
+  });
 });
+
+function makeFollowUp(
+  source: TerritoryFollowUpSource,
+  originRoom: string,
+  originAction: TerritoryControlAction
+): TerritoryFollowUpMemory {
+  return {
+    source,
+    originRoom,
+    originAction
+  };
+}
 
 function makeSafeColony({
   roomName = 'W1N1',
