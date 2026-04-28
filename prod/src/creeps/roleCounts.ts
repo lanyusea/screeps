@@ -1,18 +1,25 @@
 export interface RoleCounts {
   worker: number;
+  workerCapacity?: number;
   claimer?: number;
   claimersByTargetRoom?: Record<string, number>;
   scout?: number;
   scoutsByTargetRoom?: Record<string, number>;
 }
 
+// Conservative worker pre-spawn window. A three-part worker takes 9 ticks to
+// spawn, so 100 ticks leaves scheduling and travel buffer while only retiring
+// the final small slice of a 1500 tick lifetime from steady-state capacity.
 export const WORKER_REPLACEMENT_TICKS_TO_LIVE = 100;
 
 export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCounts {
-  return creeps.reduce<RoleCounts>(
+  const counts = creeps.reduce<RoleCounts>(
     (counts, creep) => {
-      if (isColonyWorker(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
+      if (isColonyWorker(creep, colonyName)) {
         counts.worker += 1;
+        if (canSatisfyRoleCapacity(creep)) {
+          counts.workerCapacity = (counts.workerCapacity ?? 0) + 1;
+        }
       }
       if (isColonyClaimer(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
         counts.claimer = (counts.claimer ?? 0) + 1;
@@ -34,8 +41,18 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
       }
       return counts;
     },
-    { worker: 0, claimer: 0, claimersByTargetRoom: {} }
+    { worker: 0, workerCapacity: 0, claimer: 0, claimersByTargetRoom: {} }
   );
+
+  if (counts.workerCapacity === counts.worker) {
+    delete counts.workerCapacity;
+  }
+
+  return counts;
+}
+
+export function getWorkerCapacity(roleCounts: RoleCounts): number {
+  return roleCounts.workerCapacity ?? roleCounts.worker;
 }
 
 function isColonyWorker(creep: Creep, colonyName: string): boolean {

@@ -471,34 +471,45 @@ function getOkCode() {
 // src/creeps/roleCounts.ts
 var WORKER_REPLACEMENT_TICKS_TO_LIVE = 100;
 function countCreepsByRole(creeps, colonyName) {
-  return creeps.reduce(
-    (counts, creep) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h;
-      if (isColonyWorker(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
-        counts.worker += 1;
+  const counts = creeps.reduce(
+    (counts2, creep) => {
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+      if (isColonyWorker(creep, colonyName)) {
+        counts2.worker += 1;
+        if (canSatisfyRoleCapacity(creep)) {
+          counts2.workerCapacity = ((_a = counts2.workerCapacity) != null ? _a : 0) + 1;
+        }
       }
       if (isColonyClaimer(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
-        counts.claimer = ((_a = counts.claimer) != null ? _a : 0) + 1;
-        const targetRoom = (_b = creep.memory.territory) == null ? void 0 : _b.targetRoom;
+        counts2.claimer = ((_b = counts2.claimer) != null ? _b : 0) + 1;
+        const targetRoom = (_c = creep.memory.territory) == null ? void 0 : _c.targetRoom;
         if (targetRoom) {
-          const claimersByTargetRoom = (_c = counts.claimersByTargetRoom) != null ? _c : {};
-          claimersByTargetRoom[targetRoom] = ((_d = claimersByTargetRoom[targetRoom]) != null ? _d : 0) + 1;
-          counts.claimersByTargetRoom = claimersByTargetRoom;
+          const claimersByTargetRoom = (_d = counts2.claimersByTargetRoom) != null ? _d : {};
+          claimersByTargetRoom[targetRoom] = ((_e = claimersByTargetRoom[targetRoom]) != null ? _e : 0) + 1;
+          counts2.claimersByTargetRoom = claimersByTargetRoom;
         }
       }
       if (isColonyScout(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
-        counts.scout = ((_e = counts.scout) != null ? _e : 0) + 1;
-        const targetRoom = (_f = creep.memory.territory) == null ? void 0 : _f.targetRoom;
+        counts2.scout = ((_f = counts2.scout) != null ? _f : 0) + 1;
+        const targetRoom = (_g = creep.memory.territory) == null ? void 0 : _g.targetRoom;
         if (targetRoom) {
-          const scoutsByTargetRoom = (_g = counts.scoutsByTargetRoom) != null ? _g : {};
-          scoutsByTargetRoom[targetRoom] = ((_h = scoutsByTargetRoom[targetRoom]) != null ? _h : 0) + 1;
-          counts.scoutsByTargetRoom = scoutsByTargetRoom;
+          const scoutsByTargetRoom = (_h = counts2.scoutsByTargetRoom) != null ? _h : {};
+          scoutsByTargetRoom[targetRoom] = ((_i = scoutsByTargetRoom[targetRoom]) != null ? _i : 0) + 1;
+          counts2.scoutsByTargetRoom = scoutsByTargetRoom;
         }
       }
-      return counts;
+      return counts2;
     },
-    { worker: 0, claimer: 0, claimersByTargetRoom: {} }
+    { worker: 0, workerCapacity: 0, claimer: 0, claimersByTargetRoom: {} }
   );
+  if (counts.workerCapacity === counts.worker) {
+    delete counts.workerCapacity;
+  }
+  return counts;
+}
+function getWorkerCapacity(roleCounts) {
+  var _a;
+  return (_a = roleCounts.workerCapacity) != null ? _a : roleCounts.worker;
 }
 function isColonyWorker(creep, colonyName) {
   return creep.memory.colony === colonyName && creep.memory.role === "worker";
@@ -692,7 +703,7 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
   upsertTerritoryIntent(intents, suppressedIntent);
 }
 function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
-  if (roleCounts.worker < workerTarget) {
+  if (getWorkerCapacity(roleCounts) < workerTarget) {
     return false;
   }
   if (colony.energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST) {
@@ -1883,7 +1894,7 @@ var MAX_WORKER_TARGET = 6;
 var sourceCountByRoomName = /* @__PURE__ */ new Map();
 function planSpawn(colony, roleCounts, gameTime) {
   const workerTarget = getWorkerTarget(colony, roleCounts);
-  if (roleCounts.worker < workerTarget) {
+  if (getWorkerCapacity(roleCounts) < workerTarget) {
     return planWorkerSpawn(colony, roleCounts, gameTime);
   }
   const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
@@ -1930,7 +1941,7 @@ function selectWorkerBody(colony, roleCounts) {
   if (roleCounts.worker === 0) {
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
-  return roleCounts.worker < MIN_WORKER_TARGET ? buildWorkerBody(colony.energyAvailable) : [];
+  return getWorkerCapacity(roleCounts) < MIN_WORKER_TARGET ? buildWorkerBody(colony.energyAvailable) : [];
 }
 function canAffordBody(body, energyAvailable) {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
@@ -1951,7 +1962,7 @@ function getWorkerTarget(colony, roleCounts) {
   return Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
 }
 function shouldAddConstructionBacklogWorkerBonus(colony, roleCounts, baseWorkerTarget) {
-  return roleCounts.worker >= baseWorkerTarget && isConstructionBonusHomeSafe(colony.room.controller) && hasActiveConstructionBacklog(colony.room);
+  return getWorkerCapacity(roleCounts) >= baseWorkerTarget && isConstructionBonusHomeSafe(colony.room.controller) && hasActiveConstructionBacklog(colony.room);
 }
 function isConstructionBonusHomeSafe(controller) {
   return (controller == null ? void 0 : controller.my) === true && (typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS);
