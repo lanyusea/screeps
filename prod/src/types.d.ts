@@ -17,6 +17,7 @@ declare global {
 
   type TerritoryControlAction = 'claim' | 'reserve';
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
+  type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
 
   interface TerritoryMemory {
     targets?: TerritoryTargetMemory[];
@@ -39,12 +40,20 @@ declare global {
     status: 'planned' | 'active' | 'suppressed';
     updatedAt: number;
     controllerId?: Id<StructureController>;
+    followUp?: TerritoryFollowUpMemory;
+  }
+
+  interface TerritoryFollowUpMemory {
+    source: TerritoryFollowUpSource;
+    originRoom: string;
+    originAction: TerritoryControlAction;
   }
 
   interface CreepTerritoryMemory {
     targetRoom: string;
     action: TerritoryIntentAction;
     controllerId?: Id<StructureController>;
+    followUp?: TerritoryFollowUpMemory;
   }
 
   type CreepTaskMemory =
