@@ -1184,6 +1184,9 @@ function selectConfiguredTerritoryTarget(colonyName, colonyOwnerUsername, territ
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return null;
   }
+  let fallbackTarget = null;
+  let renewalTarget = null;
+  let renewalTicksToEnd = null;
   for (const rawTarget of territoryMemory.targets) {
     const target = normalizeTerritoryTarget(rawTarget);
     if (target && target.enabled !== false && target.colony === colonyName && target.roomName !== colonyName && !isTerritoryTargetSuppressed(target, intents) && getVisibleTerritoryTargetState(
@@ -1192,10 +1195,20 @@ function selectConfiguredTerritoryTarget(colonyName, colonyOwnerUsername, territ
       target.controllerId,
       colonyOwnerUsername
     ) === "available") {
-      return target;
+      const targetRenewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername);
+      if (targetRenewalTicksToEnd !== null) {
+        if (renewalTicksToEnd === null || targetRenewalTicksToEnd < renewalTicksToEnd) {
+          renewalTarget = target;
+          renewalTicksToEnd = targetRenewalTicksToEnd;
+        }
+        continue;
+      }
+      if (fallbackTarget === null) {
+        fallbackTarget = target;
+      }
     }
   }
-  return null;
+  return renewalTarget != null ? renewalTarget : fallbackTarget;
 }
 function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
@@ -1411,6 +1424,20 @@ function getReserveControllerTargetState(controller, colonyOwnerUsername) {
     return "unavailable";
   }
   return typeof reservation.ticksToEnd === "number" && reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? "available" : "satisfied";
+}
+function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
+  if (target.action !== "reserve" || colonyOwnerUsername === null) {
+    return null;
+  }
+  const controller = getVisibleController(target.roomName, target.controllerId);
+  if (!controller || isControllerOwned(controller)) {
+    return null;
+  }
+  const reservation = controller.reservation;
+  if (!reservation || reservation.username !== colonyOwnerUsername || typeof reservation.ticksToEnd !== "number") {
+    return null;
+  }
+  return reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? reservation.ticksToEnd : null;
 }
 function getVisibleColonyOwnerUsername(colonyName) {
   const controller = getVisibleController(colonyName);

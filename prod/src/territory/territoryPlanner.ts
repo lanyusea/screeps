@@ -170,6 +170,10 @@ function selectConfiguredTerritoryTarget(
     return null;
   }
 
+  let fallbackTarget: TerritoryTargetMemory | null = null;
+  let renewalTarget: TerritoryTargetMemory | null = null;
+  let renewalTicksToEnd: number | null = null;
+
   for (const rawTarget of territoryMemory.targets) {
     const target = normalizeTerritoryTarget(rawTarget);
     if (
@@ -185,11 +189,22 @@ function selectConfiguredTerritoryTarget(
         colonyOwnerUsername
       ) === 'available'
     ) {
-      return target;
+      const targetRenewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername);
+      if (targetRenewalTicksToEnd !== null) {
+        if (renewalTicksToEnd === null || targetRenewalTicksToEnd < renewalTicksToEnd) {
+          renewalTarget = target;
+          renewalTicksToEnd = targetRenewalTicksToEnd;
+        }
+        continue;
+      }
+
+      if (fallbackTarget === null) {
+        fallbackTarget = target;
+      }
     }
   }
 
-  return null;
+  return renewalTarget ?? fallbackTarget;
 }
 
 function hasBlockingConfiguredTerritoryTargetForColony(
@@ -537,6 +552,27 @@ function getReserveControllerTargetState(
     reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS
     ? 'available'
     : 'satisfied';
+}
+
+function getConfiguredReserveRenewalTicksToEnd(
+  target: TerritoryTargetMemory,
+  colonyOwnerUsername: string | null
+): number | null {
+  if (target.action !== 'reserve' || colonyOwnerUsername === null) {
+    return null;
+  }
+
+  const controller = getVisibleController(target.roomName, target.controllerId);
+  if (!controller || isControllerOwned(controller)) {
+    return null;
+  }
+
+  const reservation = controller.reservation;
+  if (!reservation || reservation.username !== colonyOwnerUsername || typeof reservation.ticksToEnd !== 'number') {
+    return null;
+  }
+
+  return reservation.ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? reservation.ticksToEnd : null;
 }
 
 function getVisibleColonyOwnerUsername(colonyName: string): string | null {
