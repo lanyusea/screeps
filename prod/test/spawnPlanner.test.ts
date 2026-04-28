@@ -65,6 +65,14 @@ describe('planSpawn', () => {
     return { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController;
   }
 
+  function makeTerritoryRoom(roomName: string, controller: StructureController): Room {
+    return {
+      name: roomName,
+      controller,
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+  }
+
   it('plans a worker when the colony has no workers and an idle spawn', () => {
     const { colony, spawn } = makeColony();
 
@@ -292,6 +300,210 @@ describe('planSpawn', () => {
         updatedAt: 142
       }
     ]);
+  });
+
+  it('plans a claimer from a persisted occupation claim intent when the target is actionable', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2' as Id<StructureController>,
+          my: false
+        } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 152,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 153)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-153',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W2N1',
+          action: 'claim',
+          controllerId: 'controller2' as Id<StructureController>
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 153,
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('plans a reserver from a persisted occupation reserve intent with follow-up metadata', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N2: makeTerritoryRoom('W2N2', { my: false } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N2',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 154,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N2-155',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N2', action: 'reserve', followUp }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 155,
+        followUp
+      }
+    ]);
+  });
+
+  it('does not plan a duplicate claimer for the same persisted target and action', () => {
+    const { colony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N2: makeTerritoryRoom('W2N2', { my: false } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N2',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 156
+          }
+        ]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { W2N2: 1 },
+          claimersByTargetRoomAction: { reserve: { W2N2: 1 } }
+        },
+        157
+      )
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 157
+      }
+    ]);
+  });
+
+  it('does not count a reserver as coverage for a persisted claim intent on the same target', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N2: makeTerritoryRoom('W2N2', { my: false } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N2',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 158
+          }
+        ]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { W2N2: 1 },
+          claimersByTargetRoomAction: { reserve: { W2N2: 1 } }
+        },
+        159
+      )
+    ).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N2-159',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N2', action: 'claim' }
+      }
+    });
   });
 
   it('plans a cheap scout for an unseen adjacent reserve candidate before reserving it', () => {

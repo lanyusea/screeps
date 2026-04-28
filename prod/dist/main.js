@@ -1289,11 +1289,20 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
       routeDistanceLookupContext
     )
   );
-  const bestSpawnableConfiguredCandidate = selectBestScoredTerritoryCandidate(
-    getSpawnableTerritoryCandidates(configuredCandidates, roleCounts)
+  const persistedIntentCandidates = getPersistedTerritoryIntentCandidates(
+    colonyName,
+    colonyOwnerUsername,
+    territoryMemory,
+    intents,
+    gameTime,
+    routeDistanceLookupContext
   );
-  if (bestSpawnableConfiguredCandidate && bestSpawnableConfiguredCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
-    return toSelectedTerritoryTarget(bestSpawnableConfiguredCandidate);
+  const primaryCandidates = [...persistedIntentCandidates, ...configuredCandidates];
+  const bestSpawnablePrimaryCandidate = selectBestScoredTerritoryCandidate(
+    getSpawnableTerritoryCandidates(primaryCandidates, roleCounts)
+  );
+  if (bestSpawnablePrimaryCandidate && bestSpawnablePrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
+    return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
   }
   const adjacentCandidates = applyOccupationRecommendationScores(colony, roleCounts, [
     ...getAdjacentReserveCandidates(
@@ -1337,7 +1346,7 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
       routeDistanceLookupContext
     )
   ]);
-  const candidates = [...configuredCandidates, ...adjacentCandidates];
+  const candidates = [...primaryCandidates, ...adjacentCandidates];
   return toSelectedTerritoryTarget(
     (_a = selectBestScoredTerritoryCandidate(getSpawnableTerritoryCandidates(candidates, roleCounts))) != null ? _a : selectBestScoredTerritoryCandidate(candidates)
   );
@@ -1384,6 +1393,40 @@ function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, terri
     const candidate = scoreTerritoryCandidate(
       { target, intentAction: target.action, commitTarget: false },
       "configured",
+      order,
+      colonyName,
+      colonyOwnerUsername,
+      routeDistanceLookupContext
+    );
+    return candidate ? [candidate] : [];
+  });
+}
+function getPersistedTerritoryIntentCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, routeDistanceLookupContext) {
+  const seenIntentKeys = /* @__PURE__ */ new Set();
+  const configuredTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
+  return intents.flatMap((intent, order) => {
+    if (intent.colony !== colonyName || intent.targetRoom === colonyName || configuredTargetRooms.has(intent.targetRoom) || intent.status !== "planned" && intent.status !== "active" || !isTerritoryControlAction(intent.action) || isSuppressedTerritoryIntentForAction(intents, colonyName, intent.targetRoom, intent.action, gameTime) || getVisibleTerritoryTargetState(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername) !== "available") {
+      return [];
+    }
+    const intentKey = `${intent.targetRoom}:${intent.action}`;
+    if (seenIntentKeys.has(intentKey)) {
+      return [];
+    }
+    seenIntentKeys.add(intentKey);
+    const target = {
+      colony: intent.colony,
+      roomName: intent.targetRoom,
+      action: intent.action,
+      ...intent.controllerId ? { controllerId: intent.controllerId } : {}
+    };
+    const candidate = scoreTerritoryCandidate(
+      {
+        target,
+        intentAction: intent.action,
+        commitTarget: false,
+        ...intent.followUp ? { followUp: intent.followUp } : {}
+      },
+      "occupationIntent",
       order,
       colonyName,
       colonyOwnerUsername,
@@ -1722,7 +1765,7 @@ function compareOptionalNumbersDescending(left, right) {
   return (right != null ? right : Number.NEGATIVE_INFINITY) - (left != null ? left : Number.NEGATIVE_INFINITY);
 }
 function getTerritoryCandidateSourcePriority(source) {
-  if (source === "configured") {
+  if (source === "configured" || source === "occupationIntent") {
     return 0;
   }
   if (source === "satisfiedClaimAdjacent") {
