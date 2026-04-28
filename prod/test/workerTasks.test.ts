@@ -53,6 +53,19 @@ function makeStoredEnergyStructure(
   } as unknown as StructureContainer | StructureStorage | StructureTerminal;
 }
 
+function makeSalvageEnergySource(
+  id: string,
+  energy: number,
+  extraResourceAmount = 0
+): Tombstone | Ruin {
+  return {
+    id,
+    store: {
+      getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : extraResourceAmount))
+    }
+  } as unknown as Tombstone | Ruin;
+}
+
 function makeWorkerTaskRoom({
   constructionSites = [],
   controller = { id: 'controller1', my: true, level: 3 } as StructureController,
@@ -94,6 +107,8 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
+    (globalThis as unknown as { FIND_TOMBSTONES: number }).FIND_TOMBSTONES = 8;
+    (globalThis as unknown as { FIND_RUINS: number }).FIND_RUINS = 9;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
@@ -227,6 +242,89 @@ describe('selectWorkerTask', () => {
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it.each(['tombstone', 'ruin'] as const)('selects withdraw from %s energy before harvesting', (sourceKind) => {
+    const salvageEnergy = makeSalvageEnergySource(`${sourceKind}1`, 25);
+    const source = { id: 'source1' } as Source;
+    const findClosestByRange = jest.fn().mockReturnValue(salvageEnergy);
+    const salvageFindType = sourceKind === 'tombstone' ? FIND_TOMBSTONES : FIND_RUINS;
+    const otherSalvageFindType = sourceKind === 'tombstone' ? FIND_RUINS : FIND_TOMBSTONES;
+    const roomFind = jest.fn((type: number) => {
+      if (
+        type === FIND_DROPPED_RESOURCES ||
+        type === FIND_STRUCTURES ||
+        type === FIND_HOSTILE_CREEPS ||
+        type === FIND_HOSTILE_STRUCTURES ||
+        type === otherSalvageFindType
+      ) {
+        return [];
+      }
+
+      if (type === salvageFindType) {
+        return [salvageEnergy];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { findClosestByRange },
+      room: { find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: `${sourceKind}1` });
+    expect(findClosestByRange).toHaveBeenCalledWith([salvageEnergy]);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('ignores empty, non-energy, and trivial tombstone or ruin stores before balanced harvesting', () => {
+    const emptyTombstone = makeSalvageEnergySource('tombstone-empty', 0);
+    const trivialTombstone = makeSalvageEnergySource('tombstone-trivial', 1);
+    const mineralOnlyRuin = makeSalvageEnergySource('ruin-mineral', 0, 100);
+    const source1 = { id: 'source1' } as Source;
+    const source2 = { id: 'source2' } as Source;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => {
+        if (
+          type === FIND_DROPPED_RESOURCES ||
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES
+        ) {
+          return [];
+        }
+
+        if (type === FIND_TOMBSTONES) {
+          return [emptyTombstone, trivialTombstone];
+        }
+
+        if (type === FIND_RUINS) {
+          return [mineralOnlyRuin];
+        }
+
+        return type === FIND_SOURCES ? [source1, source2] : [];
+      })
+    } as unknown as Room;
+    setGameCreeps({
+      Assigned: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
+  });
+
   it('keeps dropped energy priority over stored energy withdraw', () => {
     const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
     const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 100);
@@ -252,6 +350,78 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop1' });
     expect(roomFind).not.toHaveBeenCalledWith(FIND_STRUCTURES);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('keeps dropped energy priority over tombstone and ruin salvage', () => {
+    const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
+    const tombstone = makeSalvageEnergySource('tombstone1', 25);
+    const ruin = makeSalvageEnergySource('ruin1', 25);
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
+      }
+
+      if (type === FIND_TOMBSTONES) {
+        return [tombstone];
+      }
+
+      if (type === FIND_RUINS) {
+        return [ruin];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop1' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_TOMBSTONES);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_RUINS);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('keeps stored structure withdrawal priority over tombstone and ruin salvage', () => {
+    const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 100);
+    const tombstone = makeSalvageEnergySource('tombstone1', 25);
+    const ruin = makeSalvageEnergySource('ruin1', 25);
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [container];
+      }
+
+      if (type === FIND_TOMBSTONES) {
+        return [tombstone];
+      }
+
+      if (type === FIND_RUINS) {
+        return [ruin];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_TOMBSTONES);
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_RUINS);
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
