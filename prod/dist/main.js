@@ -583,11 +583,40 @@ function selectFillableEnergySink(creep) {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
+  const spawn = selectClosestEnergySink(creep, energySinks.filter(isSpawnEnergySink));
+  if (spawn) {
+    return spawn;
+  }
+  return selectClosestEnergySink(creep, energySinks.filter(isExtensionEnergySink));
+}
+function isSpawnEnergySink(structure) {
+  return matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn");
+}
+function isExtensionEnergySink(structure) {
+  return matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension");
+}
+function selectClosestEnergySink(creep, energySinks) {
+  var _a;
   if (energySinks.length === 0) {
     return null;
   }
-  const closestEnergySink = findClosestByRange(creep, energySinks);
-  return closestEnergySink != null ? closestEnergySink : energySinks[0];
+  const energySinksByStableId = [...energySinks].sort(compareEnergySinkId);
+  const position = creep.pos;
+  if (typeof (position == null ? void 0 : position.getRangeTo) === "function") {
+    return energySinksByStableId.reduce((closest, candidate) => {
+      var _a2, _b, _c, _d;
+      const closestRange = (_b = (_a2 = position.getRangeTo) == null ? void 0 : _a2.call(position, closest)) != null ? _b : Infinity;
+      const candidateRange = (_d = (_c = position.getRangeTo) == null ? void 0 : _c.call(position, candidate)) != null ? _d : Infinity;
+      return candidateRange < closestRange || candidateRange === closestRange && compareEnergySinkId(candidate, closest) < 0 ? candidate : closest;
+    });
+  }
+  if (typeof (position == null ? void 0 : position.findClosestByRange) === "function") {
+    return (_a = position.findClosestByRange(energySinksByStableId)) != null ? _a : energySinksByStableId[0];
+  }
+  return energySinksByStableId[0];
+}
+function compareEnergySinkId(left, right) {
+  return String(left.id).localeCompare(String(right.id));
 }
 function isSpawnConstructionSite(site) {
   return matchesStructureType2(site.structureType, "STRUCTURE_SPAWN", "spawn");
