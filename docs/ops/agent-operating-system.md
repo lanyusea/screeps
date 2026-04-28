@@ -123,6 +123,44 @@ Owner decision on 2026-04-26: P0 monitoring/routing/scheduler health blocks norm
 
 P0 overrides normal development. If P0 is unhealthy, the main agent should pause or defer new implementation slices until the operating system is corrected.
 
+### Anti-starvation scheduling contract
+
+Normal development scheduling uses guarded weighted round-robin plus aging. The goal is to keep P0 incidents safe without letting lower-priority development or telemetry work starve behind an endless stream of higher-priority slices.
+
+Hard P0 incidents preempt all normal work:
+
+- broken CI or required-check gates, for example a failing required GitHub Actions check with a concrete failing job URL and a known fix action;
+- official deployment blockers, for example missing or failed deploy evidence for current gameplay-affecting `main` plus a concrete rerun/rollback/hold decision;
+- scheduler, monitor, routing, or owner-visibility health incidents, for example an enabled job with stale `next_run_at`, failed delivery, missing alert output, or registry/process evidence that the dispatcher cannot reconcile;
+- secret exposure, destructive runtime risk, or wrong branch/shard/room assumptions, for example a leaked token path, wrong `SCREEPS_SHARD`, wrong room, or an operation that could overwrite live code without the required confirmation.
+
+A P0 item is treated as hard only while it has an executable unblock step or active evidence-gathering step. An executable unblock step is an immediately actionable fix, rerun, rollback, Project repair, or owner decision request. Active evidence-gathering is a bounded check of GitHub Project fields, required-check logs, cron/job metadata, runtime artifacts, or `/root/.hermes/screeps-agent-registry.json` that can determine the unblock/hold state. If it is intentionally held, the hold must be mirrored in GitHub Project `Status`, `Evidence`, `Next action`, and `blocked`/`Blocked by`; otherwise it remains an abnormal P0 state.
+
+When no hard P0 incident is active, the continuation worker schedules normal ready work with this macrocycle:
+
+```text
+P0 -> P1 -> P0 -> P1 -> P2 -> P0 -> P1 -> P1
+```
+
+When no normal P0 work is ready, use the compressed cycle:
+
+```text
+P1 -> P1 -> P1 -> P2 -> P1
+```
+
+Operational rules:
+
+1. Open PRs and review/merge debt are drained before opening new same-domain implementation work, except that a 24-hour forced-P2 promotion may override normal same-domain P1 feature dispatch. Hard P0 incidents remain the only normal-work preemption above forced P2.
+2. After four completed P1 slots, the next eligible P2 slot is mandatory unless a hard P0 incident exists or the P2 item is blocked with no executable unblock step. The P1-completion counter is global across macrocycles, including the compressed cycle, and only increments when executable P1 work actually ran; slots skipped because of conflicts, missing readiness, or gates do not count.
+3. When a P2 slot successfully runs, reset the P1-completion counter to zero and consume one P2 credit if present. If the P2 slot cannot run because no P2-ready item exists, record one P2 credit in the scheduler checkpoint and leave the P1-completion counter unchanged. P2 credit is capped at 2 and must be consumed before dispatching additional non-urgent same-domain P1 feature work. Example: `P1 done x4 -> P2 missing -> credit 1/counter 4`; next run with ready P2 executes P2, then `credit 0/counter 0`.
+4. A P2-ready item that has waited 24 hours without being scheduled is forced into the next scheduler opportunity that is not occupied by a hard P0 incident. This promotion immediately overrides P2-credit and normal P1 sequencing; it cannot be delayed by same-domain P1 feature gating, PR-drain preference, or the macrocycle position unless the P2 item has no executable action. This is a scheduling promotion only; do not change the GitHub priority label unless a roadmap review explicitly reclassifies the work.
+5. Ready items age into higher effective scheduling priority: +1 effective point after 48 hours waiting, +2 after 96 hours waiting. The 24-hour forced-P2 rule is stricter than this general aging rule and wins for P2 starvation prevention.
+6. For each scheduler decision, write the selected cycle slot, skipped higher-priority work, consumed/created P2 credit, and exact next action into GitHub Project `Evidence` / `Next action` or the scheduler checkpoint. Redact all sensitive details in those fields and checkpoints: never copy secrets, credentials, token-bearing URLs, local secret paths, or raw command/config snippets that may contain credentials; summarize sanitized evidence instead.
+
+Selection inside a priority bucket is ordered by: executable unblock step first, stale age, project vision chain (`territory > resources > kills`), open PR before new issue, then the smallest independently verifiable slice.
+
+Current owner decision on 2026-04-28: P2 forced scheduling wait is **1 day**, not 7 days.
+
 ## Main-agent workflow
 
 For every meaningful task:
@@ -158,7 +196,7 @@ The scheduler runs these phases in order on every invocation:
 2. **Close ready loops.** If a PR has completed QA, green required checks, resolved/outdated review threads, and the >=15 minute automated review gate, merge it, fast-forward `/root/screeps`, and set the linked issue/PR Project items to `Done` with evidence.
 3. **Handle completed dev agents.** For each finished dev/Codex process, verify commit/authorship, run required checks, push, create or update the PR, add the PR to Project `screeps`, set issue/PR status to `In review`, and dispatch on-demand QA.
 4. **Handle QA results.** If QA returns `PASS`, update the PR/issue Evidence and move the PR to merge-gate watch. If QA returns `REQUEST_CHANGES`, dispatch a review-fix dev/Codex agent and record the blocker.
-5. **Maximize safe parallelism.** Claim executable `Ready` issues up to capacity, preferring P0 blockers first, then game-goal work in the order territory > resources > kills, then non-blocking foundation. Default assumption: different roadmap submodules are non-conflicting and should run in parallel via separate worktrees unless a concrete file/runtime/resource conflict is observed.
+5. **Maximize safe parallelism without starvation.** Claim executable `Ready` issues up to capacity using the anti-starvation scheduling contract above: hard P0 incidents first; otherwise the guarded weighted cycle, P2 credit, and 24-hour forced-P2 rule. A 24-hour forced-P2 promotion is subordinate only to hard P0 and cannot be deferred by same-domain P1 gating, normal P1 sequencing, or PR-drain preference when the P2 item has an executable action. Within each eligible priority bucket, prefer game-goal work in the order territory > resources > kills, then non-blocking foundation. Default assumption: different roadmap submodules are non-conflicting and should run in parallel via separate worktrees unless a concrete file/runtime/resource conflict is observed.
 6. **Refresh owner-visible state.** Update Issue/Project `Evidence` and `Next action`, write concise scheduler checkpoint output, and trigger/allow typed reporters to refresh roadmap/task views from GitHub state.
 
 #### Parallelism and conflict policy

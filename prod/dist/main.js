@@ -1177,7 +1177,7 @@ var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
-var STORED_ENERGY_RANGE_COST = 50;
+var ENERGY_ACQUISITION_RANGE_COST = 50;
 function selectWorkerTask(creep) {
   const carriedEnergy = getUsedEnergy(creep);
   const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
@@ -1186,17 +1186,9 @@ function selectWorkerTask(creep) {
       return territoryControllerTask;
     }
     if (getFreeEnergyCapacity(creep) > 0) {
-      const storedEnergy = selectStoredEnergySource(creep);
-      if (storedEnergy) {
-        return { type: "withdraw", targetId: storedEnergy.id };
-      }
-      const salvageEnergy = selectSalvageEnergySource(creep);
-      if (salvageEnergy) {
-        return { type: "withdraw", targetId: salvageEnergy.id };
-      }
-      const droppedEnergy = selectDroppedEnergy(creep);
-      if (droppedEnergy) {
-        return { type: "pickup", targetId: droppedEnergy.id };
+      const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
+      if (energyAcquisitionTask) {
+        return energyAcquisitionTask;
       }
     }
     const source = selectHarvestSource(creep);
@@ -1309,7 +1301,7 @@ function scoreStoredEnergySources(creep, sources) {
     return {
       energy,
       range,
-      score: energy - range * STORED_ENERGY_RANGE_COST,
+      score: energy - range * ENERGY_ACQUISITION_RANGE_COST,
       source
     };
   });
@@ -1354,6 +1346,72 @@ function isRoomSafeForUnownedContainerWithdrawal(context) {
     return true;
   }
   return reservationUsername === context.creepOwnerUsername;
+}
+function selectWorkerEnergyAcquisitionTask(creep) {
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep);
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+}
+function findWorkerEnergyAcquisitionCandidates(creep) {
+  const context = {
+    creepOwnerUsername: getCreepOwnerUsername(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const storedEnergyCandidates = findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).map(
+    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy(source), {
+      type: "withdraw",
+      targetId: source.id
+    })
+  );
+  const salvageEnergyCandidates = [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).map(
+    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy(source), {
+      type: "withdraw",
+      targetId: source.id
+    })
+  );
+  const droppedEnergyCandidates = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).map(
+    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
+      type: "pickup",
+      targetId: source.id
+    })
+  );
+  return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
+}
+function createWorkerEnergyAcquisitionCandidate(creep, source, energy, task) {
+  const range = getRangeToWorkerEnergyAcquisitionSource(creep, source);
+  return {
+    energy,
+    range,
+    score: range === null ? energy : energy - range * ENERGY_ACQUISITION_RANGE_COST,
+    source,
+    task
+  };
+}
+function getRangeToWorkerEnergyAcquisitionSource(creep, source) {
+  const position = creep.pos;
+  if (typeof (position == null ? void 0 : position.getRangeTo) !== "function") {
+    return null;
+  }
+  const range = position.getRangeTo(source);
+  return Number.isFinite(range) ? Math.max(0, range) : null;
+}
+function compareWorkerEnergyAcquisitionCandidates(left, right) {
+  return right.score - left.score || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+}
+function compareOptionalRanges(left, right) {
+  if (left !== null && right !== null) {
+    return left - right;
+  }
+  if (left !== null) {
+    return -1;
+  }
+  if (right !== null) {
+    return 1;
+  }
+  return 0;
 }
 function selectSalvageEnergySource(creep) {
   const salvageEnergySources = [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy);
@@ -1547,14 +1605,6 @@ function isUpgradingController(creep, controller) {
   var _a;
   const task = (_a = creep.memory) == null ? void 0 : _a.task;
   return (task == null ? void 0 : task.type) === "upgrade" && task.targetId === controller.id;
-}
-function selectDroppedEnergy(creep) {
-  const droppedEnergy = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy);
-  if (droppedEnergy.length === 0) {
-    return null;
-  }
-  const closestDroppedEnergy = findClosestByRange(creep, droppedEnergy);
-  return closestDroppedEnergy != null ? closestDroppedEnergy : droppedEnergy[0];
 }
 function findDroppedResources(room) {
   if (typeof FIND_DROPPED_RESOURCES !== "number") {
