@@ -3458,6 +3458,7 @@ function executeTask(creep, task, target) {
 var MIN_WORKER_TARGET = 3;
 var WORKERS_PER_SOURCE = 2;
 var CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
+var SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT = 5;
 var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST = 50;
 var MAX_WORKER_TARGET = 6;
@@ -3532,22 +3533,28 @@ function getWorkerTarget(colony, roleCounts) {
   const sourceCount = getSourceCount(colony.room);
   const sourceAwareTarget = sourceCount * WORKERS_PER_SOURCE;
   const baseTarget = Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
-  if (!shouldAddConstructionBacklogWorkerBonus(colony, roleCounts, baseTarget)) {
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  if (workerCapacity < baseTarget || !isConstructionBonusHomeSafe(colony.room.controller)) {
     return baseTarget;
   }
-  return Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
-}
-function shouldAddConstructionBacklogWorkerBonus(colony, roleCounts, baseWorkerTarget) {
-  return getWorkerCapacity(roleCounts) >= baseWorkerTarget && isConstructionBonusHomeSafe(colony.room.controller) && hasActiveConstructionBacklog(colony.room);
+  const constructionBacklogSiteCount = getConstructionBacklogSiteCount(colony.room);
+  if (constructionBacklogSiteCount === 0) {
+    return baseTarget;
+  }
+  const firstBonusTarget = Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
+  if (workerCapacity < firstBonusTarget || constructionBacklogSiteCount < SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT) {
+    return firstBonusTarget;
+  }
+  return Math.min(MAX_WORKER_TARGET, firstBonusTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
 }
 function isConstructionBonusHomeSafe(controller) {
   return (controller == null ? void 0 : controller.my) === true && (typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS);
 }
-function hasActiveConstructionBacklog(room) {
+function getConstructionBacklogSiteCount(room) {
   if (typeof room.find !== "function" || typeof FIND_MY_CONSTRUCTION_SITES !== "number") {
-    return false;
+    return 0;
   }
-  return room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
+  return room.find(FIND_MY_CONSTRUCTION_SITES).length;
 }
 function getSourceCount(room) {
   const roomName = typeof room.name === "string" && room.name.length > 0 ? room.name : void 0;
