@@ -588,6 +588,15 @@ var TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var EXIT_DIRECTION_ORDER = ["1", "3", "5", "7"];
 var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
+var ERR_NO_PATH_CODE = -2;
+var TERRITORY_CANDIDATE_PRIORITY_URGENT_RENEWAL = 0;
+var TERRITORY_CANDIDATE_PRIORITY_VISIBLE_CLAIM = 1;
+var TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE = 2;
+var TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_CLAIM = 3;
+var TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE = 4;
+var TERRITORY_CANDIDATE_PRIORITY_SCOUT = 5;
+var MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
+var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
@@ -765,52 +774,79 @@ function selectTerritoryTarget(colony, gameTime) {
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord();
   const intents = normalizeTerritoryIntents(territoryMemory == null ? void 0 : territoryMemory.intents);
-  const configuredTarget = selectConfiguredTerritoryTarget(
+  const routeDistanceLookupContext = createRouteDistanceLookupContext();
+  const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
+    territoryMemory,
+    colonyName,
+    colonyOwnerUsername,
+    intents,
+    gameTime,
+    routeDistanceLookupContext
+  );
+  const configuredCandidates = getConfiguredTerritoryCandidates(
     colonyName,
     colonyOwnerUsername,
     territoryMemory,
     intents,
-    gameTime
+    gameTime,
+    routeDistanceLookupContext
   );
-  if (configuredTarget) {
-    return { target: configuredTarget, intentAction: configuredTarget.action, commitTarget: false };
+  const bestConfiguredCandidate = selectBestScoredTerritoryCandidate(configuredCandidates);
+  if (bestConfiguredCandidate && bestConfiguredCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
+    return toSelectedTerritoryTarget(bestConfiguredCandidate);
   }
-  if (hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents, gameTime)) {
-    return null;
-  }
-  return selectAdjacentReserveTarget(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime);
+  return toSelectedTerritoryTarget(
+    selectBestScoredTerritoryCandidate([
+      ...configuredCandidates,
+      ...getAdjacentReserveCandidates(
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        !hasBlockingConfiguredTarget,
+        routeDistanceLookupContext
+      )
+    ])
+  );
 }
-function selectConfiguredTerritoryTarget(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime) {
-  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
-    return null;
-  }
-  let fallbackTarget = null;
-  let renewalTarget = null;
-  let renewalTicksToEnd = null;
-  for (const rawTarget of territoryMemory.targets) {
-    const target = normalizeTerritoryTarget(rawTarget);
-    if (target && target.enabled !== false && target.colony === colonyName && target.roomName !== colonyName && !isTerritoryTargetSuppressed(target, intents, gameTime) && getVisibleTerritoryTargetState(
-      target.roomName,
-      target.action,
-      target.controllerId,
-      colonyOwnerUsername
-    ) === "available") {
-      const targetRenewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername);
-      if (targetRenewalTicksToEnd !== null) {
-        if (renewalTicksToEnd === null || targetRenewalTicksToEnd < renewalTicksToEnd) {
-          renewalTarget = target;
-          renewalTicksToEnd = targetRenewalTicksToEnd;
-        }
-        continue;
-      }
-      if (fallbackTarget === null) {
-        fallbackTarget = target;
-      }
+function selectBestScoredTerritoryCandidate(candidates) {
+  let bestCandidate = null;
+  for (const candidate of candidates) {
+    if (!bestCandidate || compareTerritoryCandidates(candidate, bestCandidate) < 0) {
+      bestCandidate = candidate;
     }
   }
-  return renewalTarget != null ? renewalTarget : fallbackTarget;
+  return bestCandidate;
 }
-function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents, gameTime) {
+function toSelectedTerritoryTarget(candidate) {
+  return candidate ? {
+    target: candidate.target,
+    intentAction: candidate.intentAction,
+    commitTarget: candidate.commitTarget
+  } : null;
+}
+function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, routeDistanceLookupContext) {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return [];
+  }
+  return territoryMemory.targets.flatMap((rawTarget, order) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (!target || target.enabled === false || target.colony !== colonyName || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime) || getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "available") {
+      return [];
+    }
+    const candidate = scoreTerritoryCandidate(
+      { target, intentAction: target.action, commitTarget: false },
+      "configured",
+      order,
+      colonyName,
+      colonyOwnerUsername,
+      routeDistanceLookupContext
+    );
+    return candidate ? [candidate] : [];
+  });
+}
+function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents, gameTime, routeDistanceLookupContext) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return false;
   }
@@ -819,31 +855,145 @@ function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyNa
     if (!target || target.colony !== colonyName) {
       return false;
     }
+    if (hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext)) {
+      return false;
+    }
     if (target.enabled === false || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime)) {
       return true;
     }
     return getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "satisfied";
   });
 }
-function selectAdjacentReserveTarget(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime) {
+function getAdjacentReserveCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, includeScoutCandidates, routeDistanceLookupContext) {
   const adjacentRooms = getAdjacentRoomNames(colonyName);
   if (adjacentRooms.length === 0) {
-    return null;
+    return [];
   }
   const existingTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
-  for (const roomName of adjacentRooms) {
+  return adjacentRooms.flatMap((roomName, order) => {
     const target = { colony: colonyName, roomName, action: "reserve" };
-    if (roomName !== colonyName && !existingTargetRooms.has(roomName) && !isTerritoryTargetSuppressed(target, intents, gameTime)) {
-      const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
-      if (candidateState === "safe") {
-        return { target, intentAction: "reserve", commitTarget: true };
-      }
-      if (candidateState === "unknown" && !isSuppressedTerritoryIntentForAction(intents, colonyName, roomName, "scout", gameTime)) {
-        return { target, intentAction: "scout", commitTarget: false };
-      }
+    if (roomName === colonyName || existingTargetRooms.has(roomName) || isTerritoryTargetSuppressed(target, intents, gameTime)) {
+      return [];
     }
+    const candidateState = getAdjacentReserveCandidateState(roomName, colonyOwnerUsername);
+    if (candidateState === "safe") {
+      const candidate = scoreTerritoryCandidate(
+        { target, intentAction: "reserve", commitTarget: true },
+        "adjacent",
+        order,
+        colonyName,
+        colonyOwnerUsername,
+        routeDistanceLookupContext
+      );
+      return candidate ? [candidate] : [];
+    }
+    if (candidateState === "unknown" && includeScoutCandidates && !isSuppressedTerritoryIntentForAction(intents, colonyName, roomName, "scout", gameTime)) {
+      const candidate = scoreTerritoryCandidate(
+        { target, intentAction: "scout", commitTarget: false },
+        "adjacent",
+        order,
+        colonyName,
+        colonyOwnerUsername,
+        routeDistanceLookupContext
+      );
+      return candidate ? [candidate] : [];
+    }
+    return [];
+  });
+}
+function scoreTerritoryCandidate(selection, source, order, colonyName, colonyOwnerUsername, routeDistanceLookupContext) {
+  if (hasKnownNoRoute(colonyName, selection.target.roomName, routeDistanceLookupContext)) {
+    return null;
   }
-  return null;
+  const renewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(selection.target, colonyOwnerUsername);
+  return {
+    ...selection,
+    source,
+    order,
+    priority: getTerritoryCandidatePriority(selection, renewalTicksToEnd),
+    ...renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}
+  };
+}
+function getTerritoryCandidatePriority(selection, renewalTicksToEnd) {
+  if (renewalTicksToEnd !== null) {
+    return TERRITORY_CANDIDATE_PRIORITY_URGENT_RENEWAL;
+  }
+  if (selection.intentAction === "scout") {
+    return TERRITORY_CANDIDATE_PRIORITY_SCOUT;
+  }
+  if (isTerritoryTargetVisible(selection.target)) {
+    return selection.target.action === "claim" ? TERRITORY_CANDIDATE_PRIORITY_VISIBLE_CLAIM : TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
+  }
+  return selection.target.action === "claim" ? TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_CLAIM : TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE;
+}
+function compareTerritoryCandidates(left, right) {
+  return left.priority - right.priority || compareOptionalNumbers(left.renewalTicksToEnd, right.renewalTicksToEnd) || getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) || left.order - right.order || left.target.roomName.localeCompare(right.target.roomName) || left.intentAction.localeCompare(right.intentAction);
+}
+function compareOptionalNumbers(left, right) {
+  return (left != null ? left : Number.POSITIVE_INFINITY) - (right != null ? right : Number.POSITIVE_INFINITY);
+}
+function getTerritoryCandidateSourcePriority(source) {
+  return source === "configured" ? 0 : 1;
+}
+function isTerritoryTargetVisible(target) {
+  return isVisibleRoomKnown(target.roomName) || getVisibleController(target.roomName, target.controllerId) !== null;
+}
+function createRouteDistanceLookupContext() {
+  return { revalidatedNoRouteCacheKeys: /* @__PURE__ */ new Set() };
+}
+function hasKnownNoRoute(fromRoom, targetRoom, routeDistanceLookupContext) {
+  return getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) === null;
+}
+function getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) {
+  var _a;
+  if (fromRoom === targetRoom) {
+    return 0;
+  }
+  const cache = getTerritoryRouteDistanceCache();
+  const cacheKey = getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom);
+  const cachedRouteLength = cache == null ? void 0 : cache[cacheKey];
+  if (typeof cachedRouteLength === "number") {
+    return cachedRouteLength;
+  }
+  if (cachedRouteLength === null && routeDistanceLookupContext.revalidatedNoRouteCacheKeys.has(cacheKey)) {
+    return null;
+  }
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (typeof (gameMap == null ? void 0 : gameMap.findRoute) !== "function") {
+    return void 0;
+  }
+  const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
+  if (route === getNoPathResultCode()) {
+    if (cache) {
+      cache[cacheKey] = null;
+    }
+    routeDistanceLookupContext.revalidatedNoRouteCacheKeys.add(cacheKey);
+    return null;
+  }
+  if (!Array.isArray(route)) {
+    return void 0;
+  }
+  if (cache) {
+    cache[cacheKey] = route.length;
+  }
+  return route.length;
+}
+function getTerritoryRouteDistanceCache() {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return void 0;
+  }
+  if (!isRecord(territoryMemory.routeDistances)) {
+    territoryMemory.routeDistances = {};
+  }
+  return territoryMemory.routeDistances;
+}
+function getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom) {
+  return `${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}`;
+}
+function getNoPathResultCode() {
+  const noPathCode = globalThis.ERR_NO_PATH;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE;
 }
 function getAdjacentReserveCandidateState(targetRoom, colonyOwnerUsername) {
   if (isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
