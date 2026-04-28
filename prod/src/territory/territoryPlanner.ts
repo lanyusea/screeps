@@ -197,15 +197,17 @@ function selectAdjacentReserveTarget(
     if (
       roomName !== colonyName &&
       !existingTargetRooms.has(roomName) &&
-      !isTerritoryTargetSuppressed(target, intents) &&
-      !isTerritoryIntentForActionSuppressed(colonyName, roomName, 'scout')
+      !isTerritoryTargetSuppressed(target, intents)
     ) {
       const candidateState = getAdjacentReserveCandidateState(roomName);
       if (candidateState === 'safe') {
         return { target, intentAction: 'reserve', commitTarget: true };
       }
 
-      if (candidateState === 'unknown') {
+      if (
+        candidateState === 'unknown' &&
+        !isTerritoryIntentForActionSuppressed(colonyName, roomName, 'scout')
+      ) {
         return { target, intentAction: 'scout', commitTarget: false };
       }
     }
