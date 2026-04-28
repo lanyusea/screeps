@@ -1,5 +1,6 @@
 import { planSpawn } from '../src/spawn/spawnPlanner';
 import { ColonySnapshot } from '../src/colony/colonyRegistry';
+import { TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
 describe('planSpawn', () => {
   beforeEach(() => {
@@ -421,6 +422,62 @@ describe('planSpawn', () => {
         action: 'reserve',
         status: 'active',
         updatedAt: 143
+      }
+    ]);
+  });
+
+  it('plans a backup reserver when an active own reservation reaches emergency renewal', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: {
+          name: 'W2N1',
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS }
+          } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { W2N1: 1 },
+          claimersByTargetRoomAction: { reserve: { W2N1: 1 } }
+        },
+        151
+      )
+    ).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-151',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve' }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 151
       }
     ]);
   });
