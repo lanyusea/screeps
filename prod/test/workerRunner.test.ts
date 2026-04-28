@@ -449,6 +449,61 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts construction for an assigned visible reserve target before spawn refill pressure', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const controller = { id: 'controller2', my: false } as StructureController;
+    const site = { id: 'site1' } as ConstructionSite;
+    const creep = {
+      owner: { username: 'me' },
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve' },
+        task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> }
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        name: 'W2N1',
+        controller,
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+            if (type === FIND_MY_STRUCTURES) {
+              const structures = [spawn];
+              return options?.filter ? structures.filter(options.filter) : structures;
+            }
+
+            if (type === FIND_CONSTRUCTION_SITES) {
+              return [site];
+            }
+
+            return [];
+          }
+        )
+      },
+      build: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(site)
+    };
+
+    runWorker(creep);
+
+    expect(Game.getObjectById).not.toHaveBeenCalled();
+    expect(creep.memory.task).toEqual({ type: 'reserve', targetId: 'controller2' });
+    expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('keeps construction work when spawn and extension energy is full', () => {
     const site = { id: 'site1' } as ConstructionSite;
     const fullSpawn = {
