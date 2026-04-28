@@ -74,13 +74,17 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const energySink = selectFillableEnergySink(creep);
-  if (energySink) {
+  if (energySink && !isTowerEnergySink(energySink)) {
     return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
   }
 
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  if (energySink) {
+    return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
   }
 
   if (territoryControllerTask) {

@@ -2008,6 +2008,25 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
+  it('keeps controller downgrade guard before tower refill', () => {
+    const tower = makeEnergySink('tower1', 'tower' as StructureConstant, 500);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        myStructures: [tower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it.each([
     ['spawn', 'spawn-site1'],
     ['extension', 'extension-site1']

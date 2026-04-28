@@ -1316,12 +1316,15 @@ function selectWorkerTask(creep) {
     return territoryControllerTask;
   }
   const energySink = selectFillableEnergySink(creep);
-  if (energySink) {
+  if (energySink && !isTowerEnergySink(energySink)) {
     return { type: "transfer", targetId: energySink.id };
   }
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: "upgrade", targetId: controller.id };
+  }
+  if (energySink) {
+    return { type: "transfer", targetId: energySink.id };
   }
   if (territoryControllerTask) {
     return territoryControllerTask;
