@@ -1,3 +1,8 @@
+import {
+  TERRITORY_RESERVATION_COMFORT_TICKS,
+  TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
+  TERRITORY_RESERVATION_RENEWAL_TICKS
+} from '../src/territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../src/territory/territoryRunner';
 
 describe('runTerritoryControllerCreep', () => {
@@ -82,6 +87,7 @@ describe('runTerritoryControllerCreep', () => {
     const creep = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
       room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
       reserveController: jest.fn().mockReturnValue(-9),
       moveTo: jest.fn()
     } as unknown as Creep;
@@ -94,11 +100,77 @@ describe('runTerritoryControllerCreep', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
-  it('keeps a visible healthy own reservation active without suppressing it', () => {
+  it('continues a visible own reservation above the normal renewal threshold with enough CLAIM parts', () => {
     const controller = {
       id: 'controller1',
       my: false,
-      reservation: { username: 'me', ticksToEnd: 4_000 }
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 1 }
+    } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(2),
+      reserveController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve' });
+  });
+
+  it('idles a one-CLAIM reserver at the normal renewal threshold until emergency', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS }
+    } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      reserveController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve' });
+  });
+
+  it('lets a one-CLAIM reserver renew at the emergency threshold', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS }
+    } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      reserveController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve' });
+  });
+
+  it('keeps a visible comfortably safe own reservation active without working it or suppressing it', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_COMFORT_TICKS + 1 }
     } as StructureController;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -117,13 +189,14 @@ describe('runTerritoryControllerCreep', () => {
       owner: { username: 'me' },
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
       room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(2),
       reserveController: jest.fn().mockReturnValue(0),
       moveTo: jest.fn()
     } as unknown as Creep;
 
     runTerritoryControllerCreep(creep);
 
-    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.reserveController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve' });
     expect(Memory.territory?.intents).toEqual([

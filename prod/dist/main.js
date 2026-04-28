@@ -572,6 +572,7 @@ var TERRITORY_SCOUT_ROLE = "scout";
 var TERRITORY_DOWNGRADE_GUARD_TICKS = 5e3;
 var TERRITORY_RESERVATION_RENEWAL_TICKS = 1e3;
 var TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
+var TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 2;
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var EXIT_DIRECTION_ORDER = ["1", "3", "5", "7"];
 var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
@@ -632,23 +633,31 @@ function selectVisibleTerritoryControllerTask(creep) {
     return null;
   }
   if (intent.action === "reserve") {
-    const activeClaimParts = getActiveControllerClaimPartCount(creep);
-    if (activeClaimParts <= 0) {
-      return null;
-    }
-    const reservationTicksToEnd = getUrgentOwnReservationTicksToEnd(
-      controller,
-      getTerritoryActorUsername(creep, intent.colony)
-    );
-    if (reservationTicksToEnd !== null && !canRenewReservation(activeClaimParts, reservationTicksToEnd)) {
-      return null;
-    }
-    return { type: "reserve", targetId: controller.id };
+    return canCreepReserveTerritoryController(creep, controller, intent.colony) ? { type: "reserve", targetId: controller.id } : null;
   }
   if (controller.my === true) {
     return getStoredEnergy(creep) > 0 ? { type: "upgrade", targetId: controller.id } : null;
   }
   return canUseControllerClaimPart(creep) ? { type: "claim", targetId: controller.id } : null;
+}
+function canCreepReserveTerritoryController(creep, controller, colony) {
+  const activeClaimParts = getActiveControllerClaimPartCount(creep);
+  if (activeClaimParts <= 0) {
+    return false;
+  }
+  if (isControllerOwned(controller)) {
+    return false;
+  }
+  const reservation = controller.reservation;
+  if (!reservation) {
+    return true;
+  }
+  const actorUsername = getTerritoryActorUsername(creep, colony);
+  if (!isNonEmptyString(actorUsername) || !isNonEmptyString(reservation.username) || reservation.username !== actorUsername || typeof reservation.ticksToEnd !== "number") {
+    return false;
+  }
+  const reservationTicksToEnd = reservation.ticksToEnd;
+  return reservationTicksToEnd <= TERRITORY_RESERVATION_COMFORT_TICKS && canRenewReservation(activeClaimParts, reservationTicksToEnd);
 }
 function selectUrgentVisibleReservationRenewalTask(creep) {
   const intent = selectVisibleTerritoryControllerIntent(creep);
@@ -1020,6 +1029,9 @@ function isCreepVisibleTerritoryIntentActionable(creep, intent) {
   if (intent.action === "claim" && controller.my === true) {
     return true;
   }
+  if (intent.action === "reserve") {
+    return canCreepReserveTerritoryController(creep, controller, intent.colony);
+  }
   return getTerritoryControllerTargetState(controller, intent.action, getTerritoryActorUsername(creep, intent.colony)) === "available";
 }
 function selectVisibleTerritoryAssignmentController(assignment, creep) {
@@ -1166,11 +1178,15 @@ function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
   return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername);
 }
 function getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
+  const ticksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+  return ticksToEnd !== null && ticksToEnd <= TERRITORY_RESERVATION_RENEWAL_TICKS ? ticksToEnd : null;
+}
+function getOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
   if (isControllerOwned(controller) || !isNonEmptyString(colonyOwnerUsername)) {
     return null;
   }
   const reservation = controller.reservation;
-  if (!reservation || reservation.username !== colonyOwnerUsername || typeof reservation.ticksToEnd !== "number" || reservation.ticksToEnd > TERRITORY_RESERVATION_RENEWAL_TICKS) {
+  if (!reservation || reservation.username !== colonyOwnerUsername || typeof reservation.ticksToEnd !== "number") {
     return null;
   }
   return reservation.ticksToEnd;
@@ -2342,6 +2358,9 @@ function runTerritoryControllerCreep(creep) {
     } else {
       completeTerritoryAssignment(creep);
     }
+    return;
+  }
+  if (assignment.action === "reserve" && !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
     return;
   }
   const result = assignment.action === "claim" ? executeControllerAction(creep, controller, "claimController") : executeControllerAction(creep, controller, "reserveController");
