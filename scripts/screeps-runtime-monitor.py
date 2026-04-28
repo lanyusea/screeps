@@ -132,6 +132,26 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
         "decision": "rollback_or_monitor_fix",
         "actions": ["capture_runtime_context", "inspect_recent_deploy", "restore_telemetry"],
     },
+    "runtime_exception": {
+        "severity": "critical",
+        "decision": "codex_hotfix_or_rollback",
+        "actions": ["capture_runtime_context", "inspect_recent_deploy", "start_hotfix_gate"],
+    },
+    "runtime_deadlock": {
+        "severity": "critical",
+        "decision": "codex_hotfix_or_rollback",
+        "actions": ["capture_runtime_context", "inspect_runtime_deadlock", "start_hotfix_gate"],
+    },
+    "resource_crisis": {
+        "severity": "high",
+        "decision": "owner_action_or_codex_hotfix",
+        "actions": ["capture_runtime_context", "inspect_resource_state", "start_hotfix_gate"],
+    },
+    "private_smoke_failure": {
+        "severity": "high",
+        "decision": "main_agent_triage",
+        "actions": ["capture_runtime_context", "inspect_private_smoke_report", "open_incident_issue"],
+    },
     "monitor_integrity": {
         "severity": "high",
         "decision": "monitor_fix",
@@ -156,7 +176,16 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "downgrade_risk": ["downgrade_risk"],
     "telemetry_silence": ["telemetry_silence"],
     "runtime_summary_silence": ["telemetry_silence"],
-    "loop_exception": ["telemetry_silence"],
+    "loop_exception": ["runtime_exception", "telemetry_silence"],
+    "runtime_exception": ["runtime_exception"],
+    "runtime_deadlock": ["runtime_deadlock"],
+    "resource_crisis": ["resource_crisis"],
+    "private_smoke_failed_phase": ["private_smoke_failure"],
+    "private_smoke_runtime_failure": ["private_smoke_failure"],
+    "private_smoke_telemetry_silence": ["telemetry_silence", "private_smoke_failure"],
+    "private_smoke_runtime_deadlock": ["runtime_deadlock", "private_smoke_failure"],
+    "private_smoke_spawn_collapse": ["spawn_collapse", "private_smoke_failure"],
+    "private_smoke_no_worker_evidence": ["spawn_collapse", "private_smoke_failure"],
     "monitor_miss": ["monitor_integrity"],
     "monitor_spam": ["monitor_integrity"],
 }
@@ -201,6 +230,21 @@ TACTICAL_ACTION_CATALOG: dict[str, dict[str, Any]] = {
         "owner": "main-agent",
         "action": "Check controller level, ticks-to-downgrade, upgrader presence, available energy, and spawn availability before selecting observe, hotfix, or owner action.",
         "decision": "owner_action_or_hotfix",
+    },
+    "inspect_runtime_deadlock": {
+        "owner": "main-agent",
+        "action": "Inspect private-smoke/runtime stats for tick progress, owned room count, spawn availability, creep count, and repeated no-progress criteria failures.",
+        "decision": "codex_hotfix_or_rollback",
+    },
+    "inspect_resource_state": {
+        "owner": "main-agent",
+        "action": "Check available energy, worker carry, dropped energy, sources, spawn queue, and whether the bot can recover harvesting without owner action.",
+        "decision": "owner_action_or_hotfix",
+    },
+    "inspect_private_smoke_report": {
+        "owner": "main-agent",
+        "action": "Inspect the private-smoke report phases, stats polling details, room spawn evidence, worker evidence, and sanitized failure excerpts.",
+        "decision": "main_agent_triage",
     },
     "inspect_recent_deploy": {
         "owner": "main-agent",
@@ -784,6 +828,310 @@ def number_from_reason(reason: dict[str, Any], *keys: str) -> float | None:
     return None
 
 
+def nested_value(value: Any, *keys: str) -> Any:
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def numeric_value(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def is_private_smoke_report(payload: dict[str, Any]) -> bool:
+    return isinstance(payload.get("phases"), list) and isinstance(payload.get("smoke"), dict)
+
+
+def private_smoke_phases(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    phases = payload.get("phases")
+    if not isinstance(phases, list):
+        return []
+    return [phase for phase in phases if isinstance(phase, dict)]
+
+
+def private_smoke_phase_name(phase: dict[str, Any]) -> str:
+    name = phase.get("name")
+    return name if isinstance(name, str) and name else "unknown-phase"
+
+
+def private_smoke_phase_details(phase: dict[str, Any]) -> dict[str, Any]:
+    details = phase.get("details")
+    return details if isinstance(details, dict) else {}
+
+
+def private_smoke_room(payload: dict[str, Any]) -> str | None:
+    smoke = payload.get("smoke")
+    if not isinstance(smoke, dict):
+        return None
+    room = smoke.get("room")
+    shard = smoke.get("shard")
+    if isinstance(room, str) and room:
+        if isinstance(shard, str) and shard:
+            return f"{shard}/{room}"
+        return room
+    return None
+
+
+def private_smoke_phase_failure_excerpt(phase: dict[str, Any]) -> str:
+    for key in ("error", "message"):
+        value = phase.get(key)
+        if isinstance(value, str) and value:
+            return short_text(value, 160)
+    details = private_smoke_phase_details(phase)
+    for key in ("error", "last_error", "output_excerpt", "response_excerpt"):
+        value = details.get(key)
+        if isinstance(value, str) and value:
+            return short_text(value, 160)
+    return "phase did not report a usable success signal"
+
+
+def private_smoke_reason(
+    payload: dict[str, Any],
+    kind: str,
+    message: str,
+    phase: str | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    room = private_smoke_room(payload)
+    signature_parts = [kind, room or "unknown-room", phase or ""]
+    if fields.get("object_id"):
+        signature_parts.append(str(fields["object_id"]))
+    else:
+        signature_parts.append(safe_file_fragment(message)[:64])
+    reason = {
+        "kind": kind,
+        "message": message,
+        "signature": ":".join(signature_parts),
+    }
+    if room:
+        reason["room"] = room
+    if phase:
+        reason["phase"] = phase
+    reason.update(fields)
+    return reason
+
+
+def classify_private_smoke_failed_phase(payload: dict[str, Any], phase: dict[str, Any]) -> dict[str, Any]:
+    name = private_smoke_phase_name(phase)
+    details = private_smoke_phase_details(phase)
+    excerpt = private_smoke_phase_failure_excerpt(phase)
+
+    if name == "poll-stats":
+        samples = numeric_value(details.get("samples"))
+        if not samples and not isinstance(details.get("last"), dict):
+            return private_smoke_reason(
+                payload,
+                "private_smoke_telemetry_silence",
+                f"private smoke poll-stats produced no usable stats before timeout: {excerpt}",
+                phase=name,
+                samples=samples,
+            )
+        return private_smoke_reason(
+            payload,
+            "private_smoke_runtime_deadlock",
+            f"private smoke stats never reached owned-room/creep criteria: {excerpt}",
+            phase=name,
+            samples=samples,
+        )
+
+    if name in {"place-spawn", "room-spawn-verify"}:
+        return private_smoke_reason(
+            payload,
+            "private_smoke_spawn_collapse",
+            f"private smoke could not confirm spawn recovery in phase {name}: {excerpt}",
+            phase=name,
+            structure_type="spawn",
+        )
+
+    if name in {"upload-code", "roundtrip-code"}:
+        return private_smoke_reason(
+            payload,
+            "private_smoke_runtime_failure",
+            f"private smoke bot bundle phase {name} failed: {excerpt}",
+            phase=name,
+        )
+
+    return private_smoke_reason(
+        payload,
+        "private_smoke_failed_phase",
+        f"private smoke phase {name} failed: {excerpt}",
+        phase=name,
+    )
+
+
+def private_smoke_phase_by_name(payload: dict[str, Any], name: str) -> dict[str, Any] | None:
+    for phase in private_smoke_phases(payload):
+        if private_smoke_phase_name(phase) == name:
+            return phase
+    return None
+
+
+def classify_private_smoke_stats_evidence(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    poll_stats = private_smoke_phase_by_name(payload, "poll-stats")
+    if poll_stats is None:
+        if payload.get("ok") is True and payload.get("dry_run") is False:
+            return [
+                private_smoke_reason(
+                    payload,
+                    "private_smoke_telemetry_silence",
+                    "private smoke succeeded without poll-stats telemetry evidence",
+                    phase="poll-stats",
+                )
+            ]
+        return []
+
+    if poll_stats.get("ok") is not True:
+        return []
+
+    details = private_smoke_phase_details(poll_stats)
+    samples = numeric_value(details.get("samples"))
+    last = details.get("last")
+    if not samples or not isinstance(last, dict):
+        return [
+            private_smoke_reason(
+                payload,
+                "private_smoke_telemetry_silence",
+                "private smoke poll-stats phase passed without usable latest stats",
+                phase="poll-stats",
+                samples=samples,
+            )
+        ]
+
+    user = last.get("user")
+    min_creeps = numeric_value(nested_value(details, "criteria", "min_creeps")) or 1.0
+    creeps = numeric_value(nested_value(user, "creeps")) if isinstance(user, dict) else None
+    rooms = numeric_value(nested_value(user, "rooms")) if isinstance(user, dict) else None
+    owned_rooms = numeric_value(last.get("ownedRooms"))
+    if not isinstance(user, dict) or creeps is None or rooms is None:
+        return [
+            private_smoke_reason(
+                payload,
+                "private_smoke_telemetry_silence",
+                "private smoke latest stats did not include smoke-user creep evidence",
+                phase="poll-stats",
+                samples=samples,
+            )
+        ]
+    if creeps is not None and creeps < min_creeps:
+        return [
+            private_smoke_reason(
+                payload,
+                "private_smoke_runtime_deadlock",
+                f"private smoke latest stats had {int(creeps)} creeps, below required {int(min_creeps)}",
+                phase="poll-stats",
+                samples=samples,
+            )
+        ]
+    if rooms == 0 or owned_rooms == 0:
+        return [
+            private_smoke_reason(
+                payload,
+                "private_smoke_runtime_deadlock",
+                "private smoke latest stats did not show an owned room",
+                phase="poll-stats",
+                samples=samples,
+            )
+        ]
+    return []
+
+
+def classify_private_smoke_room_evidence(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    mongo = private_smoke_phase_by_name(payload, "mongo-summary")
+    if mongo is None:
+        if payload.get("ok") is True and payload.get("dry_run") is False:
+            return [
+                private_smoke_reason(
+                    payload,
+                    "private_smoke_failed_phase",
+                    "private smoke succeeded without mongo-summary room evidence",
+                    phase="mongo-summary",
+                )
+            ]
+        return []
+    if mongo.get("ok") is not True:
+        return []
+
+    summary = nested_value(private_smoke_phase_details(mongo), "summary")
+    if not isinstance(summary, dict):
+        return [
+            private_smoke_reason(
+                payload,
+                "private_smoke_failed_phase",
+                "private smoke mongo-summary phase passed without a room summary object",
+                phase="mongo-summary",
+            )
+        ]
+
+    smoke = payload.get("smoke") if isinstance(payload.get("smoke"), dict) else {}
+    expected_spawn = nested_value(smoke, "spawn", "name")
+    spawns = summary.get("spawns")
+    spawn_list = spawns if isinstance(spawns, list) else []
+    counts = summary.get("counts")
+    spawn_count = numeric_value(nested_value(counts, "spawn")) if isinstance(counts, dict) else None
+    matching_spawn = any(isinstance(spawn, dict) and spawn.get("name") == expected_spawn for spawn in spawn_list)
+    spawn_visible = matching_spawn or bool(spawn_list) or (spawn_count is not None and spawn_count > 0)
+    if not spawn_visible:
+        return [
+            private_smoke_reason(
+                payload,
+                "private_smoke_spawn_collapse",
+                "private smoke Mongo summary did not include spawn evidence",
+                phase="mongo-summary",
+                structure_type="spawn",
+            )
+        ]
+
+    creeps = summary.get("creeps")
+    creep_list = creeps if isinstance(creeps, list) else []
+    creep_count = numeric_value(nested_value(counts, "creep")) if isinstance(counts, dict) else None
+    worker_visible = bool(creep_list) or (creep_count is not None and creep_count > 0)
+    if not worker_visible:
+        return [
+            private_smoke_reason(
+                payload,
+                "private_smoke_no_worker_evidence",
+                "private smoke Mongo summary did not include worker creep evidence",
+                phase="mongo-summary",
+            )
+        ]
+    return []
+
+
+def classify_private_smoke_report(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    reasons: list[dict[str, Any]] = []
+    phases = private_smoke_phases(payload)
+    for phase in phases:
+        if phase.get("ok") is False:
+            reasons.append(classify_private_smoke_failed_phase(payload, phase))
+
+    if not phases and payload.get("ok") is False:
+        reasons.append(
+            private_smoke_reason(
+                payload,
+                "private_smoke_runtime_failure",
+                "private smoke failed without phase details",
+            )
+        )
+
+    if payload.get("dry_run") is not True:
+        reasons.extend(classify_private_smoke_stats_evidence(payload))
+        reasons.extend(classify_private_smoke_room_evidence(payload))
+
+    if payload.get("ok") is False and not reasons:
+        reasons.append(
+            private_smoke_reason(
+                payload,
+                "private_smoke_runtime_failure",
+                str(payload.get("error") or "private smoke returned ok=false"),
+            )
+        )
+    return reasons
+
+
 def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
     kind = tactical_reason_kind(reason)
     lowered_kind = kind.lower()
@@ -802,6 +1150,14 @@ def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
         categories.append("telemetry_silence")
     if "silence" in lowered_kind or "silent" in lowered_kind:
         categories.append("telemetry_silence")
+    if "exception" in lowered_kind or "exception" in message:
+        categories.append("runtime_exception")
+    if "deadlock" in lowered_kind or "deadlock" in message or "no-progress" in message:
+        categories.append("runtime_deadlock")
+    if "resource" in lowered_kind and "crisis" in lowered_kind:
+        categories.append("resource_crisis")
+    if "private_smoke" in lowered_kind or "private smoke" in message:
+        categories.append("private_smoke_failure")
     if "monitor" in lowered_kind and ("miss" in lowered_kind or "spam" in lowered_kind):
         categories.append("monitor_integrity")
     if "damage" in lowered_kind:
@@ -838,6 +1194,34 @@ def category_severity(category: str, reason: dict[str, Any]) -> str:
 
 
 def tactical_source_summary(alert_payload: dict[str, Any], reasons: list[dict[str, Any]]) -> dict[str, Any]:
+    if is_private_smoke_report(alert_payload):
+        phases = private_smoke_phases(alert_payload)
+        failed_phases = [
+            private_smoke_phase_name(phase)
+            for phase in phases
+            if phase.get("ok") is False
+        ]
+        room = private_smoke_room(alert_payload)
+        summary = {
+            "ok": bool(alert_payload.get("ok")),
+            "mode": "private-smoke",
+            "alert": bool(reasons),
+            "reason_count": len(reasons),
+            "rooms": [room] if room else [],
+            "suppressed": False,
+            "suppressed_count": 0,
+            "warning_count": 0,
+            "dry_run": bool(alert_payload.get("dry_run")),
+            "phase_count": len(phases),
+            "failed_phase_count": len(failed_phases),
+            "failed_phases": failed_phases,
+        }
+        if alert_payload.get("ok") is False:
+            error = alert_payload.get("error")
+            if isinstance(error, str):
+                summary["error_excerpt"] = short_text(redact_secrets(error, [os.environ.get("SCREEPS_AUTH_TOKEN", "")]), 220)
+        return summary
+
     rooms = alert_payload.get("rooms")
     warnings = alert_payload.get("warnings")
     summary = {
@@ -858,10 +1242,15 @@ def tactical_source_summary(alert_payload: dict[str, Any], reasons: list[dict[st
 
 
 def normalize_tactical_reasons(alert_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    reasons: list[dict[str, Any]] = []
+    if is_private_smoke_report(alert_payload):
+        reasons.extend(classify_private_smoke_report(alert_payload))
+
     raw_reasons = alert_payload.get("reasons")
     if not isinstance(raw_reasons, list):
-        return []
-    return [dict(reason) for reason in raw_reasons if isinstance(reason, dict)]
+        return reasons
+    reasons.extend(dict(reason) for reason in raw_reasons if isinstance(reason, dict))
+    return reasons
 
 
 def append_unique_action(action_ids: list[str], action_id: str) -> None:
@@ -879,17 +1268,26 @@ def tactical_action_payload(action_id: str, priority: int) -> dict[str, Any]:
 def build_tactical_response_report(alert_payload: dict[str, Any]) -> dict[str, Any]:
     reasons = normalize_tactical_reasons(alert_payload)
     source = tactical_source_summary(alert_payload, reasons)
+    private_smoke = is_private_smoke_report(alert_payload)
     triggers: list[dict[str, Any]] = []
     category_set: set[str] = set()
     action_ids: list[str] = []
     severity = "none"
 
-    if alert_payload.get("ok") is False:
+    if alert_payload.get("ok") is False and not private_smoke:
         synthetic_reason = {
             "kind": "telemetry_silence",
             "message": "runtime monitor returned ok=false",
         }
         reasons = [synthetic_reason, *reasons]
+    elif alert_payload.get("ok") is False and private_smoke and not reasons:
+        reasons = [
+            private_smoke_reason(
+                alert_payload,
+                "private_smoke_runtime_failure",
+                "private smoke returned ok=false without classifiable phase details",
+            )
+        ]
     elif alert_payload.get("alert") is True and not reasons:
         reasons = [
             {
@@ -1753,6 +2151,32 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertTrue(report["emergency"])
             self.assertEqual(report["severity"], "critical")
             self.assertEqual(report["categories"], ["telemetry_silence"])
+
+        def test_tactical_response_classifies_private_smoke_stats_silence(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": False,
+                    "dry_run": False,
+                    "smoke": {"room": "E1S1", "shard": "shardX", "spawn": {"name": "Spawn1"}},
+                    "phases": [
+                        {"name": "place-spawn", "ok": True, "details": {}},
+                        {
+                            "name": "poll-stats",
+                            "ok": False,
+                            "details": {
+                                "samples": 0,
+                                "first": None,
+                                "last": None,
+                                "error": "stats criteria were not met before timeout",
+                            },
+                        },
+                    ],
+                }
+            )
+            self.assertTrue(report["emergency"])
+            self.assertEqual(report["severity"], "critical")
+            self.assertIn("telemetry_silence", report["categories"])
+            self.assertIn("private_smoke_failure", report["categories"])
 
     class SafeJsonTests(unittest.TestCase):
         def test_safe_json_rejects_secret(self) -> None:
