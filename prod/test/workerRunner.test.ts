@@ -1093,12 +1093,64 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('retargets transfer work to the closest same-priority fillable energy sink before walking', () => {
+    const farExtension = {
+      id: 'extension-far',
+      structureType: 'extension',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(50) }
+    } as unknown as StructureExtension;
+    const nearExtension = {
+      id: 'extension-near',
+      structureType: 'extension',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(50) }
+    } as unknown as StructureExtension;
+    const getRangeTo = jest.fn((target: StructureExtension) => {
+      const ranges: Record<string, number> = {
+        'extension-far': 8,
+        'extension-near': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      memory: { task: { type: 'transfer', targetId: 'extension-far' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureExtension) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            const structures = [farExtension, nearExtension];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      },
+      transfer: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(farExtension)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'extension-near' });
+    expect(Game.getObjectById).not.toHaveBeenCalled();
+    expect(creep.transfer).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('reselects a worker task without moving when transfer returns ERR_FULL', () => {
     const site = { id: 'site1' } as ConstructionSite;
     const spawn = {
       id: 'spawn1',
       structureType: 'spawn',
-      store: { getFreeCapacity: jest.fn().mockReturnValueOnce(1).mockReturnValue(0) }
+      store: { getFreeCapacity: jest.fn().mockReturnValueOnce(1).mockReturnValueOnce(1).mockReturnValue(0) }
     } as unknown as StructureSpawn;
     const creep = {
       memory: { task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } },

@@ -2252,6 +2252,11 @@ function runWorker(creep) {
     assignNextTask(creep);
     return;
   }
+  if (shouldPreemptTransferTaskForBetterEnergySink(creep, creep.memory.task)) {
+    delete creep.memory.task;
+    assignNextTask(creep);
+    return;
+  }
   if (shouldPreemptSpendingTaskForEnergySink(creep, creep.memory.task)) {
     delete creep.memory.task;
     assignNextTask(creep);
@@ -2349,6 +2354,23 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task) {
   }
   const nextTask = selectWorkerTask(creep);
   return isRecoverableEnergyTask(nextTask) && !isSameTask(task, nextTask);
+}
+function shouldPreemptTransferTaskForBetterEnergySink(creep, task) {
+  var _a, _b;
+  if (task.type !== "transfer") {
+    return false;
+  }
+  if (!((_a = creep.store) == null ? void 0 : _a.getUsedCapacity)) {
+    return false;
+  }
+  if (typeof ((_b = creep.room) == null ? void 0 : _b.find) !== "function") {
+    return false;
+  }
+  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
+    return false;
+  }
+  const nextTask = selectWorkerTask(creep);
+  return (nextTask == null ? void 0 : nextTask.type) === "transfer" && !isSameTask(task, nextTask);
 }
 function shouldPreemptSpendingTaskForControllerPressure(creep, task) {
   var _a;
