@@ -5,12 +5,17 @@ export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
-const STORED_ENERGY_RANGE_COST = 50;
+const ENERGY_ACQUISITION_RANGE_COST = 50;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
 type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
+type WorkerEnergyAcquisitionSource =
+  | StoredWorkerEnergySource
+  | SalvageableWorkerEnergySource
+  | Resource<ResourceConstant>;
+type WorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'pickup' | 'withdraw' }>;
 
 interface StoredEnergySourceContext {
   creepOwnerUsername: string | null;
@@ -23,19 +28,9 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (carriedEnergy === 0) {
     if (getFreeEnergyCapacity(creep) > 0) {
-      const storedEnergy = selectStoredEnergySource(creep);
-      if (storedEnergy) {
-        return { type: 'withdraw', targetId: storedEnergy.id as Id<AnyStoreStructure> };
-      }
-
-      const salvageEnergy = selectSalvageEnergySource(creep);
-      if (salvageEnergy) {
-        return { type: 'withdraw', targetId: salvageEnergy.id as unknown as Id<AnyStoreStructure> };
-      }
-
-      const droppedEnergy = selectDroppedEnergy(creep);
-      if (droppedEnergy) {
-        return { type: 'pickup', targetId: droppedEnergy.id };
+      const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
+      if (energyAcquisitionTask) {
+        return energyAcquisitionTask;
       }
     }
 
@@ -195,7 +190,7 @@ function scoreStoredEnergySources(
     return {
       energy,
       range,
-      score: energy - range * STORED_ENERGY_RANGE_COST,
+      score: energy - range * ENERGY_ACQUISITION_RANGE_COST,
       source
     };
   });
@@ -265,6 +260,120 @@ function isRoomSafeForUnownedContainerWithdrawal(context: StoredEnergySourceCont
   }
 
   return reservationUsername === context.creepOwnerUsername;
+}
+
+interface WorkerEnergyAcquisitionCandidate {
+  energy: number;
+  range: number | null;
+  score: number;
+  source: WorkerEnergyAcquisitionSource;
+  task: WorkerEnergyAcquisitionTask;
+}
+
+function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+}
+
+function findWorkerEnergyAcquisitionCandidates(creep: Creep): WorkerEnergyAcquisitionCandidate[] {
+  const context: StoredEnergySourceContext = {
+    creepOwnerUsername: getCreepOwnerUsername(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const storedEnergyCandidates = findVisibleRoomStructures(creep.room)
+    .filter((structure): structure is StoredWorkerEnergySource => isSafeStoredEnergySource(structure, context))
+    .map((source) =>
+      createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy(source), {
+        type: 'withdraw',
+        targetId: source.id as Id<AnyStoreStructure>
+      })
+    );
+  const salvageEnergyCandidates = [...findTombstones(creep.room), ...findRuins(creep.room)]
+    .filter(hasSalvageableEnergy)
+    .map((source) =>
+      createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy(source), {
+        type: 'withdraw',
+        targetId: source.id as unknown as Id<AnyStoreStructure>
+      })
+    );
+  const droppedEnergyCandidates = findDroppedResources(creep.room)
+    .filter(isUsefulDroppedEnergy)
+    .map((source) =>
+      createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
+        type: 'pickup',
+        targetId: source.id
+      })
+    );
+
+  return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
+}
+
+function createWorkerEnergyAcquisitionCandidate(
+  creep: Creep,
+  source: WorkerEnergyAcquisitionSource,
+  energy: number,
+  task: WorkerEnergyAcquisitionTask
+): WorkerEnergyAcquisitionCandidate {
+  const range = getRangeToWorkerEnergyAcquisitionSource(creep, source);
+
+  return {
+    energy,
+    range,
+    score: range === null ? energy : energy - range * ENERGY_ACQUISITION_RANGE_COST,
+    source,
+    task
+  };
+}
+
+function getRangeToWorkerEnergyAcquisitionSource(
+  creep: Creep,
+  source: WorkerEnergyAcquisitionSource
+): number | null {
+  const position = (creep as Creep & {
+    pos?: {
+      getRangeTo?: (target: WorkerEnergyAcquisitionSource) => number;
+    };
+  }).pos;
+  if (typeof position?.getRangeTo !== 'function') {
+    return null;
+  }
+
+  const range = position.getRangeTo(source);
+  return Number.isFinite(range) ? Math.max(0, range) : null;
+}
+
+function compareWorkerEnergyAcquisitionCandidates(
+  left: WorkerEnergyAcquisitionCandidate,
+  right: WorkerEnergyAcquisitionCandidate
+): number {
+  return (
+    right.score - left.score ||
+    compareOptionalRanges(left.range, right.range) ||
+    right.energy - left.energy ||
+    String(left.source.id).localeCompare(String(right.source.id)) ||
+    left.task.type.localeCompare(right.task.type)
+  );
+}
+
+function compareOptionalRanges(left: number | null, right: number | null): number {
+  if (left !== null && right !== null) {
+    return left - right;
+  }
+
+  if (left !== null) {
+    return -1;
+  }
+
+  if (right !== null) {
+    return 1;
+  }
+
+  return 0;
 }
 
 function selectSalvageEnergySource(creep: Creep): SalvageableWorkerEnergySource | null {
@@ -533,16 +642,6 @@ function isWorkerTaskRecord(value: unknown): value is Record<string, unknown> {
 function isUpgradingController(creep: Creep, controller: StructureController): boolean {
   const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
   return task?.type === 'upgrade' && task.targetId === controller.id;
-}
-
-function selectDroppedEnergy(creep: Creep): Resource<ResourceConstant> | null {
-  const droppedEnergy = findDroppedResources(creep.room).filter(isUsefulDroppedEnergy);
-  if (droppedEnergy.length === 0) {
-    return null;
-  }
-
-  const closestDroppedEnergy = findClosestByRange(creep, droppedEnergy);
-  return closestDroppedEnergy ?? droppedEnergy[0];
 }
 
 function findDroppedResources(room: Room): Resource[] {
