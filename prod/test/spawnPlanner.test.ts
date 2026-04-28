@@ -440,6 +440,68 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('plans the next territory controller target while another target has active capacity', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    const activeReserveIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'active',
+      updatedAt: 143
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: { name: 'W2N1', controller: { my: false } as StructureController } as Room,
+        W3N1: { name: 'W3N1', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ],
+        intents: [activeReserveIntent]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { W2N1: 1 },
+          claimersByTargetRoomAction: { reserve: { W2N1: 1 } }
+        },
+        150
+      )
+    ).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W3N1-150',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W3N1', action: 'reserve' }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      activeReserveIntent,
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 150
+      }
+    ]);
+  });
+
   it('targets a fourth worker for two-source rooms', () => {
     const { colony, spawn } = makeColony({ roomName: 'W1N2', sourceCount: 2 });
 

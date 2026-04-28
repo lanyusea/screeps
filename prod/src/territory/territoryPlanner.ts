@@ -64,7 +64,7 @@ export function planTerritoryIntent(
     return null;
   }
 
-  const selection = selectTerritoryTarget(colony, gameTime);
+  const selection = selectTerritoryTarget(colony, roleCounts, gameTime);
   if (!selection) {
     return null;
   }
@@ -311,7 +311,11 @@ export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCoun
   );
 }
 
-function selectTerritoryTarget(colony: ColonySnapshot, gameTime: number): SelectedTerritoryTarget | null {
+function selectTerritoryTarget(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  gameTime: number
+): SelectedTerritoryTarget | null {
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord();
@@ -323,6 +327,7 @@ function selectTerritoryTarget(colony: ColonySnapshot, gameTime: number): Select
     colonyOwnerUsername,
     intents,
     gameTime,
+    roleCounts,
     routeDistanceLookupContext
   );
   const configuredCandidates = getConfiguredTerritoryCandidates(
@@ -333,36 +338,44 @@ function selectTerritoryTarget(colony: ColonySnapshot, gameTime: number): Select
     gameTime,
     routeDistanceLookupContext
   );
-  const bestConfiguredCandidate = selectBestScoredTerritoryCandidate(configuredCandidates);
-  if (bestConfiguredCandidate && bestConfiguredCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
-    return toSelectedTerritoryTarget(bestConfiguredCandidate);
+  const bestSpawnableConfiguredCandidate = selectBestScoredTerritoryCandidate(
+    getSpawnableTerritoryCandidates(configuredCandidates, roleCounts)
+  );
+  if (
+    bestSpawnableConfiguredCandidate &&
+    bestSpawnableConfiguredCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY
+  ) {
+    return toSelectedTerritoryTarget(bestSpawnableConfiguredCandidate);
   }
 
+  const adjacentCandidates = [
+    ...getAdjacentReserveCandidates(
+      colonyName,
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      !hasBlockingConfiguredTarget,
+      'adjacent',
+      0,
+      routeDistanceLookupContext
+    ),
+    ...getSatisfiedClaimAdjacentReserveCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      !hasBlockingConfiguredTarget,
+      routeDistanceLookupContext
+    )
+  ];
+  const candidates = [...configuredCandidates, ...adjacentCandidates];
+
   return toSelectedTerritoryTarget(
-    selectBestScoredTerritoryCandidate([
-      ...configuredCandidates,
-      ...getAdjacentReserveCandidates(
-        colonyName,
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        !hasBlockingConfiguredTarget,
-        'adjacent',
-        0,
-        routeDistanceLookupContext
-      ),
-      ...getSatisfiedClaimAdjacentReserveCandidates(
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        !hasBlockingConfiguredTarget,
-        routeDistanceLookupContext
-      )
-    ])
+    selectBestScoredTerritoryCandidate(getSpawnableTerritoryCandidates(candidates, roleCounts)) ??
+      selectBestScoredTerritoryCandidate(candidates)
   );
 }
 
@@ -385,6 +398,16 @@ function toSelectedTerritoryTarget(candidate: ScoredTerritoryTarget | null): Sel
         commitTarget: candidate.commitTarget
       }
     : null;
+}
+
+function getSpawnableTerritoryCandidates(
+  candidates: ScoredTerritoryTarget[],
+  roleCounts: RoleCounts
+): ScoredTerritoryTarget[] {
+  return candidates.filter(
+    (candidate) =>
+      getTerritoryCreepCountForTarget(roleCounts, candidate.target.roomName, candidate.intentAction) === 0
+  );
 }
 
 function getConfiguredTerritoryCandidates(
@@ -431,6 +454,7 @@ function hasBlockingConfiguredTerritoryTargetForColony(
   colonyOwnerUsername: string | null,
   intents: TerritoryIntentMemory[],
   gameTime: number,
+  roleCounts: RoleCounts,
   routeDistanceLookupContext: RouteDistanceLookupContext
 ): boolean {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
@@ -453,6 +477,10 @@ function hasBlockingConfiguredTerritoryTargetForColony(
       isTerritoryTargetSuppressed(target, intents, gameTime)
     ) {
       return true;
+    }
+
+    if (getTerritoryCreepCountForTarget(roleCounts, target.roomName, target.action) > 0) {
+      return false;
     }
 
     return (
