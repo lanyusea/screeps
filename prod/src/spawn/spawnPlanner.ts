@@ -21,6 +21,8 @@ export interface SpawnRequest {
 
 const MIN_WORKER_TARGET = 3;
 const WORKERS_PER_SOURCE = 2;
+const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
+const TERRITORY_SCOUT_BODY_COST = 50;
 // Keep source-aware scaling bounded so unusual source data cannot create runaway early-room spawn pressure.
 const MAX_WORKER_TARGET = 6;
 const sourceCountByRoomName = new Map<string, number>();
@@ -41,15 +43,16 @@ export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTi
     return null;
   }
 
-  const body = buildTerritoryControllerBody(colony.energyAvailable);
+  const body = buildTerritorySpawnBody(colony.energyAvailable, territoryIntent.action);
   if (body.length === 0) {
     return null;
   }
 
+  const roleName = territoryIntent.action === 'scout' ? 'scout' : 'claimer';
   return {
     spawn,
     body,
-    name: `claimer-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`,
+    name: `${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`,
     memory: buildTerritoryCreepMemory(territoryIntent)
   };
 }
@@ -88,6 +91,14 @@ function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyP
 
 function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
+}
+
+function buildTerritorySpawnBody(energyAvailable: number, action: TerritoryIntentAction): BodyPartConstant[] {
+  if (action === 'scout') {
+    return energyAvailable >= TERRITORY_SCOUT_BODY_COST ? [...TERRITORY_SCOUT_BODY] : [];
+  }
+
+  return buildTerritoryControllerBody(energyAvailable);
 }
 
 function getWorkerTarget(colony: ColonySnapshot): number {

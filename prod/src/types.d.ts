@@ -16,6 +16,7 @@ declare global {
   }
 
   type TerritoryControlAction = 'claim' | 'reserve';
+  type TerritoryIntentAction = TerritoryControlAction | 'scout';
 
   interface TerritoryMemory {
     targets?: TerritoryTargetMemory[];
@@ -33,7 +34,7 @@ declare global {
   interface TerritoryIntentMemory {
     colony: string;
     targetRoom: string;
-    action: TerritoryControlAction;
+    action: TerritoryIntentAction;
     status: 'planned' | 'active' | 'suppressed';
     updatedAt: number;
     controllerId?: Id<StructureController>;
@@ -41,7 +42,7 @@ declare global {
 
   interface CreepTerritoryMemory {
     targetRoom: string;
-    action: TerritoryControlAction;
+    action: TerritoryIntentAction;
     controllerId?: Id<StructureController>;
   }
 

@@ -163,6 +163,39 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('plans a cheap scout for an unseen adjacent reserve candidate before reserving it', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 50,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '3': 'W2N1' })) } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 144)).toEqual({
+      spawn,
+      body: ['move'],
+      name: 'scout-W1N1-W2N1-144',
+      memory: {
+        role: 'scout',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'scout' }
+      }
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 144
+      }
+    ]);
+  });
+
   it('records territory intent while waiting for claim body energy', () => {
     const { colony } = makeColony({
       energyAvailable: 600,

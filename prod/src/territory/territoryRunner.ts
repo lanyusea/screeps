@@ -23,6 +23,11 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     return;
   }
 
+  if (assignment.action === 'scout') {
+    delete creep.memory.territory;
+    return;
+  }
+
   const controller = selectTargetController(creep, assignment);
   if (!controller) {
     suppressTerritoryAssignment(creep, assignment);
@@ -105,6 +110,6 @@ function isTerritoryAssignment(assignment: CreepTerritoryMemory | undefined): as
   return (
     typeof assignment?.targetRoom === 'string' &&
     assignment.targetRoom.length > 0 &&
-    (assignment.action === 'claim' || assignment.action === 'reserve')
+    (assignment.action === 'claim' || assignment.action === 'reserve' || assignment.action === 'scout')
   );
 }

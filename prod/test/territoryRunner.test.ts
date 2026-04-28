@@ -26,6 +26,20 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.reserveController).not.toHaveBeenCalled();
   });
 
+  it('finishes a scout assignment after entering the target room', () => {
+    const creep = {
+      memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } },
+      room: { name: 'W1N2' },
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory).toBeUndefined();
+  });
+
   it('reserves the target room controller and moves into range when needed', () => {
     const controller = { id: 'controller1', my: false } as StructureController;
     const creep = {

@@ -6,13 +6,18 @@ describe('countCreepsByRole', () => {
     const claimer = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } }
     } as Creep;
+    const scout = {
+      memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } }
+    } as Creep;
     const otherColonyWorker = { memory: { role: 'worker', colony: 'W2N2' } } as Creep;
     const unassigned = { memory: {} } as Creep;
 
-    expect(countCreepsByRole([worker, claimer, otherColonyWorker, unassigned], 'W1N1')).toEqual({
+    expect(countCreepsByRole([worker, claimer, scout, otherColonyWorker, unassigned], 'W1N1')).toEqual({
       worker: 1,
       claimer: 1,
-      claimersByTargetRoom: { W2N1: 1 }
+      claimersByTargetRoom: { W2N1: 1 },
+      scout: 1,
+      scoutsByTargetRoom: { W1N2: 1 }
     });
   });
 
