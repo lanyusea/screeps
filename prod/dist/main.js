@@ -2337,23 +2337,22 @@ function selectWorkerTask(creep) {
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: "upgrade", targetId: controller.id };
   }
+  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
+  const capacityConstructionSite = selectCapacityEnablingConstructionSite(creep, constructionSites, controller);
+  if (capacityConstructionSite && !territoryControllerTask) {
+    return { type: "build", targetId: capacityConstructionSite.id };
+  }
   if (energySink) {
     return { type: "transfer", targetId: energySink.id };
   }
   if (territoryControllerTask) {
     return territoryControllerTask;
   }
-  const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
-  if (spawnConstructionSite) {
-    return { type: "build", targetId: spawnConstructionSite.id };
+  if (capacityConstructionSite) {
+    return { type: "build", targetId: capacityConstructionSite.id };
   }
   if (controller && shouldRushRcl1Controller(controller)) {
     return { type: "upgrade", targetId: controller.id };
-  }
-  const extensionConstructionSite = selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
-  if (extensionConstructionSite) {
-    return { type: "build", targetId: extensionConstructionSite.id };
   }
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
@@ -2460,6 +2459,16 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
 }
 function compareConstructionSiteId(left, right) {
   return String(left.id).localeCompare(String(right.id));
+}
+function selectCapacityEnablingConstructionSite(creep, constructionSites, controller) {
+  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
+  if (spawnConstructionSite) {
+    return spawnConstructionSite;
+  }
+  if (controller && shouldRushRcl1Controller(controller)) {
+    return null;
+  }
+  return selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
 }
 function isSpawnConstructionSite(site) {
   return matchesStructureType2(site.structureType, "STRUCTURE_SPAWN", "spawn");
@@ -3042,6 +3051,8 @@ function runWorker(creep) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptSpendingTaskForEnergySink(currentTask, selectedTask)) {
@@ -3173,6 +3184,22 @@ function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task, selecte
   }
   return isRecoverableEnergyTask(selectedTask) && !isSameTask(task, selectedTask);
 }
+function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, selectedTask) {
+  var _a;
+  if (!isEnergyAcquisitionTask(task)) {
+    return false;
+  }
+  if (!selectedTask || isSameTask(task, selectedTask)) {
+    return false;
+  }
+  if (!((_a = creep.store) == null ? void 0 : _a.getUsedCapacity)) {
+    return false;
+  }
+  if (creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) {
+    return false;
+  }
+  return isUrgentEnergySpendingTask(selectedTask);
+}
 function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask) {
   var _a, _b;
   if (task.type !== "transfer") {
@@ -3243,6 +3270,25 @@ function isTerritoryControlTask2(task) {
 function isValidTransferTarget(target) {
   return getFreeTransferEnergyCapacity(target) > 0;
 }
+function isUrgentEnergySpendingTask(task) {
+  const target = getTaskTarget(task);
+  if (task.type === "transfer") {
+    return getTransferSinkPriority(target) >= 2;
+  }
+  return task.type === "build" && isCapacityEnablingConstructionSite(target);
+}
+function getTaskTarget(task) {
+  const game = globalThis.Game;
+  const getObjectById = game == null ? void 0 : game.getObjectById;
+  return typeof getObjectById === "function" ? getObjectById(String(task.targetId)) : null;
+}
+function isCapacityEnablingConstructionSite(target) {
+  const structureType = target == null ? void 0 : target.structureType;
+  if (typeof structureType !== "string") {
+    return false;
+  }
+  return matchesCapacityConstructionStructureType(structureType, "STRUCTURE_SPAWN", "spawn") || matchesCapacityConstructionStructureType(structureType, "STRUCTURE_EXTENSION", "extension");
+}
 function getFreeTransferEnergyCapacity(target) {
   var _a;
   const store = target == null ? void 0 : target.store;
@@ -3260,6 +3306,11 @@ function getTransferSinkPriority(target) {
   return matchesTransferSinkStructureType(structureType, "STRUCTURE_TOWER", "tower") ? 1 : 0;
 }
 function matchesTransferSinkStructureType(actual, globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return actual === ((_a = constants[globalName]) != null ? _a : fallback);
+}
+function matchesCapacityConstructionStructureType(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
