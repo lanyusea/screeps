@@ -1419,18 +1419,20 @@ function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, terri
     if (!target || target.enabled === false || target.colony !== colonyName || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime) || getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "available") {
       return [];
     }
-    const followUp = getPersistedTerritoryIntentFollowUp(
+    const persistedFollowUp = getPersistedTerritoryIntentFollowUp(
       intents,
       target.colony,
       target.roomName,
-      target.action
+      target.action,
+      gameTime
     );
     const candidate = scoreTerritoryCandidate(
       {
         target,
         intentAction: target.action,
         commitTarget: false,
-        ...followUp ? { followUp } : {}
+        ...persistedFollowUp ? { followUp: persistedFollowUp.followUp } : {},
+        ...(persistedFollowUp == null ? void 0 : persistedFollowUp.recovered) ? { recoveredFollowUp: true } : {}
       },
       "configured",
       order,
@@ -1445,7 +1447,8 @@ function getPersistedTerritoryIntentCandidates(colonyName, colonyOwnerUsername, 
   const seenIntentKeys = /* @__PURE__ */ new Set();
   const configuredTargetRooms = getConfiguredTargetRoomsForColony(territoryMemory, colonyName);
   return intents.flatMap((intent, order) => {
-    if (intent.colony !== colonyName || intent.targetRoom === colonyName || configuredTargetRooms.has(intent.targetRoom) || intent.status !== "planned" && intent.status !== "active" || !isTerritoryControlAction(intent.action) || isSuppressedTerritoryIntentForAction(intents, colonyName, intent.targetRoom, intent.action, gameTime) || getVisibleTerritoryTargetState(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername) !== "available") {
+    const recoveredFollowUp = isRecoveredTerritoryFollowUpIntent(intent, gameTime);
+    if (intent.colony !== colonyName || intent.targetRoom === colonyName || configuredTargetRooms.has(intent.targetRoom) || intent.status !== "planned" && intent.status !== "active" && !recoveredFollowUp || !isTerritoryControlAction(intent.action) || isSuppressedTerritoryIntentForAction(intents, colonyName, intent.targetRoom, intent.action, gameTime) || getVisibleTerritoryTargetState(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername) !== "available") {
       return [];
     }
     const intentKey = `${intent.targetRoom}:${intent.action}`;
@@ -1464,7 +1467,8 @@ function getPersistedTerritoryIntentCandidates(colonyName, colonyOwnerUsername, 
         target,
         intentAction: intent.action,
         commitTarget: false,
-        ...intent.followUp ? { followUp: intent.followUp } : {}
+        ...intent.followUp ? { followUp: intent.followUp } : {},
+        ...recoveredFollowUp ? { recoveredFollowUp: true } : {}
       },
       "occupationIntent",
       order,
@@ -1864,7 +1868,13 @@ function getTerritoryCandidatePriority(selection, renewalTicksToEnd) {
   return selection.target.action === "claim" ? TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_CLAIM : TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE;
 }
 function compareTerritoryCandidates(left, right) {
-  return left.priority - right.priority || compareOptionalNumbers2(left.renewalTicksToEnd, right.renewalTicksToEnd) || compareVisibleAdjacentFollowUpPreference(left, right) || getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) || compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) || compareOptionalNumbers2(left.occupationActionableTicks, right.occupationActionableTicks) || left.order - right.order || left.target.roomName.localeCompare(right.target.roomName) || left.intentAction.localeCompare(right.intentAction);
+  return left.priority - right.priority || compareOptionalNumbers2(left.renewalTicksToEnd, right.renewalTicksToEnd) || compareVisibleAdjacentFollowUpPreference(left, right) || getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) || compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) || compareOptionalNumbers2(left.occupationActionableTicks, right.occupationActionableTicks) || compareRecoveredFollowUpPreference(left, right) || left.order - right.order || left.target.roomName.localeCompare(right.target.roomName) || left.intentAction.localeCompare(right.intentAction);
+}
+function compareRecoveredFollowUpPreference(left, right) {
+  if (left.recoveredFollowUp === right.recoveredFollowUp) {
+    return 0;
+  }
+  return left.recoveredFollowUp ? -1 : 1;
 }
 function compareVisibleAdjacentFollowUpPreference(left, right) {
   if (shouldPreferVisibleAdjacentFollowUp(left, right)) {
@@ -2096,14 +2106,20 @@ function upsertTerritoryIntent2(intents, nextIntent) {
   }
   intents.push(nextIntent);
 }
-function getPersistedTerritoryIntentFollowUp(intents, colony, targetRoom, action) {
+function getPersistedTerritoryIntentFollowUp(intents, colony, targetRoom, action, gameTime) {
   let selectedIntent = null;
   for (const intent of intents) {
     if (intent.colony === colony && intent.targetRoom === targetRoom && intent.action === action && intent.followUp && (!selectedIntent || intent.updatedAt > selectedIntent.updatedAt)) {
       selectedIntent = intent;
     }
   }
-  return selectedIntent == null ? void 0 : selectedIntent.followUp;
+  if (!(selectedIntent == null ? void 0 : selectedIntent.followUp)) {
+    return null;
+  }
+  return {
+    followUp: selectedIntent.followUp,
+    recovered: isRecoveredTerritoryFollowUpIntent(selectedIntent, gameTime)
+  };
 }
 function recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime) {
   const demands = pruneCurrentTerritoryFollowUpDemands(territoryMemory, gameTime);
@@ -2267,6 +2283,9 @@ function isTerritoryIntentSuppressed(colony, targetRoom, action, gameTime = getG
 }
 function isTerritorySuppressionFresh2(intent, gameTime) {
   return intent.status === "suppressed" && gameTime - intent.updatedAt <= TERRITORY_SUPPRESSION_RETRY_TICKS2;
+}
+function isRecoveredTerritoryFollowUpIntent(intent, gameTime) {
+  return intent.followUp !== void 0 && intent.status === "suppressed" && gameTime - intent.updatedAt > TERRITORY_SUPPRESSION_RETRY_TICKS2;
 }
 function selectVisibleTerritoryControllerIntent(creep) {
   var _a, _b, _c;
