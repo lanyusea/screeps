@@ -239,11 +239,31 @@ function selectFillableEnergySink(creep: Creep): FillableEnergySink | null {
 }
 
 function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | StructureExtension | null {
-  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isSpawnOrExtensionEnergySink), creep);
+  const energySinks = findFillableEnergySinks(creep).filter(isSpawnOrExtensionEnergySink);
+  return selectClosestEnergySink(
+    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, creep)),
+    creep
+  );
 }
 
 function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
   return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink), creep);
+}
+
+function hasUnreservedEnergySinkCapacity(energySink: SpawnExtensionEnergyStructure, creep: Creep): boolean {
+  return getReservedEnergyDelivery(energySink, creep) < getFreeStoredEnergyCapacity(energySink);
+}
+
+function getReservedEnergyDelivery(energySink: SpawnExtensionEnergyStructure, creep: Creep): number {
+  const energySinkId = String(energySink.id);
+  return getGameCreeps()
+    .filter((candidate) => !isSameCreep(candidate, creep) && isSameRoomWorkerWithEnergy(candidate, creep.room))
+    .reduce((reservedEnergy, worker) => {
+      const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+      return task?.type === 'transfer' && String(task.targetId) === energySinkId
+        ? reservedEnergy + getUsedEnergy(worker)
+        : reservedEnergy;
+    }, 0);
 }
 
 function findFillableEnergySinks(creep: Creep): FillableEnergySink[] {

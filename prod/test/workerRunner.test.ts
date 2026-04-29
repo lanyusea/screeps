@@ -1729,7 +1729,14 @@ describe('runWorker', () => {
     const spawn = {
       id: 'spawn1',
       structureType: 'spawn',
-      store: { getFreeCapacity: jest.fn().mockReturnValueOnce(1).mockReturnValueOnce(1).mockReturnValue(0) }
+      store: {
+        getFreeCapacity: jest
+          .fn()
+          .mockReturnValueOnce(1)
+          .mockReturnValueOnce(1)
+          .mockReturnValueOnce(1)
+          .mockReturnValue(0)
+      }
     } as unknown as StructureSpawn;
     const creep = {
       memory: { task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } },

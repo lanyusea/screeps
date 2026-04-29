@@ -1590,6 +1590,77 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-closer' });
   });
 
+  it('skips primary energy sinks already covered by other loaded workers', () => {
+    const coveredSpawn = makeEnergySink('spawn-covered', 'spawn' as StructureConstant, 50);
+    const openExtension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
+    const structures = [coveredSpawn, openExtension];
+    const room = {
+      name: 'W1N1',
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+          if (type !== FIND_MY_STRUCTURES) {
+            return [];
+          }
+
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+      )
+    } as unknown as Room;
+    const assignedCarrier = {
+      name: 'Carrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-covered' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const getRangeTo = jest.fn((target: TestEnergySink) => {
+      const ranges: Record<string, number> = {
+        'extension-open': 8,
+        'spawn-covered': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      name: 'Worker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Carrier: assignedCarrier, Worker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
+  });
+
+  it('keeps primary sink selection available for the worker already carrying the assigned energy', () => {
+    const spawn = makeEnergySink('spawn-covered', 'spawn' as StructureConstant, 50);
+    const extension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
+    const structures = [spawn, extension];
+    const room = {
+      name: 'W1N1',
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+          if (type !== FIND_MY_STRUCTURES) {
+            return [];
+          }
+
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+      )
+    } as unknown as Room;
+    const creep = {
+      name: 'Carrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-covered' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: TestEnergySink) => (target.id === 'spawn-covered' ? 1 : 8))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Carrier: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-covered' });
+  });
+
   it('selects fillable extensions before fillable towers', () => {
     const farExtension = makeEnergySink('extension-far', 'extension' as StructureConstant, 50);
     const nearTower = makeEnergySink('tower-near', 'tower' as StructureConstant, 500);
