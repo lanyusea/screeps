@@ -1,9 +1,11 @@
 import {
   canCreepReserveTerritoryController,
+  isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry,
   isVisibleTerritoryAssignmentComplete,
   isVisibleTerritoryAssignmentSafe,
   suppressTerritoryIntent
 } from './territoryPlanner';
+import { signOccupiedControllerIfNeeded } from './controllerSigning';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -29,6 +31,10 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   }
 
   if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
+    if (isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep)) {
+      return;
+    }
+
     suppressTerritoryAssignment(creep, assignment);
     return;
   }
@@ -52,6 +58,11 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     if (assignment.action === 'reserve') {
       suppressTerritoryAssignment(creep, assignment);
     } else {
+      const signingResult = signOccupiedControllerIfNeeded(creep, controller);
+      if (signingResult === 'moving' || signingResult === 'blocked') {
+        return;
+      }
+
       completeTerritoryAssignment(creep);
     }
     return;

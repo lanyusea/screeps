@@ -1081,6 +1081,30 @@ function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+// src/territory/controllerSigning.ts
+var OCCUPIED_CONTROLLER_SIGN_TEXT = "by Hermes Screeps Project";
+var ERR_NOT_IN_RANGE_CODE = -9;
+var ERR_TIRED_CODE = -11;
+var OK_CODE = 0;
+function shouldSignOccupiedController(controller) {
+  var _a;
+  return (controller == null ? void 0 : controller.my) === true && ((_a = controller.sign) == null ? void 0 : _a.text) !== OCCUPIED_CONTROLLER_SIGN_TEXT;
+}
+function signOccupiedControllerIfNeeded(creep, controller) {
+  if (!controller || !shouldSignOccupiedController(controller) || typeof creep.signController !== "function") {
+    return "skipped";
+  }
+  const result = creep.signController(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+  if (result === ERR_NOT_IN_RANGE_CODE) {
+    if (typeof creep.moveTo !== "function") {
+      return "blocked";
+    }
+    const moveResult = creep.moveTo(controller);
+    return moveResult === OK_CODE || moveResult === ERR_TIRED_CODE ? "moving" : "blocked";
+  }
+  return result === OK_CODE ? "signed" : "skipped";
+}
+
 // src/territory/territoryPlanner.ts
 var TERRITORY_CLAIMER_ROLE = "claimer";
 var TERRITORY_SCOUT_ROLE = "scout";
@@ -1310,7 +1334,7 @@ function isVisibleTerritoryAssignmentSafe(assignment, colony, creep) {
     return !isVisibleRoomMissingController(assignment.targetRoom);
   }
   if (assignment.action === "claim" && controller.my === true) {
-    return false;
+    return shouldSignOccupiedController(controller);
   }
   const actorUsername = getTerritoryActorUsername(creep, colony);
   const targetState = getTerritoryControllerTargetState(controller, assignment.action, actorUsername);
@@ -1321,7 +1345,17 @@ function isVisibleTerritoryAssignmentComplete(assignment, creep) {
     return false;
   }
   const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
-  return (controller == null ? void 0 : controller.my) === true;
+  return (controller == null ? void 0 : controller.my) === true && !shouldSignOccupiedController(controller);
+}
+function isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep) {
+  if (assignment.action !== "claim" || !isNonEmptyString2(assignment.targetRoom)) {
+    return false;
+  }
+  if (!isVisibleRoomUnsafeForTerritoryControllerWork(assignment.targetRoom)) {
+    return false;
+  }
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
+  return (controller == null ? void 0 : controller.my) === true && shouldSignOccupiedController(controller);
 }
 function suppressTerritoryIntent(colony, assignment, gameTime) {
   if (!isNonEmptyString2(colony) || !isNonEmptyString2(assignment.targetRoom) || !isTerritoryIntentAction2(assignment.action)) {
@@ -3933,30 +3967,6 @@ function getGameCreeps() {
   return creeps ? Object.values(creeps) : [];
 }
 
-// src/territory/controllerSigning.ts
-var OCCUPIED_CONTROLLER_SIGN_TEXT = "by Hermes Screeps Project";
-var ERR_NOT_IN_RANGE_CODE = -9;
-var ERR_TIRED_CODE = -11;
-var OK_CODE = 0;
-function shouldSignOccupiedController(controller) {
-  var _a;
-  return (controller == null ? void 0 : controller.my) === true && ((_a = controller.sign) == null ? void 0 : _a.text) !== OCCUPIED_CONTROLLER_SIGN_TEXT;
-}
-function signOccupiedControllerIfNeeded(creep, controller) {
-  if (!controller || !shouldSignOccupiedController(controller) || typeof creep.signController !== "function") {
-    return "skipped";
-  }
-  const result = creep.signController(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
-  if (result === ERR_NOT_IN_RANGE_CODE) {
-    if (typeof creep.moveTo !== "function") {
-      return "blocked";
-    }
-    const moveResult = creep.moveTo(controller);
-    return moveResult === OK_CODE || moveResult === ERR_TIRED_CODE ? "moving" : "blocked";
-  }
-  return result === OK_CODE ? "signed" : "skipped";
-}
-
 // src/creeps/workerRunner.ts
 function runWorker(creep) {
   const selectedTask = selectWorkerTask(creep);
@@ -5533,6 +5543,9 @@ function runTerritoryControllerCreep(creep) {
     return;
   }
   if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
+    if (isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep)) {
+      return;
+    }
     suppressTerritoryAssignment(creep, assignment);
     return;
   }
@@ -5552,6 +5565,10 @@ function runTerritoryControllerCreep(creep) {
     if (assignment.action === "reserve") {
       suppressTerritoryAssignment(creep, assignment);
     } else {
+      const signingResult = signOccupiedControllerIfNeeded(creep, controller);
+      if (signingResult === "moving" || signingResult === "blocked") {
+        return;
+      }
       completeTerritoryAssignment(creep);
     }
     return;
