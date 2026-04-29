@@ -4,6 +4,7 @@ import {
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+  estimateNearTermSpawnExtensionRefillReserve,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/bodyBuilder';
@@ -1748,6 +1749,88 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+  });
+
+  it('estimates no near-term refill reserve when spawn and extensions are full', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const fullExtension = makeEnergySink('extension-full', 'extension' as StructureConstant, 0);
+    const room = makeWorkerTaskRoom({
+      energyAvailable: 350,
+      energyCapacityAvailable: 350,
+      myStructures: [fullSpawn as AnyOwnedStructure, fullExtension as AnyOwnedStructure]
+    });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(0);
+  });
+
+  it('estimates partial near-term refill reserve from spawn and extension capacity', () => {
+    const spawn = makeEnergySink('spawn-partial', 'spawn' as StructureConstant, 100);
+    const extension = makeEnergySink('extension-partial', 'extension' as StructureConstant, 100);
+    const room = makeWorkerTaskRoom({
+      energyAvailable: 350,
+      energyCapacityAvailable: 400,
+      myStructures: [spawn as AnyOwnedStructure, extension as AnyOwnedStructure]
+    });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(50);
+  });
+
+  it('defers non-urgent spending while a near-term refill reserve exists', () => {
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite],
+        controller,
+        energyAvailable: 400,
+        energyCapacityAvailable: 400,
+        myStructures: [busyFullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(creep.room)).toBe(400);
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('keeps controller downgrade guard ahead of near-term refill reserve', () => {
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite],
+        controller,
+        energyAvailable: 400,
+        energyCapacityAvailable: 400,
+        myStructures: [busyFullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(creep.room)).toBe(400);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('reserves a safe visible territory target before spawn recovery resource collection', () => {
