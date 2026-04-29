@@ -24,15 +24,19 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 DEFAULT_API_URL = "https://screeps.com"
 DEFAULT_OUT_DIR = Path("/root/screeps/runtime-artifacts/screeps-monitor")
 DEFAULT_STATE_FILE = Path("/root/.hermes/screeps-runtime-monitor/state.json")
 DEFAULT_CACHE_DIR = Path("/root/.hermes/screeps-runtime-monitor/terrain-cache")
+DEFAULT_RUNTIME_SUMMARY_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-summary-console")
 DEFAULT_DEBOUNCE_SECONDS = 300
+DEFAULT_COLLECTION_ATTEMPTS = 3
+DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 DEFAULT_SHARD = "shardX"
 DEFAULT_ROOM = "E48S28"
 
@@ -170,6 +174,8 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "critical_structure_missing": ["owned_structure_disappearance"],
     "spawn_destroyed": ["spawn_collapse"],
     "spawn_collapse": ["spawn_collapse"],
+    "room_ownership_lost": ["spawn_collapse"],
+    "room_dead": ["spawn_collapse"],
     "no_workers_no_recovery": ["spawn_collapse"],
     "no_spawn_recovery": ["spawn_collapse"],
     "controller_downgrade_risk": ["downgrade_risk"],
@@ -299,9 +305,12 @@ class RuntimeContext:
     default_shard: str
     default_room: str
     owner: str | None
+    owner_id: str | None
     state_file: Path
     cache_dir: Path
     debounce_seconds: int
+    collection_attempts: int
+    collection_retry_delay_seconds: float
 
     @property
     def base_ws(self) -> str:
@@ -320,6 +329,8 @@ class RoomSnapshot:
     tick: int | str | None
     owner: str | None
     info: dict[str, Any]
+    expected_owner: str | None = None
+    expected_owner_id: str | None = None
 
     @property
     def counts(self) -> Counter:
@@ -365,27 +376,44 @@ def room_owner(obj: dict[str, Any]) -> str | None:
     return None
 
 
-def is_owned_object(obj: dict[str, Any], owner_username: str | None) -> bool:
+def is_owned_object(obj: dict[str, Any], owner_username: str | None, owner_id: str | None = None) -> bool:
     if obj.get("my") is True:
         return True
     username = room_owner(obj)
-    return bool(owner_username and username == owner_username)
+    if owner_username and username == owner_username:
+        return True
+    return bool(owner_id and obj.get("user") == owner_id)
 
 
-def infer_owner(objects: dict[str, dict[str, Any]], configured_owner: str | None) -> str | None:
-    if configured_owner:
-        return configured_owner
+def infer_owner(
+    objects: dict[str, dict[str, Any]], configured_owner: str | None = None, configured_owner_id: str | None = None
+) -> str | None:
     for obj in objects.values():
         if not isinstance(obj, dict):
             continue
-        if obj.get("my") is True:
-            username = room_owner(obj)
-            if username:
-                return username
+        if obj.get("my") is True or (configured_owner_id and obj.get("user") == configured_owner_id):
+            return room_owner(obj) or configured_owner or configured_owner_id
+    for obj in objects.values():
+        if not isinstance(obj, dict) or obj.get("type") != "controller":
+            continue
+        username = room_owner(obj)
+        if username:
+            return username
+        if configured_owner_id and obj.get("user") == configured_owner_id:
+            return configured_owner or configured_owner_id
     return None
 
 
 def normalize_objects(raw_objects: Any) -> dict[str, dict[str, Any]]:
+    if isinstance(raw_objects, list):
+        objects: dict[str, dict[str, Any]] = {}
+        for index, obj in enumerate(raw_objects):
+            if isinstance(obj, dict):
+                normalized = dict(obj)
+                object_id = normalized.get("_id") or normalized.get("id") or f"object-{index}"
+                normalized.setdefault("_id", object_id)
+                objects[str(object_id)] = normalized
+        return objects
     if not isinstance(raw_objects, dict):
         return {}
     objects: dict[str, dict[str, Any]] = {}
@@ -438,15 +466,23 @@ def context_from_env() -> RuntimeContext:
     if not token:
         raise RuntimeError("SCREEPS_AUTH_TOKEN is required for live summary and alert commands")
     debounce = int(os.environ.get("SCREEPS_ALERT_DEBOUNCE_SECONDS", DEFAULT_DEBOUNCE_SECONDS))
+    collection_attempts = max(1, int(os.environ.get("SCREEPS_MONITOR_COLLECTION_ATTEMPTS", DEFAULT_COLLECTION_ATTEMPTS)))
+    collection_retry_delay_seconds = max(
+        0.0,
+        float(os.environ.get("SCREEPS_MONITOR_COLLECTION_RETRY_DELAY_SECONDS", DEFAULT_COLLECTION_RETRY_DELAY_SECONDS)),
+    )
     return RuntimeContext(
         base_http=os.environ.get("SCREEPS_API_URL", DEFAULT_API_URL).rstrip("/"),
         token=token,
         default_shard=os.environ.get("SCREEPS_SHARD", DEFAULT_SHARD),
         default_room=os.environ.get("SCREEPS_ROOM", DEFAULT_ROOM),
         owner=os.environ.get("SCREEPS_OWNER"),
+        owner_id=os.environ.get("SCREEPS_OWNER_ID"),
         state_file=Path(os.environ.get("SCREEPS_MONITOR_STATE_FILE", str(DEFAULT_STATE_FILE))),
         cache_dir=Path(os.environ.get("SCREEPS_MONITOR_CACHE_DIR", str(DEFAULT_CACHE_DIR))),
         debounce_seconds=debounce,
+        collection_attempts=collection_attempts,
+        collection_retry_delay_seconds=collection_retry_delay_seconds,
     )
 
 
@@ -478,6 +514,33 @@ def overview_username(overview: Any) -> str | None:
         if isinstance(value, str):
             return value
     return None
+
+
+def user_identity(ctx: RuntimeContext, warnings: list[str]) -> tuple[str | None, str | None]:
+    if ctx.owner or ctx.owner_id:
+        return ctx.owner, ctx.owner_id
+    try:
+        auth = get_json(ctx.base_http, ctx.token, "/api/auth/me")
+    except Exception as exc:  # noqa: BLE001 - sanitized in caller payload
+        warnings.append(f"authenticated user discovery unavailable: {short_text(exc, 140)}")
+        return None, None
+    if not isinstance(auth, dict):
+        return None, None
+    username = auth.get("username") if isinstance(auth.get("username"), str) else None
+    user_id = auth.get("_id") if isinstance(auth.get("_id"), str) else None
+    return username, user_id
+
+
+def overview_rooms(overview: Any, shard: str) -> list[str]:
+    if not isinstance(overview, dict):
+        return []
+    shard_info = (overview.get("shards") or {}).get(shard)
+    if not isinstance(shard_info, dict):
+        return []
+    rooms = shard_info.get("rooms")
+    if not isinstance(rooms, list):
+        return []
+    return [room for room in rooms if isinstance(room, str)]
 
 
 def gametime_from_overview(overview: Any, shard: str) -> int | str | None:
@@ -577,6 +640,26 @@ def fetch_terrain(ctx: RuntimeContext, ref: RoomRef, warnings: list[str]) -> str
         raise
 
 
+def fetch_room_event_http(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
+    response = get_json(
+        ctx.base_http,
+        ctx.token,
+        "/api/game/room-objects",
+        {"room": ref.room, "shard": ref.shard},
+    )
+    if not isinstance(response, dict):
+        raise RuntimeError("room-objects response was not a JSON object")
+    objects = response.get("objects")
+    if objects is None:
+        raise RuntimeError("room-objects response did not include objects")
+    return {
+        "objects": objects,
+        "gameTime": response.get("gameTime") or response.get("time") or response.get("tick"),
+        "info": response.get("info") if isinstance(response.get("info"), dict) else {},
+        "source": "http-room-objects",
+    }
+
+
 async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
     try:
         import websockets
@@ -623,28 +706,52 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
 def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[RoomSnapshot], list[str]]:
     forced_room = parse_room_arg(room_arg, ctx.default_shard)
     refs, overview, warnings = discover_owned_rooms(ctx, forced_room)
-    configured_owner = ctx.owner or overview_username(overview)
+    configured_owner, configured_owner_id = user_identity(ctx, warnings)
+    configured_owner = configured_owner or overview_username(overview)
     snapshots: list[RoomSnapshot] = []
 
     for ref in refs:
-        try:
-            terrain = fetch_terrain(ctx, ref, warnings)
-            event = asyncio.run(fetch_room_event(ctx, ref))
-            objects = normalize_objects(event.get("objects"))
-            owner = infer_owner(objects, configured_owner)
-            tick = event.get("gameTime") or event.get("time") or gametime_from_overview(overview, ref.shard)
-            snapshots.append(
-                RoomSnapshot(
-                    ref=ref,
-                    terrain=terrain,
-                    objects=objects,
-                    tick=tick,
-                    owner=owner,
-                    info=event.get("info") if isinstance(event.get("info"), dict) else {},
+        terrain: str | None = None
+        room_warnings: list[str] = []
+        for attempt in range(1, ctx.collection_attempts + 1):
+            try:
+                if terrain is None:
+                    terrain = fetch_terrain(ctx, ref, warnings)
+                try:
+                    event = asyncio.run(fetch_room_event(ctx, ref))
+                except Exception as websocket_exc:  # noqa: BLE001 - fall back to the HTTP room snapshot endpoint
+                    error_text = short_text(redact_secrets(str(websocket_exc), [ctx.token]), 180)
+                    room_warnings.append(
+                        f"{ref.key} websocket snapshot attempt {attempt}/{ctx.collection_attempts} failed; using HTTP fallback: {error_text}"
+                    )
+                    event = fetch_room_event_http(ctx, ref)
+                objects = normalize_objects(event.get("objects"))
+                owner = infer_owner(objects, configured_owner, configured_owner_id)
+                tick = event.get("gameTime") or event.get("time") or gametime_from_overview(overview, ref.shard)
+                snapshots.append(
+                    RoomSnapshot(
+                        ref=ref,
+                        terrain=terrain,
+                        objects=objects,
+                        tick=tick,
+                        owner=owner,
+                        info=event.get("info") if isinstance(event.get("info"), dict) else {},
+                        expected_owner=configured_owner,
+                        expected_owner_id=configured_owner_id,
+                    )
                 )
-            )
-        except Exception as exc:  # noqa: BLE001 - report room-level failures without secrets
-            warnings.append(f"{ref.key} collection failed: {short_text(exc, 180)}")
+                if room_warnings:
+                    warnings.extend(room_warnings)
+                break
+            except Exception as exc:  # noqa: BLE001 - report room-level failures without secrets
+                error_text = short_text(redact_secrets(str(exc), [ctx.token]), 180)
+                room_warnings.append(
+                    f"{ref.key} collection attempt {attempt}/{ctx.collection_attempts} failed: {error_text}"
+                )
+                if attempt < ctx.collection_attempts and ctx.collection_retry_delay_seconds > 0:
+                    time.sleep(ctx.collection_retry_delay_seconds)
+        else:
+            warnings.extend(room_warnings)
 
     if not snapshots:
         raise RuntimeError("no room snapshots collected")
@@ -662,7 +769,9 @@ def detect_hostile_creeps(objects: dict[str, dict[str, Any]], owner_username: st
     return hostiles
 
 
-def structure_snapshot(objects: dict[str, dict[str, Any]], owner_username: str | None) -> dict[str, dict[str, Any]]:
+def structure_snapshot(
+    objects: dict[str, dict[str, Any]], owner_username: str | None, owner_id: str | None = None
+) -> dict[str, dict[str, Any]]:
     structures: dict[str, dict[str, Any]] = {}
     for object_id, obj in objects.items():
         if not isinstance(obj, dict):
@@ -670,7 +779,7 @@ def structure_snapshot(objects: dict[str, dict[str, Any]], owner_username: str |
         object_type = obj.get("type")
         if object_type not in STRUCTURE_TYPES:
             continue
-        owned = is_owned_object(obj, owner_username)
+        owned = is_owned_object(obj, owner_username, owner_id)
         has_hits = isinstance(obj.get("hits"), (int, float)) and isinstance(obj.get("hitsMax"), (int, float))
         damageable = object_type in DAMAGEABLE_STRUCTURE_TYPES and has_hits
         critical = object_type in CRITICAL_STRUCTURE_TYPES and owned
@@ -742,6 +851,83 @@ def build_missing_reason(ref: RoomRef, object_id: str, previous: dict[str, Any])
     }
 
 
+def count_owned_objects(
+    objects: dict[str, dict[str, Any]], owner_username: str | None, object_type: str, owner_id: str | None = None
+) -> int:
+    return sum(
+        1
+        for obj in objects.values()
+        if isinstance(obj, dict) and obj.get("type") == object_type and is_owned_object(obj, owner_username, owner_id)
+    )
+
+
+def count_owned_spawns(structures: dict[str, dict[str, Any]]) -> int:
+    return sum(
+        1
+        for structure in structures.values()
+        if isinstance(structure, dict) and structure.get("type") == "spawn" and structure.get("owned") is True
+    )
+
+
+def previous_critical_spawn_count(previous_structures: dict[str, Any]) -> int:
+    return sum(
+        1
+        for structure in previous_structures.values()
+        if isinstance(structure, dict)
+        and structure.get("type") == "spawn"
+        and structure.get("owned") is True
+        and structure.get("critical") is True
+    )
+
+
+def build_survival_reason(ref: RoomRef, kind: str, message: str, **details: Any) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "room": ref.key,
+        "message": message,
+        "signature": f"{kind}:{ref.key}",
+        **details,
+    }
+
+
+def should_preserve_previous_baseline(
+    previous_structures: dict[str, Any], current_structures: dict[str, dict[str, Any]], reasons: list[dict[str, Any]]
+) -> bool:
+    if not previous_structures or current_structures:
+        return False
+    survival_kinds = {"room_ownership_lost", "spawn_collapse", "room_dead"}
+    return any(reason.get("kind") in survival_kinds for reason in reasons)
+
+
+def build_next_room_state(
+    snapshot: RoomSnapshot,
+    previous_room_state: dict[str, Any],
+    previous_structures: dict[str, Any],
+    current_structures: dict[str, dict[str, Any]],
+    alerts: dict[str, Any],
+    detected: list[dict[str, Any]],
+    now: int,
+    owned_creeps: int,
+    owned_spawns: int,
+) -> dict[str, Any]:
+    structures = previous_structures if should_preserve_previous_baseline(previous_structures, current_structures, detected) else current_structures
+    previous_owner = previous_room_state.get("owner")
+    owner = snapshot.owner or (previous_owner if should_preserve_previous_baseline(previous_structures, current_structures, detected) else None)
+    return {
+        "baseline_established": True,
+        "observed_at": now,
+        "tick": snapshot.tick,
+        "owner": owner,
+        "owner_observed": snapshot.owner,
+        "expected_owner": snapshot.expected_owner,
+        "expected_owner_id": snapshot.expected_owner_id,
+        "owned_creeps": owned_creeps,
+        "owned_spawns": owned_spawns,
+        "structures": structures,
+        "alerts": alerts,
+    }
+
+
 def evaluate_room_alert(
     snapshot: RoomSnapshot,
     previous_room_state: dict[str, Any] | None,
@@ -756,14 +942,59 @@ def evaluate_room_alert(
     if not isinstance(previous_alerts, dict):
         previous_alerts = {}
 
-    current_structures = structure_snapshot(snapshot.objects, snapshot.owner)
+    current_structures = structure_snapshot(snapshot.objects, snapshot.owner, snapshot.expected_owner_id)
+    current_owned_spawns = count_owned_spawns(current_structures)
+    current_owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep", snapshot.expected_owner_id)
     baseline_established = bool(previous_room_state.get("baseline_established"))
+    previous_owner = previous_room_state.get("owner")
+    expected_owner = snapshot.expected_owner if snapshot.expected_owner else previous_owner
+    previous_owned_spawns = previous_room_state.get("owned_spawns")
+    previous_owned_creeps = previous_room_state.get("owned_creeps")
+    previous_spawn_count = previous_critical_spawn_count(previous_structures)
     detected: list[dict[str, Any]] = []
 
     for hostile in detect_hostile_creeps(snapshot.objects, snapshot.owner):
         detected.append(build_hostile_reason(snapshot.ref, hostile))
 
+    if expected_owner and snapshot.owner != expected_owner:
+        detected.append(
+            build_survival_reason(
+                snapshot.ref,
+                "room_ownership_lost",
+                f"room owner changed from {expected_owner} to {snapshot.owner or 'none'}",
+                previous_owner=expected_owner,
+                current_owner=snapshot.owner,
+            )
+        )
+
     if baseline_established:
+        if previous_spawn_count > 0 and current_owned_spawns == 0:
+            detected.append(
+                build_survival_reason(
+                    snapshot.ref,
+                    "spawn_collapse",
+                    f"owned spawn count dropped from {previous_spawn_count} to 0",
+                    previous_owned_spawns=previous_spawn_count,
+                    current_owned_spawns=current_owned_spawns,
+                    current_owned_creeps=current_owned_creeps,
+                )
+            )
+        if (
+            current_owned_spawns == 0
+            and current_owned_creeps == 0
+            and (previous_owned_spawns in (None, 0) or previous_spawn_count == 0)
+            and previous_owned_creeps in (None, 0)
+        ):
+            detected.append(
+                build_survival_reason(
+                    snapshot.ref,
+                    "room_dead",
+                    "room has no owned creeps and no owned spawn recovery path",
+                    current_owned_spawns=current_owned_spawns,
+                    current_owned_creeps=current_owned_creeps,
+                )
+            )
+
         for object_id, current in current_structures.items():
             previous = previous_structures.get(object_id)
             if not isinstance(previous, dict):
@@ -793,14 +1024,17 @@ def evaluate_room_alert(
         alerts[signature] = now
         emitted.append(reason)
 
-    next_state = {
-        "baseline_established": True,
-        "observed_at": now,
-        "tick": snapshot.tick,
-        "owner": snapshot.owner,
-        "structures": current_structures,
-        "alerts": alerts,
-    }
+    next_state = build_next_room_state(
+        snapshot,
+        previous_room_state,
+        previous_structures,
+        current_structures,
+        alerts,
+        detected,
+        now,
+        current_owned_creeps,
+        current_owned_spawns,
+    )
     return emitted, suppressed, next_state
 
 
@@ -1806,6 +2040,9 @@ def render_room_snapshot(
 
 def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, Any]:
     hostiles = detect_hostile_creeps(snapshot.objects, snapshot.owner)
+    structures = structure_objects(snapshot.objects)
+    owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep", snapshot.expected_owner_id)
+    owned_spawns = count_owned_objects(snapshot.objects, snapshot.owner, "spawn", snapshot.expected_owner_id)
     summary = {
         "room": snapshot.ref.key,
         "shard": snapshot.ref.shard,
@@ -1813,9 +2050,14 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "tick": snapshot.tick,
         "objects": len(snapshot.objects),
         "creeps": snapshot.counts.get("creep", 0),
-        "structures": len(structure_objects(snapshot.objects)),
+        "owned_creeps": owned_creeps,
+        "structures": len(structures),
+        "spawns": sum(1 for structure in structures if structure.get("type") == "spawn"),
+        "owned_spawns": owned_spawns,
         "hostiles": len(hostiles),
         "owner": snapshot.owner,
+        "expected_owner": snapshot.expected_owner,
+        "expected_owner_id": snapshot.expected_owner_id,
     }
     if image:
         summary["image"] = image
@@ -1829,6 +2071,146 @@ def summarize_rooms(snapshots: list[RoomSnapshot]) -> dict[str, Any]:
         "creeps": sum(snapshot.counts.get("creep", 0) for snapshot in snapshots),
         "hostiles": sum(len(detect_hostile_creeps(snapshot.objects, snapshot.owner)) for snapshot in snapshots),
     }
+
+
+def number_value(value: Any) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    return None
+
+
+def store_energy(obj: dict[str, Any]) -> int | float:
+    store = obj.get("store")
+    if isinstance(store, dict):
+        energy = number_value(store.get("energy"))
+        if energy is not None:
+            return energy
+    energy = number_value(obj.get("energy"))
+    return energy if energy is not None else 0
+
+
+def confirmed_foreign_owner(obj: dict[str, Any], owner_username: str | None) -> bool:
+    username = room_owner(obj)
+    return bool(username is not None and username != owner_username)
+
+
+def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
+    objects = snapshot.objects
+    owned_structures = [obj for obj in structure_objects(objects) if is_owned_object(obj, snapshot.owner)]
+    owned_creeps = [
+        obj
+        for obj in objects.values()
+        if isinstance(obj, dict) and obj.get("type") == "creep" and is_owned_object(obj, snapshot.owner)
+    ]
+    sources = [obj for obj in objects.values() if isinstance(obj, dict) and obj.get("type") == "source"]
+    dropped_energy = [
+        obj
+        for obj in objects.values()
+        if isinstance(obj, dict)
+        and obj.get("type") == "resource"
+        and obj.get("resourceType") == "energy"
+        and number_value(obj.get("amount")) is not None
+    ]
+    hostiles = detect_hostile_creeps(objects, snapshot.owner)
+    hostile_structures = [
+        obj
+        for obj in structure_objects(objects)
+        if confirmed_foreign_owner(obj, snapshot.owner)
+    ]
+    controller = next((obj for obj in structure_objects(objects) if obj.get("type") == "controller"), None)
+
+    controller_summary: dict[str, Any] = {}
+    if controller is not None:
+        for key in ("level", "progress", "progressTotal", "ticksToDowngrade"):
+            controller_summary[key] = number_value(controller.get(key))
+
+    return {
+        "roomName": snapshot.ref.room,
+        "shard": snapshot.ref.shard,
+        "controller": controller_summary,
+        "resources": {
+            "storedEnergy": sum(store_energy(obj) for obj in owned_structures),
+            "workerCarriedEnergy": sum(store_energy(obj) for obj in owned_creeps),
+            "droppedEnergy": sum(number_value(obj.get("amount")) or 0 for obj in dropped_energy),
+            "sourceCount": len(sources),
+        },
+        "combat": {
+            "hostileCreepCount": len(hostiles),
+            "hostileStructureCount": len(hostile_structures),
+        },
+    }
+
+
+def runtime_summary_payload_from_snapshots(snapshots: list[RoomSnapshot]) -> dict[str, Any]:
+    ticks = [snapshot.tick for snapshot in snapshots if isinstance(snapshot.tick, int)]
+    return {
+        "type": "runtime-summary",
+        "tick": max(ticks) if ticks else None,
+        "rooms": [runtime_summary_room(snapshot) for snapshot in snapshots],
+        "source": "screeps-runtime-monitor",
+    }
+
+
+def runtime_summary_artifact_line(snapshots: list[RoomSnapshot]) -> str:
+    payload = runtime_summary_payload_from_snapshots(snapshots)
+    return "#runtime-summary " + json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+
+
+def runtime_summary_artifact_name(now: datetime | None = None) -> str:
+    timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return f"runtime-summary-monitor-{timestamp.strftime('%Y%m%dT%H%M%SZ')}.log"
+
+
+def iter_path_candidates(path: Path) -> Iterable[Path]:
+    yield path
+    for index in range(2, 1000):
+        yield path.with_name(f"{path.stem}-{index}{path.suffix}")
+
+
+def unique_path(path: Path) -> Path:
+    for candidate in iter_path_candidates(path):
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"could not choose a unique artifact path for {path}")
+
+
+def link_artifact_exclusively(temp_path: Path, path: Path) -> Path:
+    for candidate in iter_path_candidates(path):
+        try:
+            os.link(temp_path, candidate)
+            return candidate
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"could not choose a unique artifact path for {path}")
+
+
+def write_runtime_summary_artifact(snapshots: list[RoomSnapshot], out_dir: Path) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / runtime_summary_artifact_name()
+    payload = runtime_summary_artifact_line(snapshots)
+    temp_fd: int | None = None
+    temp_path: Path | None = None
+    try:
+        temp_fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(out_dir))
+        temp_path = Path(temp_name)
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            temp_fd = None
+            handle.write(payload)
+        linked_path = link_artifact_exclusively(temp_path, target)
+        return linked_path.resolve()
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def redact_secrets(text: str, secrets: list[str]) -> str:
@@ -1855,6 +2237,91 @@ def print_json(payload: dict[str, Any], secrets: list[str]) -> None:
     sys.stdout.write("\n")
 
 
+def load_json_file(path: str) -> dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise RuntimeError(f"expected object JSON in {path}")
+    return value
+
+
+def resolve_owned_count(room_summary_payload: dict[str, Any], owned_key: str, fallback_key: str) -> Any:
+    owned_value = room_summary_payload.get(owned_key)
+    if isinstance(owned_value, (int, float)):
+        return owned_value
+    return room_summary_payload.get(fallback_key)
+
+
+def evaluate_postdeploy_health_gate(summary_payload: dict[str, Any], alert_payload: dict[str, Any]) -> dict[str, Any]:
+    reasons: list[dict[str, Any]] = []
+    if summary_payload.get("ok") is not True:
+        reasons.append({"kind": "postdeploy_summary_failed", "message": "post-deploy summary did not report ok=true"})
+    if alert_payload.get("ok") is not True:
+        reasons.append({"kind": "postdeploy_alert_failed", "message": "post-deploy alert did not report ok=true"})
+    if alert_payload.get("alert") is True:
+        for reason in alert_payload.get("reasons") if isinstance(alert_payload.get("reasons"), list) else []:
+            if isinstance(reason, dict):
+                reasons.append({"kind": "postdeploy_active_alert", "message": reason.get("message", "runtime alert active"), "source": reason})
+
+    room_summaries = summary_payload.get("room_summaries")
+    if not isinstance(room_summaries, list) or not room_summaries:
+        reasons.append({"kind": "postdeploy_no_room_summary", "message": "post-deploy summary has no room_summaries"})
+    else:
+        for room in room_summaries:
+            if not isinstance(room, dict):
+                continue
+            creeps = resolve_owned_count(room, "owned_creeps", "creeps")
+            structures = room.get("structures")
+            spawns = resolve_owned_count(room, "owned_spawns", "spawns")
+            owner = room.get("owner")
+            room_name = room.get("room")
+            owner_missing = owner is None or owner == ""
+            if owner_missing:
+                creeps = 0
+                spawns = 0
+            if owner_missing and (not isinstance(spawns, (int, float)) or spawns <= 0):
+                reasons.append(
+                    {
+                        "kind": "postdeploy_owner_missing",
+                        "room": room_name,
+                        "message": f"{room_name}: owner missing and no spawn recovery is visible",
+                    }
+                )
+            if not owner_missing and (not isinstance(spawns, (int, float)) or spawns <= 0):
+                reasons.append(
+                    {
+                        "kind": "postdeploy_no_owned_spawn",
+                        "room": room_name,
+                        "message": f"{room_name}: no owned spawn recovery path is visible after deploy",
+                    }
+                )
+            if (
+                isinstance(creeps, (int, float))
+                and creeps <= 0
+                and (not isinstance(spawns, (int, float)) or spawns <= 0)
+            ):
+                reasons.append(
+                    {
+                        "kind": "postdeploy_room_dead",
+                        "room": room_name,
+                        "creeps": creeps,
+                        "structures": structures,
+                        "spawns": spawns,
+                        "owner": owner,
+                        "message": f"{room_name}: no creeps, no spawn, and <=1 visible structure after deploy",
+                    }
+                )
+    return {"ok": not reasons, "reasons": reasons}
+
+
+def command_health_gate(args: argparse.Namespace) -> int:
+    summary_payload = load_json_file(args.summary)
+    alert_payload = load_json_file(args.alert)
+    result = evaluate_postdeploy_health_gate(summary_payload, alert_payload)
+    print_json(result, [os.environ.get("SCREEPS_AUTH_TOKEN", "")])
+    return 0 if result["ok"] else 1
+
+
 def command_summary(args: argparse.Namespace) -> int:
     ctx = context_from_env()
     snapshots, warnings = collect_snapshots(ctx, args.room)
@@ -1862,9 +2329,20 @@ def command_summary(args: argparse.Namespace) -> int:
     room_summaries: list[dict[str, Any]] = []
     out_dir = Path(args.out_dir)
     for snapshot in snapshots:
-        image = str(render_room_snapshot(snapshot, out_dir, "summary"))
-        images.append(image)
+        image: str | None = None
+        try:
+            image = str(render_room_snapshot(snapshot, out_dir, "summary"))
+            images.append(image)
+        except Exception as exc:  # noqa: BLE001 - JSON summary evidence must survive renderer outages
+            warnings.append(f"summary image render failed for {snapshot.ref.key}: {short_text(redact_secrets(str(exc), [ctx.token]), 180)}")
         room_summaries.append(room_summary(snapshot, image=image))
+
+    runtime_summary_artifact: str | None = None
+    if not args.no_runtime_summary_artifact:
+        try:
+            runtime_summary_artifact = str(write_runtime_summary_artifact(snapshots, Path(args.runtime_summary_out_dir)))
+        except Exception as exc:  # noqa: BLE001 - keep image delivery alive; report sanitized warning
+            warnings.append(f"runtime-summary artifact unavailable: {short_text(exc, 160)}")
 
     payload = {
         "ok": True,
@@ -1873,6 +2351,7 @@ def command_summary(args: argparse.Namespace) -> int:
         "images": images,
         "rooms": [snapshot.ref.key for snapshot in snapshots],
         "room_summaries": room_summaries,
+        "runtime_summary_artifact": runtime_summary_artifact,
         "warnings": warnings,
     }
     print_json(payload, [ctx.token])
@@ -1921,10 +2400,16 @@ def command_alert(args: argparse.Namespace) -> int:
         for snapshot in snapshots:
             reasons = emitted_by_room.get(snapshot.ref.key, [])
             if reasons:
-                images.append(str(render_room_snapshot(snapshot, out_dir, "alert", reasons)))
+                try:
+                    images.append(str(render_room_snapshot(snapshot, out_dir, "alert", reasons)))
+                except Exception as exc:  # noqa: BLE001 - alert JSON is still authoritative evidence
+                    warnings.append(f"alert image render failed for {snapshot.ref.key}: {short_text(redact_secrets(str(exc), [ctx.token]), 180)}")
     elif args.force_alert_image:
         for snapshot in snapshots:
-            images.append(str(render_room_snapshot(snapshot, out_dir, "alert", [])))
+            try:
+                images.append(str(render_room_snapshot(snapshot, out_dir, "alert", [])))
+            except Exception as exc:  # noqa: BLE001 - alert JSON is still authoritative evidence
+                warnings.append(f"alert image render failed for {snapshot.ref.key}: {short_text(redact_secrets(str(exc), [ctx.token]), 180)}")
 
     payload = {
         "ok": True,
@@ -1963,12 +2448,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     summary = subcommands.add_parser("summary", help="render summary PNGs for owned rooms")
     add_live_options(summary)
+    summary.add_argument(
+        "--runtime-summary-out-dir",
+        default=str(DEFAULT_RUNTIME_SUMMARY_OUT_DIR),
+        help="Directory for reducer-compatible #runtime-summary artifacts written from the same live room snapshot.",
+    )
+    summary.add_argument(
+        "--no-runtime-summary-artifact",
+        action="store_true",
+        help="Do not write a reducer-compatible #runtime-summary artifact while rendering summary images.",
+    )
     summary.set_defaults(func=command_summary)
 
     alert = subcommands.add_parser("alert", help="evaluate alert rules and render alert PNGs when needed")
     add_live_options(alert)
     alert.add_argument("--force-alert-image", action="store_true", help="render alert-style image even when no alert is emitted")
     alert.set_defaults(func=command_alert)
+
+    health_gate = subcommands.add_parser("health-gate", help="fail when post-deploy summary/alert evidence violates survival invariants")
+    health_gate.add_argument("--summary", required=True, help="summary JSON path produced by the summary command")
+    health_gate.add_argument("--alert", required=True, help="alert JSON path produced by the alert command")
+    health_gate.set_defaults(func=command_health_gate)
 
     tactical_response = subcommands.add_parser(
         "tactical-response",
@@ -2097,11 +2597,112 @@ def command_self_test(_args: argparse.Namespace) -> int:
             }
             snapshot = self.make_snapshot({})
             emitted, _suppressed, _next_state = evaluate_room_alert(snapshot, previous, now=100, debounce_seconds=300)
-            self.assertEqual(emitted[0]["kind"], "critical_structure_missing")
+            self.assertIn("critical_structure_missing", [reason["kind"] for reason in emitted])
+
+        def test_room_loss_alert_preserves_healthy_baseline(self) -> None:
+            previous = {
+                "baseline_established": True,
+                "owner": "owner",
+                "owned_creeps": 3,
+                "owned_spawns": 1,
+                "structures": {
+                    "spawn1": {
+                        "type": "spawn",
+                        "x": 25,
+                        "y": 25,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                        "owned": True,
+                        "damageable": True,
+                        "critical": True,
+                    }
+                },
+            }
+            snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects(
+                    {
+                        "ctrl": {"type": "controller", "x": 5, "y": 36, "level": 3},
+                        "site": {"type": "constructionSite", "structureType": "extension", "x": 6, "y": 36},
+                    }
+                ),
+                tick=2,
+                owner=None,
+                info={},
+                expected_owner="owner",
+            )
+
+            emitted, _suppressed, next_state = evaluate_room_alert(snapshot, previous, now=100, debounce_seconds=300)
+
+            self.assertIn("room_ownership_lost", [reason["kind"] for reason in emitted])
+            self.assertIn("spawn_collapse", [reason["kind"] for reason in emitted])
+            self.assertEqual(next_state["owner"], "owner")
+            self.assertIn("spawn1", next_state["structures"])
+
+        def test_expected_owner_does_not_mask_observed_owner_loss(self) -> None:
+            snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects({"ctrl": {"type": "controller", "x": 5, "y": 36, "level": 3}}),
+                tick=2,
+                owner=None,
+                info={},
+                expected_owner="owner",
+            )
+
+            emitted, _suppressed, _next_state = evaluate_room_alert(snapshot, {}, now=100, debounce_seconds=300)
+
+            self.assertIn("room_ownership_lost", [reason["kind"] for reason in emitted])
+
+        def test_dead_room_alerts_even_after_baseline_was_already_cleared(self) -> None:
+            previous = {
+                "baseline_established": True,
+                "owner": None,
+                "structures": {},
+                "owned_creeps": 0,
+                "owned_spawns": 0,
+            }
+            snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects({"ctrl": {"type": "controller", "x": 5, "y": 36, "level": 3}}),
+                tick=3,
+                owner=None,
+                info={},
+            )
+
+            emitted, _suppressed, _next_state = evaluate_room_alert(snapshot, previous, now=100, debounce_seconds=300)
+
+            self.assertIn("room_dead", [reason["kind"] for reason in emitted])
+
+        def test_dead_room_alerts_when_cleared_baseline_has_no_survival_counts(self) -> None:
+            previous = {"baseline_established": True, "owner": None, "structures": {}}
+            snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects({"ctrl": {"type": "controller", "x": 5, "y": 36, "level": 3}}),
+                tick=3,
+                owner=None,
+                info={},
+            )
+
+            emitted, _suppressed, _next_state = evaluate_room_alert(snapshot, previous, now=100, debounce_seconds=300)
+
+            self.assertIn("room_dead", [reason["kind"] for reason in emitted])
 
         def test_debounce_suppresses_identical_alert(self) -> None:
             snapshot = self.make_snapshot(
                 {
+                    "spawn1": {
+                        "type": "spawn",
+                        "my": True,
+                        "owner": {"username": "owner"},
+                        "x": 25,
+                        "y": 25,
+                        "hits": 5000,
+                        "hitsMax": 5000,
+                    },
                     "h1": {
                         "type": "creep",
                         "my": False,
@@ -2174,6 +2775,91 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertEqual(report["severity"], "none")
             self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
             self.assertEqual(report["next_actions"][0]["id"], "return_silent")
+
+        def test_postdeploy_health_gate_rejects_dead_room_even_when_alert_is_silent(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {"room": "shardTest/E1N1", "creeps": 0, "structures": 1, "owner": None}
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertIn("postdeploy_room_dead", [reason["kind"] for reason in result["reasons"]])
+
+        def test_postdeploy_health_gate_accepts_respawn_spawn_recovery(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardTest/E1N1",
+                            "creeps": 0,
+                            "owned_creeps": 0,
+                            "structures": 2,
+                            "owner": "owner",
+                            "spawns": 1,
+                            "owned_spawns": 1,
+                        }
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            self.assertTrue(result["ok"])
+
+        def test_postdeploy_health_gate_rejects_enemy_spawn_without_owned_recovery(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardTest/E1N1",
+                            "creeps": 2,
+                            "owned_creeps": 0,
+                            "structures": 8,
+                            "owner": None,
+                            "expected_owner": "owner",
+                            "spawns": 1,
+                            "owned_spawns": 0,
+                        }
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertIn("postdeploy_room_dead", [reason["kind"] for reason in result["reasons"]])
+
+        def test_postdeploy_health_gate_rejects_owned_room_without_spawn_even_with_worker(self) -> None:
+            result = evaluate_postdeploy_health_gate(
+                {
+                    "ok": True,
+                    "mode": "summary",
+                    "room_summaries": [
+                        {
+                            "room": "shardTest/E1N1",
+                            "creeps": 1,
+                            "owned_creeps": 1,
+                            "structures": 4,
+                            "owner": "owner",
+                            "expected_owner": "owner",
+                            "spawns": 0,
+                            "owned_spawns": 0,
+                        }
+                    ],
+                },
+                {"ok": True, "mode": "alert", "alert": False, "reasons": []},
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertIn("postdeploy_no_owned_spawn", [reason["kind"] for reason in result["reasons"]])
 
         def test_tactical_response_classifies_hostile_alert(self) -> None:
             report = build_tactical_response_report(
