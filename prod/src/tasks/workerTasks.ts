@@ -246,8 +246,13 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
 
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
+  const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   return selectClosestEnergySink(
-    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)),
+    energySinks.filter(
+      (energySink) =>
+        isAssignedTransferTarget(energySink, assignedTransferTargetId) ||
+        hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
+    ),
     creep
   );
 }
@@ -290,6 +295,18 @@ function getReservedEnergyDelivery(
   reservedEnergyDeliveries: Map<string, number>
 ): number {
   return reservedEnergyDeliveries.get(String(energySink.id)) ?? 0;
+}
+
+function getAssignedTransferTargetId(creep: Creep): string | null {
+  const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return task?.type === 'transfer' && typeof task.targetId === 'string' ? String(task.targetId) : null;
+}
+
+function isAssignedTransferTarget(
+  energySink: SpawnExtensionEnergyStructure,
+  assignedTransferTargetId: string | null
+): boolean {
+  return assignedTransferTargetId !== null && String(energySink.id) === assignedTransferTargetId;
 }
 
 function findFillableEnergySinks(creep: Creep): FillableEnergySink[] {
