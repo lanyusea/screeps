@@ -3905,6 +3905,48 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
   });
 
+  it('builds follow-up-ready critical road logistics before fallback territory upgrading', () => {
+    const homeSpawn = makeSpawn('Spawn1', 25, 25, 'W1N1');
+    const source = makeSource('source1', 24, 25, 'W2N1');
+    const site = {
+      id: 'road-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(40, 25, 'W2N1')
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller2',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25, 'W2N1')
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      spawns: { Spawn1: homeSpawn },
+      time: 517
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        demands: [makeFollowUpDemand(517, 'W1N1', 'W2N1')],
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim', status: 'active', updatedAt: 517 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
+        energyCapacityAvailable: 800,
+        sources: [source]
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
   it('keeps emergency refill before productive follow-up spending', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;

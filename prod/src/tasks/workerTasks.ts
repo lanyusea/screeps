@@ -171,7 +171,8 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const readyFollowUpProductiveEnergySinkTask = selectReadyFollowUpProductiveEnergySinkTask(
     creep,
     capacityConstructionSite,
-    controller
+    controller,
+    constructionSites
   );
   if (readyFollowUpProductiveEnergySinkTask) {
     return readyFollowUpProductiveEnergySinkTask;
@@ -693,7 +694,8 @@ function selectCapacityEnablingConstructionSite(
 function selectReadyFollowUpProductiveEnergySinkTask(
   creep: Creep,
   capacityConstructionSite: ConstructionSite | null,
-  controller: StructureController | undefined
+  controller: StructureController | undefined,
+  constructionSites: ConstructionSite[]
 ): ProductiveEnergySinkTask | null {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
     return null;
@@ -708,7 +710,12 @@ function selectReadyFollowUpProductiveEnergySinkTask(
   }
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
-  return criticalRepairTarget ? { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> } : null;
+  if (criticalRepairTarget) {
+    return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
+  }
+
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  return criticalRoadConstructionSite ? { type: 'build', targetId: criticalRoadConstructionSite.id } : null;
 }
 
 function isSpawnConstructionSite(site: ConstructionSite): boolean {
