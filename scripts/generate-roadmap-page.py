@@ -2480,6 +2480,18 @@ def build_report_process_cards(
     if issue_error is not None and cached_issue_card:
         total_issues = cached_issue_card.get("value", INSUFFICIENT_EVIDENCE)
     official_deploy_summary = summarize_official_deploy_evidence(repo_root)
+    official_deploy_project_count = count_official_deploy_evidence(repo_root, github_snapshot)
+    official_deploy_count = max(official_deploy_summary.count, official_deploy_project_count)
+    official_deploy_value: int | str = official_deploy_count if official_deploy_count > 0 else INSUFFICIENT_EVIDENCE
+    if official_deploy_summary.count > 0:
+        official_deploy_detail = official_deploy_process_detail(official_deploy_summary)
+        official_deploy_source = "official deploy evidence JSON"
+    elif official_deploy_project_count > 0:
+        official_deploy_detail = "GitHub Project official deploy evidence"
+        official_deploy_source = "github project evidence"
+    else:
+        official_deploy_detail = "evidence unavailable"
+        official_deploy_source = "unavailable"
     private_smoke_count = count_private_smoke_process_reports(repo_root)
 
     return [
@@ -2509,11 +2521,11 @@ def build_report_process_cards(
             "source": "github" if issue_error is None else "cached" if cached_issue_card else "unavailable",
         },
         {
-            "value": official_deploy_summary.count,
+            "value": official_deploy_value,
             "label": "Official deploys",
-            "detail": official_deploy_process_detail(official_deploy_summary),
+            "detail": official_deploy_detail,
             "delta": "+0",
-            "source": "official deploy evidence JSON",
+            "source": official_deploy_source,
         },
         {
             "value": private_smoke_count,
@@ -2806,6 +2818,39 @@ def count_process_evidence(
         ):
             count += 1
     return count
+
+
+def count_official_deploy_evidence(repo_root: Path, github_snapshot: JsonObject) -> int:
+    evidence: set[str] = set()
+    artifact_dir = repo_root / "runtime-artifacts" / "official-screeps-deploy"
+    if artifact_dir.is_dir():
+        for path in artifact_dir.glob("official-screeps-deploy-*.json"):
+            evidence.add(f"artifact:{path.name}")
+
+    process_count = count_process_evidence(
+        repo_root,
+        required_terms=("official", "deploy evidence"),
+        excluded_terms=("temporary official MMO link validation",),
+    )
+    for index in range(process_count):
+        evidence.add(f"process:{index}")
+
+    for collection_name in ("issues", "projectItems"):
+        collection = github_snapshot.get(collection_name)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            text = " ".join(
+                str(item.get(key) or "") for key in ("title", "status", "evidence", "nextAction")
+            ).lower()
+            run_ids = re.findall(r"official deploy run\s+(\d+)", text)
+            for run_id in run_ids:
+                evidence.add(f"run:{run_id}")
+            if not run_ids and "deployment floor satisfied" in text and "official deploy" in text:
+                evidence.add(f"item:{item.get('number', len(evidence))}")
+    return len(evidence)
 
 
 def count_private_smoke_process_reports(repo_root: Path) -> int:
@@ -3103,6 +3148,18 @@ main {
   margin-top: 18px;
 }
 
+.sparkline.unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: rgba(255, 253, 247, 0.68);
+}
+
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -3338,9 +3395,9 @@ def render_sparkline(points: Sequence[JsonObject], accent: str) -> str:
     observed = [point for point in points if point.get("observed") and isinstance(point.get("value"), (int, float))]
     if not observed:
         return """
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
+          <div class="sparkline unavailable" data-sparkline-unavailable="true" role="img" aria-label="No observed metric history yet">
+            No observed history
+          </div>
 """
     values = [float(point["value"]) for point in observed]
     min_value = min(values)
@@ -4109,24 +4166,6 @@ def render_kpi_svg(card: JsonObject) -> str:
             series_parts.append(
                 f'<polyline fill="none" stroke="{color}" stroke-width="{width_attr}" stroke-linecap="round" stroke-linejoin="round"{dash} points="{points}"/>'
             )
-        if not coords and values and all(chart_number(raw_value) is None for raw_value in values):
-            # Missing telemetry is not observed data, so it remains out of the JSON
-            # value stream and does not get labels. The public visual still needs a
-            # readable chart shape: render-only zero-baseline placeholders show the
-            # dates without implying that runtime KPI values were observed.
-            placeholder_points = [(x_for(index), y_for(0.0)) for index, _ in enumerate(values)]
-            if len(placeholder_points) > 1:
-                points = " ".join(f"{x:.1f},{y:.1f}" for x, y in placeholder_points)
-                series_parts.append(
-                    f'<polyline data-kpi-placeholder="line" fill="none" stroke="{color}" stroke-width="{width_attr}" '
-                    f'stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 7" '
-                    f'stroke-opacity="0.44" points="{points}"/>'
-                )
-            for x, y in placeholder_points:
-                series_parts.append(
-                    f'<circle data-kpi-placeholder="point" cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="none" '
-                    f'stroke="{color}" stroke-width="2" stroke-opacity="0.68"/>'
-                )
         for x, y, value in coords:
             if value == y_max:
                 text_y = y + 22
@@ -4146,6 +4185,22 @@ def render_kpi_svg(card: JsonObject) -> str:
         )
         legend_x += 142 if len(series["label"]) < 11 else 164
 
+    all_series_values = [
+        chart_number(value)
+        for series in card.get("series", ())
+        if isinstance(series, dict)
+        for value in series.get("values", ())
+    ]
+    has_observed_value = any(value is not None for value in all_series_values)
+    unavailable_overlay = ""
+    if not has_observed_value:
+        unavailable_overlay = f'''
+              <g data-kpi-unavailable="true">
+                <rect x="{x0 + 52:.1f}" y="{y0 + 42:.1f}" width="{width - 104:.1f}" height="74" rx="10" fill="#fbfaf7" stroke="#d8cabc" stroke-width="1.2"/>
+                <text x="{x0 + width / 2:.1f}" y="{y0 + 76:.1f}" text-anchor="middle" fill="#3e352d" font-size="17" font-weight="800">No observed KPI data</text>
+                <text x="{x0 + width / 2:.1f}" y="{y0 + 101:.1f}" text-anchor="middle" fill="#8b6d55" font-size="13">Real reducer history is unavailable; chart is intentionally blank.</text>
+              </g>'''
+
     return f"""
             <svg class="chart-svg" role="img" aria-label="{esc(card["title"])} 7 day trend" viewBox="0 0 560 260">
               <text x="{x0:.1f}" y="12" fill="#9a5d25" font-size="14" font-weight="900">{esc(card["pill"])}</text>
@@ -4153,6 +4208,7 @@ def render_kpi_svg(card: JsonObject) -> str:
               <line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x0:.1f}" y2="{y0 + height:.1f}" stroke="#cdbba7" stroke-width="1.5"/>
               <line x1="{x0:.1f}" y1="{y0 + height:.1f}" x2="{x0 + width:.1f}" y2="{y0 + height:.1f}" stroke="#cdbba7" stroke-width="1.5"/>
               {''.join(series_parts)}
+              {unavailable_overlay}
               {date_labels}
               {''.join(legend_parts)}
             </svg>
@@ -4258,7 +4314,7 @@ def render_process_card(card: JsonObject) -> str:
           <article class="process-card">
             <p class="process-value">{esc(card["value"])}</p>
             <p class="process-label">{esc(card["label"])}</p>
-            <p class="process-detail">{esc(card["detail"])} <span class="process-chip">{esc(card["delta"])}</span></p>
+            <p class="process-detail">{esc(card["detail"])}</p>
           </article>
 """
 

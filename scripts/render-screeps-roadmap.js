@@ -48,6 +48,11 @@ function json(cmd, fallback) {
 }
 function esc(v) { return String(v ?? '—').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])); }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function observedNumber(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 function short(s, n=68) { s = String(s || '—'); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 function englishText(v, fallback = 'No current evidence available') {
   const text = String(v ?? '')
@@ -83,36 +88,35 @@ const items = (projectRaw.items || []).map(it => ({
 const byNumber = Object.fromEntries(items.filter(i => i.number).map(i => [i.number, i]));
 
 const latestSummarySvg = sh("find runtime-artifacts/screeps-monitor -name 'summary-*.svg' -type f -printf '%T@ %p\\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-", '');
-let rcl = 0;
+let rcl = null;
 if (latestSummarySvg && fs.existsSync(latestSummarySvg)) {
   const svg = fs.readFileSync(latestSummarySvg, 'utf8');
   const m = svg.match(/Controller\s+R(\d+)/i);
   if (m) rcl = Number(m[1]);
 }
-if (!rcl) rcl = 3;
 
 const today = new Date();
 const days = Array.from({length: 7}, (_, i) => {
   const d = new Date(today); d.setDate(today.getDate() - (6 - i));
   return `${d.getMonth()+1}/${d.getDate()}`;
 });
-function series(current, previous = 0) { return Array.from({length:7}, (_, i) => i === 6 ? current : previous); }
+const missing7d = () => Array.from({length: 7}, () => null);
 const kpiCharts = [
-  { title: 'Territory', subtitle: 'owned rooms · RCL · room gain', unit: 'rooms/RCL', color: '#8f6235', series: [
-    {name:'Owned rooms', values: series(1, 1)},
-    {name:'RCL', values: series(rcl, rcl)},
-    {name:'Room gain', values: series(0, 0), dashed:true}
-  ], note:'Seven-day history is still being wired; current points come from official room monitor and Project evidence.' },
-  { title: 'Resources', subtitle: 'stored energy · harvest delta · carried energy', unit: 'energy', color: '#5c8456', series: [
-    {name:'Stored energy', values: series(0, 0), dashed:true},
-    {name:'Harvest delta', values: series(0, 0), dashed:true},
-    {name:'Worker carried', values: series(0, 0), dashed:true}
-  ], note:'Resource payload fields are in place; reducer and seven-day aggregation remain part of #29.' },
-  { title: 'Combat', subtitle: 'enemy kills · hostile count · own loss', unit: 'events', color: '#a33b2f', series: [
-    {name:'Enemy kills', values: series(0, 0), dashed:true},
-    {name:'Hostiles seen', values: series(0, 0)},
-    {name:'Own loss', values: series(0, 0), dashed:true}
-  ], note:'Kill/loss event aggregation is not wired yet; current hostile monitor state is no-alert.' }
+  { title: 'Territory', subtitle: 'owned rooms · RCL · room gain', unit: 'rooms/RCL', color: '#8f6235', unavailable: true, series: [
+    {name:'Owned rooms', values: missing7d()},
+    {name:'RCL', values: missing7d()},
+    {name:'Room gain', values: missing7d(), dashed:true}
+  ], note:`No observed seven-day territory KPI history is available. Latest monitor RCL: ${rcl === null ? 'not observed' : rcl}.` },
+  { title: 'Resources', subtitle: 'stored energy · harvest delta · carried energy', unit: 'energy', color: '#5c8456', unavailable: true, series: [
+    {name:'Stored energy', values: missing7d(), dashed:true},
+    {name:'Harvest delta', values: missing7d(), dashed:true},
+    {name:'Worker carried', values: missing7d(), dashed:true}
+  ], note:'No observed resource KPI history is available; reducer-backed energy data must be connected before plotting.' },
+  { title: 'Combat', subtitle: 'enemy kills · hostile count · own loss', unit: 'events', color: '#a33b2f', unavailable: true, series: [
+    {name:'Enemy kills', values: missing7d(), dashed:true},
+    {name:'Hostiles seen', values: missing7d()},
+    {name:'Own loss', values: missing7d(), dashed:true}
+  ], note:'No observed combat KPI history is available; ownership-aware kill/loss aggregation must be connected before plotting.' }
 ];
 
 const roadmapCards = [
@@ -154,10 +158,40 @@ function visibleKanbanItems(items) {
   return items.filter(it => it.column !== 'online' || !shownDone.has(it.id));
 }
 
-const officialDeploys = 0;
-let privateTests = num(sh("find /root/screeps /root/.hermes -type f \( -iname '*private*smoke*report*.json' -o -iname '*screeps-private-smoke*.json' \) 2>/dev/null | wc -l", '0'));
+function explicitOfficialDeployEvidence() {
+  const evidence = new Set();
+  for (const item of items) {
+    const text = [item.title, item.status, item.evidence, item.next].join(' ').toLowerCase();
+    const runMatches = [...text.matchAll(/official deploy run\s+(\d+)/g)];
+    for (const match of runMatches) evidence.add(`run:${match[1]}`);
+    if (runMatches.length === 0 && text.includes('deployment floor satisfied') && text.includes('official deploy')) evidence.add(`item:${item.number || item.id}`);
+  }
+  return evidence.size;
+}
+function countFiles(command, observedCommand = '') {
+  const observed = observedCommand ? sh(observedCommand, 'missing') === 'present' : true;
+  if (!observed) return { value: null, observed: false };
+  return { value: num(sh(command, '0')), observed: true };
+}
+const officialDeployEvidence = countFiles(
+  "find runtime-artifacts/official-screeps-deploy -maxdepth 1 -type f -name 'official-screeps-deploy-*.json' 2>/dev/null | wc -l",
+  "test -d runtime-artifacts/official-screeps-deploy && find runtime-artifacts/official-screeps-deploy -maxdepth 1 -type f -name 'official-screeps-deploy-*.json' >/dev/null && echo present || echo missing"
+);
+const projectOfficialDeploys = explicitOfficialDeployEvidence();
+const officialDeploys = officialDeployEvidence.observed
+  ? Math.max(officialDeployEvidence.value, projectOfficialDeploys)
+  : (projectOfficialDeploys || null);
+function explicitPrivateSmokeEvidence() {
+  const evidence = new Set();
+  for (const item of items) {
+    const text = [item.title, item.status, item.evidence, item.next].join(' ').toLowerCase();
+    if (text.includes('smoke') && text.includes('evidence')) evidence.add(`item:${item.number || item.id}`);
+  }
+  return evidence.size;
+}
+let privateTests = explicitPrivateSmokeEvidence();
 if (privateTests === 0) {
-  console.warn('No private smoke test reports found; rendering actual private smoke count 0.');
+  console.warn('No private smoke evidence found in GitHub Project; rendering not observed.');
 }
 const metrics = {
   commits: commitCount,
@@ -175,9 +209,10 @@ function delta(key) {
 
 function lineChart(chart, width=430, height=215) {
   const pad = {l:54,r:24,t:28,b:40};
-  const vals = chart.series.flatMap(s => s.values).map(num);
-  const rawMax = Math.max(1, ...vals);
-  const rawMin = Math.min(0, ...vals);
+  const observedVals = chart.series.flatMap(s => s.values).map(observedNumber).filter(v => v !== null);
+  const hasObserved = observedVals.length > 0 && !chart.unavailable;
+  const rawMax = hasObserved ? Math.max(1, ...observedVals) : 1;
+  const rawMin = hasObserved ? Math.min(0, ...observedVals) : 0;
   const max = rawMax === rawMin ? rawMax + 1 : rawMax;
   const min = rawMin;
   const x = i => pad.l + i * ((width - pad.l - pad.r) / 6);
@@ -189,18 +224,35 @@ function lineChart(chart, width=430, height=215) {
     const label = Number.isInteger(v) ? String(v) : v.toFixed(1);
     return `<line x1="${pad.l}" x2="${width-pad.r}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}" class="gridline"/><text x="${pad.l-10}" y="${(yy+4).toFixed(1)}" text-anchor="end" class="axis">${esc(label)}</text>`;
   }).join('') + `<line x1="${pad.l}" x2="${pad.l}" y1="${pad.t}" y2="${height-pad.b}" class="axisline"/>`;
-  const paths = chart.series.map((s, idx) => {
-    const d = s.values.map((v,i) => `${i?'L':'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-    return `<path d="${d}" fill="none" stroke="${colors[idx%colors.length]}" stroke-width="3.2" stroke-linecap="round" ${s.dashed?'stroke-dasharray="8 7"':''}/>`;
-  }).join('');
-  const points = chart.series.map((s, idx) => s.values.map((v,i) => {
-    const px = x(i), py = y(v);
+  const paths = hasObserved ? chart.series.map((s, idx) => {
+    const segments = [];
+    let current = [];
+    s.values.forEach((raw, i) => {
+      const value = observedNumber(raw);
+      if (value === null) {
+        if (current.length > 1) segments.push(current);
+        current = [];
+        return;
+      }
+      current.push([x(i), y(value)]);
+    });
+    if (current.length > 1) segments.push(current);
+    return segments.map(segment => {
+      const d = segment.map(([px, py], i) => `${i?'L':'M'}${px.toFixed(1)},${py.toFixed(1)}`).join(' ');
+      return `<path d="${d}" fill="none" stroke="${colors[idx%colors.length]}" stroke-width="3.2" stroke-linecap="round" ${s.dashed?'stroke-dasharray="8 7"':''}/>`;
+    }).join('');
+  }).join('') : '';
+  const points = hasObserved ? chart.series.map((s, idx) => s.values.map((raw,i) => {
+    const value = observedNumber(raw);
+    if (value === null) return '';
+    const px = x(i), py = y(value);
     const dy = idx === 0 ? -10 : (idx === 1 ? 17 : -24);
-    return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.8" fill="${colors[idx%colors.length]}" stroke="#fffdf7" stroke-width="1.4"/><text x="${px.toFixed(1)}" y="${(py+dy).toFixed(1)}" text-anchor="middle" class="point-label">${esc(v)}</text>`;
-  }).join('')).join('');
+    return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.8" fill="${colors[idx%colors.length]}" stroke="#fffdf7" stroke-width="1.4"/><text x="${px.toFixed(1)}" y="${(py+dy).toFixed(1)}" text-anchor="middle" class="point-label">${esc(value)}</text>`;
+  }).join('')).join('') : '';
+  const unavailable = hasObserved ? '' : `<g data-kpi-unavailable="true"><rect x="${pad.l+28}" y="${pad.t+36}" width="${width-pad.l-pad.r-56}" height="74" rx="12" fill="#fffdf7" stroke="#dbcbb7"/><text x="${width/2}" y="${pad.t+68}" text-anchor="middle" class="no-data-title">No observed KPI data</text><text x="${width/2}" y="${pad.t+92}" text-anchor="middle" class="no-data-copy">Real reducer history unavailable; chart intentionally blank.</text></g>`;
   const labels = days.map((d,i) => `<text x="${x(i)}" y="${height-12}" text-anchor="middle" class="axis">${esc(d)}</text>`).join('');
   const legend = chart.series.map((s,i) => `<span><i style="background:${colors[i%3]};${s.dashed?'border-top:2px dashed #2e2a24;background:transparent;height:0;':''}"></i>${esc(s.name)}</span>`).join('');
-  return `<div class="card kpi"><div class="kpi-head"><div><h3>${esc(chart.title)}</h3><p>${esc(chart.subtitle)}</p></div><b>${esc(chart.unit)}</b></div><svg viewBox="0 0 ${width} ${height}">${yAxis}<line x1="${pad.l}" x2="${width-pad.r}" y1="${height-pad.b}" y2="${height-pad.b}" class="axisline"/>${paths}${points}${labels}<text x="${pad.l}" y="15" class="axis unit-label">${esc(chart.unit)}</text></svg><div class="legend">${legend}</div><div class="micro-note">${esc(chart.note)}</div></div>`;
+  return `<div class="card kpi"><div class="kpi-head"><div><h3>${esc(chart.title)}</h3><p>${esc(chart.subtitle)}</p></div><b>${esc(chart.unit)}</b></div><svg viewBox="0 0 ${width} ${height}">${yAxis}<line x1="${pad.l}" x2="${width-pad.r}" y1="${height-pad.b}" y2="${height-pad.b}" class="axisline"/>${paths}${points}${unavailable}${labels}<text x="${pad.l}" y="15" class="axis unit-label">${esc(chart.unit)}</text></svg><div class="legend">${legend}</div><div class="micro-note">${esc(chart.note)}</div></div>`;
 }
 function roadmapCard([h,g,n,p,d]) {
   return `<div class="card road"><h3>${esc(h)}</h3><div class="row"><b>Goal</b><span>${esc(g)}</span></div><div class="row"><b>Next</b><span>${esc(n)}</span></div><div class="progress"><strong>${esc(p)}%</strong><i><em style="width:${Math.max(0, Math.min(100, num(p)))}%"></em></i></div><div class="done">Proof: ${esc(d)}</div></div>`;
@@ -209,12 +261,13 @@ function kanban(title, subtitle, items) {
   const vis = visibleKanbanItems(items);
   const body = columns.map(([key,label]) => {
     const col = vis.filter(i => i.column === key);
-    return `<div class="kan-col"><div class="kan-title">${esc(label)} <span>${col.length}</span></div>${col.map(i => `<div class="ticket"><div class="ticket-top"><b>${esc(short(i.title, 58))}</b><span>${esc(i.priority || '')}</span></div><p>${esc(short(i.next || i.domain || i.status, 92))}</p></div>`).join('') || '<div class="empty">—</div>'}</div>`;
+    return `<div class="kan-col"><div class="kan-title">${esc(label)} <span>${col.length}</span></div>${col.map(i => `<div class="ticket"><div class="ticket-top"><b>${esc(short(i.title, 58))}</b><span>${esc(i.priority || '')}</span></div><p>${esc(short(i.next || i.domain || i.status, 92))}</p></div>`).join('') || `<div class="empty">No ${esc(label)} cards</div>`}</div>`;
   }).join('');
   return `<section class="section"><div class="section-title"><h2>${esc(title)}</h2></div><div class="kanban">${body}</div></section>`;
 }
 function metric(label, value, key, note) {
-  return `<div class="card metric"><div class="metric-value">${esc(value)}</div><div class="metric-label">${esc(label)}</div><div class="metric-note">${esc(note || '')}<span>${esc(delta(key))}</span></div></div>`;
+  const valueStyle = typeof value === 'number' ? '' : ' style="font-size:34px;line-height:1.05"';
+  return `<div class="card metric"><div class="metric-value"${valueStyle}>${esc(value)}</div><div class="metric-label">${esc(label)}</div><div class="metric-note">${esc(note || '')}</div></div>`;
 }
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -229,8 +282,13 @@ ${kanban('04 Foundation Kanban', 'Reliability / P0 and Foundation Gates; data co
   metric('Total commits', metrics.commits, 'commits', `HEAD ${head}`),
   metric('Total PRs', metrics.prs, 'prs', `${prs.filter(p=>p.state==='MERGED').length} merged`),
   metric('Total issues', metrics.issues, 'issues', `${issues.filter(i=>i.state==='OPEN').length} open`),
-  metric('Official game deploys', metrics.officialDeploys, 'officialDeploys', 'official deploy evidence'),
-  metric('Private smoke tests', metrics.privateTests, 'privateTests', 'smoke/report evidence')
+  metric(
+    'Official game deploys',
+    typeof officialDeploys === 'number' ? officialDeploys : 'not observed',
+    'officialDeploys',
+    projectOfficialDeploys ? 'GitHub Project official deploy evidence' : officialDeployEvidence.observed ? 'runtime artifact evidence' : 'evidence unavailable'
+  ),
+  metric('Private smoke tests', privateTests > 0 ? metrics.privateTests : 'not observed', 'privateTests', privateTests > 0 ? 'GitHub Project smoke evidence' : 'evidence unavailable')
 ].join('')}</div></section>
 <div class="footer">format ${formatVersion} · repo ${head} · generated ${new Date().toISOString()}</div>
 </div></body></html>`;

@@ -112,35 +112,33 @@ def validate_kpi_html(
                 f"{label}: {title} missing legend label {series_label}",
             )
 
-        all_null_series = [series for series in card.get("series", ()) if is_all_null_series(generator, series)]
-        if not all_null_series:
-            continue
-
+        all_values = [
+            value
+            for series in card.get("series", ())
+            for value in series.get("values", ())
+            if isinstance(series, dict)
+        ]
+        all_values_missing = bool(all_values) and all(generator.chart_number(value) is None for value in all_values)
         placeholder_lines = find_tags(body, "polyline", 'data-kpi-placeholder="line"')
         placeholder_points = find_tags(body, "circle", 'data-kpi-placeholder="point"')
-        expected_lines = len(all_null_series)
-        expected_points = sum(len(list(series.get("values", ()))) for series in all_null_series)
+        assert_check(failures, not placeholder_lines, f"{label}: {title} must not render fake placeholder KPI lines")
+        assert_check(failures, not placeholder_points, f"{label}: {title} must not render fake placeholder KPI points")
+        if not all_values_missing:
+            continue
 
         assert_check(
             failures,
-            len(placeholder_lines) == expected_lines,
-            f"{label}: {title} should render {expected_lines} placeholder lines, saw {len(placeholder_lines)}",
+            'data-kpi-unavailable="true"' in body,
+            f"{label}: {title} all-null KPI chart should explicitly mark data as unavailable",
         )
         assert_check(
             failures,
-            len(placeholder_points) == expected_points,
-            f"{label}: {title} should render {expected_points} placeholder points, saw {len(placeholder_points)}",
+            "No observed KPI data" in html.unescape(body),
+            f"{label}: {title} all-null KPI chart should say no observed KPI data",
         )
-        for line in placeholder_lines:
-            assert_check(failures, tag_has_attribute(line, "stroke-dasharray"), f"{label}: {title} placeholder line is not dashed")
-            assert_check(failures, tag_has_attribute(line, "stroke-opacity"), f"{label}: {title} placeholder line is not muted")
-        for point in placeholder_points:
-            assert_check(failures, 'fill="none"' in point, f"{label}: {title} placeholder point is not hollow")
-            assert_check(failures, tag_has_attribute(point, "stroke"), f"{label}: {title} placeholder point has no stroke")
-            assert_check(failures, tag_has_attribute(point, "stroke-opacity"), f"{label}: {title} placeholder point is not muted")
 
 
-def committed_page_inputs(repo_root: Path) -> tuple[str, list[JsonObject]] | None:
+def committed_page_inputs(repo_root: Path) -> tuple[str, list[JsonObject], JsonObject] | None:
     html_path = repo_root / "docs" / "index.html"
     data_path = repo_root / "docs" / "roadmap-data.json"
     if not html_path.exists() or not data_path.exists():
@@ -149,7 +147,55 @@ def committed_page_inputs(repo_root: Path) -> tuple[str, list[JsonObject]] | Non
     cards = data.get("report", {}).get("kpiCards", [])
     if not isinstance(cards, list):
         raise RuntimeError("docs/roadmap-data.json report.kpiCards is not a list")
-    return html_path.read_text(encoding="utf-8"), [card for card in cards if isinstance(card, dict)]
+    return html_path.read_text(encoding="utf-8"), [card for card in cards if isinstance(card, dict)], data
+
+
+def deploy_evidence_count(data: JsonObject) -> int:
+    github = data.get("github", {})
+    if not isinstance(github, dict):
+        return 0
+    evidence: set[str] = set()
+    for collection_name in ("issues", "projectItems"):
+        collection = github.get(collection_name)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            text = " ".join(str(item.get(key) or "") for key in ("title", "status", "evidence", "nextAction")).lower()
+            run_ids = re.findall(r"official deploy run\s+(\d+)", text)
+            for run_id in run_ids:
+                evidence.add(f"run:{run_id}")
+            if not run_ids and "deployment floor satisfied" in text and "official deploy" in text:
+                evidence.add(f"item:{item.get('number', len(evidence))}")
+    return len(evidence)
+
+
+def process_card_value(data: JsonObject, label: str) -> Any:
+    cards = data.get("report", {}).get("processCards", [])
+    if not isinstance(cards, list):
+        return None
+    for card in cards:
+        if isinstance(card, dict) and card.get("label") == label:
+            return card.get("value")
+    return None
+
+
+def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
+    evidence_count = deploy_evidence_count(data)
+    official_deploys = process_card_value(data, "Official deploys")
+    if evidence_count:
+        assert_check(
+            failures,
+            isinstance(official_deploys, int) and official_deploys >= evidence_count,
+            "docs/roadmap-data.json: Official deploys must reflect observed official deploy evidence instead of reporting 0",
+        )
+    else:
+        assert_check(
+            failures,
+            official_deploys != 0,
+            "docs/roadmap-data.json: Official deploys must not report 0 when no deploy evidence is observed",
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -163,8 +209,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     committed_inputs = committed_page_inputs(repo_root)
     if committed_inputs is not None:
-        committed_html, committed_cards = committed_inputs
+        committed_html, committed_cards, committed_data = committed_inputs
         validate_kpi_html("docs/index.html", committed_html, committed_cards, generator, failures)
+        validate_process_metrics(committed_data, failures)
 
     if failures:
         print("Roadmap KPI placeholder check failed:", file=sys.stderr)
