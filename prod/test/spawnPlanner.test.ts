@@ -599,6 +599,134 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('keeps a recovered follow-up active when live controller coverage already satisfies it', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const suppressionTime = 170;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const { colony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const roleCounts = {
+      worker: 4,
+      claimer: 1,
+      claimersByTargetRoom: { W2N2: 1 },
+      claimersByTargetRoomAction: { reserve: { W2N2: 1 } }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N2: makeTerritoryRoom('W2N2', { my: false } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N2',
+            action: 'reserve',
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, roleCounts, retryTime)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: retryTime,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: retryTime,
+        followUp
+      }
+    ]);
+  });
+
+  it('does not cool down a covered recovered follow-up when support worker spawn is unavailable', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const suppressionTime = 180;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const busy = { remainingTime: 5 } as Spawning;
+    const { colony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController(),
+      spawning: busy
+    });
+    const roleCounts = {
+      worker: 3,
+      claimer: 1,
+      claimersByTargetRoom: { W2N2: 1 },
+      claimersByTargetRoomAction: { reserve: { W2N2: 1 } }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N2: makeTerritoryRoom('W2N2', { my: false } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N2',
+            action: 'reserve',
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, roleCounts, retryTime)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: retryTime,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: retryTime,
+        followUp
+      }
+    ]);
+  });
+
   it('does not plan a duplicate claimer for the same persisted target and action', () => {
     const { colony } = makeColony({
       energyAvailable: 650,

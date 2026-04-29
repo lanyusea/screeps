@@ -3841,7 +3841,7 @@ function planSpawn(colony, roleCounts, gameTime, options = {}) {
       if (workerSpawn) {
         return workerSpawn;
       }
-      recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
+      recordRecoveredFollowUpCooldownIfControllerCreepNeeded(territoryIntent, roleCounts, gameTime);
       return null;
     }
     const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryIntent, gameTime, options);
@@ -3855,8 +3855,14 @@ function planSpawn(colony, roleCounts, gameTime, options = {}) {
       return workerSpawn;
     }
   }
-  recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
+  recordRecoveredFollowUpCooldownIfControllerCreepNeeded(territoryIntent, roleCounts, gameTime);
   return null;
+}
+function recordRecoveredFollowUpCooldownIfControllerCreepNeeded(territoryIntent, roleCounts, gameTime) {
+  if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
+    return;
+  }
+  recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
 }
 function planTerritorySpawn(colony, roleCounts, territoryIntent, gameTime, options) {
   if (!shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {

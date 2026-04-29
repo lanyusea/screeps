@@ -68,7 +68,7 @@ export function planSpawn(
         return workerSpawn;
       }
 
-      recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
+      recordRecoveredFollowUpCooldownIfControllerCreepNeeded(territoryIntent, roleCounts, gameTime);
       return null;
     }
 
@@ -85,9 +85,21 @@ export function planSpawn(
     }
   }
 
-  recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
+  recordRecoveredFollowUpCooldownIfControllerCreepNeeded(territoryIntent, roleCounts, gameTime);
 
   return null;
+}
+
+function recordRecoveredFollowUpCooldownIfControllerCreepNeeded(
+  territoryIntent: TerritoryIntentPlan | null,
+  roleCounts: RoleCounts,
+  gameTime: number
+): void {
+  if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
+    return;
+  }
+
+  recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
 }
 
 function planTerritorySpawn(
