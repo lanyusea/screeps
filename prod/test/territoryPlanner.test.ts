@@ -2345,6 +2345,86 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('prefers an active controller follow-up over spawn-ready generic territory work while preserving cooldowns', () => {
+    const colony = makeSafeColony();
+    const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const activeFollowUpTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const coolingDownFollowUpTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W4N1',
+      action: 'reserve'
+    };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const suppressionTime = 586;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 2;
+    const activeFollowUpIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 585,
+      followUp
+    };
+    const coolingDownFollowUpIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W4N1',
+      action: 'reserve',
+      status: 'suppressed',
+      updatedAt: suppressionTime,
+      lastAttemptAt: retryTime - 1,
+      followUp
+    };
+    const roleCounts = {
+      worker: 3,
+      claimer: 2,
+      claimersByTargetRoom: { W3N1: 1, W4N1: 1 },
+      claimersByTargetRoomAction: { reserve: { W3N1: 1, W4N1: 1 } }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { sourceCount: 2 }),
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 1 }),
+        W4N1: makeRecommendationRoom('W4N1', { sourceCount: 2 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [genericTarget, activeFollowUpTarget, coolingDownFollowUpTarget],
+        intents: [activeFollowUpIntent, coolingDownFollowUpIntent]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, roleCounts, 3, retryTime);
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      followUp
+    });
+    expect(shouldSpawnTerritoryControllerCreep(plan!, roleCounts, retryTime)).toBe(false);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        ...activeFollowUpIntent,
+        status: 'active',
+        updatedAt: retryTime
+      },
+      coolingDownFollowUpIntent
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: retryTime,
+        followUp
+      }
+    ]);
+  });
+
   it('scouts an alternate adjacent room while a recovered follow-up target is cooling down', () => {
     const colony = makeSafeColony();
     const recoveredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
