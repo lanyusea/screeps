@@ -115,32 +115,45 @@ if (fs.existsSync(htmlPath)) {
     assert(!territoryText.includes('Latest monitor RCL: 3'), 'Territory KPI must not use fallback RCL 3 when no monitor evidence exists');
   }
 
-  const resourcesCard = body.match(/<div class="card kpi">[\s\S]*?<h3>Resources<\/h3>[\s\S]*?<\/div><\/div>/);
-  assert(Boolean(resourcesCard), 'Resources KPI card is missing');
-  if (resourcesCard) {
-    const resourcesText = tagText(resourcesCard[0]);
-    assert(resourcesCard[0].includes('data-kpi-unavailable="true"'), 'Resources KPI must mark unavailable data instead of drawing fake zeros');
-    assert(resourcesText.includes('No observed KPI data'), 'Resources KPI must state that no observed KPI data is available');
-    assert(!resourcesText.includes('Stored energy 0') && !resourcesText.includes('Harvest delta 0') && !resourcesText.includes('Worker carried 0'), 'Resources KPI must not label fake zero energy values');
-  }
-
-  const officialDeployCard = (() => {
+  const roadmapData = (() => {
     try {
-      const roadmapData = JSON.parse(fs.readFileSync(path.join(repo, 'docs', 'roadmap-data.json'), 'utf8'));
-      return (roadmapData.report?.processCards || []).find(card => card.label === 'Official deploys');
+      return JSON.parse(fs.readFileSync(path.join(repo, 'docs', 'roadmap-data.json'), 'utf8'));
     } catch {
       return null;
     }
   })();
-  if (officialDeployCard && Number.isFinite(Number(officialDeployCard.value))) {
-    assert(
-      text.includes(`${Number(officialDeployCard.value)} Official game deploys`),
-      `Official game deploys should match docs/roadmap-data.json value ${officialDeployCard.value}`
-    );
+
+  const resourcesCard = body.match(/<div class="card kpi">[\s\S]*?<h3>Resources<\/h3>[\s\S]*?<\/div><\/div>/);
+  assert(Boolean(resourcesCard), 'Resources KPI card is missing');
+
+  if (roadmapData) {
+    const pageKpis = roadmapData.report?.kpiCards || [];
+    for (const pageCard of pageKpis) {
+      const renderedCard = body.match(new RegExp(`<div class="card kpi">[\\s\\S]*?<h3>${pageCard.title}<\\/h3>[\\s\\S]*?<\\/div><\\/div>`));
+      assert(Boolean(renderedCard), `KPI card from Pages data is missing: ${pageCard.title}`);
+      if (!renderedCard) continue;
+      const cardHtml = renderedCard[0];
+      const observedValues = (pageCard.series || []).flatMap(series => series.values || []).filter(value => Number.isFinite(Number(value)));
+      if (observedValues.length > 0) {
+        assert(!cardHtml.includes('data-kpi-unavailable="true"'), `${pageCard.title} has observed Pages values but rendered as unavailable`);
+        for (const value of new Set(observedValues.map(value => String(Number(value))))) {
+          assert(cardHtml.includes(`class="point-label">${value}</text>`), `${pageCard.title} should render observed Pages KPI value ${value}`);
+        }
+      } else {
+        assert(cardHtml.includes('data-kpi-unavailable="true"'), `${pageCard.title} has no observed Pages values and must render explicit unavailable state`);
+      }
+      for (const series of pageCard.series || []) {
+        assert(cardHtml.includes(`>${series.label}</span>`), `${pageCard.title} should render Pages series label ${series.label}`);
+      }
+    }
+
+    for (const processCard of roadmapData.report?.processCards || []) {
+      assert(text.includes(`${processCard.value} ${processCard.label}`), `Process metric should match Pages data: ${processCard.value} ${processCard.label}`);
+    }
   }
 
-  const unavailableCards = [...body.matchAll(/data-kpi-unavailable="true"/g)].length;
-  assert(unavailableCards >= 1, 'At least one unavailable KPI block should be explicit when reducer data is missing');
+  assert(!body.includes('No observed resource KPI history is available'), 'renderer should not use the old image-only resource placeholder copy');
+  assert(!body.includes('Latest monitor RCL'), 'renderer should not use the old image-only monitor RCL fallback copy');
 }
 
 if (failures.length > 0) {

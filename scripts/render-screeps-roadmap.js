@@ -25,16 +25,6 @@ const logoPath = path.join(repo, 'docs/assets/screeps-community-logo.png');
 const logoDataUri = fs.existsSync(logoPath)
   ? `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`
   : '';
-const projectLinks = {
-  repo: 'https://github.com/lanyusea/screeps'
-};
-
-const reportPublishedAt = new Date().toLocaleString('en-US', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric', month: '2-digit', day: '2-digit',
-  hour: '2-digit', minute: '2-digit', second: '2-digit',
-  hour12: false
-}).replace(/\//g, '-');
 
 function sh(cmd, fallback = '—') {
   try { return execSync(cmd, { cwd: repo, stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8', timeout: 120000 }).trim(); }
@@ -66,155 +56,88 @@ function readState() { try { return JSON.parse(fs.readFileSync(statePath, 'utf8'
 function writeState(s) { fs.mkdirSync(path.dirname(statePath), {recursive:true}); fs.writeFileSync(statePath, JSON.stringify(s, null, 2)); }
 const priorState = readState();
 
-const head = sh('git rev-parse --short HEAD', '—');
-const commitCount = num(sh('git rev-list --count HEAD', '0'));
-const prs = json("gh pr list --repo lanyusea/screeps --state all --limit 100 --json number,state,title,mergedAt,url 2>/dev/null", []);
-const issues = json("gh issue list --repo lanyusea/screeps --state all --limit 100 --json number,state,title,labels,url 2>/dev/null", []);
-const projectRaw = json("gh project item-list 3 --owner lanyusea --limit 100 --format json 2>/dev/null", {items:[]});
-const items = (projectRaw.items || []).map(it => ({
-  id: it.id,
-  number: it.content?.number,
-  type: it.content?.type,
-  title: it.title || it.content?.title || '',
-  status: it.status || 'Backlog',
-  priority: it.priority || '',
-  domain: it.domain || '',
-  kind: it.kind || '',
-  evidence: it.evidence || '',
-  next: it['next action'] || '',
-  pct: it['next-point %'],
-  url: it.content?.url || ''
-}));
-const byNumber = Object.fromEntries(items.filter(i => i.number).map(i => [i.number, i]));
-
-const latestSummarySvg = sh("find runtime-artifacts/screeps-monitor -name 'summary-*.svg' -type f -printf '%T@ %p\\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-", '');
-let rcl = null;
-if (latestSummarySvg && fs.existsSync(latestSummarySvg)) {
-  const svg = fs.readFileSync(latestSummarySvg, 'utf8');
-  const m = svg.match(/Controller\s+R(\d+)/i);
-  if (m) rcl = Number(m[1]);
-}
-
-const today = new Date();
-const days = Array.from({length: 7}, (_, i) => {
-  const d = new Date(today); d.setDate(today.getDate() - (6 - i));
-  return `${d.getMonth()+1}/${d.getDate()}`;
-});
-const missing7d = () => Array.from({length: 7}, () => null);
-const kpiCharts = [
-  { title: 'Territory', subtitle: 'owned rooms · RCL · room gain', unit: 'rooms/RCL', color: '#8f6235', unavailable: true, series: [
-    {name:'Owned rooms', values: missing7d()},
-    {name:'RCL', values: missing7d()},
-    {name:'Room gain', values: missing7d(), dashed:true}
-  ], note:`No observed seven-day territory KPI history is available. Latest monitor RCL: ${rcl === null ? 'not observed' : rcl}.` },
-  { title: 'Resources', subtitle: 'stored energy · harvest delta · carried energy', unit: 'energy', color: '#5c8456', unavailable: true, series: [
-    {name:'Stored energy', values: missing7d(), dashed:true},
-    {name:'Harvest delta', values: missing7d(), dashed:true},
-    {name:'Worker carried', values: missing7d(), dashed:true}
-  ], note:'No observed resource KPI history is available; reducer-backed energy data must be connected before plotting.' },
-  { title: 'Combat', subtitle: 'enemy kills · hostile count · own loss', unit: 'events', color: '#a33b2f', unavailable: true, series: [
-    {name:'Enemy kills', values: missing7d(), dashed:true},
-    {name:'Hostiles seen', values: missing7d()},
-    {name:'Own loss', values: missing7d(), dashed:true}
-  ], note:'No observed combat KPI history is available; ownership-aware kill/loss aggregation must be connected before plotting.' }
-];
-
-const roadmapCards = [
-  ['Gameplay Evolution','Use real game outcomes to drive roadmap, task, and release decisions.','Keep review evidence tied to accepted roadmap and task updates.', byNumber[59]?.pct ?? 10, 'Review loop active; bridge and reducer work remains visible.'],
-  ['Territory','Claim, hold, and grow the controlled room footprint first.','Track owned rooms, reserved rooms, room gain, and RCL movement.', 15, 'Single-room baseline; expansion strategy remains next.'],
-  ['Resource Economy','Convert territory into energy, minerals, logistics, and spawn scale.','Track harvest, transfer, store, and carried-energy deltas.', 15, 'Resource payload exists; reducer aggregation remains next.'],
-  ['Combat','Make defense and offense serve territorial and economic control.','Track hostile events, enemy kills, own losses, and tactical handoff.', 5, 'Tactical bridge is ready for reducer-backed evidence.'],
-  ['Reliability / P0','Let automation health override game goals only when delivery is blocked.','Keep monitor, scheduler, and fanout failures visible.', 100, 'Watch-only P0 guardrails are in place.'],
-  ['Foundation Gates','Keep private smoke, release gates, and official MMO evidence explicit.','Publish validation and release proof before promotion.', byNumber[28]?.pct ?? 85, 'Private smoke and release-gate work remain tracked.']
-];
-
-function statusColumn(item) {
-  if (item.status === 'Done') return 'online';
-  if (item.domain === 'Private smoke' || /private|私服|smoke/i.test(item.title)) return item.status === 'Backlog' ? 'backlog' : 'private';
-  if (item.status === 'Backlog') return 'backlog';
-  if (item.status === 'Ready') return 'backlog';
-  if (item.status === 'In review') return 'developing';
-  if (item.status === 'In progress') return 'developing';
-  return 'backlog';
-}
-const shownDone = new Set(priorState.shownDoneStrategyIds || []);
-function cardItem(item, forcedColumn) {
-  const type = englishText(item.type || 'Issue', 'Issue');
-  const number = item.number ? `#${item.number}` : type;
-  const title = englishText(item.title, `${type} ${item.number || ''}`.trim());
-  const status = englishText(item.status, 'Backlog');
-  const domain = englishText(item.domain, status);
-  const next = englishText(item.next, domain);
-  const priority = englishText(item.priority, '');
-  return { id: `${item.type || 'Issue'}#${item.number}`, title: `${number} ${title}`, status, priority, domain, next, column: forcedColumn || statusColumn(item) };
-}
-const gameItems = [59,29,61,30,31,62].map(n => byNumber[n]).filter(Boolean).map(it => cardItem(it));
-const pr65 = byNumber[65]; if (pr65) gameItems.push(cardItem(pr65, 'online'));
-const foundationItems = [28,33,63,27,26,66].map(n => byNumber[n]).filter(Boolean).map(it => cardItem(it));
-const columns = [
-  ['backlog','Backlog'], ['developing','In Development'], ['private','Private Smoke'], ['online','Live']
-];
-function visibleKanbanItems(items) {
-  return items.filter(it => it.column !== 'online' || !shownDone.has(it.id));
-}
-
-function explicitOfficialDeployEvidence() {
-  const evidence = new Set();
-  for (const item of items) {
-    const text = [item.title, item.status, item.evidence, item.next].join(' ').toLowerCase();
-    const runMatches = [...text.matchAll(/official deploy run\s+(\d+)/g)];
-    for (const match of runMatches) evidence.add(`run:${match[1]}`);
-    if (runMatches.length === 0 && text.includes('deployment floor satisfied') && text.includes('official deploy')) evidence.add(`item:${item.number || item.id}`);
-  }
-  return evidence.size;
-}
-function countFiles(command, observedCommand = '') {
-  const observed = observedCommand ? sh(observedCommand, 'missing') === 'present' : true;
-  if (!observed) return { value: null, observed: false };
-  return { value: num(sh(command, '0')), observed: true };
-}
-const officialDeployEvidence = countFiles(
-  "find runtime-artifacts/official-screeps-deploy -maxdepth 1 -type f -name 'official-screeps-deploy-*.json' 2>/dev/null | wc -l",
-  "test -d runtime-artifacts/official-screeps-deploy && find runtime-artifacts/official-screeps-deploy -maxdepth 1 -type f -name 'official-screeps-deploy-*.json' >/dev/null && echo present || echo missing"
-);
-const projectOfficialDeploys = explicitOfficialDeployEvidence();
-function readRoadmapProcessMetric(label) {
+function readRoadmapData() {
+  const dataPath = path.join(repo, 'docs', 'roadmap-data.json');
   try {
-    const raw = fs.readFileSync(path.join(repo, 'docs', 'roadmap-data.json'), 'utf8');
-    const data = JSON.parse(raw);
-    const cards = data?.report?.processCards;
-    if (!Array.isArray(cards)) return null;
-    return cards.find(card => card && card.label === label) || null;
-  } catch {
-    return null;
+    return JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+  } catch (error) {
+    console.error(`Failed to read Pages roadmap data from ${dataPath}: ${error.message}`);
+    process.exit(1);
   }
 }
-const officialDeployCard = readRoadmapProcessMetric('Official deploys');
-const officialDeploys = Number.isFinite(Number(officialDeployCard?.value)) ? Number(officialDeployCard.value) : (projectOfficialDeploys || null);
-function explicitPrivateSmokeEvidence() {
-  const evidence = new Set();
-  for (const item of items) {
-    const text = [item.title, item.status, item.evidence, item.next].join(' ').toLowerCase();
-    if (text.includes('smoke') && text.includes('evidence')) evidence.add(`item:${item.number || item.id}`);
-  }
-  return evidence.size;
+const roadmapData = readRoadmapData();
+const report = roadmapData.report || {};
+const head = sh('git rev-parse --short HEAD', '—');
+const pagesUrl = roadmapData.repo?.pagesUrl || 'https://lanyusea.github.io/screeps/';
+const projectLinks = { repo: roadmapData.repo?.url || 'https://github.com/lanyusea/screeps' };
+const reportPublishedAt = roadmapData.generatedAtCst || new Date().toLocaleString('en-US', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+  hour12: false
+}).replace(/\//g, '-');
+
+function seriesHasObservedValues(series) {
+  return Array.isArray(series?.values) && series.values.some(observedNumberIsPresent);
 }
-let privateTests = explicitPrivateSmokeEvidence();
-if (privateTests === 0) {
-  console.warn('No private smoke evidence found in GitHub Project; rendering not observed.');
+function observedNumberIsPresent(v) {
+  return observedNumber(v) !== null;
 }
-const metrics = {
-  commits: commitCount,
-  prs: prs.length,
-  issues: issues.length,
-  officialDeploys,
-  privateTests
-};
-function delta(key) {
-  const prev = priorState.metrics?.[key];
-  if (typeof prev !== 'number') return 'first';
-  const d = metrics[key] - prev;
-  return `${d >= 0 ? '+' : ''}${d}`;
+function pageKpiCardToChart(card) {
+  const series = (card.series || []).map(s => ({
+    name: s.label || s.metric || 'Metric',
+    values: Array.isArray(s.values) ? s.values : [],
+    statuses: Array.isArray(s.statuses) ? s.statuses : [],
+    dashed: Boolean(s.dash),
+    color: s.color || null
+  }));
+  const hasObserved = series.some(seriesHasObservedValues);
+  return {
+    title: card.title || 'KPI',
+    subtitle: card.subtitle || '',
+    unit: card.pill || '',
+    color: series[0]?.color || '#8f6235',
+    unavailable: !hasObserved,
+    dates: Array.isArray(card.dates) ? card.dates : [],
+    ticks: Array.isArray(card.ticks) ? card.ticks : null,
+    max: Number.isFinite(Number(card.max)) ? Number(card.max) : null,
+    series,
+    note: hasObserved
+      ? (card.footer || 'Series values come from Pages roadmap data.')
+      : 'No observed KPI data in Pages roadmap data; chart intentionally blank.'
+  };
+}
+const kpiCharts = (report.kpiCards || []).map(pageKpiCardToChart);
+const days = kpiCharts.find(chart => chart.dates.length)?.dates || [];
+
+const roadmapCards = (report.roadmapCards || []).map(card => [
+  card.title || 'Roadmap',
+  card.goal || 'No goal evidence available.',
+  card.next || 'No current evidence available.',
+  Number.isFinite(Number(card.progress)) ? Number(card.progress) : 0,
+  card.status || card.url || 'Pages roadmap data'
+]);
+
+const processCards = Array.isArray(report.processCards) ? report.processCards : [];
+const metrics = Object.fromEntries(processCards.map(card => [card.label, card.value]));
+
+const columns = [
+  ['Backlog','Backlog'], ['Active','In Development'], ['Private Smoke','Private Smoke'], ['Done','Live']
+];
+function pageKanbanItems(section) {
+  const source = Array.isArray(section) ? section : [];
+  return source.flatMap(column => (column.items || []).map(item => ({
+    id: `${column.title || 'column'}#${item.number || item.title}`,
+    title: englishText(item.title, `#${item.number || ''}`.trim() || 'Issue'),
+    priority: englishText(item.priority, ''),
+    next: englishText(item.description, 'No current evidence available'),
+    column: column.title || 'Backlog'
+  })));
+}
+const gameItems = pageKanbanItems(report.gameplayKanban);
+const foundationItems = pageKanbanItems(report.foundationKanban);
+function visibleKanbanItems(items) {
+  return items;
 }
 
 function lineChart(chart, width=430, height=215) {
@@ -225,10 +148,11 @@ function lineChart(chart, width=430, height=215) {
   const rawMin = hasObserved ? Math.min(0, ...observedVals) : 0;
   const max = rawMax === rawMin ? rawMax + 1 : rawMax;
   const min = rawMin;
-  const x = i => pad.l + i * ((width - pad.l - pad.r) / 6);
+  const xDenominator = Math.max(1, (chart.dates?.length || days.length || 7) - 1);
+  const x = i => pad.l + i * ((width - pad.l - pad.r) / xDenominator);
   const y = v => height - pad.b - ((num(v) - min) / (max - min || 1)) * (height - pad.t - pad.b);
-  const colors = [chart.color, '#756d62', '#c89155'];
-  const tickVals = [max, (max + min) / 2, min];
+  const colors = chart.series.map((s, idx) => s.color || [chart.color, '#756d62', '#c89155'][idx % 3]);
+  const tickVals = chart.ticks || [max, (max + min) / 2, min];
   const yAxis = tickVals.map(v => {
     const yy = y(v);
     const label = Number.isInteger(v) ? String(v) : v.toFixed(1);
@@ -260,7 +184,7 @@ function lineChart(chart, width=430, height=215) {
     return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.8" fill="${colors[idx%colors.length]}" stroke="#fffdf7" stroke-width="1.4"/><text x="${px.toFixed(1)}" y="${(py+dy).toFixed(1)}" text-anchor="middle" class="point-label">${esc(value)}</text>`;
   }).join('')).join('') : '';
   const unavailable = hasObserved ? '' : `<g data-kpi-unavailable="true"><rect x="${pad.l+28}" y="${pad.t+36}" width="${width-pad.l-pad.r-56}" height="74" rx="12" fill="#fffdf7" stroke="#dbcbb7"/><text x="${width/2}" y="${pad.t+68}" text-anchor="middle" class="no-data-title">No observed KPI data</text><text x="${width/2}" y="${pad.t+92}" text-anchor="middle" class="no-data-copy">Real reducer history unavailable; chart intentionally blank.</text></g>`;
-  const labels = days.map((d,i) => `<text x="${x(i)}" y="${height-12}" text-anchor="middle" class="axis">${esc(d)}</text>`).join('');
+  const labels = (chart.dates?.length ? chart.dates : days).map((d,i) => `<text x="${x(i)}" y="${height-12}" text-anchor="middle" class="axis">${esc(d)}</text>`).join('');
   const legend = chart.series.map((s,i) => `<span><i style="background:${colors[i%3]};${s.dashed?'border-top:2px dashed #2e2a24;background:transparent;height:0;':''}"></i>${esc(s.name)}</span>`).join('');
   return `<div class="card kpi"><div class="kpi-head"><div><h3>${esc(chart.title)}</h3><p>${esc(chart.subtitle)}</p></div><b>${esc(chart.unit)}</b></div><svg viewBox="0 0 ${width} ${height}">${yAxis}<line x1="${pad.l}" x2="${width-pad.r}" y1="${height-pad.b}" y2="${height-pad.b}" class="axisline"/>${paths}${points}${unavailable}${labels}<text x="${pad.l}" y="15" class="axis unit-label">${esc(chart.unit)}</text></svg><div class="legend">${legend}</div><div class="micro-note">${esc(chart.note)}</div></div>`;
 }
@@ -288,18 +212,12 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 <section class="section"><div class="section-title"><h2>02 Development Roadmap · Six Tracks</h2></div><div class="road-grid">${roadmapCards.map(roadmapCard).join('')}</div></section>
 ${kanban('03 Gameplay Strategy Kanban', 'Gameplay Evolution / Territory / Resources / Combat; data comes from GitHub Project, with live cards shown once.', gameItems)}
 ${kanban('04 Foundation Kanban', 'Reliability / P0 and Foundation Gates; data comes from GitHub Project.', foundationItems)}
-<section class="section"><div class="section-title"><h2>05 Delivery Metrics</h2></div><div class="metrics">${[
-  metric('Total commits', metrics.commits, 'commits', `HEAD ${head}`),
-  metric('Total PRs', metrics.prs, 'prs', `${prs.filter(p=>p.state==='MERGED').length} merged`),
-  metric('Total issues', metrics.issues, 'issues', `${issues.filter(i=>i.state==='OPEN').length} open`),
-  metric(
-    'Official game deploys',
-    typeof officialDeploys === 'number' ? officialDeploys : 'not observed',
-    'officialDeploys',
-    officialDeployCard ? String(officialDeployCard.detail || 'roadmap-data official deploy evidence') : projectOfficialDeploys ? 'GitHub Project official deploy evidence' : 'evidence unavailable'
-  ),
-  metric('Private smoke tests', privateTests > 0 ? metrics.privateTests : 'not observed', 'privateTests', privateTests > 0 ? 'GitHub Project smoke evidence' : 'evidence unavailable')
-].join('')}</div></section>
+<section class="section"><div class="section-title"><h2>05 Delivery Metrics</h2></div><div class="metrics">${processCards.map(card => metric(
+  card.label || 'Metric',
+  card.value ?? 'not observed',
+  card.label || 'metric',
+  card.detail || card.source || 'Pages roadmap data'
+)).join('')}</div></section>
 <div class="footer">format ${formatVersion} · repo ${head} · generated ${new Date().toISOString()}</div>
 </div></body></html>`;
 
