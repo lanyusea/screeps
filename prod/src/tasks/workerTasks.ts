@@ -85,7 +85,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  if (spawnOrExtensionEnergySink && shouldPrioritizeSpawnOrExtensionRefill(creep)) {
+  if (spawnOrExtensionEnergySink) {
     return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
@@ -157,10 +157,6 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (controller?.my) {
     return { type: 'upgrade', targetId: controller.id };
-  }
-
-  if (spawnOrExtensionEnergySink) {
-    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
   return null;
@@ -1025,36 +1021,8 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
   return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
 }
 
-function shouldPrioritizeSpawnOrExtensionRefill(creep: Creep): boolean {
-  if (hasUrgentSpawnOrExtensionRefillDemand(creep)) {
-    return true;
-  }
-
-  if (!hasReservedTerritoryFollowUpRefillCapacity(creep)) {
-    return true;
-  }
-
-  return hasUsefulTerritoryFollowUpRefillCapacity(creep);
-}
-
-function hasUrgentSpawnOrExtensionRefillDemand(creep: Creep): boolean {
-  const energyAvailable = (creep.room as Room & { energyAvailable?: number }).energyAvailable;
-  return typeof energyAvailable === 'number' && energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
-}
-
 function hasReservedTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
   return hasActiveTerritoryFollowUpPreparationDemand(getCreepColonyName(creep));
-}
-
-function hasUsefulTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
-  const energyAvailable = getRoomEnergyAvailable(creep.room);
-  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(creep.room);
-  if (energyAvailable === null || energyCapacityAvailable === null) {
-    return false;
-  }
-
-  const followUpEnergyTarget = Math.min(TERRITORY_CONTROLLER_BODY_COST, energyCapacityAvailable);
-  return energyAvailable < followUpEnergyTarget;
 }
 
 function hasReadyTerritoryFollowUpEnergy(creep: Creep): boolean {
