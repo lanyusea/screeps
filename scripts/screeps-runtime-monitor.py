@@ -2329,8 +2329,12 @@ def command_summary(args: argparse.Namespace) -> int:
     room_summaries: list[dict[str, Any]] = []
     out_dir = Path(args.out_dir)
     for snapshot in snapshots:
-        image = str(render_room_snapshot(snapshot, out_dir, "summary"))
-        images.append(image)
+        image: str | None = None
+        try:
+            image = str(render_room_snapshot(snapshot, out_dir, "summary"))
+            images.append(image)
+        except Exception as exc:  # noqa: BLE001 - JSON summary evidence must survive renderer outages
+            warnings.append(f"summary image render failed for {snapshot.ref.key}: {short_text(redact_secrets(str(exc), [ctx.token]), 180)}")
         room_summaries.append(room_summary(snapshot, image=image))
 
     runtime_summary_artifact: str | None = None
@@ -2396,10 +2400,16 @@ def command_alert(args: argparse.Namespace) -> int:
         for snapshot in snapshots:
             reasons = emitted_by_room.get(snapshot.ref.key, [])
             if reasons:
-                images.append(str(render_room_snapshot(snapshot, out_dir, "alert", reasons)))
+                try:
+                    images.append(str(render_room_snapshot(snapshot, out_dir, "alert", reasons)))
+                except Exception as exc:  # noqa: BLE001 - alert JSON is still authoritative evidence
+                    warnings.append(f"alert image render failed for {snapshot.ref.key}: {short_text(redact_secrets(str(exc), [ctx.token]), 180)}")
     elif args.force_alert_image:
         for snapshot in snapshots:
-            images.append(str(render_room_snapshot(snapshot, out_dir, "alert", [])))
+            try:
+                images.append(str(render_room_snapshot(snapshot, out_dir, "alert", [])))
+            except Exception as exc:  # noqa: BLE001 - alert JSON is still authoritative evidence
+                warnings.append(f"alert image render failed for {snapshot.ref.key}: {short_text(redact_secrets(str(exc), [ctx.token]), 180)}")
 
     payload = {
         "ok": True,
