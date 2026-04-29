@@ -1671,7 +1671,7 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('reselects a worker task without moving when transfer returns ERR_FULL', () => {
+  it('reselects and executes a productive worker task when transfer returns ERR_FULL', () => {
     const site = { id: 'site1' } as ConstructionSite;
     const spawn = {
       id: 'spawn1',
@@ -1696,17 +1696,17 @@ describe('runWorker', () => {
       },
       transfer: jest.fn().mockReturnValue(ERR_FULL),
       moveTo: jest.fn(),
-      build: jest.fn()
+      build: jest.fn().mockReturnValue(0)
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      getObjectById: jest.fn().mockReturnValue(spawn)
+      getObjectById: jest.fn((id: string) => (id === 'site1' ? site : spawn))
     };
 
     runWorker(creep);
 
     expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
     expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(creep.build).toHaveBeenCalledWith(site);
     expect(creep.moveTo).not.toHaveBeenCalled();
-    expect(creep.build).not.toHaveBeenCalled();
   });
 });
