@@ -25,6 +25,8 @@ const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
 const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
+const SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
+const SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -57,6 +59,11 @@ interface NearTermSpawnExtensionRefillReserveCache {
   tick: number;
 }
 
+interface Source2ControllerLaneTopology {
+  controller: StructureController;
+  source: Source;
+}
+
 let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserveCache | null = null;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
@@ -73,14 +80,23 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       return territoryControllerTask;
     }
 
+    let hasPriorityEnergySink = false;
     if (getFreeEnergyCapacity(creep) > 0) {
       const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
       if (spawnRecoveryEnergySink) {
+        hasPriorityEnergySink = true;
         const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(creep, spawnRecoveryEnergySink);
         if (spawnRecoveryTask) {
           return spawnRecoveryTask;
         }
-      } else {
+      }
+
+      const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
+      if (source2ControllerLaneHarvestTask) {
+        return source2ControllerLaneHarvestTask;
+      }
+
+      if (!hasPriorityEnergySink) {
         const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
         if (energyAcquisitionTask) {
           return energyAcquisitionTask;
@@ -132,6 +148,13 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (territoryControllerTask) {
     return territoryControllerTask;
+  }
+
+  const source2ControllerLaneLoadedTask = controller
+    ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites)
+    : null;
+  if (source2ControllerLaneLoadedTask) {
+    return source2ControllerLaneLoadedTask;
   }
 
   if (capacityConstructionSite) {
@@ -1389,7 +1412,158 @@ function shouldUseSurplusForControllerProgress(creep: Creep, controller: Structu
     return true;
   }
 
-  return controller.my === true && controller.level >= 2 && hasRecoverableSurplusEnergy(creep);
+  if (controller.my === true && controller.level >= 2 && hasRecoverableSurplusEnergy(creep)) {
+    return true;
+  }
+
+  return false;
+}
+
+function shouldApplySource2ControllerLane(creep: Creep, controller: StructureController): boolean {
+  const topology = getSource2ControllerLaneTopology(creep.room, controller);
+  if (!topology) {
+    return false;
+  }
+
+  return !hasOtherSource2ControllerLaneWorker(creep, topology);
+}
+
+function selectSource2ControllerLaneLoadedTask(
+  creep: Creep,
+  controller: StructureController,
+  constructionSites: ConstructionSite[]
+): ProductiveEnergySinkTask | Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
+  if (!shouldApplySource2ControllerLane(creep, controller)) {
+    return null;
+  }
+
+  const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller);
+  return productiveEnergySinkTask ?? { type: 'upgrade', targetId: controller.id };
+}
+
+function selectSource2ControllerLaneHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
+  const controller = creep.room.controller;
+  if (!controller) {
+    return null;
+  }
+
+  const topology = getSource2ControllerLaneTopology(creep.room, controller);
+  if (!topology || isSourceDepleted(topology.source) || hasOtherSource2ControllerLaneWorker(creep, topology)) {
+    return null;
+  }
+
+  return { type: 'harvest', targetId: topology.source.id };
+}
+
+function getSource2ControllerLaneTopology(
+  room: Room,
+  controller: StructureController
+): Source2ControllerLaneTopology | null {
+  if (
+    controller.my !== true ||
+    typeof controller.level !== 'number' ||
+    controller.level < 2 ||
+    getRoomObjectPosition(controller) === null ||
+    !isHomeRoomName(room, controller) ||
+    hasVisibleHostilePresence(room)
+  ) {
+    return null;
+  }
+
+  const source = getSource2(room);
+  if (!source) {
+    return null;
+  }
+
+  const range = getRangeBetweenRoomObjectPositions(source, controller);
+  if (range === null || range > SOURCE2_CONTROLLER_LANE_MAX_RANGE) {
+    return null;
+  }
+
+  return { controller, source };
+}
+
+function getSource2(room: Room): Source | null {
+  if (typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
+    return null;
+  }
+
+  return room.find(FIND_SOURCES)[SOURCE2_CONTROLLER_LANE_SOURCE_INDEX] ?? null;
+}
+
+function isHomeRoomName(room: Room, controller: StructureController): boolean {
+  const roomName = getRoomName(room);
+  const controllerRoomName = getPositionRoomName(controller);
+  return roomName === null || controllerRoomName === null || roomName === controllerRoomName;
+}
+
+function isSourceDepleted(source: Source): boolean {
+  return typeof source.energy === 'number' && source.energy <= 0;
+}
+
+function hasOtherSource2ControllerLaneWorker(creep: Creep, topology: Source2ControllerLaneTopology): boolean {
+  return getGameCreeps().some(
+    (candidate) =>
+      !isSameCreep(candidate, creep) &&
+      isSameRoomWorker(candidate, creep.room) &&
+      isSource2ControllerLaneTask(candidate, topology)
+  );
+}
+
+function isSameRoomWorker(creep: Creep, room: Room): boolean {
+  return creep.memory?.role === 'worker' && isInRoom(creep, room);
+}
+
+function isSource2ControllerLaneTask(creep: Creep, topology: Source2ControllerLaneTopology): boolean {
+  const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return (
+    (task?.type === 'harvest' && task.targetId === topology.source.id) ||
+    (task?.type === 'upgrade' && task.targetId === topology.controller.id)
+  );
+}
+
+function getRangeBetweenRoomObjectPositions(left: RoomObject, right: RoomObject): number | null {
+  const leftPosition = getRoomObjectPosition(left);
+  const rightPosition = getRoomObjectPosition(right);
+  if (!leftPosition || !rightPosition || !isSameRoomPosition(leftPosition, rightPosition)) {
+    return null;
+  }
+
+  const rangeFromApi = getRangeBetweenRoomObjects(left, right);
+  if (rangeFromApi !== null) {
+    return rangeFromApi;
+  }
+
+  return Math.max(Math.abs(leftPosition.x - rightPosition.x), Math.abs(leftPosition.y - rightPosition.y));
+}
+
+function getRoomObjectPosition(object: RoomObject): RoomPosition | null {
+  const position = (object as RoomObject & { pos?: RoomPosition }).pos;
+  return isRoomPosition(position) ? position : null;
+}
+
+function getPositionRoomName(object: RoomObject): string | null {
+  return getRoomObjectPosition(object)?.roomName ?? null;
+}
+
+function isSameRoomPosition(left: RoomPosition, right: RoomPosition): boolean {
+  if (typeof left.roomName === 'string' && typeof right.roomName === 'string') {
+    return left.roomName === right.roomName;
+  }
+
+  return true;
+}
+
+function isRoomPosition(value: unknown): value is RoomPosition {
+  return (
+    isWorkerTaskRecord(value) &&
+    typeof value.x === 'number' &&
+    typeof value.y === 'number' &&
+    typeof value.roomName === 'string' &&
+    Number.isFinite(value.x) &&
+    Number.isFinite(value.y) &&
+    value.roomName.length > 0
+  );
 }
 
 function hasRecoverableSurplusEnergy(creep: Creep): boolean {
