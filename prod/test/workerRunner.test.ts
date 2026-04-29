@@ -1494,6 +1494,79 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts a low-load harvest return for nearby energy when refill is not urgent', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-near': 1,
+        source1: 3
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+            if (type === FIND_MY_STRUCTURES) {
+              const structures = [spawn];
+              return options?.filter ? structures.filter(options.filter) : structures;
+            }
+
+            if (type === FIND_DROPPED_RESOURCES) {
+              return [droppedEnergy];
+            }
+
+            if (type === FIND_SOURCES) {
+              return [source];
+            }
+
+            return [];
+          }
+        )
+      },
+      harvest: jest.fn(),
+      pickup: jest.fn().mockReturnValue(0),
+      transfer: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      time: 777,
+      getObjectById: jest.fn((id: string) => (id === 'drop-near' ? droppedEnergy : source))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'pickup', targetId: 'drop-near' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 777,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'pickup',
+      targetId: 'drop-near',
+      energy: 50,
+      range: 1
+    });
+    expect(creep.pickup).toHaveBeenCalledWith(droppedEnergy);
+    expect(creep.transfer).not.toHaveBeenCalled();
+    expect(creep.harvest).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('spends partially picked-up energy on extension construction before lower-value tower refill', () => {
     const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
     const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;

@@ -3398,7 +3398,11 @@ var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var TOWER_REFILL_ENERGY_FLOOR = 500;
+var URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 var NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
+var LOW_LOAD_WORKER_ENERGY_RATIO = 0.25;
+var LOW_LOAD_WORKER_ENERGY_CEILING = 25;
+var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -3413,6 +3417,7 @@ var MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
 var MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 var nearTermSpawnExtensionRefillReserveCache = null;
 function selectWorkerTask(creep) {
+  clearWorkerEfficiencyTelemetry(creep);
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
@@ -3459,7 +3464,26 @@ function selectWorkerTask(creep) {
   }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
   if (spawnOrExtensionEnergySink) {
-    return { type: "transfer", targetId: spawnOrExtensionEnergySink.id };
+    const spawnOrExtensionRefillTask = {
+      type: "transfer",
+      targetId: spawnOrExtensionEnergySink.id
+    };
+    if (shouldPrioritizeSpawnOrExtensionRefill(creep)) {
+      recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "urgentSpawnExtensionRefill");
+      return spawnOrExtensionRefillTask;
+    }
+    const lowLoadEnergyAcquisitionCandidate2 = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+    if (lowLoadEnergyAcquisitionCandidate2) {
+      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate2);
+      return lowLoadEnergyAcquisitionCandidate2.task;
+    }
+    recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "noNearbyEnergy");
+    return spawnOrExtensionRefillTask;
+  }
+  const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+  if (lowLoadEnergyAcquisitionCandidate) {
+    recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+    return lowLoadEnergyAcquisitionCandidate.task;
   }
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const capacityConstructionSite = selectCapacityEnablingConstructionSite(creep, constructionSites, controller);
@@ -3555,6 +3579,73 @@ function estimateNearTermSpawnCompletionRefillReserve(room, spawnExtensionEnergy
 }
 function isTerritoryControlTask(task) {
   return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve";
+}
+function shouldPrioritizeSpawnOrExtensionRefill(creep) {
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  if (energyAvailable === null || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD) {
+    return true;
+  }
+  if (hasReservedTerritoryFollowUpRefillCapacity(creep) && !hasReadyTerritoryFollowUpEnergy(creep)) {
+    return true;
+  }
+  return hasNearTermSpawnCompletionRefillDemand(creep.room);
+}
+function hasNearTermSpawnCompletionRefillDemand(room) {
+  return findSpawnExtensionEnergyStructures(room).some(isNearTermSpawningSpawn);
+}
+function getLowLoadWorkerEnergyContext(creep) {
+  const carriedEnergy = getUsedEnergy(creep);
+  const freeCapacity = getFreeEnergyCapacity(creep);
+  if (carriedEnergy <= 0 || freeCapacity <= 0) {
+    return null;
+  }
+  const capacity = carriedEnergy + freeCapacity;
+  const lowLoadEnergyLimit = Math.min(
+    LOW_LOAD_WORKER_ENERGY_CEILING,
+    Math.max(1, Math.floor(capacity * LOW_LOAD_WORKER_ENERGY_RATIO))
+  );
+  return carriedEnergy <= lowLoadEnergyLimit ? { carriedEnergy, freeCapacity } : null;
+}
+function clearWorkerEfficiencyTelemetry(creep) {
+  const memory = creep.memory;
+  if (memory) {
+    delete memory.workerEfficiency;
+  }
+}
+function recordNearbyEnergyChoiceTelemetry(creep, candidate) {
+  var _a;
+  const context = getLowLoadWorkerEnergyContext(creep);
+  const memory = creep.memory;
+  if (!context || !memory) {
+    return;
+  }
+  memory.workerEfficiency = {
+    type: "nearbyEnergyChoice",
+    tick: (_a = getGameTick()) != null ? _a : 0,
+    carriedEnergy: context.carriedEnergy,
+    freeCapacity: context.freeCapacity,
+    selectedTask: candidate.task.type,
+    targetId: String(candidate.task.targetId),
+    energy: Math.max(0, Math.floor(candidate.energy)),
+    ...candidate.range === null ? {} : { range: candidate.range }
+  };
+}
+function recordLowLoadReturnTelemetry(creep, task, reason) {
+  var _a;
+  const context = getLowLoadWorkerEnergyContext(creep);
+  const memory = creep.memory;
+  if (!context || !memory) {
+    return;
+  }
+  memory.workerEfficiency = {
+    type: "lowLoadReturn",
+    tick: (_a = getGameTick()) != null ? _a : 0,
+    carriedEnergy: context.carriedEnergy,
+    freeCapacity: context.freeCapacity,
+    selectedTask: task.type,
+    targetId: String(task.targetId),
+    reason
+  };
 }
 function isFillableEnergySink(structure) {
   return (matchesStructureType3(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType3(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType3(structure.structureType, "STRUCTURE_TOWER", "tower")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
@@ -3872,6 +3963,104 @@ function selectWorkerEnergyAcquisitionTask(creep) {
   }
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
+function selectLowLoadWorkerEnergyAcquisitionCandidate(creep) {
+  if (!shouldKeepLowLoadWorkerAcquiringEnergy(creep)) {
+    return null;
+  }
+  const nearbyCandidates = findLowLoadWorkerEnergyAcquisitionCandidates(creep).filter(
+    (candidate) => candidate.range !== null && candidate.range <= LOW_LOAD_NEARBY_ENERGY_RANGE
+  );
+  if (nearbyCandidates.length === 0) {
+    return null;
+  }
+  return nearbyCandidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
+}
+function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
+  return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence(creep.room);
+}
+function findLowLoadWorkerEnergyAcquisitionCandidates(creep) {
+  return [
+    ...findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep),
+    ...findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep),
+    ...findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep),
+    ...findLowLoadHarvestEnergyAcquisitionCandidates(creep)
+  ];
+}
+function findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep) {
+  const context = {
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  return findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).map(
+    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
+      createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
+        type: "withdraw",
+        targetId: source.id
+      })
+    )
+  );
+}
+function findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep) {
+  return [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).map(
+    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
+      createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
+        type: "withdraw",
+        targetId: source.id
+      })
+    )
+  );
+}
+function findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep) {
+  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).filter((source) => isReachable(creep, source)).map(
+    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
+      createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
+        type: "pickup",
+        targetId: source.id
+      })
+    )
+  );
+}
+function isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source) {
+  const range = getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
+  return range !== null && range <= LOW_LOAD_NEARBY_ENERGY_RANGE;
+}
+function toLowLoadWorkerEnergyAcquisitionCandidate(candidate) {
+  return candidate;
+}
+function findLowLoadHarvestEnergyAcquisitionCandidates(creep) {
+  if (getActiveWorkParts(creep) <= 0) {
+    return [];
+  }
+  const source = selectHarvestSource(creep);
+  if (!source || isSourceDepleted(source)) {
+    return [];
+  }
+  return [
+    createLowLoadWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getHarvestCandidateEnergy(creep, source),
+      { type: "harvest", targetId: source.id }
+    )
+  ];
+}
+function getHarvestCandidateEnergy(creep, source) {
+  return typeof source.energy === "number" && Number.isFinite(source.energy) ? source.energy : getFreeEnergyCapacity(creep);
+}
+function createLowLoadWorkerEnergyAcquisitionCandidate(creep, source, energy, task) {
+  const range = getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
+  return {
+    energy,
+    range,
+    score: range === null ? energy : energy - range * ENERGY_ACQUISITION_RANGE_COST,
+    source,
+    task
+  };
+}
+function compareLowLoadWorkerEnergyAcquisitionCandidates(left, right) {
+  return compareOptionalRanges(left.range, right.range) || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+}
 function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink) {
   const harvestEta = estimateHarvestDeliveryEta(creep, energySink);
   const candidates = findWorkerEnergyAcquisitionCandidates(creep).map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
@@ -3986,6 +4175,9 @@ function getRangeBetweenRoomObjects(left, right) {
   return Number.isFinite(range) ? Math.max(0, range) : null;
 }
 function getRangeToWorkerEnergyAcquisitionSource(creep, source) {
+  return getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
+}
+function getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source) {
   const position = creep.pos;
   if (typeof (position == null ? void 0 : position.getRangeTo) !== "function") {
     return null;
@@ -4638,6 +4830,8 @@ function runWorker(creep) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
@@ -4796,6 +4990,17 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, 
   }
   return isUrgentEnergySpendingTask(selectedTask);
 }
+function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, task, selectedTask) {
+  var _a;
+  if (!isEnergyAcquisitionTask(task) || !selectedTask || !isEnergyAcquisitionTask(selectedTask)) {
+    return false;
+  }
+  if (isSameTask(task, selectedTask)) {
+    return false;
+  }
+  const sample = (_a = creep.memory) == null ? void 0 : _a.workerEfficiency;
+  return (sample == null ? void 0 : sample.type) === "nearbyEnergyChoice" && sample.selectedTask === selectedTask.type && sample.targetId === String(selectedTask.targetId) && isCurrentWorkerEfficiencySample(sample);
+}
 function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask) {
   var _a, _b;
   if (task.type !== "transfer") {
@@ -4873,6 +5078,11 @@ function isEnergyAcquisitionTask(task) {
 }
 function isRecoverableEnergyTask(task) {
   return (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
+}
+function isCurrentWorkerEfficiencySample(sample) {
+  var _a;
+  const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
+  return typeof gameTime !== "number" || sample.tick === gameTime;
 }
 function isTerritoryControlTask2(task) {
   return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve";
@@ -5910,6 +6120,8 @@ function matchesStructureType4(actual, globalName, fallback) {
 var RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
 var RUNTIME_SUMMARY_INTERVAL = 20;
 var MAX_REPORTED_EVENTS = 10;
+var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
+var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "upgrade"];
 function emitRuntimeSummary(colonies, creeps, events = []) {
   if (colonies.length === 0 && events.length === 0) {
@@ -5945,6 +6157,7 @@ function summarizeRoom(colony, creeps) {
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
+    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime3()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -5992,6 +6205,52 @@ function countWorkerTasks(workers) {
 }
 function isWorkerTaskType(taskType) {
   return WORKER_TASK_TYPES.includes(taskType);
+}
+function summarizeWorkerEfficiency(workers, tick) {
+  const samples = workers.map((worker) => ({ creepName: getCreepName(worker), sample: worker.memory.workerEfficiency })).filter(
+    (entry) => isWorkerEfficiencySample(entry.sample) && isRecentWorkerEfficiencySample(entry.sample, tick)
+  ).sort(compareWorkerEfficiencySampleEntries);
+  if (samples.length === 0) {
+    return {};
+  }
+  const reportedSamples = samples.slice(0, MAX_WORKER_EFFICIENCY_SAMPLES).map(toRuntimeWorkerEfficiencySample);
+  return {
+    workerEfficiency: {
+      lowLoadReturnCount: samples.filter((entry) => entry.sample.type === "lowLoadReturn").length,
+      nearbyEnergyChoiceCount: samples.filter((entry) => entry.sample.type === "nearbyEnergyChoice").length,
+      samples: reportedSamples,
+      ...samples.length > MAX_WORKER_EFFICIENCY_SAMPLES ? { omittedSampleCount: samples.length - MAX_WORKER_EFFICIENCY_SAMPLES } : {}
+    }
+  };
+}
+function compareWorkerEfficiencySampleEntries(left, right) {
+  var _a, _b;
+  return right.sample.tick - left.sample.tick || ((_a = left.creepName) != null ? _a : "").localeCompare((_b = right.creepName) != null ? _b : "") || left.sample.targetId.localeCompare(right.sample.targetId);
+}
+function toRuntimeWorkerEfficiencySample(entry) {
+  return {
+    ...entry.creepName ? { creepName: entry.creepName } : {},
+    ...entry.sample
+  };
+}
+function isRecentWorkerEfficiencySample(sample, tick) {
+  if (tick <= 0) {
+    return true;
+  }
+  return sample.tick <= tick && sample.tick > tick - WORKER_EFFICIENCY_SAMPLE_TTL;
+}
+function isWorkerEfficiencySample(value) {
+  if (!isRecord5(value)) {
+    return false;
+  }
+  return (value.type === "lowLoadReturn" || value.type === "nearbyEnergyChoice") && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.carriedEnergy === "number" && Number.isFinite(value.carriedEnergy) && typeof value.freeCapacity === "number" && Number.isFinite(value.freeCapacity) && isWorkerEfficiencyTaskType(value.selectedTask) && typeof value.targetId === "string";
+}
+function isWorkerEfficiencyTaskType(value) {
+  return value === "harvest" || value === "pickup" || value === "withdraw" || value === "transfer" || value === "build" || value === "repair" || value === "claim" || value === "reserve" || value === "upgrade";
+}
+function getCreepName(creep) {
+  const name = creep.name;
+  return typeof name === "string" && name.length > 0 ? name : void 0;
 }
 function buildControllerSummary(room) {
   const controller = room.controller;
