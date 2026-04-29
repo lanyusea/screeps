@@ -1050,7 +1050,7 @@ function shouldRushRcl1Controller(controller: StructureController): boolean {
   return controller.my === true && controller.level === 1;
 }
 
-function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep: Creep): boolean {
+export function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep: Creep): boolean {
   const carriedEnergy = getUsedEnergy(creep);
   if (carriedEnergy <= 0) {
     return false;

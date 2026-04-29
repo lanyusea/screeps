@@ -779,6 +779,54 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('pauses active construction when this worker must reserve energy for near-term spawn refill', () => {
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const build = jest.fn();
+    const moveTo = jest.fn();
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [busyFullSpawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return type === FIND_CONSTRUCTION_SITES ? [site] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Builder',
+      memory: {
+        role: 'worker',
+        task: { type: 'build', targetId: 'road-site1' as Id<ConstructionSite> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room,
+      build,
+      moveTo
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(site);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Builder: creep },
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toBeUndefined();
+    expect(getObjectById).not.toHaveBeenCalled();
+    expect(build).not.toHaveBeenCalled();
+    expect(moveTo).not.toHaveBeenCalled();
+  });
+
   it('keeps controller upgrade work when spawn and extension energy is full', () => {
     const controller = { id: 'controller1', my: true } as StructureController;
     const fullSpawn = {
