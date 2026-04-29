@@ -4,6 +4,7 @@ import {
   isVisibleTerritoryAssignmentSafe,
   suppressTerritoryIntent
 } from './territoryPlanner';
+import { signOccupiedControllerIfNeeded } from './controllerSigning';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -52,6 +53,10 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     if (assignment.action === 'reserve') {
       suppressTerritoryAssignment(creep, assignment);
     } else {
+      if (signOccupiedControllerIfNeeded(creep, controller) === 'moving') {
+        return;
+      }
+
       completeTerritoryAssignment(creep);
     }
     return;
