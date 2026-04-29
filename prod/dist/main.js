@@ -3328,10 +3328,53 @@ function selectFillableEnergySink(creep) {
   return (_a = selectSpawnOrExtensionEnergySink(creep)) != null ? _a : selectPriorityTowerEnergySink(creep);
 }
 function selectSpawnOrExtensionEnergySink(creep) {
-  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isSpawnOrExtensionEnergySink), creep);
+  const energySinks = findFillableEnergySinks(creep).filter(isSpawnOrExtensionEnergySink);
+  if (energySinks.length === 0) {
+    return null;
+  }
+  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
+  const assignedTransferTargetId = getAssignedTransferTargetId(creep);
+  return selectClosestEnergySink(
+    energySinks.filter(
+      (energySink) => isAssignedTransferTarget(energySink, assignedTransferTargetId) || hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
+    ),
+    creep
+  );
 }
 function selectPriorityTowerEnergySink(creep) {
   return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink), creep);
+}
+function hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries) {
+  return getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) < getFreeStoredEnergyCapacity(energySink);
+}
+function getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers) {
+  var _a, _b;
+  const reservedEnergyDeliveries = /* @__PURE__ */ new Map();
+  for (const worker of loadedWorkers) {
+    if (isSameCreep(worker, creep)) {
+      continue;
+    }
+    const task = (_a = worker.memory) == null ? void 0 : _a.task;
+    if ((task == null ? void 0 : task.type) !== "transfer" || typeof task.targetId !== "string") {
+      continue;
+    }
+    const energySinkId = String(task.targetId);
+    reservedEnergyDeliveries.set(energySinkId, ((_b = reservedEnergyDeliveries.get(energySinkId)) != null ? _b : 0) + getUsedEnergy(worker));
+  }
+  return reservedEnergyDeliveries;
+}
+function getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) {
+  var _a;
+  return (_a = reservedEnergyDeliveries.get(String(energySink.id))) != null ? _a : 0;
+}
+function getAssignedTransferTargetId(creep) {
+  var _a;
+  const task = (_a = creep.memory) == null ? void 0 : _a.task;
+  return (task == null ? void 0 : task.type) === "transfer" && typeof task.targetId === "string" ? String(task.targetId) : null;
+}
+function isAssignedTransferTarget(energySink, assignedTransferTargetId) {
+  return assignedTransferTargetId !== null && String(energySink.id) === assignedTransferTargetId;
 }
 function findFillableEnergySinks(creep) {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
