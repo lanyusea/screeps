@@ -2345,6 +2345,53 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('scouts an alternate adjacent room while a recovered follow-up target is cooling down', () => {
+    const colony = makeSafeColony();
+    const recoveredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const suppressionTime = 584;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const cooldownTime = retryTime + 1;
+    const coolingDownFollowUpIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'suppressed',
+      updatedAt: suppressionTime,
+      lastAttemptAt: retryTime,
+      followUp
+    };
+    const describeExits = jest.fn((roomName: string) => (roomName === 'W1N1' ? { '1': 'W1N2' } : {}));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [recoveredTarget],
+        intents: [coolingDownFollowUpIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, cooldownTime)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.intents).toEqual([
+      coolingDownFollowUpIntent,
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: cooldownTime
+      }
+    ]);
+  });
+
   it('keeps recovered follow-up safety filters ahead of retry cooldown markers', () => {
     const colony = makeSafeColony();
     const recoveredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };

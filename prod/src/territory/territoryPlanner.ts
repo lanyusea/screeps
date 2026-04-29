@@ -758,6 +758,18 @@ function hasBlockingConfiguredTerritoryTargetForColony(
       return true;
     }
 
+    if (
+      isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(
+        intents,
+        colonyName,
+        target.roomName,
+        target.action,
+        gameTime
+      )
+    ) {
+      return false;
+    }
+
     if (getTerritoryCreepCountForTarget(roleCounts, target.roomName, target.action) > 0) {
       return false;
     }
