@@ -5177,6 +5177,9 @@ function matchesCapacityConstructionStructureType(actual, globalName, fallback) 
 }
 function shouldReplaceTarget(task, target) {
   var _a;
+  if (task.type === "harvest" && isDepletedHarvestSource(target)) {
+    return true;
+  }
   if (task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
     return true;
   }
@@ -5184,6 +5187,10 @@ function shouldReplaceTarget(task, target) {
     return true;
   }
   return task.type === "repair" && "hits" in target && isWorkerRepairTargetComplete(target);
+}
+function isDepletedHarvestSource(target) {
+  const energy = target == null ? void 0 : target.energy;
+  return typeof energy === "number" && energy <= 0;
 }
 function executeTask(creep, task, target) {
   switch (task.type) {

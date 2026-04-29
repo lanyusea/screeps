@@ -145,6 +145,41 @@ describe('runWorker', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(source);
   });
 
+  it('switches from a depleted harvest target to a viable source in the same tick', () => {
+    const depletedSource = { id: 'source1', energy: 0 } as Source;
+    const viableSource = { id: 'source2', energy: 100 } as Source;
+    const harvest = jest.fn().mockReturnValue(0);
+    const creep = {
+      memory: { task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: {
+        name: 'W1N1',
+        find: jest.fn((type) => (type === FIND_SOURCES ? [depletedSource, viableSource] : []))
+      },
+      harvest,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const getObjectById = jest.fn((id: string) =>
+      id === 'source1' ? depletedSource : id === 'source2' ? viableSource : null
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source2' });
+    expect(getObjectById).toHaveBeenCalledWith('source1');
+    expect(getObjectById).toHaveBeenCalledWith('source2');
+    expect(harvest).toHaveBeenCalledWith(viableSource);
+    expect(harvest).not.toHaveBeenCalledWith(depletedSource);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('picks up dropped energy and moves when not in range', () => {
     const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
     const creep = {
