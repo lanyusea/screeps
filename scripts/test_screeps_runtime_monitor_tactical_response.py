@@ -433,6 +433,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             objects={
                 "controller-1": {"_id": "controller-1", "type": "controller", "user": "owner-id", "level": 3},
                 "road-1": {"_id": "road-1", "type": "road", "hits": 100, "hitsMax": 500},
+                "unknown-foreign-flag": {"_id": "unknown-foreign-flag", "type": "rampart", "my": False},
             },
             tick=265632,
             owner=None,
@@ -442,6 +443,28 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
 
         self.assertEqual(payload["rooms"][0]["combat"]["hostileStructureCount"], 0)
+
+    def test_runtime_summary_counts_confirmed_foreign_owned_structures(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E48S28"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={
+                "tower-1": {
+                    "_id": "tower-1",
+                    "type": "tower",
+                    "owner": {"username": "Invader"},
+                    "hits": 3000,
+                    "hitsMax": 3000,
+                },
+            },
+            tick=265633,
+            owner="lanyusea",
+            info={},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+
+        self.assertEqual(payload["rooms"][0]["combat"]["hostileStructureCount"], 1)
 
 
 if __name__ == "__main__":

@@ -1851,6 +1851,11 @@ def store_energy(obj: dict[str, Any]) -> int | float:
     return energy if energy is not None else 0
 
 
+def confirmed_foreign_owner(obj: dict[str, Any], owner_username: str | None) -> bool:
+    username = room_owner(obj)
+    return bool(username is not None and username != owner_username)
+
+
 def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     objects = snapshot.objects
     owned_structures = [obj for obj in structure_objects(objects) if is_owned_object(obj, snapshot.owner)]
@@ -1872,7 +1877,7 @@ def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
     hostile_structures = [
         obj
         for obj in structure_objects(objects)
-        if obj.get("my") is False or (snapshot.owner and room_owner(obj) and room_owner(obj) != snapshot.owner)
+        if confirmed_foreign_owner(obj, snapshot.owner)
     ]
     controller = next((obj for obj in structure_objects(objects) if obj.get("type") == "controller"), None)
 
