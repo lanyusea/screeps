@@ -6,6 +6,7 @@ import {
   type OccupationRecommendationInput,
   type OccupationRecommendationReport
 } from '../src/territory/occupationRecommendation';
+import { TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS } from '../src/territory/territoryPlanner';
 
 describe('occupation recommendation scoring', () => {
   afterEach(() => {
@@ -363,6 +364,38 @@ describe('occupation recommendation scoring', () => {
     const report = scoreOccupationRecommendations(makeInput([makeCandidate({ roomName: 'W2N1' })]));
 
     expect(persistOccupationRecommendationFollowUpIntent(report, 1_000)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([suppressedIntent]);
+  });
+
+  it('preserves recovered follow-up cooldown markers from recommendation persistence', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'satisfiedReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const retryTime = 1_000;
+    const suppressedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'suppressed',
+      updatedAt: 900,
+      lastAttemptAt: retryTime,
+      followUp
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [suppressedIntent]
+      }
+    };
+    const report = scoreOccupationRecommendations(makeInput([makeCandidate({ roomName: 'W2N1' })]));
+
+    expect(
+      persistOccupationRecommendationFollowUpIntent(
+        report,
+        retryTime + TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS + 1
+      )
+    ).toBeNull();
     expect(Memory.territory?.intents).toEqual([suppressedIntent]);
   });
 

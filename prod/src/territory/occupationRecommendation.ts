@@ -74,6 +74,7 @@ const MIN_READY_WORKERS = 3;
 const DOWNGRADE_GUARD_TICKS = 5_000;
 const RESERVATION_RENEWAL_TICKS = 1_000;
 const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
+const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 
 // Project vision ordering: territory action dominates resource value; combat/risk only gates or deprioritizes.
@@ -119,7 +120,12 @@ export function persistOccupationRecommendationFollowUpIntent(
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
   const existingIntent = intents.find((intent) => isSameTerritoryIntent(intent, followUpIntent));
-  if (existingIntent && isTerritorySuppressionFresh(existingIntent, gameTime)) {
+  if (
+    existingIntent &&
+    (isTerritorySuppressionFresh(existingIntent, gameTime) ||
+      isRecoveredTerritoryFollowUpAttemptCoolingDown(existingIntent, gameTime) ||
+      isRecoveredTerritoryFollowUpRetryPending(existingIntent))
+  ) {
     return null;
   }
 
@@ -658,6 +664,7 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
     action: rawIntent.action,
     status: rawIntent.status,
     updatedAt: rawIntent.updatedAt,
+    ...(followUp && isFiniteNumber(rawIntent.lastAttemptAt) ? { lastAttemptAt: rawIntent.lastAttemptAt } : {}),
     ...(typeof rawIntent.controllerId === 'string'
       ? { controllerId: rawIntent.controllerId as Id<StructureController> }
       : {}),
@@ -711,6 +718,19 @@ function isTerritorySuppressionFresh(intent: TerritoryIntentMemory, gameTime: nu
   return intent.status === 'suppressed' && gameTime - intent.updatedAt <= TERRITORY_SUPPRESSION_RETRY_TICKS;
 }
 
+function isRecoveredTerritoryFollowUpAttemptCoolingDown(intent: TerritoryIntentMemory, gameTime: number): boolean {
+  return (
+    intent.followUp !== undefined &&
+    isFiniteNumber(intent.lastAttemptAt) &&
+    gameTime >= intent.lastAttemptAt &&
+    gameTime - intent.lastAttemptAt <= TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS
+  );
+}
+
+function isRecoveredTerritoryFollowUpRetryPending(intent: TerritoryIntentMemory): boolean {
+  return intent.followUp !== undefined && intent.status === 'suppressed' && isFiniteNumber(intent.lastAttemptAt);
+}
+
 function isTerritoryIntentAction(action: unknown): action is TerritoryIntentAction {
   return action === 'claim' || action === 'reserve' || action === 'scout';
 }
@@ -733,4 +753,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }
