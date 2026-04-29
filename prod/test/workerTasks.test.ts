@@ -2828,7 +2828,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
-  it('spends carried energy on construction when follow-up energy target is ready', () => {
+  it('keeps spawn refill before construction when follow-up energy target is ready', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const controller = {
@@ -2858,11 +2858,11 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
-  it('spends carried energy on controller upgrade when follow-up energy target is ready and no construction remains', () => {
-    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+  it('keeps extension refill before controller upgrade when follow-up energy target is ready', () => {
+    const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 50);
     const controller = {
       id: 'controller1',
       my: true,
@@ -2885,11 +2885,52 @@ describe('selectWorkerTask', () => {
         controller,
         energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
         energyCapacityAvailable: 800,
-        myStructures: [spawn as AnyOwnedStructure]
+        myStructures: [extension as AnyOwnedStructure]
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension1' });
+  });
+
+  it('keeps spawn refill before nearby non-urgent repair when follow-up energy target is ready', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const road = makeStructure('road-worn', 'road' as StructureConstant, 4_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        'road-worn': 2,
+        controller1: 5
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      time: 514
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        demands: [makeFollowUpDemand(514)]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({
+        controller,
+        energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
+        energyCapacityAvailable: 800,
+        myStructures: [spawn as AnyOwnedStructure],
+        structures: [road]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
   it('builds follow-up-ready capacity construction before fallback territory upgrading', () => {
