@@ -2076,7 +2076,9 @@ function recordTerritoryFollowUpExecutionHint(
   if (!nextHint) {
     setTerritoryFollowUpExecutionHints(
       territoryMemory,
-      currentHints.filter((hint) => hint.colony !== plan.colony)
+      hasActiveTerritoryFollowUpIntentForColony(intents, plan.colony)
+        ? currentHints
+        : currentHints.filter((hint) => hint.colony !== plan.colony)
     );
     return;
   }
@@ -2154,10 +2156,17 @@ function findMatchingActiveTerritoryFollowUpIntent(
         intent.colony === hint.colony &&
         intent.targetRoom === hint.targetRoom &&
         intent.action === hint.action &&
-        (intent.status === 'planned' || intent.status === 'active') &&
-        intent.followUp !== undefined
+        isActiveTerritoryFollowUpIntent(intent)
     ) ?? null
   );
+}
+
+function hasActiveTerritoryFollowUpIntentForColony(intents: TerritoryIntentMemory[], colony: string): boolean {
+  return intents.some((intent) => intent.colony === colony && isActiveTerritoryFollowUpIntent(intent));
+}
+
+function isActiveTerritoryFollowUpIntent(intent: TerritoryIntentMemory): boolean {
+  return (intent.status === 'planned' || intent.status === 'active') && intent.followUp !== undefined;
 }
 
 function buildTerritoryFollowUpExecutionHint(

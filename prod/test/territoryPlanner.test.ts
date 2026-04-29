@@ -2588,6 +2588,53 @@ describe('planTerritoryIntent', () => {
     expect(getActiveTerritoryFollowUpExecutionHints('W1N1')).toEqual([]);
   });
 
+  it('preserves an active execution hint when a live follow-up intent remains behind a scout plan', () => {
+    const colony = makeSafeColony();
+    colony.energyAvailable = 50;
+    (colony.room as Room & { energyAvailable: number }).energyAvailable = 50;
+    const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const followUpTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const followUpIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 596,
+      followUp
+    };
+    const existingHint: TerritoryExecutionHintMemory = {
+      type: 'activeFollowUpExecution',
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      reason: 'visibleControlEvidenceStillActionable',
+      updatedAt: 596,
+      followUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W3N1: makeRecommendationRoom('W3N1')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [genericTarget, followUpTarget],
+        intents: [followUpIntent],
+        executionHints: [existingHint]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 597)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
+    expect(Memory.territory?.executionHints).toEqual([existingHint]);
+    expect(getActiveTerritoryFollowUpExecutionHints('W1N1')).toEqual([existingHint]);
+  });
+
   it('drops persisted follow-up metadata after visible controller evidence satisfies the target', () => {
     const colony = makeSafeColony();
     const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
