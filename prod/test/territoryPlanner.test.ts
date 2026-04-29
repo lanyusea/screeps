@@ -3455,7 +3455,7 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.targets).toEqual([healthyReservationTarget, unreservedTarget]);
   });
 
-  it('does not treat hostile or owned reserve targets as renewal candidates', () => {
+  it('keeps own renewal ahead of foreign reservation pressure and owned reserve targets', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3498,7 +3498,7 @@ describe('planTerritoryIntent', () => {
         { colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve' },
         { worker: 3, claimer: 0, claimersByTargetRoom: {} }
       )
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldSpawnTerritoryControllerCreep(
         { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' },
@@ -3537,7 +3537,7 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
-  it('skips visible enemy-reserved reserve targets and plans the next eligible target', () => {
+  it('keeps an unreserved target ahead of enemy-reserved controller pressure', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
@@ -3569,7 +3569,7 @@ describe('planTerritoryIntent', () => {
         { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' },
         { worker: 3, claimer: 0, claimersByTargetRoom: {} }
       )
-    ).toBe(false);
+    ).toBe(true);
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
@@ -3668,6 +3668,43 @@ describe('planTerritoryIntent', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: retryTime
+      }
+    ]);
+  });
+
+  it('dispatches a configured reserve target to pressure a foreign reservation', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 542);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' });
+    expect(
+      shouldSpawnTerritoryControllerCreep(plan!, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 542)
+    ).toBe(true);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 542
       }
     ]);
   });

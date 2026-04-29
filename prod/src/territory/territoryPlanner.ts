@@ -184,12 +184,12 @@ export function shouldSpawnTerritoryControllerCreep(
   }
 
   if (
-    getVisibleTerritoryTargetState(
+    !isVisibleTerritoryIntentActionable(
       plan.targetRoom,
       plan.action,
       plan.controllerId,
       getVisibleColonyOwnerUsername(plan.colony)
-    ) !== 'available'
+    )
   ) {
     return false;
   }
@@ -213,12 +213,12 @@ export function getTerritoryFollowUpPreparationWorkerDemand(
   }
 
   if (
-    getVisibleTerritoryTargetState(
+    !isVisibleTerritoryIntentActionable(
       plan.targetRoom,
       plan.action,
       plan.controllerId,
       getVisibleColonyOwnerUsername(plan.colony)
-    ) !== 'available'
+    )
   ) {
     return 0;
   }
@@ -333,6 +333,17 @@ export function canCreepReserveTerritoryController(
   );
 }
 
+export function canCreepPressureTerritoryController(
+  creep: Creep,
+  controller: StructureController,
+  colony: string | undefined
+): boolean {
+  return (
+    getActiveControllerClaimPartCount(creep) > 0 &&
+    isForeignReservedController(controller, getTerritoryActorUsername(creep, colony))
+  );
+}
+
 export function selectUrgentVisibleReservationRenewalTask(creep: Creep): CreepTaskMemory | null {
   const intent = selectVisibleTerritoryControllerIntent(creep);
   if (!intent || intent.action !== 'reserve') {
@@ -396,7 +407,11 @@ export function isVisibleTerritoryAssignmentSafe(
 
   const actorUsername = getTerritoryActorUsername(creep, colony);
   const targetState = getTerritoryControllerTargetState(controller, assignment.action, actorUsername);
-  return targetState === 'available' || (assignment.action === 'reserve' && targetState === 'satisfied');
+  return (
+    targetState === 'available' ||
+    (assignment.action === 'reserve' && targetState === 'satisfied') ||
+    (assignment.action === 'reserve' && isForeignReservedController(controller, actorUsername))
+  );
 }
 
 export function isVisibleTerritoryAssignmentComplete(
@@ -795,8 +810,7 @@ function getConfiguredTerritoryCandidates(
       target.roomName === colonyName ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
       isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername) ||
-      getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !==
-        'available'
+      !isVisibleTerritoryIntentActionable(target.roomName, target.action, target.controllerId, colonyOwnerUsername)
     ) {
       return [];
     }
@@ -854,8 +868,7 @@ function getPersistedTerritoryIntentCandidates(
       (intent.status !== 'planned' && intent.status !== 'active' && !recoveredFollowUp) ||
       !isTerritoryControlAction(intent.action) ||
       isSuppressedTerritoryIntentForAction(intents, colonyName, intent.targetRoom, intent.action, gameTime) ||
-      getVisibleTerritoryTargetState(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername) !==
-        'available'
+      !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)
     ) {
       return [];
     }
@@ -2104,7 +2117,11 @@ function isPersistedTerritoryFollowUpStillActionable(
     intent.controllerId,
     colonyOwnerUsername
   );
-  return controllerState === null || controllerState === 'available';
+  return (
+    controllerState === null ||
+    controllerState === 'available' ||
+    isVisibleTerritoryReservePressureAvailable(intent.targetRoom, action, intent.controllerId, colonyOwnerUsername)
+  );
 }
 
 function getVisibleTerritoryControllerEvidenceState(
@@ -2409,7 +2426,7 @@ function getTerritoryFollowUpExecutionHintReason(
   controllerId: Id<StructureController> | undefined,
   colonyOwnerUsername: string | null
 ): TerritoryExecutionHintReason | null {
-  if (getVisibleTerritoryTargetState(targetRoom, action, controllerId, colonyOwnerUsername) !== 'available') {
+  if (!isVisibleTerritoryIntentActionable(targetRoom, action, controllerId, colonyOwnerUsername)) {
     return null;
   }
 
@@ -2983,6 +3000,32 @@ function getVisibleTerritoryTargetState(
   return getTerritoryControllerTargetState(controller, action, colonyOwnerUsername ?? null);
 }
 
+function isVisibleTerritoryIntentActionable(
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  controllerId: Id<StructureController> | undefined,
+  colonyOwnerUsername: string | null
+): boolean {
+  return (
+    getVisibleTerritoryTargetState(targetRoom, action, controllerId, colonyOwnerUsername) === 'available' ||
+    isVisibleTerritoryReservePressureAvailable(targetRoom, action, controllerId, colonyOwnerUsername)
+  );
+}
+
+function isVisibleTerritoryReservePressureAvailable(
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  controllerId: Id<StructureController> | undefined,
+  colonyOwnerUsername: string | null
+): boolean {
+  if (action !== 'reserve' || isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
+    return false;
+  }
+
+  const controller = getVisibleController(targetRoom, controllerId);
+  return controller !== null && isForeignReservedController(controller, colonyOwnerUsername);
+}
+
 function isVisibleRoomKnown(targetRoom: string): boolean {
   const game = (globalThis as { Game?: Partial<Game> }).Game;
   return game?.rooms?.[targetRoom] != null;
@@ -3021,6 +3064,18 @@ function getReserveControllerTargetState(
   }
 
   return getUrgentOwnReservationTicksToEnd(controller, colonyOwnerUsername) === null ? 'satisfied' : 'available';
+}
+
+function isForeignReservedController(
+  controller: StructureController,
+  actorUsername: string | null
+): boolean {
+  if (isControllerOwned(controller) || !isNonEmptyString(actorUsername)) {
+    return false;
+  }
+
+  const reservation = controller.reservation;
+  return isNonEmptyString(reservation?.username) && reservation.username !== actorUsername;
 }
 
 function getConfiguredReserveRenewalTicksToEnd(

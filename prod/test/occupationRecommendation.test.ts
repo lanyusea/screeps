@@ -108,6 +108,48 @@ describe('occupation recommendation scoring', () => {
     });
   });
 
+  it('treats a configured foreign reservation as reserve controller pressure', () => {
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          controller: { reservationUsername: 'enemy', reservationTicksToEnd: 3_000 },
+          sourceCount: 2
+        })
+      ])
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      action: 'reserve',
+      evidenceStatus: 'sufficient',
+      evidence: ['room visible', 'controller visible', 'foreign reservation can be pressured', '2 sources visible']
+    });
+    expect(report.followUpIntent).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' });
+  });
+
+  it('keeps unreserved reserve candidates ahead of foreign reservation pressure', () => {
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          controller: { reservationUsername: 'enemy', reservationTicksToEnd: 3_000 },
+          sourceCount: 2
+        }),
+        makeCandidate({
+          roomName: 'W3N1',
+          sourceCount: 1
+        })
+      ])
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W3N1',
+      action: 'reserve',
+      evidenceStatus: 'sufficient'
+    });
+  });
+
   it('renews own reservations only when they are near expiry', () => {
     const report = scoreOccupationRecommendations(
       makeInput([

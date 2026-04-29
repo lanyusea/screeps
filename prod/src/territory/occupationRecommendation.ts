@@ -283,8 +283,18 @@ function scoreOccupationCandidate(
     evidenceStatus = 'unavailable';
   } else {
     evidence.push('room visible', 'controller visible');
+    const controllerPressureEvidence = getControllerPressureEvidence(input, candidate);
     const unavailableReason = getControllerUnavailableReason(input, candidate.controller);
-    if (unavailableReason) {
+    if (controllerPressureEvidence) {
+      evidence.push(controllerPressureEvidence);
+      action = 'reserve';
+      if (candidate.sourceCount === undefined) {
+        risks.push('source count evidence missing');
+        evidenceStatus = 'insufficient-evidence';
+      } else {
+        evidence.push(`${candidate.sourceCount} sources visible`);
+      }
+    } else if (unavailableReason) {
       risks.push(unavailableReason);
       evidenceStatus = 'unavailable';
       action = candidate.actionHint === 'claim' ? 'occupy' : 'reserve';
@@ -370,6 +380,8 @@ function calculateOccupationScore(
     ((input.controllerLevel ?? 0) >= 2 ? 30 : 0) +
     (input.ticksToDowngrade === undefined || input.ticksToDowngrade > DOWNGRADE_GUARD_TICKS ? 20 : 0);
   const riskPenalty = (candidate.hostileCreepCount ?? 0) * 160 + (candidate.hostileStructureCount ?? 0) * 120;
+  const controllerPressurePenalty =
+    candidate.controller && isForeignReservation(input, candidate.controller) ? 180 : 0;
   const evidencePenalty = evidenceStatus === 'insufficient-evidence' ? 260 : 0;
   const unavailablePenalty = evidenceStatus === 'unavailable' ? 2_000 : 0;
 
@@ -382,9 +394,26 @@ function calculateOccupationScore(
     supportScore +
     readinessScore -
     riskPenalty -
+    controllerPressurePenalty -
     evidencePenalty -
     unavailablePenalty
   );
+}
+
+function getControllerPressureEvidence(
+  input: OccupationRecommendationInput,
+  candidate: OccupationRecommendationCandidateInput
+): string | null {
+  if (
+    candidate.source !== 'configured' ||
+    candidate.actionHint !== 'reserve' ||
+    !candidate.controller ||
+    !isForeignReservation(input, candidate.controller)
+  ) {
+    return null;
+  }
+
+  return 'foreign reservation can be pressured';
 }
 
 function getColonyReadinessPreconditions(input: OccupationRecommendationInput): string[] {
@@ -453,6 +482,19 @@ function isOwnReservation(input: OccupationRecommendationInput, controller: Occu
   return (
     input.colonyOwnerUsername !== undefined &&
     controller.reservationUsername === input.colonyOwnerUsername
+  );
+}
+
+function isForeignReservation(
+  input: OccupationRecommendationInput,
+  controller: OccupationControllerEvidence
+): boolean {
+  return (
+    input.colonyOwnerUsername !== undefined &&
+    controller.my !== true &&
+    controller.ownerUsername === undefined &&
+    controller.reservationUsername !== undefined &&
+    controller.reservationUsername !== input.colonyOwnerUsername
   );
 }
 

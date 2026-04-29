@@ -1,4 +1,5 @@
 import {
+  canCreepPressureTerritoryController,
   canCreepReserveTerritoryController,
   isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry,
   isVisibleTerritoryAssignmentComplete,
@@ -72,6 +73,22 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   if (isTerritoryControlAction(assignment.action) && isCreepKnownToHaveNoActiveClaimParts(creep)) {
     suppressTerritoryAssignment(creep, assignment);
     return;
+  }
+
+  if (
+    assignment.action === 'reserve' &&
+    typeof creep.attackController === 'function' &&
+    canCreepPressureTerritoryController(creep, controller, creep.memory.colony)
+  ) {
+    const pressureResult = executeControllerAction(creep, controller, 'attackController');
+    if (pressureResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
+      creep.moveTo(controller);
+      return;
+    }
+
+    if (pressureResult !== ERR_INVALID_TARGET_CODE) {
+      return;
+    }
   }
 
   if (
@@ -171,7 +188,7 @@ function selectTargetController(creep: Creep, assignment: CreepTerritoryMemory):
 function executeControllerAction(
   creep: Creep,
   controller: StructureController,
-  action: 'claimController' | 'reserveController'
+  action: 'attackController' | 'claimController' | 'reserveController'
 ): ScreepsReturnCode {
   const controllerAction = creep[action];
   if (typeof controllerAction !== 'function') {
