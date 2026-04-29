@@ -589,14 +589,14 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
-  it('keeps construction work when spawn refill pressure has cleared', () => {
+  it('preempts construction for fillable spawn energy after urgent pressure has cleared', () => {
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
     const spawn = {
       id: 'spawn1',
       structureType: 'spawn',
       store: { getFreeCapacity: jest.fn().mockReturnValue(100) }
     } as unknown as StructureSpawn;
-    const build = jest.fn().mockReturnValue(0);
+    const transfer = jest.fn().mockReturnValue(0);
     const creep = {
       memory: { task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> } },
       store: {
@@ -616,18 +616,20 @@ describe('runWorker', () => {
           }
         )
       },
-      build,
+      build: jest.fn(),
+      transfer,
       moveTo: jest.fn()
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      getObjectById: jest.fn().mockReturnValue(site)
+      getObjectById: jest.fn((id: string) => (id === 'spawn1' ? spawn : site))
     };
 
     runWorker(creep);
 
-    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
-    expect(Game.getObjectById).toHaveBeenCalledWith('site1');
-    expect(build).toHaveBeenCalledWith(site);
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(Game.getObjectById).toHaveBeenCalledWith('spawn1');
+    expect(transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.build).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 

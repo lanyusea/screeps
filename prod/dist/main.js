@@ -2436,7 +2436,6 @@ var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var TOWER_REFILL_ENERGY_FLOOR = 500;
-var URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -2480,7 +2479,7 @@ function selectWorkerTask(creep) {
     return territoryControllerTask;
   }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  if (spawnOrExtensionEnergySink && shouldGuardUrgentSpawnRefill(creep.room)) {
+  if (spawnOrExtensionEnergySink) {
     return { type: "transfer", targetId: spawnOrExtensionEnergySink.id };
   }
   const controller = creep.room.controller;
@@ -2593,10 +2592,6 @@ function selectClosestEnergySink(energySinks, creep) {
     return (_a = position.findClosestByRange(energySinksByStableId)) != null ? _a : energySinksByStableId[0];
   }
   return energySinksByStableId[0];
-}
-function shouldGuardUrgentSpawnRefill(room) {
-  const energyAvailable = room.energyAvailable;
-  return typeof energyAvailable !== "number" || !Number.isFinite(energyAvailable) || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
 }
 function compareEnergySinkId(left, right) {
   return String(left.id).localeCompare(String(right.id));

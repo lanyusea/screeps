@@ -78,7 +78,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  if (spawnOrExtensionEnergySink && shouldGuardUrgentSpawnRefill(creep.room)) {
+  if (spawnOrExtensionEnergySink) {
     return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
@@ -234,15 +234,6 @@ function selectClosestEnergySink<T extends FillableEnergySink>(energySinks: T[],
   }
 
   return energySinksByStableId[0];
-}
-
-function shouldGuardUrgentSpawnRefill(room: Room): boolean {
-  const energyAvailable = (room as Room & { energyAvailable?: unknown }).energyAvailable;
-  return (
-    typeof energyAvailable !== 'number' ||
-    !Number.isFinite(energyAvailable) ||
-    energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD
-  );
 }
 
 function compareEnergySinkId(left: FillableEnergySink, right: FillableEnergySink): number {
