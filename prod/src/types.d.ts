@@ -13,6 +13,7 @@ declare global {
     colony?: string;
     task?: CreepTaskMemory;
     territory?: CreepTerritoryMemory;
+    workerEfficiency?: WorkerEfficiencySampleMemory;
   }
 
   type TerritoryControlAction = 'claim' | 'reserve';
@@ -83,6 +84,21 @@ declare global {
     action: TerritoryIntentAction;
     controllerId?: Id<StructureController>;
     followUp?: TerritoryFollowUpMemory;
+  }
+
+  type WorkerEfficiencySampleType = 'lowLoadReturn' | 'nearbyEnergyChoice';
+  type WorkerEfficiencyLowLoadReturnReason = 'urgentSpawnExtensionRefill' | 'noNearbyEnergy';
+
+  interface WorkerEfficiencySampleMemory {
+    type: WorkerEfficiencySampleType;
+    tick: number;
+    carriedEnergy: number;
+    freeCapacity: number;
+    selectedTask: CreepTaskMemory['type'];
+    targetId: string;
+    energy?: number;
+    range?: number;
+    reason?: WorkerEfficiencyLowLoadReturnReason;
   }
 
   type CreepTaskMemory =

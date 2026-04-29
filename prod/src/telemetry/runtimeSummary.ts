@@ -10,6 +10,8 @@ import { getActiveTerritoryFollowUpExecutionHints } from '../territory/territory
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
 const MAX_REPORTED_EVENTS = 10;
+const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
+const WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 
 const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'upgrade'] as const;
 
@@ -42,6 +44,7 @@ interface RuntimeRoomSummary {
   workerCount: number;
   spawnStatus: RuntimeSpawnStatus[];
   taskCounts: WorkerTaskCounts;
+  workerEfficiency?: RuntimeWorkerEfficiencySummary;
   controller?: RuntimeControllerSummary;
   resources: RuntimeResourceSummary;
   combat: RuntimeCombatSummary;
@@ -68,6 +71,22 @@ interface RuntimeResourceSummary {
   droppedEnergy: number;
   sourceCount: number;
   events?: RuntimeResourceEventSummary;
+}
+
+interface RuntimeWorkerEfficiencySummary {
+  lowLoadReturnCount: number;
+  nearbyEnergyChoiceCount: number;
+  samples: RuntimeWorkerEfficiencySampleSummary[];
+  omittedSampleCount?: number;
+}
+
+interface RuntimeWorkerEfficiencySampleSummary extends WorkerEfficiencySampleMemory {
+  creepName?: string;
+}
+
+interface RuntimeWorkerEfficiencySampleEntry {
+  creepName: string | undefined;
+  sample: WorkerEfficiencySampleMemory;
 }
 
 interface RuntimeCombatEventSummary {
@@ -157,6 +176,7 @@ function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSumm
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
+    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -212,6 +232,102 @@ function countWorkerTasks(workers: Creep[]): WorkerTaskCounts {
 
 function isWorkerTaskType(taskType: string | undefined): taskType is WorkerTaskType {
   return WORKER_TASK_TYPES.includes(taskType as WorkerTaskType);
+}
+
+function summarizeWorkerEfficiency(
+  workers: Creep[],
+  tick: number
+): { workerEfficiency?: RuntimeWorkerEfficiencySummary } {
+  const samples = workers
+    .map((worker) => ({ creepName: getCreepName(worker), sample: worker.memory.workerEfficiency }))
+    .filter(
+      (entry): entry is RuntimeWorkerEfficiencySampleEntry =>
+        isWorkerEfficiencySample(entry.sample) && isRecentWorkerEfficiencySample(entry.sample, tick)
+    )
+    .sort(compareWorkerEfficiencySampleEntries);
+
+  if (samples.length === 0) {
+    return {};
+  }
+
+  const reportedSamples = samples.slice(0, MAX_WORKER_EFFICIENCY_SAMPLES).map(toRuntimeWorkerEfficiencySample);
+
+  return {
+    workerEfficiency: {
+      lowLoadReturnCount: samples.filter((entry) => entry.sample.type === 'lowLoadReturn').length,
+      nearbyEnergyChoiceCount: samples.filter((entry) => entry.sample.type === 'nearbyEnergyChoice').length,
+      samples: reportedSamples,
+      ...(samples.length > MAX_WORKER_EFFICIENCY_SAMPLES
+        ? { omittedSampleCount: samples.length - MAX_WORKER_EFFICIENCY_SAMPLES }
+        : {})
+    }
+  };
+}
+
+function compareWorkerEfficiencySampleEntries(
+  left: RuntimeWorkerEfficiencySampleEntry,
+  right: RuntimeWorkerEfficiencySampleEntry
+): number {
+  return (
+    right.sample.tick - left.sample.tick ||
+    (left.creepName ?? '').localeCompare(right.creepName ?? '') ||
+    left.sample.targetId.localeCompare(right.sample.targetId)
+  );
+}
+
+function toRuntimeWorkerEfficiencySample(entry: {
+  creepName: string | undefined;
+  sample: WorkerEfficiencySampleMemory;
+}): RuntimeWorkerEfficiencySampleSummary {
+  return {
+    ...(entry.creepName ? { creepName: entry.creepName } : {}),
+    ...entry.sample
+  };
+}
+
+function isRecentWorkerEfficiencySample(sample: WorkerEfficiencySampleMemory, tick: number): boolean {
+  if (tick <= 0) {
+    return true;
+  }
+
+  return sample.tick <= tick && sample.tick > tick - WORKER_EFFICIENCY_SAMPLE_TTL;
+}
+
+function isWorkerEfficiencySample(value: unknown): value is WorkerEfficiencySampleMemory {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    (value.type === 'lowLoadReturn' || value.type === 'nearbyEnergyChoice') &&
+    typeof value.tick === 'number' &&
+    Number.isFinite(value.tick) &&
+    typeof value.carriedEnergy === 'number' &&
+    Number.isFinite(value.carriedEnergy) &&
+    typeof value.freeCapacity === 'number' &&
+    Number.isFinite(value.freeCapacity) &&
+    isWorkerEfficiencyTaskType(value.selectedTask) &&
+    typeof value.targetId === 'string'
+  );
+}
+
+function isWorkerEfficiencyTaskType(value: unknown): value is CreepTaskMemory['type'] {
+  return (
+    value === 'harvest' ||
+    value === 'pickup' ||
+    value === 'withdraw' ||
+    value === 'transfer' ||
+    value === 'build' ||
+    value === 'repair' ||
+    value === 'claim' ||
+    value === 'reserve' ||
+    value === 'upgrade'
+  );
+}
+
+function getCreepName(creep: Creep): string | undefined {
+  const name = (creep as Creep & { name?: unknown }).name;
+  return typeof name === 'string' && name.length > 0 ? name : undefined;
 }
 
 function buildControllerSummary(room: Room): { controller?: RuntimeControllerSummary } {

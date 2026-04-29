@@ -25,6 +25,8 @@ export function runWorker(creep: Creep): void {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
@@ -249,6 +251,28 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
   return isUrgentEnergySpendingTask(selectedTask);
 }
 
+function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (!isEnergyAcquisitionTask(task) || !selectedTask || !isEnergyAcquisitionTask(selectedTask)) {
+    return false;
+  }
+
+  if (isSameTask(task, selectedTask)) {
+    return false;
+  }
+
+  const sample = creep.memory?.workerEfficiency;
+  return (
+    sample?.type === 'nearbyEnergyChoice' &&
+    sample.selectedTask === selectedTask.type &&
+    sample.targetId === String(selectedTask.targetId) &&
+    isCurrentWorkerEfficiencySample(sample)
+  );
+}
+
 function shouldPreemptTransferTaskForBetterEnergySink(
   creep: Creep,
   task: CreepTaskMemory,
@@ -377,6 +401,11 @@ function isRecoverableEnergyTask(
   task: CreepTaskMemory | null
 ): task is Extract<CreepTaskMemory, { type: 'pickup' | 'withdraw' }> {
   return task?.type === 'pickup' || task?.type === 'withdraw';
+}
+
+function isCurrentWorkerEfficiencySample(sample: WorkerEfficiencySampleMemory): boolean {
+  const gameTime = (globalThis as unknown as { Game?: Partial<Game> }).Game?.time;
+  return typeof gameTime !== 'number' || sample.tick === gameTime;
 }
 
 function isTerritoryControlTask(

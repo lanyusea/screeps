@@ -1552,6 +1552,122 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
   });
 
+  it('keeps a low-load worker on nearby dropped energy before non-urgent spawn refill', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const source = { id: 'source1', energy: 300 } as Source;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-near': 1,
+        source1: 3
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedEnergy];
+        }
+
+        if (
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 321 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 321,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'pickup',
+      targetId: 'drop-near',
+      energy: 50,
+      range: 1
+    });
+  });
+
+  it('keeps urgent spawn refill before low-load nearby energy acquisition', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const getRangeTo = jest.fn((target: { id: string }) => (target.id === 'drop-near' ? 1 : 99));
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedEnergy];
+        }
+
+        if (
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 322 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'lowLoadReturn',
+      tick: 322,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'transfer',
+      targetId: 'spawn1',
+      reason: 'urgentSpawnExtensionRefill'
+    });
+  });
+
   it('selects the closest spawn or extension before fillable towers', () => {
     const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
     const fullExtension = makeEnergySink('extension-full', 'extension' as StructureConstant, 0);
