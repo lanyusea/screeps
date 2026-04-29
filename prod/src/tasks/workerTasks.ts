@@ -32,6 +32,8 @@ const HARVEST_ENERGY_PER_WORK_PART = 2;
 const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 const SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 const SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
+const MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
+const MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -1734,11 +1736,22 @@ function shouldApplyControllerPressureLane(creep: Creep, controller: StructureCo
   }
 
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
-  return (
-    (loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS ||
-      (loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE && hasActiveTerritoryPressure(creep))) &&
-    !loadedWorkers.some((worker) => worker !== creep && isUpgradingController(worker, controller))
-  );
+  const hasTerritoryPressure = hasActiveTerritoryPressure(creep);
+  if (
+    loadedWorkers.length < MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS &&
+    !(loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE && hasTerritoryPressure)
+  ) {
+    return false;
+  }
+
+  const controllerProgressWorkers =
+    loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS && !hasTerritoryPressure
+      ? MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS
+      : 1;
+  const otherControllerUpgraders = loadedWorkers.filter(
+    (worker) => !isSameCreep(worker, creep) && isUpgradingController(worker, controller)
+  ).length;
+  return otherControllerUpgraders < controllerProgressWorkers;
 }
 
 function shouldUseSurplusForControllerProgress(creep: Creep, controller: StructureController): boolean {
