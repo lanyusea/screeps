@@ -2888,6 +2888,141 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('keeps a live reserve fallback ahead of retrying the expired claim target', () => {
+    const colony = makeSafeColony();
+    const claimTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'claim' };
+    const reserveTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N1', 'claim');
+    const suppressionTime = 598;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const roleCounts = {
+      worker: 3,
+      claimer: 1,
+      claimersByTargetRoom: { W1N2: 1 },
+      claimersByTargetRoomAction: { reserve: { W1N2: 1 } }
+    };
+    const suppressedClaimIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'claim',
+      status: 'suppressed',
+      updatedAt: suppressionTime,
+      followUp
+    };
+    const activeReserveIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'reserve',
+      status: 'active',
+      updatedAt: suppressionTime + 1,
+      followUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [claimTarget, reserveTarget],
+        intents: [suppressedClaimIntent, activeReserveIntent]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, roleCounts, 3, retryTime);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve', followUp });
+    expect(shouldSpawnTerritoryControllerCreep(plan!, roleCounts, retryTime)).toBe(false);
+    expect(Memory.territory?.targets).toEqual([claimTarget, reserveTarget]);
+    expect(Memory.territory?.intents).toEqual([
+      suppressedClaimIntent,
+      {
+        ...activeReserveIntent,
+        updatedAt: retryTime
+      }
+    ]);
+  });
+
+  it('extends from a satisfied reserve fallback before retrying the expired claim target', () => {
+    const colony = makeSafeColony();
+    const claimTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'claim' };
+    const reserveTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const fallbackFollowUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N1', 'claim');
+    const adjacentFollowUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const suppressionTime = 599;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'W1N1' ? { '1': 'W1N2' } : roomName === 'W1N2' ? { '3': 'W2N2' } : {}
+    );
+    const suppressedClaimIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'claim',
+      status: 'suppressed',
+      updatedAt: suppressionTime,
+      followUp: fallbackFollowUp
+    };
+    const activeReserveIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'reserve',
+      status: 'active',
+      updatedAt: suppressionTime + 1,
+      followUp: fallbackFollowUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2', {
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 500 }
+          } as StructureController
+        }),
+        W2N2: makeRecommendationRoom('W2N2')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [claimTarget, reserveTarget],
+        intents: [suppressedClaimIntent, activeReserveIntent]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime);
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N2',
+      action: 'reserve',
+      followUp: adjacentFollowUp
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N2');
+    expect(Memory.territory?.targets).toEqual([
+      claimTarget,
+      reserveTarget,
+      {
+        colony: 'W1N1',
+        roomName: 'W2N2',
+        action: 'reserve'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      suppressedClaimIntent,
+      activeReserveIntent,
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: retryTime,
+        followUp: adjacentFollowUp
+      }
+    ]);
+  });
+
   it('keeps emergency renewal ahead of active-reserve frontier expansion', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };

@@ -1491,6 +1491,7 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
       territoryMemory,
       intents,
       gameTime,
+      roleCounts,
       routeDistanceLookupContext
     )
   );
@@ -1632,13 +1633,13 @@ function getTerritoryIntentActionBodyCost(action) {
 function shouldSpawnEmergencyReservationRenewalCandidate(candidate, activeCoverageCount) {
   return activeCoverageCount < TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET && candidate.intentAction === "reserve" && typeof candidate.renewalTicksToEnd === "number" && candidate.renewalTicksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
 }
-function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, routeDistanceLookupContext) {
+function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, territoryMemory, intents, gameTime, roleCounts, routeDistanceLookupContext) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return [];
   }
   return territoryMemory.targets.flatMap((rawTarget, order) => {
     const target = normalizeTerritoryTarget2(rawTarget);
-    if (!target || target.enabled === false || target.colony !== colonyName || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime) || getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "available") {
+    if (!target || target.enabled === false || target.colony !== colonyName || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime) || isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername) || getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "available") {
       return [];
     }
     const persistedFollowUp = getPersistedTerritoryIntentFollowUp(
@@ -1719,7 +1720,13 @@ function hasBlockingConfiguredTerritoryTargetForColony(colony, territoryMemory, 
     if (hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext)) {
       return false;
     }
-    if (target.enabled === false || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime)) {
+    if (target.enabled === false || target.roomName === colonyName) {
+      return true;
+    }
+    if (isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername)) {
+      return false;
+    }
+    if (isTerritoryTargetSuppressed(target, intents, gameTime)) {
       return true;
     }
     if (isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(
@@ -1742,6 +1749,21 @@ function hasBlockingConfiguredTerritoryTargetForColony(colony, territoryMemory, 
 }
 function isConfiguredFollowUpTargetBlockedBySpawnReadiness(target, intents, gameTime, colony) {
   return getPersistedTerritoryIntentFollowUp(intents, target.colony, target.roomName, target.action, gameTime) !== null && !isTerritoryIntentActionSpawnReady(colony, target.action);
+}
+function isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername) {
+  if (target.action !== "claim") {
+    return false;
+  }
+  const reserveIntent = intents.find(
+    (intent) => intent.colony === target.colony && intent.targetRoom === target.roomName && intent.action === "reserve" && (intent.status === "active" || intent.status === "planned")
+  );
+  if (!reserveIntent) {
+    return false;
+  }
+  if (reserveIntent.followUp === void 0 && getTerritoryCreepCountForTarget(roleCounts, target.roomName, "reserve") <= 0) {
+    return false;
+  }
+  return getVisibleTerritoryTargetState(target.roomName, "reserve", reserveIntent.controllerId, colonyOwnerUsername) !== "unavailable";
 }
 function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUsername, territoryMemory, intents, gameTime, includeScoutCandidates, source, orderOffset, routeDistanceLookupContext) {
   const adjacentRooms = getAdjacentRoomNames2(originRoomName);
@@ -2382,6 +2404,9 @@ function sanitizeInvalidPersistedTerritoryFollowUps(intents, colonyName, colonyO
   let changed = false;
   const sanitizedIntents = intents.map((intent) => {
     if (intent.colony !== colonyName || intent.followUp === void 0 || intent.status === "suppressed") {
+      return intent;
+    }
+    if (intent.status === "active" && intent.action === "reserve") {
       return intent;
     }
     if (!isTerritoryControlAction(intent.action) || isPersistedTerritoryFollowUpStillActionable(intent, intent.action, colonyOwnerUsername)) {
