@@ -4,6 +4,13 @@ import {
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
+import {
+  buildCriticalRoadLogisticsContext,
+  isCriticalRoadLogisticsWork,
+  isRemoteTerritoryLogisticsRoom,
+  isSelfReservedRoom,
+  type CriticalRoadLogisticsContext
+} from '../construction/criticalRoads';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -196,14 +203,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return null;
   }
 
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  if (criticalRoadConstructionSite) {
+    return { type: 'build', targetId: criticalRoadConstructionSite.id };
+  }
+
   const containerConstructionSite = selectConstructionSite(creep, constructionSites, isContainerConstructionSite);
   if (containerConstructionSite) {
     return { type: 'build', targetId: containerConstructionSite.id };
-  }
-
-  const roadConstructionSite = selectConstructionSite(creep, constructionSites, isRoadConstructionSite);
-  if (roadConstructionSite) {
-    return { type: 'build', targetId: roadConstructionSite.id };
   }
 
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
@@ -213,6 +220,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
 
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  const roadConstructionSite = selectConstructionSite(creep, constructionSites, isRoadConstructionSite);
+  if (roadConstructionSite) {
+    return { type: 'build', targetId: roadConstructionSite.id };
   }
 
   const constructionSite = selectConstructionSite(creep, constructionSites);
@@ -572,6 +584,23 @@ function selectConstructionSite(
 
 function compareConstructionSiteId(left: ConstructionSite, right: ConstructionSite): number {
   return String(left.id).localeCompare(String(right.id));
+}
+
+function selectCriticalRoadConstructionSite(
+  creep: Creep,
+  constructionSites: ConstructionSite[]
+): ConstructionSite | null {
+  const roadConstructionSites = constructionSites.filter(isRoadConstructionSite);
+  if (roadConstructionSites.length === 0) {
+    return null;
+  }
+
+  const criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
+  return selectConstructionSite(
+    creep,
+    roadConstructionSites,
+    (site) => isCriticalRoadLogisticsWork(site, criticalRoadContext)
+  );
 }
 
 function selectNearbyProductiveEnergySinkTask(
@@ -1266,16 +1295,57 @@ function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
 }
 
 function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrastructureRepairTarget | null {
-  if (creep.room.controller?.my !== true) {
+  const visibleStructures = findVisibleRoomStructures(creep.room);
+  const criticalRoadContext = visibleStructures.some(isCriticalRoadRepairCandidate)
+    ? buildWorkerCriticalRoadLogisticsContext(creep)
+    : null;
+  const canRepairOwnedInfrastructure = creep.room.controller?.my === true;
+  const canRepairRemoteCriticalRoads =
+    !canRepairOwnedInfrastructure &&
+    criticalRoadContext !== null &&
+    canRepairRemoteCriticalRoadInfrastructure(creep);
+
+  if (!canRepairOwnedInfrastructure && !canRepairRemoteCriticalRoads) {
     return null;
   }
 
-  const repairTargets = findVisibleRoomStructures(creep.room).filter(isCriticalInfrastructureRepairTarget);
+  const repairTargets = visibleStructures.filter((structure) =>
+    isCriticalInfrastructureRepairTarget(structure, criticalRoadContext, {
+      repairContainers: canRepairOwnedInfrastructure,
+      repairCriticalRoads: canRepairOwnedInfrastructure || canRepairRemoteCriticalRoads
+    })
+  );
   if (repairTargets.length === 0) {
     return null;
   }
 
   return repairTargets.sort(compareRepairTargets)[0];
+}
+
+function canRepairRemoteCriticalRoadInfrastructure(creep: Creep): boolean {
+  if (!isRemoteTerritoryLogisticsRoom(creep.room) || hasVisibleHostilePresence(creep.room)) {
+    return false;
+  }
+
+  const controller = creep.room.controller;
+  if (!controller) {
+    return true;
+  }
+
+  if (controller.owner != null) {
+    return false;
+  }
+
+  const reservationUsername = controller.reservation?.username;
+  return (
+    reservationUsername == null ||
+    reservationUsername === getCreepOwnerUsername(creep) ||
+    isSelfReservedRoom(creep.room)
+  );
+}
+
+function buildWorkerCriticalRoadLogisticsContext(creep: Creep): CriticalRoadLogisticsContext {
+  return buildCriticalRoadLogisticsContext(creep.room, { colonyRoomName: getCreepColonyName(creep) });
 }
 
 function findVisibleRoomStructures(room: Room): AnyStructure[] {
@@ -1298,19 +1368,45 @@ function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWor
   return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure);
 }
 
-function isCriticalInfrastructureRepairTarget(structure: AnyStructure): structure is CriticalInfrastructureRepairTarget {
+function isCriticalInfrastructureRepairTarget(
+  structure: AnyStructure,
+  criticalRoadContext: CriticalRoadLogisticsContext | null,
+  options: { repairContainers: boolean; repairCriticalRoads: boolean }
+): structure is CriticalInfrastructureRepairTarget {
+  if (
+    !isSafeRepairTarget(structure) ||
+    !isRoadOrContainerRepairTarget(structure) ||
+    getHitsRatio(structure) > CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO
+  ) {
+    return false;
+  }
+
+  return (
+    (options.repairContainers && isContainerRepairTarget(structure)) ||
+    (options.repairCriticalRoads &&
+      !!criticalRoadContext &&
+      isCriticalRoadLogisticsWork(structure, criticalRoadContext))
+  );
+}
+
+function isCriticalRoadRepairCandidate(structure: AnyStructure): structure is StructureRoad {
   return (
     isSafeRepairTarget(structure) &&
-    isRoadOrContainerRepairTarget(structure) &&
+    isRoadRepairTarget(structure) &&
     getHitsRatio(structure) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO
   );
 }
 
 function isRoadOrContainerRepairTarget(structure: AnyStructure): structure is StructureRoad | StructureContainer {
-  return (
-    matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road') ||
-    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')
-  );
+  return isRoadRepairTarget(structure) || isContainerRepairTarget(structure);
+}
+
+function isRoadRepairTarget(structure: AnyStructure): structure is StructureRoad {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road');
+}
+
+function isContainerRepairTarget(structure: AnyStructure): structure is StructureContainer {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container');
 }
 
 export function isWorkerRepairTargetComplete(structure: Structure): boolean {
