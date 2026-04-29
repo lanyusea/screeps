@@ -3653,7 +3653,9 @@ function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) {
 }
 function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, refillReserve) {
   const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(creep.room);
-  const loadedWorkers = getSameRoomLoadedWorkers(creep).filter((worker) => getUsedEnergy(worker) > 0).sort(
+  const loadedWorkers = dedupeCreepsByStableKey(
+    getSameRoomLoadedWorkers(creep).filter((worker) => getUsedEnergy(worker) > 0)
+  ).sort(
     (left, right) => compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures)
   );
   let reservedEnergy = 0;
@@ -3666,10 +3668,30 @@ function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, refil
   return true;
 }
 function compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures) {
-  return compareOptionalRanges(
+  return getUsedEnergy(right) - getUsedEnergy(left) || compareOptionalRanges(
     getClosestNearTermRefillRange(left, spawnExtensionEnergyStructures),
     getClosestNearTermRefillRange(right, spawnExtensionEnergyStructures)
-  ) || getUsedEnergy(left) - getUsedEnergy(right) || getCreepStableSortKey(left).localeCompare(getCreepStableSortKey(right));
+  ) || getCreepStableSortKey(left).localeCompare(getCreepStableSortKey(right));
+}
+function dedupeCreepsByStableKey(creeps) {
+  const seenStableKeys = /* @__PURE__ */ new Set();
+  const seenCreeps = /* @__PURE__ */ new Set();
+  const uniqueCreeps = [];
+  for (const creep of creeps) {
+    if (seenCreeps.has(creep)) {
+      continue;
+    }
+    seenCreeps.add(creep);
+    const stableKey = getCreepStableSortKey(creep);
+    if (stableKey.length > 0) {
+      if (seenStableKeys.has(stableKey)) {
+        continue;
+      }
+      seenStableKeys.add(stableKey);
+    }
+    uniqueCreeps.push(creep);
+  }
+  return uniqueCreeps;
 }
 function getClosestNearTermRefillRange(creep, spawnExtensionEnergyStructures) {
   let closestRange = null;

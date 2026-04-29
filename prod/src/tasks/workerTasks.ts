@@ -1058,8 +1058,9 @@ function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep: Creep)
 
 function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep: Creep, refillReserve: number): boolean {
   const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(creep.room);
-  const loadedWorkers = getSameRoomLoadedWorkers(creep)
-    .filter((worker) => getUsedEnergy(worker) > 0)
+  const loadedWorkers = dedupeCreepsByStableKey(
+    getSameRoomLoadedWorkers(creep).filter((worker) => getUsedEnergy(worker) > 0)
+  )
     .sort((left, right) =>
       compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures)
     );
@@ -1082,13 +1083,40 @@ function compareNearTermRefillReserveWorkers(
   spawnExtensionEnergyStructures: SpawnExtensionEnergyStructure[]
 ): number {
   return (
+    getUsedEnergy(right) - getUsedEnergy(left) ||
     compareOptionalRanges(
       getClosestNearTermRefillRange(left, spawnExtensionEnergyStructures),
       getClosestNearTermRefillRange(right, spawnExtensionEnergyStructures)
     ) ||
-    getUsedEnergy(left) - getUsedEnergy(right) ||
     getCreepStableSortKey(left).localeCompare(getCreepStableSortKey(right))
   );
+}
+
+function dedupeCreepsByStableKey(creeps: Creep[]): Creep[] {
+  const seenStableKeys = new Set<string>();
+  const seenCreeps = new Set<Creep>();
+  const uniqueCreeps: Creep[] = [];
+
+  for (const creep of creeps) {
+    if (seenCreeps.has(creep)) {
+      continue;
+    }
+
+    seenCreeps.add(creep);
+
+    const stableKey = getCreepStableSortKey(creep);
+    if (stableKey.length > 0) {
+      if (seenStableKeys.has(stableKey)) {
+        continue;
+      }
+
+      seenStableKeys.add(stableKey);
+    }
+
+    uniqueCreeps.push(creep);
+  }
+
+  return uniqueCreeps;
 }
 
 function getClosestNearTermRefillRange(

@@ -24,6 +24,16 @@ function makeLoadedWorker(room: Room, task?: CreepTaskMemory): Creep {
   } as unknown as Creep;
 }
 
+function makeRefillReserveWorker(room: Room, name: string, energy: number, rangeToRefill: number): Creep {
+  return {
+    name,
+    memory: { role: 'worker' },
+    store: { getUsedCapacity: jest.fn().mockReturnValue(energy) },
+    pos: { getRangeTo: jest.fn().mockReturnValue(rangeToRefill) },
+    room
+  } as unknown as Creep;
+}
+
 function setGameCreeps(creeps: Record<string, Creep>): void {
   (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps };
 }
@@ -1847,6 +1857,66 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
     setGameCreeps({ ReserveA: reserveWorkerA, ReserveB: reserveWorkerB });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('deduplicates reserve workers by stable key before counting reserved refill energy', () => {
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 100,
+      energyCapacityAvailable: 100,
+      myStructures: [busyFullSpawn as AnyOwnedStructure]
+    });
+    const reserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 1);
+    const duplicateReserveWorker = makeRefillReserveWorker(room, 'ReserveA', 50, 2);
+    const creep = makeRefillReserveWorker(room, 'Builder', 50, 9);
+    setGameCreeps({ ReserveA: reserveWorker, ReserveAAlias: duplicateReserveWorker });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('reserves higher-energy workers before range tie-breakers for near-term refill capacity', () => {
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 100,
+      energyCapacityAvailable: 100,
+      myStructures: [busyFullSpawn as AnyOwnedStructure]
+    });
+    const lowEnergyReserveWorker = makeRefillReserveWorker(room, 'LowReserve', 50, 1);
+    const highEnergyReserveWorker = makeRefillReserveWorker(room, 'HighReserve', 100, 9);
+    const creep = makeRefillReserveWorker(room, 'ZBuilder', 50, 1);
+    setGameCreeps({ LowReserve: lowEnergyReserveWorker, HighReserve: highEnergyReserveWorker });
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
