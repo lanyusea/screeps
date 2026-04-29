@@ -4114,7 +4114,7 @@ function isSameRoomPosition2(left, right) {
   return true;
 }
 function isRoomPosition(value) {
-  return isWorkerTaskRecord(value) && typeof value.x === "number" && typeof value.y === "number" && Number.isFinite(value.x) && Number.isFinite(value.y);
+  return isWorkerTaskRecord(value) && typeof value.x === "number" && typeof value.y === "number" && typeof value.roomName === "string" && Number.isFinite(value.x) && Number.isFinite(value.y) && value.roomName.length > 0;
 }
 function hasRecoverableSurplusEnergy(creep) {
   return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null || findDroppedResources(creep.room).some(isUsefulDroppedEnergy);

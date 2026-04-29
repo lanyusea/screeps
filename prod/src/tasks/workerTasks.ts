@@ -1481,8 +1481,10 @@ function isRoomPosition(value: unknown): value is RoomPosition {
     isWorkerTaskRecord(value) &&
     typeof value.x === 'number' &&
     typeof value.y === 'number' &&
+    typeof value.roomName === 'string' &&
     Number.isFinite(value.x) &&
-    Number.isFinite(value.y)
+    Number.isFinite(value.y) &&
+    value.roomName.length > 0
   );
 }
 

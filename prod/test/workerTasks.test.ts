@@ -4005,6 +4005,13 @@ describe('selectWorkerTask', () => {
 
   it.each([
     ['missing source position', [makeSource('source1', 8, 8), { id: 'source2', energy: 300 } as Source]],
+    [
+      'source position without roomName',
+      [
+        makeSource('source1', 8, 8),
+        { id: 'source2', energy: 300, pos: { x: 24, y: 23 } as RoomPosition } as Source
+      ]
+    ],
     ['far source2/controller topology', [makeSource('source1', 8, 8), makeSource('source2', 40, 40)]]
   ])('falls back to existing worker behavior with %s', (_label, sources) => {
     const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
