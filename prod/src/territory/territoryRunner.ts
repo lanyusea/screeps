@@ -11,13 +11,16 @@ import { signOccupiedControllerIfNeeded } from './controllerSigning';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
+const ERR_NO_BODYPART_CODE = -12 as ScreepsReturnCode;
 const ERR_GCL_NOT_ENOUGH_CODE = -15 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
 const CLAIM_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([
   ERR_INVALID_TARGET_CODE,
+  ERR_NO_BODYPART_CODE,
   ERR_GCL_NOT_ENOUGH_CODE
 ]);
-const RESERVE_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([ERR_INVALID_TARGET_CODE]);
+const RESERVE_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([ERR_INVALID_TARGET_CODE, ERR_NO_BODYPART_CODE]);
+const PRESSURE_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([ERR_NO_BODYPART_CODE]);
 
 type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
 
@@ -83,6 +86,11 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     const pressureResult = executeControllerAction(creep, controller, 'attackController');
     if (pressureResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
       creep.moveTo(controller);
+      return;
+    }
+
+    if (PRESSURE_FATAL_RESULT_CODES.has(pressureResult)) {
+      suppressTerritoryAssignment(creep, assignment);
       return;
     }
 

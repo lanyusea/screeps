@@ -804,7 +804,7 @@ describe('runTerritoryControllerCreep', () => {
       owner: { username: 'me' },
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
       room: { name: 'W1N2', controller },
-      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      getActiveBodyparts: jest.fn().mockReturnValue(5),
       attackController: jest.fn().mockReturnValue(0),
       reserveController: jest.fn(),
       moveTo: jest.fn()
@@ -823,6 +823,106 @@ describe('runTerritoryControllerCreep', () => {
         action: 'reserve',
         status: 'active',
         updatedAt: 515
+      }
+    ]);
+  });
+
+  it('suppresses foreign reservation pressure when the claimer lacks five CLAIM parts', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 517,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 516
+          }
+        ]
+      }
+    };
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      attackController: jest.fn(),
+      reserveController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.attackController).not.toHaveBeenCalled();
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 517
+      }
+    ]);
+  });
+
+  it('suppresses foreign reservation pressure when attackController reports no CLAIM body parts', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 518,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 517
+          }
+        ]
+      }
+    };
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(5),
+      attackController: jest.fn().mockReturnValue(-12),
+      reserveController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.attackController).toHaveBeenCalledWith(controller);
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 518
       }
     ]);
   });

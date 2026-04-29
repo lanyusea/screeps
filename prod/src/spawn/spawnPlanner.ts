@@ -3,6 +3,7 @@ import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import {
   buildEmergencyWorkerBody,
   buildTerritoryControllerBody,
+  buildTerritoryControllerPressureBody,
   buildWorkerBody,
   getBodyCost
 } from './bodyBuilder';
@@ -11,6 +12,7 @@ import {
   getTerritoryFollowUpPreparationWorkerDemand,
   planTerritoryIntent,
   recordRecoveredTerritoryFollowUpRetryCooldown,
+  requiresTerritoryControllerPressure,
   shouldSpawnTerritoryControllerCreep,
   TERRITORY_DOWNGRADE_GUARD_TICKS,
   TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND,
@@ -118,7 +120,7 @@ function planTerritorySpawn(
     return null;
   }
 
-  const body = buildTerritorySpawnBody(colony.energyAvailable, territoryIntent.action);
+  const body = buildTerritorySpawnBody(colony.energyAvailable, territoryIntent);
   if (body.length === 0) {
     return null;
   }
@@ -186,9 +188,13 @@ function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boole
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
 }
 
-function buildTerritorySpawnBody(energyAvailable: number, action: TerritoryIntentAction): BodyPartConstant[] {
-  if (action === 'scout') {
+function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryIntentPlan): BodyPartConstant[] {
+  if (intent.action === 'scout') {
     return energyAvailable >= TERRITORY_SCOUT_BODY_COST ? [...TERRITORY_SCOUT_BODY] : [];
+  }
+
+  if (requiresTerritoryControllerPressure(intent)) {
+    return buildTerritoryControllerPressureBody(energyAvailable);
   }
 
   return buildTerritoryControllerBody(energyAvailable);

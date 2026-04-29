@@ -1,6 +1,10 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
-import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
+import {
+  TERRITORY_CONTROLLER_BODY_COST,
+  TERRITORY_CONTROLLER_PRESSURE_BODY_COST,
+  TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
+} from '../spawn/bodyBuilder';
 import {
   scoreOccupationRecommendations,
   type OccupationControllerEvidence,
@@ -194,10 +198,32 @@ export function shouldSpawnTerritoryControllerCreep(
     return false;
   }
 
+  if (!isTerritoryIntentPlanSpawnCapable(plan)) {
+    return false;
+  }
+
   const activeCoverageCount = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action);
   return (
     activeCoverageCount === 0 || shouldSpawnEmergencyReservationRenewal(plan, activeCoverageCount)
   );
+}
+
+export function requiresTerritoryControllerPressure(plan: TerritoryIntentPlan): boolean {
+  return isVisibleTerritoryReservePressureAvailable(
+    plan.targetRoom,
+    plan.action,
+    plan.controllerId,
+    getVisibleColonyOwnerUsername(plan.colony)
+  );
+}
+
+function isTerritoryIntentPlanSpawnCapable(plan: TerritoryIntentPlan): boolean {
+  if (!requiresTerritoryControllerPressure(plan)) {
+    return true;
+  }
+
+  const energyCapacityAvailable = getVisibleRoom(plan.colony)?.energyCapacityAvailable;
+  return typeof energyCapacityAvailable !== 'number' || energyCapacityAvailable >= TERRITORY_CONTROLLER_PRESSURE_BODY_COST;
 }
 
 export function getTerritoryFollowUpPreparationWorkerDemand(
@@ -339,7 +365,7 @@ export function canCreepPressureTerritoryController(
   colony: string | undefined
 ): boolean {
   return (
-    getActiveControllerClaimPartCount(creep) > 0 &&
+    getActiveControllerClaimPartCount(creep) >= TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS &&
     isForeignReservedController(controller, getTerritoryActorUsername(creep, colony))
   );
 }
@@ -407,10 +433,12 @@ export function isVisibleTerritoryAssignmentSafe(
 
   const actorUsername = getTerritoryActorUsername(creep, colony);
   const targetState = getTerritoryControllerTargetState(controller, assignment.action, actorUsername);
+  const isPressureTarget = assignment.action === 'reserve' && isForeignReservedController(controller, actorUsername);
   return (
     targetState === 'available' ||
     (assignment.action === 'reserve' && targetState === 'satisfied') ||
-    (assignment.action === 'reserve' && isForeignReservedController(controller, actorUsername))
+    (isPressureTarget &&
+      (creep === undefined || canCreepPressureTerritoryController(creep, controller, colony)))
   );
 }
 
@@ -600,7 +628,10 @@ function selectTerritoryTarget(
     gameTime,
     routeDistanceLookupContext
   );
-  const primaryCandidates = [...persistedIntentCandidates, ...configuredCandidates];
+  const primaryCandidates = getSpawnCapableTerritoryCandidates(
+    [...persistedIntentCandidates, ...configuredCandidates],
+    colony
+  );
   const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
     getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony)
   );
@@ -664,7 +695,7 @@ function selectTerritoryTarget(
       routeDistanceLookupContext
     )
   ]);
-  const candidates = [...primaryCandidates, ...adjacentCandidates];
+  const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
 
   return toSelectedTerritoryTarget(
     selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony)) ??
@@ -727,6 +758,13 @@ function getActionableTerritoryCandidates(
   );
 }
 
+function getSpawnCapableTerritoryCandidates(
+  candidates: ScoredTerritoryTarget[],
+  colony: ColonySnapshot
+): ScoredTerritoryTarget[] {
+  return candidates.filter((candidate) => isTerritoryCandidateSpawnCapable(candidate, colony));
+}
+
 function withImmediateControllerFollowUpState(
   candidates: ScoredTerritoryTarget[],
   roleCounts: RoleCounts
@@ -764,12 +802,35 @@ function isTerritoryCandidateSpawnRequired(candidate: ScoredTerritoryTarget, rol
 }
 
 function isTerritoryCandidateSpawnReady(candidate: ScoredTerritoryTarget, colony: ColonySnapshot): boolean {
-  return isTerritoryIntentActionSpawnReady(colony, candidate.intentAction);
+  const bodyCost = getTerritoryCandidateBodyCost(candidate, colony);
+  return colony.energyCapacityAvailable >= bodyCost && colony.energyAvailable >= bodyCost;
 }
 
 function isTerritoryIntentActionSpawnReady(colony: ColonySnapshot, action: TerritoryIntentAction): boolean {
   const bodyCost = getTerritoryIntentActionBodyCost(action);
   return colony.energyCapacityAvailable >= bodyCost && colony.energyAvailable >= bodyCost;
+}
+
+function isTerritoryCandidateSpawnCapable(candidate: ScoredTerritoryTarget, colony: ColonySnapshot): boolean {
+  return colony.energyCapacityAvailable >= getTerritoryCandidateBodyCost(candidate, colony);
+}
+
+function getTerritoryCandidateBodyCost(candidate: ScoredTerritoryTarget, colony: ColonySnapshot): number {
+  return isTerritoryReservePressureCandidate(candidate, getControllerOwnerUsername(colony.room.controller))
+    ? TERRITORY_CONTROLLER_PRESSURE_BODY_COST
+    : getTerritoryIntentActionBodyCost(candidate.intentAction);
+}
+
+function isTerritoryReservePressureCandidate(
+  candidate: Pick<ScoredTerritoryTarget, 'target' | 'intentAction'>,
+  colonyOwnerUsername: string | null
+): boolean {
+  return isVisibleTerritoryReservePressureAvailable(
+    candidate.target.roomName,
+    candidate.intentAction,
+    candidate.target.controllerId,
+    colonyOwnerUsername
+  );
 }
 
 function getTerritoryIntentActionBodyCost(action: TerritoryIntentAction): number {
@@ -958,6 +1019,13 @@ function hasBlockingConfiguredTerritoryTargetForColony(
     }
 
     if (isConfiguredFollowUpTargetBlockedBySpawnReadiness(target, intents, gameTime, colony)) {
+      return false;
+    }
+
+    if (
+      isVisibleTerritoryReservePressureAvailable(target.roomName, target.action, target.controllerId, colonyOwnerUsername) &&
+      colony.energyCapacityAvailable < TERRITORY_CONTROLLER_PRESSURE_BODY_COST
+    ) {
       return false;
     }
 

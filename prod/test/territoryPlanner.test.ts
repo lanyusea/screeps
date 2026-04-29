@@ -3456,7 +3456,7 @@ describe('planTerritoryIntent', () => {
   });
 
   it('keeps own renewal ahead of foreign reservation pressure and owned reserve targets', () => {
-    const colony = makeSafeColony();
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
         W1N1: colony.room,
@@ -3538,7 +3538,7 @@ describe('planTerritoryIntent', () => {
   });
 
   it('keeps an unreserved target ahead of enemy-reserved controller pressure', () => {
-    const colony = makeSafeColony();
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
         W1N1: colony.room,
@@ -3579,6 +3579,37 @@ describe('planTerritoryIntent', () => {
         updatedAt: 536
       }
     ]);
+  });
+
+  it('does not dispatch a configured foreign reservation pressure target without pressure body capacity', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 542)).toBeNull();
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        542
+      )
+    ).toBe(false);
+    expect(Memory.territory?.intents).toBeUndefined();
   });
 
   it('does not renew an explicitly suppressed own reserve target near expiry', () => {
@@ -3673,7 +3704,7 @@ describe('planTerritoryIntent', () => {
   });
 
   it('dispatches a configured reserve target to pressure a foreign reservation', () => {
-    const colony = makeSafeColony();
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
         W1N1: colony.room,
@@ -3803,22 +3834,26 @@ function makeRecommendationRoom(
 
 function makeSafeColony({
   roomName = 'W1N1',
-  controller = { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+  controller = { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+  energyAvailable = 650,
+  energyCapacityAvailable = 650
 }: {
   roomName?: string;
   controller?: StructureController;
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
 } = {}): ColonySnapshot {
   const room = {
     name: roomName,
     controller,
-    energyAvailable: 650,
-    energyCapacityAvailable: 650
+    energyAvailable,
+    energyCapacityAvailable
   } as unknown as Room;
 
   return {
     room,
     spawns: [],
-    energyAvailable: 650,
-    energyCapacityAvailable: 650
+    energyAvailable,
+    energyCapacityAvailable
   };
 }
