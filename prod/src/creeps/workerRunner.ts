@@ -84,7 +84,7 @@ function executeAssignedTask(
   }
 
   const result = executeTask(creep, task, target);
-  if (task.type === 'transfer' && result === ERR_FULL) {
+  if (shouldImmediatelyReselectAfterTaskResult(task, result)) {
     delete creep.memory.task;
     const nextTask = assignNextTask(creep);
     if (
@@ -100,6 +100,18 @@ function executeAssignedTask(
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target as RoomObject);
   }
+}
+
+function shouldImmediatelyReselectAfterTaskResult(task: CreepTaskMemory, result: ScreepsReturnCode): boolean {
+  if (task.type === 'transfer') {
+    return result === ERR_FULL;
+  }
+
+  return isEnergyAcquisitionTask(task) && isUnavailableEnergyAcquisitionResult(result);
+}
+
+function isUnavailableEnergyAcquisitionResult(result: ScreepsReturnCode): boolean {
+  return result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET;
 }
 
 function assignSelectedTask(

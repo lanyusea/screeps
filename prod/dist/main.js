@@ -4973,7 +4973,7 @@ function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 
     }
   }
   const result = executeTask(creep, task, target);
-  if (task.type === "transfer" && result === ERR_FULL) {
+  if (shouldImmediatelyReselectAfterTaskResult(task, result)) {
     delete creep.memory.task;
     const nextTask = assignNextTask(creep);
     if (nextTask && !isSameTask(task, nextTask) && immediateReselectExecutions < MAX_IMMEDIATE_RESELECT_EXECUTIONS) {
@@ -4984,6 +4984,15 @@ function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target);
   }
+}
+function shouldImmediatelyReselectAfterTaskResult(task, result) {
+  if (task.type === "transfer") {
+    return result === ERR_FULL;
+  }
+  return isEnergyAcquisitionTask(task) && isUnavailableEnergyAcquisitionResult(result);
+}
+function isUnavailableEnergyAcquisitionResult(result) {
+  return result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET;
 }
 function assignSelectedTask(creep, selectedTask, previousTask) {
   if (!selectedTask || previousTask && isSameTask(previousTask, selectedTask)) {
