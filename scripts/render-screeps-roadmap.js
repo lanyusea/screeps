@@ -178,9 +178,19 @@ const officialDeployEvidence = countFiles(
   "test -d runtime-artifacts/official-screeps-deploy && find runtime-artifacts/official-screeps-deploy -maxdepth 1 -type f -name 'official-screeps-deploy-*.json' >/dev/null && echo present || echo missing"
 );
 const projectOfficialDeploys = explicitOfficialDeployEvidence();
-const officialDeploys = officialDeployEvidence.observed
-  ? Math.max(officialDeployEvidence.value, projectOfficialDeploys)
-  : (projectOfficialDeploys || null);
+function readRoadmapProcessMetric(label) {
+  try {
+    const raw = fs.readFileSync(path.join(repo, 'docs', 'roadmap-data.json'), 'utf8');
+    const data = JSON.parse(raw);
+    const cards = data?.report?.processCards;
+    if (!Array.isArray(cards)) return null;
+    return cards.find(card => card && card.label === label) || null;
+  } catch {
+    return null;
+  }
+}
+const officialDeployCard = readRoadmapProcessMetric('Official deploys');
+const officialDeploys = Number.isFinite(Number(officialDeployCard?.value)) ? Number(officialDeployCard.value) : (projectOfficialDeploys || null);
 function explicitPrivateSmokeEvidence() {
   const evidence = new Set();
   for (const item of items) {
@@ -286,7 +296,7 @@ ${kanban('04 Foundation Kanban', 'Reliability / P0 and Foundation Gates; data co
     'Official game deploys',
     typeof officialDeploys === 'number' ? officialDeploys : 'not observed',
     'officialDeploys',
-    projectOfficialDeploys ? 'GitHub Project official deploy evidence' : officialDeployEvidence.observed ? 'runtime artifact evidence' : 'evidence unavailable'
+    officialDeployCard ? String(officialDeployCard.detail || 'roadmap-data official deploy evidence') : projectOfficialDeploys ? 'GitHub Project official deploy evidence' : 'evidence unavailable'
   ),
   metric('Private smoke tests', privateTests > 0 ? metrics.privateTests : 'not observed', 'privateTests', privateTests > 0 ? 'GitHub Project smoke evidence' : 'evidence unavailable')
 ].join('')}</div></section>
