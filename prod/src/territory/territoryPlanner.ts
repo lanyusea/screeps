@@ -463,6 +463,50 @@ export function suppressTerritoryIntent(
   removeTerritoryFollowUpExecutionHint(territoryMemory, colony, assignment.targetRoom, assignment.action);
 }
 
+export function recordTerritoryReserveFallbackIntent(
+  colony: string | undefined,
+  assignment: CreepTerritoryMemory,
+  gameTime: number
+): void {
+  if (!isNonEmptyString(colony) || !isNonEmptyString(assignment.targetRoom) || assignment.action !== 'reserve') {
+    return;
+  }
+
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  const followUp = normalizeTerritoryFollowUp(assignment.followUp);
+  const plan: TerritoryIntentPlan = {
+    colony,
+    targetRoom: assignment.targetRoom,
+    action: 'reserve',
+    ...(assignment.controllerId ? { controllerId: assignment.controllerId } : {}),
+    ...(followUp ? { followUp } : {})
+  };
+  appendTerritoryTargetIfMissing(territoryMemory, {
+    colony,
+    roomName: assignment.targetRoom,
+    action: 'reserve',
+    ...(assignment.controllerId ? { controllerId: assignment.controllerId } : {})
+  });
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  upsertTerritoryIntent(intents, {
+    colony: plan.colony,
+    targetRoom: plan.targetRoom,
+    action: plan.action,
+    status: 'active',
+    updatedAt: gameTime,
+    ...(plan.controllerId ? { controllerId: plan.controllerId } : {}),
+    ...(plan.followUp ? { followUp: plan.followUp } : {})
+  });
+  recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
+  recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
+}
+
 export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
     return false;
@@ -1776,6 +1820,24 @@ function appendTerritoryTarget(territoryMemory: TerritoryMemory, target: Territo
   }
 
   territoryMemory.targets.push(target);
+}
+
+function appendTerritoryTargetIfMissing(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
+  if (
+    Array.isArray(territoryMemory.targets) &&
+    territoryMemory.targets.some((rawTarget) => {
+      const existingTarget = normalizeTerritoryTarget(rawTarget);
+      return (
+        existingTarget?.colony === target.colony &&
+        existingTarget.roomName === target.roomName &&
+        existingTarget.action === target.action
+      );
+    })
+  ) {
+    return;
+  }
+
+  appendTerritoryTarget(territoryMemory, target);
 }
 
 function getAdjacentRoomNames(roomName: string): string[] {
