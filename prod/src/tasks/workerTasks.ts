@@ -2131,16 +2131,21 @@ function selectHarvestSource(creep: Creep): Source | null {
   let selectedSource = viableSources[0];
   let selectedCount = assignmentCounts.get(selectedSource.id) ?? 0;
 
-  // Ties intentionally keep room.find(FIND_SOURCES) order stable.
   for (const source of viableSources.slice(1)) {
     const count = assignmentCounts.get(source.id) ?? 0;
-    if (count < selectedCount) {
+    if (count < selectedCount || (count === selectedCount && isCloserHarvestSource(creep, source, selectedSource))) {
       selectedSource = source;
       selectedCount = count;
     }
   }
 
   return selectedSource;
+}
+
+function isCloserHarvestSource(creep: Creep, candidate: Source, selected: Source): boolean {
+  const candidateRange = getRangeBetweenRoomObjects(creep, candidate);
+  const selectedRange = getRangeBetweenRoomObjects(creep, selected);
+  return candidateRange !== null && selectedRange !== null && candidateRange < selectedRange;
 }
 
 function selectViableHarvestSources(sources: Source[]): Source[] {

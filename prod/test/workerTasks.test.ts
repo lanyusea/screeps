@@ -1503,15 +1503,17 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-full' });
   });
 
-  it('keeps room.find source order as the stable tie-breaker for viable sources', () => {
+  it('selects the closer harvest source when viable source assignments tie', () => {
     const source2 = { id: 'source2', energy: 100 } as Source;
     const source1 = { id: 'source1', energy: 100 } as Source;
+    const getRangeTo = jest.fn((target: Source) => (target.id === 'source1' ? 2 : 9));
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      pos: { getRangeTo },
       room: { name: 'W1N1', find: jest.fn().mockReturnValue([source2, source1]) }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
   it('falls back deterministically when all sources are empty', () => {
