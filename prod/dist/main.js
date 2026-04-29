@@ -1385,12 +1385,12 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
     routeDistanceLookupContext
   );
   const primaryCandidates = [...persistedIntentCandidates, ...configuredCandidates];
-  const bestSpawnablePrimaryCandidate = selectBestScoredTerritoryCandidate(
-    getSpawnableTerritoryCandidates(primaryCandidates, roleCounts, colony)
+  const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
+    getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony)
   );
-  if (bestSpawnablePrimaryCandidate && bestSpawnablePrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
-    if (!shouldEvaluateVisibleAdjacentFollowUpPreference(bestSpawnablePrimaryCandidate)) {
-      return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
+  if (bestReadyPrimaryCandidate && bestReadyPrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
+    if (!shouldEvaluateVisibleAdjacentFollowUpPreference(bestReadyPrimaryCandidate)) {
+      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate);
     }
     const visibleAdjacentFollowUpCandidates = applyOccupationRecommendationScores(
       colony,
@@ -1406,16 +1406,16 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
       )
     );
     if (visibleAdjacentFollowUpCandidates.length === 0) {
-      return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
+      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate);
     }
     return toSelectedTerritoryTarget(
       (_a = selectBestScoredTerritoryCandidate(
-        getSpawnableTerritoryCandidates(
+        getReadyTerritoryCandidates(
           [...primaryCandidates, ...visibleAdjacentFollowUpCandidates],
           roleCounts,
           colony
         )
-      )) != null ? _a : bestSpawnablePrimaryCandidate
+      )) != null ? _a : bestReadyPrimaryCandidate
     );
   }
   const adjacentCandidates = applyOccupationRecommendationScores(colony, roleCounts, [
@@ -1444,7 +1444,7 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
   ]);
   const candidates = [...primaryCandidates, ...adjacentCandidates];
   return toSelectedTerritoryTarget(
-    (_c = (_b = selectBestScoredTerritoryCandidate(getSpawnableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates)
+    (_c = (_b = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates)
   );
 }
 function selectBestScoredTerritoryCandidate(candidates) {
@@ -1469,15 +1469,29 @@ function toSelectedTerritoryTarget(candidate) {
 function shouldEvaluateVisibleAdjacentFollowUpPreference(candidate) {
   return candidate.priority === TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE && candidate.target.action === "reserve";
 }
-function getSpawnableTerritoryCandidates(candidates, roleCounts, colony) {
-  return candidates.filter((candidate) => {
-    return isTerritoryCandidateSpawnRequired(candidate, roleCounts) && isTerritoryCandidateSpawnReady(candidate, colony);
-  });
+function getReadyTerritoryCandidates(candidates, roleCounts, colony) {
+  return withImmediateControllerFollowUpState(candidates, roleCounts).filter(
+    (candidate) => candidate.immediateControllerFollowUp === true || isTerritoryCandidateSpawnRequired(candidate, roleCounts) && isTerritoryCandidateSpawnReady(candidate, colony)
+  );
 }
 function getActionableTerritoryCandidates(candidates, roleCounts, colony) {
-  return candidates.filter(
+  return withImmediateControllerFollowUpState(candidates, roleCounts).filter(
     (candidate) => !isTerritoryCandidateSpawnRequired(candidate, roleCounts) || isTerritoryCandidateSpawnReady(candidate, colony)
   );
+}
+function withImmediateControllerFollowUpState(candidates, roleCounts) {
+  return candidates.map((candidate) => {
+    if (!isImmediateControllerFollowUpCandidate(candidate, roleCounts)) {
+      return candidate;
+    }
+    return {
+      ...candidate,
+      immediateControllerFollowUp: true
+    };
+  });
+}
+function isImmediateControllerFollowUpCandidate(candidate, roleCounts) {
+  return candidate.followUp !== void 0 && isTerritoryControlAction(candidate.intentAction) && getTerritoryCreepCountForTarget(roleCounts, candidate.target.roomName, candidate.intentAction) > 0;
 }
 function isTerritoryCandidateSpawnRequired(candidate, roleCounts) {
   const activeCoverageCount = getTerritoryCreepCountForTarget(
@@ -1977,7 +1991,15 @@ function getTerritoryCandidatePriority(selection, renewalTicksToEnd) {
   return selection.target.action === "claim" ? TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_CLAIM : TERRITORY_CANDIDATE_PRIORITY_UNKNOWN_RESERVE;
 }
 function compareTerritoryCandidates(left, right) {
-  return left.priority - right.priority || compareOptionalNumbers2(left.renewalTicksToEnd, right.renewalTicksToEnd) || compareVisibleAdjacentFollowUpPreference(left, right) || getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) || compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) || compareOptionalNumbers2(left.occupationActionableTicks, right.occupationActionableTicks) || compareRecoveredFollowUpPreference(left, right) || left.order - right.order || left.target.roomName.localeCompare(right.target.roomName) || left.intentAction.localeCompare(right.intentAction);
+  return left.priority - right.priority || compareOptionalNumbers2(left.renewalTicksToEnd, right.renewalTicksToEnd) || compareVisibleAdjacentFollowUpPreference(left, right) || compareImmediateControllerFollowUpPreference(left, right) || getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) || compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) || compareOptionalNumbers2(left.occupationActionableTicks, right.occupationActionableTicks) || compareRecoveredFollowUpPreference(left, right) || left.order - right.order || left.target.roomName.localeCompare(right.target.roomName) || left.intentAction.localeCompare(right.intentAction);
+}
+function compareImmediateControllerFollowUpPreference(left, right) {
+  const leftImmediate = left.immediateControllerFollowUp === true;
+  const rightImmediate = right.immediateControllerFollowUp === true;
+  if (leftImmediate === rightImmediate) {
+    return 0;
+  }
+  return leftImmediate ? -1 : 1;
 }
 function compareRecoveredFollowUpPreference(left, right) {
   if (left.recoveredFollowUp === right.recoveredFollowUp) {

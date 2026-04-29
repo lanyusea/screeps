@@ -70,6 +70,7 @@ interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
   recommendationEvidenceStatus?: OccupationRecommendationEvidenceStatus;
   routeDistance?: number;
   renewalTicksToEnd?: number;
+  immediateControllerFollowUp?: boolean;
   occupationActionableTicks?: number;
 }
 
@@ -488,15 +489,15 @@ function selectTerritoryTarget(
     routeDistanceLookupContext
   );
   const primaryCandidates = [...persistedIntentCandidates, ...configuredCandidates];
-  const bestSpawnablePrimaryCandidate = selectBestScoredTerritoryCandidate(
-    getSpawnableTerritoryCandidates(primaryCandidates, roleCounts, colony)
+  const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
+    getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony)
   );
   if (
-    bestSpawnablePrimaryCandidate &&
-    bestSpawnablePrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY
+    bestReadyPrimaryCandidate &&
+    bestReadyPrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY
   ) {
-    if (!shouldEvaluateVisibleAdjacentFollowUpPreference(bestSpawnablePrimaryCandidate)) {
-      return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
+    if (!shouldEvaluateVisibleAdjacentFollowUpPreference(bestReadyPrimaryCandidate)) {
+      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate);
     }
 
     const visibleAdjacentFollowUpCandidates = applyOccupationRecommendationScores(
@@ -513,17 +514,17 @@ function selectTerritoryTarget(
       )
     );
     if (visibleAdjacentFollowUpCandidates.length === 0) {
-      return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
+      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate);
     }
 
     return toSelectedTerritoryTarget(
       selectBestScoredTerritoryCandidate(
-        getSpawnableTerritoryCandidates(
+        getReadyTerritoryCandidates(
           [...primaryCandidates, ...visibleAdjacentFollowUpCandidates],
           roleCounts,
           colony
         )
-      ) ?? bestSpawnablePrimaryCandidate
+      ) ?? bestReadyPrimaryCandidate
     );
   }
 
@@ -554,7 +555,7 @@ function selectTerritoryTarget(
   const candidates = [...primaryCandidates, ...adjacentCandidates];
 
   return toSelectedTerritoryTarget(
-    selectBestScoredTerritoryCandidate(getSpawnableTerritoryCandidates(candidates, roleCounts, colony)) ??
+    selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony)) ??
       selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony)) ??
       selectBestScoredTerritoryCandidate(candidates)
   );
@@ -590,17 +591,17 @@ function shouldEvaluateVisibleAdjacentFollowUpPreference(candidate: ScoredTerrit
   return candidate.priority === TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE && candidate.target.action === 'reserve';
 }
 
-function getSpawnableTerritoryCandidates(
+function getReadyTerritoryCandidates(
   candidates: ScoredTerritoryTarget[],
   roleCounts: RoleCounts,
   colony: ColonySnapshot
 ): ScoredTerritoryTarget[] {
-  return candidates.filter((candidate) => {
-    return (
-      isTerritoryCandidateSpawnRequired(candidate, roleCounts) &&
-      isTerritoryCandidateSpawnReady(candidate, colony)
-    );
-  });
+  return withImmediateControllerFollowUpState(candidates, roleCounts).filter(
+    (candidate) =>
+      candidate.immediateControllerFollowUp === true ||
+      (isTerritoryCandidateSpawnRequired(candidate, roleCounts) &&
+        isTerritoryCandidateSpawnReady(candidate, colony))
+  );
 }
 
 function getActionableTerritoryCandidates(
@@ -608,9 +609,36 @@ function getActionableTerritoryCandidates(
   roleCounts: RoleCounts,
   colony: ColonySnapshot
 ): ScoredTerritoryTarget[] {
-  return candidates.filter(
+  return withImmediateControllerFollowUpState(candidates, roleCounts).filter(
     (candidate) =>
       !isTerritoryCandidateSpawnRequired(candidate, roleCounts) || isTerritoryCandidateSpawnReady(candidate, colony)
+  );
+}
+
+function withImmediateControllerFollowUpState(
+  candidates: ScoredTerritoryTarget[],
+  roleCounts: RoleCounts
+): ScoredTerritoryTarget[] {
+  return candidates.map((candidate) => {
+    if (!isImmediateControllerFollowUpCandidate(candidate, roleCounts)) {
+      return candidate;
+    }
+
+    return {
+      ...candidate,
+      immediateControllerFollowUp: true
+    };
+  });
+}
+
+function isImmediateControllerFollowUpCandidate(
+  candidate: ScoredTerritoryTarget,
+  roleCounts: RoleCounts
+): boolean {
+  return (
+    candidate.followUp !== undefined &&
+    isTerritoryControlAction(candidate.intentAction) &&
+    getTerritoryCreepCountForTarget(roleCounts, candidate.target.roomName, candidate.intentAction) > 0
   );
 }
 
@@ -1406,6 +1434,7 @@ function compareTerritoryCandidates(left: ScoredTerritoryTarget, right: ScoredTe
     left.priority - right.priority ||
     compareOptionalNumbers(left.renewalTicksToEnd, right.renewalTicksToEnd) ||
     compareVisibleAdjacentFollowUpPreference(left, right) ||
+    compareImmediateControllerFollowUpPreference(left, right) ||
     getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) ||
     compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) ||
     compareOptionalNumbers(left.occupationActionableTicks, right.occupationActionableTicks) ||
@@ -1414,6 +1443,19 @@ function compareTerritoryCandidates(left: ScoredTerritoryTarget, right: ScoredTe
     left.target.roomName.localeCompare(right.target.roomName) ||
     left.intentAction.localeCompare(right.intentAction)
   );
+}
+
+function compareImmediateControllerFollowUpPreference(
+  left: ScoredTerritoryTarget,
+  right: ScoredTerritoryTarget
+): number {
+  const leftImmediate = left.immediateControllerFollowUp === true;
+  const rightImmediate = right.immediateControllerFollowUp === true;
+  if (leftImmediate === rightImmediate) {
+    return 0;
+  }
+
+  return leftImmediate ? -1 : 1;
 }
 
 function compareRecoveredFollowUpPreference(left: ScoredTerritoryTarget, right: ScoredTerritoryTarget): number {
