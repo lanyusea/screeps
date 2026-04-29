@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
-const zlib = require('zlib');
 let chromium;
 try {
   ({ chromium } = require('playwright'));
@@ -58,104 +57,6 @@ const logoPath = assetPath(roadmapData.assets?.logo);
 const logoDataUri = fs.existsSync(logoPath)
   ? `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`
   : '';
-
-const crcTable = (() => {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n += 1) {
-    let c = n;
-    for (let k = 0; k < 8; k += 1) {
-      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    }
-    table[n] = c >>> 0;
-  }
-  return table;
-})();
-
-function crc32(buffer) {
-  let crc = 0xffffffff;
-  for (const byte of buffer) {
-    crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function pngChunk(type, data = Buffer.alloc(0)) {
-  const typeBuffer = Buffer.from(type, 'ascii');
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length, 0);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
-  return Buffer.concat([length, typeBuffer, data, crc]);
-}
-
-function writeFallbackPng(filePath) {
-  const width = 1600;
-  const height = 2490;
-  const stride = width * 4 + 1;
-  const raw = Buffer.alloc(stride * height);
-
-  function fillRect(x, y, w, h, color) {
-    const [r, g, b, a = 255] = color;
-    const left = Math.max(0, Math.floor(x));
-    const top = Math.max(0, Math.floor(y));
-    const right = Math.min(width, Math.ceil(x + w));
-    const bottom = Math.min(height, Math.ceil(y + h));
-    for (let yy = top; yy < bottom; yy += 1) {
-      let offset = yy * stride + 1 + left * 4;
-      for (let xx = left; xx < right; xx += 1) {
-        raw[offset] = r;
-        raw[offset + 1] = g;
-        raw[offset + 2] = b;
-        raw[offset + 3] = a;
-        offset += 4;
-      }
-    }
-  }
-
-  for (let y = 0; y < height; y += 1) {
-    raw[y * stride] = 0;
-  }
-  fillRect(0, 0, width, height, [244, 238, 227]);
-  fillRect(48, 62, 1504, 338, [255, 253, 247]);
-  fillRect(1180, 92, 320, 260, [239, 228, 211]);
-  fillRect(84, 440, 470, 300, [255, 253, 247]);
-  fillRect(566, 440, 470, 300, [255, 253, 247]);
-  fillRect(1048, 440, 470, 300, [255, 253, 247]);
-  for (let row = 0; row < 2; row += 1) {
-    for (let col = 0; col < 3; col += 1) {
-      fillRect(84 + col * 482, 825 + row * 216, 470, 182, [255, 253, 247]);
-      fillRect(104 + col * 482, 965 + row * 216, 300, 11, [240, 229, 214]);
-      fillRect(104 + col * 482, 965 + row * 216, 180 + col * 35, 11, [200, 145, 85]);
-    }
-  }
-  for (let section = 0; section < 2; section += 1) {
-    for (let col = 0; col < 4; col += 1) {
-      fillRect(84 + col * 360, 1330 + section * 420, 340, 270, [251, 246, 237]);
-      fillRect(104 + col * 360, 1374 + section * 420, 300, 72, [255, 253, 248]);
-      fillRect(104 + col * 360, 1460 + section * 420, 300, 72, [255, 253, 248]);
-    }
-  }
-  for (let col = 0; col < 5; col += 1) {
-    fillRect(84 + col * 290, 2200, 275, 136, [255, 253, 247]);
-  }
-
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6;
-  ihdr[10] = 0;
-  ihdr[11] = 0;
-  ihdr[12] = 0;
-
-  const png = Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk('IHDR', ihdr),
-    pngChunk('IDAT', zlib.deflateSync(raw)),
-    pngChunk('IEND')
-  ]);
-  fs.writeFileSync(filePath, png);
-}
 
 function esc(v) {
   return String(v ?? 'unavailable').replace(/[&<>"']/g, s => ({
@@ -325,6 +226,7 @@ ${kanban('04 Foundation Delivery Kanban', report.foundationKanban)}
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const htmlPath = out.replace(/\.png$/, '.html');
   fs.writeFileSync(htmlPath, html);
+  fs.rmSync(out, { force: true });
   const launchOptions = {
     headless: true,
     chromiumSandbox: false,
@@ -348,16 +250,27 @@ ${kanban('04 Foundation Delivery Kanban', report.foundationKanban)}
       launchOptions.executablePath = systemChromium;
     }
   }
+  let browser;
   try {
-    const browser = await chromium.launch(launchOptions);
+    browser = await chromium.launch(launchOptions);
     const page = await browser.newPage({ viewport: { width: 1600, height: 2490 }, deviceScaleFactor: 1 });
     await page.goto('file://' + htmlPath);
     await page.screenshot({ path: out, fullPage: true });
-    await browser.close();
   } catch (error) {
     const reason = String(error && error.message ? error.message : error).split('\n')[0];
-    console.error(`Playwright screenshot failed (${reason}); wrote a degraded PNG fallback after generating ${htmlPath}.`);
-    writeFallbackPng(out);
+    fs.rmSync(out, { force: true });
+    console.error(`Playwright screenshot failed (${reason}); generated HTML at ${htmlPath}.`);
+    process.exitCode = 1;
+    return;
+  } finally {
+    if (browser) {
+      await browser.close().catch(closeError => {
+        const reason = String(closeError && closeError.message ? closeError.message : closeError).split('\n')[0];
+        console.error(`Playwright browser close failed (${reason}).`);
+        process.exitCode = 1;
+      });
+    }
   }
+  if (process.exitCode) return;
   console.log(out);
 })();
