@@ -685,7 +685,8 @@ function reduceRoomSnapshotArtifact(
   killComponents: Record<string, number>
 ): number {
   const controller = artifact.objects.find((object) => object.type === 'controller');
-  const ownedController = controller && isOwnedSnapshotObject(controller, artifact.owner);
+  const snapshotOwner = artifact.owner ?? getSnapshotObjectOwner(controller);
+  const ownedController = controller && isOwnedSnapshotObject(controller, snapshotOwner);
   const ownedRoomCount = ownedController ? 1 : 0;
   if (ownedController) {
     territoryComponents.ownedRooms = Math.max(territoryComponents.ownedRooms, 1);
@@ -703,7 +704,7 @@ function reduceRoomSnapshotArtifact(
 
     resourceComponents.storedEnergy += getSnapshotObjectEnergy(object);
 
-    if (object.type === 'creep' && !isOwnedSnapshotObject(object, artifact.owner)) {
+    if (object.type === 'creep' && !isOwnedSnapshotObject(object, snapshotOwner)) {
       killComponents.hostilePressureObserved += 1;
     }
   }
@@ -795,6 +796,16 @@ function getSnapshotObjectEnergy(object: StrategyRoomSnapshotObject): number {
 
   const storeEnergy = object.store?.energy;
   return typeof storeEnergy === 'number' ? storeEnergy : 0;
+}
+
+function getSnapshotObjectOwner(object: StrategyRoomSnapshotObject | undefined): string | undefined {
+  const objectUser = object?.user;
+  if (isNonEmptyString(objectUser)) {
+    return objectUser;
+  }
+
+  const ownerUsername = object?.owner?.username;
+  return isNonEmptyString(ownerUsername) ? ownerUsername : undefined;
 }
 
 function isOwnedSnapshotObject(object: StrategyRoomSnapshotObject, owner: string | undefined): boolean {

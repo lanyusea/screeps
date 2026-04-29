@@ -5942,23 +5942,24 @@ function reduceRuntimeSummaryArtifact(artifact, reliabilityMetrics, territoryCom
   return ownedRoomCount;
 }
 function reduceRoomSnapshotArtifact(artifact, territoryComponents, resourceComponents, killComponents) {
-  var _a, _b;
+  var _a, _b, _c;
   const controller = artifact.objects.find((object) => object.type === "controller");
-  const ownedController = controller && isOwnedSnapshotObject(controller, artifact.owner);
+  const snapshotOwner = (_a = artifact.owner) != null ? _a : getSnapshotObjectOwner(controller);
+  const ownedController = controller && isOwnedSnapshotObject(controller, snapshotOwner);
   const ownedRoomCount = ownedController ? 1 : 0;
   if (ownedController) {
     territoryComponents.ownedRooms = Math.max(territoryComponents.ownedRooms, 1);
-    territoryComponents.controllerLevels += (_a = controller.level) != null ? _a : 0;
+    territoryComponents.controllerLevels += (_b = controller.level) != null ? _b : 0;
   }
   for (const object of artifact.objects) {
     if (object.type === "source") {
       resourceComponents.visibleSources += 1;
     }
     if (object.type === "resource" && (object.resourceType === void 0 || object.resourceType === "energy")) {
-      resourceComponents.droppedEnergy += (_b = object.amount) != null ? _b : 0;
+      resourceComponents.droppedEnergy += (_c = object.amount) != null ? _c : 0;
     }
     resourceComponents.storedEnergy += getSnapshotObjectEnergy(object);
-    if (object.type === "creep" && !isOwnedSnapshotObject(object, artifact.owner)) {
+    if (object.type === "creep" && !isOwnedSnapshotObject(object, snapshotOwner)) {
       killComponents.hostilePressureObserved += 1;
     }
   }
@@ -6012,6 +6013,15 @@ function getSnapshotObjectEnergy(object) {
   }
   const storeEnergy = (_a = object.store) == null ? void 0 : _a.energy;
   return typeof storeEnergy === "number" ? storeEnergy : 0;
+}
+function getSnapshotObjectOwner(object) {
+  var _a;
+  const objectUser = object == null ? void 0 : object.user;
+  if (isNonEmptyString3(objectUser)) {
+    return objectUser;
+  }
+  const ownerUsername = (_a = object == null ? void 0 : object.owner) == null ? void 0 : _a.username;
+  return isNonEmptyString3(ownerUsername) ? ownerUsername : void 0;
 }
 function isOwnedSnapshotObject(object, owner) {
   var _a;

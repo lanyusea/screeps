@@ -127,4 +127,30 @@ describe('strategy KPI evaluator', () => {
     expect(kpi.territory.components.controllerLevels).toBe(3);
     expect(kpi.resources.components.visibleSources).toBe(2);
   });
+
+  it('infers room snapshot ownership from controller metadata when artifact owner is absent', () => {
+    for (const { controller, controllerLevel } of [
+      { controller: { id: 'controller', type: 'controller', owner: { username: 'bot' }, level: 4 }, controllerLevel: 4 },
+      { controller: { id: 'controller', type: 'controller', user: 'bot', level: 5 }, controllerLevel: 5 }
+    ]) {
+      const artifacts = parseStrategyEvaluationArtifacts([
+        {
+          artifactType: 'room-snapshot',
+          roomName: 'E48S28',
+          tick: 13,
+          objects: [
+            controller,
+            { id: 'harvester', type: 'creep', user: 'bot' },
+            { id: 'invader', type: 'creep', owner: { username: 'enemy' } }
+          ]
+        }
+      ]);
+
+      const kpi = reduceStrategyKpis(artifacts);
+
+      expect(kpi.territory.components.ownedRooms).toBe(1);
+      expect(kpi.territory.components.controllerLevels).toBe(controllerLevel);
+      expect(kpi.kills.components.hostilePressureObserved).toBe(1);
+    }
+  });
 });
