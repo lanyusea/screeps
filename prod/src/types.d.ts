@@ -19,11 +19,16 @@ declare global {
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
   type TerritoryDemandType = 'followUpPreparation';
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
+  type TerritoryExecutionHintReason =
+    | 'controlEvidenceStillMissing'
+    | 'followUpTargetStillUnseen'
+    | 'visibleControlEvidenceStillActionable';
 
   interface TerritoryMemory {
     targets?: TerritoryTargetMemory[];
     intents?: TerritoryIntentMemory[];
     demands?: TerritoryFollowUpDemandMemory[];
+    executionHints?: TerritoryExecutionHintMemory[];
     routeDistances?: Record<string, number | null>;
   }
 
@@ -59,6 +64,17 @@ declare global {
     action: TerritoryControlAction;
     workerCount: number;
     updatedAt: number;
+    followUp: TerritoryFollowUpMemory;
+  }
+
+  interface TerritoryExecutionHintMemory {
+    type: 'activeFollowUpExecution';
+    colony: string;
+    targetRoom: string;
+    action: TerritoryIntentAction;
+    reason: TerritoryExecutionHintReason;
+    updatedAt: number;
+    controllerId?: Id<StructureController>;
     followUp: TerritoryFollowUpMemory;
   }
 
