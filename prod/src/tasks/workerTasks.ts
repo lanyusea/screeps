@@ -976,6 +976,7 @@ function findNearbyLowLoadDroppedEnergyAcquisitionCandidates(
   return findDroppedResources(creep.room)
     .filter(isUsefulDroppedEnergy)
     .filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source))
+    .filter((source) => isReachable(creep, source))
     .map((source) =>
       toLowLoadWorkerEnergyAcquisitionCandidate(
         createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
@@ -1001,6 +1002,10 @@ function toLowLoadWorkerEnergyAcquisitionCandidate(
 }
 
 function findLowLoadHarvestEnergyAcquisitionCandidates(creep: Creep): LowLoadWorkerEnergyAcquisitionCandidate[] {
+  if (getActiveWorkParts(creep) <= 0) {
+    return [];
+  }
+
   const source = selectHarvestSource(creep);
   if (!source || isSourceDepleted(source)) {
     return [];

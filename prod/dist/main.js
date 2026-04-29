@@ -4010,7 +4010,7 @@ function findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep) {
   );
 }
 function findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep) {
-  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).map(
+  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).filter((source) => isReachable(creep, source)).map(
     (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
       createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
         type: "pickup",
@@ -4027,6 +4027,9 @@ function toLowLoadWorkerEnergyAcquisitionCandidate(candidate) {
   return candidate;
 }
 function findLowLoadHarvestEnergyAcquisitionCandidates(creep) {
+  if (getActiveWorkParts(creep) <= 0) {
+    return [];
+  }
   const source = selectHarvestSource(creep);
   if (!source || isSourceDepleted(source)) {
     return [];
