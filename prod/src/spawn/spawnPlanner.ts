@@ -10,6 +10,7 @@ import {
   buildTerritoryCreepMemory,
   getTerritoryFollowUpPreparationWorkerDemand,
   planTerritoryIntent,
+  recordRecoveredTerritoryFollowUpRetryCooldown,
   shouldSpawnTerritoryControllerCreep,
   TERRITORY_DOWNGRADE_GUARD_TICKS,
   TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND,
@@ -62,7 +63,13 @@ export function planSpawn(
   if (territoryIntent) {
     const demandedWorkerTarget = getWorkerTargetWithTerritoryDemand(workerTarget, territoryIntent, gameTime);
     if (workerCapacity < demandedWorkerTarget) {
-      return planWorkerSpawn(colony, roleCounts, gameTime, options);
+      const workerSpawn = planWorkerSpawn(colony, roleCounts, gameTime, options);
+      if (workerSpawn) {
+        return workerSpawn;
+      }
+
+      recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
+      return null;
     }
 
     const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryIntent, gameTime, options);
@@ -72,8 +79,13 @@ export function planSpawn(
   }
 
   if (shouldPlanWorkerRecovery) {
-    return planWorkerSpawn(colony, roleCounts, gameTime, options);
+    const workerSpawn = planWorkerSpawn(colony, roleCounts, gameTime, options);
+    if (workerSpawn) {
+      return workerSpawn;
+    }
   }
+
+  recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
 
   return null;
 }

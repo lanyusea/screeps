@@ -41,6 +41,7 @@ declare global {
     action: TerritoryIntentAction;
     status: 'planned' | 'active' | 'suppressed';
     updatedAt: number;
+    lastAttemptAt?: number;
     controllerId?: Id<StructureController>;
     followUp?: TerritoryFollowUpMemory;
   }

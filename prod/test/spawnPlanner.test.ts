@@ -1,6 +1,10 @@
 import { planSpawn } from '../src/spawn/spawnPlanner';
 import { ColonySnapshot } from '../src/colony/colonyRegistry';
-import { TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
+import {
+  TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS,
+  TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
+  TERRITORY_SUPPRESSION_RETRY_TICKS
+} from '../src/territory/territoryPlanner';
 
 describe('planSpawn', () => {
   beforeEach(() => {
@@ -498,6 +502,98 @@ describe('planSpawn', () => {
         action: 'reserve',
         workerCount: 1,
         updatedAt: 155,
+        followUp
+      }
+    ]);
+  });
+
+  it('cools down a recovered follow-up when no spawn action is available', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const suppressionTime = 160;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const eligibleTime = retryTime + TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS + 1;
+    const busy = { remainingTime: 5 } as Spawning;
+    const { colony: busyColony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController(),
+      spawning: busy
+    });
+    const { colony: idleColony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const recoveringRoleCounts = { worker: 3, claimer: 0, claimersByTargetRoom: {} };
+    const readyRoleCounts = { worker: 4, claimer: 0, claimersByTargetRoom: {} };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N2: makeTerritoryRoom('W2N2', { my: false } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N2',
+            action: 'reserve',
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(busyColony, recoveringRoleCounts, retryTime)).toBeNull();
+    expect(Memory.territory?.demands).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: suppressionTime,
+        lastAttemptAt: retryTime,
+        followUp
+      }
+    ]);
+
+    expect(planSpawn(idleColony, recoveringRoleCounts, retryTime + 1)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: suppressionTime,
+        lastAttemptAt: retryTime,
+        followUp
+      }
+    ]);
+
+    expect(planSpawn(idleColony, readyRoleCounts, eligibleTime)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: `claimer-W1N1-W2N2-${eligibleTime}`,
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N2', action: 'reserve', followUp }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: eligibleTime,
         followUp
       }
     ]);
