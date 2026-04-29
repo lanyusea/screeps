@@ -816,12 +816,17 @@ describe('runWorker', () => {
     const getObjectById = jest.fn().mockReturnValue(site);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: { Builder: creep },
-      getObjectById
+      getObjectById,
+      time: 123
     };
 
     runWorker(creep);
 
+    const spawnExtensionLookups = (room.find as jest.Mock).mock.calls.filter(
+      ([type]) => type === FIND_MY_STRUCTURES
+    );
     expect(creep.memory.task).toBeUndefined();
+    expect(spawnExtensionLookups).toHaveLength(3);
     expect(getObjectById).not.toHaveBeenCalled();
     expect(build).not.toHaveBeenCalled();
     expect(moveTo).not.toHaveBeenCalled();
