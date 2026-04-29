@@ -486,7 +486,7 @@ function countCreepsByRole(creeps, colonyName) {
           counts2.workerCapacity = ((_a = counts2.workerCapacity) != null ? _a : 0) + 1;
         }
       }
-      if (isColonyClaimer(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
+      if (isColonyClaimer(creep, colonyName) && canSatisfyTerritoryControllerCapacity(creep)) {
         counts2.claimer = ((_b = counts2.claimer) != null ? _b : 0) + 1;
         const targetRoom = (_c = creep.memory.territory) == null ? void 0 : _c.targetRoom;
         if (targetRoom) {
@@ -540,6 +540,26 @@ function isColonyScout(creep, colonyName) {
 }
 function canSatisfyRoleCapacity(creep) {
   return creep.ticksToLive === void 0 || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
+}
+function canSatisfyTerritoryControllerCapacity(creep) {
+  return canSatisfyRoleCapacity(creep) && hasActiveClaimPart(creep);
+}
+function hasActiveClaimPart(creep) {
+  var _a;
+  const claimPart = getBodyPartConstant("CLAIM", "claim");
+  const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
+  if (typeof activeClaimParts === "number") {
+    return activeClaimParts > 0;
+  }
+  if (!Array.isArray(creep.body)) {
+    return true;
+  }
+  return creep.body.some((part) => part.type === claimPart && part.hits > 0);
+}
+function getBodyPartConstant(globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return (_a = constants[globalName]) != null ? _a : fallback;
 }
 
 // src/spawn/bodyBuilder.ts
@@ -2810,14 +2830,14 @@ function canRenewReservation(activeClaimParts, reservationTicksToEnd) {
 }
 function getActiveControllerClaimPartCount(creep) {
   var _a;
-  const claimPart = getBodyPartConstant("CLAIM", "claim");
+  const claimPart = getBodyPartConstant2("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts;
   }
   return Array.isArray(creep.body) ? creep.body.filter((part) => part.type === claimPart && part.hits > 0).length : 0;
 }
-function getBodyPartConstant(globalName, fallback) {
+function getBodyPartConstant2(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
@@ -5573,6 +5593,10 @@ function runTerritoryControllerCreep(creep) {
     }
     return;
   }
+  if (isTerritoryControlAction2(assignment.action) && isCreepKnownToHaveNoActiveClaimParts(creep)) {
+    completeTerritoryAssignment(creep);
+    return;
+  }
   if (assignment.action === "reserve" && !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
     return;
   }
@@ -5624,6 +5648,26 @@ function getGameTime4() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
+}
+function isCreepKnownToHaveNoActiveClaimParts(creep) {
+  var _a;
+  const claimPart = getBodyPartConstant3("CLAIM", "claim");
+  const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
+  if (typeof activeClaimParts === "number") {
+    return activeClaimParts <= 0;
+  }
+  if (!Array.isArray(creep.body)) {
+    return false;
+  }
+  return !creep.body.some((part) => part.type === claimPart && part.hits > 0);
+}
+function getBodyPartConstant3(globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return (_a = constants[globalName]) != null ? _a : fallback;
+}
+function isTerritoryControlAction2(action) {
+  return action === "claim" || action === "reserve";
 }
 function isTerritoryAssignment(assignment) {
   return typeof (assignment == null ? void 0 : assignment.targetRoom) === "string" && assignment.targetRoom.length > 0 && (assignment.action === "claim" || assignment.action === "reserve" || assignment.action === "scout");

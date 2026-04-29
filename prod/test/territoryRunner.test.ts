@@ -254,6 +254,40 @@ describe('runTerritoryControllerCreep', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
+  it('clears an unworkable follow-up claim assignment without suppressing the target', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'satisfiedClaimAdjacent',
+      originRoom: 'W1N1',
+      originAction: 'claim'
+    };
+    const activeIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'claim',
+      status: 'active',
+      updatedAt: 511,
+      followUp
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: { intents: [activeIntent] }
+    };
+    const controller = { id: 'controller1', my: false } as StructureController;
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim', followUp } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(0),
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([activeIntent]);
+  });
+
   it('clears completed claim assignments without suppressing shared upgrade intent', () => {
     const sharedIntents: TerritoryIntentMemory[] = [
       { colony: 'W1N1', targetRoom: 'W1N2', action: 'claim', status: 'active', updatedAt: 508 }

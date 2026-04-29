@@ -86,4 +86,22 @@ describe('countCreepsByRole', () => {
       claimersByTargetRoomAction: { claim: { W2N1: 1 } }
     });
   });
+
+  it('excludes claimers with no active CLAIM parts from territory capacity', () => {
+    const damagedClaimer = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } },
+      getActiveBodyparts: jest.fn().mockReturnValue(0)
+    } as unknown as Creep;
+    const healthyClaimer = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W3N1', action: 'reserve' } },
+      getActiveBodyparts: jest.fn().mockReturnValue(1)
+    } as unknown as Creep;
+
+    expect(countCreepsByRole([damagedClaimer, healthyClaimer], 'W1N1')).toEqual({
+      worker: 0,
+      claimer: 1,
+      claimersByTargetRoom: { W3N1: 1 },
+      claimersByTargetRoomAction: { reserve: { W3N1: 1 } }
+    });
+  });
 });

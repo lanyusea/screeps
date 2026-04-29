@@ -22,7 +22,7 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
           counts.workerCapacity = (counts.workerCapacity ?? 0) + 1;
         }
       }
-      if (isColonyClaimer(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
+      if (isColonyClaimer(creep, colonyName) && canSatisfyTerritoryControllerCapacity(creep)) {
         counts.claimer = (counts.claimer ?? 0) + 1;
         const targetRoom = creep.memory.territory?.targetRoom;
         if (targetRoom) {
@@ -87,4 +87,27 @@ function isColonyScout(creep: Creep, colonyName: string): boolean {
 
 function canSatisfyRoleCapacity(creep: Creep): boolean {
   return creep.ticksToLive === undefined || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
+}
+
+function canSatisfyTerritoryControllerCapacity(creep: Creep): boolean {
+  return canSatisfyRoleCapacity(creep) && hasActiveClaimPart(creep);
+}
+
+function hasActiveClaimPart(creep: Creep): boolean {
+  const claimPart = getBodyPartConstant('CLAIM', 'claim');
+  const activeClaimParts = creep.getActiveBodyparts?.(claimPart);
+  if (typeof activeClaimParts === 'number') {
+    return activeClaimParts > 0;
+  }
+
+  if (!Array.isArray(creep.body)) {
+    return true;
+  }
+
+  return creep.body.some((part) => part.type === claimPart && part.hits > 0);
+}
+
+function getBodyPartConstant(globalName: 'CLAIM', fallback: BodyPartConstant): BodyPartConstant {
+  const constants = globalThis as unknown as Partial<Record<'CLAIM', BodyPartConstant>>;
+  return constants[globalName] ?? fallback;
 }
