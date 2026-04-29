@@ -68,6 +68,11 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     return;
   }
 
+  if (isTerritoryControlAction(assignment.action) && isCreepKnownToHaveNoActiveClaimParts(creep)) {
+    suppressTerritoryAssignment(creep, assignment);
+    return;
+  }
+
   if (
     assignment.action === 'reserve' &&
     !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)
@@ -142,6 +147,38 @@ function moveTowardTargetRoom(creep: Creep, targetRoom: string): void {
 function getGameTime(): number {
   const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
   return typeof gameTime === 'number' ? gameTime : 0;
+}
+
+function isCreepKnownToHaveNoActiveClaimParts(creep: Creep): boolean {
+  const claimPart = getBodyPartConstant('CLAIM', 'claim');
+  const activeClaimParts = creep.getActiveBodyparts?.(claimPart);
+  if (typeof activeClaimParts === 'number') {
+    return activeClaimParts <= 0;
+  }
+
+  if (!Array.isArray(creep.body)) {
+    return false;
+  }
+
+  return !creep.body.some((part) => isActiveBodyPart(part, claimPart));
+}
+
+function isActiveBodyPart(part: unknown, bodyPartType: BodyPartConstant): boolean {
+  if (typeof part !== 'object' || part === null) {
+    return false;
+  }
+
+  const bodyPart = part as Partial<BodyPartDefinition>;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === 'number' && bodyPart.hits > 0;
+}
+
+function getBodyPartConstant(globalName: 'CLAIM', fallback: BodyPartConstant): BodyPartConstant {
+  const constants = globalThis as unknown as Partial<Record<'CLAIM', BodyPartConstant>>;
+  return constants[globalName] ?? fallback;
+}
+
+function isTerritoryControlAction(action: CreepTerritoryMemory['action']): action is TerritoryControlAction {
+  return action === 'claim' || action === 'reserve';
 }
 
 function isTerritoryAssignment(assignment: CreepTerritoryMemory | undefined): assignment is CreepTerritoryMemory {
