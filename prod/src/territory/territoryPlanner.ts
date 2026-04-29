@@ -5,6 +5,7 @@ import {
   scoreOccupationRecommendations,
   type OccupationControllerEvidence,
   type OccupationRecommendationCandidateInput,
+  type OccupationRecommendationEvidenceStatus,
   type OccupationRecommendationScore
 } from './occupationRecommendation';
 
@@ -61,6 +62,7 @@ interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
   priority: number;
   source: TerritoryCandidateSource;
   recommendationScore?: number;
+  recommendationEvidenceStatus?: OccupationRecommendationEvidenceStatus;
   routeDistance?: number;
   renewalTicksToEnd?: number;
   occupationActionableTicks?: number;
@@ -383,7 +385,32 @@ function selectTerritoryTarget(
     bestSpawnablePrimaryCandidate &&
     bestSpawnablePrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY
   ) {
-    return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
+    if (!shouldEvaluateVisibleAdjacentFollowUpPreference(bestSpawnablePrimaryCandidate)) {
+      return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
+    }
+
+    const visibleAdjacentFollowUpCandidates = applyOccupationRecommendationScores(
+      colony,
+      roleCounts,
+      getVisibleAdjacentFollowUpReserveCandidates(
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        roleCounts,
+        routeDistanceLookupContext
+      )
+    );
+    if (visibleAdjacentFollowUpCandidates.length === 0) {
+      return toSelectedTerritoryTarget(bestSpawnablePrimaryCandidate);
+    }
+
+    return toSelectedTerritoryTarget(
+      selectBestScoredTerritoryCandidate(
+        getSpawnableTerritoryCandidates([...primaryCandidates, ...visibleAdjacentFollowUpCandidates], roleCounts)
+      ) ?? bestSpawnablePrimaryCandidate
+    );
   }
 
   const adjacentCandidates = applyOccupationRecommendationScores(colony, roleCounts, [
@@ -399,25 +426,7 @@ function selectTerritoryTarget(
       0,
       routeDistanceLookupContext
     ),
-    ...getSatisfiedClaimAdjacentReserveCandidates(
-      colonyName,
-      colonyOwnerUsername,
-      territoryMemory,
-      intents,
-      gameTime,
-      !hasBlockingConfiguredTarget,
-      routeDistanceLookupContext
-    ),
-    ...getSatisfiedReserveAdjacentReserveCandidates(
-      colonyName,
-      colonyOwnerUsername,
-      territoryMemory,
-      intents,
-      gameTime,
-      !hasBlockingConfiguredTarget,
-      routeDistanceLookupContext
-    ),
-    ...getActiveReserveAdjacentReserveCandidates(
+    ...getAdjacentFollowUpReserveCandidates(
       colonyName,
       colonyOwnerUsername,
       territoryMemory,
@@ -456,6 +465,10 @@ function toSelectedTerritoryTarget(candidate: ScoredTerritoryTarget | null): Sel
         ...(candidate.followUp ? { followUp: candidate.followUp } : {})
       }
     : null;
+}
+
+function shouldEvaluateVisibleAdjacentFollowUpPreference(candidate: ScoredTerritoryTarget): boolean {
+  return candidate.priority === TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE && candidate.target.action === 'reserve';
 }
 
 function getSpawnableTerritoryCandidates(
@@ -690,6 +703,69 @@ function getAdjacentReserveCandidates(
 
     return [];
   });
+}
+
+function getVisibleAdjacentFollowUpReserveCandidates(
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  gameTime: number,
+  roleCounts: RoleCounts,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): ScoredTerritoryTarget[] {
+  return getAdjacentFollowUpReserveCandidates(
+    colonyName,
+    colonyOwnerUsername,
+    territoryMemory,
+    intents,
+    gameTime,
+    roleCounts,
+    false,
+    routeDistanceLookupContext
+  );
+}
+
+function getAdjacentFollowUpReserveCandidates(
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  gameTime: number,
+  roleCounts: RoleCounts,
+  includeScoutCandidates: boolean,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): ScoredTerritoryTarget[] {
+  return [
+    ...getSatisfiedClaimAdjacentReserveCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      includeScoutCandidates,
+      routeDistanceLookupContext
+    ),
+    ...getSatisfiedReserveAdjacentReserveCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      includeScoutCandidates,
+      routeDistanceLookupContext
+    ),
+    ...getActiveReserveAdjacentReserveCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      roleCounts,
+      includeScoutCandidates,
+      routeDistanceLookupContext
+    )
+  ];
 }
 
 function getSatisfiedClaimAdjacentReserveCandidates(
@@ -954,6 +1030,7 @@ function applyOccupationRecommendationScore(
     commitTarget: nextSelection.commitTarget,
     priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
     recommendationScore: recommendation.score,
+    recommendationEvidenceStatus: recommendation.evidenceStatus,
     ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {})
   };
 }
@@ -1127,6 +1204,7 @@ function compareTerritoryCandidates(left: ScoredTerritoryTarget, right: ScoredTe
   return (
     left.priority - right.priority ||
     compareOptionalNumbers(left.renewalTicksToEnd, right.renewalTicksToEnd) ||
+    compareVisibleAdjacentFollowUpPreference(left, right) ||
     getTerritoryCandidateSourcePriority(left.source) - getTerritoryCandidateSourcePriority(right.source) ||
     compareOptionalNumbersDescending(left.recommendationScore, right.recommendationScore) ||
     compareOptionalNumbers(left.occupationActionableTicks, right.occupationActionableTicks) ||
@@ -1134,6 +1212,70 @@ function compareTerritoryCandidates(left: ScoredTerritoryTarget, right: ScoredTe
     left.target.roomName.localeCompare(right.target.roomName) ||
     left.intentAction.localeCompare(right.intentAction)
   );
+}
+
+function compareVisibleAdjacentFollowUpPreference(
+  left: ScoredTerritoryTarget,
+  right: ScoredTerritoryTarget
+): number {
+  if (shouldPreferVisibleAdjacentFollowUp(left, right)) {
+    return -1;
+  }
+
+  return shouldPreferVisibleAdjacentFollowUp(right, left) ? 1 : 0;
+}
+
+function shouldPreferVisibleAdjacentFollowUp(
+  candidate: ScoredTerritoryTarget,
+  other: ScoredTerritoryTarget
+): boolean {
+  return (
+    isVisibleAdjacentControllerFollowUpCandidate(candidate) &&
+    isLowerConfidenceDistantSameActionCandidate(other, candidate)
+  );
+}
+
+function isVisibleAdjacentControllerFollowUpCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return (
+    isTerritoryFollowUpSource(candidate.source) &&
+    candidate.intentAction === candidate.target.action &&
+    isTerritoryControlAction(candidate.intentAction) &&
+    candidate.recommendationEvidenceStatus === 'sufficient' &&
+    isTerritoryTargetVisible(candidate.target)
+  );
+}
+
+function isLowerConfidenceDistantSameActionCandidate(
+  candidate: ScoredTerritoryTarget,
+  followUpCandidate: ScoredTerritoryTarget
+): boolean {
+  if (
+    candidate.target.action !== followUpCandidate.target.action ||
+    !isPrimaryTerritoryCandidateSource(candidate.source) ||
+    !isFartherTerritoryCandidate(candidate, followUpCandidate)
+  ) {
+    return false;
+  }
+
+  if (candidate.recommendationEvidenceStatus !== 'sufficient' || !isTerritoryTargetVisible(candidate.target)) {
+    return true;
+  }
+
+  return (
+    typeof candidate.recommendationScore === 'number' &&
+    typeof followUpCandidate.recommendationScore === 'number' &&
+    followUpCandidate.recommendationScore > candidate.recommendationScore
+  );
+}
+
+function isPrimaryTerritoryCandidateSource(source: TerritoryCandidateSource): boolean {
+  return source === 'configured' || source === 'occupationIntent';
+}
+
+function isFartherTerritoryCandidate(candidate: ScoredTerritoryTarget, other: ScoredTerritoryTarget): boolean {
+  const candidateDistance = candidate.routeDistance ?? Number.POSITIVE_INFINITY;
+  const otherDistance = other.routeDistance ?? Number.POSITIVE_INFINITY;
+  return candidateDistance > otherDistance;
 }
 
 function compareOptionalNumbers(left: number | undefined, right: number | undefined): number {
