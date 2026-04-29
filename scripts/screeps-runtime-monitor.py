@@ -35,6 +35,8 @@ DEFAULT_STATE_FILE = Path("/root/.hermes/screeps-runtime-monitor/state.json")
 DEFAULT_CACHE_DIR = Path("/root/.hermes/screeps-runtime-monitor/terrain-cache")
 DEFAULT_RUNTIME_SUMMARY_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-summary-console")
 DEFAULT_DEBOUNCE_SECONDS = 300
+DEFAULT_COLLECTION_ATTEMPTS = 3
+DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 DEFAULT_SHARD = "shardX"
 DEFAULT_ROOM = "E48S28"
 
@@ -307,6 +309,8 @@ class RuntimeContext:
     state_file: Path
     cache_dir: Path
     debounce_seconds: int
+    collection_attempts: int
+    collection_retry_delay_seconds: float
 
     @property
     def base_ws(self) -> str:
@@ -453,6 +457,11 @@ def context_from_env() -> RuntimeContext:
     if not token:
         raise RuntimeError("SCREEPS_AUTH_TOKEN is required for live summary and alert commands")
     debounce = int(os.environ.get("SCREEPS_ALERT_DEBOUNCE_SECONDS", DEFAULT_DEBOUNCE_SECONDS))
+    collection_attempts = max(1, int(os.environ.get("SCREEPS_MONITOR_COLLECTION_ATTEMPTS", DEFAULT_COLLECTION_ATTEMPTS)))
+    collection_retry_delay_seconds = max(
+        0.0,
+        float(os.environ.get("SCREEPS_MONITOR_COLLECTION_RETRY_DELAY_SECONDS", DEFAULT_COLLECTION_RETRY_DELAY_SECONDS)),
+    )
     return RuntimeContext(
         base_http=os.environ.get("SCREEPS_API_URL", DEFAULT_API_URL).rstrip("/"),
         token=token,
@@ -463,6 +472,8 @@ def context_from_env() -> RuntimeContext:
         state_file=Path(os.environ.get("SCREEPS_MONITOR_STATE_FILE", str(DEFAULT_STATE_FILE))),
         cache_dir=Path(os.environ.get("SCREEPS_MONITOR_CACHE_DIR", str(DEFAULT_CACHE_DIR))),
         debounce_seconds=debounce,
+        collection_attempts=collection_attempts,
+        collection_retry_delay_seconds=collection_retry_delay_seconds,
     )
 
 
@@ -671,26 +682,40 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
     snapshots: list[RoomSnapshot] = []
 
     for ref in refs:
-        try:
-            terrain = fetch_terrain(ctx, ref, warnings)
-            event = asyncio.run(fetch_room_event(ctx, ref))
-            objects = normalize_objects(event.get("objects"))
-            owner = infer_owner(objects, configured_owner, configured_owner_id)
-            tick = event.get("gameTime") or event.get("time") or gametime_from_overview(overview, ref.shard)
-            snapshots.append(
-                RoomSnapshot(
-                    ref=ref,
-                    terrain=terrain,
-                    objects=objects,
-                    tick=tick,
-                    owner=owner,
-                    info=event.get("info") if isinstance(event.get("info"), dict) else {},
-                    expected_owner=configured_owner,
-                    expected_owner_id=configured_owner_id,
+        terrain: str | None = None
+        room_warnings: list[str] = []
+        for attempt in range(1, ctx.collection_attempts + 1):
+            try:
+                if terrain is None:
+                    terrain = fetch_terrain(ctx, ref, warnings)
+                event = asyncio.run(fetch_room_event(ctx, ref))
+                objects = normalize_objects(event.get("objects"))
+                owner = infer_owner(objects, configured_owner, configured_owner_id)
+                tick = event.get("gameTime") or event.get("time") or gametime_from_overview(overview, ref.shard)
+                snapshots.append(
+                    RoomSnapshot(
+                        ref=ref,
+                        terrain=terrain,
+                        objects=objects,
+                        tick=tick,
+                        owner=owner,
+                        info=event.get("info") if isinstance(event.get("info"), dict) else {},
+                        expected_owner=configured_owner,
+                        expected_owner_id=configured_owner_id,
+                    )
                 )
-            )
-        except Exception as exc:  # noqa: BLE001 - report room-level failures without secrets
-            warnings.append(f"{ref.key} collection failed: {short_text(exc, 180)}")
+                if room_warnings:
+                    warnings.extend(room_warnings)
+                break
+            except Exception as exc:  # noqa: BLE001 - report room-level failures without secrets
+                error_text = short_text(redact_secrets(str(exc), [ctx.token]), 180)
+                room_warnings.append(
+                    f"{ref.key} collection attempt {attempt}/{ctx.collection_attempts} failed: {error_text}"
+                )
+                if attempt < ctx.collection_attempts and ctx.collection_retry_delay_seconds > 0:
+                    time.sleep(ctx.collection_retry_delay_seconds)
+        else:
+            warnings.extend(room_warnings)
 
     if not snapshots:
         raise RuntimeError("no room snapshots collected")
