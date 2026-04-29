@@ -62,7 +62,9 @@ jobs:
           cache-dependency-path: prod/package-lock.json
 
       - name: Run deploy helper unit tests
-        run: python3 -m unittest scripts/test_screeps_official_deploy.py
+        run: |
+          python3 -m unittest scripts/test_screeps_official_deploy.py
+          python3 scripts/screeps-runtime-monitor.py self-test
 
       - name: Install production dependencies
         working-directory: prod
@@ -124,6 +126,28 @@ jobs:
             $activate_flag \
             --confirm "$CONFIRMATION" \
             --evidence-path "$EVIDENCE_DIR/official-screeps-deploy.json"
+
+      - name: Post-deploy live survival gate
+        if: ${{ inputs.mode == 'deploy' }}
+        env:
+          SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}
+          SCREEPS_ALERT_DEBOUNCE_SECONDS: "0"
+          SCREEPS_MONITOR_STATE_FILE: runtime-artifacts/official-screeps-deploy/postdeploy-monitor-state.json
+          SCREEPS_MONITOR_CACHE_DIR: runtime-artifacts/screeps-monitor/terrain-cache
+        run: |
+          python3 scripts/screeps-runtime-monitor.py summary \
+            --room "$SCREEPS_SHARD/$SCREEPS_ROOM" \
+            --out-dir runtime-artifacts/screeps-monitor \
+            > "$EVIDENCE_DIR/postdeploy-summary.json"
+          python3 scripts/screeps-runtime-monitor.py alert \
+            --room "$SCREEPS_SHARD/$SCREEPS_ROOM" \
+            --out-dir runtime-artifacts/screeps-monitor \
+            --force-alert-image \
+            > "$EVIDENCE_DIR/postdeploy-alert.json"
+          python3 scripts/screeps-runtime-monitor.py health-gate \
+            --summary "$EVIDENCE_DIR/postdeploy-summary.json" \
+            --alert "$EVIDENCE_DIR/postdeploy-alert.json" \
+            > "$EVIDENCE_DIR/postdeploy-health-gate.json"
 
       - name: Upload deploy evidence
         if: ${{ always() }}
