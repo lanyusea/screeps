@@ -8,6 +8,8 @@ import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
 type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
 
+const MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
+
 export function runWorker(creep: Creep): void {
   const selectedTask = selectWorkerTask(creep);
   const currentTask = creep.memory.task;
@@ -37,7 +39,11 @@ export function runWorker(creep: Creep): void {
   executeAssignedTask(creep, selectedTask);
 }
 
-function executeAssignedTask(creep: Creep, selectedTask: CreepTaskMemory | null): void {
+function executeAssignedTask(
+  creep: Creep,
+  selectedTask: CreepTaskMemory | null,
+  immediateReselectExecutions = 0
+): void {
   let task: CreepTaskMemory | null | undefined = creep.memory.task;
   if (!task || !canExecuteTask(creep, task)) {
     return;
@@ -75,7 +81,14 @@ function executeAssignedTask(creep: Creep, selectedTask: CreepTaskMemory | null)
   const result = executeTask(creep, task, target);
   if (task.type === 'transfer' && result === ERR_FULL) {
     delete creep.memory.task;
-    assignNextTask(creep);
+    const nextTask = assignNextTask(creep);
+    if (
+      nextTask &&
+      !isSameTask(task, nextTask) &&
+      immediateReselectExecutions < MAX_IMMEDIATE_RESELECT_EXECUTIONS
+    ) {
+      executeAssignedTask(creep, nextTask, immediateReselectExecutions + 1);
+    }
     return;
   }
 
@@ -121,11 +134,13 @@ function canExecuteTask(creep: Creep, task: CreepTaskMemory): boolean {
   }
 }
 
-function assignNextTask(creep: Creep): void {
+function assignNextTask(creep: Creep): CreepTaskMemory | null {
   const task = selectWorkerTask(creep);
   if (task) {
     creep.memory.task = task;
   }
+
+  return task;
 }
 
 function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {

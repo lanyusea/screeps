@@ -4002,6 +4002,7 @@ function getGameCreeps() {
 }
 
 // src/creeps/workerRunner.ts
+var MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
 function runWorker(creep) {
   const selectedTask = selectWorkerTask(creep);
   const currentTask = creep.memory.task;
@@ -4028,7 +4029,7 @@ function runWorker(creep) {
   }
   executeAssignedTask(creep, selectedTask);
 }
-function executeAssignedTask(creep, selectedTask) {
+function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 0) {
   let task = creep.memory.task;
   if (!task || !canExecuteTask(creep, task)) {
     return;
@@ -4060,7 +4061,10 @@ function executeAssignedTask(creep, selectedTask) {
   const result = executeTask(creep, task, target);
   if (task.type === "transfer" && result === ERR_FULL) {
     delete creep.memory.task;
-    assignNextTask(creep);
+    const nextTask = assignNextTask(creep);
+    if (nextTask && !isSameTask(task, nextTask) && immediateReselectExecutions < MAX_IMMEDIATE_RESELECT_EXECUTIONS) {
+      executeAssignedTask(creep, nextTask, immediateReselectExecutions + 1);
+    }
     return;
   }
   if (result === ERR_NOT_IN_RANGE) {
@@ -4102,6 +4106,7 @@ function assignNextTask(creep) {
   if (task) {
     creep.memory.task = task;
   }
+  return task;
 }
 function shouldReplaceTask(creep, task) {
   var _a, _b;
