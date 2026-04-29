@@ -3169,11 +3169,15 @@ function isRecord2(value) {
 
 // src/construction/criticalRoads.ts
 var CRITICAL_ROAD_ROUTE_RANGE = 2;
-function buildCriticalRoadLogisticsContext(room) {
+var ROOM_EDGE_MIN3 = 1;
+var ROOM_EDGE_MAX3 = 48;
+var ROOM_CENTER = 25;
+function buildCriticalRoadLogisticsContext(room, options = {}) {
   const anchorPositions = findOwnedSpawnPositions(room);
   const targetPositions = findLogisticsTargetPositions(room);
+  const colonyAnchorPositions = anchorPositions.length === 0 ? findColonyRoomLogisticsAnchorPositions(room, options.colonyRoomName, targetPositions) : [];
   return {
-    anchorPositions: anchorPositions.length > 0 ? anchorPositions : findRemoteTerritoryLogisticsAnchorPositions(room, targetPositions),
+    anchorPositions: anchorPositions.length > 0 ? anchorPositions : colonyAnchorPositions.length > 0 ? colonyAnchorPositions : findRemoteTerritoryLogisticsAnchorPositions(room, targetPositions),
     targetPositions
   };
 }
@@ -3196,6 +3200,74 @@ function findLogisticsTargetPositions(room) {
   const sourcePositions = findRoomObjects2(room, "FIND_SOURCES").map((source) => source.pos).filter((position) => isSameRoomPosition2(position, room.name));
   const controllerPosition = isSameRoomPosition2((_a = room.controller) == null ? void 0 : _a.pos, room.name) ? [room.controller.pos] : [];
   return [...sourcePositions, ...controllerPosition];
+}
+function findColonyRoomLogisticsAnchorPositions(room, colonyRoomName, targetPositions) {
+  if (targetPositions.length === 0 || !isNonEmptyString3(room.name) || !isNonEmptyString3(colonyRoomName) || colonyRoomName === room.name) {
+    return [];
+  }
+  return uniqueRoomPositions(
+    findColonyRoomSpawnPositions(colonyRoomName).map((position) => projectHomeAnchorIntoRoom(position, room.name)).filter((position) => position !== null)
+  );
+}
+function findColonyRoomSpawnPositions(colonyRoomName) {
+  var _a, _b;
+  const game = globalThis.Game;
+  const homeRoom = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[colonyRoomName];
+  const roomSpawnPositions = homeRoom ? findOwnedSpawnPositions(homeRoom) : [];
+  const globalSpawnPositions = Object.values((_b = game == null ? void 0 : game.spawns) != null ? _b : {}).map((spawn) => spawn.pos).filter((position) => isSameRoomPosition2(position, colonyRoomName));
+  return uniqueRoomPositions([...roomSpawnPositions, ...globalSpawnPositions]);
+}
+function projectHomeAnchorIntoRoom(anchor, roomName) {
+  if (!isNonEmptyString3(anchor.roomName) || anchor.roomName === roomName) {
+    return null;
+  }
+  const anchorCoordinates = parseRoomCoordinates(anchor.roomName);
+  const roomCoordinates = parseRoomCoordinates(roomName);
+  if (!anchorCoordinates || !roomCoordinates) {
+    return null;
+  }
+  const deltaX = roomCoordinates.x - anchorCoordinates.x;
+  const deltaY = roomCoordinates.y - anchorCoordinates.y;
+  if (deltaX === 0 && deltaY === 0) {
+    return null;
+  }
+  return {
+    x: deltaX > 0 ? ROOM_EDGE_MIN3 : deltaX < 0 ? ROOM_EDGE_MAX3 : clampRoomCoordinate(anchor.x),
+    y: deltaY > 0 ? ROOM_EDGE_MIN3 : deltaY < 0 ? ROOM_EDGE_MAX3 : clampRoomCoordinate(anchor.y),
+    roomName
+  };
+}
+function parseRoomCoordinates(roomName) {
+  const match = /^([WE])(\d+)([NS])(\d+)$/.exec(roomName);
+  if (!match) {
+    return null;
+  }
+  const horizontalValue = Number(match[2]);
+  const verticalValue = Number(match[4]);
+  if (!Number.isFinite(horizontalValue) || !Number.isFinite(verticalValue)) {
+    return null;
+  }
+  return {
+    x: match[1] === "E" ? horizontalValue : -horizontalValue - 1,
+    y: match[3] === "S" ? verticalValue : -verticalValue - 1
+  };
+}
+function clampRoomCoordinate(value) {
+  if (!Number.isFinite(value)) {
+    return ROOM_CENTER;
+  }
+  return Math.max(ROOM_EDGE_MIN3, Math.min(ROOM_EDGE_MAX3, Math.round(value)));
+}
+function uniqueRoomPositions(positions) {
+  const seen = /* @__PURE__ */ new Set();
+  return positions.filter((position) => {
+    const key = `${position.roomName}:${position.x}:${position.y}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 function findRemoteTerritoryLogisticsAnchorPositions(room, targetPositions) {
   var _a;
@@ -3627,7 +3699,7 @@ function selectCriticalRoadConstructionSite(creep, constructionSites) {
   if (roadConstructionSites.length === 0) {
     return null;
   }
-  const criticalRoadContext = buildCriticalRoadLogisticsContext(creep.room);
+  const criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
   return selectConstructionSite(
     creep,
     roadConstructionSites,
@@ -4001,7 +4073,7 @@ function selectCriticalInfrastructureRepairTarget(creep) {
     return null;
   }
   const visibleStructures = findVisibleRoomStructures(creep.room);
-  const criticalRoadContext = visibleStructures.some(isCriticalRoadRepairCandidate) ? buildCriticalRoadLogisticsContext(creep.room) : null;
+  const criticalRoadContext = visibleStructures.some(isCriticalRoadRepairCandidate) ? buildWorkerCriticalRoadLogisticsContext(creep) : null;
   const repairTargets = visibleStructures.filter(
     (structure) => isCriticalInfrastructureRepairTarget(structure, criticalRoadContext)
   );
@@ -4009,6 +4081,9 @@ function selectCriticalInfrastructureRepairTarget(creep) {
     return null;
   }
   return repairTargets.sort(compareRepairTargets)[0];
+}
+function buildWorkerCriticalRoadLogisticsContext(creep) {
+  return buildCriticalRoadLogisticsContext(creep.room, { colonyRoomName: getCreepColonyName(creep) });
 }
 function findVisibleRoomStructures(room) {
   if (typeof FIND_STRUCTURES !== "number") {

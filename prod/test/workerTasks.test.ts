@@ -38,6 +38,11 @@ function setGameCreeps(creeps: Record<string, Creep>): void {
   (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps };
 }
 
+function setGameSpawns(spawns: Record<string, StructureSpawn>): void {
+  const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+  globalScope.Game = { ...(globalScope.Game ?? {}), spawns };
+}
+
 function makeStructure(
   id: string,
   structureType: StructureConstant,
@@ -64,6 +69,17 @@ function makeEnergySink(
 
 function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
   return { x, y, roomName } as RoomPosition;
+}
+
+function makeSpawn(id: string, x: number, y: number, roomName = 'W1N1'): StructureSpawn {
+  return {
+    id,
+    name: id,
+    structureType: 'spawn',
+    owner: { username: 'Self' },
+    pos: makeRoomPosition(x, y, roomName),
+    store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+  } as unknown as StructureSpawn;
 }
 
 function makeTowerEnergySink(id: string, usedEnergy: number, freeCapacity: number): StructureTower {
@@ -2873,6 +2889,36 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
   });
 
+  it('repairs colony-anchored remote critical roads before generic construction without a local spawn', () => {
+    const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
+    const source = makeSource('source1', 40, 10, 'W2N1');
+    const road = makeStructure('remote-road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(46, 10, 'W2N1')
+    });
+    const controller = {
+      id: 'controller2',
+      my: true,
+      level: 3,
+      pos: makeRoomPosition(10, 40, 'W2N1'),
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    setGameSpawns({ Spawn1: makeSpawn('Spawn1', 10, 10, 'W1N1') });
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      sources: [source],
+      structures: [road]
+    });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'remote-road-critical' });
+  });
+
   it('selects RCL1 controller upgrade before non-spawn construction when downgrade is safe', () => {
     const fullSpawn = {
       id: 'spawn1',
@@ -3116,6 +3162,41 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'remote-road-critical-site1' });
+  });
+
+  it('builds colony-anchored remote critical route road construction before containers without a local spawn', () => {
+    const roadSite = {
+      id: 'remote-road-colony-critical-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(46, 10, 'W2N1')
+    } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const source = makeSource('source1', 40, 10, 'W2N1');
+    const controller = {
+      id: 'controller2',
+      my: false,
+      pos: makeRoomPosition(10, 40, 'W2N1'),
+      reservation: { username: 'Self', ticksToEnd: 1_000 }
+    } as StructureController;
+    setGameSpawns({ Spawn1: makeSpawn('Spawn1', 10, 10, 'W1N1') });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+    const room = makeWorkerTaskRoom({
+      constructionSites: [containerSite, roadSite],
+      controller,
+      sources: [source]
+    });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'remote-road-colony-critical-site1' });
   });
 
   it('builds the closest same-priority construction site after spawn refill is satisfied', () => {

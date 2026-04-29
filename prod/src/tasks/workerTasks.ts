@@ -485,7 +485,7 @@ function selectCriticalRoadConstructionSite(
     return null;
   }
 
-  const criticalRoadContext = buildCriticalRoadLogisticsContext(creep.room);
+  const criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
   return selectConstructionSite(
     creep,
     roadConstructionSites,
@@ -1090,7 +1090,7 @@ function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrast
 
   const visibleStructures = findVisibleRoomStructures(creep.room);
   const criticalRoadContext = visibleStructures.some(isCriticalRoadRepairCandidate)
-    ? buildCriticalRoadLogisticsContext(creep.room)
+    ? buildWorkerCriticalRoadLogisticsContext(creep)
     : null;
   const repairTargets = visibleStructures.filter((structure) =>
     isCriticalInfrastructureRepairTarget(structure, criticalRoadContext)
@@ -1100,6 +1100,10 @@ function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrast
   }
 
   return repairTargets.sort(compareRepairTargets)[0];
+}
+
+function buildWorkerCriticalRoadLogisticsContext(creep: Creep): CriticalRoadLogisticsContext {
+  return buildCriticalRoadLogisticsContext(creep.room, { colonyRoomName: getCreepColonyName(creep) });
 }
 
 function findVisibleRoomStructures(room: Room): AnyStructure[] {
