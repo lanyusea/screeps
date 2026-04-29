@@ -6,10 +6,10 @@ const { spawnSync } = require('child_process');
 
 const repo = path.resolve(process.argv[2] || process.cwd());
 const renderer = path.join(repo, 'scripts', 'render-screeps-roadmap.js');
+const dataPath = path.join(repo, 'docs', 'roadmap-data.json');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roadmap-renderer-check-'));
 const pngPath = path.join(tmpDir, 'roadmap.png');
 const htmlPath = pngPath.replace(/\.png$/, '.html');
-const repoUrl = 'https://github.com/lanyusea/screeps';
 const failures = [];
 
 function fail(message) {
@@ -42,6 +42,21 @@ function visibleText(html) {
   return tagText(body);
 }
 
+function esc(v) {
+  return String(v ?? 'unavailable').replace(/[&<>"']/g, s => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[s]));
+}
+
+function displayValue(v) {
+  if (v === null || v === undefined || v === '') return 'unavailable';
+  return String(v);
+}
+
 function pngLooksValid(filePath) {
   if (!fs.existsSync(filePath)) return false;
   const stat = fs.statSync(filePath);
@@ -50,6 +65,189 @@ function pngLooksValid(filePath) {
   return signature.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 }
 
+function readRoadmapData() {
+  try {
+    return JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+  } catch (error) {
+    fail(`failed to read docs/roadmap-data.json: ${error.message}`);
+    return {};
+  }
+}
+
+function findBlockByToken(html, token, nextTokens) {
+  const start = html.indexOf(token);
+  if (start === -1) return '';
+  const ends = nextTokens
+    .map(next => html.indexOf(next, start + token.length))
+    .filter(index => index !== -1);
+  const end = ends.length > 0 ? Math.min(...ends) : html.length;
+  return html.slice(start, end);
+}
+
+function findSectionByHeading(html, heading) {
+  const headingToken = `<h2>${esc(heading)}</h2>`;
+  const headingStart = html.indexOf(headingToken);
+  if (headingStart === -1) return '';
+  const sectionStart = html.lastIndexOf('<section', headingStart);
+  const nextSection = html.indexOf('<section', headingStart + headingToken.length);
+  const start = sectionStart === -1 ? headingStart : sectionStart;
+  const end = nextSection === -1 ? html.length : nextSection;
+  return html.slice(start, end);
+}
+
+function assertRendererDoesNotRebuildReportData() {
+  const source = fs.readFileSync(renderer, 'utf8');
+  const bannedSourceMarkers = [
+    'gh pr list',
+    'gh issue list',
+    'gh project item-list',
+    'runtime-artifacts/screeps-monitor',
+    'roadmap-render-state',
+    'Latest monitor RCL',
+    'explicitOfficialDeployEvidence',
+    'explicitPrivateSmokeEvidence',
+    'projectOfficialDeploys',
+    'privateTests'
+  ];
+  for (const marker of bannedSourceMarkers) {
+    assert(!source.includes(marker), `renderer still contains image-only data path marker: ${marker}`);
+  }
+}
+
+function assertNoOldVisibleFallbacks(text) {
+  const oldMarkers = [
+    { name: 'old Chinese KPI summary', value: '\u7528\u771f\u5b9e\u6e38\u620f KPI' },
+    { name: 'Target line', value: 'Target' },
+    { name: 'old Chinese KPI heading', value: '\u6e38\u620f\u5185\u90e8' },
+    { name: 'old developing label', value: '\u5f00\u53d1\u4e2d' },
+    { name: 'old private-smoke label', value: '\u79c1\u670d\u9a8c\u8bc1\u4e2d' },
+    { name: 'old online label', value: '\u5df2\u4e0a\u7ebf' },
+    { name: 'old badge', value: 'KPI/Kanban' },
+    { name: 'old monitor fallback', value: 'Latest monitor RCL' },
+    { name: 'old territory no-data copy', value: 'No observed seven-day territory KPI history' },
+    { name: 'old resource no-data copy', value: 'No observed resource KPI history' },
+    { name: 'old combat no-data copy', value: 'No observed combat KPI history' },
+    { name: 'old hard-coded territory proof', value: 'Single-room baseline' },
+    { name: 'old hard-coded resource proof', value: 'Resource payload exists' },
+    { name: 'old hard-coded combat proof', value: 'Tactical bridge is ready' },
+    { name: 'old hard-coded foundation proof', value: 'Private smoke and release-gate work remain tracked' },
+    { name: 'old official deploy label', value: 'Official game deploys' },
+    { name: 'old project-source copy', value: 'data comes from GitHub Project' }
+  ];
+
+  for (const marker of oldMarkers) {
+    assert(!text.includes(marker.value), `visible text still contains ${marker.name}: ${marker.value}`);
+  }
+
+  assert(!/https:\/\/screeps\.com\/?/i.test(text), 'visible text still contains the Screeps game link');
+  assert(!/\bshardX\s*\/\s*E48S28\b|\bE48S28\b/.test(text), 'visible text still contains the room target');
+  assert(!/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(text), 'visible text still contains CJK characters');
+}
+
+function assertKpiCardsMatchPagesData(body, text, cards) {
+  const kpiTitles = [...body.matchAll(/<div class="card kpi"[^>]*>[\s\S]*?<h3>([\s\S]*?)<\/h3>/g)]
+    .map(match => tagText(match[1]));
+  assert(
+    JSON.stringify(kpiTitles) === JSON.stringify(cards.map(card => String(card.title))),
+    `KPI chart titles should match docs/roadmap-data.json; saw ${JSON.stringify(kpiTitles)}`
+  );
+
+  for (const card of cards) {
+    const key = esc(card.key || '');
+    const block = findBlockByToken(body, `<div class="card kpi" data-kpi-key="${key}"`, [
+      '<div class="card kpi" data-kpi-key=',
+      '<section class="section"><div class="section-title"><h2>02'
+    ]);
+    assert(Boolean(block), `KPI card ${card.title} is missing`);
+    assert(block.includes(`<h3>${esc(card.title)}</h3>`), `KPI card title does not match JSON: ${card.title}`);
+    assert(block.includes(`<p>${esc(card.subtitle)}</p>`), `KPI subtitle does not match JSON for ${card.title}`);
+    assert(block.includes(`<b>${esc(card.pill)}</b>`), `KPI pill does not match JSON for ${card.title}`);
+    assert(block.includes(esc(card.footer)), `KPI footer does not match JSON for ${card.title}`);
+
+    for (const date of card.dates || []) {
+      assert(block.includes(`>${esc(date)}</text>`), `KPI date ${date} missing for ${card.title}`);
+    }
+
+    for (const series of card.series || []) {
+      assert(block.includes(`data-series-label="${esc(series.label)}"`), `KPI series label missing for ${card.title}: ${series.label}`);
+      const values = Array.isArray(series.values) ? series.values : [];
+      const statuses = Array.isArray(series.statuses) ? series.statuses : [];
+      const observedValues = values
+        .map((value, index) => ({ value, status: statuses[index] || '' }))
+        .filter(item => item.value !== null && item.value !== undefined && item.value !== '' && Number.isFinite(Number(item.value)));
+      for (const item of observedValues) {
+        const expected = `data-series="${esc(series.label)}" data-status="${esc(item.status)}" data-value="${esc(Number(item.value))}"`;
+        assert(block.includes(expected), `KPI observed value mismatch for ${card.title}/${series.label}: ${item.value}`);
+      }
+      if (observedValues.length === 0) {
+        const fakeZero = `data-series="${esc(series.label)}"`;
+        const zeroValue = `data-value="0"`;
+        assert(!(block.includes(fakeZero) && block.includes(zeroValue)), `KPI series ${series.label} appears to render a fake zero`);
+      }
+    }
+
+    const hasObserved = (card.series || []).some(series => (series.values || []).some(value => (
+      value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+    )));
+    if (hasObserved) {
+      assert(!block.includes('data-kpi-unavailable="true"'), `KPI card ${card.title} is marked unavailable despite observed Pages data`);
+    } else {
+      assert(block.includes('data-kpi-unavailable="true"'), `KPI card ${card.title} must explicitly mark unavailable Pages data`);
+      assert(text.includes('No observed KPI data'), `KPI card ${card.title} must state unavailable data explicitly`);
+    }
+  }
+}
+
+function assertRoadmapCardsMatchPagesData(body, cards) {
+  for (const card of cards) {
+    const token = `data-roadmap-title="${esc(card.title)}"`;
+    const block = findBlockByToken(body, token, ['data-roadmap-title="', '<section class="section"><div class="section-title"><h2>03']);
+    assert(Boolean(block), `roadmap card missing for ${card.title}`);
+    assert(block.includes(`<h3>${esc(card.title)}</h3>`), `roadmap title mismatch for ${card.title}`);
+    assert(block.includes(esc(card.goal)), `roadmap goal mismatch for ${card.title}`);
+    assert(block.includes(esc(card.next)), `roadmap next action mismatch for ${card.title}`);
+    assert(block.includes(`<strong>${esc(displayValue(card.progress))}%</strong>`), `roadmap progress mismatch for ${card.title}`);
+    assert(block.includes(esc(card.status)), `roadmap status mismatch for ${card.title}`);
+  }
+}
+
+function assertKanbanMatchesPagesData(body, columns, sectionTitle) {
+  const sectionBlock = findSectionByHeading(body, sectionTitle);
+  assert(Boolean(sectionBlock), `kanban section missing: ${sectionTitle}`);
+  for (const column of columns) {
+    const token = `data-kanban-column="${esc(column.title)}"`;
+    const block = findBlockByToken(sectionBlock, token, ['data-kanban-column="']);
+    const items = Array.isArray(column.items) ? column.items : [];
+    assert(Boolean(block), `kanban column missing: ${sectionTitle}/${column.title}`);
+    assert(block.includes(`${esc(column.title)} <span>${items.length}</span>`), `kanban count mismatch for ${sectionTitle}/${column.title}`);
+    for (const item of items) {
+      assert(block.includes(`data-kanban-title="${esc(item.title)}"`), `kanban title mismatch for ${sectionTitle}/${column.title}: ${item.title}`);
+      assert(block.includes(`data-kanban-description="${esc(item.description || '')}"`), `kanban description mismatch for ${sectionTitle}/${column.title}: ${item.title}`);
+      assert(block.includes(`<span>${esc(item.priority || '')}</span>`), `kanban priority mismatch for ${sectionTitle}/${column.title}: ${item.title}`);
+    }
+  }
+}
+
+function assertProcessCardsMatchPagesData(body, cards) {
+  for (const card of cards) {
+    const value = displayValue(card.value);
+    const token = `data-process-label="${esc(card.label)}" data-process-value="${esc(value)}"`;
+    const block = findBlockByToken(body, token, ['data-process-label="', '<div class="footer">']);
+    assert(Boolean(block), `process card missing for ${card.label}`);
+    assert(block.includes(`<div class="metric-value"`), `process value element missing for ${card.label}`);
+    assert(block.includes(`>${esc(value)}</div>`), `process value mismatch for ${card.label}`);
+    assert(block.includes(`<div class="metric-label">${esc(card.label)}</div>`), `process label mismatch for ${card.label}`);
+    assert(block.includes(esc(card.detail || '')), `process detail mismatch for ${card.label}`);
+    if (card.delta) {
+      assert(block.includes(`<span>${esc(card.delta)}</span>`), `process delta mismatch for ${card.label}`);
+    }
+  }
+}
+
+assertRendererDoesNotRebuildReportData();
+
+const roadmapData = readRoadmapData();
+const report = roadmapData.report || {};
 const run = spawnSync(process.execPath, [renderer, repo, pngPath], {
   cwd: repo,
   env: { ...process.env, SCREEPS_ROADMAP_PREVIEW: '1' },
@@ -67,26 +265,14 @@ if (fs.existsSync(htmlPath)) {
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   const body = bodyMatch ? bodyMatch[1] : html;
   const text = visibleText(html);
+  const repoUrl = String(roadmapData.repo?.url || 'https://github.com/lanyusea/screeps');
 
-  const oldMarkers = [
-    { name: 'old Chinese KPI summary', value: '\u7528\u771f\u5b9e\u6e38\u620f KPI' },
-    { name: 'Target line', value: 'Target' },
-    { name: 'old Chinese KPI heading', value: '\u6e38\u620f\u5185\u90e8' },
-    { name: 'old developing label', value: '\u5f00\u53d1\u4e2d' },
-    { name: 'old private-smoke label', value: '\u79c1\u670d\u9a8c\u8bc1\u4e2d' },
-    { name: 'old online label', value: '\u5df2\u4e0a\u7ebf' },
-    { name: 'old badge', value: 'KPI/Kanban' }
-  ];
+  assertNoOldVisibleFallbacks(text);
+  assert(body.includes('data-roadmap-source="docs/roadmap-data.json"'), 'rendered HTML should identify docs/roadmap-data.json as the source');
+  assert(text.includes(String(roadmapData.title || 'Hermes Screeps Project Roadmap Report')), 'report title should come from docs/roadmap-data.json');
+  assert(text.includes(String(roadmapData.generatedAtCst || roadmapData.generatedAt || 'unavailable')), 'published time should come from docs/roadmap-data.json');
 
-  for (const marker of oldMarkers) {
-    assert(!text.includes(marker.value), `visible text still contains ${marker.name}: ${marker.value}`);
-  }
-
-  assert(!/https:\/\/screeps\.com\/?/i.test(text), 'visible text still contains the Screeps game link');
-  assert(!/\bshardX\s*\/\s*E48S28\b|\bE48S28\b/.test(text), 'visible text still contains the room target');
-  assert(!/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(text), 'visible text still contains CJK characters');
-
-  const linksMatch = body.match(/<p>\s*<b>Links<\/b>([\s\S]*?)<\/p>/i);
+  const linksMatch = body.match(/<p>\s*<b>Links<\/b>[\s\S]*?<\/p>/i);
   assert(Boolean(linksMatch), 'Links line is missing from hero copy');
   if (linksMatch) {
     const linksText = tagText(linksMatch[0]);
@@ -99,48 +285,11 @@ if (fs.existsSync(htmlPath)) {
     'hero logo should be centered inside the circular logo mask'
   );
 
-  const kpiTitles = [...body.matchAll(/<div class="card kpi">[\s\S]*?<h3>([\s\S]*?)<\/h3>/g)].map(match => tagText(match[1]));
-  assert(
-    JSON.stringify(kpiTitles) === JSON.stringify(['Territory', 'Resources', 'Combat']),
-    `KPI chart titles should be Territory, Resources, Combat; saw ${JSON.stringify(kpiTitles)}`
-  );
-
-  const latestSummaryDir = path.join(repo, 'runtime-artifacts', 'screeps-monitor');
-  const hasMonitorSummary = fs.existsSync(latestSummaryDir)
-    && fs.readdirSync(latestSummaryDir).some(name => /^summary-.*\.svg$/.test(name));
-  const territoryCard = body.match(/<div class="card kpi">[\s\S]*?<h3>Territory<\/h3>[\s\S]*?<\/div><\/div>/);
-  assert(Boolean(territoryCard), 'Territory KPI card is missing');
-  if (territoryCard && !hasMonitorSummary) {
-    const territoryText = tagText(territoryCard[0]);
-    assert(!territoryText.includes('Latest monitor RCL: 3'), 'Territory KPI must not use fallback RCL 3 when no monitor evidence exists');
-  }
-
-  const resourcesCard = body.match(/<div class="card kpi">[\s\S]*?<h3>Resources<\/h3>[\s\S]*?<\/div><\/div>/);
-  assert(Boolean(resourcesCard), 'Resources KPI card is missing');
-  if (resourcesCard) {
-    const resourcesText = tagText(resourcesCard[0]);
-    assert(resourcesCard[0].includes('data-kpi-unavailable="true"'), 'Resources KPI must mark unavailable data instead of drawing fake zeros');
-    assert(resourcesText.includes('No observed KPI data'), 'Resources KPI must state that no observed KPI data is available');
-    assert(!resourcesText.includes('Stored energy 0') && !resourcesText.includes('Harvest delta 0') && !resourcesText.includes('Worker carried 0'), 'Resources KPI must not label fake zero energy values');
-  }
-
-  const officialDeployCard = (() => {
-    try {
-      const roadmapData = JSON.parse(fs.readFileSync(path.join(repo, 'docs', 'roadmap-data.json'), 'utf8'));
-      return (roadmapData.report?.processCards || []).find(card => card.label === 'Official deploys');
-    } catch {
-      return null;
-    }
-  })();
-  if (officialDeployCard && Number.isFinite(Number(officialDeployCard.value))) {
-    assert(
-      text.includes(`${Number(officialDeployCard.value)} Official game deploys`),
-      `Official game deploys should match docs/roadmap-data.json value ${officialDeployCard.value}`
-    );
-  }
-
-  const unavailableCards = [...body.matchAll(/data-kpi-unavailable="true"/g)].length;
-  assert(unavailableCards >= 1, 'At least one unavailable KPI block should be explicit when reducer data is missing');
+  assertKpiCardsMatchPagesData(body, text, report.kpiCards || []);
+  assertRoadmapCardsMatchPagesData(body, report.roadmapCards || []);
+  assertKanbanMatchesPagesData(body, report.gameplayKanban || [], '03 Gameplay Strategy Kanban');
+  assertKanbanMatchesPagesData(body, report.foundationKanban || [], '04 Foundation Delivery Kanban');
+  assertProcessCardsMatchPagesData(body, report.processCards || []);
 }
 
 if (failures.length > 0) {
