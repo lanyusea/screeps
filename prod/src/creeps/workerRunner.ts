@@ -1,4 +1,8 @@
-import { isWorkerRepairTargetComplete, selectWorkerTask } from '../tasks/workerTasks';
+import {
+  CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  isWorkerRepairTargetComplete,
+  selectWorkerTask
+} from '../tasks/workerTasks';
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 
 type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
@@ -17,6 +21,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
@@ -247,6 +253,18 @@ function shouldPreemptTransferTaskForBetterEnergySink(
   return getTransferSinkPriority(selectedTarget) > getTransferSinkPriority(currentTarget);
 }
 
+function shouldPreemptTransferTaskForControllerDowngradeGuard(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (task.type !== 'transfer') {
+    return false;
+  }
+
+  return isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+
 function shouldPreemptSpendingTaskForControllerPressure(
   creep: Creep,
   task: CreepTaskMemory,
@@ -293,6 +311,18 @@ function isOwnedControllerUpgradeTask(
     creep.room?.controller?.my === true &&
     task.targetId === creep.room.controller.id
   );
+}
+
+function isDowngradeGuardUpgradeTask(
+  creep: Creep,
+  task: CreepTaskMemory | null
+): task is Extract<CreepTaskMemory, { type: 'upgrade' }> {
+  if (!isOwnedControllerUpgradeTask(creep, task)) {
+    return false;
+  }
+
+  const ticksToDowngrade = creep.room.controller?.ticksToDowngrade;
+  return typeof ticksToDowngrade === 'number' && ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
 }
 
 function isSameTask(left: CreepTaskMemory, right: CreepTaskMemory): boolean {

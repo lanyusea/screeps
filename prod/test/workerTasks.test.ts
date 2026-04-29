@@ -3,6 +3,7 @@ import {
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   TOWER_REFILL_ENERGY_FLOOR,
+  URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
 import {
@@ -97,17 +98,20 @@ function makeSalvageEnergySource(
 function makeWorkerTaskRoom({
   constructionSites = [],
   controller = { id: 'controller1', my: true, level: 3 } as StructureController,
+  energyAvailable,
   myStructures = [],
   structures = []
 }: {
   constructionSites?: ConstructionSite[];
   controller?: StructureController;
+  energyAvailable?: number;
   myStructures?: AnyOwnedStructure[];
   structures?: AnyStructure[];
 } = {}): Room {
   return {
     name: 'W1N1',
     controller,
+    ...(energyAvailable === undefined ? {} : { energyAvailable }),
     find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
       if (type === FIND_MY_STRUCTURES) {
         return options?.filter ? myStructures.filter(options.filter) : myStructures;
@@ -2598,6 +2602,72 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
+  it('guards critically low spawn energy from construction spending', () => {
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 101);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite, containerSite],
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('keeps spawn refill active when urgent threshold has cleared before construction', () => {
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 100);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [roadSite, containerSite],
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('keeps extension refill active when urgent threshold has cleared before controller progress', () => {
+    const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 100);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        myStructures: [extension as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension1' });
+  });
+
   it('builds RCL2 extension construction before controller progress guard when STRUCTURE_EXTENSION is missing', () => {
     delete (globalThis as unknown as { STRUCTURE_EXTENSION?: StructureConstant }).STRUCTURE_EXTENSION;
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
@@ -3093,25 +3163,28 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
-  it('keeps spawn refill priority over the downgrade guard', () => {
-    const spawn = {
-      id: 'spawn1',
-      structureType: 'spawn',
+  it.each([
+    ['spawn', 'spawn1', CONTROLLER_DOWNGRADE_GUARD_TICKS],
+    ['extension', 'extension1', CONTROLLER_DOWNGRADE_GUARD_TICKS - 1]
+  ])('keeps low-downgrade guard before %s refill', (structureType, sinkId, ticksToDowngrade) => {
+    const energySink = {
+      id: sinkId,
+      structureType,
       store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
-    } as unknown as StructureSpawn;
+    } as unknown as StructureSpawn | StructureExtension;
     const site = { id: 'site1' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
-      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+      ticksToDowngrade
     } as StructureController;
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: {
         controller,
-        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
           if (type === 3) {
-            const structures = [spawn];
+            const structures = [energySink];
             return options?.filter ? structures.filter(options.filter) : structures;
           }
 
@@ -3120,7 +3193,7 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('keeps build priority for low downgrade data on unowned controllers', () => {
