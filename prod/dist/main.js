@@ -1398,8 +1398,19 @@ function getConfiguredTerritoryCandidates(colonyName, colonyOwnerUsername, terri
     if (!target || target.enabled === false || target.colony !== colonyName || target.roomName === colonyName || isTerritoryTargetSuppressed(target, intents, gameTime) || getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "available") {
       return [];
     }
+    const followUp = getPersistedTerritoryIntentFollowUp(
+      intents,
+      target.colony,
+      target.roomName,
+      target.action
+    );
     const candidate = scoreTerritoryCandidate(
-      { target, intentAction: target.action, commitTarget: false },
+      {
+        target,
+        intentAction: target.action,
+        commitTarget: false,
+        ...followUp ? { followUp } : {}
+      },
       "configured",
       order,
       colonyName,
@@ -2054,10 +2065,23 @@ function upsertTerritoryIntent2(intents, nextIntent) {
     (intent) => intent.colony === nextIntent.colony && intent.targetRoom === nextIntent.targetRoom && intent.action === nextIntent.action
   );
   if (existingIndex >= 0) {
-    intents[existingIndex] = nextIntent;
+    const existingIntent = intents[existingIndex];
+    intents[existingIndex] = {
+      ...nextIntent,
+      ...!nextIntent.followUp && existingIntent.followUp ? { followUp: existingIntent.followUp } : {}
+    };
     return;
   }
   intents.push(nextIntent);
+}
+function getPersistedTerritoryIntentFollowUp(intents, colony, targetRoom, action) {
+  let selectedIntent = null;
+  for (const intent of intents) {
+    if (intent.colony === colony && intent.targetRoom === targetRoom && intent.action === action && intent.followUp && (!selectedIntent || intent.updatedAt > selectedIntent.updatedAt)) {
+      selectedIntent = intent;
+    }
+  }
+  return selectedIntent == null ? void 0 : selectedIntent.followUp;
 }
 function normalizeTerritoryIntent2(rawIntent) {
   if (!isRecord2(rawIntent)) {
