@@ -490,6 +490,10 @@ function shouldReplaceTarget(
   task: CreepTaskMemory,
   target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
 ): boolean {
+  if (task.type === 'harvest' && isDepletedHarvestSource(target)) {
+    return true;
+  }
+
   if (task.type === 'transfer' && 'store' in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
     return true;
   }
@@ -499,6 +503,11 @@ function shouldReplaceTarget(
   }
 
   return task.type === 'repair' && 'hits' in target && isWorkerRepairTargetComplete(target);
+}
+
+function isDepletedHarvestSource(target: unknown): target is Source {
+  const energy = (target as Partial<Source> | null)?.energy;
+  return typeof energy === 'number' && energy <= 0;
 }
 
 function executeTask(
