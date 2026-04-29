@@ -8,9 +8,12 @@ import {
 } from './bodyBuilder';
 import {
   buildTerritoryCreepMemory,
+  getTerritoryFollowUpPreparationWorkerDemand,
   planTerritoryIntent,
   shouldSpawnTerritoryControllerCreep,
-  TERRITORY_DOWNGRADE_GUARD_TICKS
+  TERRITORY_DOWNGRADE_GUARD_TICKS,
+  TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND,
+  type TerritoryIntentPlan
 } from '../territory/territoryPlanner';
 
 export interface SpawnRequest {
@@ -55,9 +58,17 @@ export function planSpawn(
   }
 
   const territoryWorkerTarget = shouldPlanWorkerRecovery ? workerTarget - 1 : workerTarget;
-  const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryWorkerTarget, gameTime, options);
-  if (territorySpawn) {
-    return territorySpawn;
+  const territoryIntent = planTerritoryIntent(colony, roleCounts, territoryWorkerTarget, gameTime);
+  if (territoryIntent) {
+    const demandedWorkerTarget = getWorkerTargetWithTerritoryDemand(workerTarget, territoryIntent, gameTime);
+    if (workerCapacity < demandedWorkerTarget) {
+      return planWorkerSpawn(colony, roleCounts, gameTime, options);
+    }
+
+    const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryIntent, gameTime, options);
+    if (territorySpawn) {
+      return territorySpawn;
+    }
   }
 
   if (shouldPlanWorkerRecovery) {
@@ -70,12 +81,11 @@ export function planSpawn(
 function planTerritorySpawn(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
-  workerTarget: number,
+  territoryIntent: TerritoryIntentPlan,
   gameTime: number,
   options: SpawnPlanningOptions
 ): SpawnRequest | null {
-  const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
-  if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
+  if (!shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
     return null;
   }
 
@@ -96,6 +106,15 @@ function planTerritorySpawn(
     name: appendSpawnNameSuffix(`${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`, options),
     memory: buildTerritoryCreepMemory(territoryIntent)
   };
+}
+
+function getWorkerTargetWithTerritoryDemand(
+  workerTarget: number,
+  territoryIntent: TerritoryIntentPlan,
+  gameTime: number
+): number {
+  const demandWorkerCount = getTerritoryFollowUpPreparationWorkerDemand(territoryIntent, gameTime);
+  return Math.min(MAX_WORKER_TARGET + TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND, workerTarget + demandWorkerCount);
 }
 
 function planWorkerSpawn(

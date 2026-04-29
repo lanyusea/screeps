@@ -379,7 +379,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('plans a near-target reserver from a persisted occupation reserve intent with follow-up metadata', () => {
+  it('uses a selected follow-up demand to plan one support worker before a reserver', () => {
     const followUp: TerritoryFollowUpMemory = {
       source: 'activeReserveAdjacent',
       originRoom: 'W1N2',
@@ -410,7 +410,67 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N1-155',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: 155,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 155,
+        followUp
+      }
+    ]);
+  });
+
+  it('plans a reserver from a persisted follow-up intent once support demand is satisfied', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N2: makeTerritoryRoom('W2N2', { my: false } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N2',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 154,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
       spawn,
       body: ['claim', 'move'],
       name: 'claimer-W1N1-W2N2-155',
@@ -426,6 +486,17 @@ describe('planSpawn', () => {
         targetRoom: 'W2N2',
         action: 'reserve',
         status: 'planned',
+        updatedAt: 155,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        workerCount: 1,
         updatedAt: 155,
         followUp
       }

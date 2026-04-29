@@ -17,11 +17,13 @@ declare global {
 
   type TerritoryControlAction = 'claim' | 'reserve';
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
+  type TerritoryDemandType = 'followUpPreparation';
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
 
   interface TerritoryMemory {
     targets?: TerritoryTargetMemory[];
     intents?: TerritoryIntentMemory[];
+    demands?: TerritoryFollowUpDemandMemory[];
     routeDistances?: Record<string, number | null>;
   }
 
@@ -47,6 +49,16 @@ declare global {
     source: TerritoryFollowUpSource;
     originRoom: string;
     originAction: TerritoryControlAction;
+  }
+
+  interface TerritoryFollowUpDemandMemory {
+    type: TerritoryDemandType;
+    colony: string;
+    targetRoom: string;
+    action: TerritoryControlAction;
+    workerCount: number;
+    updatedAt: number;
+    followUp: TerritoryFollowUpMemory;
   }
 
   interface CreepTerritoryMemory {
