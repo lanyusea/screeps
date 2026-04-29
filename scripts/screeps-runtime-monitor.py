@@ -303,6 +303,7 @@ class RuntimeContext:
     default_shard: str
     default_room: str
     owner: str | None
+    owner_id: str | None
     state_file: Path
     cache_dir: Path
     debounce_seconds: int
@@ -325,6 +326,7 @@ class RoomSnapshot:
     owner: str | None
     info: dict[str, Any]
     expected_owner: str | None = None
+    expected_owner_id: str | None = None
 
     @property
     def counts(self) -> Counter:
@@ -370,27 +372,31 @@ def room_owner(obj: dict[str, Any]) -> str | None:
     return None
 
 
-def is_owned_object(obj: dict[str, Any], owner_username: str | None) -> bool:
+def is_owned_object(obj: dict[str, Any], owner_username: str | None, owner_id: str | None = None) -> bool:
     if obj.get("my") is True:
         return True
     username = room_owner(obj)
-    return bool(owner_username and username == owner_username)
+    if owner_username and username == owner_username:
+        return True
+    return bool(owner_id and obj.get("user") == owner_id)
 
 
-def infer_owner(objects: dict[str, dict[str, Any]], _configured_owner: str | None = None) -> str | None:
+def infer_owner(
+    objects: dict[str, dict[str, Any]], configured_owner: str | None = None, configured_owner_id: str | None = None
+) -> str | None:
     for obj in objects.values():
         if not isinstance(obj, dict):
             continue
-        if obj.get("my") is True:
-            username = room_owner(obj)
-            if username:
-                return username
+        if obj.get("my") is True or (configured_owner_id and obj.get("user") == configured_owner_id):
+            return room_owner(obj) or configured_owner or configured_owner_id
     for obj in objects.values():
         if not isinstance(obj, dict) or obj.get("type") != "controller":
             continue
         username = room_owner(obj)
         if username:
             return username
+        if configured_owner_id and obj.get("user") == configured_owner_id:
+            return configured_owner or configured_owner_id
     return None
 
 
@@ -453,6 +459,7 @@ def context_from_env() -> RuntimeContext:
         default_shard=os.environ.get("SCREEPS_SHARD", DEFAULT_SHARD),
         default_room=os.environ.get("SCREEPS_ROOM", DEFAULT_ROOM),
         owner=os.environ.get("SCREEPS_OWNER"),
+        owner_id=os.environ.get("SCREEPS_OWNER_ID"),
         state_file=Path(os.environ.get("SCREEPS_MONITOR_STATE_FILE", str(DEFAULT_STATE_FILE))),
         cache_dir=Path(os.environ.get("SCREEPS_MONITOR_CACHE_DIR", str(DEFAULT_CACHE_DIR))),
         debounce_seconds=debounce,
@@ -487,6 +494,33 @@ def overview_username(overview: Any) -> str | None:
         if isinstance(value, str):
             return value
     return None
+
+
+def user_identity(ctx: RuntimeContext, warnings: list[str]) -> tuple[str | None, str | None]:
+    if ctx.owner or ctx.owner_id:
+        return ctx.owner, ctx.owner_id
+    try:
+        auth = get_json(ctx.base_http, ctx.token, "/api/auth/me")
+    except Exception as exc:  # noqa: BLE001 - sanitized in caller payload
+        warnings.append(f"authenticated user discovery unavailable: {short_text(exc, 140)}")
+        return None, None
+    if not isinstance(auth, dict):
+        return None, None
+    username = auth.get("username") if isinstance(auth.get("username"), str) else None
+    user_id = auth.get("_id") if isinstance(auth.get("_id"), str) else None
+    return username, user_id
+
+
+def overview_rooms(overview: Any, shard: str) -> list[str]:
+    if not isinstance(overview, dict):
+        return []
+    shard_info = (overview.get("shards") or {}).get(shard)
+    if not isinstance(shard_info, dict):
+        return []
+    rooms = shard_info.get("rooms")
+    if not isinstance(rooms, list):
+        return []
+    return [room for room in rooms if isinstance(room, str)]
 
 
 def gametime_from_overview(overview: Any, shard: str) -> int | str | None:
@@ -632,7 +666,8 @@ async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
 def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[RoomSnapshot], list[str]]:
     forced_room = parse_room_arg(room_arg, ctx.default_shard)
     refs, overview, warnings = discover_owned_rooms(ctx, forced_room)
-    configured_owner = ctx.owner or overview_username(overview)
+    configured_owner, configured_owner_id = user_identity(ctx, warnings)
+    configured_owner = configured_owner or overview_username(overview)
     snapshots: list[RoomSnapshot] = []
 
     for ref in refs:
@@ -640,7 +675,7 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
             terrain = fetch_terrain(ctx, ref, warnings)
             event = asyncio.run(fetch_room_event(ctx, ref))
             objects = normalize_objects(event.get("objects"))
-            owner = infer_owner(objects, configured_owner)
+            owner = infer_owner(objects, configured_owner, configured_owner_id)
             tick = event.get("gameTime") or event.get("time") or gametime_from_overview(overview, ref.shard)
             snapshots.append(
                 RoomSnapshot(
@@ -651,6 +686,7 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
                     owner=owner,
                     info=event.get("info") if isinstance(event.get("info"), dict) else {},
                     expected_owner=configured_owner,
+                    expected_owner_id=configured_owner_id,
                 )
             )
         except Exception as exc:  # noqa: BLE001 - report room-level failures without secrets
@@ -672,7 +708,9 @@ def detect_hostile_creeps(objects: dict[str, dict[str, Any]], owner_username: st
     return hostiles
 
 
-def structure_snapshot(objects: dict[str, dict[str, Any]], owner_username: str | None) -> dict[str, dict[str, Any]]:
+def structure_snapshot(
+    objects: dict[str, dict[str, Any]], owner_username: str | None, owner_id: str | None = None
+) -> dict[str, dict[str, Any]]:
     structures: dict[str, dict[str, Any]] = {}
     for object_id, obj in objects.items():
         if not isinstance(obj, dict):
@@ -680,7 +718,7 @@ def structure_snapshot(objects: dict[str, dict[str, Any]], owner_username: str |
         object_type = obj.get("type")
         if object_type not in STRUCTURE_TYPES:
             continue
-        owned = is_owned_object(obj, owner_username)
+        owned = is_owned_object(obj, owner_username, owner_id)
         has_hits = isinstance(obj.get("hits"), (int, float)) and isinstance(obj.get("hitsMax"), (int, float))
         damageable = object_type in DAMAGEABLE_STRUCTURE_TYPES and has_hits
         critical = object_type in CRITICAL_STRUCTURE_TYPES and owned
@@ -752,11 +790,13 @@ def build_missing_reason(ref: RoomRef, object_id: str, previous: dict[str, Any])
     }
 
 
-def count_owned_objects(objects: dict[str, dict[str, Any]], owner_username: str | None, object_type: str) -> int:
+def count_owned_objects(
+    objects: dict[str, dict[str, Any]], owner_username: str | None, object_type: str, owner_id: str | None = None
+) -> int:
     return sum(
         1
         for obj in objects.values()
-        if isinstance(obj, dict) and obj.get("type") == object_type and is_owned_object(obj, owner_username)
+        if isinstance(obj, dict) and obj.get("type") == object_type and is_owned_object(obj, owner_username, owner_id)
     )
 
 
@@ -819,6 +859,7 @@ def build_next_room_state(
         "owner": owner,
         "owner_observed": snapshot.owner,
         "expected_owner": snapshot.expected_owner,
+        "expected_owner_id": snapshot.expected_owner_id,
         "owned_creeps": owned_creeps,
         "owned_spawns": owned_spawns,
         "structures": structures,
@@ -840,9 +881,9 @@ def evaluate_room_alert(
     if not isinstance(previous_alerts, dict):
         previous_alerts = {}
 
-    current_structures = structure_snapshot(snapshot.objects, snapshot.owner)
+    current_structures = structure_snapshot(snapshot.objects, snapshot.owner, snapshot.expected_owner_id)
     current_owned_spawns = count_owned_spawns(current_structures)
-    current_owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep")
+    current_owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep", snapshot.expected_owner_id)
     baseline_established = bool(previous_room_state.get("baseline_established"))
     previous_owner = previous_room_state.get("owner")
     expected_owner = snapshot.expected_owner if snapshot.expected_owner else previous_owner
@@ -1939,8 +1980,8 @@ def render_room_snapshot(
 def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, Any]:
     hostiles = detect_hostile_creeps(snapshot.objects, snapshot.owner)
     structures = structure_objects(snapshot.objects)
-    owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep")
-    owned_spawns = count_owned_objects(snapshot.objects, snapshot.owner, "spawn")
+    owned_creeps = count_owned_objects(snapshot.objects, snapshot.owner, "creep", snapshot.expected_owner_id)
+    owned_spawns = count_owned_objects(snapshot.objects, snapshot.owner, "spawn", snapshot.expected_owner_id)
     summary = {
         "room": snapshot.ref.key,
         "shard": snapshot.ref.shard,
@@ -1955,6 +1996,7 @@ def room_summary(snapshot: RoomSnapshot, image: str | None = None) -> dict[str, 
         "hostiles": len(hostiles),
         "owner": snapshot.owner,
         "expected_owner": snapshot.expected_owner,
+        "expected_owner_id": snapshot.expected_owner_id,
     }
     if image:
         summary["image"] = image
