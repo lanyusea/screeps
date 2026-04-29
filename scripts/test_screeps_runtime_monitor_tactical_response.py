@@ -5,6 +5,7 @@ import importlib.util
 import copy
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -333,6 +334,159 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["categories"], ["spawn_collapse", "private_smoke_failure"])
         self.assertEqual(report["triggers"][0]["reason_kind"], "private_smoke_spawn_collapse")
         self.assertEqual(report["triggers"][0]["structure_type"], "spawn")
+
+
+
+class RuntimeKpiArtifactTests(unittest.TestCase):
+    def test_runtime_summary_payload_uses_live_room_snapshot_metrics(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E48S28"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={
+                "controller-1": {
+                    "_id": "controller-1",
+                    "type": "controller",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "level": 3,
+                    "progress": 1250,
+                    "progressTotal": 45000,
+                    "ticksToDowngrade": 19876,
+                    "x": 24,
+                    "y": 24,
+                },
+                "spawn-1": {
+                    "_id": "spawn-1",
+                    "type": "spawn",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "store": {"energy": 265},
+                    "x": 25,
+                    "y": 23,
+                },
+                "extension-1": {
+                    "_id": "extension-1",
+                    "type": "extension",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "store": {"energy": 50},
+                    "x": 26,
+                    "y": 23,
+                },
+                "worker-1": {
+                    "_id": "worker-1",
+                    "type": "creep",
+                    "my": True,
+                    "owner": {"username": "lanyusea"},
+                    "store": {"energy": 61},
+                    "x": 27,
+                    "y": 23,
+                },
+                "source-1": {"_id": "source-1", "type": "source", "energy": 2846, "x": 20, "y": 20},
+                "hostile-1": {
+                    "_id": "hostile-1",
+                    "type": "creep",
+                    "my": False,
+                    "owner": {"username": "Invader"},
+                    "x": 10,
+                    "y": 10,
+                },
+            },
+            tick=265630,
+            owner="lanyusea",
+            info={},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+
+        self.assertEqual(payload["type"], "runtime-summary")
+        self.assertEqual(payload["tick"], 265630)
+        self.assertEqual(payload["rooms"][0]["roomName"], "E48S28")
+        self.assertEqual(payload["rooms"][0]["controller"]["level"], 3)
+        self.assertEqual(payload["rooms"][0]["controller"]["progress"], 1250)
+        self.assertEqual(payload["rooms"][0]["resources"]["storedEnergy"], 315)
+        self.assertEqual(payload["rooms"][0]["resources"]["workerCarriedEnergy"], 61)
+        self.assertEqual(payload["rooms"][0]["resources"]["sourceCount"], 1)
+        self.assertEqual(payload["rooms"][0]["combat"]["hostileCreepCount"], 1)
+
+    def test_runtime_summary_artifact_line_is_bridge_compatible(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E48S28"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={},
+            tick=265631,
+            owner="lanyusea",
+            info={},
+        )
+
+        line = monitor.runtime_summary_artifact_line([snapshot])
+
+        self.assertTrue(line.startswith("#runtime-summary "))
+        self.assertTrue(line.endswith("\n"))
+        payload = json.loads(line.split(" ", 1)[1])
+        self.assertEqual(payload["tick"], 265631)
+        self.assertEqual(payload["rooms"][0]["roomName"], "E48S28")
+
+    def test_runtime_summary_does_not_label_unknown_structures_as_hostile(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E48S28"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={
+                "controller-1": {"_id": "controller-1", "type": "controller", "user": "owner-id", "level": 3},
+                "road-1": {"_id": "road-1", "type": "road", "hits": 100, "hitsMax": 500},
+                "unknown-foreign-flag": {"_id": "unknown-foreign-flag", "type": "rampart", "my": False},
+            },
+            tick=265632,
+            owner=None,
+            info={},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+
+        self.assertEqual(payload["rooms"][0]["combat"]["hostileStructureCount"], 0)
+
+    def test_runtime_summary_counts_confirmed_foreign_owned_structures(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E48S28"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={
+                "tower-1": {
+                    "_id": "tower-1",
+                    "type": "tower",
+                    "owner": {"username": "Invader"},
+                    "hits": 3000,
+                    "hitsMax": 3000,
+                },
+            },
+            tick=265633,
+            owner="lanyusea",
+            info={},
+        )
+
+        payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
+
+        self.assertEqual(payload["rooms"][0]["combat"]["hostileStructureCount"], 1)
+
+    def test_runtime_summary_artifact_write_does_not_overwrite_existing_path(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E48S28"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={},
+            tick=265634,
+            owner="lanyusea",
+            info={},
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir)
+            target = out_dir / monitor.runtime_summary_artifact_name()
+            target.write_text("existing evidence\n", encoding="utf-8")
+
+            written = monitor.write_runtime_summary_artifact([snapshot], out_dir)
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "existing evidence\n")
+            self.assertEqual(written.name, target.with_name(f"{target.stem}-2{target.suffix}").name)
+            self.assertTrue(written.read_text(encoding="utf-8").startswith("#runtime-summary "))
 
 
 if __name__ == "__main__":

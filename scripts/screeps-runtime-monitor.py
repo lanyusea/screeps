@@ -24,14 +24,16 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 DEFAULT_API_URL = "https://screeps.com"
 DEFAULT_OUT_DIR = Path("/root/screeps/runtime-artifacts/screeps-monitor")
 DEFAULT_STATE_FILE = Path("/root/.hermes/screeps-runtime-monitor/state.json")
 DEFAULT_CACHE_DIR = Path("/root/.hermes/screeps-runtime-monitor/terrain-cache")
+DEFAULT_RUNTIME_SUMMARY_OUT_DIR = Path("/root/screeps/runtime-artifacts/runtime-summary-console")
 DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_SHARD = "shardX"
 DEFAULT_ROOM = "E48S28"
@@ -1831,6 +1833,146 @@ def summarize_rooms(snapshots: list[RoomSnapshot]) -> dict[str, Any]:
     }
 
 
+def number_value(value: Any) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    return None
+
+
+def store_energy(obj: dict[str, Any]) -> int | float:
+    store = obj.get("store")
+    if isinstance(store, dict):
+        energy = number_value(store.get("energy"))
+        if energy is not None:
+            return energy
+    energy = number_value(obj.get("energy"))
+    return energy if energy is not None else 0
+
+
+def confirmed_foreign_owner(obj: dict[str, Any], owner_username: str | None) -> bool:
+    username = room_owner(obj)
+    return bool(username is not None and username != owner_username)
+
+
+def runtime_summary_room(snapshot: RoomSnapshot) -> dict[str, Any]:
+    objects = snapshot.objects
+    owned_structures = [obj for obj in structure_objects(objects) if is_owned_object(obj, snapshot.owner)]
+    owned_creeps = [
+        obj
+        for obj in objects.values()
+        if isinstance(obj, dict) and obj.get("type") == "creep" and is_owned_object(obj, snapshot.owner)
+    ]
+    sources = [obj for obj in objects.values() if isinstance(obj, dict) and obj.get("type") == "source"]
+    dropped_energy = [
+        obj
+        for obj in objects.values()
+        if isinstance(obj, dict)
+        and obj.get("type") == "resource"
+        and obj.get("resourceType") == "energy"
+        and number_value(obj.get("amount")) is not None
+    ]
+    hostiles = detect_hostile_creeps(objects, snapshot.owner)
+    hostile_structures = [
+        obj
+        for obj in structure_objects(objects)
+        if confirmed_foreign_owner(obj, snapshot.owner)
+    ]
+    controller = next((obj for obj in structure_objects(objects) if obj.get("type") == "controller"), None)
+
+    controller_summary: dict[str, Any] = {}
+    if controller is not None:
+        for key in ("level", "progress", "progressTotal", "ticksToDowngrade"):
+            controller_summary[key] = number_value(controller.get(key))
+
+    return {
+        "roomName": snapshot.ref.room,
+        "shard": snapshot.ref.shard,
+        "controller": controller_summary,
+        "resources": {
+            "storedEnergy": sum(store_energy(obj) for obj in owned_structures),
+            "workerCarriedEnergy": sum(store_energy(obj) for obj in owned_creeps),
+            "droppedEnergy": sum(number_value(obj.get("amount")) or 0 for obj in dropped_energy),
+            "sourceCount": len(sources),
+        },
+        "combat": {
+            "hostileCreepCount": len(hostiles),
+            "hostileStructureCount": len(hostile_structures),
+        },
+    }
+
+
+def runtime_summary_payload_from_snapshots(snapshots: list[RoomSnapshot]) -> dict[str, Any]:
+    ticks = [snapshot.tick for snapshot in snapshots if isinstance(snapshot.tick, int)]
+    return {
+        "type": "runtime-summary",
+        "tick": max(ticks) if ticks else None,
+        "rooms": [runtime_summary_room(snapshot) for snapshot in snapshots],
+        "source": "screeps-runtime-monitor",
+    }
+
+
+def runtime_summary_artifact_line(snapshots: list[RoomSnapshot]) -> str:
+    payload = runtime_summary_payload_from_snapshots(snapshots)
+    return "#runtime-summary " + json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+
+
+def runtime_summary_artifact_name(now: datetime | None = None) -> str:
+    timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return f"runtime-summary-monitor-{timestamp.strftime('%Y%m%dT%H%M%SZ')}.log"
+
+
+def iter_path_candidates(path: Path) -> Iterable[Path]:
+    yield path
+    for index in range(2, 1000):
+        yield path.with_name(f"{path.stem}-{index}{path.suffix}")
+
+
+def unique_path(path: Path) -> Path:
+    for candidate in iter_path_candidates(path):
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"could not choose a unique artifact path for {path}")
+
+
+def link_artifact_exclusively(temp_path: Path, path: Path) -> Path:
+    for candidate in iter_path_candidates(path):
+        try:
+            os.link(temp_path, candidate)
+            return candidate
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"could not choose a unique artifact path for {path}")
+
+
+def write_runtime_summary_artifact(snapshots: list[RoomSnapshot], out_dir: Path) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / runtime_summary_artifact_name()
+    payload = runtime_summary_artifact_line(snapshots)
+    temp_fd: int | None = None
+    temp_path: Path | None = None
+    try:
+        temp_fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(out_dir))
+        temp_path = Path(temp_name)
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            temp_fd = None
+            handle.write(payload)
+        linked_path = link_artifact_exclusively(temp_path, target)
+        return linked_path.resolve()
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def redact_secrets(text: str, secrets: list[str]) -> str:
     redacted = text
     for secret in secrets:
@@ -1866,6 +2008,13 @@ def command_summary(args: argparse.Namespace) -> int:
         images.append(image)
         room_summaries.append(room_summary(snapshot, image=image))
 
+    runtime_summary_artifact: str | None = None
+    if not args.no_runtime_summary_artifact:
+        try:
+            runtime_summary_artifact = str(write_runtime_summary_artifact(snapshots, Path(args.runtime_summary_out_dir)))
+        except Exception as exc:  # noqa: BLE001 - keep image delivery alive; report sanitized warning
+            warnings.append(f"runtime-summary artifact unavailable: {short_text(exc, 160)}")
+
     payload = {
         "ok": True,
         "mode": "summary",
@@ -1873,6 +2022,7 @@ def command_summary(args: argparse.Namespace) -> int:
         "images": images,
         "rooms": [snapshot.ref.key for snapshot in snapshots],
         "room_summaries": room_summaries,
+        "runtime_summary_artifact": runtime_summary_artifact,
         "warnings": warnings,
     }
     print_json(payload, [ctx.token])
@@ -1963,6 +2113,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     summary = subcommands.add_parser("summary", help="render summary PNGs for owned rooms")
     add_live_options(summary)
+    summary.add_argument(
+        "--runtime-summary-out-dir",
+        default=str(DEFAULT_RUNTIME_SUMMARY_OUT_DIR),
+        help="Directory for reducer-compatible #runtime-summary artifacts written from the same live room snapshot.",
+    )
+    summary.add_argument(
+        "--no-runtime-summary-artifact",
+        action="store_true",
+        help="Do not write a reducer-compatible #runtime-summary artifact while rendering summary images.",
+    )
     summary.set_defaults(func=command_summary)
 
     alert = subcommands.add_parser("alert", help="evaluate alert rules and render alert PNGs when needed")
