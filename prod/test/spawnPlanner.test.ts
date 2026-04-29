@@ -599,6 +599,72 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('uses a ready alternate while a recovered follow-up lacks claim body energy', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const suppressionTime = 165;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const { colony, spawn } = makeColony({
+      energyAvailable: 50,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const describeExits = jest.fn(() => ({ '1': 'W1N3' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W2N2: makeTerritoryRoom('W2N2', { my: false } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N2', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N2',
+            action: 'reserve',
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, retryTime)).toEqual({
+      spawn,
+      body: ['move'],
+      name: `scout-W1N1-W1N3-${retryTime}`,
+      memory: {
+        role: 'scout',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W1N3', action: 'scout' }
+      }
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: suppressionTime,
+        followUp
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N3',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: retryTime
+      }
+    ]);
+  });
+
   it('keeps a recovered follow-up active when live controller coverage already satisfies it', () => {
     const followUp: TerritoryFollowUpMemory = {
       source: 'activeReserveAdjacent',
