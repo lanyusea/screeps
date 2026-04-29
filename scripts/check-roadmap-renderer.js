@@ -104,6 +104,18 @@ if (fs.existsSync(htmlPath)) {
     JSON.stringify(kpiTitles) === JSON.stringify(['Territory', 'Resources', 'Combat']),
     `KPI chart titles should be Territory, Resources, Combat; saw ${JSON.stringify(kpiTitles)}`
   );
+
+  const resourcesCard = body.match(/<div class="card kpi">[\s\S]*?<h3>Resources<\/h3>[\s\S]*?<\/div><\/div>/);
+  assert(Boolean(resourcesCard), 'Resources KPI card is missing');
+  if (resourcesCard) {
+    const resourcesText = tagText(resourcesCard[0]);
+    assert(resourcesCard[0].includes('data-kpi-unavailable="true"'), 'Resources KPI must mark unavailable data instead of drawing fake zeros');
+    assert(resourcesText.includes('No observed KPI data'), 'Resources KPI must state that no observed KPI data is available');
+    assert(!resourcesText.includes('Stored energy 0') && !resourcesText.includes('Harvest delta 0') && !resourcesText.includes('Worker carried 0'), 'Resources KPI must not label fake zero energy values');
+  }
+
+  const unavailableCards = [...body.matchAll(/data-kpi-unavailable="true"/g)].length;
+  assert(unavailableCards >= 1, 'At least one unavailable KPI block should be explicit when reducer data is missing');
 }
 
 if (failures.length > 0) {

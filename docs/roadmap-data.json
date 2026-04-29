@@ -3,90 +3,111 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-04-28T16:42:35Z",
-  "generatedAtCst": "2026-04-29 00:42:35 CST",
+  "generatedAt": "2026-04-29T05:20:28Z",
+  "generatedAtCst": "2026-04-29 13:20:28 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
     "issues": [
       {
-        "createdAt": "2026-04-28T16:39:22Z",
-        "domain": "Change-control",
+        "createdAt": "2026-04-29T04:54:03Z",
+        "domain": "Bot capability",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-b-spawn-lifecycle"
+        ],
+        "milestone": "",
+        "number": 280,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1: Territory: gate follow-up target selection on spawn readiness",
+        "type": "Issue",
+        "updatedAt": "2026-04-29T04:54:52Z",
+        "url": "https://github.com/lanyusea/screeps/issues/280"
+      },
+      {
+        "createdAt": "2026-04-29T02:56:34Z",
+        "domain": "Agent OS",
         "kind": "ops",
         "labels": [
           "kind:ops",
           "priority:p1",
           "roadmap"
         ],
-        "milestone": "",
-        "number": 218,
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "number": 273,
         "priority": "P1",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P1: increase autonomous development concurrency capacity by 1.5x",
+        "title": "P1: Agent OS: prevent research scaffold closure false positives",
         "type": "Issue",
-        "updatedAt": "2026-04-28T16:42:39Z",
-        "url": "https://github.com/lanyusea/screeps/issues/218"
+        "updatedAt": "2026-04-29T02:56:34Z",
+        "url": "https://github.com/lanyusea/screeps/issues/273"
       },
       {
-        "createdAt": "2026-04-28T16:31:38Z",
+        "createdAt": "2026-04-29T01:21:14Z",
         "domain": "Runtime monitor",
-        "kind": "docs",
+        "kind": "code",
         "labels": [
-          "kind:docs",
+          "blocked",
+          "kind:code",
+          "priority:p2",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "number": 266,
+        "priority": "P2",
+        "state": "OPEN",
+        "status": "Backlog",
+        "title": "P2: Gameplay Evolution: offline RL and hierarchical strategy recommendation prototype",
+        "type": "Issue",
+        "updatedAt": "2026-04-29T04:10:47Z",
+        "url": "https://github.com/lanyusea/screeps/issues/266"
+      },
+      {
+        "createdAt": "2026-04-29T01:21:01Z",
+        "domain": "Runtime monitor",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:phase-c-telemetry"
+        ],
+        "milestone": "Phase C: Runtime telemetry / monitor gate",
+        "number": 265,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1: Gameplay Evolution: strategy registry and shadow evaluator",
+        "type": "Issue",
+        "updatedAt": "2026-04-29T04:54:02Z",
+        "url": "https://github.com/lanyusea/screeps/issues/265"
+      },
+      {
+        "createdAt": "2026-04-28T17:32:14Z",
+        "domain": "Change-control",
+        "kind": "bug",
+        "labels": [
+          "kind:bug",
           "priority:p1",
           "roadmap",
           "roadmap:phase-c-telemetry"
         ],
         "milestone": "",
-        "number": 216,
+        "number": 226,
         "priority": "P1",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P1: GitHub Pages roadmap KPI charts need placeholder lines and data points",
+        "title": "P1: Roadmap Official deploys metric ignores deploy evidence JSON",
         "type": "Issue",
-        "updatedAt": "2026-04-28T16:40:27Z",
-        "url": "https://github.com/lanyusea/screeps/issues/216"
-      },
-      {
-        "createdAt": "2026-04-28T16:17:14Z",
-        "domain": "Bot capability",
-        "kind": "code",
-        "labels": [
-          "kind:code",
-          "priority:p1",
-          "roadmap",
-          "roadmap:phase-b-spawn-lifecycle"
-        ],
-        "milestone": "",
-        "number": 215,
-        "priority": "P1",
-        "state": "OPEN",
-        "status": "Ready",
-        "title": "P1: Bot Capability: extend territory pressure after reservation renewal",
-        "type": "Issue",
-        "updatedAt": "2026-04-28T16:34:45Z",
-        "url": "https://github.com/lanyusea/screeps/issues/215"
-      },
-      {
-        "createdAt": "2026-04-28T15:58:44Z",
-        "domain": "Bot capability",
-        "kind": "code",
-        "labels": [
-          "kind:code",
-          "priority:p1",
-          "roadmap",
-          "roadmap:phase-b-spawn-lifecycle"
-        ],
-        "milestone": "",
-        "number": 213,
-        "priority": "P1",
-        "state": "OPEN",
-        "status": "Ready",
-        "title": "P1: Bot Capability: improve resource economy flow after worker throughput",
-        "type": "Issue",
-        "updatedAt": "2026-04-28T16:15:05Z",
-        "url": "https://github.com/lanyusea/screeps/issues/213"
+        "updatedAt": "2026-04-29T05:13:27Z",
+        "url": "https://github.com/lanyusea/screeps/issues/226"
       },
       {
         "createdAt": "2026-04-26T17:09:40Z",
@@ -105,7 +126,7 @@
         "status": "Ready",
         "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
         "type": "Issue",
-        "updatedAt": "2026-04-28T16:26:49Z",
+        "updatedAt": "2026-04-29T04:57:41Z",
         "url": "https://github.com/lanyusea/screeps/issues/63"
       },
       {
@@ -125,7 +146,7 @@
         "status": "Ready",
         "title": "P1: Gameplay Evolution\u4e13\u9879\uff1avision-driven game-result review to roadmap/task loop",
         "type": "Issue",
-        "updatedAt": "2026-04-28T10:51:06Z",
+        "updatedAt": "2026-04-28T17:55:49Z",
         "url": "https://github.com/lanyusea/screeps/issues/59"
       },
       {
@@ -160,7 +181,7 @@
           "number": 63,
           "priority": "P1",
           "state": "",
-          "status": "In progress",
+          "status": "In review",
           "title": "Gameplay release cadence and emergency hotfix evidence",
           "type": "Issue",
           "updatedAt": "",
@@ -2401,6 +2422,10 @@
               "status": "Ready"
             },
             {
+              "cards": [],
+              "status": "In progress"
+            },
+            {
               "cards": [
                 {
                   "domain": "Official MMO",
@@ -2411,7 +2436,7 @@
                   "number": 63,
                   "priority": "P1",
                   "state": "",
-                  "status": "In progress",
+                  "status": "In review",
                   "title": "Gameplay release cadence and emergency hotfix evidence",
                   "type": "Issue",
                   "updatedAt": "",
@@ -2419,10 +2444,6 @@
                   "visionLayer": "foundation blocker"
                 }
               ],
-              "status": "In progress"
-            },
-            {
-              "cards": [],
               "status": "In review"
             },
             {
@@ -3414,17 +3435,17 @@
       {
         "instrumented": true,
         "label": "Open roadmap issues",
-        "value": 7
+        "value": 8
       },
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 3
+        "value": 0
       },
       {
         "instrumented": true,
         "label": "Blocked cards",
-        "value": 0
+        "value": 1
       },
       {
         "instrumented": true,
@@ -3434,12 +3455,12 @@
       {
         "instrumented": true,
         "label": "In progress",
-        "value": 2
+        "value": 1
       },
       {
         "instrumented": true,
         "label": "In review",
-        "value": 0
+        "value": 1
       }
     ],
     "projectItems": [
@@ -4203,7 +4224,7 @@
       {
         "blockedBy": "",
         "domain": "Official MMO",
-        "evidence": "Official deploy SUCCESS 2026-04-29T00:23+08: run 25064761914 on main 3b4ce0a; uploaded prod/dist/main.js SHA256 ab4ff700c8524d1d4fedb3daf18a63bd8db794215c6e07d08ee41691ceef2f89 to Screeps branch main; activeWorld set to main; branchCode and activeWorld code matched in deploy evidence JSON.",
+        "evidence": "Deployment floor SATISFIED for main 5840cda60f808d716ed72895031925420008d697 via official deploy run 25090124434; deploy JSON and postdeploy summary/alert sidecars archived.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -4216,7 +4237,7 @@
         "number": 63,
         "priority": "P1",
         "state": "",
-        "status": "In progress",
+        "status": "In review",
         "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
         "type": "Issue",
         "updatedAt": "",
@@ -5340,77 +5361,7 @@
         "url": "https://github.com/lanyusea/screeps/pull/123"
       }
     ],
-    "pullRequests": [
-      {
-        "checks": {
-          "failure": 0,
-          "pending": 0,
-          "success": 2,
-          "total": 2
-        },
-        "createdAt": "2026-04-28T16:42:19Z",
-        "domain": "Docs/process",
-        "isDraft": false,
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "number": 219,
-        "priority": "P1",
-        "reviewDecision": "",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "docs: scale autonomous dev concurrency",
-        "type": "PullRequest",
-        "updatedAt": "2026-04-28T16:42:59Z",
-        "url": "https://github.com/lanyusea/screeps/pull/219"
-      },
-      {
-        "checks": {
-          "failure": 0,
-          "pending": 0,
-          "success": 2,
-          "total": 2
-        },
-        "createdAt": "2026-04-28T16:32:43Z",
-        "domain": "Bot capability",
-        "isDraft": false,
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "number": 217,
-        "priority": "P1",
-        "reviewDecision": "",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "feat: extend territory pressure after reservation renewal",
-        "type": "PullRequest",
-        "updatedAt": "2026-04-28T16:35:19Z",
-        "url": "https://github.com/lanyusea/screeps/pull/217"
-      },
-      {
-        "checks": {
-          "failure": 0,
-          "pending": 0,
-          "success": 2,
-          "total": 2
-        },
-        "createdAt": "2026-04-28T16:14:45Z",
-        "domain": "Bot capability",
-        "isDraft": false,
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "number": 214,
-        "priority": "P1",
-        "reviewDecision": "",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "feat: improve resource economy flow after worker throughput",
-        "type": "PullRequest",
-        "updatedAt": "2026-04-28T16:41:40Z",
-        "url": "https://github.com/lanyusea/screeps/pull/214"
-      }
-    ],
+    "pullRequests": [],
     "roadmapCards": [
       {
         "domain": "Change-control",
@@ -6205,34 +6156,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -6367,6 +6290,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6375,34 +6326,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -6537,6 +6460,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6545,34 +6496,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -6707,6 +6630,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6715,34 +6666,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -6877,6 +6800,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -6885,34 +6836,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -7047,6 +6970,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7055,34 +7006,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -7217,6 +7140,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7225,34 +7176,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -7387,6 +7310,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7395,34 +7346,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -7557,6 +7480,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7565,34 +7516,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -7727,6 +7650,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7735,34 +7686,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -7897,6 +7820,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -7905,34 +7856,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -8067,6 +7990,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8075,34 +8026,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -8237,6 +8160,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8245,34 +8196,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -8407,6 +8330,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8415,34 +8366,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -8577,6 +8500,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8585,34 +8536,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -8747,6 +8670,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8755,34 +8706,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -8917,6 +8840,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -8925,34 +8876,6 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "observed",
           "value": 0.0
@@ -9087,6 +9010,34 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "observed",
           "value": 0.0
         }
@@ -9095,34 +9046,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -9257,6 +9180,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9265,34 +9216,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -9427,6 +9350,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9435,34 +9386,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -9597,6 +9520,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9605,34 +9556,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -9767,6 +9690,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9775,34 +9726,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -9937,6 +9860,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -9945,34 +9896,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -10107,6 +10030,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -10115,34 +10066,6 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "observed",
           "value": 0.0
@@ -10277,6 +10200,34 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "observed",
           "value": 0.0
         }
@@ -10285,34 +10236,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -10447,6 +10370,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -10455,34 +10406,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -10617,6 +10540,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -10625,34 +10576,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -10787,6 +10710,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -10795,34 +10746,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -10957,6 +10880,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -10965,34 +10916,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -11127,6 +11050,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -11135,34 +11086,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -11297,6 +11220,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -11305,34 +11256,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -11467,6 +11390,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -11475,34 +11426,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -11637,6 +11560,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -11645,34 +11596,6 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-04-27T07:40:00Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:41:08Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:43:01Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-04-27T07:44:17Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
           "sampledAt": "2026-04-27T07:46:35Z",
           "status": "not instrumented",
           "value": null
@@ -11807,6 +11730,34 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-04-28T16:42:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:12:23Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:14:41Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:17:35Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-04-29T05:20:28Z",
           "status": "not instrumented",
           "value": null
         }
@@ -12250,21 +12201,21 @@
         "delta": "+1",
         "detail": "repository history",
         "label": "Total commits",
-        "value": 199
+        "value": 230
       },
       {
         "delta": "+1",
-        "detail": "117 merged",
+        "detail": "149 merged",
         "label": "Total PRs",
         "source": "github",
-        "value": 125
+        "value": 154
       },
       {
         "delta": "+0",
-        "detail": "7 open",
+        "detail": "8 open",
         "label": "Total issues",
         "source": "github",
-        "value": 94
+        "value": 126
       },
       {
         "delta": "+0",
@@ -12340,8 +12291,8 @@
       "matchedFiles": 0,
       "reason": "",
       "runtimeSummaryLines": 0,
-      "scannedFiles": 95787,
-      "skippedFileCount": 2189
+      "scannedFiles": 96120,
+      "skippedFileCount": 2190
     },
     "window": {
       "firstTick": null,

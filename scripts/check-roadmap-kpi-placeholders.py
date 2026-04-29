@@ -113,31 +113,23 @@ def validate_kpi_html(
             )
 
         all_null_series = [series for series in card.get("series", ()) if is_all_null_series(generator, series)]
+        placeholder_lines = find_tags(body, "polyline", 'data-kpi-placeholder="line"')
+        placeholder_points = find_tags(body, "circle", 'data-kpi-placeholder="point"')
+        assert_check(failures, not placeholder_lines, f"{label}: {title} must not render fake placeholder KPI lines")
+        assert_check(failures, not placeholder_points, f"{label}: {title} must not render fake placeholder KPI points")
         if not all_null_series:
             continue
 
-        placeholder_lines = find_tags(body, "polyline", 'data-kpi-placeholder="line"')
-        placeholder_points = find_tags(body, "circle", 'data-kpi-placeholder="point"')
-        expected_lines = len(all_null_series)
-        expected_points = sum(len(list(series.get("values", ()))) for series in all_null_series)
-
         assert_check(
             failures,
-            len(placeholder_lines) == expected_lines,
-            f"{label}: {title} should render {expected_lines} placeholder lines, saw {len(placeholder_lines)}",
+            'data-kpi-unavailable="true"' in body,
+            f"{label}: {title} all-null KPI chart should explicitly mark data as unavailable",
         )
         assert_check(
             failures,
-            len(placeholder_points) == expected_points,
-            f"{label}: {title} should render {expected_points} placeholder points, saw {len(placeholder_points)}",
+            "No observed KPI data" in html.unescape(body),
+            f"{label}: {title} all-null KPI chart should say no observed KPI data",
         )
-        for line in placeholder_lines:
-            assert_check(failures, tag_has_attribute(line, "stroke-dasharray"), f"{label}: {title} placeholder line is not dashed")
-            assert_check(failures, tag_has_attribute(line, "stroke-opacity"), f"{label}: {title} placeholder line is not muted")
-        for point in placeholder_points:
-            assert_check(failures, 'fill="none"' in point, f"{label}: {title} placeholder point is not hollow")
-            assert_check(failures, tag_has_attribute(point, "stroke"), f"{label}: {title} placeholder point has no stroke")
-            assert_check(failures, tag_has_attribute(point, "stroke-opacity"), f"{label}: {title} placeholder point is not muted")
 
 
 def committed_page_inputs(repo_root: Path) -> tuple[str, list[JsonObject]] | None:

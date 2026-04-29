@@ -2895,6 +2895,18 @@ main {
   margin-top: 18px;
 }
 
+.sparkline.unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: rgba(255, 253, 247, 0.68);
+}
+
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -3130,9 +3142,9 @@ def render_sparkline(points: Sequence[JsonObject], accent: str) -> str:
     observed = [point for point in points if point.get("observed") and isinstance(point.get("value"), (int, float))]
     if not observed:
         return """
-          <svg class="sparkline" role="img" aria-label="No observed history yet" viewBox="0 0 240 68">
-            <line x1="8" y1="36" x2="232" y2="36" stroke="#ded2c3" stroke-width="2" stroke-dasharray="5 5"/>
-          </svg>
+          <div class="sparkline unavailable" data-sparkline-unavailable="true" role="img" aria-label="No observed metric history yet">
+            No observed history
+          </div>
 """
     values = [float(point["value"]) for point in observed]
     min_value = min(values)
@@ -3901,24 +3913,6 @@ def render_kpi_svg(card: JsonObject) -> str:
             series_parts.append(
                 f'<polyline fill="none" stroke="{color}" stroke-width="{width_attr}" stroke-linecap="round" stroke-linejoin="round"{dash} points="{points}"/>'
             )
-        if not coords and values and all(chart_number(raw_value) is None for raw_value in values):
-            # Missing telemetry is not observed data, so it remains out of the JSON
-            # value stream and does not get labels. The public visual still needs a
-            # readable chart shape: render-only zero-baseline placeholders show the
-            # dates without implying that runtime KPI values were observed.
-            placeholder_points = [(x_for(index), y_for(0.0)) for index, _ in enumerate(values)]
-            if len(placeholder_points) > 1:
-                points = " ".join(f"{x:.1f},{y:.1f}" for x, y in placeholder_points)
-                series_parts.append(
-                    f'<polyline data-kpi-placeholder="line" fill="none" stroke="{color}" stroke-width="{width_attr}" '
-                    f'stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 7" '
-                    f'stroke-opacity="0.44" points="{points}"/>'
-                )
-            for x, y in placeholder_points:
-                series_parts.append(
-                    f'<circle data-kpi-placeholder="point" cx="{x:.1f}" cy="{y:.1f}" r="4.5" fill="none" '
-                    f'stroke="{color}" stroke-width="2" stroke-opacity="0.68"/>'
-                )
         for x, y, value in coords:
             if value == y_max:
                 text_y = y + 22
@@ -3938,6 +3932,22 @@ def render_kpi_svg(card: JsonObject) -> str:
         )
         legend_x += 142 if len(series["label"]) < 11 else 164
 
+    all_series_values = [
+        chart_number(value)
+        for series in card.get("series", ())
+        if isinstance(series, dict)
+        for value in series.get("values", ())
+    ]
+    has_observed_value = any(value is not None for value in all_series_values)
+    unavailable_overlay = ""
+    if not has_observed_value:
+        unavailable_overlay = f'''
+              <g data-kpi-unavailable="true">
+                <rect x="{x0 + 52:.1f}" y="{y0 + 42:.1f}" width="{width - 104:.1f}" height="74" rx="10" fill="#fbfaf7" stroke="#d8cabc" stroke-width="1.2"/>
+                <text x="{x0 + width / 2:.1f}" y="{y0 + 76:.1f}" text-anchor="middle" fill="#3e352d" font-size="17" font-weight="800">No observed KPI data</text>
+                <text x="{x0 + width / 2:.1f}" y="{y0 + 101:.1f}" text-anchor="middle" fill="#8b6d55" font-size="13">Real reducer history is unavailable; chart is intentionally blank.</text>
+              </g>'''
+
     return f"""
             <svg class="chart-svg" role="img" aria-label="{esc(card["title"])} 7 day trend" viewBox="0 0 560 260">
               <text x="{x0:.1f}" y="12" fill="#9a5d25" font-size="14" font-weight="900">{esc(card["pill"])}</text>
@@ -3945,6 +3955,7 @@ def render_kpi_svg(card: JsonObject) -> str:
               <line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x0:.1f}" y2="{y0 + height:.1f}" stroke="#cdbba7" stroke-width="1.5"/>
               <line x1="{x0:.1f}" y1="{y0 + height:.1f}" x2="{x0 + width:.1f}" y2="{y0 + height:.1f}" stroke="#cdbba7" stroke-width="1.5"/>
               {''.join(series_parts)}
+              {unavailable_overlay}
               {date_labels}
               {''.join(legend_parts)}
             </svg>
