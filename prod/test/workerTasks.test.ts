@@ -3505,6 +3505,76 @@ describe('selectWorkerTask', () => {
     expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it('routes carried energy to controller upgrade before non-critical construction when dropped energy surplus exists', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const droppedEnergy = { id: 'drop-surplus', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller });
+    const baseFind = room.find.bind(room) as (
+      type: number,
+      options?: { filter?: (structure: AnyOwnedStructure) => boolean }
+    ) => unknown[];
+    room.find = jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
+      }
+
+      return baseFind(type, options);
+    }) as unknown as Room['find'];
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('routes carried energy to controller upgrade on visible dropped energy surplus without pathfinding', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const droppedEnergy = { id: 'drop-surplus', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller });
+    const baseFind = room.find.bind(room) as (
+      type: number,
+      options?: { filter?: (structure: AnyOwnedStructure) => boolean }
+    ) => unknown[];
+    room.find = jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
+      }
+
+      return baseFind(type, options);
+    }) as unknown as Room['find'];
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: RoomObject) => {
+          const ranges: Record<string, number> = {
+            controller1: 5,
+            'tower-site1': 8,
+            'drop-surplus': 5
+          };
+          return ranges[String((target as { id?: string }).id)] ?? 99;
+        }),
+        findPathTo: jest.fn().mockReturnValue([])
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(creep.pos.findPathTo).not.toHaveBeenCalled();
+  });
+
   it('uses nearby non-critical repair before stored-surplus controller upgrading', () => {
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
       my: true
