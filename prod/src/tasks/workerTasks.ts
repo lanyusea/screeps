@@ -7,6 +7,8 @@ import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 import {
   buildCriticalRoadLogisticsContext,
   isCriticalRoadLogisticsWork,
+  isRemoteTerritoryLogisticsRoom,
+  isSelfReservedRoom,
   type CriticalRoadLogisticsContext
 } from '../construction/criticalRoads';
 
@@ -1084,22 +1086,53 @@ function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
 }
 
 function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrastructureRepairTarget | null {
-  if (creep.room.controller?.my !== true) {
-    return null;
-  }
-
   const visibleStructures = findVisibleRoomStructures(creep.room);
   const criticalRoadContext = visibleStructures.some(isCriticalRoadRepairCandidate)
     ? buildWorkerCriticalRoadLogisticsContext(creep)
     : null;
+  const canRepairOwnedInfrastructure = creep.room.controller?.my === true;
+  const canRepairRemoteCriticalRoads =
+    !canRepairOwnedInfrastructure &&
+    criticalRoadContext !== null &&
+    canRepairRemoteCriticalRoadInfrastructure(creep);
+
+  if (!canRepairOwnedInfrastructure && !canRepairRemoteCriticalRoads) {
+    return null;
+  }
+
   const repairTargets = visibleStructures.filter((structure) =>
-    isCriticalInfrastructureRepairTarget(structure, criticalRoadContext)
+    isCriticalInfrastructureRepairTarget(structure, criticalRoadContext, {
+      repairContainers: canRepairOwnedInfrastructure,
+      repairCriticalRoads: canRepairOwnedInfrastructure || canRepairRemoteCriticalRoads
+    })
   );
   if (repairTargets.length === 0) {
     return null;
   }
 
   return repairTargets.sort(compareRepairTargets)[0];
+}
+
+function canRepairRemoteCriticalRoadInfrastructure(creep: Creep): boolean {
+  if (!isRemoteTerritoryLogisticsRoom(creep.room) || hasVisibleHostilePresence(creep.room)) {
+    return false;
+  }
+
+  const controller = creep.room.controller;
+  if (!controller) {
+    return true;
+  }
+
+  if (controller.owner != null) {
+    return false;
+  }
+
+  const reservationUsername = controller.reservation?.username;
+  return (
+    reservationUsername == null ||
+    reservationUsername === getCreepOwnerUsername(creep) ||
+    isSelfReservedRoom(creep.room)
+  );
 }
 
 function buildWorkerCriticalRoadLogisticsContext(creep: Creep): CriticalRoadLogisticsContext {
@@ -1128,7 +1161,8 @@ function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWor
 
 function isCriticalInfrastructureRepairTarget(
   structure: AnyStructure,
-  criticalRoadContext: CriticalRoadLogisticsContext | null
+  criticalRoadContext: CriticalRoadLogisticsContext | null,
+  options: { repairContainers: boolean; repairCriticalRoads: boolean }
 ): structure is CriticalInfrastructureRepairTarget {
   if (
     !isSafeRepairTarget(structure) ||
@@ -1139,8 +1173,10 @@ function isCriticalInfrastructureRepairTarget(
   }
 
   return (
-    isContainerRepairTarget(structure) ||
-    (!!criticalRoadContext && isCriticalRoadLogisticsWork(structure, criticalRoadContext))
+    (options.repairContainers && isContainerRepairTarget(structure)) ||
+    (options.repairCriticalRoads &&
+      !!criticalRoadContext &&
+      isCriticalRoadLogisticsWork(structure, criticalRoadContext))
   );
 }
 

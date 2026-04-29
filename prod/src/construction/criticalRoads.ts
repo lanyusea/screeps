@@ -203,7 +203,7 @@ function isRoadWorkTarget(target: RoadWorkTarget): boolean {
   return matchesStructureType(target.structureType, 'STRUCTURE_ROAD', 'road');
 }
 
-function isRemoteTerritoryLogisticsRoom(room: Room): boolean {
+export function isRemoteTerritoryLogisticsRoom(room: Room): boolean {
   return isReferencedRemoteTerritoryRoom(room.name) || (room.controller?.my !== true && isSelfReservedRoom(room));
 }
 
@@ -242,7 +242,7 @@ function hasRemoteTerritoryReference(value: unknown, roomName: string, roomKey: 
   });
 }
 
-function isSelfReservedRoom(room: Room): boolean {
+export function isSelfReservedRoom(room: Room): boolean {
   const reservationUsername = (room.controller as (StructureController & { reservation?: { username?: string } }) | undefined)
     ?.reservation?.username;
   return isNonEmptyString(reservationUsername) && getOwnedUsernames().has(reservationUsername);

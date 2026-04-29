@@ -3130,6 +3130,41 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-critical-site1' });
   });
 
+  it('repairs reserved-room critical route roads before container construction without a local spawn', () => {
+    const road = makeStructure('remote-road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(12, 10, 'W2N1')
+    });
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const source = makeSource('source1', 20, 10, 'W2N1');
+    const controller = {
+      id: 'controller2',
+      my: false,
+      pos: makeRoomPosition(10, 10, 'W2N1'),
+      reservation: { username: 'Self', ticksToEnd: 1_000 }
+    } as StructureController;
+    setGameSpawns({ Spawn1: makeSpawn('Spawn1', 10, 10, 'W1N1') });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+    const room = makeWorkerTaskRoom({
+      constructionSites: [containerSite],
+      controller,
+      sources: [source],
+      structures: [road]
+    });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      owner: { username: 'Self' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'remote-road-critical' });
+  });
+
   it('builds reserved-room critical route road construction before container construction without a local spawn', () => {
     const roadSite = {
       id: 'remote-road-critical-site1',

@@ -4069,18 +4069,38 @@ function selectRepairTarget(creep) {
 }
 function selectCriticalInfrastructureRepairTarget(creep) {
   var _a;
-  if (((_a = creep.room.controller) == null ? void 0 : _a.my) !== true) {
-    return null;
-  }
   const visibleStructures = findVisibleRoomStructures(creep.room);
   const criticalRoadContext = visibleStructures.some(isCriticalRoadRepairCandidate) ? buildWorkerCriticalRoadLogisticsContext(creep) : null;
+  const canRepairOwnedInfrastructure = ((_a = creep.room.controller) == null ? void 0 : _a.my) === true;
+  const canRepairRemoteCriticalRoads = !canRepairOwnedInfrastructure && criticalRoadContext !== null && canRepairRemoteCriticalRoadInfrastructure(creep);
+  if (!canRepairOwnedInfrastructure && !canRepairRemoteCriticalRoads) {
+    return null;
+  }
   const repairTargets = visibleStructures.filter(
-    (structure) => isCriticalInfrastructureRepairTarget(structure, criticalRoadContext)
+    (structure) => isCriticalInfrastructureRepairTarget(structure, criticalRoadContext, {
+      repairContainers: canRepairOwnedInfrastructure,
+      repairCriticalRoads: canRepairOwnedInfrastructure || canRepairRemoteCriticalRoads
+    })
   );
   if (repairTargets.length === 0) {
     return null;
   }
   return repairTargets.sort(compareRepairTargets)[0];
+}
+function canRepairRemoteCriticalRoadInfrastructure(creep) {
+  var _a;
+  if (!isRemoteTerritoryLogisticsRoom(creep.room) || hasVisibleHostilePresence(creep.room)) {
+    return false;
+  }
+  const controller = creep.room.controller;
+  if (!controller) {
+    return true;
+  }
+  if (controller.owner != null) {
+    return false;
+  }
+  const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
+  return reservationUsername == null || reservationUsername === getCreepOwnerUsername2(creep) || isSelfReservedRoom(creep.room);
 }
 function buildWorkerCriticalRoadLogisticsContext(creep) {
   return buildCriticalRoadLogisticsContext(creep.room, { colonyRoomName: getCreepColonyName(creep) });
@@ -4100,11 +4120,11 @@ function isSafeRepairTarget(structure) {
   }
   return matchesStructureType3(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
 }
-function isCriticalInfrastructureRepairTarget(structure, criticalRoadContext) {
+function isCriticalInfrastructureRepairTarget(structure, criticalRoadContext, options) {
   if (!isSafeRepairTarget(structure) || !isRoadOrContainerRepairTarget(structure) || getHitsRatio(structure) > CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO) {
     return false;
   }
-  return isContainerRepairTarget(structure) || !!criticalRoadContext && isCriticalRoadLogisticsWork(structure, criticalRoadContext);
+  return options.repairContainers && isContainerRepairTarget(structure) || options.repairCriticalRoads && !!criticalRoadContext && isCriticalRoadLogisticsWork(structure, criticalRoadContext);
 }
 function isCriticalRoadRepairCandidate(structure) {
   return isSafeRepairTarget(structure) && isRoadRepairTarget(structure) && getHitsRatio(structure) <= CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO;
