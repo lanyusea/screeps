@@ -84,18 +84,18 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
         if (spawnRecoveryTask) {
           return spawnRecoveryTask;
         }
-      } else {
+      }
+
+      const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
+      if (source2ControllerLaneHarvestTask) {
+        return source2ControllerLaneHarvestTask;
+      }
+
+      if (!hasPriorityEnergySink) {
         const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
         if (energyAcquisitionTask) {
           return energyAcquisitionTask;
         }
-      }
-    }
-
-    if (!hasPriorityEnergySink) {
-      const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
-      if (source2ControllerLaneHarvestTask) {
-        return source2ControllerLaneHarvestTask;
       }
     }
 
@@ -143,6 +143,13 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (territoryControllerTask) {
     return territoryControllerTask;
+  }
+
+  const source2ControllerLaneLoadedTask = controller
+    ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites)
+    : null;
+  if (source2ControllerLaneLoadedTask) {
+    return source2ControllerLaneLoadedTask;
   }
 
   if (capacityConstructionSite) {
@@ -1353,7 +1360,7 @@ function shouldUseSurplusForControllerProgress(creep: Creep, controller: Structu
     return true;
   }
 
-  return shouldApplySource2ControllerLane(creep, controller);
+  return false;
 }
 
 function shouldApplySource2ControllerLane(creep: Creep, controller: StructureController): boolean {
@@ -1363,6 +1370,19 @@ function shouldApplySource2ControllerLane(creep: Creep, controller: StructureCon
   }
 
   return !hasOtherSource2ControllerLaneWorker(creep, topology);
+}
+
+function selectSource2ControllerLaneLoadedTask(
+  creep: Creep,
+  controller: StructureController,
+  constructionSites: ConstructionSite[]
+): ProductiveEnergySinkTask | Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
+  if (!shouldApplySource2ControllerLane(creep, controller)) {
+    return null;
+  }
+
+  const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller);
+  return productiveEnergySinkTask ?? { type: 'upgrade', targetId: controller.id };
 }
 
 function selectSource2ControllerLaneHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
@@ -1385,7 +1405,9 @@ function getSource2ControllerLaneTopology(
 ): Source2ControllerLaneTopology | null {
   if (
     controller.my !== true ||
+    typeof controller.level !== 'number' ||
     controller.level < 2 ||
+    getRoomObjectPosition(controller) === null ||
     !isHomeRoomName(room, controller) ||
     hasVisibleHostilePresence(room)
   ) {
