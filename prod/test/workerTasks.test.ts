@@ -62,13 +62,6 @@ function makeEnergySink(
   } as unknown as TestEnergySink;
 }
 
-function makeSource(id: string, x: number, y: number, roomName = 'W1N1'): Source {
-  return {
-    id,
-    pos: makeRoomPosition(x, y, roomName)
-  } as unknown as Source;
-}
-
 function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
   return { x, y, roomName } as RoomPosition;
 }
@@ -120,15 +113,14 @@ function makeSalvageEnergySource(
   } as unknown as Tombstone | Ruin;
 }
 
-function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
-  return { x, y, roomName } as unknown as RoomPosition;
-}
+function makeSource(id: string, x: number, y: number, energyOrRoomName: number | string = 300): Source {
+  const energy = typeof energyOrRoomName === 'number' ? energyOrRoomName : 300;
+  const roomName = typeof energyOrRoomName === 'string' ? energyOrRoomName : 'W1N1';
 
-function makeSource(id: string, x: number, y: number, energy = 300): Source {
   return {
     id,
     energy,
-    pos: makeRoomPosition(x, y)
+    pos: makeRoomPosition(x, y, roomName)
   } as unknown as Source;
 }
 
@@ -3090,6 +3082,40 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-critical-site1' });
+  });
+
+  it('builds reserved-room critical route road construction before container construction without a local spawn', () => {
+    const roadSite = {
+      id: 'remote-road-critical-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(12, 10, 'W2N1')
+    } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const source = makeSource('source1', 20, 10, 'W2N1');
+    const controller = {
+      id: 'controller2',
+      my: false,
+      pos: makeRoomPosition(10, 10, 'W2N1'),
+      reservation: { username: 'Self', ticksToEnd: 1_000 }
+    } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+    const room = makeWorkerTaskRoom({
+      constructionSites: [containerSite, roadSite],
+      controller,
+      sources: [source]
+    });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'remote-road-critical-site1' });
   });
 
   it('builds the closest same-priority construction site after spawn refill is satisfied', () => {
