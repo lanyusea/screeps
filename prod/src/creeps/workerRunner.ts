@@ -1,7 +1,8 @@
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   isWorkerRepairTargetComplete,
-  selectWorkerTask
+  selectWorkerTask,
+  shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
 } from '../tasks/workerTasks';
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 
@@ -27,6 +28,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptSpendingTaskForNearTermSpawnExtensionRefill(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptSpendingTaskForEnergySink(currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
@@ -182,6 +185,18 @@ function shouldPreemptSpendingTaskForEnergySink(
   }
 
   return selectedTask?.type === 'transfer' && !isSameTask(task, selectedTask);
+}
+
+function shouldPreemptSpendingTaskForNearTermSpawnExtensionRefill(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  return (
+    selectedTask === null &&
+    isEnergySpendingTask(task) &&
+    shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)
+  );
 }
 
 function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(
