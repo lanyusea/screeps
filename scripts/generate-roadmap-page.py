@@ -105,6 +105,20 @@ class MetricSpec:
     lower_is_better: bool = False
 
 
+@dataclass(frozen=True)
+class OfficialDeployEvidenceRecord:
+    path: Path
+    timestamp: datetime | None
+    commit: str
+    run_id: str
+
+
+@dataclass(frozen=True)
+class OfficialDeployEvidenceSummary:
+    count: int
+    latest: OfficialDeployEvidenceRecord | None = None
+
+
 METRIC_SPECS: tuple[MetricSpec, ...] = (
     MetricSpec(
         "owned_rooms",
@@ -464,6 +478,11 @@ CST = timezone(timedelta(hours=8), "CST")
 REPORT_FORMAT = "roadmap-portrait-kpi-kanban-v5"
 APPROVED_REPORT_MODEL_ID = REPORT_FORMAT
 STALE_VISIBLE_REPORT_MARKERS: tuple[str, ...] = ("pr #70",)
+OFFICIAL_DEPLOY_EVIDENCE_DIR = Path("runtime-artifacts") / "official-screeps-deploy"
+OFFICIAL_DEPLOY_EVIDENCE_PATTERNS: tuple[str, ...] = (
+    "official-screeps-deploy.json",
+    "official-screeps-deploy-*.json",
+)
 
 KPI_DATES: tuple[str, ...] = ("4/21", "4/22", "4/23", "4/24", "4/25", "4/26", "4/27")
 
@@ -2460,11 +2479,7 @@ def build_report_process_cards(
     )
     if issue_error is not None and cached_issue_card:
         total_issues = cached_issue_card.get("value", INSUFFICIENT_EVIDENCE)
-    official_deploy_count = count_process_evidence(
-        repo_root,
-        required_terms=("official", "deploy evidence"),
-        excluded_terms=("temporary official MMO link validation",),
-    )
+    official_deploy_summary = summarize_official_deploy_evidence(repo_root)
     private_smoke_count = count_private_smoke_process_reports(repo_root)
 
     return [
@@ -2494,10 +2509,11 @@ def build_report_process_cards(
             "source": "github" if issue_error is None else "cached" if cached_issue_card else "unavailable",
         },
         {
-            "value": official_deploy_count,
+            "value": official_deploy_summary.count,
             "label": "Official deploys",
-            "detail": "official deploy evidence",
+            "detail": official_deploy_process_detail(official_deploy_summary),
             "delta": "+0",
+            "source": "official deploy evidence JSON",
         },
         {
             "value": private_smoke_count,
@@ -2577,6 +2593,198 @@ def parse_count(value: str) -> int:
         return int(value.strip())
     except ValueError:
         return 0
+
+
+def summarize_official_deploy_evidence(repo_root: Path) -> OfficialDeployEvidenceSummary:
+    records: list[OfficialDeployEvidenceRecord] = []
+    for path in official_deploy_evidence_paths(repo_root):
+        evidence = read_json_object(path)
+        if not official_deploy_evidence_succeeded(evidence):
+            continue
+        records.append(
+            OfficialDeployEvidenceRecord(
+                path=path,
+                timestamp=official_deploy_evidence_timestamp(evidence),
+                commit=official_deploy_commit(evidence),
+                run_id=official_deploy_run_id(evidence),
+            )
+        )
+
+    latest = max(records, key=official_deploy_record_sort_key) if records else None
+    return OfficialDeployEvidenceSummary(count=len(records), latest=latest)
+
+
+def official_deploy_evidence_paths(repo_root: Path) -> list[Path]:
+    evidence_dir = repo_root / OFFICIAL_DEPLOY_EVIDENCE_DIR
+    if not evidence_dir.exists():
+        return []
+
+    paths: dict[Path, Path] = {}
+    for pattern in OFFICIAL_DEPLOY_EVIDENCE_PATTERNS:
+        for path in evidence_dir.glob(pattern):
+            if path.is_file():
+                paths[path.resolve()] = path
+    return sorted(paths.values())
+
+
+def read_json_object(path: Path) -> JsonObject:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def official_deploy_evidence_succeeded(evidence: Mapping[str, Any]) -> bool:
+    if evidence.get("ok") is not True or evidence.get("mode") != "deploy":
+        return False
+
+    verification = evidence.get("verification")
+    if not isinstance(verification, Mapping):
+        return False
+
+    target_branch = first_nested_scalar_text(evidence, (("target", "branch"),))
+    return branch_code_verification_matched(verification) and active_world_verification_matched(
+        verification,
+        target_branch,
+    )
+
+
+def branch_code_verification_matched(verification: Mapping[str, Any]) -> bool:
+    for key in ("branchCode", "deployedBranchCode", "uploadedBranchCode", "upload"):
+        if verification_value_matched(verification.get(key)):
+            return True
+    return False
+
+
+def active_world_verification_matched(verification: Mapping[str, Any], target_branch: str) -> bool:
+    active_world = verification.get("activeWorld")
+    if not isinstance(active_world, Mapping):
+        return False
+    if verification_value_matched(active_world):
+        return active_world_branch_matches(active_world, target_branch)
+    if verification_value_matched(active_world.get("code")):
+        return active_world_branch_matches(active_world, target_branch)
+    return False
+
+
+def active_world_branch_matches(active_world: Mapping[str, Any], target_branch: str) -> bool:
+    if not target_branch:
+        return True
+    active_branch = first_nested_scalar_text(
+        active_world,
+        (
+            ("activeWorldBranch",),
+            ("branch",),
+            ("name",),
+        ),
+    )
+    return not active_branch or active_branch == target_branch
+
+
+def verification_value_matched(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if any(value.get(key) is False for key in ("matched", "matches", "hashMatched")):
+        return False
+    status = str(value.get("status") or "").strip().lower()
+    if status in {"matched", "match"}:
+        return True
+    return any(value.get(key) is True for key in ("matched", "matches", "hashMatched"))
+
+
+def official_deploy_evidence_timestamp(evidence: Mapping[str, Any]) -> datetime | None:
+    timestamp = first_nested_scalar_text(
+        evidence,
+        (
+            ("timestampUtc",),
+            ("timestamp",),
+            ("generatedAt",),
+            ("completedAt",),
+            ("createdAt",),
+        ),
+    )
+    return parse_timestamp(timestamp) if timestamp else None
+
+
+def official_deploy_commit(evidence: Mapping[str, Any]) -> str:
+    return first_nested_scalar_text(
+        evidence,
+        (
+            ("git", "commit"),
+            ("git", "sha"),
+            ("commitSha",),
+            ("commit",),
+            ("headSha",),
+            ("github", "sha"),
+        ),
+    )
+
+
+def official_deploy_run_id(evidence: Mapping[str, Any]) -> str:
+    return first_nested_scalar_text(
+        evidence,
+        (
+            ("runId",),
+            ("run_id",),
+            ("workflowRunId",),
+            ("workflow_run_id",),
+            ("github", "runId"),
+            ("github", "run_id"),
+            ("workflow", "runId"),
+            ("workflow", "run_id"),
+            ("workflowRun", "id"),
+        ),
+    )
+
+
+def first_nested_scalar_text(value: Mapping[str, Any], paths: Sequence[Sequence[str]]) -> str:
+    for keys in paths:
+        item: Any = value
+        for key in keys:
+            if not isinstance(item, Mapping):
+                item = None
+                break
+            item = item.get(key)
+        text = scalar_text(item)
+        if text:
+            return text
+    return ""
+
+
+def scalar_text(value: Any) -> str:
+    if isinstance(value, str):
+        text = value.strip()
+    elif isinstance(value, int):
+        text = str(value)
+    else:
+        return ""
+    return "" if text.lower() == "unknown" else text
+
+
+def official_deploy_record_sort_key(record: OfficialDeployEvidenceRecord) -> tuple[datetime, str]:
+    timestamp = record.timestamp or datetime.min.replace(tzinfo=timezone.utc)
+    return timestamp, record.path.name
+
+
+def official_deploy_process_detail(summary: OfficialDeployEvidenceSummary) -> str:
+    detail = "official deploy evidence"
+    if summary.latest is None:
+        return detail
+
+    parts = []
+    if summary.latest.commit:
+        parts.append(f"latest commit {short_commit(summary.latest.commit)}")
+    if summary.latest.run_id:
+        parts.append(f"run {summary.latest.run_id}")
+    if not parts:
+        return detail
+    return f"{detail} · {' · '.join(parts)}"
+
+
+def short_commit(commit: str) -> str:
+    text = commit.strip()
+    return text[:12] if len(text) > 12 else text
 
 
 def count_process_evidence(
