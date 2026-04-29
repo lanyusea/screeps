@@ -536,6 +536,15 @@ function selectTerritoryTarget(
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord();
   let intents = normalizeTerritoryIntents(territoryMemory?.intents);
+  const sanitizedClaimReserveHandoffs = sanitizeSatisfiedClaimReserveHandoffs(
+    territoryMemory,
+    intents,
+    colonyName,
+    colonyOwnerUsername
+  );
+  if (sanitizedClaimReserveHandoffs.changed) {
+    intents = sanitizedClaimReserveHandoffs.intents;
+  }
   const sanitizedFollowUps = sanitizeInvalidPersistedTerritoryFollowUps(intents, colonyName, colonyOwnerUsername);
   if (sanitizedFollowUps.changed) {
     intents = sanitizedFollowUps.intents;
@@ -1982,6 +1991,77 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
   }
 
   intents.push(nextIntent);
+}
+
+function sanitizeSatisfiedClaimReserveHandoffs(
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  colonyName: string,
+  colonyOwnerUsername: string | null
+): { intents: TerritoryIntentMemory[]; changed: boolean } {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return { intents, changed: false };
+  }
+
+  const satisfiedClaimRooms = getSatisfiedConfiguredClaimRoomNames(
+    territoryMemory.targets,
+    colonyName,
+    colonyOwnerUsername
+  );
+  if (satisfiedClaimRooms.size === 0) {
+    return { intents, changed: false };
+  }
+
+  const nextTargets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !(
+      target?.colony === colonyName &&
+      target.action === 'reserve' &&
+      satisfiedClaimRooms.has(target.roomName)
+    );
+  });
+  const nextIntents = intents.filter(
+    (intent) =>
+      !(
+        intent.colony === colonyName &&
+        intent.action === 'reserve' &&
+        satisfiedClaimRooms.has(intent.targetRoom)
+      )
+  );
+  const changed = nextTargets.length !== territoryMemory.targets.length || nextIntents.length !== intents.length;
+  if (!changed) {
+    return { intents, changed: false };
+  }
+
+  territoryMemory.targets = nextTargets;
+  territoryMemory.intents = nextIntents;
+  for (const targetRoom of satisfiedClaimRooms) {
+    removeTerritoryFollowUpDemand(territoryMemory as TerritoryMemory, colonyName, targetRoom, 'reserve');
+    removeTerritoryFollowUpExecutionHint(territoryMemory as TerritoryMemory, colonyName, targetRoom, 'reserve');
+  }
+
+  return { intents: nextIntents, changed: true };
+}
+
+function getSatisfiedConfiguredClaimRoomNames(
+  rawTargets: unknown[],
+  colonyName: string,
+  colonyOwnerUsername: string | null
+): Set<string> {
+  const satisfiedClaimRooms = new Set<string>();
+  for (const rawTarget of rawTargets) {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (
+      target?.colony === colonyName &&
+      target.action === 'claim' &&
+      getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) ===
+        'satisfied'
+    ) {
+      satisfiedClaimRooms.add(target.roomName);
+    }
+  }
+
+  return satisfiedClaimRooms;
 }
 
 function sanitizeInvalidPersistedTerritoryFollowUps(

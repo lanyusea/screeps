@@ -3023,6 +3023,97 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('clears stale same-room reserve fallback after the claim target is owned', () => {
+    const colony = makeSafeColony();
+    const claimTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'claim' };
+    const reserveTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    const fallbackFollowUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N1', 'claim');
+    const adjacentFollowUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim');
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'W1N1' ? { '1': 'W1N2' } : roomName === 'W1N2' ? { '3': 'W2N2' } : {}
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2', {
+          controller: { my: true, owner: { username: 'me' } } as StructureController
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [claimTarget, reserveTarget],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 600,
+            followUp: fallbackFollowUp
+          }
+        ],
+        demands: [
+          {
+            type: 'followUpPreparation',
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            workerCount: 1,
+            updatedAt: 600,
+            followUp: fallbackFollowUp
+          }
+        ],
+        executionHints: [
+          {
+            type: 'activeFollowUpExecution',
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'reserve',
+            reason: 'visibleControlEvidenceStillActionable',
+            updatedAt: 600,
+            followUp: fallbackFollowUp
+          }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 601);
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N2',
+      action: 'scout',
+      followUp: adjacentFollowUp
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(describeExits).toHaveBeenCalledWith('W1N2');
+    expect(Memory.territory?.targets).toEqual([claimTarget]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 601,
+        followUp: adjacentFollowUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toBeUndefined();
+    expect(Memory.territory?.executionHints).toEqual([
+      {
+        type: 'activeFollowUpExecution',
+        colony: 'W1N1',
+        targetRoom: 'W2N2',
+        action: 'scout',
+        reason: 'followUpTargetStillUnseen',
+        updatedAt: 601,
+        followUp: adjacentFollowUp
+      }
+    ]);
+  });
+
   it('keeps emergency renewal ahead of active-reserve frontier expansion', () => {
     const colony = makeSafeColony();
     const configuredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
