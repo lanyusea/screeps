@@ -526,8 +526,19 @@ function getConfiguredTerritoryCandidates(
       return [];
     }
 
+    const followUp = getPersistedTerritoryIntentFollowUp(
+      intents,
+      target.colony,
+      target.roomName,
+      target.action
+    );
     const candidate = scoreTerritoryCandidate(
-      { target, intentAction: target.action, commitTarget: false },
+      {
+        target,
+        intentAction: target.action,
+        commitTarget: false,
+        ...(followUp ? { followUp } : {})
+      },
       'configured',
       order,
       colonyName,
@@ -1549,11 +1560,37 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
   );
 
   if (existingIndex >= 0) {
-    intents[existingIndex] = nextIntent;
+    const existingIntent = intents[existingIndex];
+    intents[existingIndex] = {
+      ...nextIntent,
+      ...(!nextIntent.followUp && existingIntent.followUp ? { followUp: existingIntent.followUp } : {})
+    };
     return;
   }
 
   intents.push(nextIntent);
+}
+
+function getPersistedTerritoryIntentFollowUp(
+  intents: TerritoryIntentMemory[],
+  colony: string,
+  targetRoom: string,
+  action: TerritoryIntentAction
+): TerritoryFollowUpMemory | undefined {
+  let selectedIntent: TerritoryIntentMemory | null = null;
+  for (const intent of intents) {
+    if (
+      intent.colony === colony &&
+      intent.targetRoom === targetRoom &&
+      intent.action === action &&
+      intent.followUp &&
+      (!selectedIntent || intent.updatedAt > selectedIntent.updatedAt)
+    ) {
+      selectedIntent = intent;
+    }
+  }
+
+  return selectedIntent?.followUp;
 }
 
 function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | null {
