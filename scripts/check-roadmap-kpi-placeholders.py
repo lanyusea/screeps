@@ -132,7 +132,7 @@ def validate_kpi_html(
         )
 
 
-def committed_page_inputs(repo_root: Path) -> tuple[str, list[JsonObject]] | None:
+def committed_page_inputs(repo_root: Path) -> tuple[str, list[JsonObject], JsonObject] | None:
     html_path = repo_root / "docs" / "index.html"
     data_path = repo_root / "docs" / "roadmap-data.json"
     if not html_path.exists() or not data_path.exists():
@@ -141,7 +141,49 @@ def committed_page_inputs(repo_root: Path) -> tuple[str, list[JsonObject]] | Non
     cards = data.get("report", {}).get("kpiCards", [])
     if not isinstance(cards, list):
         raise RuntimeError("docs/roadmap-data.json report.kpiCards is not a list")
-    return html_path.read_text(encoding="utf-8"), [card for card in cards if isinstance(card, dict)]
+    return html_path.read_text(encoding="utf-8"), [card for card in cards if isinstance(card, dict)], data
+
+
+def deploy_evidence_count(data: JsonObject) -> int:
+    github = data.get("github", {})
+    if not isinstance(github, dict):
+        return 0
+    evidence: set[str] = set()
+    for collection_name in ("issues", "projectItems"):
+        collection = github.get(collection_name)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            text = " ".join(str(item.get(key) or "") for key in ("title", "status", "evidence", "nextAction")).lower()
+            run_ids = re.findall(r"official deploy run\s+(\d+)", text)
+            for run_id in run_ids:
+                evidence.add(f"run:{run_id}")
+            if not run_ids and "deployment floor satisfied" in text and "official deploy" in text:
+                evidence.add(f"item:{item.get('number', len(evidence))}")
+    return len(evidence)
+
+
+def process_card_value(data: JsonObject, label: str) -> Any:
+    cards = data.get("report", {}).get("processCards", [])
+    if not isinstance(cards, list):
+        return None
+    for card in cards:
+        if isinstance(card, dict) and card.get("label") == label:
+            return card.get("value")
+    return None
+
+
+def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
+    evidence_count = deploy_evidence_count(data)
+    official_deploys = process_card_value(data, "Official deploys")
+    if evidence_count:
+        assert_check(
+            failures,
+            isinstance(official_deploys, int) and official_deploys >= evidence_count,
+            "docs/roadmap-data.json: Official deploys must reflect observed official deploy evidence instead of reporting 0",
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -155,8 +197,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     committed_inputs = committed_page_inputs(repo_root)
     if committed_inputs is not None:
-        committed_html, committed_cards = committed_inputs
+        committed_html, committed_cards, committed_data = committed_inputs
         validate_kpi_html("docs/index.html", committed_html, committed_cards, generator, failures)
+        validate_process_metrics(committed_data, failures)
 
     if failures:
         print("Roadmap KPI placeholder check failed:", file=sys.stderr)

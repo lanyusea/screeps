@@ -88,13 +88,12 @@ const items = (projectRaw.items || []).map(it => ({
 const byNumber = Object.fromEntries(items.filter(i => i.number).map(i => [i.number, i]));
 
 const latestSummarySvg = sh("find runtime-artifacts/screeps-monitor -name 'summary-*.svg' -type f -printf '%T@ %p\\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-", '');
-let rcl = 0;
+let rcl = null;
 if (latestSummarySvg && fs.existsSync(latestSummarySvg)) {
   const svg = fs.readFileSync(latestSummarySvg, 'utf8');
   const m = svg.match(/Controller\s+R(\d+)/i);
   if (m) rcl = Number(m[1]);
 }
-if (!rcl) rcl = 3;
 
 const today = new Date();
 const days = Array.from({length: 7}, (_, i) => {
@@ -107,7 +106,7 @@ const kpiCharts = [
     {name:'Owned rooms', values: missing7d()},
     {name:'RCL', values: missing7d()},
     {name:'Room gain', values: missing7d(), dashed:true}
-  ], note:`No observed seven-day territory KPI history is available. Latest monitor RCL: ${rcl || 'unavailable'}.` },
+  ], note:`No observed seven-day territory KPI history is available. Latest monitor RCL: ${rcl === null ? 'not observed' : rcl}.` },
   { title: 'Resources', subtitle: 'stored energy · harvest delta · carried energy', unit: 'energy', color: '#5c8456', unavailable: true, series: [
     {name:'Stored energy', values: missing7d(), dashed:true},
     {name:'Harvest delta', values: missing7d(), dashed:true},
@@ -159,6 +158,16 @@ function visibleKanbanItems(items) {
   return items.filter(it => it.column !== 'online' || !shownDone.has(it.id));
 }
 
+function explicitOfficialDeployEvidence() {
+  const evidence = new Set();
+  for (const item of items) {
+    const text = [item.title, item.status, item.evidence, item.next].join(' ').toLowerCase();
+    const runMatches = [...text.matchAll(/official deploy run\s+(\d+)/g)];
+    for (const match of runMatches) evidence.add(`run:${match[1]}`);
+    if (runMatches.length === 0 && text.includes('deployment floor satisfied') && text.includes('official deploy')) evidence.add(`item:${item.number || item.id}`);
+  }
+  return evidence.size;
+}
 function countFiles(command, observedCommand = '') {
   const observed = observedCommand ? sh(observedCommand, 'missing') === 'present' : true;
   if (!observed) return { value: null, observed: false };
@@ -166,12 +175,23 @@ function countFiles(command, observedCommand = '') {
 }
 const officialDeployEvidence = countFiles(
   "find runtime-artifacts/official-screeps-deploy -maxdepth 1 -type f -name 'official-screeps-deploy-*.json' 2>/dev/null | wc -l",
-  "test -d runtime-artifacts/official-screeps-deploy && echo present || echo missing"
+  "test -d runtime-artifacts/official-screeps-deploy && find runtime-artifacts/official-screeps-deploy -maxdepth 1 -type f -name 'official-screeps-deploy-*.json' >/dev/null && echo present || echo missing"
 );
-const officialDeploys = officialDeployEvidence.value;
-let privateTests = num(sh("find /root/screeps /root/.hermes -type f \( -iname '*private*smoke*report*.json' -o -iname '*screeps-private-smoke*.json' \) 2>/dev/null | wc -l", '0'));
+const projectOfficialDeploys = explicitOfficialDeployEvidence();
+const officialDeploys = officialDeployEvidence.observed
+  ? Math.max(officialDeployEvidence.value, projectOfficialDeploys)
+  : (projectOfficialDeploys || null);
+function explicitPrivateSmokeEvidence() {
+  const evidence = new Set();
+  for (const item of items) {
+    const text = [item.title, item.status, item.evidence, item.next].join(' ').toLowerCase();
+    if (text.includes('smoke') && text.includes('evidence')) evidence.add(`item:${item.number || item.id}`);
+  }
+  return evidence.size;
+}
+let privateTests = explicitPrivateSmokeEvidence();
 if (privateTests === 0) {
-  console.warn('No private smoke test reports found; rendering actual private smoke count 0.');
+  console.warn('No private smoke evidence found in GitHub Project; rendering not observed.');
 }
 const metrics = {
   commits: commitCount,
@@ -241,14 +261,13 @@ function kanban(title, subtitle, items) {
   const vis = visibleKanbanItems(items);
   const body = columns.map(([key,label]) => {
     const col = vis.filter(i => i.column === key);
-    return `<div class="kan-col"><div class="kan-title">${esc(label)} <span>${col.length}</span></div>${col.map(i => `<div class="ticket"><div class="ticket-top"><b>${esc(short(i.title, 58))}</b><span>${esc(i.priority || '')}</span></div><p>${esc(short(i.next || i.domain || i.status, 92))}</p></div>`).join('') || '<div class="empty">—</div>'}</div>`;
+    return `<div class="kan-col"><div class="kan-title">${esc(label)} <span>${col.length}</span></div>${col.map(i => `<div class="ticket"><div class="ticket-top"><b>${esc(short(i.title, 58))}</b><span>${esc(i.priority || '')}</span></div><p>${esc(short(i.next || i.domain || i.status, 92))}</p></div>`).join('') || `<div class="empty">No ${esc(label)} cards</div>`}</div>`;
   }).join('');
   return `<section class="section"><div class="section-title"><h2>${esc(title)}</h2></div><div class="kanban">${body}</div></section>`;
 }
 function metric(label, value, key, note) {
-  const deltaHtml = typeof value === 'number' ? `<span>${esc(delta(key))}</span>` : '';
   const valueStyle = typeof value === 'number' ? '' : ' style="font-size:34px;line-height:1.05"';
-  return `<div class="card metric"><div class="metric-value"${valueStyle}>${esc(value)}</div><div class="metric-label">${esc(label)}</div><div class="metric-note">${esc(note || '')}${deltaHtml}</div></div>`;
+  return `<div class="card metric"><div class="metric-value"${valueStyle}>${esc(value)}</div><div class="metric-label">${esc(label)}</div><div class="metric-note">${esc(note || '')}</div></div>`;
 }
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -263,8 +282,13 @@ ${kanban('04 Foundation Kanban', 'Reliability / P0 and Foundation Gates; data co
   metric('Total commits', metrics.commits, 'commits', `HEAD ${head}`),
   metric('Total PRs', metrics.prs, 'prs', `${prs.filter(p=>p.state==='MERGED').length} merged`),
   metric('Total issues', metrics.issues, 'issues', `${issues.filter(i=>i.state==='OPEN').length} open`),
-  metric('Official game deploys', officialDeployEvidence.observed ? officialDeploys : 'not observed', 'officialDeploys', officialDeployEvidence.observed ? 'official deploy evidence' : 'evidence directory unavailable'),
-  metric('Private smoke tests', metrics.privateTests, 'privateTests', 'smoke/report evidence')
+  metric(
+    'Official game deploys',
+    typeof officialDeploys === 'number' ? officialDeploys : 'not observed',
+    'officialDeploys',
+    projectOfficialDeploys ? 'GitHub Project official deploy evidence' : officialDeployEvidence.observed ? 'runtime artifact evidence' : 'evidence unavailable'
+  ),
+  metric('Private smoke tests', privateTests > 0 ? metrics.privateTests : 'not observed', 'privateTests', privateTests > 0 ? 'GitHub Project smoke evidence' : 'evidence unavailable')
 ].join('')}</div></section>
 <div class="footer">format ${formatVersion} · repo ${head} · generated ${new Date().toISOString()}</div>
 </div></body></html>`;

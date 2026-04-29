@@ -105,6 +105,13 @@ if (fs.existsSync(htmlPath)) {
     `KPI chart titles should be Territory, Resources, Combat; saw ${JSON.stringify(kpiTitles)}`
   );
 
+  const territoryCard = body.match(/<div class="card kpi">[\s\S]*?<h3>Territory<\/h3>[\s\S]*?<\/div><\/div>/);
+  assert(Boolean(territoryCard), 'Territory KPI card is missing');
+  if (territoryCard) {
+    const territoryText = tagText(territoryCard[0]);
+    assert(!territoryText.includes('Latest monitor RCL: 3'), 'Territory KPI must not use fallback RCL 3 when no monitor evidence exists');
+  }
+
   const resourcesCard = body.match(/<div class="card kpi">[\s\S]*?<h3>Resources<\/h3>[\s\S]*?<\/div><\/div>/);
   assert(Boolean(resourcesCard), 'Resources KPI card is missing');
   if (resourcesCard) {

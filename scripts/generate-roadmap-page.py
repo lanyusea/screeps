@@ -2460,11 +2460,7 @@ def build_report_process_cards(
     )
     if issue_error is not None and cached_issue_card:
         total_issues = cached_issue_card.get("value", INSUFFICIENT_EVIDENCE)
-    official_deploy_count = count_process_evidence(
-        repo_root,
-        required_terms=("official", "deploy evidence"),
-        excluded_terms=("temporary official MMO link validation",),
-    )
+    official_deploy_count = count_official_deploy_evidence(repo_root, github_snapshot)
     private_smoke_count = count_private_smoke_process_reports(repo_root)
 
     return [
@@ -2598,6 +2594,39 @@ def count_process_evidence(
         ):
             count += 1
     return count
+
+
+def count_official_deploy_evidence(repo_root: Path, github_snapshot: JsonObject) -> int:
+    evidence: set[str] = set()
+    artifact_dir = repo_root / "runtime-artifacts" / "official-screeps-deploy"
+    if artifact_dir.is_dir():
+        for path in artifact_dir.glob("official-screeps-deploy-*.json"):
+            evidence.add(f"artifact:{path.name}")
+
+    process_count = count_process_evidence(
+        repo_root,
+        required_terms=("official", "deploy evidence"),
+        excluded_terms=("temporary official MMO link validation",),
+    )
+    for index in range(process_count):
+        evidence.add(f"process:{index}")
+
+    for collection_name in ("issues", "projectItems"):
+        collection = github_snapshot.get(collection_name)
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            if not isinstance(item, dict):
+                continue
+            text = " ".join(
+                str(item.get(key) or "") for key in ("title", "status", "evidence", "nextAction")
+            ).lower()
+            run_ids = re.findall(r"official deploy run\s+(\d+)", text)
+            for run_id in run_ids:
+                evidence.add(f"run:{run_id}")
+            if not run_ids and "deployment floor satisfied" in text and "official deploy" in text:
+                evidence.add(f"item:{item.get('number', len(evidence))}")
+    return len(evidence)
 
 
 def count_private_smoke_process_reports(repo_root: Path) -> int:
@@ -4061,7 +4090,7 @@ def render_process_card(card: JsonObject) -> str:
           <article class="process-card">
             <p class="process-value">{esc(card["value"])}</p>
             <p class="process-label">{esc(card["label"])}</p>
-            <p class="process-detail">{esc(card["detail"])} <span class="process-chip">{esc(card["delta"])}</span></p>
+            <p class="process-detail">{esc(card["detail"])}</p>
           </article>
 """
 
