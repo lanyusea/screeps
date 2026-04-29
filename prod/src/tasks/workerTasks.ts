@@ -240,8 +240,13 @@ function selectFillableEnergySink(creep: Creep): FillableEnergySink | null {
 
 function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | StructureExtension | null {
   const energySinks = findFillableEnergySinks(creep).filter(isSpawnOrExtensionEnergySink);
+  if (energySinks.length === 0) {
+    return null;
+  }
+
+  const loadedWorkers = getSameRoomLoadedWorkers(creep);
   return selectClosestEnergySink(
-    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, creep)),
+    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, creep, loadedWorkers)),
     creep
   );
 }
@@ -250,14 +255,22 @@ function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
   return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink), creep);
 }
 
-function hasUnreservedEnergySinkCapacity(energySink: SpawnExtensionEnergyStructure, creep: Creep): boolean {
-  return getReservedEnergyDelivery(energySink, creep) < getFreeStoredEnergyCapacity(energySink);
+function hasUnreservedEnergySinkCapacity(
+  energySink: SpawnExtensionEnergyStructure,
+  creep: Creep,
+  loadedWorkers: Creep[]
+): boolean {
+  return getReservedEnergyDelivery(energySink, creep, loadedWorkers) < getFreeStoredEnergyCapacity(energySink);
 }
 
-function getReservedEnergyDelivery(energySink: SpawnExtensionEnergyStructure, creep: Creep): number {
+function getReservedEnergyDelivery(
+  energySink: SpawnExtensionEnergyStructure,
+  creep: Creep,
+  loadedWorkers: Creep[]
+): number {
   const energySinkId = String(energySink.id);
-  return getGameCreeps()
-    .filter((candidate) => !isSameCreep(candidate, creep) && isSameRoomWorkerWithEnergy(candidate, creep.room))
+  return loadedWorkers
+    .filter((candidate) => !isSameCreep(candidate, creep))
     .reduce((reservedEnergy, worker) => {
       const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
       return task?.type === 'transfer' && String(task.targetId) === energySinkId
