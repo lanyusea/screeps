@@ -4,7 +4,8 @@ describe('countCreepsByRole', () => {
   it('counts creeps by memory role and colony', () => {
     const worker = { memory: { role: 'worker', colony: 'W1N1' } } as Creep;
     const claimer = {
-      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } }
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } },
+      body: [{ type: 'claim', hits: 100 }]
     } as Creep;
     const scout = {
       memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } }
@@ -68,15 +69,18 @@ describe('countCreepsByRole', () => {
   it('excludes colony claimers at replacement age from territory capacity', () => {
     const healthyClaimer = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'claim' } },
-      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1,
+      body: [{ type: 'claim', hits: 100 }]
     } as Creep;
     const expiringClaimer = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'claim' } },
-      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE,
+      body: [{ type: 'claim', hits: 100 }]
     } as Creep;
     const foreignClaimer = {
       memory: { role: 'claimer', colony: 'W2N2', territory: { targetRoom: 'W2N1', action: 'claim' } },
-      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1,
+      body: [{ type: 'claim', hits: 100 }]
     } as Creep;
 
     expect(countCreepsByRole([healthyClaimer, expiringClaimer, foreignClaimer], 'W1N1')).toEqual({
@@ -102,6 +106,27 @@ describe('countCreepsByRole', () => {
       claimer: 1,
       claimersByTargetRoom: { W3N1: 1 },
       claimersByTargetRoomAction: { reserve: { W3N1: 1 } }
+    });
+  });
+
+  it('excludes claimers with missing or malformed body data from territory capacity', () => {
+    const missingBodyClaimer = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } }
+    } as Creep;
+    const malformedBodyClaimer = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W3N1', action: 'reserve' } },
+      body: [null, { type: 'claim' }, { type: 'claim', hits: 0 }, { type: 'work', hits: 100 }]
+    } as unknown as Creep;
+    const healthyClaimer = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W4N1', action: 'reserve' } },
+      body: [{ type: 'claim', hits: 100 }]
+    } as Creep;
+
+    expect(countCreepsByRole([missingBodyClaimer, malformedBodyClaimer, healthyClaimer], 'W1N1')).toEqual({
+      worker: 0,
+      claimer: 1,
+      claimersByTargetRoom: { W4N1: 1 },
+      claimersByTargetRoomAction: { reserve: { W4N1: 1 } }
     });
   });
 });

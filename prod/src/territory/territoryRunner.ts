@@ -69,7 +69,7 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   }
 
   if (isTerritoryControlAction(assignment.action) && isCreepKnownToHaveNoActiveClaimParts(creep)) {
-    completeTerritoryAssignment(creep);
+    suppressTerritoryAssignment(creep, assignment);
     return;
   }
 
@@ -160,7 +160,16 @@ function isCreepKnownToHaveNoActiveClaimParts(creep: Creep): boolean {
     return false;
   }
 
-  return !creep.body.some((part) => part.type === claimPart && part.hits > 0);
+  return !creep.body.some((part) => isActiveBodyPart(part, claimPart));
+}
+
+function isActiveBodyPart(part: unknown, bodyPartType: BodyPartConstant): boolean {
+  if (typeof part !== 'object' || part === null) {
+    return false;
+  }
+
+  const bodyPart = part as Partial<BodyPartDefinition>;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === 'number' && bodyPart.hits > 0;
 }
 
 function getBodyPartConstant(globalName: 'CLAIM', fallback: BodyPartConstant): BodyPartConstant {

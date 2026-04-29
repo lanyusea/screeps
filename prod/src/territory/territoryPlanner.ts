@@ -2703,10 +2703,19 @@ function getActiveControllerClaimPartCount(creep: Creep): number {
   const claimPart = getBodyPartConstant('CLAIM', 'claim');
   const activeClaimParts = creep.getActiveBodyparts?.(claimPart);
   if (typeof activeClaimParts === 'number') {
-    return activeClaimParts;
+    return activeClaimParts > 0 ? activeClaimParts : 0;
   }
 
-  return Array.isArray(creep.body) ? creep.body.filter((part) => part.type === claimPart && part.hits > 0).length : 0;
+  return Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart(part, claimPart)).length : 0;
+}
+
+function isActiveBodyPart(part: unknown, bodyPartType: BodyPartConstant): boolean {
+  if (typeof part !== 'object' || part === null) {
+    return false;
+  }
+
+  const bodyPart = part as Partial<BodyPartDefinition>;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === 'number' && bodyPart.hits > 0;
 }
 
 function getBodyPartConstant(globalName: 'CLAIM', fallback: BodyPartConstant): BodyPartConstant {

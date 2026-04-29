@@ -552,9 +552,16 @@ function hasActiveClaimPart(creep) {
     return activeClaimParts > 0;
   }
   if (!Array.isArray(creep.body)) {
-    return true;
+    return false;
   }
-  return creep.body.some((part) => part.type === claimPart && part.hits > 0);
+  return creep.body.some((part) => isActiveBodyPart(part, claimPart));
+}
+function isActiveBodyPart(part, bodyPartType) {
+  if (typeof part !== "object" || part === null) {
+    return false;
+  }
+  const bodyPart = part;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
 function getBodyPartConstant(globalName, fallback) {
   var _a;
@@ -2833,9 +2840,16 @@ function getActiveControllerClaimPartCount(creep) {
   const claimPart = getBodyPartConstant2("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
-    return activeClaimParts;
+    return activeClaimParts > 0 ? activeClaimParts : 0;
   }
-  return Array.isArray(creep.body) ? creep.body.filter((part) => part.type === claimPart && part.hits > 0).length : 0;
+  return Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart2(part, claimPart)).length : 0;
+}
+function isActiveBodyPart2(part, bodyPartType) {
+  if (typeof part !== "object" || part === null) {
+    return false;
+  }
+  const bodyPart = part;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
 function getBodyPartConstant2(globalName, fallback) {
   var _a;
@@ -5594,7 +5608,7 @@ function runTerritoryControllerCreep(creep) {
     return;
   }
   if (isTerritoryControlAction2(assignment.action) && isCreepKnownToHaveNoActiveClaimParts(creep)) {
-    completeTerritoryAssignment(creep);
+    suppressTerritoryAssignment(creep, assignment);
     return;
   }
   if (assignment.action === "reserve" && !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
@@ -5659,7 +5673,14 @@ function isCreepKnownToHaveNoActiveClaimParts(creep) {
   if (!Array.isArray(creep.body)) {
     return false;
   }
-  return !creep.body.some((part) => part.type === claimPart && part.hits > 0);
+  return !creep.body.some((part) => isActiveBodyPart3(part, claimPart));
+}
+function isActiveBodyPart3(part, bodyPartType) {
+  if (typeof part !== "object" || part === null) {
+    return false;
+  }
+  const bodyPart = part;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
 function getBodyPartConstant3(globalName, fallback) {
   var _a;
