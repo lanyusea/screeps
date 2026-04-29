@@ -386,6 +386,55 @@ describe('planSpawn', () => {
     });
   });
 
+  it('does not fall back to a one-CLAIM body for persisted foreign reservation pressure after vision loss', () => {
+    const { colony: visibleColony } = makeColony({
+      energyAvailable: 3250,
+      energyCapacityAvailable: 3250,
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: visibleColony.room,
+        W2N1: makeTerritoryRoom('W2N1', {
+          my: false,
+          reservation: { username: 'enemy', ticksToEnd: 3_000 }
+        } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(planSpawn(visibleColony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 145)).toMatchObject({
+      body: ['claim', 'move', 'claim', 'move', 'claim', 'move', 'claim', 'move', 'claim', 'move']
+    });
+
+    const { colony: darkColony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 3250,
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: darkColony.room
+      }
+    };
+
+    expect(planSpawn(darkColony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 146)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 146,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
   it('plans a claimer from a persisted occupation claim intent when the target is actionable', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,

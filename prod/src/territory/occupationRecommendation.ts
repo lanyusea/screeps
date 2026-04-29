@@ -31,6 +31,7 @@ export interface OccupationRecommendationFollowUpIntent {
   targetRoom: string;
   action: TerritoryIntentAction;
   controllerId?: Id<StructureController>;
+  requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
 }
 
@@ -130,6 +131,8 @@ export function persistOccupationRecommendationFollowUpIntent(
   }
 
   const controllerId = followUpIntent.controllerId ?? existingIntent?.controllerId;
+  const requiresControllerPressure =
+    followUpIntent.requiresControllerPressure === true || existingIntent?.requiresControllerPressure === true;
   const followUp = normalizeTerritoryFollowUp(followUpIntent.followUp) ?? existingIntent?.followUp;
   const nextIntent: TerritoryIntentMemory = {
     colony: followUpIntent.colony,
@@ -138,6 +141,7 @@ export function persistOccupationRecommendationFollowUpIntent(
     status: existingIntent?.status === 'active' ? 'active' : 'planned',
     updatedAt: gameTime,
     ...(controllerId ? { controllerId } : {}),
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(followUp ? { followUp } : {})
   };
 
@@ -710,6 +714,7 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
     ...(typeof rawIntent.controllerId === 'string'
       ? { controllerId: rawIntent.controllerId as Id<StructureController> }
       : {}),
+    ...(rawIntent.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
     ...(followUp ? { followUp } : {})
   };
 }
@@ -738,7 +743,13 @@ function getTerritoryFollowUpOriginAction(source: TerritoryFollowUpSource): Terr
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
   const existingIndex = intents.findIndex((intent) => isSameTerritoryIntent(intent, nextIntent));
   if (existingIndex >= 0) {
-    intents[existingIndex] = nextIntent;
+    const existingIntent = intents[existingIndex];
+    intents[existingIndex] = {
+      ...nextIntent,
+      ...(!nextIntent.requiresControllerPressure && existingIntent.requiresControllerPressure
+        ? { requiresControllerPressure: true }
+        : {})
+    };
     return;
   }
 

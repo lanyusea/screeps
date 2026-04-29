@@ -3495,7 +3495,7 @@ describe('planTerritoryIntent', () => {
     expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W3N1', action: 'reserve' });
     expect(
       shouldSpawnTerritoryControllerCreep(
-        { colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve' },
+        { colony: 'W1N1', targetRoom: 'W1N2', action: 'reserve', requiresControllerPressure: true },
         { worker: 3, claimer: 0, claimersByTargetRoom: {} }
       )
     ).toBe(true);
@@ -3566,7 +3566,7 @@ describe('planTerritoryIntent', () => {
     expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W3N1', action: 'reserve' });
     expect(
       shouldSpawnTerritoryControllerCreep(
-        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' },
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', requiresControllerPressure: true },
         { worker: 3, claimer: 0, claimersByTargetRoom: {} }
       )
     ).toBe(true);
@@ -3604,7 +3604,7 @@ describe('planTerritoryIntent', () => {
     expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 542)).toBeNull();
     expect(
       shouldSpawnTerritoryControllerCreep(
-        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' },
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', requiresControllerPressure: true },
         { worker: 3, claimer: 0, claimersByTargetRoom: {} },
         542
       )
@@ -3725,7 +3725,12 @@ describe('planTerritoryIntent', () => {
 
     const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 542);
 
-    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' });
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      requiresControllerPressure: true
+    });
     expect(
       shouldSpawnTerritoryControllerCreep(plan!, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 542)
     ).toBe(true);
@@ -3735,7 +3740,71 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W2N1',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 542
+        updatedAt: 542,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('keeps foreign reservation pressure body requirements after target vision is lost', () => {
+    const visibleColony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: visibleColony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    const pressurePlan = planTerritoryIntent(
+      visibleColony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      543
+    );
+
+    expect(pressurePlan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      requiresControllerPressure: true
+    });
+
+    const lowCapacityColony = makeSafeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: lowCapacityColony.room
+      }
+    };
+
+    expect(
+      planTerritoryIntent(lowCapacityColony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 544)
+    ).toBeNull();
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', requiresControllerPressure: true },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        544
+      )
+    ).toBe(false);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 543,
+        requiresControllerPressure: true
       }
     ]);
   });
