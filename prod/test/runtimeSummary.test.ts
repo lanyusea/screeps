@@ -211,6 +211,123 @@ describe('runtime telemetry summaries', () => {
     expect(payload.omittedEventCount).toBe(2);
   });
 
+  it('reports bounded room-level worker efficiency samples', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const recentWorkers = Array.from({ length: 7 }, (_, index) =>
+      makeWorker(
+        {
+          role: 'worker',
+          colony: 'W1N1',
+          workerEfficiency:
+            index % 2 === 0
+              ? {
+                  type: 'nearbyEnergyChoice',
+                  tick: RUNTIME_SUMMARY_INTERVAL,
+                  carriedEnergy: 5 + index,
+                  freeCapacity: 45,
+                  selectedTask: 'pickup',
+                  targetId: `drop-${index}`,
+                  energy: 50,
+                  range: 1
+                }
+              : {
+                  type: 'lowLoadReturn',
+                  tick: RUNTIME_SUMMARY_INTERVAL,
+                  carriedEnergy: 5 + index,
+                  freeCapacity: 45,
+                  selectedTask: 'transfer',
+                  targetId: `spawn-${index}`,
+                  reason: 'noNearbyEnergy'
+                }
+        },
+        5,
+        `Worker${index}`
+      )
+    );
+    const staleWorker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        workerEfficiency: {
+          type: 'lowLoadReturn',
+          tick: 0,
+          carriedEnergy: 5,
+          freeCapacity: 45,
+          selectedTask: 'transfer',
+          targetId: 'spawn-stale',
+          reason: 'urgentSpawnExtensionRefill'
+        }
+      },
+      5,
+      'WorkerStale'
+    );
+
+    emitRuntimeSummary([colony], [...recentWorkers, staleWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.workerEfficiency).toEqual({
+      lowLoadReturnCount: 3,
+      nearbyEnergyChoiceCount: 4,
+      samples: [
+        {
+          creepName: 'Worker0',
+          type: 'nearbyEnergyChoice',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          carriedEnergy: 5,
+          freeCapacity: 45,
+          selectedTask: 'pickup',
+          targetId: 'drop-0',
+          energy: 50,
+          range: 1
+        },
+        {
+          creepName: 'Worker1',
+          type: 'lowLoadReturn',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          carriedEnergy: 6,
+          freeCapacity: 45,
+          selectedTask: 'transfer',
+          targetId: 'spawn-1',
+          reason: 'noNearbyEnergy'
+        },
+        {
+          creepName: 'Worker2',
+          type: 'nearbyEnergyChoice',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          carriedEnergy: 7,
+          freeCapacity: 45,
+          selectedTask: 'pickup',
+          targetId: 'drop-2',
+          energy: 50,
+          range: 1
+        },
+        {
+          creepName: 'Worker3',
+          type: 'lowLoadReturn',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          carriedEnergy: 8,
+          freeCapacity: 45,
+          selectedTask: 'transfer',
+          targetId: 'spawn-3',
+          reason: 'noNearbyEnergy'
+        },
+        {
+          creepName: 'Worker4',
+          type: 'nearbyEnergyChoice',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          carriedEnergy: 9,
+          freeCapacity: 45,
+          selectedTask: 'pickup',
+          targetId: 'drop-4',
+          energy: 50,
+          range: 1
+        }
+      ],
+      omittedSampleCount: 2
+    });
+  });
+
   it('keeps KPI summaries safe when optional Screeps APIs and constants are absent', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
@@ -468,8 +585,9 @@ function makeColony(options: {
   };
 }
 
-function makeWorker(memory: CreepMemory, energy = 0): Creep {
+function makeWorker(memory: CreepMemory, energy = 0, name?: string): Creep {
   return {
+    ...(name ? { name } : {}),
     memory,
     store: makeEnergyStore(energy)
   } as unknown as Creep;
