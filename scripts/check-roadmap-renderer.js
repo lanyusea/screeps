@@ -124,6 +124,21 @@ if (fs.existsSync(htmlPath)) {
     assert(!resourcesText.includes('Stored energy 0') && !resourcesText.includes('Harvest delta 0') && !resourcesText.includes('Worker carried 0'), 'Resources KPI must not label fake zero energy values');
   }
 
+  const officialDeployCard = (() => {
+    try {
+      const roadmapData = JSON.parse(fs.readFileSync(path.join(repo, 'docs', 'roadmap-data.json'), 'utf8'));
+      return (roadmapData.report?.processCards || []).find(card => card.label === 'Official deploys');
+    } catch {
+      return null;
+    }
+  })();
+  if (officialDeployCard && Number.isFinite(Number(officialDeployCard.value))) {
+    assert(
+      text.includes(`${Number(officialDeployCard.value)} Official game deploys`),
+      `Official game deploys should match docs/roadmap-data.json value ${officialDeployCard.value}`
+    );
+  }
+
   const unavailableCards = [...body.matchAll(/data-kpi-unavailable="true"/g)].length;
   assert(unavailableCards >= 1, 'At least one unavailable KPI block should be explicit when reducer data is missing');
 }
