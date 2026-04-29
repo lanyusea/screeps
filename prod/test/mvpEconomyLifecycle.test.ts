@@ -1,5 +1,6 @@
 import { runEconomy } from '../src/economy/economyLoop';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../src/creeps/roleCounts';
+import { URGENT_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 
 describe('MVP economy lifecycle', () => {
   let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
@@ -90,6 +91,7 @@ describe('MVP economy lifecycle', () => {
     fullWorker.store.getFreeCapacity.mockReturnValue(0);
     fullWorker.room = {
       ...room,
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
       find: jest.fn((type) => (type === 3 ? [spawn] : []))
     } as unknown as Room;
 

@@ -8,6 +8,7 @@ export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 export const TOWER_REFILL_ENERGY_FLOOR = 500;
+export const URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -76,14 +77,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return territoryControllerTask;
   }
 
-  const energySink = selectFillableEnergySink(creep);
-  if (energySink && !isTowerEnergySink(energySink)) {
-    return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
-  }
-
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  if (spawnOrExtensionEnergySink) {
+    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
@@ -92,8 +93,9 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'build', targetId: capacityConstructionSite.id };
   }
 
-  if (energySink) {
-    return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink) {
+    return { type: 'transfer', targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure> };
   }
 
   if (territoryControllerTask) {
@@ -164,16 +166,23 @@ function isFillableEnergySink(structure: AnyOwnedStructure): structure is Fillab
 }
 
 function selectFillableEnergySink(creep: Creep): FillableEnergySink | null {
+  return selectSpawnOrExtensionEnergySink(creep) ?? selectPriorityTowerEnergySink(creep);
+}
+
+function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | StructureExtension | null {
+  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isSpawnOrExtensionEnergySink), creep);
+}
+
+function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
+  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink), creep);
+}
+
+function findFillableEnergySinks(creep: Creep): FillableEnergySink[] {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
 
-  const spawnOrExtension = selectClosestEnergySink(creep, energySinks.filter(isSpawnOrExtensionEnergySink));
-  if (spawnOrExtension) {
-    return spawnOrExtension;
-  }
-
-  return selectClosestEnergySink(creep, energySinks.filter(isPriorityTowerEnergySink));
+  return energySinks;
 }
 
 function isSpawnEnergySink(structure: FillableEnergySink): structure is StructureSpawn {
@@ -196,7 +205,7 @@ function isPriorityTowerEnergySink(structure: FillableEnergySink): structure is 
   return isTowerEnergySink(structure) && getStoredEnergy(structure) < TOWER_REFILL_ENERGY_FLOOR;
 }
 
-function selectClosestEnergySink<T extends FillableEnergySink>(creep: Creep, energySinks: T[]): T | null {
+function selectClosestEnergySink<T extends FillableEnergySink>(energySinks: T[], creep: Creep): T | null {
   if (energySinks.length === 0) {
     return null;
   }

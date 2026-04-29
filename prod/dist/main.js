@@ -2621,21 +2621,22 @@ function selectWorkerTask(creep) {
   if (isTerritoryControlTask(territoryControllerTask)) {
     return territoryControllerTask;
   }
-  const energySink = selectFillableEnergySink(creep);
-  if (energySink && !isTowerEnergySink(energySink)) {
-    return { type: "transfer", targetId: energySink.id };
-  }
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: "upgrade", targetId: controller.id };
+  }
+  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  if (spawnOrExtensionEnergySink) {
+    return { type: "transfer", targetId: spawnOrExtensionEnergySink.id };
   }
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const capacityConstructionSite = selectCapacityEnablingConstructionSite(creep, constructionSites, controller);
   if (capacityConstructionSite && !territoryControllerTask) {
     return { type: "build", targetId: capacityConstructionSite.id };
   }
-  if (energySink) {
-    return { type: "transfer", targetId: energySink.id };
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink) {
+    return { type: "transfer", targetId: priorityTowerEnergySink.id };
   }
   if (territoryControllerTask) {
     return territoryControllerTask;
@@ -2685,14 +2686,20 @@ function isFillableEnergySink(structure) {
   return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType2(structure.structureType, "STRUCTURE_TOWER", "tower")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
 function selectFillableEnergySink(creep) {
+  var _a;
+  return (_a = selectSpawnOrExtensionEnergySink(creep)) != null ? _a : selectPriorityTowerEnergySink(creep);
+}
+function selectSpawnOrExtensionEnergySink(creep) {
+  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isSpawnOrExtensionEnergySink), creep);
+}
+function selectPriorityTowerEnergySink(creep) {
+  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink), creep);
+}
+function findFillableEnergySinks(creep) {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
-  const spawnOrExtension = selectClosestEnergySink(creep, energySinks.filter(isSpawnOrExtensionEnergySink));
-  if (spawnOrExtension) {
-    return spawnOrExtension;
-  }
-  return selectClosestEnergySink(creep, energySinks.filter(isPriorityTowerEnergySink));
+  return energySinks;
 }
 function isSpawnEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn");
@@ -2709,7 +2716,7 @@ function isTowerEnergySink(structure) {
 function isPriorityTowerEnergySink(structure) {
   return isTowerEnergySink(structure) && getStoredEnergy2(structure) < TOWER_REFILL_ENERGY_FLOOR;
 }
-function selectClosestEnergySink(creep, energySinks) {
+function selectClosestEnergySink(energySinks, creep) {
   var _a;
   if (energySinks.length === 0) {
     return null;
@@ -3384,6 +3391,8 @@ function runWorker(creep) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptSpendingTaskForEnergySink(currentTask, selectedTask)) {
@@ -3555,6 +3564,12 @@ function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask)
   const selectedTarget = Game.getObjectById(selectedTask.targetId);
   return getTransferSinkPriority(selectedTarget) > getTransferSinkPriority(currentTarget);
 }
+function shouldPreemptTransferTaskForControllerDowngradeGuard(creep, task, selectedTask) {
+  if (task.type !== "transfer") {
+    return false;
+  }
+  return isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
 function shouldPreemptSpendingTaskForControllerPressure(creep, task, selectedTask) {
   var _a;
   if (!isEnergySpendingTask(task) || task.type === "upgrade") {
@@ -3582,6 +3597,14 @@ function shouldPreemptUpgradeTask(creep, task, selectedTask) {
 function isOwnedControllerUpgradeTask(creep, task) {
   var _a, _b;
   return (task == null ? void 0 : task.type) === "upgrade" && ((_b = (_a = creep.room) == null ? void 0 : _a.controller) == null ? void 0 : _b.my) === true && task.targetId === creep.room.controller.id;
+}
+function isDowngradeGuardUpgradeTask(creep, task) {
+  var _a;
+  if (!isOwnedControllerUpgradeTask(creep, task)) {
+    return false;
+  }
+  const ticksToDowngrade = (_a = creep.room.controller) == null ? void 0 : _a.ticksToDowngrade;
+  return typeof ticksToDowngrade === "number" && ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
 }
 function isSameTask(left, right) {
   return left.type === right.type && left.targetId === right.targetId;
