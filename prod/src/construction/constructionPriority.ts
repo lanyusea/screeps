@@ -1,4 +1,9 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import {
+  buildCriticalRoadLogisticsContext,
+  isCriticalRoadLogisticsWork,
+  type CriticalRoadLogisticsContext
+} from './criticalRoads';
 import { getExtensionLimitForRcl } from './extensionPlanner';
 
 export type ConstructionVisionLayer = 'survival' | 'territory' | 'resources' | 'enemyKills';
@@ -716,7 +721,7 @@ function buildRuntimeConstructionPriorityState(
   const hostileStructures = findRoomObjects(room, 'FIND_HOSTILE_STRUCTURES') as Structure[] | null;
   const sources = findRoomObjects(room, 'FIND_SOURCES') as Source[] | null;
   const colonyWorkers = creeps.filter((creep) => creep.memory?.role === 'worker' && creep.memory?.colony === room.name);
-  const repairSignals = summarizeRepairSignals(visibleStructures);
+  const repairSignals = summarizeRepairSignals(visibleStructures, buildCriticalRoadLogisticsContext(room));
   const territoryIntentCounts = countTerritoryIntents(room.name);
 
   return {
@@ -1049,7 +1054,8 @@ function countStructuresByType(
 }
 
 function summarizeRepairSignals(
-  structures: AnyStructure[] | null
+  structures: AnyStructure[] | null,
+  criticalRoadContext: CriticalRoadLogisticsContext
 ): { criticalRepairCount: number; decayingStructureCount: number } | null {
   if (structures === null) {
     return null;
@@ -1058,6 +1064,13 @@ function summarizeRepairSignals(
   return structures.reduce(
     (summary, structure) => {
       if (!isRepairSignalStructure(structure) || !hasHits(structure)) {
+        return summary;
+      }
+
+      if (
+        matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road') &&
+        !isCriticalRoadLogisticsWork(structure, criticalRoadContext)
+      ) {
         return summary;
       }
 

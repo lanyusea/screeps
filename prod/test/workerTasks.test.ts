@@ -43,7 +43,7 @@ function makeStructure(
   structureType: StructureConstant,
   hits: number,
   hitsMax: number,
-  extra: Partial<StructureRampart> = {}
+  extra: Record<string, unknown> = {}
 ): AnyStructure {
   return { id, structureType, hits, hitsMax, ...extra } as unknown as AnyStructure;
 }
@@ -51,13 +51,26 @@ function makeStructure(
 function makeEnergySink(
   id: string,
   structureType: StructureConstant,
-  freeCapacity: number
+  freeCapacity: number,
+  extra: Record<string, unknown> = {}
 ): TestEnergySink {
   return {
     id,
     structureType,
-    store: { getFreeCapacity: jest.fn().mockReturnValue(freeCapacity) }
+    store: { getFreeCapacity: jest.fn().mockReturnValue(freeCapacity) },
+    ...extra
   } as unknown as TestEnergySink;
+}
+
+function makeSource(id: string, x: number, y: number, roomName = 'W1N1'): Source {
+  return {
+    id,
+    pos: makeRoomPosition(x, y, roomName)
+  } as unknown as Source;
+}
+
+function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
+  return { x, y, roomName } as RoomPosition;
 }
 
 function makeTowerEnergySink(id: string, usedEnergy: number, freeCapacity: number): StructureTower {
@@ -113,6 +126,7 @@ function makeWorkerTaskRoom({
   energyAvailable,
   energyCapacityAvailable,
   myStructures = [],
+  sources = [],
   structures = []
 }: {
   constructionSites?: ConstructionSite[];
@@ -120,6 +134,7 @@ function makeWorkerTaskRoom({
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   myStructures?: AnyOwnedStructure[];
+  sources?: Source[];
   structures?: AnyStructure[];
 } = {}): Room {
   return {
@@ -138,6 +153,10 @@ function makeWorkerTaskRoom({
 
       if (type === FIND_STRUCTURES) {
         return structures;
+      }
+
+      if (type === FIND_SOURCES) {
+        return sources;
       }
 
       return [];
@@ -2578,15 +2597,25 @@ describe('selectWorkerTask', () => {
     ['container', 2_000]
   ])('repairs critical %s damage before generic construction', (structureType, hitsMax) => {
     const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
     const repairTarget = makeStructure(
       `${structureType}-critical`,
       structureType as StructureConstant,
       Math.floor(hitsMax * CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO),
-      hitsMax
+      hitsMax,
+      structureType === 'road' ? { pos: makeRoomPosition(12, 10) } : {}
     );
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
-      room: makeWorkerTaskRoom({ constructionSites: [site], structures: [repairTarget] })
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        myStructures: structureType === 'road' ? [fullSpawn as AnyOwnedStructure] : [],
+        sources: structureType === 'road' ? [source] : [],
+        structures: [repairTarget]
+      })
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: `${structureType}-critical` });
@@ -2597,11 +2626,16 @@ describe('selectWorkerTask', () => {
     ['container', 2_000]
   ])('repairs critical %s damage before matching construction', (structureType, hitsMax) => {
     const site = { id: `${structureType}-site1`, structureType } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
     const repairTarget = makeStructure(
       `${structureType}-critical`,
       structureType as StructureConstant,
       Math.floor(hitsMax * CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO),
-      hitsMax
+      hitsMax,
+      structureType === 'road' ? { pos: makeRoomPosition(12, 10) } : {}
     );
     const controller = {
       id: 'controller1',
@@ -2609,7 +2643,13 @@ describe('selectWorkerTask', () => {
       level: 3,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
-    const room = makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [repairTarget] });
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      myStructures: structureType === 'road' ? [fullSpawn as AnyOwnedStructure] : [],
+      sources: structureType === 'road' ? [source] : [],
+      structures: [repairTarget]
+    });
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -2636,6 +2676,58 @@ describe('selectWorkerTask', () => {
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: makeWorkerTaskRoom({ constructionSites: [site], structures: [road, container] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
+  });
+
+  it('keeps off-route road repair behind generic construction even at the critical hit threshold', () => {
+    const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const road = makeStructure(
+      'road-off-route',
+      'road' as StructureConstant,
+      Math.floor(5_000 * CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO),
+      5_000,
+      { pos: makeRoomPosition(10, 20) }
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source],
+        structures: [road]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
+  });
+
+  it('keeps route road repair behind generic construction above the critical hit threshold', () => {
+    const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const road = makeStructure(
+      'road-worn',
+      'road' as StructureConstant,
+      Math.floor(5_000 * CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO) + 1,
+      5_000,
+      { pos: makeRoomPosition(12, 10) }
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source],
+        structures: [road]
+      })
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
@@ -2733,14 +2825,25 @@ describe('selectWorkerTask', () => {
   });
 
   it('keeps critical road repair before sustained controller progress', () => {
-    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(12, 10)
+    });
     const controller = {
       id: 'controller1',
       my: true,
       level: 3,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
-    const room = makeWorkerTaskRoom({ controller, structures: [road] });
+    const room = makeWorkerTaskRoom({
+      controller,
+      myStructures: [fullSpawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [road]
+    });
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -2828,18 +2931,27 @@ describe('selectWorkerTask', () => {
     ['road', 'road-site1'],
     ['container', 'container-site1']
   ])('builds %s construction before sustained controller progress when another loaded worker can build', (structureType, id) => {
-    const site = { id, structureType } as ConstructionSite;
+    const site = {
+      id,
+      structureType,
+      ...(structureType === 'road' ? { pos: makeRoomPosition(12, 10) } : {})
+    } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
     const controller = {
       id: 'controller1',
       my: true,
       level: 2,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
-    const room = {
-      name: 'W1N1',
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
       controller,
-      find: jest.fn((type) => (type === 2 ? [site] : []))
-    } as unknown as Room;
+      myStructures: structureType === 'road' ? [fullSpawn as AnyOwnedStructure] : [],
+      sources: structureType === 'road' ? [source] : []
+    });
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room
@@ -2920,6 +3032,36 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
+  it('builds critical route road construction before container construction', () => {
+    const roadSite = {
+      id: 'road-critical-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(12, 10)
+    } as ConstructionSite;
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [containerSite, roadSite],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-critical-site1' });
   });
 
   it('builds the closest same-priority construction site after spawn refill is satisfied', () => {
@@ -3336,7 +3478,13 @@ describe('selectWorkerTask', () => {
   });
 
   it('repairs follow-up-ready critical infrastructure before fallback territory upgrading', () => {
-    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10, 'W2N1')
+    });
+    const source = makeSource('source1', 20, 10, 'W2N1');
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(12, 10, 'W2N1')
+    });
     const controller = {
       id: 'controller2',
       my: true,
@@ -3360,6 +3508,8 @@ describe('selectWorkerTask', () => {
         controller,
         energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
         energyCapacityAvailable: 800,
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source],
         structures: [road]
       })
     } as unknown as Creep;
@@ -3772,25 +3922,12 @@ describe('selectWorkerTask', () => {
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
       my: true
     });
-    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000);
-    const controller = {
-      id: 'controller1',
-      my: true,
-      level: 3,
-      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
-    } as StructureController;
-    const creep = {
-      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
-      room: makeWorkerTaskRoom({ controller, structures: [storage, road] })
-    } as unknown as Creep;
-
-    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
-  });
-
-  it('keeps road construction before stored-surplus controller upgrading', () => {
-    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
-    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
-      my: true
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(12, 10)
     });
     const controller = {
       id: 'controller1',
@@ -3800,10 +3937,81 @@ describe('selectWorkerTask', () => {
     } as StructureController;
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
-      room: makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [storage] })
+      room: makeWorkerTaskRoom({
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source],
+        structures: [storage, road]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
+  });
+
+  it('keeps critical road construction before stored-surplus controller upgrading', () => {
+    const site = {
+      id: 'road-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(12, 10)
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source],
+        structures: [storage]
+      })
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('keeps stored-surplus controller upgrading before off-route road construction', () => {
+    const site = {
+      id: 'road-off-route',
+      structureType: 'road',
+      pos: makeRoomPosition(10, 20)
+    } as ConstructionSite;
+    const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source],
+        structures: [storage]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('does not treat unsafe stored energy as controller upgrade surplus', () => {
@@ -4061,7 +4269,7 @@ describe('selectWorkerTask', () => {
     const hostileRampart = makeStructure('rampart-hostile', 'rampart' as StructureConstant, 100, 1_000, {
       my: false
     });
-    const damagedContainer = makeStructure('container-damaged', 'container' as StructureConstant, 100, 2_000);
+    const damagedContainer = makeStructure('container-damaged', 'container' as StructureConstant, 1_100, 2_000);
     const roadB = makeStructure('road-b', 'road' as StructureConstant, 2_500, 5_000);
     const roadA = makeStructure('road-a', 'road' as StructureConstant, 2_500, 5_000);
     const creep = {
