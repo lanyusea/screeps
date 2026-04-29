@@ -674,6 +674,109 @@ describe('runTerritoryControllerCreep', () => {
     ]);
   });
 
+  it('falls back to reserving a follow-up claim target when GCL blocks claiming', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'satisfiedClaimAdjacent',
+      originRoom: 'W1N1',
+      originAction: 'claim'
+    };
+    const claimTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W1N2',
+      action: 'claim'
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 515,
+      rooms: {
+        W1N2: {
+          name: 'W1N2',
+          controller: { id: 'controller1', my: false } as StructureController,
+          find: jest.fn().mockReturnValue([])
+        } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [claimTarget],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 514,
+            followUp
+          }
+        ]
+      }
+    };
+    const controller = { id: 'controller1', my: false } as StructureController;
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim', followUp } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      claimController: jest.fn().mockReturnValue(-15),
+      reserveController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.claimController).toHaveBeenCalledWith(controller);
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve', followUp });
+    expect(Memory.territory?.targets).toEqual([
+      claimTarget,
+      {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        action: 'reserve'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 515,
+        followUp
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 515,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: 515,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.executionHints).toEqual([
+      {
+        type: 'activeFollowUpExecution',
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        reason: 'visibleControlEvidenceStillActionable',
+        updatedAt: 515,
+        followUp
+      }
+    ]);
+  });
+
   it('suppresses an enemy-owned reserve target without issuing the impossible reserve call', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 504,

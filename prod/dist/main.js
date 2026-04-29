@@ -1408,6 +1408,42 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
   removeTerritoryFollowUpDemand(territoryMemory, colony, assignment.targetRoom, assignment.action);
   removeTerritoryFollowUpExecutionHint(territoryMemory, colony, assignment.targetRoom, assignment.action);
 }
+function recordTerritoryReserveFallbackIntent(colony, assignment, gameTime) {
+  if (!isNonEmptyString2(colony) || !isNonEmptyString2(assignment.targetRoom) || assignment.action !== "reserve") {
+    return;
+  }
+  const territoryMemory = getWritableTerritoryMemoryRecord2();
+  if (!territoryMemory) {
+    return;
+  }
+  const followUp = normalizeTerritoryFollowUp2(assignment.followUp);
+  const plan = {
+    colony,
+    targetRoom: assignment.targetRoom,
+    action: "reserve",
+    ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
+    ...followUp ? { followUp } : {}
+  };
+  appendTerritoryTargetIfMissing(territoryMemory, {
+    colony,
+    roomName: assignment.targetRoom,
+    action: "reserve",
+    ...assignment.controllerId ? { controllerId: assignment.controllerId } : {}
+  });
+  const intents = normalizeTerritoryIntents2(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  upsertTerritoryIntent2(intents, {
+    colony: plan.colony,
+    targetRoom: plan.targetRoom,
+    action: plan.action,
+    status: "active",
+    updatedAt: gameTime,
+    ...plan.controllerId ? { controllerId: plan.controllerId } : {},
+    ...plan.followUp ? { followUp: plan.followUp } : {}
+  });
+  recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
+  recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
+}
 function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
     return false;
@@ -2259,6 +2295,15 @@ function appendTerritoryTarget(territoryMemory, target) {
     territoryMemory.targets = [];
   }
   territoryMemory.targets.push(target);
+}
+function appendTerritoryTargetIfMissing(territoryMemory, target) {
+  if (Array.isArray(territoryMemory.targets) && territoryMemory.targets.some((rawTarget) => {
+    const existingTarget = normalizeTerritoryTarget2(rawTarget);
+    return (existingTarget == null ? void 0 : existingTarget.colony) === target.colony && existingTarget.roomName === target.roomName && existingTarget.action === target.action;
+  })) {
+    return;
+  }
+  appendTerritoryTarget(territoryMemory, target);
 }
 function getAdjacentRoomNames2(roomName) {
   const game = globalThis.Game;
@@ -5624,9 +5669,36 @@ function runTerritoryControllerCreep(creep) {
     creep.moveTo(controller);
     return;
   }
+  if (assignment.action === "claim" && result === ERR_GCL_NOT_ENOUGH_CODE && tryFallbackClaimAssignmentToReserve(creep, assignment, controller)) {
+    return;
+  }
   if (assignment.action === "claim" && CLAIM_FATAL_RESULT_CODES.has(result) || assignment.action === "reserve" && RESERVE_FATAL_RESULT_CODES.has(result)) {
     suppressTerritoryAssignment(creep, assignment);
   }
+}
+function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
+  if (typeof creep.reserveController !== "function" || !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
+    return false;
+  }
+  const gameTime = getGameTime4();
+  const reserveAssignment = {
+    targetRoom: assignment.targetRoom,
+    action: "reserve",
+    ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
+    ...assignment.followUp ? { followUp: assignment.followUp } : {}
+  };
+  suppressTerritoryIntent(creep.memory.colony, assignment, gameTime);
+  recordTerritoryReserveFallbackIntent(creep.memory.colony, reserveAssignment, gameTime);
+  creep.memory.territory = reserveAssignment;
+  const reserveResult = executeControllerAction(creep, controller, "reserveController");
+  if (reserveResult === ERR_NOT_IN_RANGE_CODE2 && typeof creep.moveTo === "function") {
+    creep.moveTo(controller);
+    return true;
+  }
+  if (RESERVE_FATAL_RESULT_CODES.has(reserveResult)) {
+    suppressTerritoryAssignment(creep, reserveAssignment);
+  }
+  return true;
 }
 function suppressTerritoryAssignment(creep, assignment) {
   suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime4());
