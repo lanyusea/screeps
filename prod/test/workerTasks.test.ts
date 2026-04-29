@@ -1577,6 +1577,36 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
   });
 
+  it('clears stale worker efficiency telemetry when selecting a normal refill task', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const creep = {
+      memory: {
+        role: 'worker',
+        workerEfficiency: {
+          type: 'nearbyEnergyChoice',
+          tick: 300,
+          carriedEnergy: 10,
+          freeCapacity: 40,
+          selectedTask: 'pickup',
+          targetId: 'drop-stale',
+          energy: 50,
+          range: 1
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(150)
+      },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: jest.fn((type) => (type === FIND_MY_STRUCTURES ? [spawn] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toBeUndefined();
+  });
+
   it('keeps a low-load worker on nearby dropped energy without pathing to distant drops', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;

@@ -3415,6 +3415,7 @@ var SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 var SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 var nearTermSpawnExtensionRefillReserveCache = null;
 function selectWorkerTask(creep) {
+  clearWorkerEfficiencyTelemetry(creep);
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
@@ -3601,6 +3602,12 @@ function getLowLoadWorkerEnergyContext(creep) {
     Math.max(1, Math.floor(capacity * LOW_LOAD_WORKER_ENERGY_RATIO))
   );
   return carriedEnergy <= lowLoadEnergyLimit ? { carriedEnergy, freeCapacity } : null;
+}
+function clearWorkerEfficiencyTelemetry(creep) {
+  const memory = creep.memory;
+  if (memory) {
+    delete memory.workerEfficiency;
+  }
 }
 function recordNearbyEnergyChoiceTelemetry(creep, candidate) {
   var _a;

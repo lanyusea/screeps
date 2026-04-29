@@ -74,6 +74,8 @@ interface Source2ControllerLaneTopology {
 let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserveCache | null = null;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
+  clearWorkerEfficiencyTelemetry(creep);
+
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
@@ -321,6 +323,13 @@ function getLowLoadWorkerEnergyContext(creep: Creep): LowLoadWorkerEnergyContext
     Math.max(1, Math.floor(capacity * LOW_LOAD_WORKER_ENERGY_RATIO))
   );
   return carriedEnergy <= lowLoadEnergyLimit ? { carriedEnergy, freeCapacity } : null;
+}
+
+function clearWorkerEfficiencyTelemetry(creep: Creep): void {
+  const memory = creep.memory;
+  if (memory) {
+    delete memory.workerEfficiency;
+  }
 }
 
 function recordNearbyEnergyChoiceTelemetry(
