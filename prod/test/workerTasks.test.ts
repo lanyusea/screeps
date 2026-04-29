@@ -4291,6 +4291,58 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
   });
 
+  it('allows a second RCL3 controller pressure upgrader when several loaded workers can cover construction', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type) => (type === 2 ? [site] : []))
+    } as unknown as Room;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      BuilderA: makeLoadedWorker(room),
+      BuilderB: makeLoadedWorker(room)
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('bounds RCL3 controller pressure once two loaded workers are already upgrading', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type) => (type === 2 ? [site] : []))
+    } as unknown as Room;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      UpgraderA: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      UpgraderB: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      Builder: makeLoadedWorker(room)
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+  });
+
   it('steers an empty worker to source2 when source2 is near the owned controller', () => {
     const source1 = makeSource('source1', 8, 8);
     const source2 = makeSource('source2', 24, 23);
