@@ -682,10 +682,12 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
     snapshots: list[RoomSnapshot] = []
 
     for ref in refs:
+        terrain: str | None = None
         room_warnings: list[str] = []
         for attempt in range(1, ctx.collection_attempts + 1):
             try:
-                terrain = fetch_terrain(ctx, ref, warnings)
+                if terrain is None:
+                    terrain = fetch_terrain(ctx, ref, warnings)
                 event = asyncio.run(fetch_room_event(ctx, ref))
                 objects = normalize_objects(event.get("objects"))
                 owner = infer_owner(objects, configured_owner, configured_owner_id)
