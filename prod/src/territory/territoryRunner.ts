@@ -3,6 +3,7 @@ import {
   isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry,
   isVisibleTerritoryAssignmentComplete,
   isVisibleTerritoryAssignmentSafe,
+  recordTerritoryReserveFallbackIntent,
   suppressTerritoryIntent
 } from './territoryPlanner';
 import { signOccupiedControllerIfNeeded } from './controllerSigning';
@@ -91,11 +92,56 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   }
 
   if (
+    assignment.action === 'claim' &&
+    result === ERR_GCL_NOT_ENOUGH_CODE &&
+    tryFallbackClaimAssignmentToReserve(creep, assignment, controller)
+  ) {
+    return;
+  }
+
+  if (
     (assignment.action === 'claim' && CLAIM_FATAL_RESULT_CODES.has(result)) ||
     (assignment.action === 'reserve' && RESERVE_FATAL_RESULT_CODES.has(result))
   ) {
     suppressTerritoryAssignment(creep, assignment);
   }
+}
+
+function tryFallbackClaimAssignmentToReserve(
+  creep: Creep,
+  assignment: CreepTerritoryMemory,
+  controller: StructureController
+): boolean {
+  if (
+    typeof creep.reserveController !== 'function' ||
+    !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)
+  ) {
+    return false;
+  }
+
+  const gameTime = getGameTime();
+  const reserveAssignment: CreepTerritoryMemory = {
+    targetRoom: assignment.targetRoom,
+    action: 'reserve',
+    ...(assignment.controllerId ? { controllerId: assignment.controllerId } : {}),
+    ...(assignment.followUp ? { followUp: assignment.followUp } : {})
+  };
+
+  suppressTerritoryIntent(creep.memory.colony, assignment, gameTime);
+  recordTerritoryReserveFallbackIntent(creep.memory.colony, reserveAssignment, gameTime);
+  creep.memory.territory = reserveAssignment;
+
+  const reserveResult = executeControllerAction(creep, controller, 'reserveController');
+  if (reserveResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
+    creep.moveTo(controller);
+    return true;
+  }
+
+  if (RESERVE_FATAL_RESULT_CODES.has(reserveResult)) {
+    suppressTerritoryAssignment(creep, reserveAssignment);
+  }
+
+  return true;
 }
 
 function suppressTerritoryAssignment(creep: Creep, assignment: CreepTerritoryMemory): void {
