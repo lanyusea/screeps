@@ -293,6 +293,49 @@ describe('runtime telemetry summaries', () => {
     ]);
   });
 
+  it('emits active territory follow-up execution hints in room telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'satisfiedReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const executionHint: TerritoryExecutionHintMemory = {
+      type: 'activeFollowUpExecution',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      reason: 'visibleControlEvidenceStillActionable',
+      updatedAt: RUNTIME_SUMMARY_INTERVAL - 1,
+      followUp
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1,
+            followUp
+          }
+        ],
+        executionHints: [executionHint]
+      }
+    };
+    (Game.rooms as Record<string, Room>).W2N1 = makeRemoteRoom('W2N1', {
+      controller: { my: false } as StructureController,
+      sourceCount: 1
+    });
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.territoryExecutionHints).toEqual([executionHint]);
+  });
+
   it('keeps emission gating deterministic', () => {
     expect(shouldEmitRuntimeSummary(1, [])).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [])).toBe(true);

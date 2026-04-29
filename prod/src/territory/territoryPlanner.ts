@@ -166,6 +166,7 @@ export function recordRecoveredTerritoryFollowUpRetryCooldown(
     lastAttemptAt: gameTime
   };
   removeTerritoryFollowUpDemand(territoryMemory, plan.colony, plan.targetRoom, plan.action);
+  removeTerritoryFollowUpExecutionHint(territoryMemory, plan.colony, plan.targetRoom, plan.action);
 }
 
 export function shouldSpawnTerritoryControllerCreep(
@@ -241,6 +242,21 @@ export function hasActiveTerritoryFollowUpPreparationDemand(
   return normalizeTerritoryFollowUpDemands(territoryMemory.demands).some(
     (demand) => demand.updatedAt === gameTime && demand.colony === colony && demand.workerCount > 0
   );
+}
+
+export function getActiveTerritoryFollowUpExecutionHints(
+  colony: string | null | undefined = undefined
+): TerritoryExecutionHintMemory[] {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return [];
+  }
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  return getBoundedActiveTerritoryFollowUpExecutionHints(
+    normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints),
+    intents
+  ).filter((hint) => !isNonEmptyString(colony) || hint.colony === colony);
 }
 
 export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemory {
@@ -427,6 +443,7 @@ export function suppressTerritoryIntent(
 
   upsertTerritoryIntent(intents, suppressedIntent);
   removeTerritoryFollowUpDemand(territoryMemory, colony, assignment.targetRoom, assignment.action);
+  removeTerritoryFollowUpExecutionHint(territoryMemory, colony, assignment.targetRoom, assignment.action);
 }
 
 export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
@@ -465,6 +482,7 @@ function selectTerritoryTarget(
       territoryMemory.intents = intents;
     }
   }
+  refreshTerritoryFollowUpExecutionHints(territoryMemory, intents);
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
   const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
     colony,
@@ -1814,6 +1832,7 @@ function recordTerritoryIntent(
 
   upsertTerritoryIntent(intents, nextIntent);
   recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
+  recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
 }
 
 function normalizeTerritoryIntents(rawIntents: TerritoryMemory['intents'] | unknown): TerritoryIntentMemory[] {
@@ -2040,6 +2059,256 @@ function getCurrentTerritoryFollowUpDemand(
         demand.targetRoom === plan.targetRoom &&
         demand.action === plan.action
     ) ?? null
+  );
+}
+
+function recordTerritoryFollowUpExecutionHint(
+  territoryMemory: TerritoryMemory,
+  plan: TerritoryIntentPlan,
+  gameTime: number
+): void {
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  const currentHints = getBoundedActiveTerritoryFollowUpExecutionHints(
+    normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints),
+    intents
+  );
+  const nextHint = buildTerritoryFollowUpExecutionHint(plan, gameTime);
+  if (!nextHint) {
+    setTerritoryFollowUpExecutionHints(
+      territoryMemory,
+      hasActiveTerritoryFollowUpIntentForColony(intents, plan.colony)
+        ? currentHints
+        : currentHints.filter((hint) => hint.colony !== plan.colony)
+    );
+    return;
+  }
+
+  upsertTerritoryFollowUpExecutionHint(currentHints, nextHint);
+  setTerritoryFollowUpExecutionHints(territoryMemory, currentHints);
+}
+
+function refreshTerritoryFollowUpExecutionHints(
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[]
+): void {
+  if (!territoryMemory || !Array.isArray(territoryMemory.executionHints)) {
+    return;
+  }
+
+  setTerritoryFollowUpExecutionHints(
+    territoryMemory,
+    getBoundedActiveTerritoryFollowUpExecutionHints(
+      normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints),
+      intents
+    )
+  );
+}
+
+function getBoundedActiveTerritoryFollowUpExecutionHints(
+  hints: TerritoryExecutionHintMemory[],
+  intents: TerritoryIntentMemory[]
+): TerritoryExecutionHintMemory[] {
+  const latestHintByColony = new Map<string, TerritoryExecutionHintMemory>();
+  for (const hint of hints) {
+    if (!isTerritoryFollowUpExecutionHintStillActive(hint, intents)) {
+      continue;
+    }
+
+    const existingHint = latestHintByColony.get(hint.colony);
+    if (
+      !existingHint ||
+      hint.updatedAt > existingHint.updatedAt ||
+      (hint.updatedAt === existingHint.updatedAt && hint.targetRoom.localeCompare(existingHint.targetRoom) < 0)
+    ) {
+      latestHintByColony.set(hint.colony, hint);
+    }
+  }
+
+  return Array.from(latestHintByColony.values()).sort((left, right) => left.colony.localeCompare(right.colony));
+}
+
+function isTerritoryFollowUpExecutionHintStillActive(
+  hint: TerritoryExecutionHintMemory,
+  intents: TerritoryIntentMemory[]
+): boolean {
+  const matchingIntent = findMatchingActiveTerritoryFollowUpIntent(hint, intents);
+  if (!matchingIntent?.followUp || !isSameTerritoryFollowUp(hint.followUp, matchingIntent.followUp)) {
+    return false;
+  }
+
+  return (
+    getTerritoryFollowUpExecutionHintReason(
+      matchingIntent.targetRoom,
+      matchingIntent.action,
+      matchingIntent.controllerId,
+      getVisibleColonyOwnerUsername(matchingIntent.colony)
+    ) !== null
+  );
+}
+
+function findMatchingActiveTerritoryFollowUpIntent(
+  hint: TerritoryExecutionHintMemory,
+  intents: TerritoryIntentMemory[]
+): TerritoryIntentMemory | null {
+  return (
+    intents.find(
+      (intent) =>
+        intent.colony === hint.colony &&
+        intent.targetRoom === hint.targetRoom &&
+        intent.action === hint.action &&
+        isActiveTerritoryFollowUpIntent(intent)
+    ) ?? null
+  );
+}
+
+function hasActiveTerritoryFollowUpIntentForColony(intents: TerritoryIntentMemory[], colony: string): boolean {
+  return intents.some((intent) => intent.colony === colony && isActiveTerritoryFollowUpIntent(intent));
+}
+
+function isActiveTerritoryFollowUpIntent(intent: TerritoryIntentMemory): boolean {
+  return (intent.status === 'planned' || intent.status === 'active') && intent.followUp !== undefined;
+}
+
+function buildTerritoryFollowUpExecutionHint(
+  plan: TerritoryIntentPlan,
+  gameTime: number
+): TerritoryExecutionHintMemory | null {
+  if (!plan.followUp) {
+    return null;
+  }
+
+  const reason = getTerritoryFollowUpExecutionHintReason(
+    plan.targetRoom,
+    plan.action,
+    plan.controllerId,
+    getVisibleColonyOwnerUsername(plan.colony)
+  );
+  if (reason === null) {
+    return null;
+  }
+
+  return {
+    type: 'activeFollowUpExecution',
+    colony: plan.colony,
+    targetRoom: plan.targetRoom,
+    action: plan.action,
+    reason,
+    updatedAt: gameTime,
+    ...(plan.controllerId ? { controllerId: plan.controllerId } : {}),
+    followUp: plan.followUp
+  };
+}
+
+function getTerritoryFollowUpExecutionHintReason(
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  controllerId: Id<StructureController> | undefined,
+  colonyOwnerUsername: string | null
+): TerritoryExecutionHintReason | null {
+  if (getVisibleTerritoryTargetState(targetRoom, action, controllerId, colonyOwnerUsername) !== 'available') {
+    return null;
+  }
+
+  if (action === 'scout') {
+    return 'followUpTargetStillUnseen';
+  }
+
+  const controllerEvidenceState = getVisibleTerritoryControllerEvidenceState(
+    targetRoom,
+    action,
+    controllerId,
+    colonyOwnerUsername
+  );
+  return controllerEvidenceState === null
+    ? 'controlEvidenceStillMissing'
+    : 'visibleControlEvidenceStillActionable';
+}
+
+function upsertTerritoryFollowUpExecutionHint(
+  hints: TerritoryExecutionHintMemory[],
+  nextHint: TerritoryExecutionHintMemory
+): void {
+  const existingIndex = hints.findIndex((hint) => hint.colony === nextHint.colony);
+  if (existingIndex >= 0) {
+    hints[existingIndex] = nextHint;
+    return;
+  }
+
+  hints.push(nextHint);
+}
+
+function removeTerritoryFollowUpExecutionHint(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  targetRoom: string,
+  action: TerritoryIntentAction
+): void {
+  const hints = normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints).filter(
+    (hint) => !(hint.colony === colony && hint.targetRoom === targetRoom && hint.action === action)
+  );
+  setTerritoryFollowUpExecutionHints(territoryMemory, hints);
+}
+
+function setTerritoryFollowUpExecutionHints(
+  territoryMemory: TerritoryMemory | Record<string, unknown>,
+  hints: TerritoryExecutionHintMemory[]
+): void {
+  if (hints.length > 0) {
+    territoryMemory.executionHints = hints;
+  } else {
+    delete territoryMemory.executionHints;
+  }
+}
+
+function normalizeTerritoryFollowUpExecutionHints(rawHints: unknown): TerritoryExecutionHintMemory[] {
+  return Array.isArray(rawHints)
+    ? rawHints.flatMap((hint) => {
+        const normalizedHint = normalizeTerritoryFollowUpExecutionHint(hint);
+        return normalizedHint ? [normalizedHint] : [];
+      })
+    : [];
+}
+
+function normalizeTerritoryFollowUpExecutionHint(rawHint: unknown): TerritoryExecutionHintMemory | null {
+  if (!isRecord(rawHint)) {
+    return null;
+  }
+
+  if (
+    rawHint.type !== 'activeFollowUpExecution' ||
+    !isNonEmptyString(rawHint.colony) ||
+    !isNonEmptyString(rawHint.targetRoom) ||
+    !isTerritoryIntentAction(rawHint.action) ||
+    !isTerritoryExecutionHintReason(rawHint.reason) ||
+    typeof rawHint.updatedAt !== 'number'
+  ) {
+    return null;
+  }
+
+  const followUp = normalizeTerritoryFollowUp(rawHint.followUp);
+  if (!followUp) {
+    return null;
+  }
+
+  return {
+    type: 'activeFollowUpExecution',
+    colony: rawHint.colony,
+    targetRoom: rawHint.targetRoom,
+    action: rawHint.action,
+    reason: rawHint.reason,
+    updatedAt: rawHint.updatedAt,
+    ...(typeof rawHint.controllerId === 'string'
+      ? { controllerId: rawHint.controllerId as Id<StructureController> }
+      : {}),
+    followUp
+  };
+}
+
+function isSameTerritoryFollowUp(left: TerritoryFollowUpMemory, right: TerritoryFollowUpMemory): boolean {
+  return (
+    left.source === right.source &&
+    left.originRoom === right.originRoom &&
+    left.originAction === right.originAction
   );
 }
 
@@ -2682,6 +2951,14 @@ function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUp
 
 function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
   return status === 'planned' || status === 'active' || status === 'suppressed';
+}
+
+function isTerritoryExecutionHintReason(reason: unknown): reason is TerritoryExecutionHintReason {
+  return (
+    reason === 'controlEvidenceStillMissing' ||
+    reason === 'followUpTargetStillUnseen' ||
+    reason === 'visibleControlEvidenceStillActionable'
+  );
 }
 
 function isNonEmptyString(value: unknown): value is string {

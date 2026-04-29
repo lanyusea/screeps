@@ -5,6 +5,7 @@ import {
   persistOccupationRecommendationFollowUpIntent,
   type OccupationRecommendationReport
 } from '../territory/occupationRecommendation';
+import { getActiveTerritoryFollowUpExecutionHints } from '../territory/territoryPlanner';
 
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
@@ -46,6 +47,7 @@ interface RuntimeRoomSummary {
   combat: RuntimeCombatSummary;
   constructionPriority: RuntimeConstructionPrioritySummary;
   territoryRecommendation: OccupationRecommendationReport;
+  territoryExecutionHints?: TerritoryExecutionHintMemory[];
 }
 
 interface RuntimeControllerSummary {
@@ -159,8 +161,16 @@ function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSumm
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
-    territoryRecommendation
+    territoryRecommendation,
+    ...buildTerritoryExecutionHintSummary(colony.room.name)
   };
+}
+
+function buildTerritoryExecutionHintSummary(
+  colonyName: string
+): { territoryExecutionHints?: TerritoryExecutionHintMemory[] } {
+  const territoryExecutionHints = getActiveTerritoryFollowUpExecutionHints(colonyName);
+  return territoryExecutionHints.length > 0 ? { territoryExecutionHints } : {};
 }
 
 function summarizeSpawn(spawn: StructureSpawn): RuntimeSpawnStatus {
