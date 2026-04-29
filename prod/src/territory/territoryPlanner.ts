@@ -8,6 +8,7 @@ import {
   type OccupationRecommendationEvidenceStatus,
   type OccupationRecommendationScore
 } from './occupationRecommendation';
+import { shouldSignOccupiedController } from './controllerSigning';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -390,7 +391,7 @@ export function isVisibleTerritoryAssignmentSafe(
   }
 
   if (assignment.action === 'claim' && controller.my === true) {
-    return false;
+    return shouldSignOccupiedController(controller);
   }
 
   const actorUsername = getTerritoryActorUsername(creep, colony);
@@ -407,7 +408,23 @@ export function isVisibleTerritoryAssignmentComplete(
   }
 
   const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
-  return controller?.my === true;
+  return controller?.my === true && !shouldSignOccupiedController(controller);
+}
+
+export function isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(
+  assignment: CreepTerritoryMemory,
+  creep?: Creep
+): boolean {
+  if (assignment.action !== 'claim' || !isNonEmptyString(assignment.targetRoom)) {
+    return false;
+  }
+
+  if (!isVisibleRoomUnsafeForTerritoryControllerWork(assignment.targetRoom)) {
+    return false;
+  }
+
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
+  return controller?.my === true && shouldSignOccupiedController(controller);
 }
 
 export function suppressTerritoryIntent(
