@@ -84,11 +84,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  if (spawnOrExtensionEnergySink && shouldReserveRefillForTerritoryFollowUp(creep)) {
-    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
-  }
-
-  if (spawnOrExtensionEnergySink) {
+  if (spawnOrExtensionEnergySink && shouldPrioritizeSpawnOrExtensionRefill(creep)) {
     return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
@@ -151,6 +147,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (controller?.my) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  if (spawnOrExtensionEnergySink) {
+    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
   return null;
@@ -994,7 +994,20 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
   return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
 }
 
-function shouldReserveRefillForTerritoryFollowUp(creep: Creep): boolean {
+function shouldPrioritizeSpawnOrExtensionRefill(creep: Creep): boolean {
+  if (hasUrgentSpawnOrExtensionRefillDemand(creep)) {
+    return true;
+  }
+
+  return !hasReservedTerritoryFollowUpRefillCapacity(creep);
+}
+
+function hasUrgentSpawnOrExtensionRefillDemand(creep: Creep): boolean {
+  const energyAvailable = (creep.room as Room & { energyAvailable?: number }).energyAvailable;
+  return typeof energyAvailable === 'number' && energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
+}
+
+function hasReservedTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
   return hasActiveTerritoryFollowUpPreparationDemand(getCreepColonyName(creep));
 }
 
