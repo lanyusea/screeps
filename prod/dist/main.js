@@ -3966,9 +3966,50 @@ function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
 }
 function findLowLoadWorkerEnergyAcquisitionCandidates(creep) {
   return [
-    ...findWorkerEnergyAcquisitionCandidates(creep).map(toLowLoadWorkerEnergyAcquisitionCandidate),
+    ...findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep),
+    ...findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep),
+    ...findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep),
     ...findLowLoadHarvestEnergyAcquisitionCandidates(creep)
   ];
+}
+function findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep) {
+  const context = {
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  return findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).map(
+    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
+      createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
+        type: "withdraw",
+        targetId: source.id
+      })
+    )
+  );
+}
+function findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep) {
+  return [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).map(
+    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
+      createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
+        type: "withdraw",
+        targetId: source.id
+      })
+    )
+  );
+}
+function findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep) {
+  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).map(
+    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
+      createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
+        type: "pickup",
+        targetId: source.id
+      })
+    )
+  );
+}
+function isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source) {
+  const range = getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
+  return range !== null && range <= LOW_LOAD_NEARBY_ENERGY_RANGE;
 }
 function toLowLoadWorkerEnergyAcquisitionCandidate(candidate) {
   return candidate;

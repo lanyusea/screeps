@@ -1577,17 +1577,20 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
   });
 
-  it('keeps a low-load worker on nearby dropped energy before non-urgent spawn refill', () => {
+  it('keeps a low-load worker on nearby dropped energy without pathing to distant drops', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const farDroppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 500 } as Resource<ResourceConstant>;
     const source = { id: 'source1', energy: 300 } as Source;
     const getRangeTo = jest.fn((target: { id: string }) => {
       const ranges: Record<string, number> = {
+        'drop-far': 10,
         'drop-near': 1,
         source1: 3
       };
       return ranges[String(target.id)] ?? 99;
     });
+    const findPathTo = jest.fn().mockReturnValue([]);
     const roomFind = jest.fn(
       (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
         if (type === FIND_MY_STRUCTURES) {
@@ -1596,7 +1599,7 @@ describe('selectWorkerTask', () => {
         }
 
         if (type === FIND_DROPPED_RESOURCES) {
-          return [droppedEnergy];
+          return [farDroppedEnergy, droppedEnergy];
         }
 
         if (
@@ -1618,7 +1621,7 @@ describe('selectWorkerTask', () => {
         getUsedCapacity: jest.fn().mockReturnValue(10),
         getFreeCapacity: jest.fn().mockReturnValue(40)
       },
-      pos: { getRangeTo },
+      pos: { getRangeTo, findPathTo },
       room: {
         energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
         find: roomFind
@@ -1637,6 +1640,74 @@ describe('selectWorkerTask', () => {
       energy: 50,
       range: 1
     });
+    expect(findPathTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps a low-load worker on nearby container energy', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const container = makeStoredEnergyStructure('container-near', 'container' as StructureConstant, 80);
+    const farDroppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 500 } as Resource<ResourceConstant>;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'container-near': 2,
+        'drop-far': 10
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const findPathTo = jest.fn().mockReturnValue([]);
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [container];
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [farDroppedEnergy];
+        }
+
+        if (
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo, findPathTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 323 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 323,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'withdraw',
+      targetId: 'container-near',
+      energy: 80,
+      range: 2
+    });
+    expect(findPathTo).not.toHaveBeenCalled();
   });
 
   it('keeps urgent spawn refill before low-load nearby energy acquisition', () => {

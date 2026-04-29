@@ -909,9 +909,73 @@ function shouldKeepLowLoadWorkerAcquiringEnergy(creep: Creep): boolean {
 
 function findLowLoadWorkerEnergyAcquisitionCandidates(creep: Creep): LowLoadWorkerEnergyAcquisitionCandidate[] {
   return [
-    ...findWorkerEnergyAcquisitionCandidates(creep).map(toLowLoadWorkerEnergyAcquisitionCandidate),
+    ...findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep),
+    ...findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep),
+    ...findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep),
     ...findLowLoadHarvestEnergyAcquisitionCandidates(creep)
   ];
+}
+
+function findNearbyLowLoadStoredEnergyAcquisitionCandidates(
+  creep: Creep
+): LowLoadWorkerEnergyAcquisitionCandidate[] {
+  const context: StoredEnergySourceContext = {
+    creepOwnerUsername: getCreepOwnerUsername(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+
+  return findVisibleRoomStructures(creep.room)
+    .filter((structure): structure is StoredWorkerEnergySource => isSafeStoredEnergySource(structure, context))
+    .filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source))
+    .map((source) =>
+      toLowLoadWorkerEnergyAcquisitionCandidate(
+        createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy(source), {
+          type: 'withdraw',
+          targetId: source.id as Id<AnyStoreStructure>
+        })
+      )
+    );
+}
+
+function findNearbyLowLoadSalvageEnergyAcquisitionCandidates(
+  creep: Creep
+): LowLoadWorkerEnergyAcquisitionCandidate[] {
+  return [...findTombstones(creep.room), ...findRuins(creep.room)]
+    .filter(hasSalvageableEnergy)
+    .filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source))
+    .map((source) =>
+      toLowLoadWorkerEnergyAcquisitionCandidate(
+        createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy(source), {
+          type: 'withdraw',
+          targetId: source.id as unknown as Id<AnyStoreStructure>
+        })
+      )
+    );
+}
+
+function findNearbyLowLoadDroppedEnergyAcquisitionCandidates(
+  creep: Creep
+): LowLoadWorkerEnergyAcquisitionCandidate[] {
+  return findDroppedResources(creep.room)
+    .filter(isUsefulDroppedEnergy)
+    .filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source))
+    .map((source) =>
+      toLowLoadWorkerEnergyAcquisitionCandidate(
+        createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
+          type: 'pickup',
+          targetId: source.id
+        })
+      )
+    );
+}
+
+function isNearbyLowLoadWorkerEnergyAcquisitionSource(
+  creep: Creep,
+  source: LowLoadWorkerEnergyAcquisitionSource
+): boolean {
+  const range = getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
+  return range !== null && range <= LOW_LOAD_NEARBY_ENERGY_RANGE;
 }
 
 function toLowLoadWorkerEnergyAcquisitionCandidate(
