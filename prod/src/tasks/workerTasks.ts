@@ -673,7 +673,13 @@ function findWorkerEnergyAcquisitionCandidates(creep: Creep): WorkerEnergyAcquis
         targetId: source.id as unknown as Id<AnyStoreStructure>
       })
     );
-  const droppedEnergyCandidates = findDroppedResources(creep.room)
+  const droppedEnergyCandidates = findDroppedEnergyAcquisitionCandidates(creep);
+
+  return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
+}
+
+function findDroppedEnergyAcquisitionCandidates(creep: Creep): WorkerEnergyAcquisitionCandidate[] {
+  return findDroppedResources(creep.room)
     .filter(isUsefulDroppedEnergy)
     .map((source) =>
       createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
@@ -684,8 +690,6 @@ function findWorkerEnergyAcquisitionCandidates(creep: Creep): WorkerEnergyAcquis
     .sort(compareDroppedEnergyReachabilityPriority)
     .slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS)
     .filter((candidate) => isReachable(creep, candidate.source));
-
-  return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
 
 function createWorkerEnergyAcquisitionCandidate(
@@ -1174,11 +1178,15 @@ function shouldUseSurplusForControllerProgress(creep: Creep, controller: Structu
     return true;
   }
 
-  return controller.my === true && controller.level >= 2 && hasWithdrawableSurplusEnergy(creep);
+  return controller.my === true && controller.level >= 2 && hasRecoverableSurplusEnergy(creep);
 }
 
-function hasWithdrawableSurplusEnergy(creep: Creep): boolean {
-  return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null;
+function hasRecoverableSurplusEnergy(creep: Creep): boolean {
+  return (
+    selectStoredEnergySource(creep) !== null ||
+    selectSalvageEnergySource(creep) !== null ||
+    findDroppedResources(creep.room).some(isUsefulDroppedEnergy)
+  );
 }
 
 function hasActiveTerritoryPressure(creep: Creep): boolean {
