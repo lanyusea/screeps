@@ -708,8 +708,9 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
                     warnings.extend(room_warnings)
                 break
             except Exception as exc:  # noqa: BLE001 - report room-level failures without secrets
+                error_text = short_text(redact_secrets(str(exc), [ctx.token]), 180)
                 room_warnings.append(
-                    f"{ref.key} collection attempt {attempt}/{ctx.collection_attempts} failed: {short_text(exc, 180)}"
+                    f"{ref.key} collection attempt {attempt}/{ctx.collection_attempts} failed: {error_text}"
                 )
                 if attempt < ctx.collection_attempts and ctx.collection_retry_delay_seconds > 0:
                     time.sleep(ctx.collection_retry_delay_seconds)
