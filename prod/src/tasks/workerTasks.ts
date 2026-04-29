@@ -1185,7 +1185,7 @@ function hasRecoverableSurplusEnergy(creep: Creep): boolean {
   return (
     selectStoredEnergySource(creep) !== null ||
     selectSalvageEnergySource(creep) !== null ||
-    findDroppedEnergyAcquisitionCandidates(creep).length > 0
+    findDroppedResources(creep.room).some(isUsefulDroppedEnergy)
   );
 }
 

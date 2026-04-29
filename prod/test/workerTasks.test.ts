@@ -3534,9 +3534,9 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
-  it('keeps non-critical construction before controller progress when dropped energy is unreachable', () => {
+  it('routes carried energy to controller upgrade on visible dropped energy surplus without pathfinding', () => {
     const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
-    const droppedEnergy = { id: 'drop-blocked', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
+    const droppedEnergy = { id: 'drop-surplus', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
     const controller = {
       id: 'controller1',
       my: true,
@@ -3558,13 +3558,21 @@ describe('selectWorkerTask', () => {
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       pos: {
-        getRangeTo: jest.fn().mockReturnValue(5),
+        getRangeTo: jest.fn((target: RoomObject) => {
+          const ranges: Record<string, number> = {
+            controller1: 5,
+            'tower-site1': 8,
+            'drop-surplus': 5
+          };
+          return ranges[String((target as { id?: string }).id)] ?? 99;
+        }),
         findPathTo: jest.fn().mockReturnValue([])
       },
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(creep.pos.findPathTo).not.toHaveBeenCalled();
   });
 
   it('uses nearby non-critical repair before stored-surplus controller upgrading', () => {

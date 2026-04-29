@@ -3770,7 +3770,7 @@ function shouldUseSurplusForControllerProgress(creep, controller) {
   return controller.my === true && controller.level >= 2 && hasRecoverableSurplusEnergy(creep);
 }
 function hasRecoverableSurplusEnergy(creep) {
-  return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null || findDroppedEnergyAcquisitionCandidates(creep).length > 0;
+  return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null || findDroppedResources(creep.room).some(isUsefulDroppedEnergy);
 }
 function hasActiveTerritoryPressure(creep) {
   var _a;
