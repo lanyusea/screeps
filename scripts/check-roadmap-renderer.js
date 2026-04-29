@@ -105,9 +105,12 @@ if (fs.existsSync(htmlPath)) {
     `KPI chart titles should be Territory, Resources, Combat; saw ${JSON.stringify(kpiTitles)}`
   );
 
+  const latestSummaryDir = path.join(repo, 'runtime-artifacts', 'screeps-monitor');
+  const hasMonitorSummary = fs.existsSync(latestSummaryDir)
+    && fs.readdirSync(latestSummaryDir).some(name => /^summary-.*\.svg$/.test(name));
   const territoryCard = body.match(/<div class="card kpi">[\s\S]*?<h3>Territory<\/h3>[\s\S]*?<\/div><\/div>/);
   assert(Boolean(territoryCard), 'Territory KPI card is missing');
-  if (territoryCard) {
+  if (territoryCard && !hasMonitorSummary) {
     const territoryText = tagText(territoryCard[0]);
     assert(!territoryText.includes('Latest monitor RCL: 3'), 'Territory KPI must not use fallback RCL 3 when no monitor evidence exists');
   }
