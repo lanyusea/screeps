@@ -1072,6 +1072,7 @@ var TERRITORY_RESERVATION_RENEWAL_TICKS = 1e3;
 var TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
 var TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 2;
 var TERRITORY_SUPPRESSION_RETRY_TICKS2 = 1500;
+var TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND = 1;
 var EXIT_DIRECTION_ORDER2 = ["1", "3", "5", "7"];
 var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
 var ERR_NO_PATH_CODE = -2;
@@ -1121,6 +1122,25 @@ function shouldSpawnTerritoryControllerCreep(plan, roleCounts, gameTime = getGam
   }
   const activeCoverageCount = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action);
   return activeCoverageCount === 0 || shouldSpawnEmergencyReservationRenewal(plan, activeCoverageCount);
+}
+function getTerritoryFollowUpPreparationWorkerDemand(plan, gameTime = getGameTime2()) {
+  var _a;
+  if (!plan || !isTerritoryControlAction(plan.action)) {
+    return 0;
+  }
+  if (isTerritoryIntentSuppressed(plan.colony, plan.targetRoom, plan.action, gameTime)) {
+    return 0;
+  }
+  if (getVisibleTerritoryTargetState(
+    plan.targetRoom,
+    plan.action,
+    plan.controllerId,
+    getVisibleColonyOwnerUsername(plan.colony)
+  ) !== "available") {
+    return 0;
+  }
+  const demand = getCurrentTerritoryFollowUpDemand(plan, gameTime);
+  return (_a = demand == null ? void 0 : demand.workerCount) != null ? _a : 0;
 }
 function buildTerritoryCreepMemory(plan) {
   return {
@@ -1247,6 +1267,7 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
     ...followUp ? { followUp } : {}
   };
   upsertTerritoryIntent2(intents, suppressedIntent);
+  removeTerritoryFollowUpDemand(territoryMemory, colony, assignment.targetRoom, assignment.action);
 }
 function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
@@ -2063,6 +2084,7 @@ function recordTerritoryIntent(plan, status, gameTime, seededTarget = null) {
     ...plan.followUp ? { followUp: plan.followUp } : {}
   };
   upsertTerritoryIntent2(intents, nextIntent);
+  recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
 }
 function normalizeTerritoryIntents2(rawIntents) {
   return Array.isArray(rawIntents) ? rawIntents.flatMap((intent) => {
@@ -2099,6 +2121,66 @@ function getPersistedTerritoryIntentFollowUp(intents, colony, targetRoom, action
     recovered: isRecoveredTerritoryFollowUpIntent(selectedIntent, gameTime)
   };
 }
+function recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime) {
+  const demands = pruneCurrentTerritoryFollowUpDemands(territoryMemory, gameTime);
+  if (!plan.followUp || !isTerritoryControlAction(plan.action)) {
+    return;
+  }
+  upsertTerritoryFollowUpDemand(demands, {
+    type: "followUpPreparation",
+    colony: plan.colony,
+    targetRoom: plan.targetRoom,
+    action: plan.action,
+    workerCount: TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND,
+    updatedAt: gameTime,
+    followUp: plan.followUp
+  });
+  territoryMemory.demands = demands;
+}
+function pruneCurrentTerritoryFollowUpDemands(territoryMemory, gameTime) {
+  const currentDemands = normalizeTerritoryFollowUpDemands(territoryMemory.demands).filter(
+    (demand) => demand.updatedAt === gameTime
+  );
+  if (currentDemands.length > 0) {
+    territoryMemory.demands = currentDemands;
+  } else {
+    delete territoryMemory.demands;
+  }
+  return currentDemands;
+}
+function upsertTerritoryFollowUpDemand(demands, nextDemand) {
+  const existingIndex = demands.findIndex(
+    (demand) => demand.type === nextDemand.type && demand.colony === nextDemand.colony && demand.targetRoom === nextDemand.targetRoom && demand.action === nextDemand.action
+  );
+  if (existingIndex >= 0) {
+    demands[existingIndex] = nextDemand;
+    return;
+  }
+  demands.push(nextDemand);
+}
+function removeTerritoryFollowUpDemand(territoryMemory, colony, targetRoom, action) {
+  if (!isTerritoryControlAction(action)) {
+    return;
+  }
+  const demands = normalizeTerritoryFollowUpDemands(territoryMemory.demands).filter(
+    (demand) => !(demand.colony === colony && demand.targetRoom === targetRoom && demand.action === action)
+  );
+  if (demands.length > 0) {
+    territoryMemory.demands = demands;
+  } else {
+    delete territoryMemory.demands;
+  }
+}
+function getCurrentTerritoryFollowUpDemand(plan, gameTime) {
+  var _a;
+  const territoryMemory = getTerritoryMemoryRecord2();
+  if (!territoryMemory) {
+    return null;
+  }
+  return (_a = normalizeTerritoryFollowUpDemands(territoryMemory.demands).find(
+    (demand) => demand.updatedAt === gameTime && demand.colony === plan.colony && demand.targetRoom === plan.targetRoom && demand.action === plan.action
+  )) != null ? _a : null;
+}
 function normalizeTerritoryIntent2(rawIntent) {
   if (!isRecord2(rawIntent)) {
     return null;
@@ -2116,6 +2198,43 @@ function normalizeTerritoryIntent2(rawIntent) {
     ...typeof rawIntent.controllerId === "string" ? { controllerId: rawIntent.controllerId } : {},
     ...followUp ? { followUp } : {}
   };
+}
+function normalizeTerritoryFollowUpDemands(rawDemands) {
+  return Array.isArray(rawDemands) ? rawDemands.flatMap((demand) => {
+    const normalizedDemand = normalizeTerritoryFollowUpDemand(demand);
+    return normalizedDemand ? [normalizedDemand] : [];
+  }) : [];
+}
+function normalizeTerritoryFollowUpDemand(rawDemand) {
+  if (!isRecord2(rawDemand)) {
+    return null;
+  }
+  if (rawDemand.type !== "followUpPreparation" || !isNonEmptyString2(rawDemand.colony) || !isNonEmptyString2(rawDemand.targetRoom) || !isTerritoryControlAction(rawDemand.action) || typeof rawDemand.updatedAt !== "number") {
+    return null;
+  }
+  const followUp = normalizeTerritoryFollowUp2(rawDemand.followUp);
+  const workerCount = getBoundedTerritoryFollowUpWorkerDemand(rawDemand.workerCount);
+  if (!followUp || workerCount <= 0) {
+    return null;
+  }
+  return {
+    type: "followUpPreparation",
+    colony: rawDemand.colony,
+    targetRoom: rawDemand.targetRoom,
+    action: rawDemand.action,
+    workerCount,
+    updatedAt: rawDemand.updatedAt,
+    followUp
+  };
+}
+function getBoundedTerritoryFollowUpWorkerDemand(rawWorkerCount) {
+  if (typeof rawWorkerCount !== "number") {
+    return TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND;
+  }
+  if (!Number.isFinite(rawWorkerCount)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND, Math.floor(rawWorkerCount)));
 }
 function normalizeTerritoryFollowUp2(rawFollowUp) {
   if (!isRecord2(rawFollowUp)) {
@@ -3624,18 +3743,24 @@ function planSpawn(colony, roleCounts, gameTime, options = {}) {
     return null;
   }
   const territoryWorkerTarget = shouldPlanWorkerRecovery ? workerTarget - 1 : workerTarget;
-  const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryWorkerTarget, gameTime, options);
-  if (territorySpawn) {
-    return territorySpawn;
+  const territoryIntent = planTerritoryIntent(colony, roleCounts, territoryWorkerTarget, gameTime);
+  if (territoryIntent) {
+    const demandedWorkerTarget = getWorkerTargetWithTerritoryDemand(workerTarget, territoryIntent, gameTime);
+    if (workerCapacity < demandedWorkerTarget) {
+      return planWorkerSpawn(colony, roleCounts, gameTime, options);
+    }
+    const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryIntent, gameTime, options);
+    if (territorySpawn) {
+      return territorySpawn;
+    }
   }
   if (shouldPlanWorkerRecovery) {
     return planWorkerSpawn(colony, roleCounts, gameTime, options);
   }
   return null;
 }
-function planTerritorySpawn(colony, roleCounts, workerTarget, gameTime, options) {
-  const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
-  if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
+function planTerritorySpawn(colony, roleCounts, territoryIntent, gameTime, options) {
+  if (!shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
     return null;
   }
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
@@ -3653,6 +3778,10 @@ function planTerritorySpawn(colony, roleCounts, workerTarget, gameTime, options)
     name: appendSpawnNameSuffix(`${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`, options),
     memory: buildTerritoryCreepMemory(territoryIntent)
   };
+}
+function getWorkerTargetWithTerritoryDemand(workerTarget, territoryIntent, gameTime) {
+  const demandWorkerCount = getTerritoryFollowUpPreparationWorkerDemand(territoryIntent, gameTime);
+  return Math.min(MAX_WORKER_TARGET + TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND, workerTarget + demandWorkerCount);
 }
 function planWorkerSpawn(colony, roleCounts, gameTime, options) {
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
