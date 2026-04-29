@@ -2461,6 +2461,8 @@ def build_report_process_cards(
     if issue_error is not None and cached_issue_card:
         total_issues = cached_issue_card.get("value", INSUFFICIENT_EVIDENCE)
     official_deploy_count = count_official_deploy_evidence(repo_root, github_snapshot)
+    official_deploy_value: int | str = official_deploy_count if official_deploy_count > 0 else INSUFFICIENT_EVIDENCE
+    official_deploy_detail = "official deploy evidence" if official_deploy_count > 0 else "evidence unavailable"
     private_smoke_count = count_private_smoke_process_reports(repo_root)
 
     return [
@@ -2490,9 +2492,9 @@ def build_report_process_cards(
             "source": "github" if issue_error is None else "cached" if cached_issue_card else "unavailable",
         },
         {
-            "value": official_deploy_count,
+            "value": official_deploy_value,
             "label": "Official deploys",
-            "detail": "official deploy evidence",
+            "detail": official_deploy_detail,
             "delta": "+0",
         },
         {

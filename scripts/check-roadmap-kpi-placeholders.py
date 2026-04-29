@@ -112,12 +112,18 @@ def validate_kpi_html(
                 f"{label}: {title} missing legend label {series_label}",
             )
 
-        all_null_series = [series for series in card.get("series", ()) if is_all_null_series(generator, series)]
+        all_values = [
+            value
+            for series in card.get("series", ())
+            for value in series.get("values", ())
+            if isinstance(series, dict)
+        ]
+        all_values_missing = bool(all_values) and all(generator.chart_number(value) is None for value in all_values)
         placeholder_lines = find_tags(body, "polyline", 'data-kpi-placeholder="line"')
         placeholder_points = find_tags(body, "circle", 'data-kpi-placeholder="point"')
         assert_check(failures, not placeholder_lines, f"{label}: {title} must not render fake placeholder KPI lines")
         assert_check(failures, not placeholder_points, f"{label}: {title} must not render fake placeholder KPI points")
-        if not all_null_series:
+        if not all_values_missing:
             continue
 
         assert_check(
@@ -183,6 +189,12 @@ def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
             failures,
             isinstance(official_deploys, int) and official_deploys >= evidence_count,
             "docs/roadmap-data.json: Official deploys must reflect observed official deploy evidence instead of reporting 0",
+        )
+    else:
+        assert_check(
+            failures,
+            official_deploys != 0,
+            "docs/roadmap-data.json: Official deploys must not report 0 when no deploy evidence is observed",
         )
 
 
