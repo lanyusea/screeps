@@ -3,6 +3,7 @@ import {
   selectUrgentVisibleReservationRenewalTask,
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
+import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -84,11 +85,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  if (spawnOrExtensionEnergySink && shouldReserveRefillForTerritoryFollowUp(creep)) {
-    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
-  }
-
-  if (spawnOrExtensionEnergySink) {
+  if (spawnOrExtensionEnergySink && shouldPrioritizeSpawnOrExtensionRefill(creep)) {
     return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
@@ -151,6 +148,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (controller?.my) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  if (spawnOrExtensionEnergySink) {
+    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
   return null;
@@ -994,8 +995,48 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
   return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
 }
 
-function shouldReserveRefillForTerritoryFollowUp(creep: Creep): boolean {
+function shouldPrioritizeSpawnOrExtensionRefill(creep: Creep): boolean {
+  if (hasUrgentSpawnOrExtensionRefillDemand(creep)) {
+    return true;
+  }
+
+  if (!hasReservedTerritoryFollowUpRefillCapacity(creep)) {
+    return true;
+  }
+
+  return hasUsefulTerritoryFollowUpRefillCapacity(creep);
+}
+
+function hasUrgentSpawnOrExtensionRefillDemand(creep: Creep): boolean {
+  const energyAvailable = (creep.room as Room & { energyAvailable?: number }).energyAvailable;
+  return typeof energyAvailable === 'number' && energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
+}
+
+function hasReservedTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
   return hasActiveTerritoryFollowUpPreparationDemand(getCreepColonyName(creep));
+}
+
+function hasUsefulTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(creep.room);
+  if (energyAvailable === null || energyCapacityAvailable === null) {
+    return false;
+  }
+
+  const followUpEnergyTarget = Math.min(TERRITORY_CONTROLLER_BODY_COST, energyCapacityAvailable);
+  return energyAvailable < followUpEnergyTarget;
+}
+
+function getRoomEnergyAvailable(room: Room): number | null {
+  const energyAvailable = (room as Room & { energyAvailable?: number }).energyAvailable;
+  return typeof energyAvailable === 'number' && Number.isFinite(energyAvailable) ? energyAvailable : null;
+}
+
+function getRoomEnergyCapacityAvailable(room: Room): number | null {
+  const energyCapacityAvailable = (room as Room & { energyCapacityAvailable?: number }).energyCapacityAvailable;
+  return typeof energyCapacityAvailable === 'number' && Number.isFinite(energyCapacityAvailable)
+    ? energyCapacityAvailable
+    : null;
 }
 
 function getCreepColonyName(creep: Creep): string | null {
