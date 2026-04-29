@@ -26,7 +26,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 DEFAULT_API_URL = "https://screeps.com"
@@ -1923,25 +1923,54 @@ def runtime_summary_artifact_name(now: datetime | None = None) -> str:
     return f"runtime-summary-monitor-{timestamp.strftime('%Y%m%dT%H%M%SZ')}.log"
 
 
-def unique_path(path: Path) -> Path:
-    if not path.exists():
-        return path
+def iter_path_candidates(path: Path) -> Iterable[Path]:
+    yield path
     for index in range(2, 1000):
-        candidate = path.with_name(f"{path.stem}-{index}{path.suffix}")
+        yield path.with_name(f"{path.stem}-{index}{path.suffix}")
+
+
+def unique_path(path: Path) -> Path:
+    for candidate in iter_path_candidates(path):
         if not candidate.exists():
             return candidate
     raise FileExistsError(f"could not choose a unique artifact path for {path}")
 
 
+def link_artifact_exclusively(temp_path: Path, path: Path) -> Path:
+    for candidate in iter_path_candidates(path):
+        try:
+            os.link(temp_path, candidate)
+            return candidate
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"could not choose a unique artifact path for {path}")
+
+
 def write_runtime_summary_artifact(snapshots: list[RoomSnapshot], out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = unique_path(out_dir / runtime_summary_artifact_name())
+    target = out_dir / runtime_summary_artifact_name()
     payload = runtime_summary_artifact_line(snapshots)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(out_dir), delete=False) as handle:
-        handle.write(payload)
-        temp_name = handle.name
-    os.replace(temp_name, path)
-    return path.resolve()
+    temp_fd: int | None = None
+    temp_path: Path | None = None
+    try:
+        temp_fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(out_dir))
+        temp_path = Path(temp_name)
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            temp_fd = None
+            handle.write(payload)
+        linked_path = link_artifact_exclusively(temp_path, target)
+        return linked_path.resolve()
+    finally:
+        if temp_fd is not None:
+            try:
+                os.close(temp_fd)
+            except OSError:
+                pass
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def redact_secrets(text: str, secrets: list[str]) -> str:

@@ -5,6 +5,7 @@ import importlib.util
 import copy
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -465,6 +466,27 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         payload = monitor.runtime_summary_payload_from_snapshots([snapshot])
 
         self.assertEqual(payload["rooms"][0]["combat"]["hostileStructureCount"], 1)
+
+    def test_runtime_summary_artifact_write_does_not_overwrite_existing_path(self) -> None:
+        snapshot = monitor.RoomSnapshot(
+            ref=monitor.RoomRef(shard="shardX", room="E48S28"),
+            terrain="0" * monitor.TERRAIN_CELLS,
+            objects={},
+            tick=265634,
+            owner="lanyusea",
+            info={},
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_dir = Path(temp_dir)
+            target = out_dir / monitor.runtime_summary_artifact_name()
+            target.write_text("existing evidence\n", encoding="utf-8")
+
+            written = monitor.write_runtime_summary_artifact([snapshot], out_dir)
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "existing evidence\n")
+            self.assertEqual(written.name, target.with_name(f"{target.stem}-2{target.suffix}").name)
+            self.assertTrue(written.read_text(encoding="utf-8").startswith("#runtime-summary "))
 
 
 if __name__ == "__main__":
