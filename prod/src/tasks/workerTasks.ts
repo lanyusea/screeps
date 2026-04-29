@@ -100,6 +100,15 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'transfer', targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure> };
   }
 
+  const readyFollowUpProductiveEnergySinkTask = selectReadyFollowUpProductiveEnergySinkTask(
+    creep,
+    capacityConstructionSite,
+    controller
+  );
+  if (readyFollowUpProductiveEnergySinkTask) {
+    return readyFollowUpProductiveEnergySinkTask;
+  }
+
   if (territoryControllerTask) {
     return territoryControllerTask;
   }
@@ -362,6 +371,27 @@ function selectCapacityEnablingConstructionSite(
   }
 
   return selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
+}
+
+function selectReadyFollowUpProductiveEnergySinkTask(
+  creep: Creep,
+  capacityConstructionSite: ConstructionSite | null,
+  controller: StructureController | undefined
+): ProductiveEnergySinkTask | null {
+  if (!hasReadyTerritoryFollowUpEnergy(creep)) {
+    return null;
+  }
+
+  if (capacityConstructionSite) {
+    return { type: 'build', targetId: capacityConstructionSite.id };
+  }
+
+  if (controller && shouldRushRcl1Controller(controller)) {
+    return null;
+  }
+
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  return criticalRepairTarget ? { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> } : null;
 }
 
 function isSpawnConstructionSite(site: ConstructionSite): boolean {
@@ -983,7 +1013,7 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
     return false;
   }
 
-  if (hasActiveTerritoryFollowUpPreparationDemand(colonyName)) {
+  if (hasReadyTerritoryFollowUpEnergy(creep)) {
     return true;
   }
 
@@ -1025,6 +1055,21 @@ function hasUsefulTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
 
   const followUpEnergyTarget = Math.min(TERRITORY_CONTROLLER_BODY_COST, energyCapacityAvailable);
   return energyAvailable < followUpEnergyTarget;
+}
+
+function hasReadyTerritoryFollowUpEnergy(creep: Creep): boolean {
+  if (!hasReservedTerritoryFollowUpRefillCapacity(creep)) {
+    return false;
+  }
+
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(creep.room);
+  if (energyAvailable === null || energyCapacityAvailable === null) {
+    return false;
+  }
+
+  const followUpEnergyTarget = Math.min(TERRITORY_CONTROLLER_BODY_COST, energyCapacityAvailable);
+  return energyAvailable >= followUpEnergyTarget;
 }
 
 function getRoomEnergyAvailable(room: Room): number | null {
