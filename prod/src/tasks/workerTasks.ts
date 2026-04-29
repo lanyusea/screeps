@@ -1047,7 +1047,113 @@ function shouldRushRcl1Controller(controller: StructureController): boolean {
 }
 
 function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep: Creep): boolean {
-  return getUsedEnergy(creep) > 0 && estimateNearTermSpawnExtensionRefillReserve(creep.room) > 0;
+  const carriedEnergy = getUsedEnergy(creep);
+  if (carriedEnergy <= 0) {
+    return false;
+  }
+
+  const refillReserve = estimateNearTermSpawnExtensionRefillReserve(creep.room);
+  return refillReserve > 0 && isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, refillReserve);
+}
+
+function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep: Creep, refillReserve: number): boolean {
+  const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(creep.room);
+  const loadedWorkers = dedupeCreepsByStableKey(
+    getSameRoomLoadedWorkers(creep).filter((worker) => getUsedEnergy(worker) > 0)
+  )
+    .sort((left, right) =>
+      compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures)
+    );
+  let reservedEnergy = 0;
+
+  for (const worker of loadedWorkers) {
+    if (isSameCreep(worker, creep)) {
+      return reservedEnergy < refillReserve;
+    }
+
+    reservedEnergy += getUsedEnergy(worker);
+  }
+
+  return true;
+}
+
+function compareNearTermRefillReserveWorkers(
+  left: Creep,
+  right: Creep,
+  spawnExtensionEnergyStructures: SpawnExtensionEnergyStructure[]
+): number {
+  return (
+    getUsedEnergy(right) - getUsedEnergy(left) ||
+    compareOptionalRanges(
+      getClosestNearTermRefillRange(left, spawnExtensionEnergyStructures),
+      getClosestNearTermRefillRange(right, spawnExtensionEnergyStructures)
+    ) ||
+    getCreepStableSortKey(left).localeCompare(getCreepStableSortKey(right))
+  );
+}
+
+function dedupeCreepsByStableKey(creeps: Creep[]): Creep[] {
+  const seenStableKeys = new Set<string>();
+  const seenCreeps = new Set<Creep>();
+  const uniqueCreeps: Creep[] = [];
+
+  for (const creep of creeps) {
+    if (seenCreeps.has(creep)) {
+      continue;
+    }
+
+    seenCreeps.add(creep);
+
+    const stableKey = getCreepStableSortKey(creep);
+    if (stableKey.length > 0) {
+      if (seenStableKeys.has(stableKey)) {
+        continue;
+      }
+
+      seenStableKeys.add(stableKey);
+    }
+
+    uniqueCreeps.push(creep);
+  }
+
+  return uniqueCreeps;
+}
+
+function getClosestNearTermRefillRange(
+  creep: Creep,
+  spawnExtensionEnergyStructures: SpawnExtensionEnergyStructure[]
+): number | null {
+  let closestRange: number | null = null;
+
+  for (const structure of spawnExtensionEnergyStructures) {
+    const range = getRangeBetweenRoomObjects(creep, structure);
+    if (range === null) {
+      continue;
+    }
+
+    closestRange = closestRange === null ? range : Math.min(closestRange, range);
+  }
+
+  return closestRange;
+}
+
+function isSameCreep(left: Creep, right: Creep): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftKey = getCreepStableSortKey(left);
+  return leftKey.length > 0 && leftKey === getCreepStableSortKey(right);
+}
+
+function getCreepStableSortKey(creep: Creep): string {
+  const name = (creep as Creep & { name?: unknown }).name;
+  if (typeof name === 'string' && name.length > 0) {
+    return name;
+  }
+
+  const id = (creep as Creep & { id?: unknown }).id;
+  return typeof id === 'string' && id.length > 0 ? id : '';
 }
 
 function shouldApplyControllerPressureLane(creep: Creep, controller: StructureController): boolean {

@@ -3678,7 +3678,80 @@ function shouldRushRcl1Controller(controller) {
   return controller.my === true && controller.level === 1;
 }
 function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) {
-  return getUsedEnergy(creep) > 0 && estimateNearTermSpawnExtensionRefillReserve(creep.room) > 0;
+  const carriedEnergy = getUsedEnergy(creep);
+  if (carriedEnergy <= 0) {
+    return false;
+  }
+  const refillReserve = estimateNearTermSpawnExtensionRefillReserve(creep.room);
+  return refillReserve > 0 && isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, refillReserve);
+}
+function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, refillReserve) {
+  const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(creep.room);
+  const loadedWorkers = dedupeCreepsByStableKey(
+    getSameRoomLoadedWorkers(creep).filter((worker) => getUsedEnergy(worker) > 0)
+  ).sort(
+    (left, right) => compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures)
+  );
+  let reservedEnergy = 0;
+  for (const worker of loadedWorkers) {
+    if (isSameCreep(worker, creep)) {
+      return reservedEnergy < refillReserve;
+    }
+    reservedEnergy += getUsedEnergy(worker);
+  }
+  return true;
+}
+function compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures) {
+  return getUsedEnergy(right) - getUsedEnergy(left) || compareOptionalRanges(
+    getClosestNearTermRefillRange(left, spawnExtensionEnergyStructures),
+    getClosestNearTermRefillRange(right, spawnExtensionEnergyStructures)
+  ) || getCreepStableSortKey(left).localeCompare(getCreepStableSortKey(right));
+}
+function dedupeCreepsByStableKey(creeps) {
+  const seenStableKeys = /* @__PURE__ */ new Set();
+  const seenCreeps = /* @__PURE__ */ new Set();
+  const uniqueCreeps = [];
+  for (const creep of creeps) {
+    if (seenCreeps.has(creep)) {
+      continue;
+    }
+    seenCreeps.add(creep);
+    const stableKey = getCreepStableSortKey(creep);
+    if (stableKey.length > 0) {
+      if (seenStableKeys.has(stableKey)) {
+        continue;
+      }
+      seenStableKeys.add(stableKey);
+    }
+    uniqueCreeps.push(creep);
+  }
+  return uniqueCreeps;
+}
+function getClosestNearTermRefillRange(creep, spawnExtensionEnergyStructures) {
+  let closestRange = null;
+  for (const structure of spawnExtensionEnergyStructures) {
+    const range = getRangeBetweenRoomObjects(creep, structure);
+    if (range === null) {
+      continue;
+    }
+    closestRange = closestRange === null ? range : Math.min(closestRange, range);
+  }
+  return closestRange;
+}
+function isSameCreep(left, right) {
+  if (left === right) {
+    return true;
+  }
+  const leftKey = getCreepStableSortKey(left);
+  return leftKey.length > 0 && leftKey === getCreepStableSortKey(right);
+}
+function getCreepStableSortKey(creep) {
+  const name = creep.name;
+  if (typeof name === "string" && name.length > 0) {
+    return name;
+  }
+  const id = creep.id;
+  return typeof id === "string" && id.length > 0 ? id : "";
 }
 function shouldApplyControllerPressureLane(creep, controller) {
   if (controller.my !== true || controller.level < 2) {
