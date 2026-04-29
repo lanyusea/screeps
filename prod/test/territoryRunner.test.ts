@@ -325,6 +325,53 @@ describe('runTerritoryControllerCreep', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
+  it('keeps an unsafe claimed controller assignment active when it still needs signing', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'satisfiedClaimAdjacent',
+      originRoom: 'W1N1',
+      originAction: 'claim'
+    };
+    const controller = {
+      id: 'controller1',
+      my: true,
+      owner: { username: 'me' },
+      sign: { username: 'enemy', text: 'not ours', time: 500, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const hostile = { id: 'enemy1' } as Creep;
+    const intents: TerritoryIntentMemory[] = [
+      { colony: 'W1N1', targetRoom: 'W1N2', action: 'claim', status: 'active', updatedAt: 510 }
+    ];
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 511,
+      rooms: {
+        W1N2: {
+          name: 'W1N2',
+          controller,
+          find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? [hostile] : []))
+        } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: { intents }
+    };
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim', followUp } },
+      room: { name: 'W1N1' },
+      claimController: jest.fn(),
+      signController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.signController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim', followUp });
+    expect(Memory.territory?.intents).toEqual(intents);
+  });
+
   it('signs a claimed controller before clearing the follow-up territory assignment', () => {
     const followUp: TerritoryFollowUpMemory = {
       source: 'satisfiedClaimAdjacent',
@@ -372,6 +419,35 @@ describe('runTerritoryControllerCreep', () => {
       claimController: jest.fn(),
       signController: jest.fn().mockReturnValue(-9),
       moveTo: jest.fn().mockReturnValue(0)
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim', followUp });
+    expect(Memory.territory).toBeUndefined();
+  });
+
+  it('keeps the claim assignment when controller signing is blocked', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'satisfiedClaimAdjacent',
+      originRoom: 'W1N1',
+      originAction: 'claim'
+    };
+    const controller = {
+      id: 'controller1',
+      my: true,
+      owner: { username: 'me' },
+      sign: { username: 'enemy', text: 'not ours', time: 500, datetime: '2026-04-29T00:00:00.000Z' }
+    } as unknown as StructureController;
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim', followUp } },
+      room: { name: 'W1N2', controller },
+      claimController: jest.fn(),
+      signController: jest.fn().mockReturnValue(-9),
+      moveTo: jest.fn().mockReturnValue(-7)
     } as unknown as Creep;
 
     runTerritoryControllerCreep(creep);

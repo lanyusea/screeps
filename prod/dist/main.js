@@ -1345,7 +1345,17 @@ function isVisibleTerritoryAssignmentComplete(assignment, creep) {
     return false;
   }
   const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
-  return (controller == null ? void 0 : controller.my) === true && (!shouldSignOccupiedController(controller) || isVisibleRoomUnsafeForTerritoryControllerWork(assignment.targetRoom));
+  return (controller == null ? void 0 : controller.my) === true && !shouldSignOccupiedController(controller);
+}
+function isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep) {
+  if (assignment.action !== "claim" || !isNonEmptyString2(assignment.targetRoom)) {
+    return false;
+  }
+  if (!isVisibleRoomUnsafeForTerritoryControllerWork(assignment.targetRoom)) {
+    return false;
+  }
+  const controller = selectVisibleTerritoryAssignmentController(assignment, creep);
+  return (controller == null ? void 0 : controller.my) === true && shouldSignOccupiedController(controller);
 }
 function suppressTerritoryIntent(colony, assignment, gameTime) {
   if (!isNonEmptyString2(colony) || !isNonEmptyString2(assignment.targetRoom) || !isTerritoryIntentAction2(assignment.action)) {
@@ -5405,6 +5415,9 @@ function runTerritoryControllerCreep(creep) {
     return;
   }
   if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
+    if (isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep)) {
+      return;
+    }
     suppressTerritoryAssignment(creep, assignment);
     return;
   }
@@ -5424,7 +5437,8 @@ function runTerritoryControllerCreep(creep) {
     if (assignment.action === "reserve") {
       suppressTerritoryAssignment(creep, assignment);
     } else {
-      if (signOccupiedControllerIfNeeded(creep, controller) === "moving") {
+      const signingResult = signOccupiedControllerIfNeeded(creep, controller);
+      if (signingResult === "moving" || signingResult === "blocked") {
         return;
       }
       completeTerritoryAssignment(creep);
