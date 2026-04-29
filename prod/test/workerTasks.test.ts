@@ -6,6 +6,7 @@ import {
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
+import { TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/bodyBuilder';
 import {
   TERRITORY_RESERVATION_COMFORT_TICKS,
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
@@ -99,12 +100,14 @@ function makeWorkerTaskRoom({
   constructionSites = [],
   controller = { id: 'controller1', my: true, level: 3 } as StructureController,
   energyAvailable,
+  energyCapacityAvailable,
   myStructures = [],
   structures = []
 }: {
   constructionSites?: ConstructionSite[];
   controller?: StructureController;
   energyAvailable?: number;
+  energyCapacityAvailable?: number;
   myStructures?: AnyOwnedStructure[];
   structures?: AnyStructure[];
 } = {}): Room {
@@ -112,6 +115,7 @@ function makeWorkerTaskRoom({
     name: 'W1N1',
     controller,
     ...(energyAvailable === undefined ? {} : { energyAvailable }),
+    ...(energyCapacityAvailable === undefined ? {} : { energyCapacityAvailable }),
     find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
       if (type === FIND_MY_STRUCTURES) {
         return options?.filter ? myStructures.filter(options.filter) : myStructures;
@@ -2783,6 +2787,7 @@ describe('selectWorkerTask', () => {
         constructionSites: [site],
         controller,
         energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        energyCapacityAvailable: TERRITORY_CONTROLLER_BODY_COST,
         myStructures: [spawn as AnyOwnedStructure]
       })
     } as unknown as Creep;
@@ -2790,8 +2795,8 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
-  it('spends carried energy on construction when follow-up refill capacity is reserved and room energy is safe', () => {
-    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+  it('keeps follow-up spawn refill before construction until controller-body energy is ready', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 450);
     const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -2815,6 +2820,40 @@ describe('selectWorkerTask', () => {
         constructionSites: [site],
         controller,
         energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        energyCapacityAvailable: TERRITORY_CONTROLLER_BODY_COST,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('spends carried energy on construction when follow-up energy target is ready', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      time: 512
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        demands: [makeFollowUpDemand(512)]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
+        energyCapacityAvailable: 800,
         myStructures: [spawn as AnyOwnedStructure]
       })
     } as unknown as Creep;
@@ -2822,7 +2861,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
-  it('spends carried energy on controller upgrade when follow-up refill capacity is reserved and no construction remains', () => {
+  it('spends carried energy on controller upgrade when follow-up energy target is ready and no construction remains', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const controller = {
       id: 'controller1',
@@ -2832,11 +2871,11 @@ describe('selectWorkerTask', () => {
     } as StructureController;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: {},
-      time: 511
+      time: 513
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        demands: [makeFollowUpDemand(511)]
+        demands: [makeFollowUpDemand(513)]
       }
     };
     const creep = {
@@ -2844,7 +2883,8 @@ describe('selectWorkerTask', () => {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: makeWorkerTaskRoom({
         controller,
-        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
+        energyCapacityAvailable: 800,
         myStructures: [spawn as AnyOwnedStructure]
       })
     } as unknown as Creep;

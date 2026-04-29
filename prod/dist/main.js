@@ -3312,7 +3312,10 @@ function shouldPrioritizeSpawnOrExtensionRefill(creep) {
   if (hasUrgentSpawnOrExtensionRefillDemand(creep)) {
     return true;
   }
-  return !hasReservedTerritoryFollowUpRefillCapacity(creep);
+  if (!hasReservedTerritoryFollowUpRefillCapacity(creep)) {
+    return true;
+  }
+  return hasUsefulTerritoryFollowUpRefillCapacity(creep);
 }
 function hasUrgentSpawnOrExtensionRefillDemand(creep) {
   const energyAvailable = creep.room.energyAvailable;
@@ -3320,6 +3323,23 @@ function hasUrgentSpawnOrExtensionRefillDemand(creep) {
 }
 function hasReservedTerritoryFollowUpRefillCapacity(creep) {
   return hasActiveTerritoryFollowUpPreparationDemand(getCreepColonyName(creep));
+}
+function hasUsefulTerritoryFollowUpRefillCapacity(creep) {
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(creep.room);
+  if (energyAvailable === null || energyCapacityAvailable === null) {
+    return false;
+  }
+  const followUpEnergyTarget = Math.min(TERRITORY_CONTROLLER_BODY_COST, energyCapacityAvailable);
+  return energyAvailable < followUpEnergyTarget;
+}
+function getRoomEnergyAvailable(room) {
+  const energyAvailable = room.energyAvailable;
+  return typeof energyAvailable === "number" && Number.isFinite(energyAvailable) ? energyAvailable : null;
+}
+function getRoomEnergyCapacityAvailable(room) {
+  const energyCapacityAvailable = room.energyCapacityAvailable;
+  return typeof energyCapacityAvailable === "number" && Number.isFinite(energyCapacityAvailable) ? energyCapacityAvailable : null;
 }
 function getCreepColonyName(creep) {
   var _a;

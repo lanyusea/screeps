@@ -3,6 +3,7 @@ import {
   selectUrgentVisibleReservationRenewalTask,
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
+import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -999,7 +1000,11 @@ function shouldPrioritizeSpawnOrExtensionRefill(creep: Creep): boolean {
     return true;
   }
 
-  return !hasReservedTerritoryFollowUpRefillCapacity(creep);
+  if (!hasReservedTerritoryFollowUpRefillCapacity(creep)) {
+    return true;
+  }
+
+  return hasUsefulTerritoryFollowUpRefillCapacity(creep);
 }
 
 function hasUrgentSpawnOrExtensionRefillDemand(creep: Creep): boolean {
@@ -1009,6 +1014,29 @@ function hasUrgentSpawnOrExtensionRefillDemand(creep: Creep): boolean {
 
 function hasReservedTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
   return hasActiveTerritoryFollowUpPreparationDemand(getCreepColonyName(creep));
+}
+
+function hasUsefulTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
+  const energyAvailable = getRoomEnergyAvailable(creep.room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(creep.room);
+  if (energyAvailable === null || energyCapacityAvailable === null) {
+    return false;
+  }
+
+  const followUpEnergyTarget = Math.min(TERRITORY_CONTROLLER_BODY_COST, energyCapacityAvailable);
+  return energyAvailable < followUpEnergyTarget;
+}
+
+function getRoomEnergyAvailable(room: Room): number | null {
+  const energyAvailable = (room as Room & { energyAvailable?: number }).energyAvailable;
+  return typeof energyAvailable === 'number' && Number.isFinite(energyAvailable) ? energyAvailable : null;
+}
+
+function getRoomEnergyCapacityAvailable(room: Room): number | null {
+  const energyCapacityAvailable = (room as Room & { energyCapacityAvailable?: number }).energyCapacityAvailable;
+  return typeof energyCapacityAvailable === 'number' && Number.isFinite(energyCapacityAvailable)
+    ? energyCapacityAvailable
+    : null;
 }
 
 function getCreepColonyName(creep: Creep): string | null {
