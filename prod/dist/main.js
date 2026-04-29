@@ -1097,6 +1097,7 @@ var TERRITORY_CANDIDATE_PRIORITY_SCOUT = 5;
 var MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR2 = ">";
 var TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
+var TERRITORY_SCOUT_BODY_COST = 50;
 var recoveredTerritoryFollowUpRetryMetadata = /* @__PURE__ */ new WeakMap();
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
@@ -1341,13 +1342,14 @@ function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   return typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS;
 }
 function selectTerritoryTarget(colony, roleCounts, gameTime) {
-  var _a, _b;
+  var _a, _b, _c;
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername2(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord2();
   const intents = normalizeTerritoryIntents2(territoryMemory == null ? void 0 : territoryMemory.intents);
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
   const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
+    colony,
     territoryMemory,
     colonyName,
     colonyOwnerUsername,
@@ -1378,7 +1380,7 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
   );
   const primaryCandidates = [...persistedIntentCandidates, ...configuredCandidates];
   const bestSpawnablePrimaryCandidate = selectBestScoredTerritoryCandidate(
-    getSpawnableTerritoryCandidates(primaryCandidates, roleCounts)
+    getSpawnableTerritoryCandidates(primaryCandidates, roleCounts, colony)
   );
   if (bestSpawnablePrimaryCandidate && bestSpawnablePrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
     if (!shouldEvaluateVisibleAdjacentFollowUpPreference(bestSpawnablePrimaryCandidate)) {
@@ -1402,7 +1404,11 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
     }
     return toSelectedTerritoryTarget(
       (_a = selectBestScoredTerritoryCandidate(
-        getSpawnableTerritoryCandidates([...primaryCandidates, ...visibleAdjacentFollowUpCandidates], roleCounts)
+        getSpawnableTerritoryCandidates(
+          [...primaryCandidates, ...visibleAdjacentFollowUpCandidates],
+          roleCounts,
+          colony
+        )
       )) != null ? _a : bestSpawnablePrimaryCandidate
     );
   }
@@ -1432,7 +1438,7 @@ function selectTerritoryTarget(colony, roleCounts, gameTime) {
   ]);
   const candidates = [...primaryCandidates, ...adjacentCandidates];
   return toSelectedTerritoryTarget(
-    (_b = selectBestScoredTerritoryCandidate(getSpawnableTerritoryCandidates(candidates, roleCounts))) != null ? _b : selectBestScoredTerritoryCandidate(candidates)
+    (_c = (_b = selectBestScoredTerritoryCandidate(getSpawnableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates)
   );
 }
 function selectBestScoredTerritoryCandidate(candidates) {
@@ -1457,15 +1463,33 @@ function toSelectedTerritoryTarget(candidate) {
 function shouldEvaluateVisibleAdjacentFollowUpPreference(candidate) {
   return candidate.priority === TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE && candidate.target.action === "reserve";
 }
-function getSpawnableTerritoryCandidates(candidates, roleCounts) {
+function getSpawnableTerritoryCandidates(candidates, roleCounts, colony) {
   return candidates.filter((candidate) => {
-    const activeCoverageCount = getTerritoryCreepCountForTarget(
-      roleCounts,
-      candidate.target.roomName,
-      candidate.intentAction
-    );
-    return activeCoverageCount === 0 || shouldSpawnEmergencyReservationRenewalCandidate(candidate, activeCoverageCount);
+    return isTerritoryCandidateSpawnRequired(candidate, roleCounts) && isTerritoryCandidateSpawnReady(candidate, colony);
   });
+}
+function getActionableTerritoryCandidates(candidates, roleCounts, colony) {
+  return candidates.filter(
+    (candidate) => !isTerritoryCandidateSpawnRequired(candidate, roleCounts) || isTerritoryCandidateSpawnReady(candidate, colony)
+  );
+}
+function isTerritoryCandidateSpawnRequired(candidate, roleCounts) {
+  const activeCoverageCount = getTerritoryCreepCountForTarget(
+    roleCounts,
+    candidate.target.roomName,
+    candidate.intentAction
+  );
+  return activeCoverageCount === 0 || shouldSpawnEmergencyReservationRenewalCandidate(candidate, activeCoverageCount);
+}
+function isTerritoryCandidateSpawnReady(candidate, colony) {
+  return isTerritoryIntentActionSpawnReady(colony, candidate.intentAction);
+}
+function isTerritoryIntentActionSpawnReady(colony, action) {
+  const bodyCost = getTerritoryIntentActionBodyCost(action);
+  return colony.energyCapacityAvailable >= bodyCost && colony.energyAvailable >= bodyCost;
+}
+function getTerritoryIntentActionBodyCost(action) {
+  return action === "scout" ? TERRITORY_SCOUT_BODY_COST : TERRITORY_CONTROLLER_BODY_COST;
 }
 function shouldSpawnEmergencyReservationRenewalCandidate(candidate, activeCoverageCount) {
   return activeCoverageCount < TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET && candidate.intentAction === "reserve" && typeof candidate.renewalTicksToEnd === "number" && candidate.renewalTicksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
@@ -1543,7 +1567,7 @@ function getPersistedTerritoryIntentCandidates(colonyName, colonyOwnerUsername, 
     return candidate ? [candidate] : [];
   });
 }
-function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyName, colonyOwnerUsername, intents, gameTime, roleCounts, routeDistanceLookupContext) {
+function hasBlockingConfiguredTerritoryTargetForColony(colony, territoryMemory, colonyName, colonyOwnerUsername, intents, gameTime, roleCounts, routeDistanceLookupContext) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return false;
   }
@@ -1570,8 +1594,14 @@ function hasBlockingConfiguredTerritoryTargetForColony(territoryMemory, colonyNa
     if (getTerritoryCreepCountForTarget(roleCounts, target.roomName, target.action) > 0) {
       return false;
     }
+    if (isConfiguredFollowUpTargetBlockedBySpawnReadiness(target, intents, gameTime, colony)) {
+      return false;
+    }
     return getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !== "satisfied";
   });
+}
+function isConfiguredFollowUpTargetBlockedBySpawnReadiness(target, intents, gameTime, colony) {
+  return getPersistedTerritoryIntentFollowUp(intents, target.colony, target.roomName, target.action, gameTime) !== null && !isTerritoryIntentActionSpawnReady(colony, target.action);
 }
 function getAdjacentReserveCandidates(colonyName, originRoomName, colonyOwnerUsername, territoryMemory, intents, gameTime, includeScoutCandidates, source, orderOffset, routeDistanceLookupContext) {
   const adjacentRooms = getAdjacentRoomNames2(originRoomName);
@@ -3891,7 +3921,7 @@ var WORKERS_PER_SOURCE = 2;
 var CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
 var SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT = 5;
 var TERRITORY_SCOUT_BODY = ["move"];
-var TERRITORY_SCOUT_BODY_COST = 50;
+var TERRITORY_SCOUT_BODY_COST2 = 50;
 var MAX_WORKER_TARGET = 6;
 var sourceCountByRoomName = /* @__PURE__ */ new Map();
 function planSpawn(colony, roleCounts, gameTime, options = {}) {
@@ -3995,7 +4025,7 @@ function canAffordBody(body, energyAvailable) {
 }
 function buildTerritorySpawnBody(energyAvailable, action) {
   if (action === "scout") {
-    return energyAvailable >= TERRITORY_SCOUT_BODY_COST ? [...TERRITORY_SCOUT_BODY] : [];
+    return energyAvailable >= TERRITORY_SCOUT_BODY_COST2 ? [...TERRITORY_SCOUT_BODY] : [];
   }
   return buildTerritoryControllerBody(energyAvailable);
 }
