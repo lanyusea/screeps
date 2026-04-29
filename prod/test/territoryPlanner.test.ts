@@ -3807,6 +3807,42 @@ describe('planTerritoryIntent', () => {
         requiresControllerPressure: true
       }
     ]);
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: lowCapacityColony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: { my: false } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+
+    const clearedPressurePlan = planTerritoryIntent(
+      lowCapacityColony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      545
+    );
+
+    expect(clearedPressurePlan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' });
+    expect(clearedPressurePlan).not.toHaveProperty('requiresControllerPressure');
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        clearedPressurePlan!,
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        545
+      )
+    ).toBe(true);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 545
+      }
+    ]);
   });
 
   it('still requests claimers for visible unowned reserve targets', () => {
