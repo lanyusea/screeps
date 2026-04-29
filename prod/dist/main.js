@@ -2478,13 +2478,13 @@ function selectWorkerTask(creep) {
   if (isTerritoryControlTask(territoryControllerTask)) {
     return territoryControllerTask;
   }
-  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  if (spawnOrExtensionEnergySink) {
-    return { type: "transfer", targetId: spawnOrExtensionEnergySink.id };
-  }
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: "upgrade", targetId: controller.id };
+  }
+  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  if (spawnOrExtensionEnergySink) {
+    return { type: "transfer", targetId: spawnOrExtensionEnergySink.id };
   }
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const capacityConstructionSite = selectCapacityEnablingConstructionSite(creep, constructionSites, controller);

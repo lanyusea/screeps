@@ -77,14 +77,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return territoryControllerTask;
   }
 
-  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  if (spawnOrExtensionEnergySink) {
-    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
-  }
-
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller)) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  if (spawnOrExtensionEnergySink) {
+    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
 
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);

@@ -3163,25 +3163,28 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
-  it('keeps spawn refill priority over the downgrade guard', () => {
-    const spawn = {
-      id: 'spawn1',
-      structureType: 'spawn',
+  it.each([
+    ['spawn', 'spawn1', CONTROLLER_DOWNGRADE_GUARD_TICKS],
+    ['extension', 'extension1', CONTROLLER_DOWNGRADE_GUARD_TICKS - 1]
+  ])('keeps low-downgrade guard before %s refill', (structureType, sinkId, ticksToDowngrade) => {
+    const energySink = {
+      id: sinkId,
+      structureType,
       store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
-    } as unknown as StructureSpawn;
+    } as unknown as StructureSpawn | StructureExtension;
     const site = { id: 'site1' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
-      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+      ticksToDowngrade
     } as StructureController;
     const creep = {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: {
         controller,
-        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
           if (type === 3) {
-            const structures = [spawn];
+            const structures = [energySink];
             return options?.filter ? structures.filter(options.filter) : structures;
           }
 
@@ -3190,7 +3193,7 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('keeps build priority for low downgrade data on unowned controllers', () => {
