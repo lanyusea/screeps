@@ -1590,7 +1590,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-closer' });
   });
 
-  it('filters loaded room workers once while screening primary energy sinks', () => {
+  it('builds loaded worker energy sink reservations once while screening primary energy sinks', () => {
     const spawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);
     const extension = makeEnergySink('extension-b', 'extension' as StructureConstant, 50);
     const structures = [spawn, extension];
@@ -1605,9 +1605,15 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Room;
     const workerEnergy = jest.fn().mockReturnValue(50);
-    const idleWorker = {
-      name: 'IdleWorker',
-      memory: { role: 'worker' },
+    const assignedWorkerMemory = { role: 'worker' } as CreepMemory;
+    const assignedWorkerTask = jest.fn().mockReturnValue({
+      type: 'transfer',
+      targetId: 'extension-b' as Id<AnyStoreStructure>
+    });
+    Object.defineProperty(assignedWorkerMemory, 'task', { get: assignedWorkerTask });
+    const assignedWorker = {
+      name: 'AssignedWorker',
+      memory: assignedWorkerMemory,
       store: { getUsedCapacity: workerEnergy },
       room
     } as unknown as Creep;
@@ -1620,10 +1626,11 @@ describe('selectWorkerTask', () => {
       },
       room
     } as unknown as Creep;
-    setGameCreeps({ IdleWorker: idleWorker });
+    setGameCreeps({ AssignedWorker: assignedWorker });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
-    expect(workerEnergy).toHaveBeenCalledTimes(1);
+    expect(assignedWorkerTask).toHaveBeenCalledTimes(1);
+    expect(workerEnergy).toHaveBeenCalledTimes(2);
   });
 
   it('skips primary energy sinks already covered by other loaded workers', () => {

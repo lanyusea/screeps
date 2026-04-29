@@ -245,8 +245,9 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
   }
 
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   return selectClosestEnergySink(
-    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, creep, loadedWorkers)),
+    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)),
     creep
   );
 }
@@ -257,26 +258,38 @@ function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
 
 function hasUnreservedEnergySinkCapacity(
   energySink: SpawnExtensionEnergyStructure,
+  reservedEnergyDeliveries: Map<string, number>
+): boolean {
+  return getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) < getFreeStoredEnergyCapacity(energySink);
+}
+
+function getReservedEnergyDeliveriesBySinkId(
   creep: Creep,
   loadedWorkers: Creep[]
-): boolean {
-  return getReservedEnergyDelivery(energySink, creep, loadedWorkers) < getFreeStoredEnergyCapacity(energySink);
+): Map<string, number> {
+  const reservedEnergyDeliveries = new Map<string, number>();
+  for (const worker of loadedWorkers) {
+    if (isSameCreep(worker, creep)) {
+      continue;
+    }
+
+    const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+    if (task?.type !== 'transfer' || typeof task.targetId !== 'string') {
+      continue;
+    }
+
+    const energySinkId = String(task.targetId);
+    reservedEnergyDeliveries.set(energySinkId, (reservedEnergyDeliveries.get(energySinkId) ?? 0) + getUsedEnergy(worker));
+  }
+
+  return reservedEnergyDeliveries;
 }
 
 function getReservedEnergyDelivery(
   energySink: SpawnExtensionEnergyStructure,
-  creep: Creep,
-  loadedWorkers: Creep[]
+  reservedEnergyDeliveries: Map<string, number>
 ): number {
-  const energySinkId = String(energySink.id);
-  return loadedWorkers
-    .filter((candidate) => !isSameCreep(candidate, creep))
-    .reduce((reservedEnergy, worker) => {
-      const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
-      return task?.type === 'transfer' && String(task.targetId) === energySinkId
-        ? reservedEnergy + getUsedEnergy(worker)
-        : reservedEnergy;
-    }, 0);
+  return reservedEnergyDeliveries.get(String(energySink.id)) ?? 0;
 }
 
 function findFillableEnergySinks(creep: Creep): FillableEnergySink[] {

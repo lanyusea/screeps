@@ -3273,24 +3273,37 @@ function selectSpawnOrExtensionEnergySink(creep) {
     return null;
   }
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   return selectClosestEnergySink(
-    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, creep, loadedWorkers)),
+    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)),
     creep
   );
 }
 function selectPriorityTowerEnergySink(creep) {
   return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink), creep);
 }
-function hasUnreservedEnergySinkCapacity(energySink, creep, loadedWorkers) {
-  return getReservedEnergyDelivery(energySink, creep, loadedWorkers) < getFreeStoredEnergyCapacity(energySink);
+function hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries) {
+  return getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) < getFreeStoredEnergyCapacity(energySink);
 }
-function getReservedEnergyDelivery(energySink, creep, loadedWorkers) {
-  const energySinkId = String(energySink.id);
-  return loadedWorkers.filter((candidate) => !isSameCreep(candidate, creep)).reduce((reservedEnergy, worker) => {
-    var _a;
+function getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers) {
+  var _a, _b;
+  const reservedEnergyDeliveries = /* @__PURE__ */ new Map();
+  for (const worker of loadedWorkers) {
+    if (isSameCreep(worker, creep)) {
+      continue;
+    }
     const task = (_a = worker.memory) == null ? void 0 : _a.task;
-    return (task == null ? void 0 : task.type) === "transfer" && String(task.targetId) === energySinkId ? reservedEnergy + getUsedEnergy(worker) : reservedEnergy;
-  }, 0);
+    if ((task == null ? void 0 : task.type) !== "transfer" || typeof task.targetId !== "string") {
+      continue;
+    }
+    const energySinkId = String(task.targetId);
+    reservedEnergyDeliveries.set(energySinkId, ((_b = reservedEnergyDeliveries.get(energySinkId)) != null ? _b : 0) + getUsedEnergy(worker));
+  }
+  return reservedEnergyDeliveries;
+}
+function getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) {
+  var _a;
+  return (_a = reservedEnergyDeliveries.get(String(energySink.id))) != null ? _a : 0;
 }
 function findFillableEnergySinks(creep) {
   const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
