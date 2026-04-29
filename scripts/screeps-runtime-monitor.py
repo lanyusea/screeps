@@ -405,6 +405,15 @@ def infer_owner(
 
 
 def normalize_objects(raw_objects: Any) -> dict[str, dict[str, Any]]:
+    if isinstance(raw_objects, list):
+        objects: dict[str, dict[str, Any]] = {}
+        for index, obj in enumerate(raw_objects):
+            if isinstance(obj, dict):
+                normalized = dict(obj)
+                object_id = normalized.get("_id") or normalized.get("id") or f"object-{index}"
+                normalized.setdefault("_id", object_id)
+                objects[str(object_id)] = normalized
+        return objects
     if not isinstance(raw_objects, dict):
         return {}
     objects: dict[str, dict[str, Any]] = {}
@@ -631,6 +640,26 @@ def fetch_terrain(ctx: RuntimeContext, ref: RoomRef, warnings: list[str]) -> str
         raise
 
 
+def fetch_room_event_http(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
+    response = get_json(
+        ctx.base_http,
+        ctx.token,
+        "/api/game/room-objects",
+        {"room": ref.room, "shard": ref.shard},
+    )
+    if not isinstance(response, dict):
+        raise RuntimeError("room-objects response was not a JSON object")
+    objects = response.get("objects")
+    if objects is None:
+        raise RuntimeError("room-objects response did not include objects")
+    return {
+        "objects": objects,
+        "gameTime": response.get("gameTime") or response.get("time") or response.get("tick"),
+        "info": response.get("info") if isinstance(response.get("info"), dict) else {},
+        "source": "http-room-objects",
+    }
+
+
 async def fetch_room_event(ctx: RuntimeContext, ref: RoomRef) -> dict[str, Any]:
     try:
         import websockets
@@ -688,7 +717,14 @@ def collect_snapshots(ctx: RuntimeContext, room_arg: str | None) -> tuple[list[R
             try:
                 if terrain is None:
                     terrain = fetch_terrain(ctx, ref, warnings)
-                event = asyncio.run(fetch_room_event(ctx, ref))
+                try:
+                    event = asyncio.run(fetch_room_event(ctx, ref))
+                except Exception as websocket_exc:  # noqa: BLE001 - fall back to the HTTP room snapshot endpoint
+                    error_text = short_text(redact_secrets(str(websocket_exc), [ctx.token]), 180)
+                    room_warnings.append(
+                        f"{ref.key} websocket snapshot attempt {attempt}/{ctx.collection_attempts} failed; using HTTP fallback: {error_text}"
+                    )
+                    event = fetch_room_event_http(ctx, ref)
                 objects = normalize_objects(event.get("objects"))
                 owner = infer_owner(objects, configured_owner, configured_owner_id)
                 tick = event.get("gameTime") or event.get("time") or gametime_from_overview(overview, ref.shard)
