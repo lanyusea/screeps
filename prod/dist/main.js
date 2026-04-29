@@ -3248,6 +3248,8 @@ function runWorker(creep) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptSpendingTaskForEnergySink(currentTask, selectedTask)) {
@@ -3419,6 +3421,12 @@ function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask)
   const selectedTarget = Game.getObjectById(selectedTask.targetId);
   return getTransferSinkPriority(selectedTarget) > getTransferSinkPriority(currentTarget);
 }
+function shouldPreemptTransferTaskForControllerDowngradeGuard(creep, task, selectedTask) {
+  if (task.type !== "transfer") {
+    return false;
+  }
+  return isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
 function shouldPreemptSpendingTaskForControllerPressure(creep, task, selectedTask) {
   var _a;
   if (!isEnergySpendingTask(task) || task.type === "upgrade") {
@@ -3446,6 +3454,14 @@ function shouldPreemptUpgradeTask(creep, task, selectedTask) {
 function isOwnedControllerUpgradeTask(creep, task) {
   var _a, _b;
   return (task == null ? void 0 : task.type) === "upgrade" && ((_b = (_a = creep.room) == null ? void 0 : _a.controller) == null ? void 0 : _b.my) === true && task.targetId === creep.room.controller.id;
+}
+function isDowngradeGuardUpgradeTask(creep, task) {
+  var _a;
+  if (!isOwnedControllerUpgradeTask(creep, task)) {
+    return false;
+  }
+  const ticksToDowngrade = (_a = creep.room.controller) == null ? void 0 : _a.ticksToDowngrade;
+  return typeof ticksToDowngrade === "number" && ticksToDowngrade <= CONTROLLER_DOWNGRADE_GUARD_TICKS;
 }
 function isSameTask(left, right) {
   return left.type === right.type && left.targetId === right.targetId;

@@ -448,6 +448,51 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts active spawn refill for the downgrade guard', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const creep = {
+      memory: { task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: {
+        controller,
+        find: jest.fn((type: number, options?: { filter?: (structure: StructureSpawn) => boolean }) => {
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [spawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return [];
+        })
+      },
+      transfer: jest.fn(),
+      upgradeController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn((id: string) => (id === 'controller1' ? controller : spawn))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+    expect(creep.transfer).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('preempts an RCL3 upgrade task for extension construction when downgrade is safe', () => {
     const site = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
     const controller = {
@@ -1036,6 +1081,66 @@ describe('runWorker', () => {
     expect(getObjectById).not.toHaveBeenCalled();
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
     expect(creep.build).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps active tower refill ahead of normal controller pressure upgrades', () => {
+    const tower = {
+      id: 'tower1',
+      structureType: 'tower',
+      store: {
+        getFreeCapacity: jest.fn().mockReturnValue(200),
+        getUsedCapacity: jest.fn().mockReturnValue(600)
+      }
+    } as unknown as StructureTower;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 200 }]
+      }
+    };
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureTower) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [tower];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'tower1' as Id<AnyStoreStructure> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      transfer: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'tower1' ? tower : controller))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'tower1' });
+    expect(creep.transfer).toHaveBeenCalledWith(tower, 'energy');
+    expect(creep.upgradeController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
