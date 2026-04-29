@@ -3106,6 +3106,7 @@ var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
 var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
+var nearTermSpawnExtensionRefillReserveCache = null;
 function selectWorkerTask(creep) {
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
@@ -3209,8 +3210,7 @@ function selectWorkerTask(creep) {
   }
   return null;
 }
-function estimateNearTermSpawnExtensionRefillReserve(room) {
-  const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(room);
+function estimateNearTermSpawnExtensionRefillReserveFromStructures(room, spawnExtensionEnergyStructures) {
   if (spawnExtensionEnergyStructures.length === 0) {
     return 0;
   }
@@ -3764,24 +3764,71 @@ function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) {
   if (carriedEnergy <= 0) {
     return false;
   }
-  const refillReserve = estimateNearTermSpawnExtensionRefillReserve(creep.room);
-  return refillReserve > 0 && isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, refillReserve);
+  const reserveContext = getNearTermSpawnExtensionRefillReserveContext(creep.room);
+  return reserveContext.refillReserve > 0 && isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, reserveContext);
 }
-function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, refillReserve) {
-  const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(creep.room);
-  const loadedWorkers = dedupeCreepsByStableKey(
-    getSameRoomLoadedWorkers(creep).filter((worker) => getUsedEnergy(worker) > 0)
-  ).sort(
-    (left, right) => compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures)
+function getNearTermSpawnExtensionRefillReserveContext(room) {
+  const gameTick = getGameTick();
+  const roomName = getRoomName(room);
+  if (gameTick === null || roomName === null) {
+    return createNearTermSpawnExtensionRefillReserveContext(room);
+  }
+  if (!nearTermSpawnExtensionRefillReserveCache || nearTermSpawnExtensionRefillReserveCache.tick !== gameTick) {
+    nearTermSpawnExtensionRefillReserveCache = {
+      roomsByName: /* @__PURE__ */ new Map(),
+      tick: gameTick
+    };
+  }
+  const cachedContext = nearTermSpawnExtensionRefillReserveCache.roomsByName.get(roomName);
+  if ((cachedContext == null ? void 0 : cachedContext.room) === room) {
+    return cachedContext;
+  }
+  const context = createNearTermSpawnExtensionRefillReserveContext(room);
+  nearTermSpawnExtensionRefillReserveCache.roomsByName.set(roomName, context);
+  return context;
+}
+function createNearTermSpawnExtensionRefillReserveContext(room) {
+  const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(room);
+  const refillReserve = estimateNearTermSpawnExtensionRefillReserveFromStructures(
+    room,
+    spawnExtensionEnergyStructures
   );
+  const sortedLoadedWorkers = refillReserve > 0 ? dedupeCreepsByStableKey(getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, room))).sort(
+    (left, right) => compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures)
+  ) : [];
+  return {
+    refillReserve,
+    room,
+    sortedLoadedWorkers,
+    spawnExtensionEnergyStructures
+  };
+}
+function getGameTick() {
+  var _a;
+  const time = (_a = globalThis.Game) == null ? void 0 : _a.time;
+  return typeof time === "number" && Number.isFinite(time) ? time : null;
+}
+function getRoomName(room) {
+  return typeof room.name === "string" && room.name.length > 0 ? room.name : null;
+}
+function isWorkerEnergyNeededForNearTermSpawnExtensionRefillReserve(creep, reserveContext) {
+  const loadedWorkers = getNearTermRefillReserveLoadedWorkers(creep, reserveContext);
   let reservedEnergy = 0;
   for (const worker of loadedWorkers) {
     if (isSameCreep(worker, creep)) {
-      return reservedEnergy < refillReserve;
+      return reservedEnergy < reserveContext.refillReserve;
     }
     reservedEnergy += getUsedEnergy(worker);
   }
   return true;
+}
+function getNearTermRefillReserveLoadedWorkers(creep, reserveContext) {
+  if (reserveContext.sortedLoadedWorkers.some((worker) => isSameCreep(worker, creep))) {
+    return reserveContext.sortedLoadedWorkers;
+  }
+  return dedupeCreepsByStableKey([...reserveContext.sortedLoadedWorkers, creep]).sort(
+    (left, right) => compareNearTermRefillReserveWorkers(left, right, reserveContext.spawnExtensionEnergyStructures)
+  );
 }
 function compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures) {
   return getUsedEnergy(right) - getUsedEnergy(left) || compareOptionalRanges(
@@ -4068,6 +4115,8 @@ function runWorker(creep) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptSpendingTaskForNearTermSpawnExtensionRefill(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptSpendingTaskForEnergySink(currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptSpendingTaskForControllerPressure(creep, currentTask, selectedTask)) {
@@ -4182,6 +4231,9 @@ function shouldPreemptSpendingTaskForEnergySink(task, selectedTask) {
     return false;
   }
   return (selectedTask == null ? void 0 : selectedTask.type) === "transfer" && !isSameTask(task, selectedTask);
+}
+function shouldPreemptSpendingTaskForNearTermSpawnExtensionRefill(creep, task, selectedTask) {
+  return selectedTask === null && isEnergySpendingTask(task) && shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep);
 }
 function shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, task, selectedTask) {
   var _a, _b, _c;
