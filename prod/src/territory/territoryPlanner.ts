@@ -981,7 +981,7 @@ function isClaimTargetDeferredBySameRoomReserveLane(
 
   if (
     reserveIntent.followUp === undefined &&
-    getTerritoryCreepCountForTarget(roleCounts, target.roomName, 'reserve') <= 0
+    getTerritoryCreepCountForTarget(roleCounts, reserveIntent.targetRoom, 'reserve') <= 0
   ) {
     return false;
   }

@@ -1760,7 +1760,7 @@ function isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts,
   if (!reserveIntent) {
     return false;
   }
-  if (reserveIntent.followUp === void 0 && getTerritoryCreepCountForTarget(roleCounts, target.roomName, "reserve") <= 0) {
+  if (reserveIntent.followUp === void 0 && getTerritoryCreepCountForTarget(roleCounts, reserveIntent.targetRoom, "reserve") <= 0) {
     return false;
   }
   return getVisibleTerritoryTargetState(target.roomName, "reserve", reserveIntent.controllerId, colonyOwnerUsername) !== "unavailable";
