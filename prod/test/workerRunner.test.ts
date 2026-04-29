@@ -18,8 +18,10 @@ function withRangeTo<T extends { id: string }>(object: T, rangesByTargetId: Reco
 
 describe('runWorker', () => {
   beforeEach(() => {
-    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).ERR_NOT_IN_RANGE = -9;
+    (globalThis as unknown as { ERR_NOT_IN_RANGE: number; ERR_FULL: number; ERR_NOT_ENOUGH_RESOURCES: number; ERR_INVALID_TARGET: number; RESOURCE_ENERGY: ResourceConstant; FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).ERR_NOT_IN_RANGE = -9;
     (globalThis as unknown as { ERR_FULL: number }).ERR_FULL = -8;
+    (globalThis as unknown as { ERR_NOT_ENOUGH_RESOURCES: number }).ERR_NOT_ENOUGH_RESOURCES = -6;
+    (globalThis as unknown as { ERR_INVALID_TARGET: number }).ERR_INVALID_TARGET = -7;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
@@ -240,6 +242,40 @@ describe('runWorker', () => {
 
     expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy');
     expect(creep.moveTo).toHaveBeenCalledWith(container);
+  });
+
+  it('reselects and executes when a withdraw target is drained before action', () => {
+    const drainedContainer = {
+      id: 'container-drained',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) }
+    } as unknown as StructureContainer;
+    const source = { id: 'source1', energy: 300 } as Source;
+    const withdraw = jest.fn().mockReturnValue(ERR_NOT_ENOUGH_RESOURCES);
+    const harvest = jest.fn().mockReturnValue(0);
+    const creep = {
+      memory: { task: { type: 'withdraw', targetId: 'container-drained' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: {
+        name: 'W1N1',
+        find: jest.fn((type) => (type === FIND_SOURCES ? [source] : []))
+      },
+      withdraw,
+      harvest,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : drainedContainer))
+    };
+
+    runWorker(creep);
+
+    expect(withdraw).toHaveBeenCalledWith(drainedContainer, 'energy');
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(harvest).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
   it('builds an existing build target and moves when not in range', () => {
