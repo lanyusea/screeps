@@ -2809,6 +2809,7 @@ var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var TOWER_REFILL_ENERGY_FLOOR = 500;
+var NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -2889,6 +2890,9 @@ function selectWorkerTask(creep) {
   if (criticalRepairTarget) {
     return { type: "repair", targetId: criticalRepairTarget.id };
   }
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+    return null;
+  }
   const containerConstructionSite = selectConstructionSite(creep, constructionSites, isContainerConstructionSite);
   if (containerConstructionSite) {
     return { type: "build", targetId: containerConstructionSite.id };
@@ -2917,6 +2921,29 @@ function selectWorkerTask(creep) {
   }
   return null;
 }
+function estimateNearTermSpawnExtensionRefillReserve(room) {
+  const spawnExtensionEnergyStructures = findSpawnExtensionEnergyStructures(room);
+  if (spawnExtensionEnergyStructures.length === 0) {
+    return 0;
+  }
+  const roomRefillShortfall = estimateRoomEnergyRefillShortfall(room);
+  const immediateRefillCapacity = spawnExtensionEnergyStructures.reduce(
+    (total, structure) => total + getFreeStoredEnergyCapacity(structure),
+    0
+  );
+  const immediateRefillReserve = roomRefillShortfall === null ? immediateRefillCapacity : Math.min(immediateRefillCapacity, roomRefillShortfall);
+  return Math.max(
+    immediateRefillReserve,
+    estimateNearTermSpawnCompletionRefillReserve(room, spawnExtensionEnergyStructures)
+  );
+}
+function estimateNearTermSpawnCompletionRefillReserve(room, spawnExtensionEnergyStructures) {
+  var _a;
+  if (!spawnExtensionEnergyStructures.some(isNearTermSpawningSpawn)) {
+    return 0;
+  }
+  return Math.max(0, (_a = getRoomEnergyCapacityAvailable(room)) != null ? _a : 0);
+}
 function isTerritoryControlTask(task) {
   return (task == null ? void 0 : task.type) === "claim" || (task == null ? void 0 : task.type) === "reserve";
 }
@@ -2939,8 +2966,25 @@ function findFillableEnergySinks(creep) {
   });
   return energySinks;
 }
+function findSpawnExtensionEnergyStructures(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  return room.find(FIND_MY_STRUCTURES).filter((structure) => isSpawnExtensionEnergyStructure(structure));
+}
+function isSpawnExtensionEnergyStructure(structure) {
+  return (matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType2(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure;
+}
 function isSpawnEnergySink(structure) {
   return matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn");
+}
+function isNearTermSpawningSpawn(structure) {
+  var _a;
+  if (!matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn")) {
+    return false;
+  }
+  const remainingTime = (_a = structure.spawning) == null ? void 0 : _a.remainingTime;
+  return typeof remainingTime === "number" && remainingTime > 0 && remainingTime <= NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS;
 }
 function isSpawnOrExtensionEnergySink(structure) {
   return isSpawnEnergySink(structure) || isExtensionEnergySink(structure);
@@ -3424,6 +3468,9 @@ function shouldGuardControllerDowngrade(controller) {
 function shouldRushRcl1Controller(controller) {
   return controller.my === true && controller.level === 1;
 }
+function shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) {
+  return getUsedEnergy(creep) > 0 && estimateNearTermSpawnExtensionRefillReserve(creep.room) > 0;
+}
 function shouldApplyControllerPressureLane(creep, controller) {
   if (controller.my !== true || controller.level < 2) {
     return false;
@@ -3477,6 +3524,14 @@ function getRoomEnergyAvailable(room) {
 function getRoomEnergyCapacityAvailable(room) {
   const energyCapacityAvailable = room.energyCapacityAvailable;
   return typeof energyCapacityAvailable === "number" && Number.isFinite(energyCapacityAvailable) ? energyCapacityAvailable : null;
+}
+function estimateRoomEnergyRefillShortfall(room) {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (energyAvailable === null || energyCapacityAvailable === null) {
+    return null;
+  }
+  return Math.max(0, Math.ceil(Math.max(0, energyCapacityAvailable) - Math.max(0, energyAvailable)));
 }
 function getCreepColonyName(creep) {
   var _a;
