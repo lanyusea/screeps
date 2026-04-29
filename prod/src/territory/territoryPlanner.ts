@@ -167,6 +167,24 @@ export function getTerritoryFollowUpPreparationWorkerDemand(
   return demand?.workerCount ?? 0;
 }
 
+export function hasActiveTerritoryFollowUpPreparationDemand(
+  colony: string | null | undefined,
+  gameTime = getGameTime()
+): boolean {
+  if (!isNonEmptyString(colony)) {
+    return false;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return false;
+  }
+
+  return normalizeTerritoryFollowUpDemands(territoryMemory.demands).some(
+    (demand) => demand.updatedAt === gameTime && demand.colony === colony && demand.workerCount > 0
+  );
+}
+
 export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemory {
   return {
     role: plan.action === 'scout' ? TERRITORY_SCOUT_ROLE : TERRITORY_CLAIMER_ROLE,

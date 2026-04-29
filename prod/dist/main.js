@@ -1142,6 +1142,18 @@ function getTerritoryFollowUpPreparationWorkerDemand(plan, gameTime = getGameTim
   const demand = getCurrentTerritoryFollowUpDemand(plan, gameTime);
   return (_a = demand == null ? void 0 : demand.workerCount) != null ? _a : 0;
 }
+function hasActiveTerritoryFollowUpPreparationDemand(colony, gameTime = getGameTime2()) {
+  if (!isNonEmptyString2(colony)) {
+    return false;
+  }
+  const territoryMemory = getTerritoryMemoryRecord2();
+  if (!territoryMemory) {
+    return false;
+  }
+  return normalizeTerritoryFollowUpDemands(territoryMemory.demands).some(
+    (demand) => demand.updatedAt === gameTime && demand.colony === colony && demand.workerCount > 0
+  );
+}
 function buildTerritoryCreepMemory(plan) {
   return {
     role: plan.action === "scout" ? TERRITORY_SCOUT_ROLE : TERRITORY_CLAIMER_ROLE,
@@ -2645,6 +2657,9 @@ function selectWorkerTask(creep) {
     return { type: "upgrade", targetId: controller.id };
   }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  if (spawnOrExtensionEnergySink && shouldReserveRefillForTerritoryFollowUp(creep)) {
+    return { type: "transfer", targetId: spawnOrExtensionEnergySink.id };
+  }
   if (spawnOrExtensionEnergySink) {
     return { type: "transfer", targetId: spawnOrExtensionEnergySink.id };
   }
@@ -3214,11 +3229,17 @@ function hasActiveTerritoryPressure(creep) {
   if (!colonyName) {
     return false;
   }
+  if (hasActiveTerritoryFollowUpPreparationDemand(colonyName)) {
+    return true;
+  }
   const territoryMemory = (_a = globalThis.Memory) == null ? void 0 : _a.territory;
   if (!territoryMemory || !Array.isArray(territoryMemory.intents)) {
     return false;
   }
   return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
+}
+function shouldReserveRefillForTerritoryFollowUp(creep) {
+  return hasActiveTerritoryFollowUpPreparationDemand(getCreepColonyName(creep));
 }
 function getCreepColonyName(creep) {
   var _a;

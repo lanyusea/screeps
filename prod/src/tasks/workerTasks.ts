@@ -1,4 +1,5 @@
 import {
+  hasActiveTerritoryFollowUpPreparationDemand,
   selectUrgentVisibleReservationRenewalTask,
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
@@ -83,6 +84,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  if (spawnOrExtensionEnergySink && shouldReserveRefillForTerritoryFollowUp(creep)) {
+    return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
+  }
+
   if (spawnOrExtensionEnergySink) {
     return { type: 'transfer', targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure> };
   }
@@ -977,12 +982,20 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
     return false;
   }
 
+  if (hasActiveTerritoryFollowUpPreparationDemand(colonyName)) {
+    return true;
+  }
+
   const territoryMemory = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory;
   if (!territoryMemory || !Array.isArray(territoryMemory.intents)) {
     return false;
   }
 
   return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
+}
+
+function shouldReserveRefillForTerritoryFollowUp(creep: Creep): boolean {
+  return hasActiveTerritoryFollowUpPreparationDemand(getCreepColonyName(creep));
 }
 
 function getCreepColonyName(creep: Creep): string | null {
