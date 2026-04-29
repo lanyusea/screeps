@@ -1423,6 +1423,7 @@ def render_room_svg(snapshot: RoomSnapshot, render_mode: str, alert_reasons: lis
     hostiles = detect_hostile_creeps(objects, snapshot.owner)
     sources = [obj for obj in objects.values() if isinstance(obj, dict) and obj.get("type") == "source"]
     structures = structure_objects(objects)
+    construction_sites = [obj for obj in objects.values() if isinstance(obj, dict) and obj.get("type") == "constructionSite"]
     spawn = next((obj for obj in structures if obj.get("type") == "spawn"), None)
     controller = next((obj for obj in structures if obj.get("type") == "controller"), None)
     mineral = next((obj for obj in objects.values() if isinstance(obj, dict) and obj.get("type") == "mineral"), None)
@@ -1475,6 +1476,13 @@ def render_room_svg(snapshot: RoomSnapshot, render_mode: str, alert_reasons: lis
         add(
             f'<rect x="{x-half:.2f}" y="{y-half:.2f}" width="{size:.2f}" height="{size:.2f}" '
             f'rx="1.4" fill="{fill}" fill-opacity="{opacity}" stroke="{stroke}" stroke-width=".9"/>'
+        )
+
+    def site_marker(obj: dict[str, Any]) -> None:
+        x, y = center(obj)
+        add(
+            f'<rect x="{x-4.8:.2f}" y="{y-4.8:.2f}" width="9.6" height="9.6" rx="1.4" '
+            'fill="none" stroke="#cf4327" stroke-width="1.1" stroke-dasharray="2 2"/>'
         )
 
     add(f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">')
@@ -1532,6 +1540,8 @@ def render_room_svg(snapshot: RoomSnapshot, render_mode: str, alert_reasons: lis
             square(obj, "#9a8165", 9.5, stroke="#111", opacity=".98")
         elif object_type != "spawn":
             square(obj, "#b9a98f", 6.4, stroke="#111", opacity=".9")
+    for site in construction_sites:
+        site_marker(site)
 
     for index, source in enumerate(sources, 1):
         dot(source, "#d3a400", 6.5, label=f"Source {index}", dx=16, dy=-12 if index == 1 else -18)
@@ -1631,23 +1641,51 @@ def render_room_svg(snapshot: RoomSnapshot, render_mode: str, alert_reasons: lis
             text(side_x, reason_y, short_text(reason.get("message", reason.get("kind")), 58), "dense", fill=accent)
             reason_y += 21
 
-    legend_y = card_y + card_h - 44
-    legend_x = 96
-    legend = [
-        ("#e4ded2", "plain"),
-        ("#b7b48e", "swamp"),
-        ("#353632", "wall"),
-        ("#2f8c5a", "spawn"),
-        ("#d3a400", "source"),
-        ("#fffaf0", "creep"),
-        ("#cf4327", "hostile"),
+    def legend_sample(x: float, y: float, shape: str, fill: str, label: str, stroke: str = "#111", opacity: str = "1") -> None:
+        if shape == "circle":
+            add(f'<circle cx="{x+7:.1f}" cy="{y-5:.1f}" r="6.5" fill="{fill}" fill-opacity="{opacity}" stroke="{stroke}" stroke-width="1.2"/>')
+        elif shape == "site":
+            add(f'<rect x="{x:.1f}" y="{y-12:.1f}" width="14" height="14" rx="1.8" fill="none" stroke="{stroke}" stroke-width="1.1" stroke-dasharray="2 2"/>')
+        else:
+            add(f'<rect x="{x:.1f}" y="{y-12:.1f}" width="14" height="14" rx="1.8" fill="{fill}" fill-opacity="{opacity}" stroke="{stroke}" stroke-width="1"/>')
+        text(x + 20, y - 1, label, "legend")
+
+    legend_rows = [
+        [
+            ("square", "#e4ded2", "plain", "#111", "1"),
+            ("square", "#b7b48e", "swamp", "#111", "1"),
+            ("square", "#353632", "terrain wall", "#111", "1"),
+            ("circle", "#2f8c5a", "spawn", "#111", "1"),
+            ("circle", "#d3a400", "source", "#111", "1"),
+            ("circle", "#2f6e91", "controller", "#111", "1"),
+            ("circle", "#8060a8", "mineral", "#111", "1"),
+            ("circle", "#fffaf0", "creep", "#111", "1"),
+            ("circle", "#cf4327", "hostile", "#cf4327", "1"),
+        ],
+        [
+            ("square", "#a69b8d", "road", "#8c8174", ".72"),
+            ("square", "#71956e", "extension", "#111", ".95"),
+            ("square", "#6f6379", "tower", "#111", ".98"),
+            ("square", "#84ad83", "rampart", "#496f4d", ".45"),
+            ("square", "#292a27", "built wall", "#111", ".88"),
+            ("square", "#9a8165", "utility", "#111", ".98"),
+            ("square", "#b9a98f", "other struct", "#111", ".9"),
+            ("site", "none", "site", "#cf4327", "1"),
+            ("circle", "none", "alert ring", "#cf4327", "0"),
+        ],
     ]
-    for color, label in legend:
-        add(f'<rect x="{legend_x}" y="{legend_y-11}" width="18" height="18" fill="{color}" stroke="#111" stroke-opacity=".45"/>')
-        text(legend_x + 26, legend_y + 2, label, "legend")
-        legend_x += 110
-    footer = "alert state uses local baseline + debounce" if alert_emphasis else "designed for quiet summaries; alert state swaps in red emphasis"
-    text(card_x + card_w - 72, legend_y + 2, footer, "legend", text_anchor="end")
+    legend_y = card_y + card_h - 58
+    for row_index, row in enumerate(legend_rows):
+        item_width = 135 if row_index == 0 else 142
+        legend_x = 96
+        y = legend_y + row_index * 28
+        for shape, fill, label, stroke, opacity in row:
+            if label == "alert ring":
+                add(f'<circle cx="{legend_x+7:.1f}" cy="{y-5:.1f}" r="8.0" fill="none" stroke="{stroke}" stroke-width="1.4"/>')
+                text(legend_x + 20, y - 1, label, "legend")
+            else:
+                legend_sample(legend_x, y, shape, fill, label, stroke, opacity)
+            legend_x += item_width
 
     add("</svg>")
     return "\n".join(svg)
@@ -2079,6 +2117,47 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertEqual(emitted, [])
             self.assertEqual(len(suppressed), 1)
 
+    class RenderTests(unittest.TestCase):
+        def test_room_svg_legend_covers_rendered_marker_families(self) -> None:
+            snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects(
+                    {
+                        "spawn1": {"type": "spawn", "x": 25, "y": 25, "hits": 5000, "hitsMax": 5000},
+                        "ctrl": {"type": "controller", "x": 5, "y": 36, "level": 3},
+                        "mineral": {"type": "mineral", "x": 30, "y": 30},
+                        "road": {"type": "road", "x": 24, "y": 25, "hits": 500, "hitsMax": 5000},
+                        "extension": {"type": "extension", "x": 26, "y": 25, "hits": 1000, "hitsMax": 1000},
+                        "tower": {"type": "tower", "x": 27, "y": 25, "hits": 3000, "hitsMax": 3000},
+                        "rampart": {"type": "rampart", "x": 28, "y": 25, "hits": 10000, "hitsMax": 10000},
+                        "wall": {"type": "constructedWall", "x": 29, "y": 25, "hits": 10000, "hitsMax": 10000},
+                        "storage": {"type": "storage", "x": 30, "y": 25, "hits": 10000, "hitsMax": 10000},
+                        "site": {"type": "constructionSite", "x": 31, "y": 25, "structureType": "extension"},
+                    }
+                ),
+                tick=1,
+                owner="owner",
+                info={},
+            )
+            svg = render_room_svg(snapshot, "summary", [])
+            for label in [
+                "controller",
+                "mineral",
+                "creep",
+                "road",
+                "extension",
+                "tower",
+                "rampart",
+                "built wall",
+                "utility",
+                "other struct",
+                "site",
+                "alert ring",
+            ]:
+                self.assertIn(label, svg)
+            self.assertIn('stroke-dasharray="2 2"', svg)
+
     class TacticalResponseTests(unittest.TestCase):
         def test_tactical_response_keeps_no_alert_silent(self) -> None:
             report = build_tactical_response_report(
@@ -2195,7 +2274,7 @@ def command_self_test(_args: argparse.Namespace) -> int:
 
     suite = unittest.TestSuite()
     loader = unittest.defaultTestLoader
-    for case in (TerrainTests, AlertTests, TacticalResponseTests, SafeJsonTests):
+    for case in (TerrainTests, AlertTests, RenderTests, TacticalResponseTests, SafeJsonTests):
         suite.addTests(loader.loadTestsFromTestCase(case))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
