@@ -20,7 +20,13 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/main.ts
 var main_exports = {};
 __export(main_exports, {
-  loop: () => loop
+  DEFAULT_STRATEGY_REGISTRY: () => DEFAULT_STRATEGY_REGISTRY,
+  DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG: () => DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG,
+  STRATEGY_REGISTRY_SCHEMA_VERSION: () => STRATEGY_REGISTRY_SCHEMA_VERSION,
+  evaluateStrategyShadowReplay: () => evaluateStrategyShadowReplay,
+  loop: () => loop,
+  validateStrategyRegistry: () => validateStrategyRegistry,
+  validateStrategyRegistryEntry: () => validateStrategyRegistryEntry
 });
 module.exports = __toCommonJS(main_exports);
 
@@ -5364,6 +5370,1106 @@ var Kernel = class {
   }
 };
 
+// src/strategy/strategyRegistry.ts
+var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
+var ISSUE_265_URL = "https://github.com/lanyusea/screeps/issues/265";
+var RL_RESEARCH_PATH = "docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md";
+var DEFAULT_STRATEGY_REGISTRY = [
+  {
+    id: "construction-priority.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "construction-priority",
+    title: "Current construction priority scoring shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary"],
+      shards: ["shardX"],
+      rooms: ["E48S28"],
+      minRcl: 1,
+      maxRcl: 4,
+      notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 6,
+      resourceSignalWeight: 4,
+      killSignalWeight: 6,
+      riskPenalty: 4
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "RL/self-evolving strategy paper", source: "docs", path: RL_RESEARCH_PATH }
+    ],
+    rollback: passiveRollback("construction-priority.incumbent.v1")
+  },
+  {
+    id: "construction-priority.territory-shadow.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "construction-priority",
+    title: "Territory-first construction priority shadow candidate",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary"],
+      shards: ["shardX"],
+      rooms: ["E48S28"],
+      minRcl: 1,
+      maxRcl: 4,
+      notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the already-emitted incumbent score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for territory-first expected KPI signals.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for resource-scaling expected KPI signals.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for enemy-kill or defense-posture signals.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty per visible risk or blocking precondition.", 0, 30, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 22,
+      resourceSignalWeight: 3,
+      killSignalWeight: 5,
+      riskPenalty: 4
+    },
+    rolloutStatus: "shadow",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
+    ],
+    rollback: passiveRollback("construction-priority.incumbent.v1")
+  },
+  {
+    id: "expansion-remote.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "expansion-remote-candidate",
+    title: "Current expansion and remote candidate scoring shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      shards: ["shardX"],
+      rooms: ["E48S28"],
+      minRcl: 1,
+      notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
+      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 8,
+      resourceSignalWeight: 5,
+      killSignalWeight: 2,
+      riskPenalty: 10
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Gameplay evolution roadmap", source: "docs", path: "docs/ops/gameplay-evolution-roadmap.md" }
+    ],
+    rollback: passiveRollback("expansion-remote.incumbent.v1")
+  },
+  {
+    id: "expansion-remote.territory-shadow.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "expansion-remote-candidate",
+    title: "Territory-first expansion and remote candidate shadow model",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      shards: ["shardX"],
+      rooms: ["E48S28"],
+      minRcl: 1,
+      notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to the emitted occupation score.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for occupy/reserve/scout territory ordering.", 0, 40, 1),
+      numberKnob("resourceSignalWeight", "Weight for visible source and support evidence.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile suppression opportunity.", 0, 30, 1),
+      numberKnob("riskPenalty", "Penalty for hostile, route, or evidence risk.", 0, 40, 1)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 26,
+      resourceSignalWeight: 4,
+      killSignalWeight: 2,
+      riskPenalty: 10
+    },
+    rolloutStatus: "shadow",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Fixture replay coverage", source: "test", path: "prod/test/strategyShadowEvaluator.test.ts" }
+    ],
+    rollback: passiveRollback("expansion-remote.incumbent.v1")
+  },
+  {
+    id: "defense-repair.incumbent.v1",
+    schemaVersion: STRATEGY_REGISTRY_SCHEMA_VERSION,
+    version: "1.0.0",
+    family: "defense-posture-repair-threshold",
+    title: "Current defense posture and repair threshold shadow baseline",
+    owner: { issue: 265 },
+    supportedContext: {
+      artifactTypes: ["runtime-summary", "room-snapshot"],
+      shards: ["shardX"],
+      rooms: ["E48S28"],
+      minRcl: 1,
+      notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
+    },
+    knobBounds: [
+      numberKnob("baseScoreWeight", "Weight applied to observed hostile and damage pressure.", 0, 3, 0.1),
+      numberKnob("territorySignalWeight", "Weight for controller survival and held-room protection.", 0, 30, 1),
+      numberKnob("resourceSignalWeight", "Weight for storage and productive-structure protection.", 0, 30, 1),
+      numberKnob("killSignalWeight", "Weight for hostile presence and tower/rampart readiness.", 0, 40, 1),
+      numberKnob("riskPenalty", "Penalty for unavailable or insufficient observations.", 0, 30, 1),
+      numberKnob("repairCriticalHitsRatio", "Critical repair hit ratio threshold.", 0.01, 1, 0.01)
+    ],
+    defaultValues: {
+      baseScoreWeight: 1,
+      territorySignalWeight: 12,
+      resourceSignalWeight: 6,
+      killSignalWeight: 18,
+      riskPenalty: 4,
+      repairCriticalHitsRatio: 0.5
+    },
+    rolloutStatus: "incumbent",
+    evidenceLinks: [
+      { label: "Issue #265", source: "issue", url: ISSUE_265_URL },
+      { label: "Runtime room monitor runbook", source: "docs", path: "docs/ops/runtime-room-monitor.md" }
+    ],
+    rollback: passiveRollback("defense-repair.incumbent.v1")
+  }
+];
+function validateStrategyRegistryEntry(entry) {
+  const issues = [];
+  if (entry.schemaVersion !== STRATEGY_REGISTRY_SCHEMA_VERSION) {
+    issues.push(`unsupported schemaVersion ${entry.schemaVersion}`);
+  }
+  if (!entry.id) {
+    issues.push("missing strategy id");
+  }
+  if (!entry.version) {
+    issues.push("missing strategy version");
+  }
+  if (!entry.owner.issue || entry.owner.issue <= 0) {
+    issues.push("missing owning issue");
+  }
+  if (entry.supportedContext.artifactTypes.length === 0) {
+    issues.push("supported context must name at least one artifact type");
+  }
+  if (entry.knobBounds.length === 0) {
+    issues.push("strategy must declare bounded knobs");
+  }
+  const declaredKnobs = /* @__PURE__ */ new Set();
+  for (const knob of entry.knobBounds) {
+    if (declaredKnobs.has(knob.name)) {
+      issues.push(`duplicate knob ${knob.name}`);
+    }
+    declaredKnobs.add(knob.name);
+    if (!(knob.name in entry.defaultValues)) {
+      issues.push(`missing default for knob ${knob.name}`);
+      continue;
+    }
+    const defaultValue = entry.defaultValues[knob.name];
+    if (!isKnobDefaultWithinBounds(defaultValue, knob.bounds)) {
+      issues.push(`default for knob ${knob.name} is outside declared bounds`);
+    }
+  }
+  for (const defaultName of Object.keys(entry.defaultValues)) {
+    if (!declaredKnobs.has(defaultName)) {
+      issues.push(`default declared without knob bounds: ${defaultName}`);
+    }
+  }
+  if (entry.evidenceLinks.length === 0) {
+    issues.push("missing evidence links");
+  }
+  if (!entry.rollback.disableFlag) {
+    issues.push("missing rollback disable flag");
+  }
+  if (entry.rollback.stopConditions.length === 0) {
+    issues.push("missing rollback stop conditions");
+  }
+  return { valid: issues.length === 0, issues };
+}
+function validateStrategyRegistry(entries) {
+  const issues = [];
+  const ids = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    if (ids.has(entry.id)) {
+      issues.push(`duplicate strategy id ${entry.id}`);
+    }
+    ids.add(entry.id);
+    const entryResult = validateStrategyRegistryEntry(entry);
+    issues.push(...entryResult.issues.map((issue) => `${entry.id}: ${issue}`));
+  }
+  return { valid: issues.length === 0, issues };
+}
+function getStrategyNumberDefault(entry, knobName, fallback = 0) {
+  const value = entry.defaultValues[knobName];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function numberKnob(name, description, min, max, step) {
+  return {
+    name,
+    description,
+    bounds: {
+      kind: "number",
+      min,
+      max,
+      ...step !== void 0 ? { step } : {}
+    }
+  };
+}
+function passiveRollback(rollbackToStrategyId) {
+  return {
+    disabledByDefault: true,
+    disableFlag: "strategyShadowEvaluator.enabled=false",
+    rollbackToStrategyId,
+    stopConditions: [
+      "shadow report is noisy or expensive",
+      "artifact parsing cannot be proven deterministic",
+      "any candidate output is accidentally wired into live Screeps actions"
+    ],
+    notes: "The first slice is pure offline/shadow evaluation; disabling the evaluator leaves live behavior unchanged."
+  };
+}
+function isKnobDefaultWithinBounds(value, bounds) {
+  switch (bounds.kind) {
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) && value >= bounds.min && value <= bounds.max;
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max;
+    case "boolean":
+      return typeof value === "boolean";
+    case "enum":
+      return typeof value === "string" && bounds.values.includes(value);
+    default:
+      return false;
+  }
+}
+
+// src/strategy/kpiEvaluator.ts
+var STRATEGY_RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
+var DEFAULT_STRATEGY_RELIABILITY_THRESHOLDS = {
+  minArtifactCount: 1,
+  maxLoopExceptionCount: 0,
+  maxTelemetrySilenceTicks: 0,
+  controllerDowngradeRiskTicks: 5e3,
+  maxControllerDowngradeRiskRooms: 0,
+  maxSpawnCollapseRooms: 0
+};
+function parseStrategyEvaluationArtifacts(input) {
+  if (typeof input !== "string") {
+    const rawArtifacts = Array.isArray(input) ? input : [input];
+    return rawArtifacts.flatMap((rawArtifact) => {
+      const artifact = normalizeStrategyEvaluationArtifact(rawArtifact);
+      return artifact ? [artifact] : [];
+    });
+  }
+  const trimmedInput = input.trim();
+  if (trimmedInput.length === 0) {
+    return [];
+  }
+  const wholeJson = parseJson(trimmedInput);
+  if (wholeJson !== null) {
+    return parseStrategyEvaluationArtifacts(wholeJson);
+  }
+  return trimmedInput.split(/\r?\n/).flatMap((line) => {
+    const parsedLine = parseArtifactLine(line);
+    const artifact = parsedLine === null ? null : normalizeStrategyEvaluationArtifact(parsedLine);
+    return artifact ? [artifact] : [];
+  });
+}
+function normalizeStrategyEvaluationArtifact(rawArtifact) {
+  if (!isRecord5(rawArtifact)) {
+    return null;
+  }
+  if (rawArtifact.type === "runtime-summary" || Array.isArray(rawArtifact.rooms)) {
+    return normalizeRuntimeSummaryArtifact(rawArtifact);
+  }
+  if (rawArtifact.artifactType === "runtime-summary") {
+    return normalizeRuntimeSummaryArtifact(rawArtifact);
+  }
+  if (rawArtifact.artifactType === "room-snapshot" || Array.isArray(rawArtifact.objects) || isRecord5(rawArtifact.objects)) {
+    return normalizeRoomSnapshotArtifact(rawArtifact);
+  }
+  return null;
+}
+function reduceStrategyKpis(artifacts, thresholds = DEFAULT_STRATEGY_RELIABILITY_THRESHOLDS) {
+  const reliabilityMetrics = buildInitialReliabilityMetrics(artifacts);
+  const territoryComponents = {
+    ownedRooms: 0,
+    reservedOrRemoteRooms: 0,
+    roomGain: 0,
+    controllerLevels: 0,
+    controllerProgress: 0,
+    territoryRecommendation: 0
+  };
+  const resourceComponents = {
+    storedEnergy: 0,
+    workerCarriedEnergy: 0,
+    droppedEnergy: 0,
+    harvestedEnergy: 0,
+    transferredEnergy: 0,
+    visibleSources: 0
+  };
+  const killComponents = {
+    creepKills: 0,
+    objectKills: 0,
+    attackDamage: 0,
+    hostilePressureObserved: 0
+  };
+  let firstOwnedRoomCount;
+  let lastOwnedRoomCount = 0;
+  for (const artifact of artifacts) {
+    if (artifact.artifactType === "runtime-summary") {
+      const ownedRoomCount = reduceRuntimeSummaryArtifact(
+        artifact,
+        reliabilityMetrics,
+        territoryComponents,
+        resourceComponents,
+        killComponents,
+        thresholds
+      );
+      if (firstOwnedRoomCount === void 0) {
+        firstOwnedRoomCount = ownedRoomCount;
+      }
+      lastOwnedRoomCount = ownedRoomCount;
+    } else {
+      const ownedRoomCount = reduceRoomSnapshotArtifact(
+        artifact,
+        territoryComponents,
+        resourceComponents,
+        killComponents
+      );
+      if (firstOwnedRoomCount === void 0) {
+        firstOwnedRoomCount = ownedRoomCount;
+      }
+      lastOwnedRoomCount = ownedRoomCount;
+    }
+  }
+  territoryComponents.roomGain = lastOwnedRoomCount - (firstOwnedRoomCount != null ? firstOwnedRoomCount : lastOwnedRoomCount);
+  return {
+    reliability: evaluateReliabilityFloor(reliabilityMetrics, thresholds),
+    territory: {
+      score: territoryComponents.ownedRooms * 1e4 + territoryComponents.reservedOrRemoteRooms * 3e3 + territoryComponents.roomGain * 5e3 + territoryComponents.controllerLevels * 800 + territoryComponents.controllerProgress / 100 + territoryComponents.territoryRecommendation,
+      components: territoryComponents
+    },
+    resources: {
+      score: resourceComponents.storedEnergy + resourceComponents.workerCarriedEnergy + resourceComponents.droppedEnergy / 2 + resourceComponents.harvestedEnergy * 3 + resourceComponents.transferredEnergy + resourceComponents.visibleSources * 500,
+      components: resourceComponents
+    },
+    kills: {
+      score: killComponents.creepKills * 1e3 + killComponents.objectKills * 250 + killComponents.attackDamage + killComponents.hostilePressureObserved * 25,
+      components: killComponents
+    }
+  };
+}
+function normalizeRuntimeSummaryArtifact(rawArtifact) {
+  const rooms = Array.isArray(rawArtifact.rooms) ? rawArtifact.rooms.flatMap((rawRoom) => {
+    const room = normalizeRuntimeSummaryRoom(rawRoom);
+    return room ? [room] : [];
+  }) : [];
+  return {
+    artifactType: "runtime-summary",
+    ...isFiniteNumber3(rawArtifact.tick) ? { tick: rawArtifact.tick } : {},
+    rooms,
+    ...isRecord5(rawArtifact.cpu) ? { cpu: normalizeCpuSummary(rawArtifact.cpu) } : {},
+    ...isRecord5(rawArtifact.reliability) ? { reliability: normalizeReliabilitySignals(rawArtifact.reliability) } : {}
+  };
+}
+function normalizeRuntimeSummaryRoom(rawRoom) {
+  if (!isRecord5(rawRoom) || !isNonEmptyString3(rawRoom.roomName)) {
+    return null;
+  }
+  return {
+    roomName: rawRoom.roomName,
+    ...isFiniteNumber3(rawRoom.energyAvailable) ? { energyAvailable: rawRoom.energyAvailable } : {},
+    ...isFiniteNumber3(rawRoom.energyCapacity) ? { energyCapacity: rawRoom.energyCapacity } : {},
+    ...isFiniteNumber3(rawRoom.workerCount) ? { workerCount: rawRoom.workerCount } : {},
+    ...Array.isArray(rawRoom.spawnStatus) ? { spawnStatus: rawRoom.spawnStatus.map(normalizeSpawnStatus) } : {},
+    ...isRecord5(rawRoom.controller) ? { controller: normalizeControllerSummary(rawRoom.controller) } : {},
+    ...isRecord5(rawRoom.resources) ? { resources: normalizeResourceSummary(rawRoom.resources) } : {},
+    ...isRecord5(rawRoom.combat) ? { combat: normalizeCombatSummary(rawRoom.combat) } : {},
+    ...isRecord5(rawRoom.constructionPriority) ? { constructionPriority: normalizeConstructionPrioritySummary(rawRoom.constructionPriority) } : {},
+    ...isRecord5(rawRoom.territoryRecommendation) ? { territoryRecommendation: normalizeTerritoryRecommendationSummary(rawRoom.territoryRecommendation) } : {}
+  };
+}
+function normalizeRoomSnapshotArtifact(rawArtifact) {
+  if (!Array.isArray(rawArtifact.objects) && !isRecord5(rawArtifact.objects)) {
+    return null;
+  }
+  const objects = Array.isArray(rawArtifact.objects) ? rawArtifact.objects.flatMap((rawObject) => isRecord5(rawObject) ? [rawObject] : []) : Object.entries(rawArtifact.objects).flatMap(([id, rawObject]) => {
+    if (!isRecord5(rawObject)) {
+      return [];
+    }
+    return [{ ...rawObject, id }];
+  });
+  return {
+    artifactType: "room-snapshot",
+    ...isFiniteNumber3(rawArtifact.tick) ? { tick: rawArtifact.tick } : {},
+    ...isNonEmptyString3(rawArtifact.roomName) ? { roomName: rawArtifact.roomName } : {},
+    ...isNonEmptyString3(rawArtifact.room) ? { roomName: rawArtifact.room } : {},
+    ...isNonEmptyString3(rawArtifact.owner) ? { owner: rawArtifact.owner } : {},
+    objects
+  };
+}
+function parseArtifactLine(line) {
+  const trimmedLine = line.trim();
+  if (trimmedLine.length === 0) {
+    return null;
+  }
+  const jsonText = trimmedLine.startsWith(STRATEGY_RUNTIME_SUMMARY_PREFIX) ? trimmedLine.slice(STRATEGY_RUNTIME_SUMMARY_PREFIX.length) : trimmedLine;
+  return parseJson(jsonText);
+}
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+function normalizeSpawnStatus(rawStatus) {
+  if (!isRecord5(rawStatus)) {
+    return {};
+  }
+  return {
+    ...isNonEmptyString3(rawStatus.name) ? { name: rawStatus.name } : {},
+    ...isNonEmptyString3(rawStatus.status) ? { status: rawStatus.status } : {},
+    ...isNonEmptyString3(rawStatus.creepName) ? { creepName: rawStatus.creepName } : {},
+    ...isFiniteNumber3(rawStatus.remainingTime) ? { remainingTime: rawStatus.remainingTime } : {}
+  };
+}
+function normalizeControllerSummary(rawController) {
+  return {
+    level: isFiniteNumber3(rawController.level) ? rawController.level : 0,
+    ...isFiniteNumber3(rawController.progress) ? { progress: rawController.progress } : {},
+    ...isFiniteNumber3(rawController.progressTotal) ? { progressTotal: rawController.progressTotal } : {},
+    ...isFiniteNumber3(rawController.ticksToDowngrade) ? { ticksToDowngrade: rawController.ticksToDowngrade } : {}
+  };
+}
+function normalizeResourceSummary(rawResources) {
+  return {
+    ...isFiniteNumber3(rawResources.storedEnergy) ? { storedEnergy: rawResources.storedEnergy } : {},
+    ...isFiniteNumber3(rawResources.workerCarriedEnergy) ? { workerCarriedEnergy: rawResources.workerCarriedEnergy } : {},
+    ...isFiniteNumber3(rawResources.droppedEnergy) ? { droppedEnergy: rawResources.droppedEnergy } : {},
+    ...isFiniteNumber3(rawResources.sourceCount) ? { sourceCount: rawResources.sourceCount } : {},
+    ...isRecord5(rawResources.events) ? { events: normalizeResourceEvents(rawResources.events) } : {}
+  };
+}
+function normalizeResourceEvents(rawEvents) {
+  return {
+    ...isFiniteNumber3(rawEvents.harvestedEnergy) ? { harvestedEnergy: rawEvents.harvestedEnergy } : {},
+    ...isFiniteNumber3(rawEvents.transferredEnergy) ? { transferredEnergy: rawEvents.transferredEnergy } : {}
+  };
+}
+function normalizeCombatSummary(rawCombat) {
+  return {
+    ...isFiniteNumber3(rawCombat.hostileCreepCount) ? { hostileCreepCount: rawCombat.hostileCreepCount } : {},
+    ...isFiniteNumber3(rawCombat.hostileStructureCount) ? { hostileStructureCount: rawCombat.hostileStructureCount } : {},
+    ...isRecord5(rawCombat.events) ? { events: normalizeCombatEvents(rawCombat.events) } : {}
+  };
+}
+function normalizeCombatEvents(rawEvents) {
+  return {
+    ...isFiniteNumber3(rawEvents.attackCount) ? { attackCount: rawEvents.attackCount } : {},
+    ...isFiniteNumber3(rawEvents.attackDamage) ? { attackDamage: rawEvents.attackDamage } : {},
+    ...isFiniteNumber3(rawEvents.objectDestroyedCount) ? { objectDestroyedCount: rawEvents.objectDestroyedCount } : {},
+    ...isFiniteNumber3(rawEvents.creepDestroyedCount) ? { creepDestroyedCount: rawEvents.creepDestroyedCount } : {}
+  };
+}
+function normalizeConstructionPrioritySummary(rawSummary) {
+  var _a;
+  return {
+    ...Array.isArray(rawSummary.candidates) ? { candidates: rawSummary.candidates.flatMap(normalizeConstructionCandidate) } : {},
+    ...rawSummary.nextPrimary === null ? { nextPrimary: null } : isRecord5(rawSummary.nextPrimary) ? { nextPrimary: (_a = normalizeConstructionCandidate(rawSummary.nextPrimary)[0]) != null ? _a : null } : {}
+  };
+}
+function normalizeConstructionCandidate(rawCandidate) {
+  if (!isRecord5(rawCandidate) || !isNonEmptyString3(rawCandidate.buildItem)) {
+    return [];
+  }
+  return [
+    {
+      buildItem: rawCandidate.buildItem,
+      ...isNonEmptyString3(rawCandidate.room) ? { room: rawCandidate.room } : {},
+      ...isFiniteNumber3(rawCandidate.score) ? { score: rawCandidate.score } : {},
+      ...isNonEmptyString3(rawCandidate.urgency) ? { urgency: rawCandidate.urgency } : {},
+      ...Array.isArray(rawCandidate.preconditions) ? { preconditions: rawCandidate.preconditions.filter(isNonEmptyString3) } : {},
+      ...Array.isArray(rawCandidate.expectedKpiMovement) ? { expectedKpiMovement: rawCandidate.expectedKpiMovement.filter(isNonEmptyString3) } : {},
+      ...Array.isArray(rawCandidate.risk) ? { risk: rawCandidate.risk.filter(isNonEmptyString3) } : {}
+    }
+  ];
+}
+function normalizeTerritoryRecommendationSummary(rawSummary) {
+  var _a;
+  return {
+    ...Array.isArray(rawSummary.candidates) ? { candidates: rawSummary.candidates.flatMap(normalizeTerritoryCandidate) } : {},
+    ...rawSummary.next === null ? { next: null } : isRecord5(rawSummary.next) ? { next: (_a = normalizeTerritoryCandidate(rawSummary.next)[0]) != null ? _a : null } : {},
+    ...rawSummary.followUpIntent !== void 0 ? { followUpIntent: rawSummary.followUpIntent } : {}
+  };
+}
+function normalizeTerritoryCandidate(rawCandidate) {
+  if (!isRecord5(rawCandidate) || !isNonEmptyString3(rawCandidate.roomName)) {
+    return [];
+  }
+  return [
+    {
+      roomName: rawCandidate.roomName,
+      ...isNonEmptyString3(rawCandidate.action) ? { action: rawCandidate.action } : {},
+      ...isFiniteNumber3(rawCandidate.score) ? { score: rawCandidate.score } : {},
+      ...isNonEmptyString3(rawCandidate.evidenceStatus) ? { evidenceStatus: rawCandidate.evidenceStatus } : {},
+      ...isNonEmptyString3(rawCandidate.source) ? { source: rawCandidate.source } : {},
+      ...Array.isArray(rawCandidate.evidence) ? { evidence: rawCandidate.evidence.filter(isNonEmptyString3) } : {},
+      ...Array.isArray(rawCandidate.preconditions) ? { preconditions: rawCandidate.preconditions.filter(isNonEmptyString3) } : {},
+      ...Array.isArray(rawCandidate.risks) ? { risks: rawCandidate.risks.filter(isNonEmptyString3) } : {},
+      ...isFiniteNumber3(rawCandidate.routeDistance) ? { routeDistance: rawCandidate.routeDistance } : {},
+      ...isFiniteNumber3(rawCandidate.sourceCount) ? { sourceCount: rawCandidate.sourceCount } : {},
+      ...isFiniteNumber3(rawCandidate.hostileCreepCount) ? { hostileCreepCount: rawCandidate.hostileCreepCount } : {},
+      ...isFiniteNumber3(rawCandidate.hostileStructureCount) ? { hostileStructureCount: rawCandidate.hostileStructureCount } : {}
+    }
+  ];
+}
+function normalizeCpuSummary(rawCpu) {
+  return {
+    ...isFiniteNumber3(rawCpu.used) ? { used: rawCpu.used } : {},
+    ...isFiniteNumber3(rawCpu.bucket) ? { bucket: rawCpu.bucket } : {}
+  };
+}
+function normalizeReliabilitySignals(rawReliability) {
+  return {
+    ...isFiniteNumber3(rawReliability.loopExceptionCount) ? { loopExceptionCount: rawReliability.loopExceptionCount } : {},
+    ...isFiniteNumber3(rawReliability.telemetrySilenceTicks) ? { telemetrySilenceTicks: rawReliability.telemetrySilenceTicks } : {},
+    ...isFiniteNumber3(rawReliability.globalResetCount) ? { globalResetCount: rawReliability.globalResetCount } : {}
+  };
+}
+function reduceRuntimeSummaryArtifact(artifact, reliabilityMetrics, territoryComponents, resourceComponents, killComponents, thresholds) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G, _H, _I, _J, _K, _L, _M, _N;
+  reliabilityMetrics.loopExceptionCount += (_b = (_a = artifact.reliability) == null ? void 0 : _a.loopExceptionCount) != null ? _b : 0;
+  reliabilityMetrics.telemetrySilenceTicks += (_d = (_c = artifact.reliability) == null ? void 0 : _c.telemetrySilenceTicks) != null ? _d : 0;
+  reliabilityMetrics.globalResetCount += (_f = (_e = artifact.reliability) == null ? void 0 : _e.globalResetCount) != null ? _f : 0;
+  if (typeof ((_g = artifact.cpu) == null ? void 0 : _g.bucket) === "number") {
+    reliabilityMetrics.minCpuBucket = reliabilityMetrics.minCpuBucket === void 0 ? artifact.cpu.bucket : Math.min(reliabilityMetrics.minCpuBucket, artifact.cpu.bucket);
+  }
+  let ownedRoomCount = 0;
+  for (const room of artifact.rooms) {
+    if (room.controller) {
+      ownedRoomCount += 1;
+      territoryComponents.controllerLevels += room.controller.level;
+      territoryComponents.controllerProgress += (_h = room.controller.progress) != null ? _h : 0;
+      if (typeof room.controller.ticksToDowngrade === "number" && room.controller.ticksToDowngrade <= thresholds.controllerDowngradeRiskTicks) {
+        reliabilityMetrics.controllerDowngradeRiskRooms += 1;
+      }
+    }
+    if (((_i = room.workerCount) != null ? _i : 1) <= 0 && ((_k = (_j = room.spawnStatus) == null ? void 0 : _j.length) != null ? _k : 0) <= 0) {
+      reliabilityMetrics.spawnCollapseRooms += 1;
+    }
+    resourceComponents.storedEnergy += (_m = (_l = room.resources) == null ? void 0 : _l.storedEnergy) != null ? _m : 0;
+    resourceComponents.workerCarriedEnergy += (_o = (_n = room.resources) == null ? void 0 : _n.workerCarriedEnergy) != null ? _o : 0;
+    resourceComponents.droppedEnergy += (_q = (_p = room.resources) == null ? void 0 : _p.droppedEnergy) != null ? _q : 0;
+    resourceComponents.visibleSources += (_s = (_r = room.resources) == null ? void 0 : _r.sourceCount) != null ? _s : 0;
+    resourceComponents.harvestedEnergy += (_v = (_u = (_t = room.resources) == null ? void 0 : _t.events) == null ? void 0 : _u.harvestedEnergy) != null ? _v : 0;
+    resourceComponents.transferredEnergy += (_y = (_x = (_w = room.resources) == null ? void 0 : _w.events) == null ? void 0 : _x.transferredEnergy) != null ? _y : 0;
+    killComponents.creepKills += (_B = (_A = (_z = room.combat) == null ? void 0 : _z.events) == null ? void 0 : _A.creepDestroyedCount) != null ? _B : 0;
+    killComponents.objectKills += (_E = (_D = (_C = room.combat) == null ? void 0 : _C.events) == null ? void 0 : _D.objectDestroyedCount) != null ? _E : 0;
+    killComponents.attackDamage += (_H = (_G = (_F = room.combat) == null ? void 0 : _F.events) == null ? void 0 : _G.attackDamage) != null ? _H : 0;
+    killComponents.hostilePressureObserved += ((_J = (_I = room.combat) == null ? void 0 : _I.hostileCreepCount) != null ? _J : 0) + ((_L = (_K = room.combat) == null ? void 0 : _K.hostileStructureCount) != null ? _L : 0);
+    const territoryCandidates = (_N = (_M = room.territoryRecommendation) == null ? void 0 : _M.candidates) != null ? _N : [];
+    territoryComponents.reservedOrRemoteRooms += territoryCandidates.filter(
+      (candidate) => candidate.action === "occupy" || candidate.action === "reserve"
+    ).length;
+    territoryComponents.territoryRecommendation += Math.max(
+      0,
+      ...territoryCandidates.map((candidate) => {
+        var _a2;
+        return (_a2 = candidate.score) != null ? _a2 : 0;
+      })
+    );
+  }
+  territoryComponents.ownedRooms = Math.max(territoryComponents.ownedRooms, ownedRoomCount);
+  return ownedRoomCount;
+}
+function reduceRoomSnapshotArtifact(artifact, territoryComponents, resourceComponents, killComponents) {
+  var _a, _b, _c;
+  const controller = artifact.objects.find((object) => object.type === "controller");
+  const snapshotOwner = (_a = artifact.owner) != null ? _a : getSnapshotObjectOwner(controller);
+  const ownedController = controller && isOwnedSnapshotObject(controller, snapshotOwner);
+  const ownedRoomCount = ownedController ? 1 : 0;
+  if (ownedController) {
+    territoryComponents.ownedRooms = Math.max(territoryComponents.ownedRooms, 1);
+    territoryComponents.controllerLevels += (_b = controller.level) != null ? _b : 0;
+  }
+  for (const object of artifact.objects) {
+    if (object.type === "source") {
+      resourceComponents.visibleSources += 1;
+    }
+    if (object.type === "resource" && (object.resourceType === void 0 || object.resourceType === "energy")) {
+      resourceComponents.droppedEnergy += (_c = object.amount) != null ? _c : 0;
+    }
+    resourceComponents.storedEnergy += getSnapshotObjectEnergy(object);
+    if (object.type === "creep" && !isOwnedSnapshotObject(object, snapshotOwner)) {
+      killComponents.hostilePressureObserved += 1;
+    }
+  }
+  return ownedRoomCount;
+}
+function evaluateReliabilityFloor(metrics, thresholds) {
+  var _a, _b;
+  const reasons = [];
+  if (metrics.artifactCount < thresholds.minArtifactCount) {
+    reasons.push(`artifact count ${metrics.artifactCount} below floor ${thresholds.minArtifactCount}`);
+  }
+  if (metrics.loopExceptionCount > thresholds.maxLoopExceptionCount) {
+    reasons.push(`loop exceptions ${metrics.loopExceptionCount} exceed ${thresholds.maxLoopExceptionCount}`);
+  }
+  if (metrics.telemetrySilenceTicks > thresholds.maxTelemetrySilenceTicks) {
+    reasons.push(`telemetry silence ${metrics.telemetrySilenceTicks} ticks exceeds ${thresholds.maxTelemetrySilenceTicks}`);
+  }
+  if (thresholds.minCpuBucket !== void 0 && ((_a = metrics.minCpuBucket) != null ? _a : thresholds.minCpuBucket) < thresholds.minCpuBucket) {
+    reasons.push(`minimum CPU bucket ${(_b = metrics.minCpuBucket) != null ? _b : "unknown"} below ${thresholds.minCpuBucket}`);
+  }
+  if (metrics.controllerDowngradeRiskRooms > thresholds.maxControllerDowngradeRiskRooms) {
+    reasons.push(
+      `controller downgrade risk rooms ${metrics.controllerDowngradeRiskRooms} exceed ${thresholds.maxControllerDowngradeRiskRooms}`
+    );
+  }
+  if (metrics.spawnCollapseRooms > thresholds.maxSpawnCollapseRooms) {
+    reasons.push(`spawn collapse rooms ${metrics.spawnCollapseRooms} exceed ${thresholds.maxSpawnCollapseRooms}`);
+  }
+  return {
+    passed: reasons.length === 0,
+    reasons,
+    metrics
+  };
+}
+function buildInitialReliabilityMetrics(artifacts) {
+  return {
+    artifactCount: artifacts.length,
+    runtimeSummaryCount: artifacts.filter((artifact) => artifact.artifactType === "runtime-summary").length,
+    roomSnapshotCount: artifacts.filter((artifact) => artifact.artifactType === "room-snapshot").length,
+    loopExceptionCount: 0,
+    telemetrySilenceTicks: 0,
+    globalResetCount: 0,
+    controllerDowngradeRiskRooms: 0,
+    spawnCollapseRooms: 0
+  };
+}
+function getSnapshotObjectEnergy(object) {
+  var _a;
+  if (typeof object.energy === "number") {
+    return object.energy;
+  }
+  const storeEnergy = (_a = object.store) == null ? void 0 : _a.energy;
+  return typeof storeEnergy === "number" ? storeEnergy : 0;
+}
+function getSnapshotObjectOwner(object) {
+  var _a;
+  const objectUser = object == null ? void 0 : object.user;
+  if (isNonEmptyString3(objectUser)) {
+    return objectUser;
+  }
+  const ownerUsername = (_a = object == null ? void 0 : object.owner) == null ? void 0 : _a.username;
+  return isNonEmptyString3(ownerUsername) ? ownerUsername : void 0;
+}
+function isOwnedSnapshotObject(object, owner) {
+  var _a;
+  if (object.my === true) {
+    return true;
+  }
+  if (!owner) {
+    return false;
+  }
+  return object.user === owner || ((_a = object.owner) == null ? void 0 : _a.username) === owner;
+}
+function isRecord5(value) {
+  return typeof value === "object" && value !== null;
+}
+function isFiniteNumber3(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+function isNonEmptyString3(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+// src/strategy/shadowEvaluator.ts
+var DEFAULT_INCUMBENT_STRATEGY_IDS = {
+  "construction-priority": "construction-priority.incumbent.v1",
+  "expansion-remote-candidate": "expansion-remote.incumbent.v1",
+  "defense-posture-repair-threshold": "defense-repair.incumbent.v1"
+};
+var DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG = {
+  enabled: false,
+  incumbentStrategyIds: DEFAULT_INCUMBENT_STRATEGY_IDS,
+  candidateStrategyIds: []
+};
+function evaluateStrategyShadowReplay(input = {}) {
+  var _a, _b;
+  const registry = (_a = input.registry) != null ? _a : DEFAULT_STRATEGY_REGISTRY;
+  const artifacts = parseStrategyEvaluationArtifacts((_b = input.artifacts) != null ? _b : []);
+  const kpi = reduceStrategyKpis(artifacts);
+  const config = normalizeShadowConfig(input.config);
+  if (!config.enabled) {
+    return {
+      enabled: false,
+      artifactCount: artifacts.length,
+      kpi,
+      modelReports: [],
+      disabledReason: "strategy shadow evaluator disabled",
+      warnings: []
+    };
+  }
+  const registryById = new Map(registry.map((entry) => [entry.id, entry]));
+  const candidateStrategyIds = config.candidateStrategyIds.length > 0 ? config.candidateStrategyIds : registry.filter((entry) => entry.rolloutStatus === "shadow").map((entry) => entry.id);
+  const warnings = [];
+  const modelReports = [];
+  for (const candidateStrategyId of candidateStrategyIds) {
+    const candidate = registryById.get(candidateStrategyId);
+    if (!candidate) {
+      warnings.push(`candidate strategy not found: ${candidateStrategyId}`);
+      continue;
+    }
+    const incumbentStrategyId = config.incumbentStrategyIds[candidate.family];
+    const incumbent = incumbentStrategyId ? registryById.get(incumbentStrategyId) : void 0;
+    if (!incumbentStrategyId || !incumbent) {
+      warnings.push(`incumbent strategy not found for ${candidate.id}`);
+      continue;
+    }
+    if (incumbent.family !== candidate.family) {
+      warnings.push(`incumbent ${incumbent.id} does not match candidate family ${candidate.family}`);
+      continue;
+    }
+    modelReports.push(evaluateModelPair(artifacts, incumbent, candidate));
+  }
+  return {
+    enabled: true,
+    artifactCount: artifacts.length,
+    kpi,
+    modelReports,
+    warnings
+  };
+}
+function normalizeShadowConfig(config) {
+  var _a, _b, _c;
+  return {
+    enabled: (_a = config == null ? void 0 : config.enabled) != null ? _a : DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG.enabled,
+    incumbentStrategyIds: {
+      ...DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG.incumbentStrategyIds,
+      ...(_b = config == null ? void 0 : config.incumbentStrategyIds) != null ? _b : {}
+    },
+    candidateStrategyIds: (_c = config == null ? void 0 : config.candidateStrategyIds) != null ? _c : DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG.candidateStrategyIds
+  };
+}
+function evaluateModelPair(artifacts, incumbent, candidate) {
+  const rankingDiffs = [];
+  artifacts.forEach((artifact, artifactIndex) => {
+    const rankingGroups = buildRankingGroups(artifact, artifactIndex, candidate.family);
+    for (const group of rankingGroups) {
+      const incumbentRanking = scoreRankingItems(group.items, incumbent);
+      const candidateRanking = scoreRankingItems(group.items, candidate);
+      const rankingDiff = buildRankingDiff(group, incumbentRanking, candidateRanking);
+      if (rankingDiff.changedTop || rankingDiff.rankChanges.length > 0) {
+        rankingDiffs.push(rankingDiff);
+      }
+    }
+  });
+  return {
+    incumbentStrategyId: incumbent.id,
+    candidateStrategyId: candidate.id,
+    family: candidate.family,
+    rankingDiffs
+  };
+}
+function buildRankingGroups(artifact, artifactIndex, family) {
+  if (artifact.artifactType === "runtime-summary") {
+    return buildRuntimeSummaryRankingGroups(artifact, artifactIndex, family);
+  }
+  return buildRoomSnapshotRankingGroups(artifact, artifactIndex, family);
+}
+function buildRuntimeSummaryRankingGroups(artifact, artifactIndex, family) {
+  const groups = [];
+  for (const room of artifact.rooms) {
+    const items = buildRuntimeRoomRankingItems(room, artifactIndex, artifact.tick, family);
+    if (items.length > 0) {
+      groups.push({
+        context: family,
+        ...artifact.tick !== void 0 ? { tick: artifact.tick } : {},
+        roomName: room.roomName,
+        items
+      });
+    }
+  }
+  return groups;
+}
+function buildRoomSnapshotRankingGroups(artifact, artifactIndex, family) {
+  if (family !== "defense-posture-repair-threshold") {
+    return [];
+  }
+  const repairItems = artifact.objects.flatMap(
+    (object) => buildRepairRankingItem(artifact, object, artifactIndex, artifact.tick)
+  );
+  if (repairItems.length === 0) {
+    return [];
+  }
+  return [
+    {
+      context: family,
+      ...artifact.tick !== void 0 ? { tick: artifact.tick } : {},
+      ...artifact.roomName ? { roomName: artifact.roomName } : {},
+      items: repairItems
+    }
+  ];
+}
+function buildRuntimeRoomRankingItems(room, artifactIndex, tick, family) {
+  var _a, _b, _c, _d;
+  switch (family) {
+    case "construction-priority":
+      return ((_b = (_a = room.constructionPriority) == null ? void 0 : _a.candidates) != null ? _b : []).map(
+        (candidate) => buildConstructionRankingItem(room, candidate, artifactIndex, tick)
+      );
+    case "expansion-remote-candidate":
+      return ((_d = (_c = room.territoryRecommendation) == null ? void 0 : _c.candidates) != null ? _d : []).map(
+        (candidate) => buildTerritoryRankingItem(room, candidate, artifactIndex, tick)
+      );
+    case "defense-posture-repair-threshold":
+      return [buildRuntimeDefenseRankingItem(room, artifactIndex, tick)];
+    default:
+      return [];
+  }
+}
+function buildConstructionRankingItem(room, candidate, artifactIndex, tick) {
+  var _a, _b, _c, _d, _e, _f, _g, _h;
+  const text = [
+    candidate.buildItem,
+    ...(_a = candidate.expectedKpiMovement) != null ? _a : [],
+    ...(_b = candidate.preconditions) != null ? _b : [],
+    ...(_c = candidate.risk) != null ? _c : []
+  ].join(" ");
+  const signals = classifyStrategyText(text);
+  return {
+    itemId: `${room.roomName}:construction:${candidate.buildItem}`,
+    label: candidate.buildItem,
+    context: "construction-priority",
+    artifactIndex,
+    ...tick !== void 0 ? { tick } : {},
+    roomName: room.roomName,
+    baseScore: (_d = candidate.score) != null ? _d : 0,
+    signals: {
+      territory: signals.territory,
+      resources: signals.resources,
+      kills: signals.kills,
+      reliability: signals.reliability + urgencyReliabilitySignal(candidate.urgency),
+      risk: ((_f = (_e = candidate.risk) == null ? void 0 : _e.length) != null ? _f : 0) + ((_h = (_g = candidate.preconditions) == null ? void 0 : _g.length) != null ? _h : 0) * 2
+    }
+  };
+}
+function buildTerritoryRankingItem(room, candidate, artifactIndex, tick) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const actionTerritorySignal = candidate.action === "occupy" ? 8 : candidate.action === "reserve" ? 6 : 2;
+  const hostileRisk = ((_a = candidate.hostileCreepCount) != null ? _a : 0) * 5 + ((_b = candidate.hostileStructureCount) != null ? _b : 0) * 4;
+  const evidenceRisk = candidate.evidenceStatus === "unavailable" ? 12 : candidate.evidenceStatus === "insufficient-evidence" ? 5 : 0;
+  return {
+    itemId: `${room.roomName}:territory:${candidate.roomName}:${(_c = candidate.action) != null ? _c : "unknown"}`,
+    label: `${(_d = candidate.action) != null ? _d : "score"} ${candidate.roomName}`,
+    context: "expansion-remote-candidate",
+    artifactIndex,
+    ...tick !== void 0 ? { tick } : {},
+    roomName: room.roomName,
+    baseScore: (_e = candidate.score) != null ? _e : 0,
+    signals: {
+      territory: actionTerritorySignal + (candidate.source === "configured" ? 2 : 0),
+      resources: Math.min((_f = candidate.sourceCount) != null ? _f : 0, 3) * 2,
+      kills: hostileRisk > 0 ? 1 : 0,
+      reliability: candidate.evidenceStatus === "sufficient" ? 1 : 0,
+      risk: hostileRisk + evidenceRisk + ((_h = (_g = candidate.risks) == null ? void 0 : _g.length) != null ? _h : 0) + Math.max(0, ((_i = candidate.routeDistance) != null ? _i : 1) - 1)
+    }
+  };
+}
+function buildRuntimeDefenseRankingItem(room, artifactIndex, tick) {
+  var _a, _b, _c, _d, _e, _f, _g;
+  const hostilePressure = ((_b = (_a = room.combat) == null ? void 0 : _a.hostileCreepCount) != null ? _b : 0) * 15 + ((_d = (_c = room.combat) == null ? void 0 : _c.hostileStructureCount) != null ? _d : 0) * 8;
+  const downgradePressure = typeof ((_e = room.controller) == null ? void 0 : _e.ticksToDowngrade) === "number" ? Math.max(0, 5e3 - room.controller.ticksToDowngrade) / 500 : 0;
+  const baseScore = hostilePressure + downgradePressure;
+  return {
+    itemId: `${room.roomName}:defense-posture`,
+    label: `defense posture ${room.roomName}`,
+    context: "defense-posture-repair-threshold",
+    artifactIndex,
+    ...tick !== void 0 ? { tick } : {},
+    roomName: room.roomName,
+    baseScore,
+    signals: {
+      territory: downgradePressure > 0 ? 3 : 1,
+      resources: ((_g = (_f = room.resources) == null ? void 0 : _f.storedEnergy) != null ? _g : 0) > 0 ? 1 : 0,
+      kills: hostilePressure > 0 ? 4 : 0,
+      reliability: downgradePressure > 0 || hostilePressure > 0 ? 3 : 1,
+      risk: baseScore === 0 ? 1 : 0
+    }
+  };
+}
+function buildRepairRankingItem(artifact, object, artifactIndex, tick) {
+  var _a, _b, _c, _d;
+  if (!isDamageableSnapshotStructure(object) || typeof object.hits !== "number" || typeof object.hitsMax !== "number") {
+    return [];
+  }
+  const damageRatio = object.hitsMax > 0 ? Math.max(0, 1 - object.hits / object.hitsMax) : 0;
+  if (damageRatio <= 0) {
+    return [];
+  }
+  const roomName = (_a = artifact.roomName) != null ? _a : object.room;
+  const criticalStructureSignal = object.type === "spawn" || object.type === "tower" || object.type === "storage" ? 3 : 1;
+  return [
+    {
+      itemId: `${roomName != null ? roomName : "unknown"}:repair:${(_b = object.type) != null ? _b : "structure"}:${(_c = object.id) != null ? _c : "unknown"}`,
+      label: `repair ${(_d = object.type) != null ? _d : "structure"}`,
+      context: "defense-posture-repair-threshold",
+      artifactIndex,
+      ...tick !== void 0 ? { tick } : {},
+      ...roomName ? { roomName } : {},
+      baseScore: damageRatio * 100,
+      signals: {
+        territory: object.type === "spawn" || object.type === "tower" ? criticalStructureSignal : 1,
+        resources: object.type === "storage" || object.type === "container" ? criticalStructureSignal : 1,
+        kills: object.type === "rampart" || object.type === "tower" ? criticalStructureSignal : 0,
+        reliability: criticalStructureSignal,
+        risk: damageRatio >= 0.5 ? 0 : 1
+      }
+    }
+  ];
+}
+function scoreRankingItems(items, entry) {
+  return items.map((item) => ({
+    ...item,
+    strategyScore: calculateStrategyScore(item, entry),
+    rank: 0
+  })).sort(compareScoredRankingItems).map((item, index) => ({
+    ...item,
+    rank: index + 1
+  }));
+}
+function calculateStrategyScore(item, entry) {
+  const baseScoreWeight = getStrategyNumberDefault(entry, "baseScoreWeight", 1);
+  const territorySignalWeight = getStrategyNumberDefault(entry, "territorySignalWeight", 0);
+  const resourceSignalWeight = getStrategyNumberDefault(entry, "resourceSignalWeight", 0);
+  const killSignalWeight = getStrategyNumberDefault(entry, "killSignalWeight", 0);
+  const riskPenalty = getStrategyNumberDefault(entry, "riskPenalty", 0);
+  return item.baseScore * baseScoreWeight + item.signals.territory * territorySignalWeight + item.signals.resources * resourceSignalWeight + item.signals.kills * killSignalWeight + item.signals.reliability * Math.max(territorySignalWeight, killSignalWeight) - item.signals.risk * riskPenalty;
+}
+function compareScoredRankingItems(left, right) {
+  return right.strategyScore - left.strategyScore || right.baseScore - left.baseScore || left.label.localeCompare(right.label) || left.itemId.localeCompare(right.itemId);
+}
+function buildRankingDiff(group, incumbentRanking, candidateRanking) {
+  var _a, _b;
+  const incumbentTop = incumbentRanking[0] ? summarizeRankedItem(incumbentRanking[0]) : null;
+  const candidateTop = candidateRanking[0] ? summarizeRankedItem(candidateRanking[0]) : null;
+  const incumbentRanks = new Map(incumbentRanking.map((item) => [item.itemId, item]));
+  const candidateRanks = new Map(candidateRanking.map((item) => [item.itemId, item]));
+  const itemIds = Array.from(/* @__PURE__ */ new Set([...incumbentRanks.keys(), ...candidateRanks.keys()])).sort();
+  const rankChanges = itemIds.flatMap((itemId) => {
+    var _a2, _b2;
+    const incumbentItem = incumbentRanks.get(itemId);
+    const candidateItem = candidateRanks.get(itemId);
+    if ((incumbentItem == null ? void 0 : incumbentItem.rank) === (candidateItem == null ? void 0 : candidateItem.rank)) {
+      return [];
+    }
+    const label = (_b2 = (_a2 = incumbentItem == null ? void 0 : incumbentItem.label) != null ? _a2 : candidateItem == null ? void 0 : candidateItem.label) != null ? _b2 : itemId;
+    const incumbentRank = incumbentItem == null ? void 0 : incumbentItem.rank;
+    const candidateRank = candidateItem == null ? void 0 : candidateItem.rank;
+    return [
+      {
+        itemId,
+        label,
+        ...incumbentRank !== void 0 ? { incumbentRank } : {},
+        ...candidateRank !== void 0 ? { candidateRank } : {},
+        ...incumbentRank !== void 0 && candidateRank !== void 0 ? { delta: incumbentRank - candidateRank } : {}
+      }
+    ];
+  });
+  return {
+    artifactIndex: (_b = (_a = group.items[0]) == null ? void 0 : _a.artifactIndex) != null ? _b : 0,
+    ...group.tick !== void 0 ? { tick: group.tick } : {},
+    ...group.roomName ? { roomName: group.roomName } : {},
+    context: group.context,
+    incumbentTop,
+    candidateTop,
+    changedTop: (incumbentTop == null ? void 0 : incumbentTop.itemId) !== (candidateTop == null ? void 0 : candidateTop.itemId),
+    rankChanges
+  };
+}
+function summarizeRankedItem(item) {
+  return {
+    itemId: item.itemId,
+    label: item.label,
+    rank: item.rank,
+    score: roundScore(item.strategyScore),
+    baseScore: roundScore(item.baseScore)
+  };
+}
+function classifyStrategyText(text) {
+  const normalizedText = text.toLowerCase();
+  return {
+    territory: countSignalWords(normalizedText, [
+      "territory",
+      "remote",
+      "controller",
+      "rcl",
+      "expansion",
+      "claim",
+      "reserve",
+      "room"
+    ]),
+    resources: countSignalWords(normalizedText, [
+      "energy",
+      "resource",
+      "resources",
+      "harvest",
+      "storage",
+      "source",
+      "throughput",
+      "capacity",
+      "worker"
+    ]),
+    kills: countSignalWords(normalizedText, ["kill", "enemy", "hostile", "tower", "rampart", "defense", "survivability"]),
+    reliability: countSignalWords(normalizedText, ["spawn", "recovery", "downgrade", "repair", "safe", "survival"]),
+    risk: countSignalWords(normalizedText, ["risk", "blocked", "decay", "hostile", "unavailable", "missing"])
+  };
+}
+function urgencyReliabilitySignal(urgency) {
+  switch (urgency) {
+    case "critical":
+      return 3;
+    case "high":
+      return 2;
+    case "medium":
+      return 1;
+    default:
+      return 0;
+  }
+}
+function countSignalWords(text, words) {
+  return words.reduce((count, word) => count + (text.includes(word) ? 1 : 0), 0);
+}
+function roundScore(score) {
+  return Math.round(score * 1e3) / 1e3;
+}
+function isDamageableSnapshotStructure(object) {
+  return object.type === "constructedWall" || object.type === "container" || object.type === "extension" || object.type === "rampart" || object.type === "road" || object.type === "spawn" || object.type === "storage" || object.type === "tower";
+}
+
 // src/main.ts
 var kernel = new Kernel();
 function loop() {
@@ -5371,5 +6477,11 @@ function loop() {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  loop
+  DEFAULT_STRATEGY_REGISTRY,
+  DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG,
+  STRATEGY_REGISTRY_SCHEMA_VERSION,
+  evaluateStrategyShadowReplay,
+  loop,
+  validateStrategyRegistry,
+  validateStrategyRegistryEntry
 });

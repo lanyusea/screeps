@@ -1,4 +1,4 @@
-import { loop } from '../src/main';
+import { evaluateStrategyShadowReplay, loop } from '../src/main';
 
 describe('main loop entrypoint', () => {
   beforeEach(() => {
@@ -13,5 +13,9 @@ describe('main loop entrypoint', () => {
   it('runs the kernel without throwing', () => {
     expect(() => loop()).not.toThrow();
     expect(Memory.meta.version).toBe(1);
+  });
+
+  it('ships the shadow evaluator as a passive export', () => {
+    expect(evaluateStrategyShadowReplay().enabled).toBe(false);
   });
 });
