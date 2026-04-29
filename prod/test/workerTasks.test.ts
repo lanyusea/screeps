@@ -1804,6 +1804,102 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
+  it('spends carried energy productively when other loaded workers cover the near-term refill reserve', () => {
+    const busyFullSpawn = {
+      id: 'spawn-busy',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: 100,
+      energyCapacityAvailable: 100,
+      myStructures: [busyFullSpawn as AnyOwnedStructure]
+    });
+    const reserveWorkerA = {
+      name: 'ReserveA',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room
+    } as unknown as Creep;
+    const reserveWorkerB = {
+      name: 'ReserveB',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo: jest.fn().mockReturnValue(2) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo: jest.fn().mockReturnValue(9) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ ReserveA: reserveWorkerA, ReserveB: reserveWorkerB });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('keeps emergency spawn refill before surplus spending while a near-term reserve is active', () => {
+    const spawningSpawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(1) }
+    } as unknown as StructureSpawn;
+    const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      myStructures: [spawningSpawn as AnyOwnedStructure]
+    });
+    const reserveWorkerA = {
+      name: 'ReserveA',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room
+    } as unknown as Creep;
+    const reserveWorkerB = {
+      name: 'ReserveB',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) },
+      pos: { getRangeTo: jest.fn().mockReturnValue(2) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo: jest.fn().mockReturnValue(9) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ ReserveA: reserveWorkerA, ReserveB: reserveWorkerB });
+
+    expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(URGENT_SPAWN_REFILL_ENERGY_THRESHOLD);
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
   it('keeps controller downgrade guard ahead of near-term refill reserve', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',
