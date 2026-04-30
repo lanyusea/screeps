@@ -862,7 +862,8 @@ function compareEnergySinkId(left: FillableEnergySink, right: FillableEnergySink
 function selectConstructionSite(
   creep: Creep,
   constructionSites: ConstructionSite[],
-  predicate: (site: ConstructionSite) => boolean = () => true
+  predicate: (site: ConstructionSite) => boolean = () => true,
+  constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext()
 ): ConstructionSite | null {
   const candidates = constructionSites.filter(predicate);
   if (candidates.length === 0) {
@@ -877,10 +878,16 @@ function selectConstructionSite(
   }).pos;
 
   if (typeof position?.getRangeTo === 'function') {
-    return [...candidates].sort((left, right) => compareConstructionSiteCandidates(creep, left, right))[0];
+    return [...candidates].sort((left, right) =>
+      compareConstructionSiteCandidates(creep, left, right, constructionReservationContext)
+    )[0];
   }
 
-  const completableConstructionSite = selectNearTermCompletableConstructionSite(creep, candidates);
+  const completableConstructionSite = selectNearTermCompletableConstructionSite(
+    creep,
+    candidates,
+    constructionReservationContext
+  );
   if (completableConstructionSite) {
     return completableConstructionSite;
   }
@@ -902,7 +909,8 @@ function selectUnreservedConstructionSite(
   return selectConstructionSite(
     creep,
     constructionSites,
-    (site) => predicate(site) && hasUnreservedConstructionProgress(creep, site, constructionReservationContext)
+    (site) => predicate(site) && hasUnreservedConstructionProgress(creep, site, constructionReservationContext),
+    constructionReservationContext
   );
 }
 
@@ -975,9 +983,12 @@ function isWorkerAssignedToConstructionSite(worker: Creep, site: ConstructionSit
 
 function selectNearTermCompletableConstructionSite(
   creep: Creep,
-  constructionSites: ConstructionSite[]
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
 ): ConstructionSite | null {
-  const candidates = constructionSites.filter((site) => canCompleteConstructionSiteWithCarriedEnergy(creep, site));
+  const candidates = constructionSites.filter((site) =>
+    canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext)
+  );
   if (candidates.length === 0) {
     return null;
   }
@@ -988,10 +999,11 @@ function selectNearTermCompletableConstructionSite(
 function compareConstructionSiteCandidates(
   creep: Creep,
   left: ConstructionSite,
-  right: ConstructionSite
+  right: ConstructionSite,
+  constructionReservationContext: ConstructionReservationContext
 ): number {
   return (
-    compareConstructionSiteCompletion(creep, left, right) ||
+    compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) ||
     compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
     compareConstructionSiteId(left, right)
   );
@@ -1000,10 +1012,19 @@ function compareConstructionSiteCandidates(
 function compareConstructionSiteCompletion(
   creep: Creep,
   left: ConstructionSite,
-  right: ConstructionSite
+  right: ConstructionSite,
+  constructionReservationContext: ConstructionReservationContext
 ): number {
-  const leftCompletable = canCompleteConstructionSiteWithCarriedEnergy(creep, left);
-  const rightCompletable = canCompleteConstructionSiteWithCarriedEnergy(creep, right);
+  const leftCompletable = canCompleteConstructionSiteWithCarriedEnergy(
+    creep,
+    left,
+    constructionReservationContext
+  );
+  const rightCompletable = canCompleteConstructionSiteWithCarriedEnergy(
+    creep,
+    right,
+    constructionReservationContext
+  );
   if (leftCompletable !== rightCompletable) {
     return leftCompletable ? -1 : 1;
   }
@@ -1019,9 +1040,35 @@ function compareNearTermCompletableConstructionSites(left: ConstructionSite, rig
   );
 }
 
-function canCompleteConstructionSiteWithCarriedEnergy(creep: Creep, site: ConstructionSite): boolean {
-  const remainingProgress = getConstructionSiteRemainingProgress(site);
+function canCompleteConstructionSiteWithCarriedEnergy(
+  creep: Creep,
+  site: ConstructionSite,
+  constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext()
+): boolean {
+  const remainingProgress = getUnreservedConstructionProgressForWorker(
+    creep,
+    site,
+    constructionReservationContext
+  );
   return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep) * getBuildPower();
+}
+
+function getUnreservedConstructionProgressForWorker(
+  creep: Creep,
+  site: ConstructionSite,
+  constructionReservationContext: ConstructionReservationContext
+): number {
+  const remainingProgress = getConstructionSiteRemainingProgress(site);
+  if (!Number.isFinite(remainingProgress)) {
+    return remainingProgress;
+  }
+
+  const reservedProgress = getReservedConstructionProgress(site, constructionReservationContext);
+  const workerReservedProgress = isWorkerAssignedToConstructionSite(creep, site)
+    ? getUsedEnergy(creep) * getBuildPower()
+    : 0;
+
+  return Math.max(0, remainingProgress - Math.max(0, reservedProgress - workerReservedProgress));
 }
 
 function getConstructionSiteRemainingProgress(site: ConstructionSite): number {
@@ -1086,7 +1133,7 @@ function selectNearbyProductiveEnergySinkTask(
           site,
           { type: 'build', targetId: site.id },
           0,
-          canCompleteConstructionSiteWithCarriedEnergy(creep, site)
+          canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext)
         )
       ),
     ...findVisibleRoomStructures(creep.room)
