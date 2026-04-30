@@ -17,8 +17,11 @@ const TEST_GLOBALS = {
   FIND_MY_CONSTRUCTION_SITES: 107,
   EVENT_HARVEST: 201,
   EVENT_TRANSFER: 202,
-  EVENT_ATTACK: 203,
-  EVENT_OBJECT_DESTROYED: 204,
+  EVENT_BUILD: 203,
+  EVENT_REPAIR: 204,
+  EVENT_UPGRADE_CONTROLLER: 205,
+  EVENT_ATTACK: 206,
+  EVENT_OBJECT_DESTROYED: 207,
   RESOURCE_ENERGY: 'energy',
   STRUCTURE_EXTENSION: 'extension',
   STRUCTURE_TOWER: 'tower',
@@ -82,6 +85,7 @@ describe('runtime telemetry summaries', () => {
             harvest: 1,
             transfer: 0,
             build: 0,
+            repair: 0,
             upgrade: 0
           },
           controller: {
@@ -95,9 +99,22 @@ describe('runtime telemetry summaries', () => {
             workerCarriedEnergy: 60,
             droppedEnergy: 25,
             sourceCount: 2,
+            productiveEnergy: {
+              assignedWorkerCount: 0,
+              assignedCarriedEnergy: 0,
+              buildCarriedEnergy: 0,
+              repairCarriedEnergy: 0,
+              upgradeCarriedEnergy: 0,
+              pendingBuildProgress: 0,
+              repairBacklogHits: 0,
+              controllerProgressRemaining: 43766
+            },
             events: {
               harvestedEnergy: 10,
-              transferredEnergy: 5
+              transferredEnergy: 5,
+              builtProgress: 25,
+              repairedHits: 100,
+              upgradedControllerProgress: 7
             }
           },
           combat: {
@@ -216,6 +233,77 @@ describe('runtime telemetry summaries', () => {
       result: 0
     });
     expect(payload.omittedEventCount).toBe(2);
+  });
+
+  it('reports productive worker energy and local action backlog in room telemetry', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      constructionSites: [
+        { id: 'road-site', structureType: TEST_GLOBALS.STRUCTURE_ROAD, progress: 30, progressTotal: 100 },
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 25.5, progressTotal: 50 }
+      ],
+      structures: [
+        { id: 'road-damaged', structureType: TEST_GLOBALS.STRUCTURE_ROAD, hits: 1_000, hitsMax: 5_000 },
+        { id: 'container-damaged', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, hits: 900, hitsMax: 1_000 },
+        {
+          id: 'rampart-damaged',
+          structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+          my: true,
+          hits: 90_000,
+          hitsMax: 300_000
+        },
+        {
+          id: 'enemy-rampart',
+          structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+          my: false,
+          hits: 1,
+          hitsMax: 300_000
+        }
+      ]
+    });
+    const creeps = [
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'build', targetId: 'road-site' as Id<ConstructionSite> } },
+        40,
+        'Builder'
+      ),
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'repair', targetId: 'road-damaged' as Id<Structure> } },
+        20,
+        'Repairer'
+      ),
+      makeWorker(
+        {
+          role: 'worker',
+          colony: 'W1N1',
+          task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+        },
+        10,
+        'Upgrader'
+      ),
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } },
+        50,
+        'Carrier'
+      )
+    ];
+
+    emitRuntimeSummary([colony], creeps);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.taskCounts).toMatchObject({ build: 1, repair: 1, upgrade: 1, transfer: 1, none: 0 });
+    expect((room.resources as Record<string, unknown>).productiveEnergy).toEqual({
+      assignedWorkerCount: 3,
+      assignedCarriedEnergy: 70,
+      buildCarriedEnergy: 40,
+      repairCarriedEnergy: 20,
+      upgradeCarriedEnergy: 10,
+      pendingBuildProgress: 95,
+      repairBacklogHits: 14100,
+      controllerProgressRemaining: 43766
+    });
   });
 
   it('reports bounded room-level worker efficiency samples', () => {
@@ -460,6 +548,39 @@ describe('runtime telemetry summaries', () => {
     expect(room.territoryExecutionHints).toEqual([executionHint]);
   });
 
+  it('groups creeps by colony before building per-room summaries', () => {
+    const firstColony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      roomName: 'W1N1',
+      spawn: { name: 'Spawn1', spawning: null }
+    });
+    const secondColony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      roomName: 'W2N2',
+      spawn: { name: 'Spawn2', spawning: null }
+    });
+    const offColonyTelemetry = { memoryReadCount: 0 };
+
+    emitRuntimeSummary(
+      [firstColony, secondColony],
+      [
+        makeWorker({ role: 'worker', colony: 'W1N1' }, 10, 'WorkerW1N1'),
+        makeWorker({ role: 'worker', colony: 'W2N2' }, 20, 'WorkerW2N2'),
+        makeTrackedWorker({ role: 'worker', colony: 'W9N9' }, offColonyTelemetry, 30, 'WorkerW9N9')
+      ]
+    );
+
+    const payload = parseLoggedSummary();
+    const rooms = payload.rooms as Array<Record<string, unknown>>;
+    expect(rooms.map((room) => [room.roomName, room.workerCount])).toEqual([
+      ['W1N1', 1],
+      ['W2N2', 1]
+    ]);
+    expect(offColonyTelemetry.memoryReadCount).toBe(1);
+  });
+
   it('emits adjacent territory controller-progress intent coverage in room telemetry', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
     const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
@@ -559,16 +680,20 @@ function makeColony(options: {
     name: string;
     spawning: { name: string; remainingTime: number } | null;
   };
+  constructionSites?: unknown[];
   installGlobals?: boolean;
   includeRoomFind?: boolean;
   includeEventLog?: boolean;
+  roomName?: string;
+  structures?: unknown[];
 }): ColonySnapshot {
   if (options.installGlobals !== false) {
     installRuntimeTelemetryGlobals();
   }
 
+  const roomName = options.roomName ?? 'W1N1';
   const room = {
-    name: 'W1N1',
+    name: roomName,
     energyAvailable: 250,
     energyCapacityAvailable: 300,
     controller: {
@@ -580,12 +705,13 @@ function makeColony(options: {
     }
   } as unknown as Room;
   const spawn = {
-    name: options.spawn?.name ?? 'Spawn1',
+    name: options.spawn?.name ?? (roomName === 'W1N1' ? 'Spawn1' : `Spawn-${roomName}`),
     room,
     spawning: options.spawn?.spawning ?? null,
     store: makeEnergyStore(50)
   } as unknown as StructureSpawn;
-  const structures = [spawn, { store: makeEnergyStore(125) }];
+  const structures = options.structures ?? [spawn, { store: makeEnergyStore(125) }];
+  const constructionSites = options.constructionSites ?? [];
 
   if (options.includeRoomFind !== false) {
     (room as unknown as { find?: jest.Mock }).find = jest.fn((findType: number): unknown[] => {
@@ -595,7 +721,7 @@ function makeColony(options: {
         case TEST_GLOBALS.FIND_MY_STRUCTURES:
           return structures;
         case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
-          return [];
+          return constructionSites;
         case TEST_GLOBALS.FIND_DROPPED_RESOURCES:
           return [
             { resourceType: TEST_GLOBALS.RESOURCE_ENERGY, amount: 25 },
@@ -618,16 +744,22 @@ function makeColony(options: {
       { event: TEST_GLOBALS.EVENT_HARVEST, data: { amount: 10, resourceType: TEST_GLOBALS.RESOURCE_ENERGY } },
       { event: TEST_GLOBALS.EVENT_TRANSFER, data: { amount: 5, resourceType: TEST_GLOBALS.RESOURCE_ENERGY } },
       { event: TEST_GLOBALS.EVENT_TRANSFER, data: { amount: 99, resourceType: 'power' } },
+      { event: TEST_GLOBALS.EVENT_BUILD, data: { amount: 25 } },
+      { event: TEST_GLOBALS.EVENT_REPAIR, data: { amount: 100 } },
+      { event: TEST_GLOBALS.EVENT_UPGRADE_CONTROLLER, data: { amount: 7 } },
       { event: TEST_GLOBALS.EVENT_ATTACK, data: { damage: 30 } },
       { event: TEST_GLOBALS.EVENT_OBJECT_DESTROYED, data: { type: 'creep' } }
     ]);
   }
 
+  const existingGame = (globalThis as unknown as { Game?: Partial<Game> }).Game;
+  const existingRooms = existingGame?.rooms ?? {};
+  const existingSpawns = existingGame?.spawns ?? {};
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
     time: options.time,
-    rooms: { W1N1: room },
-    spawns: { [spawn.name]: spawn },
-    creeps: {},
+    rooms: { ...existingRooms, [roomName]: room },
+    spawns: { ...existingSpawns, [spawn.name]: spawn },
+    creeps: existingGame?.creeps ?? {},
     cpu: {
       getUsed: jest.fn().mockReturnValue(4.2),
       bucket: 9000
@@ -646,6 +778,22 @@ function makeWorker(memory: CreepMemory, energy = 0, name?: string): Creep {
   return {
     ...(name ? { name } : {}),
     memory,
+    store: makeEnergyStore(energy)
+  } as unknown as Creep;
+}
+
+function makeTrackedWorker(
+  memory: CreepMemory,
+  telemetry: { memoryReadCount: number },
+  energy = 0,
+  name?: string
+): Creep {
+  return {
+    ...(name ? { name } : {}),
+    get memory(): CreepMemory {
+      telemetry.memoryReadCount += 1;
+      return memory;
+    },
     store: makeEnergyStore(energy)
   } as unknown as Creep;
 }

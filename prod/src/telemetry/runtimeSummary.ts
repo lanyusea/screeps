@@ -23,10 +23,13 @@ const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 const MAX_TERRITORY_INTENT_SUMMARIES = 5;
 const WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
+const OBSERVED_RAMPART_REPAIR_HITS_CEILING = 100_000;
 
-const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'upgrade'] as const;
+const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'repair', 'upgrade'] as const;
+const PRODUCTIVE_WORKER_TASK_TYPES = ['build', 'repair', 'upgrade'] as const;
 
 type WorkerTaskType = (typeof WORKER_TASK_TYPES)[number];
+type ProductiveWorkerTaskType = (typeof PRODUCTIVE_WORKER_TASK_TYPES)[number];
 
 interface WorkerTaskCounts extends Record<WorkerTaskType, number> {
   none: number;
@@ -77,6 +80,9 @@ interface RuntimeControllerSummary {
 interface RuntimeResourceEventSummary {
   harvestedEnergy: number;
   transferredEnergy: number;
+  builtProgress: number;
+  repairedHits: number;
+  upgradedControllerProgress: number;
 }
 
 interface RuntimeResourceSummary {
@@ -84,7 +90,19 @@ interface RuntimeResourceSummary {
   workerCarriedEnergy: number;
   droppedEnergy: number;
   sourceCount: number;
+  productiveEnergy: RuntimeProductiveEnergySummary;
   events?: RuntimeResourceEventSummary;
+}
+
+interface RuntimeProductiveEnergySummary {
+  assignedWorkerCount: number;
+  assignedCarriedEnergy: number;
+  buildCarriedEnergy: number;
+  repairCarriedEnergy: number;
+  upgradeCarriedEnergy: number;
+  pendingBuildProgress: number;
+  repairBacklogHits: number;
+  controllerProgressRemaining?: number;
 }
 
 interface RuntimeWorkerEfficiencySummary {
@@ -169,10 +187,11 @@ export function emitRuntimeSummary(colonies: ColonySnapshot[], creeps: Creep[], 
   }
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
+  const creepsByColony = groupCreepsByColony(creeps);
   const summary: RuntimeSummary = {
     type: 'runtime-summary',
     tick,
-    rooms: colonies.map((colony) => summarizeRoom(colony, creeps)),
+    rooms: colonies.map((colony) => summarizeRoom(colony, creepsByColony.get(colony.room.name) ?? [])),
     ...(reportedEvents.length > 0 ? { events: reportedEvents } : {}),
     ...(events.length > MAX_REPORTED_EVENTS ? { omittedEventCount: events.length - MAX_REPORTED_EVENTS } : {}),
     ...buildCpuSummary()
@@ -185,9 +204,26 @@ export function shouldEmitRuntimeSummary(tick: number, events: RuntimeTelemetryE
   return events.length > 0 || (tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0);
 }
 
-function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSummary {
-  const colonyWorkers = creeps.filter((creep) => creep.memory.role === 'worker' && creep.memory.colony === colony.room.name);
-  const roleCounts = countCreepsByRole(creeps, colony.room.name);
+function groupCreepsByColony(creeps: Creep[]): Map<string, Creep[]> {
+  const creepsByColony = new Map<string, Creep[]>();
+
+  for (const creep of creeps) {
+    const colonyName = creep.memory.colony;
+    if (!colonyName) {
+      continue;
+    }
+
+    const colonyCreeps = creepsByColony.get(colonyName) ?? [];
+    colonyCreeps.push(creep);
+    creepsByColony.set(colonyName, colonyCreeps);
+  }
+
+  return creepsByColony;
+}
+
+function summarizeRoom(colony: ColonySnapshot, colonyCreeps: Creep[]): RuntimeRoomSummary {
+  const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
+  const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
   const eventMetrics = summarizeRoomEventMetrics(colony.room);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
@@ -257,6 +293,7 @@ function countWorkerTasks(workers: Creep[]): WorkerTaskCounts {
     harvest: 0,
     transfer: 0,
     build: 0,
+    repair: 0,
     upgrade: 0,
     none: 0
   };
@@ -404,6 +441,7 @@ function summarizeResources(
   events: RuntimeResourceEventSummary | undefined
 ): RuntimeResourceSummary {
   const roomStructures = findRoomObjects(colony.room, 'FIND_STRUCTURES') ?? colony.spawns;
+  const constructionSites = findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? [];
   const droppedResources = findRoomObjects(colony.room, 'FIND_DROPPED_RESOURCES') ?? [];
   const sources = findRoomObjects(colony.room, 'FIND_SOURCES') ?? [];
 
@@ -412,8 +450,134 @@ function summarizeResources(
     workerCarriedEnergy: sumEnergyInStores(colonyWorkers),
     droppedEnergy: sumDroppedEnergy(droppedResources),
     sourceCount: sources.length,
+    productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
     ...(events ? { events } : {})
   };
+}
+
+function summarizeProductiveEnergy(
+  room: Room,
+  colonyWorkers: Creep[],
+  constructionSites: unknown[],
+  roomStructures: unknown[]
+): RuntimeProductiveEnergySummary {
+  const productiveAssignments = summarizeProductiveWorkerAssignments(colonyWorkers);
+
+  return {
+    ...productiveAssignments,
+    pendingBuildProgress: sumPendingBuildProgress(constructionSites),
+    repairBacklogHits: sumRepairBacklogHits(roomStructures),
+    ...buildControllerProgressRemaining(room)
+  };
+}
+
+function summarizeProductiveWorkerAssignments(
+  colonyWorkers: Creep[]
+): Pick<
+  RuntimeProductiveEnergySummary,
+  | 'assignedWorkerCount'
+  | 'assignedCarriedEnergy'
+  | 'buildCarriedEnergy'
+  | 'repairCarriedEnergy'
+  | 'upgradeCarriedEnergy'
+> {
+  const summary = {
+    assignedWorkerCount: 0,
+    assignedCarriedEnergy: 0,
+    buildCarriedEnergy: 0,
+    repairCarriedEnergy: 0,
+    upgradeCarriedEnergy: 0
+  };
+
+  for (const worker of colonyWorkers) {
+    const taskType = worker.memory.task?.type;
+    if (!isProductiveWorkerTaskType(taskType)) {
+      continue;
+    }
+
+    const carriedEnergy = getEnergyInStore(worker);
+    summary.assignedWorkerCount += 1;
+    summary.assignedCarriedEnergy += carriedEnergy;
+    if (taskType === 'build') {
+      summary.buildCarriedEnergy += carriedEnergy;
+    } else if (taskType === 'repair') {
+      summary.repairCarriedEnergy += carriedEnergy;
+    } else {
+      summary.upgradeCarriedEnergy += carriedEnergy;
+    }
+  }
+
+  return summary;
+}
+
+function isProductiveWorkerTaskType(taskType: string | undefined): taskType is ProductiveWorkerTaskType {
+  return PRODUCTIVE_WORKER_TASK_TYPES.includes(taskType as ProductiveWorkerTaskType);
+}
+
+function sumPendingBuildProgress(constructionSites: unknown[]): number {
+  return constructionSites.reduce<number>((total, constructionSite) => total + getPendingBuildProgress(constructionSite), 0);
+}
+
+function getPendingBuildProgress(constructionSite: unknown): number {
+  if (!isRecord(constructionSite)) {
+    return 0;
+  }
+
+  const progress = getFiniteNumber(constructionSite.progress);
+  const progressTotal = getFiniteNumber(constructionSite.progressTotal);
+  if (progress === null || progressTotal === null) {
+    return 0;
+  }
+
+  return Math.max(0, Math.ceil(progressTotal - progress));
+}
+
+function sumRepairBacklogHits(roomStructures: unknown[]): number {
+  return roomStructures.reduce<number>((total, structure) => total + getRepairBacklogHits(structure), 0);
+}
+
+function getRepairBacklogHits(structure: unknown): number {
+  if (!isRecord(structure) || !isObservableRepairBacklogStructure(structure)) {
+    return 0;
+  }
+
+  const hits = getFiniteNumber(structure.hits);
+  const hitsMax = getFiniteNumber(structure.hitsMax);
+  if (hits === null || hitsMax === null || hitsMax <= 0) {
+    return 0;
+  }
+
+  const repairCeiling = isObservedOwnedRampart(structure)
+    ? Math.min(hitsMax, OBSERVED_RAMPART_REPAIR_HITS_CEILING)
+    : hitsMax;
+  return Math.max(0, Math.ceil(repairCeiling - hits));
+}
+
+function isObservableRepairBacklogStructure(structure: Record<string, unknown>): boolean {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
+    isObservedOwnedRampart(structure)
+  );
+}
+
+function isObservedOwnedRampart(structure: Record<string, unknown>): boolean {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && structure.my === true;
+}
+
+function buildControllerProgressRemaining(room: Room): { controllerProgressRemaining?: number } {
+  const controller = room.controller;
+  if (controller?.my !== true) {
+    return {};
+  }
+
+  const progress = getFiniteNumber((controller as StructureController & { progress?: unknown }).progress);
+  const progressTotal = getFiniteNumber((controller as StructureController & { progressTotal?: unknown }).progressTotal);
+  if (progress === null || progressTotal === null) {
+    return {};
+  }
+
+  return { controllerProgressRemaining: Math.max(0, Math.ceil(progressTotal - progress)) };
 }
 
 function summarizeCombat(room: Room, events: RuntimeCombatEventSummary | undefined): RuntimeCombatSummary {
@@ -473,11 +637,17 @@ function summarizeRoomEventMetrics(room: Room): RuntimeRoomEventMetrics {
 
   const harvestEvent = getGlobalNumber('EVENT_HARVEST');
   const transferEvent = getGlobalNumber('EVENT_TRANSFER');
+  const buildEvent = getGlobalNumber('EVENT_BUILD');
+  const repairEvent = getGlobalNumber('EVENT_REPAIR');
+  const upgradeControllerEvent = getGlobalNumber('EVENT_UPGRADE_CONTROLLER');
   const attackEvent = getGlobalNumber('EVENT_ATTACK');
   const objectDestroyedEvent = getGlobalNumber('EVENT_OBJECT_DESTROYED');
   const resourceEvents: RuntimeResourceEventSummary = {
     harvestedEnergy: 0,
-    transferredEnergy: 0
+    transferredEnergy: 0,
+    builtProgress: 0,
+    repairedHits: 0,
+    upgradedControllerProgress: 0
   };
   const combatEvents: RuntimeCombatEventSummary = {
     attackCount: 0,
@@ -501,6 +671,21 @@ function summarizeRoomEventMetrics(room: Room): RuntimeRoomEventMetrics {
 
     if (entry.event === transferEvent && isEnergyEventData(data)) {
       resourceEvents.transferredEnergy += getNumericEventData(data, 'amount');
+      hasResourceEvents = true;
+    }
+
+    if (entry.event === buildEvent) {
+      resourceEvents.builtProgress += getNumericEventData(data, 'amount');
+      hasResourceEvents = true;
+    }
+
+    if (entry.event === repairEvent) {
+      resourceEvents.repairedHits += getNumericEventData(data, 'amount');
+      hasResourceEvents = true;
+    }
+
+    if (entry.event === upgradeControllerEvent) {
+      resourceEvents.upgradedControllerProgress += getNumericEventData(data, 'amount');
       hasResourceEvents = true;
     }
 
@@ -597,6 +782,17 @@ function getNumericEventData(data: Record<string, unknown>, key: string): number
 function getGlobalNumber(name: string): number | undefined {
   const value = (globalThis as Record<string, unknown>)[name];
   return typeof value === 'number' ? value : undefined;
+}
+
+type StructureConstantGlobal = 'STRUCTURE_ROAD' | 'STRUCTURE_CONTAINER' | 'STRUCTURE_RAMPART';
+
+function matchesStructureType(value: unknown, globalName: StructureConstantGlobal, fallback: string): boolean {
+  const expectedValue = (globalThis as Record<string, unknown>)[globalName] ?? fallback;
+  return value === expectedValue;
+}
+
+function getFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function getEnergyResource(): ResourceConstant {
