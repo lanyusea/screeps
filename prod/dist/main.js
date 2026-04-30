@@ -3991,47 +3991,65 @@ function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
   return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence(creep.room);
 }
 function findLowLoadWorkerEnergyAcquisitionCandidates(creep) {
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
   return [
-    ...findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep),
-    ...findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep),
-    ...findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep),
+    ...findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep, reservationContext),
+    ...findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep, reservationContext),
+    ...findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep, reservationContext),
     ...findLowLoadHarvestEnergyAcquisitionCandidates(creep)
   ];
 }
-function findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep) {
+function findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep, reservationContext) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
     hasHostilePresence: hasVisibleHostilePresence(creep.room),
     room: creep.room
   };
-  return findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).map(
-    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
-      createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
+  return findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getStoredEnergy2(source),
+      {
         type: "withdraw",
         targetId: source.id
-      })
-    )
-  );
+      },
+      reservationContext
+    );
+    return candidate ? [toLowLoadWorkerEnergyAcquisitionCandidate(candidate)] : [];
+  });
 }
-function findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep) {
-  return [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).map(
-    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
-      createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
+function findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep, reservationContext) {
+  return [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getStoredEnergy2(source),
+      {
         type: "withdraw",
         targetId: source.id
-      })
-    )
-  );
+      },
+      reservationContext,
+      MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT
+    );
+    return candidate ? [toLowLoadWorkerEnergyAcquisitionCandidate(candidate)] : [];
+  });
 }
-function findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep) {
-  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).filter((source) => isReachable(creep, source)).map(
-    (source) => toLowLoadWorkerEnergyAcquisitionCandidate(
-      createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
+function findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep, reservationContext) {
+  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      source.amount,
+      {
         type: "pickup",
         targetId: source.id
-      })
-    )
-  );
+      },
+      reservationContext,
+      MIN_DROPPED_ENERGY_PICKUP_AMOUNT
+    );
+    return candidate ? [toLowLoadWorkerEnergyAcquisitionCandidate(candidate)] : [];
+  }).filter((candidate) => isReachable(creep, candidate.source));
 }
 function isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source) {
   const range = getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
@@ -4087,28 +4105,59 @@ function findWorkerEnergyAcquisitionCandidates(creep) {
     hasHostilePresence: hasVisibleHostilePresence(creep.room),
     room: creep.room
   };
-  const storedEnergyCandidates = findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).map(
-    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
-      type: "withdraw",
-      targetId: source.id
-    })
-  );
-  const salvageEnergyCandidates = [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).map(
-    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, getStoredEnergy2(source), {
-      type: "withdraw",
-      targetId: source.id
-    })
-  );
-  const droppedEnergyCandidates = findDroppedEnergyAcquisitionCandidates(creep);
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const storedEnergyCandidates = findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getStoredEnergy2(source),
+      {
+        type: "withdraw",
+        targetId: source.id
+      },
+      reservationContext
+    );
+    return candidate ? [candidate] : [];
+  });
+  const salvageEnergyCandidates = [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getStoredEnergy2(source),
+      {
+        type: "withdraw",
+        targetId: source.id
+      },
+      reservationContext,
+      MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT
+    );
+    return candidate ? [candidate] : [];
+  });
+  const droppedEnergyCandidates = findDroppedEnergyAcquisitionCandidates(creep, reservationContext);
   return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
-function findDroppedEnergyAcquisitionCandidates(creep) {
-  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).map(
-    (source) => createWorkerEnergyAcquisitionCandidate(creep, source, source.amount, {
-      type: "pickup",
-      targetId: source.id
-    })
-  ).sort(compareDroppedEnergyReachabilityPriority).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
+function findDroppedEnergyAcquisitionCandidates(creep, reservationContext) {
+  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      source.amount,
+      {
+        type: "pickup",
+        targetId: source.id
+      },
+      reservationContext,
+      MIN_DROPPED_ENERGY_PICKUP_AMOUNT
+    );
+    return candidate ? [candidate] : [];
+  }).sort(compareDroppedEnergyReachabilityPriority).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
+}
+function createUnreservedWorkerEnergyAcquisitionCandidate(creep, source, energy, task, reservationContext, minimumEnergy = 1) {
+  const unreservedEnergy = getUnreservedWorkerEnergyAcquisitionAmount(source, energy, reservationContext);
+  if (unreservedEnergy < minimumEnergy) {
+    return null;
+  }
+  return createWorkerEnergyAcquisitionCandidate(creep, source, unreservedEnergy, task);
 }
 function createWorkerEnergyAcquisitionCandidate(creep, source, energy, task) {
   const range = getRangeToWorkerEnergyAcquisitionSource(creep, source);
@@ -4119,6 +4168,38 @@ function createWorkerEnergyAcquisitionCandidate(creep, source, energy, task) {
     source,
     task
   };
+}
+function createWorkerEnergyAcquisitionReservationContext(creep) {
+  return {
+    reservedEnergyBySourceId: getReservedWorkerEnergyAcquisitionsBySourceId(creep)
+  };
+}
+function getReservedWorkerEnergyAcquisitionsBySourceId(creep) {
+  var _a, _b;
+  const reservedEnergyBySourceId = /* @__PURE__ */ new Map();
+  for (const worker of getGameCreeps()) {
+    if (isSameCreep(worker, creep) || !isSameRoomWorker(worker, creep.room)) {
+      continue;
+    }
+    const task = (_a = worker.memory) == null ? void 0 : _a.task;
+    if (!isWorkerEnergyAcquisitionReservationTask(task)) {
+      continue;
+    }
+    const freeCapacity = getFreeEnergyCapacity(worker);
+    if (freeCapacity <= 0) {
+      continue;
+    }
+    const sourceId = String(task.targetId);
+    reservedEnergyBySourceId.set(sourceId, ((_b = reservedEnergyBySourceId.get(sourceId)) != null ? _b : 0) + freeCapacity);
+  }
+  return reservedEnergyBySourceId;
+}
+function isWorkerEnergyAcquisitionReservationTask(task) {
+  return ((task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw") && typeof task.targetId === "string" && task.targetId.length > 0;
+}
+function getUnreservedWorkerEnergyAcquisitionAmount(source, energy, reservationContext) {
+  var _a;
+  return Math.max(0, energy - ((_a = reservationContext.reservedEnergyBySourceId.get(String(source.id))) != null ? _a : 0));
 }
 function createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink) {
   if (candidate.range === null) {

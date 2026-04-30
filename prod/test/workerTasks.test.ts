@@ -1245,6 +1245,124 @@ describe('selectWorkerTask', () => {
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it('skips dropped energy already covered by another worker once refill delivery is reserved', () => {
+    const spawn = makeEnergySink('spawn-covered', 'spawn' as StructureConstant, 50);
+    const coveredDroppedEnergy = {
+      id: 'drop-covered',
+      resourceType: 'energy',
+      amount: 25
+    } as Resource<ResourceConstant>;
+    const openDroppedEnergy = {
+      id: 'drop-open',
+      resourceType: 'energy',
+      amount: 25
+    } as Resource<ResourceConstant>;
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [coveredDroppedEnergy, openDroppedEnergy];
+        }
+
+        if (
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const room = { name: 'W1N1', find: roomFind } as unknown as Room;
+    const refillCarrier = makeLoadedWorker(room, {
+      type: 'transfer',
+      targetId: 'spawn-covered' as Id<AnyStoreStructure>
+    });
+    const assignedPickupWorker = {
+      name: 'AssignedPickupWorker',
+      memory: { role: 'worker', task: { type: 'pickup', targetId: 'drop-covered' as Id<Resource> } },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-covered': 1,
+        'drop-open': 3
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      name: 'Worker',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AssignedPickupWorker: assignedPickupWorker, RefillCarrier: refillCarrier, Worker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-open' });
+  });
+
+  it('scores stored energy by unreserved amount when another worker is already withdrawing', () => {
+    const reservedContainer = makeStoredEnergyStructure('container-reserved', 'container' as StructureConstant, 120);
+    const openContainer = makeStoredEnergyStructure('container-open', 'container' as StructureConstant, 75);
+    const source = { id: 'source1' } as Source;
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [reservedContainer, openContainer];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const room = { name: 'W1N1', controller: { my: true }, find: roomFind } as unknown as Room;
+    const assignedWithdrawWorker = {
+      name: 'AssignedWithdrawWorker',
+      memory: {
+        role: 'worker',
+        task: { type: 'withdraw', targetId: 'container-reserved' as Id<AnyStoreStructure> }
+      },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(100) },
+      room
+    } as unknown as Creep;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'container-open': 1,
+        'container-reserved': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      name: 'Worker',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AssignedWithdrawWorker: assignedWithdrawWorker, Worker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-open' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
   it('uses stable amount and id fallback when range helpers are unavailable', () => {
     const droppedEnergy = { id: 'm-drop', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
     const container = makeStoredEnergyStructure('z-container', 'container' as StructureConstant, 100);
