@@ -4325,7 +4325,7 @@ describe('selectWorkerTask', () => {
       id: 'extension-near',
       structureType: 'extension',
       progress: 0,
-      progressTotal: 200
+      progressTotal: 300
     } as ConstructionSite;
     const fartherExtensionSite = {
       id: 'extension-farther',
