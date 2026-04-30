@@ -75,6 +75,7 @@ interface SelectedTerritoryTarget {
   persistedFollowUp?: boolean;
   recoveredFollowUp?: boolean;
   recoveredFollowUpSuppressedAt?: number;
+  routeDistanceLookupContext?: RouteDistanceLookupContext;
 }
 
 type TerritoryCandidateSource =
@@ -149,7 +150,13 @@ export function planTerritoryIntent(
     recoveredTerritoryFollowUpRetryMetadata.set(plan, { suppressedAt: selection.recoveredFollowUpSuppressedAt });
   }
   const status = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action) > 0 ? 'active' : 'planned';
-  recordTerritoryIntent(plan, status, gameTime, selection.commitTarget ? target : null);
+  recordTerritoryIntent(
+    plan,
+    status,
+    gameTime,
+    selection.commitTarget ? target : null,
+    selection.routeDistanceLookupContext
+  );
 
   return plan;
 }
@@ -683,8 +690,8 @@ function selectTerritoryTarget(
   if (sanitizedStaleProgress.changed) {
     intents = sanitizedStaleProgress.intents;
   }
-  refreshTerritoryFollowUpExecutionHints(territoryMemory, intents);
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
+  refreshTerritoryFollowUpExecutionHints(territoryMemory, intents, routeDistanceLookupContext);
   const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
     colony,
     territoryMemory,
@@ -736,7 +743,7 @@ function selectTerritoryTarget(
     );
     const shouldEvaluateAdjacentFollowUp = shouldEvaluateVisibleAdjacentFollowUpPreference(bestReadyPrimaryCandidate);
     if (!shouldEvaluateAdjacentControllerProgress && !shouldEvaluateAdjacentFollowUp) {
-      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate);
+      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
 
     const visibleAdjacentControllerProgressCandidates = applyOccupationRecommendationScores(
@@ -768,7 +775,7 @@ function selectTerritoryTarget(
       ]
     );
     if (visibleAdjacentControllerProgressCandidates.length === 0) {
-      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate);
+      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
 
     return toSelectedTerritoryTarget(
@@ -778,7 +785,8 @@ function selectTerritoryTarget(
           roleCounts,
           colony
         )
-      ) ?? bestReadyPrimaryCandidate
+      ) ?? bestReadyPrimaryCandidate,
+      routeDistanceLookupContext
     );
   }
 
@@ -811,7 +819,8 @@ function selectTerritoryTarget(
   return toSelectedTerritoryTarget(
     selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony)) ??
       selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony)) ??
-      selectBestScoredTerritoryCandidate(candidates)
+      selectBestScoredTerritoryCandidate(candidates),
+    routeDistanceLookupContext
   );
 }
 
@@ -826,7 +835,10 @@ function selectBestScoredTerritoryCandidate(candidates: ScoredTerritoryTarget[])
   return bestCandidate;
 }
 
-function toSelectedTerritoryTarget(candidate: ScoredTerritoryTarget | null): SelectedTerritoryTarget | null {
+function toSelectedTerritoryTarget(
+  candidate: ScoredTerritoryTarget | null,
+  routeDistanceLookupContext?: RouteDistanceLookupContext
+): SelectedTerritoryTarget | null {
   return candidate
     ? {
         target: candidate.target,
@@ -837,7 +849,8 @@ function toSelectedTerritoryTarget(candidate: ScoredTerritoryTarget | null): Sel
         ...(candidate.recoveredFollowUp ? { recoveredFollowUp: true } : {}),
         ...(typeof candidate.recoveredFollowUpSuppressedAt === 'number'
           ? { recoveredFollowUpSuppressedAt: candidate.recoveredFollowUpSuppressedAt }
-          : {})
+          : {}),
+        ...(routeDistanceLookupContext ? { routeDistanceLookupContext } : {})
       }
     : null;
 }
@@ -2292,7 +2305,8 @@ function recordTerritoryIntent(
   plan: TerritoryIntentPlan,
   status: TerritoryIntentMemory['status'],
   gameTime: number,
-  seededTarget: TerritoryTargetMemory | null = null
+  seededTarget: TerritoryTargetMemory | null = null,
+  routeDistanceLookupContext: RouteDistanceLookupContext = createRouteDistanceLookupContext()
 ): void {
   const territoryMemory = getWritableTerritoryMemoryRecord();
   if (!territoryMemory) {
@@ -2318,7 +2332,7 @@ function recordTerritoryIntent(
 
   upsertTerritoryIntent(intents, nextIntent);
   recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
-  recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
+  recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime, routeDistanceLookupContext);
 }
 
 function normalizeTerritoryIntents(rawIntents: TerritoryMemory['intents'] | unknown): TerritoryIntentMemory[] {
@@ -2746,12 +2760,14 @@ function getCurrentTerritoryFollowUpDemand(
 function recordTerritoryFollowUpExecutionHint(
   territoryMemory: TerritoryMemory,
   plan: TerritoryIntentPlan,
-  gameTime: number
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext = createRouteDistanceLookupContext()
 ): void {
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   const currentHints = getBoundedActiveTerritoryFollowUpExecutionHints(
     normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints),
-    intents
+    intents,
+    routeDistanceLookupContext
   );
   const nextHint = buildTerritoryFollowUpExecutionHint(plan, gameTime);
   if (!nextHint) {
@@ -2770,7 +2786,8 @@ function recordTerritoryFollowUpExecutionHint(
 
 function refreshTerritoryFollowUpExecutionHints(
   territoryMemory: Record<string, unknown> | null,
-  intents: TerritoryIntentMemory[]
+  intents: TerritoryIntentMemory[],
+  routeDistanceLookupContext: RouteDistanceLookupContext
 ): void {
   if (!territoryMemory || !Array.isArray(territoryMemory.executionHints)) {
     return;
@@ -2780,18 +2797,20 @@ function refreshTerritoryFollowUpExecutionHints(
     territoryMemory,
     getBoundedActiveTerritoryFollowUpExecutionHints(
       normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints),
-      intents
+      intents,
+      routeDistanceLookupContext
     )
   );
 }
 
 function getBoundedActiveTerritoryFollowUpExecutionHints(
   hints: TerritoryExecutionHintMemory[],
-  intents: TerritoryIntentMemory[]
+  intents: TerritoryIntentMemory[],
+  routeDistanceLookupContext: RouteDistanceLookupContext = createRouteDistanceLookupContext()
 ): TerritoryExecutionHintMemory[] {
   const latestHintByColony = new Map<string, TerritoryExecutionHintMemory>();
   for (const hint of hints) {
-    if (!isTerritoryFollowUpExecutionHintStillActive(hint, intents)) {
+    if (!isTerritoryFollowUpExecutionHintStillActive(hint, intents, routeDistanceLookupContext)) {
       continue;
     }
 
@@ -2810,21 +2829,33 @@ function getBoundedActiveTerritoryFollowUpExecutionHints(
 
 function isTerritoryFollowUpExecutionHintStillActive(
   hint: TerritoryExecutionHintMemory,
-  intents: TerritoryIntentMemory[]
+  intents: TerritoryIntentMemory[],
+  routeDistanceLookupContext: RouteDistanceLookupContext
 ): boolean {
+  if (isTerritoryFollowUpExecutionHintKnownUnreachable(hint, routeDistanceLookupContext)) {
+    return false;
+  }
+
   const matchingIntent = findMatchingActiveTerritoryFollowUpIntent(hint, intents);
   if (!matchingIntent?.followUp || !isSameTerritoryFollowUp(hint.followUp, matchingIntent.followUp)) {
     return false;
   }
 
-  return (
-    getTerritoryFollowUpExecutionHintReason(
-      matchingIntent.targetRoom,
-      matchingIntent.action,
-      matchingIntent.controllerId,
-      getVisibleColonyOwnerUsername(matchingIntent.colony)
-    ) !== null
+  const currentReason = getTerritoryFollowUpExecutionHintReason(
+    matchingIntent.targetRoom,
+    matchingIntent.action,
+    matchingIntent.controllerId,
+    getVisibleColonyOwnerUsername(matchingIntent.colony)
   );
+
+  return currentReason === hint.reason;
+}
+
+function isTerritoryFollowUpExecutionHintKnownUnreachable(
+  hint: TerritoryExecutionHintMemory,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): boolean {
+  return hasKnownNoRoute(hint.colony, hint.targetRoom, routeDistanceLookupContext);
 }
 
 function findMatchingActiveTerritoryFollowUpIntent(

@@ -2582,6 +2582,104 @@ describe('planTerritoryIntent', () => {
     expect(getActiveTerritoryFollowUpExecutionHints('W1N1')).toEqual([]);
   });
 
+  it('clears a visible execution hint after follow-up target visibility is lost', () => {
+    const colony = makeSafeColony();
+    const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const followUpTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const followUpIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 596,
+      followUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [genericTarget, followUpTarget],
+        intents: [followUpIntent],
+        executionHints: [
+          {
+            type: 'activeFollowUpExecution',
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            reason: 'visibleControlEvidenceStillActionable',
+            updatedAt: 596,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 597)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.executionHints).toBeUndefined();
+    expect(getActiveTerritoryFollowUpExecutionHints('W1N1')).toEqual([]);
+  });
+
+  it('clears an execution hint after route lookup proves the follow-up target is unreachable', () => {
+    const colony = makeSafeColony();
+    const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const followUpTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const followUpIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 598,
+      followUp
+    };
+    const findRoute = jest.fn((_fromRoom: string, toRoom: string) =>
+      toRoom === 'W3N1' ? -2 : [{ exit: 3, room: toRoom }]
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1'),
+        W3N1: makeRecommendationRoom('W3N1')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [genericTarget, followUpTarget],
+        intents: [followUpIntent],
+        executionHints: [
+          {
+            type: 'activeFollowUpExecution',
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            reason: 'visibleControlEvidenceStillActionable',
+            updatedAt: 598,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 599)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.routeDistances?.['W1N1>W3N1']).toBeNull();
+    expect(Memory.territory?.executionHints).toBeUndefined();
+    expect(getActiveTerritoryFollowUpExecutionHints('W1N1')).toEqual([]);
+  });
+
   it('preserves an active execution hint when a live follow-up intent remains behind a scout plan', () => {
     const colony = makeSafeColony();
     colony.energyAvailable = 50;
@@ -2625,6 +2723,58 @@ describe('planTerritoryIntent', () => {
       targetRoom: 'W2N1',
       action: 'scout'
     });
+    expect(Memory.territory?.executionHints).toEqual([existingHint]);
+    expect(getActiveTerritoryFollowUpExecutionHints('W1N1')).toEqual([existingHint]);
+  });
+
+  it('revalidates a stale no-route execution hint before preserving a live follow-up behind a scout plan', () => {
+    const colony = makeSafeColony();
+    colony.energyAvailable = 50;
+    (colony.room as Room & { energyAvailable: number }).energyAvailable = 50;
+    const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const followUpTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const followUpIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 596,
+      followUp
+    };
+    const existingHint: TerritoryExecutionHintMemory = {
+      type: 'activeFollowUpExecution',
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      reason: 'visibleControlEvidenceStillActionable',
+      updatedAt: 596,
+      followUp
+    };
+    const findRoute = jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 3, room: toRoom }]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W3N1: makeRecommendationRoom('W3N1')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [genericTarget, followUpTarget],
+        intents: [followUpIntent],
+        executionHints: [existingHint],
+        routeDistances: { 'W1N1>W3N1': null }
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 597)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W3N1');
+    expect(Memory.territory?.routeDistances?.['W1N1>W3N1']).toBe(1);
     expect(Memory.territory?.executionHints).toEqual([existingHint]);
     expect(getActiveTerritoryFollowUpExecutionHints('W1N1')).toEqual([existingHint]);
   });
