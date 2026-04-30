@@ -1,4 +1,9 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
+import {
+  assessColonySnapshotSurvival,
+  clearColonySurvivalAssessmentCache,
+  recordColonySurvivalAssessment
+} from '../colony/survivalMode';
 import { planExtensionConstruction } from '../construction/extensionPlanner';
 import { planEarlyRoadConstruction } from '../construction/roadPlanner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
@@ -21,6 +26,7 @@ export function runEconomy(): void {
   const creeps = Object.values(Game.creeps);
   const colonies = getOwnedColonies();
   const telemetryEvents: RuntimeTelemetryEvent[] = [];
+  clearColonySurvivalAssessmentCache();
 
   for (const colony of colonies) {
     const extensionResult = planExtensionConstruction(colony);
@@ -29,6 +35,11 @@ export function runEconomy(): void {
     }
 
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
+    recordColonySurvivalAssessment(
+      colony.room.name,
+      assessColonySnapshotSurvival(colony, roleCounts),
+      Game.time
+    );
     let availableEnergy = colony.energyAvailable;
     let successfulSpawnCount = 0;
     const usedSpawns = new Set<StructureSpawn>();

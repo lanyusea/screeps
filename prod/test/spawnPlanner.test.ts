@@ -1134,6 +1134,27 @@ describe('planSpawn', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
+  it('keeps near-target local recovery ahead of territory control', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 141)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N1-141',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
   it('does not plan another claimer while one has active target capacity', () => {
     const { colony } = makeColony({
       energyAvailable: 650,
@@ -1359,6 +1380,40 @@ describe('planSpawn', () => {
       memory: { role: 'worker', colony: 'W1N2' }
     });
     expect(planSpawn(colony, { worker: 4 }, 126)).toBeNull();
+  });
+
+  it('waits for two-source home stability before territory spawning', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N15',
+      sourceCount: 2,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N15', roomName: 'W2N15', action: 'reserve' }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 152)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N15-152',
+      memory: { role: 'worker', colony: 'W1N15' }
+    });
+    expect(Memory.territory?.intents).toBeUndefined();
+
+    expect(planSpawn(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 153)).toEqual({
+      spawn,
+      body: ['move'],
+      name: 'scout-W1N15-W2N15-153',
+      memory: {
+        role: 'scout',
+        colony: 'W1N15',
+        territory: { targetRoom: 'W2N15', action: 'scout' }
+      }
+    });
   });
 
   it('caps the source-aware worker target even with substantial construction backlog', () => {
