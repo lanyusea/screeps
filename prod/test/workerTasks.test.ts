@@ -4060,6 +4060,57 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
+  it('finishes construction whose remaining unreserved progress fits carried energy', () => {
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
+    const nearUnfinishedSite = {
+      id: 'tower-near-unfinished',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 1_000
+    } as ConstructionSite;
+    const reservedFinishableSite = {
+      id: 'tower-reserved-finishable',
+      structureType: 'tower',
+      progress: 250,
+      progressTotal: 500
+    } as ConstructionSite;
+    const myCreeps: Creep[] = [];
+    const room = makeWorkerTaskRoom({
+      constructionSites: [nearUnfinishedSite, reservedFinishableSite],
+      controller: undefined,
+      myCreeps
+    });
+    const assignedBuilder = {
+      name: 'AssignedBuilder',
+      memory: {
+        role: 'worker',
+        task: { type: 'build', targetId: 'tower-reserved-finishable' as Id<ConstructionSite> }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(40) },
+      room
+    } as unknown as Creep;
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        'tower-near-unfinished': 1,
+        'tower-reserved-finishable': 8
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(10) },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    myCreeps.push(assignedBuilder, creep);
+    setGameCreeps({ AssignedBuilder: assignedBuilder, Builder: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-reserved-finishable' });
+    expect(room.find).toHaveBeenCalledWith(10);
+  });
+
   it('keeps a worker on its assigned capacity construction site', () => {
     (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
     const extensionSite = {
