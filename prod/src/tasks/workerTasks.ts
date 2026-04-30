@@ -524,11 +524,7 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   const unreservedEnergySink = selectSpawnExtensionRecoveryEnergySink(
-    energySinks.filter(
-      (energySink) =>
-        isAssignedTransferTarget(energySink, assignedTransferTargetId) ||
-        hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
-    ),
+    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)),
     creep,
     reservedEnergyDeliveries,
     assignedTransferTargetId
@@ -568,19 +564,12 @@ function compareSpawnExtensionRecoveryEnergySinks(
   assignedTransferTargetId: string | null
 ): number {
   const carriedEnergy = getUsedEnergy(creep);
-  const leftDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(
-    left,
-    reservedEnergyDeliveries,
-    assignedTransferTargetId
-  );
-  const rightDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(
-    right,
-    reservedEnergyDeliveries,
-    assignedTransferTargetId
-  );
+  const leftDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(left, reservedEnergyDeliveries);
+  const rightDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(right, reservedEnergyDeliveries);
 
   return (
     compareAcceptedDeliveryEnergy(leftDeliveryCapacity, rightDeliveryCapacity, carriedEnergy) ||
+    compareAssignedTransferTarget(left, right, assignedTransferTargetId) ||
     compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
     compareEnergySinkId(left, right)
   );
@@ -598,17 +587,26 @@ function compareAcceptedDeliveryEnergy(leftCapacity: number, rightCapacity: numb
 
 function getUnreservedEnergySinkDeliveryCapacity(
   energySink: FillableEnergySink,
-  reservedEnergyDeliveries: Map<string, number>,
-  assignedTransferTargetId: string | null
+  reservedEnergyDeliveries: Map<string, number>
 ): number {
-  if (isAssignedTransferTarget(energySink, assignedTransferTargetId)) {
-    return getFreeStoredEnergyCapacity(energySink);
-  }
-
   return Math.max(
     0,
     getFreeStoredEnergyCapacity(energySink) - getReservedEnergyDelivery(energySink, reservedEnergyDeliveries)
   );
+}
+
+function compareAssignedTransferTarget(
+  left: FillableEnergySink,
+  right: FillableEnergySink,
+  assignedTransferTargetId: string | null
+): number {
+  const leftAssigned = isAssignedTransferTarget(left, assignedTransferTargetId);
+  const rightAssigned = isAssignedTransferTarget(right, assignedTransferTargetId);
+  if (leftAssigned === rightAssigned) {
+    return 0;
+  }
+
+  return leftAssigned ? -1 : 1;
 }
 
 function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
@@ -619,12 +617,9 @@ function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
 
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
-  const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   return selectClosestEnergySink(
-    priorityTowerEnergySinks.filter(
-      (energySink) =>
-        isAssignedTransferTarget(energySink, assignedTransferTargetId) ||
-        hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
+    priorityTowerEnergySinks.filter((energySink) =>
+      hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
     ),
     creep
   );
