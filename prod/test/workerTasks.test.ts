@@ -3661,6 +3661,33 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'claim', targetId: 'controller2' });
   });
 
+  it('selects pressure claim intents only for five-CLAIM creeps against foreign reservations', () => {
+    const controller = {
+      id: 'controller2',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller });
+    (room as Room & { name: string }).name = 'W2N1';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim', status: 'active', updatedAt: 101 }]
+      }
+    };
+    const makeCreep = (claimParts: number): Creep =>
+      ({
+        owner: { username: 'me' },
+        memory: { role: 'worker', colony: 'W1N1' },
+        getActiveBodyparts: jest.fn().mockReturnValue(claimParts),
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room
+      }) as unknown as Creep;
+
+    expect(selectWorkerTask(makeCreep(1))).toEqual({ type: 'build', targetId: 'site1' });
+    expect(selectWorkerTask(makeCreep(5))).toEqual({ type: 'claim', targetId: 'controller2' });
+  });
+
   it('upgrades a claimed territory target before unrelated construction support', () => {
     const controller = { id: 'controller2', my: true, level: 1 } as StructureController;
     const site = { id: 'site1', structureType: 'road' } as ConstructionSite;

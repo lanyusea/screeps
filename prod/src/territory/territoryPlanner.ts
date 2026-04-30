@@ -507,12 +507,14 @@ export function isVisibleTerritoryAssignmentSafe(
 
   const actorUsername = getTerritoryActorUsername(creep, colony);
   const targetState = getTerritoryControllerTargetState(controller, assignment.action, actorUsername);
-  const isPressureTarget = assignment.action === 'reserve' && isForeignReservedController(controller, actorUsername);
+  const isPressureTarget = isForeignReservedController(controller, actorUsername);
+  if (isPressureTarget) {
+    return creep === undefined || canCreepPressureTerritoryController(creep, controller, colony);
+  }
+
   return (
     targetState === 'available' ||
-    (assignment.action === 'reserve' && targetState === 'satisfied') ||
-    (isPressureTarget &&
-      (creep === undefined || canCreepPressureTerritoryController(creep, controller, colony)))
+    (assignment.action === 'reserve' && targetState === 'satisfied')
   );
 }
 
@@ -3371,17 +3373,22 @@ function isCreepVisibleTerritoryIntentActionable(creep: Creep, intent: Territory
     return false;
   }
 
-  if (intent.action === 'claim' && controller.my === true) {
-    return true;
-  }
-
   if (intent.action === 'reserve') {
     return canCreepActOnVisibleReserveController(creep, controller, intent.colony);
   }
 
+  const actorUsername = getTerritoryActorUsername(creep, intent.colony);
+  if (controller.my === true) {
+    return true;
+  }
+
+  if (isForeignReservedController(controller, actorUsername)) {
+    return canCreepPressureTerritoryController(creep, controller, intent.colony);
+  }
+
   return (
-    getTerritoryControllerTargetState(controller, intent.action, getTerritoryActorUsername(creep, intent.colony)) ===
-    'available'
+    getTerritoryControllerTargetState(controller, intent.action, actorUsername) === 'available' &&
+    canUseControllerClaimPart(creep)
   );
 }
 
@@ -3437,7 +3444,25 @@ function getTerritoryControllerTargetState(
     return 'satisfied';
   }
 
-  return isControllerOwned(controller) ? 'unavailable' : 'available';
+  return getClaimControllerTargetState(controller, colonyOwnerUsername);
+}
+
+function getClaimControllerTargetState(
+  controller: StructureController,
+  colonyOwnerUsername: string | null
+): TerritoryTargetVisibilityState {
+  if (isControllerOwned(controller)) {
+    return 'unavailable';
+  }
+
+  const reservation = controller.reservation;
+  if (!reservation) {
+    return 'available';
+  }
+
+  return isNonEmptyString(reservation.username) && reservation.username === colonyOwnerUsername
+    ? 'available'
+    : 'unavailable';
 }
 
 function getTerritoryActorUsername(creep: Creep | undefined, colony: string | undefined): string | null {
