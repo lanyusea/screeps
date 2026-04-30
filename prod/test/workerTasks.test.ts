@@ -4140,6 +4140,56 @@ describe('selectWorkerTask', () => {
     expect(room.find).toHaveBeenCalledWith(10);
   });
 
+  it('caches room construction reservations across construction candidate checks', () => {
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
+    const coveredSite = {
+      id: 'generic-site-a',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 100
+    } as ConstructionSite;
+    const openSite = {
+      id: 'generic-site-b',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 100
+    } as ConstructionSite;
+    const secondOpenSite = {
+      id: 'generic-site-c',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 150
+    } as ConstructionSite;
+    const myCreeps: Creep[] = [];
+    const room = makeWorkerTaskRoom({
+      constructionSites: [coveredSite, openSite, secondOpenSite],
+      controller: undefined,
+      myCreeps
+    });
+    const assignedBuilder = {
+      name: 'AssignedBuilder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'generic-site-a' as Id<ConstructionSite> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(20) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    myCreeps.push(assignedBuilder, creep);
+    setGameCreeps({});
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site-b' });
+    expect(
+      (room.find as jest.Mock).mock.calls.filter(
+        ([type]: [number]) => type === (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS
+      )
+    ).toHaveLength(1);
+  });
+
   it('keeps off-route road repair behind generic construction even at the critical hit threshold', () => {
     const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
