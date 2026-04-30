@@ -64,7 +64,7 @@ describe('strategy KPI evaluator', () => {
       reliability: { loopExceptionCount: 1 },
       rooms: [
         {
-          roomName: 'E48S28',
+          roomName: 'E48S29',
           controller: { level: 3, progress: 40_000, ticksToDowngrade: 8_000 },
           resources: { storedEnergy: 10_000, workerCarriedEnergy: 500, sourceCount: 2 },
           combat: { events: { creepDestroyedCount: 5 } }
@@ -84,7 +84,7 @@ describe('strategy KPI evaluator', () => {
   it('can reduce a room snapshot artifact without runtime APIs', () => {
     const artifacts = parseStrategyEvaluationArtifacts({
       artifactType: 'room-snapshot',
-      roomName: 'E48S28',
+      roomName: 'E48S29',
       tick: 11,
       owner: 'bot',
       objects: {
@@ -109,7 +109,7 @@ describe('strategy KPI evaluator', () => {
     const artifacts = parseStrategyEvaluationArtifacts([
       {
         artifactType: 'room-snapshot',
-        roomName: 'E48S28',
+        roomName: 'E48S29',
         tick: 12,
         owner: 'bot',
         objects: [
@@ -136,7 +136,7 @@ describe('strategy KPI evaluator', () => {
       const artifacts = parseStrategyEvaluationArtifacts([
         {
           artifactType: 'room-snapshot',
-          roomName: 'E48S28',
+          roomName: 'E48S29',
           tick: 13,
           objects: [
             controller,

@@ -7221,7 +7221,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary"],
       shards: ["shardX"],
-      rooms: ["E48S28"],
+      rooms: ["E48S29"],
       minRcl: 1,
       maxRcl: 4,
       notes: "Reads emitted constructionPriority candidate summaries; does not alter construction selection."
@@ -7257,7 +7257,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary"],
       shards: ["shardX"],
-      rooms: ["E48S28"],
+      rooms: ["E48S29"],
       minRcl: 1,
       maxRcl: 4,
       notes: "Replays only saved constructionPriority candidates with a higher territory signal weight."
@@ -7293,7 +7293,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
       shards: ["shardX"],
-      rooms: ["E48S28"],
+      rooms: ["E48S29"],
       minRcl: 1,
       notes: "Reads territoryRecommendation candidates from saved summaries; it never writes Memory intents."
     },
@@ -7328,7 +7328,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
       shards: ["shardX"],
-      rooms: ["E48S28"],
+      rooms: ["E48S29"],
       minRcl: 1,
       notes: "Emphasizes occupy/reserve candidates in offline ranking reports only."
     },
@@ -7363,7 +7363,7 @@ var DEFAULT_STRATEGY_REGISTRY = [
     supportedContext: {
       artifactTypes: ["runtime-summary", "room-snapshot"],
       shards: ["shardX"],
-      rooms: ["E48S28"],
+      rooms: ["E48S29"],
       minRcl: 1,
       notes: "Ranks observed rooms by hostile and repair pressure from saved artifacts only."
     },
