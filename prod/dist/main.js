@@ -4656,7 +4656,13 @@ function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controll
   }
   const candidates = [
     ...constructionSites.filter((site) => hasUnreservedConstructionProgress(creep, site, constructionReservationContext)).map(
-      (site) => createProductiveEnergySinkCandidate(creep, site, { type: "build", targetId: site.id }, 0)
+      (site) => createProductiveEnergySinkCandidate(
+        creep,
+        site,
+        { type: "build", targetId: site.id },
+        0,
+        canCompleteConstructionSiteWithCarriedEnergy(creep, site)
+      )
     ),
     ...findVisibleRoomStructures(creep.room).filter(isSafeRepairTarget).map(
       (structure) => createProductiveEnergySinkCandidate(
@@ -4674,15 +4680,21 @@ function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controll
   }
   return candidates.sort(compareProductiveEnergySinkCandidates)[0].task;
 }
-function createProductiveEnergySinkCandidate(creep, target, task, taskPriority) {
+function createProductiveEnergySinkCandidate(creep, target, task, taskPriority, canCompleteConstruction = false) {
   const range = getRangeBetweenRoomObjects(creep, target);
   if (range === null) {
     return null;
   }
-  return { range, task, taskPriority };
+  return { canCompleteConstruction, range, task, taskPriority };
 }
 function compareProductiveEnergySinkCandidates(left, right) {
-  return left.range - right.range || left.taskPriority - right.taskPriority || String(left.task.targetId).localeCompare(String(right.task.targetId));
+  return compareProductiveEnergySinkCompletion(left, right) || left.range - right.range || left.taskPriority - right.taskPriority || String(left.task.targetId).localeCompare(String(right.task.targetId));
+}
+function compareProductiveEnergySinkCompletion(left, right) {
+  if (left.canCompleteConstruction === right.canCompleteConstruction) {
+    return 0;
+  }
+  return left.canCompleteConstruction ? -1 : 1;
 }
 function selectCapacityEnablingConstructionSite(creep, constructionSites, controller, constructionReservationContext) {
   const spawnConstructionSite = selectUnreservedConstructionSite(
