@@ -49,6 +49,19 @@ export interface TerritoryIntentPlan {
   followUp?: TerritoryFollowUpMemory;
 }
 
+export interface TerritoryIntentProgressSummary {
+  colony: string;
+  targetRoom: string;
+  action: TerritoryIntentAction;
+  status: 'planned' | 'active';
+  updatedAt: number;
+  activeCreepCount: number;
+  adjacentToColony: boolean;
+  controllerId?: Id<StructureController>;
+  requiresControllerPressure?: boolean;
+  followUp?: TerritoryFollowUpMemory;
+}
+
 interface MemoryRecord {
   territory?: unknown;
 }
@@ -296,6 +309,48 @@ export function getActiveTerritoryFollowUpExecutionHints(
     normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints),
     intents
   ).filter((hint) => !isNonEmptyString(colony) || hint.colony === colony);
+}
+
+export function getTerritoryIntentProgressSummaries(
+  colony: string | null | undefined,
+  roleCounts: RoleCounts
+): TerritoryIntentProgressSummary[] {
+  if (!isNonEmptyString(colony)) {
+    return [];
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return [];
+  }
+
+  return normalizeTerritoryIntents(territoryMemory.intents)
+    .filter((intent): intent is TerritoryIntentMemory & { status: 'planned' | 'active' } =>
+      isTerritoryIntentProgressVisibleForColony(intent, colony)
+    )
+    .map((intent): TerritoryIntentProgressSummary => {
+      const activeCreepCount = getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action);
+      return {
+        colony: intent.colony,
+        targetRoom: intent.targetRoom,
+        action: intent.action,
+        status: intent.status,
+        updatedAt: intent.updatedAt,
+        activeCreepCount,
+        adjacentToColony: isRoomAdjacentToColony(intent.colony, intent.targetRoom),
+        ...(intent.controllerId ? { controllerId: intent.controllerId } : {}),
+        ...(intent.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
+        ...(intent.followUp ? { followUp: intent.followUp } : {})
+      };
+    })
+    .sort(compareTerritoryIntentProgressSummaries);
+}
+
+function isTerritoryIntentProgressVisibleForColony(
+  intent: TerritoryIntentMemory,
+  colony: string
+): intent is TerritoryIntentMemory & { status: 'planned' | 'active' } {
+  return intent.colony === colony && (intent.status === 'planned' || intent.status === 'active');
 }
 
 export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemory {
@@ -2202,6 +2257,10 @@ function getAdjacentRoomNames(roomName: string): string[] {
   });
 }
 
+function isRoomAdjacentToColony(colonyName: string, targetRoom: string): boolean {
+  return getAdjacentRoomNames(colonyName).includes(targetRoom);
+}
+
 function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | null {
   if (!isRecord(rawTarget)) {
     return null;
@@ -3157,6 +3216,19 @@ function compareVisibleControllerIntents(left: TerritoryIntentMemory, right: Ter
     getIntentActionPriority(left.action) - getIntentActionPriority(right.action) ||
     right.updatedAt - left.updatedAt ||
     left.colony.localeCompare(right.colony)
+  );
+}
+
+function compareTerritoryIntentProgressSummaries(
+  left: TerritoryIntentProgressSummary,
+  right: TerritoryIntentProgressSummary
+): number {
+  return (
+    getIntentStatusPriority(left.status) - getIntentStatusPriority(right.status) ||
+    right.activeCreepCount - left.activeCreepCount ||
+    getIntentActionPriority(left.action) - getIntentActionPriority(right.action) ||
+    right.updatedAt - left.updatedAt ||
+    left.targetRoom.localeCompare(right.targetRoom)
   );
 }
 
