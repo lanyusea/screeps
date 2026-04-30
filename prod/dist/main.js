@@ -4130,13 +4130,20 @@ function selectWorkerTask(creep) {
     return { type: "transfer", targetId: priorityTowerEnergySink.id };
   }
   if (bootstrapNonCriticalWorkSuppressed) {
-    return selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, recoveryOnlyWorkSuppressed);
+    return selectBootstrapSurvivalSpendingTask(
+      creep,
+      controller,
+      constructionSites,
+      constructionReservationContext,
+      recoveryOnlyWorkSuppressed
+    );
   }
   const readyFollowUpProductiveEnergySinkTask = selectReadyFollowUpProductiveEnergySinkTask(
     creep,
     capacityConstructionSite,
     controller,
-    constructionSites
+    constructionSites,
+    constructionReservationContext
   );
   if (readyFollowUpProductiveEnergySinkTask) {
     return readyFollowUpProductiveEnergySinkTask;
@@ -4161,11 +4168,20 @@ function selectWorkerTask(creep) {
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
-  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
   if (criticalRoadConstructionSite) {
     return { type: "build", targetId: criticalRoadConstructionSite.id };
   }
-  const containerConstructionSite = selectConstructionSite(creep, constructionSites, isContainerConstructionSite);
+  const containerConstructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    isContainerConstructionSite
+  );
   if (containerConstructionSite) {
     return { type: "build", targetId: containerConstructionSite.id };
   }
@@ -4242,7 +4258,7 @@ function selectFirstEnergySinkByStableId(energySinks) {
   var _a;
   return (_a = [...energySinks].sort(compareEnergySinkId)[0]) != null ? _a : null;
 }
-function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, recoveryOnlyWorkSuppressed) {
+function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, constructionReservationContext, recoveryOnlyWorkSuppressed) {
   if (controller && shouldRushRcl1Controller(controller) && !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)) {
     return { type: "upgrade", targetId: controller.id };
   }
@@ -4256,7 +4272,11 @@ function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSite
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
-  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
   if (criticalRoadConstructionSite) {
     return { type: "build", targetId: criticalRoadConstructionSite.id };
   }
@@ -4718,15 +4738,15 @@ function getBuildPower() {
 function compareConstructionSiteId(left, right) {
   return String(left.id).localeCompare(String(right.id));
 }
-function selectCriticalRoadConstructionSite(creep, constructionSites) {
-  const roadConstructionSites = constructionSites.filter(isRoadConstructionSite2);
-  if (roadConstructionSites.length === 0) {
+function selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext = createEmptyConstructionReservationContext()) {
+  if (!constructionSites.some(isRoadConstructionSite2)) {
     return null;
   }
   const criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
-  return selectConstructionSite(
+  return selectUnreservedConstructionSite(
     creep,
-    roadConstructionSites,
+    constructionSites,
+    constructionReservationContext,
     (site) => isCriticalRoadLogisticsWork(site, criticalRoadContext)
   );
 }
@@ -4797,7 +4817,7 @@ function selectCapacityEnablingConstructionSite(creep, constructionSites, contro
     isExtensionConstructionSite
   );
 }
-function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstructionSite, controller, constructionSites) {
+function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstructionSite, controller, constructionSites, constructionReservationContext) {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
     return null;
   }
@@ -4811,7 +4831,11 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
   if (criticalRepairTarget) {
     return { type: "repair", targetId: criticalRepairTarget.id };
   }
-  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
   return criticalRoadConstructionSite ? { type: "build", targetId: criticalRoadConstructionSite.id } : null;
 }
 function isSpawnConstructionSite(site) {
