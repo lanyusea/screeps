@@ -73,6 +73,12 @@ interface Source2ControllerLaneTopology {
   source: Source;
 }
 
+interface HarvestSourceLoad {
+  assignmentCount: number;
+  capacity: number;
+  source: Source;
+}
+
 let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserveCache | null = null;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
@@ -2128,18 +2134,94 @@ function selectHarvestSource(creep: Creep): Source | null {
 
   const viableSources = selectViableHarvestSources(sources);
   const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, viableSources);
-  let selectedSource = viableSources[0];
-  let selectedCount = assignmentCounts.get(selectedSource.id) ?? 0;
+  const sourceLoads = viableSources.map((source) => ({
+    assignmentCount: assignmentCounts.get(source.id) ?? 0,
+    capacity: getHarvestSourceCapacity(source),
+    source
+  }));
+  let selectedLoad = sourceLoads[0];
 
-  for (const source of viableSources.slice(1)) {
-    const count = assignmentCounts.get(source.id) ?? 0;
-    if (count < selectedCount || (count === selectedCount && isCloserHarvestSource(creep, source, selectedSource))) {
-      selectedSource = source;
-      selectedCount = count;
+  for (const sourceLoad of sourceLoads.slice(1)) {
+    if (compareHarvestSourceLoads(creep, sourceLoad, selectedLoad) < 0) {
+      selectedLoad = sourceLoad;
     }
   }
 
-  return selectedSource;
+  return selectedLoad.source;
+}
+
+function compareHarvestSourceLoads(creep: Creep, left: HarvestSourceLoad, right: HarvestSourceLoad): number {
+  const loadRatioComparison = compareHarvestSourceLoadRatio(left, right);
+  if (loadRatioComparison !== 0) {
+    return loadRatioComparison;
+  }
+
+  const assignmentComparison = left.assignmentCount - right.assignmentCount;
+  if (assignmentComparison !== 0) {
+    return assignmentComparison;
+  }
+
+  if (isCloserHarvestSource(creep, left.source, right.source)) {
+    return -1;
+  }
+
+  if (isCloserHarvestSource(creep, right.source, left.source)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function compareHarvestSourceLoadRatio(left: HarvestSourceLoad, right: HarvestSourceLoad): number {
+  return left.assignmentCount * right.capacity - right.assignmentCount * left.capacity;
+}
+
+function getHarvestSourceCapacity(source: Source): number {
+  const position = getRoomObjectPosition(source);
+  if (!position) {
+    return 1;
+  }
+
+  const terrain = getRoomTerrain(position.roomName);
+  if (!terrain) {
+    return 1;
+  }
+
+  const wallMask = getTerrainWallMask();
+  let capacity = 0;
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      if (dx === 0 && dy === 0) {
+        continue;
+      }
+
+      const x = position.x + dx;
+      const y = position.y + dy;
+      if (x < 0 || x > 49 || y < 0 || y > 49) {
+        continue;
+      }
+
+      if ((terrain.get(x, y) & wallMask) === 0) {
+        capacity += 1;
+      }
+    }
+  }
+
+  return Math.max(1, capacity);
+}
+
+function getRoomTerrain(roomName: string): RoomTerrain | null {
+  const map = (globalThis as unknown as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map;
+  if (typeof map?.getRoomTerrain !== 'function') {
+    return null;
+  }
+
+  return map.getRoomTerrain(roomName);
+}
+
+function getTerrainWallMask(): number {
+  const terrainWallMask = (globalThis as unknown as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
+  return typeof terrainWallMask === 'number' ? terrainWallMask : 1;
 }
 
 function isCloserHarvestSource(creep: Creep, candidate: Source, selected: Source): boolean {
