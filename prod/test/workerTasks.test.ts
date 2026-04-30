@@ -2246,6 +2246,36 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-closer' });
   });
 
+  it('prefers a recovery sink that can accept the full carried load over a closer partial top-off', () => {
+    const recoverySpawn = makeEnergySink('spawn-recovery', 'spawn' as StructureConstant, 300);
+    const partialExtension = makeEnergySink('extension-partial', 'extension' as StructureConstant, 10);
+    const structures = [partialExtension, recoverySpawn];
+    const getRangeTo = jest.fn((target: TestEnergySink) => {
+      const ranges: Record<string, number> = {
+        'extension-partial': 1,
+        'spawn-recovery': 5
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-recovery' });
+  });
+
   it('builds loaded worker energy sink reservations once while screening primary energy sinks', () => {
     const spawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);
     const extension = makeEnergySink('extension-b', 'extension' as StructureConstant, 50);
@@ -2400,7 +2430,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
   });
 
-  it('keeps the assigned primary sink eligible when other workers cover its remaining capacity', () => {
+  it('skips an assigned primary sink when other workers cover its remaining capacity', () => {
     const spawn = makeEnergySink('spawn-covered', 'spawn' as StructureConstant, 50);
     const extension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
     const structures = [spawn, extension];
@@ -2433,7 +2463,79 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     setGameCreeps({ Carrier: creep, OtherCarrier: otherCarrier });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-covered' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
+  });
+
+  it('prefers larger unreserved recovery capacity over an assigned primary sink', () => {
+    const spawn = makeEnergySink('spawn-assigned', 'spawn' as StructureConstant, 60);
+    const extension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
+    const structures = [spawn, extension];
+    const room = {
+      name: 'W1N1',
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+          if (type !== FIND_MY_STRUCTURES) {
+            return [];
+          }
+
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+      )
+    } as unknown as Room;
+    const otherCarrier = {
+      name: 'OtherCarrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-assigned' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Carrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-assigned' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: TestEnergySink) => (target.id === 'spawn-assigned' ? 1 : 8))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Carrier: creep, OtherCarrier: otherCarrier });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
+  });
+
+  it('uses assignment only as a tie-breaker among unreserved primary sinks', () => {
+    const spawn = makeEnergySink('spawn-assigned', 'spawn' as StructureConstant, 100);
+    const extension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
+    const structures = [spawn, extension];
+    const room = {
+      name: 'W1N1',
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+          if (type !== FIND_MY_STRUCTURES) {
+            return [];
+          }
+
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+      )
+    } as unknown as Room;
+    const otherCarrier = {
+      name: 'OtherCarrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-assigned' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Carrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-assigned' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: TestEnergySink) => (target.id === 'spawn-assigned' ? 8 : 1))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ Carrier: creep, OtherCarrier: otherCarrier });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-assigned' });
   });
 
   it('selects fillable extensions before fillable towers', () => {
