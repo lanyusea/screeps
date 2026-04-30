@@ -4064,7 +4064,13 @@ function selectWorkerTask(creep) {
     return null;
   }
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
-  const capacityConstructionSite = selectCapacityEnablingConstructionSite(creep, constructionSites, controller);
+  const constructionReservationContext = constructionSites.length > 0 ? createConstructionReservationContext(creep.room) : createEmptyConstructionReservationContext();
+  const capacityConstructionSite = selectCapacityEnablingConstructionSite(
+    creep,
+    constructionSites,
+    controller,
+    constructionReservationContext
+  );
   if (capacityConstructionSite && !territoryControllerTask) {
     return { type: "build", targetId: capacityConstructionSite.id };
   }
@@ -4087,7 +4093,7 @@ function selectWorkerTask(creep) {
   if (territoryControllerTask) {
     return territoryControllerTask;
   }
-  const source2ControllerLaneLoadedTask = controller ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites) : null;
+  const source2ControllerLaneLoadedTask = controller ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext) : null;
   if (source2ControllerLaneLoadedTask) {
     return source2ControllerLaneLoadedTask;
   }
@@ -4113,17 +4119,31 @@ function selectWorkerTask(creep) {
     return { type: "build", targetId: containerConstructionSite.id };
   }
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
-    const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller);
+    const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
+      creep,
+      constructionSites,
+      controller,
+      constructionReservationContext
+    );
     if (productiveEnergySinkTask) {
       return productiveEnergySinkTask;
     }
     return { type: "upgrade", targetId: controller.id };
   }
-  const roadConstructionSite = selectUnreservedConstructionSite(creep, constructionSites, isRoadConstructionSite2);
+  const roadConstructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    isRoadConstructionSite2
+  );
   if (roadConstructionSite) {
     return { type: "build", targetId: roadConstructionSite.id };
   }
-  const constructionSite = selectUnreservedConstructionSite(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
   if (constructionSite) {
     return { type: "build", targetId: constructionSite.id };
   }
@@ -4519,14 +4539,14 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
   }
   return candidates[0];
 }
-function selectUnreservedConstructionSite(creep, constructionSites, predicate = () => true) {
+function selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, predicate = () => true) {
   return selectConstructionSite(
     creep,
     constructionSites,
-    (site) => predicate(site) && hasUnreservedConstructionProgress(creep, site)
+    (site) => predicate(site) && hasUnreservedConstructionProgress(creep, site, constructionReservationContext)
   );
 }
-function hasUnreservedConstructionProgress(creep, site) {
+function hasUnreservedConstructionProgress(creep, site, constructionReservationContext) {
   if (isWorkerAssignedToConstructionSite(creep, site)) {
     return true;
   }
@@ -4534,15 +4554,33 @@ function hasUnreservedConstructionProgress(creep, site) {
   if (!Number.isFinite(remainingProgress)) {
     return true;
   }
-  return remainingProgress > getReservedConstructionProgress(creep, site);
+  return remainingProgress > getReservedConstructionProgress(site, constructionReservationContext);
 }
-function getReservedConstructionProgress(creep, site) {
-  return getRoomOwnedCreeps(creep.room).reduce((total, worker) => {
-    if (isSameCreep(worker, creep) || !isSameRoomWorker(worker, creep.room) || !isWorkerAssignedToConstructionSite(worker, site)) {
-      return total;
+function getReservedConstructionProgress(site, constructionReservationContext) {
+  var _a;
+  return (_a = constructionReservationContext.reservedProgressBySiteId.get(String(site.id))) != null ? _a : 0;
+}
+function createEmptyConstructionReservationContext() {
+  return { reservedProgressBySiteId: /* @__PURE__ */ new Map() };
+}
+function createConstructionReservationContext(room) {
+  var _a, _b;
+  const reservedProgressBySiteId = /* @__PURE__ */ new Map();
+  for (const worker of getRoomOwnedCreeps(room)) {
+    if (!isSameRoomWorker(worker, room)) {
+      continue;
     }
-    return total + getUsedEnergy(worker) * getBuildPower();
-  }, 0);
+    const task = (_a = worker.memory) == null ? void 0 : _a.task;
+    if ((task == null ? void 0 : task.type) !== "build" || task.targetId === void 0) {
+      continue;
+    }
+    const siteId = String(task.targetId);
+    reservedProgressBySiteId.set(
+      siteId,
+      ((_b = reservedProgressBySiteId.get(siteId)) != null ? _b : 0) + getUsedEnergy(worker) * getBuildPower()
+    );
+  }
+  return { reservedProgressBySiteId };
 }
 function getRoomOwnedCreeps(room) {
   var _a;
@@ -4611,13 +4649,13 @@ function selectCriticalRoadConstructionSite(creep, constructionSites) {
     (site) => isCriticalRoadLogisticsWork(site, criticalRoadContext)
   );
 }
-function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller) {
+function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller, constructionReservationContext) {
   const controllerRange = getRangeBetweenRoomObjects(creep, controller);
   if (controllerRange === null) {
     return null;
   }
   const candidates = [
-    ...constructionSites.filter((site) => hasUnreservedConstructionProgress(creep, site)).map(
+    ...constructionSites.filter((site) => hasUnreservedConstructionProgress(creep, site, constructionReservationContext)).map(
       (site) => createProductiveEnergySinkCandidate(creep, site, { type: "build", targetId: site.id }, 0)
     ),
     ...findVisibleRoomStructures(creep.room).filter(isSafeRepairTarget).map(
@@ -4646,15 +4684,25 @@ function createProductiveEnergySinkCandidate(creep, target, task, taskPriority) 
 function compareProductiveEnergySinkCandidates(left, right) {
   return left.range - right.range || left.taskPriority - right.taskPriority || String(left.task.targetId).localeCompare(String(right.task.targetId));
 }
-function selectCapacityEnablingConstructionSite(creep, constructionSites, controller) {
-  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
+function selectCapacityEnablingConstructionSite(creep, constructionSites, controller, constructionReservationContext) {
+  const spawnConstructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    isSpawnConstructionSite
+  );
   if (spawnConstructionSite) {
     return spawnConstructionSite;
   }
   if (controller && shouldRushRcl1Controller(controller)) {
     return null;
   }
-  return selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
+  return selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    isExtensionConstructionSite
+  );
 }
 function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstructionSite, controller, constructionSites) {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
@@ -5416,11 +5464,16 @@ function shouldApplySource2ControllerLane(creep, controller) {
   }
   return !hasOtherSource2ControllerLaneWorker(creep, topology);
 }
-function selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites) {
+function selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext) {
   if (!shouldApplySource2ControllerLane(creep, controller)) {
     return null;
   }
-  const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller);
+  const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
+    creep,
+    constructionSites,
+    controller,
+    constructionReservationContext
+  );
   return productiveEnergySinkTask != null ? productiveEnergySinkTask : { type: "upgrade", targetId: controller.id };
 }
 function selectSource2ControllerLaneHarvestTask(creep) {
