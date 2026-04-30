@@ -3890,12 +3890,13 @@ function selectSpawnOrExtensionEnergySink(creep) {
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   const assignedTransferTargetId = getAssignedTransferTargetId(creep);
-  return selectClosestEnergySink(
+  const unreservedEnergySink = selectClosestEnergySink(
     energySinks.filter(
       (energySink) => isAssignedTransferTarget(energySink, assignedTransferTargetId) || hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
     ),
     creep
   );
+  return unreservedEnergySink != null ? unreservedEnergySink : selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries);
 }
 function selectPriorityTowerEnergySink(creep) {
   const priorityTowerEnergySinks = findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink);
@@ -3914,6 +3915,42 @@ function selectPriorityTowerEnergySink(creep) {
 }
 function hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries) {
   return getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) < getFreeStoredEnergyCapacity(energySink);
+}
+function selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries) {
+  return selectClosestEnergySink(
+    energySinks.filter(
+      (energySink) => getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) >= getFreeStoredEnergyCapacity(energySink) && isCloserThanReservedEnergyDelivery(creep, energySink, loadedWorkers)
+    ),
+    creep
+  );
+}
+function isCloserThanReservedEnergyDelivery(creep, energySink, loadedWorkers) {
+  const creepRange = getRangeBetweenRoomObjects(creep, energySink);
+  if (creepRange === null) {
+    return false;
+  }
+  let closestReservedDeliveryRange = null;
+  let hasReservedDelivery = false;
+  for (const worker of loadedWorkers) {
+    if (isSameCreep(worker, creep) || !isWorkerAssignedToEnergySink(worker, energySink)) {
+      continue;
+    }
+    hasReservedDelivery = true;
+    const workerRange = getRangeBetweenRoomObjects(worker, energySink);
+    if (workerRange === null) {
+      continue;
+    }
+    closestReservedDeliveryRange = closestReservedDeliveryRange === null ? workerRange : Math.min(closestReservedDeliveryRange, workerRange);
+  }
+  if (!hasReservedDelivery) {
+    return false;
+  }
+  return closestReservedDeliveryRange === null ? creepRange <= 1 : creepRange < closestReservedDeliveryRange;
+}
+function isWorkerAssignedToEnergySink(worker, energySink) {
+  var _a;
+  const task = (_a = worker.memory) == null ? void 0 : _a.task;
+  return (task == null ? void 0 : task.type) === "transfer" && String(task.targetId) === String(energySink.id);
 }
 function getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers) {
   var _a, _b;
