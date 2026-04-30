@@ -3924,6 +3924,88 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
   });
 
+  it('routes carried energy to repair when routine construction progress is already covered', () => {
+    const site = {
+      id: 'generic-site1',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 100
+    } as ConstructionSite;
+    const road = makeStructure('road-worn', 'road' as StructureConstant, 4_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [road] });
+    const assignedBuilder = {
+      name: 'AssignedBuilder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'generic-site1' as Id<ConstructionSite> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(20) },
+      room
+    } as unknown as Creep;
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        controller1: 5,
+        'generic-site1': 1,
+        'road-worn': 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      name: 'Repairer',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AssignedBuilder: assignedBuilder, Repairer: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-worn' });
+  });
+
+  it('keeps routine construction when assigned builders do not cover remaining progress', () => {
+    const site = {
+      id: 'generic-site1',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 150
+    } as ConstructionSite;
+    const road = makeStructure('road-worn', 'road' as StructureConstant, 4_000, 5_000);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [road] });
+    const assignedBuilder = {
+      name: 'AssignedBuilder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'generic-site1' as Id<ConstructionSite> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(20) },
+      room
+    } as unknown as Creep;
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        controller1: 5,
+        'generic-site1': 1,
+        'road-worn': 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AssignedBuilder: assignedBuilder, Builder: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
+  });
+
   it('keeps off-route road repair behind generic construction even at the critical hit threshold', () => {
     const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {

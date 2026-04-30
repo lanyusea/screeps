@@ -265,12 +265,12 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'upgrade', targetId: controller.id };
   }
 
-  const roadConstructionSite = selectConstructionSite(creep, constructionSites, isRoadConstructionSite);
+  const roadConstructionSite = selectUnreservedConstructionSite(creep, constructionSites, isRoadConstructionSite);
   if (roadConstructionSite) {
     return { type: 'build', targetId: roadConstructionSite.id };
   }
 
-  const constructionSite = selectConstructionSite(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(creep, constructionSites);
   if (constructionSite) {
     return { type: 'build', targetId: constructionSite.id };
   }
@@ -866,6 +866,50 @@ function selectConstructionSite(
   return candidates[0];
 }
 
+function selectUnreservedConstructionSite(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  predicate: (site: ConstructionSite) => boolean = () => true
+): ConstructionSite | null {
+  return selectConstructionSite(
+    creep,
+    constructionSites,
+    (site) => predicate(site) && hasUnreservedConstructionProgress(creep, site)
+  );
+}
+
+function hasUnreservedConstructionProgress(creep: Creep, site: ConstructionSite): boolean {
+  if (isWorkerAssignedToConstructionSite(creep, site)) {
+    return true;
+  }
+
+  const remainingProgress = getConstructionSiteRemainingProgress(site);
+  if (!Number.isFinite(remainingProgress)) {
+    return true;
+  }
+
+  return remainingProgress > getReservedConstructionProgress(creep, site);
+}
+
+function getReservedConstructionProgress(creep: Creep, site: ConstructionSite): number {
+  return getGameCreeps().reduce((total, worker) => {
+    if (
+      isSameCreep(worker, creep) ||
+      !isSameRoomWorker(worker, creep.room) ||
+      !isWorkerAssignedToConstructionSite(worker, site)
+    ) {
+      return total;
+    }
+
+    return total + getUsedEnergy(worker) * getBuildPower();
+  }, 0);
+}
+
+function isWorkerAssignedToConstructionSite(worker: Creep, site: ConstructionSite): boolean {
+  const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return task?.type === 'build' && String(task.targetId) === String(site.id);
+}
+
 function selectNearTermCompletableConstructionSite(
   creep: Creep,
   constructionSites: ConstructionSite[]
@@ -970,9 +1014,11 @@ function selectNearbyProductiveEnergySinkTask(
   }
 
   const candidates = [
-    ...constructionSites.map((site) =>
-      createProductiveEnergySinkCandidate(creep, site, { type: 'build', targetId: site.id }, 0)
-    ),
+    ...constructionSites
+      .filter((site) => hasUnreservedConstructionProgress(creep, site))
+      .map((site) =>
+        createProductiveEnergySinkCandidate(creep, site, { type: 'build', targetId: site.id }, 0)
+      ),
     ...findVisibleRoomStructures(creep.room)
       .filter(isSafeRepairTarget)
       .map((structure) =>
