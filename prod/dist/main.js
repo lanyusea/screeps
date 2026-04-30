@@ -1741,15 +1741,15 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
 }
 function recordTerritoryReserveFallbackIntent(colony, assignment, gameTime) {
   if (!isNonEmptyString3(colony) || !isNonEmptyString3(assignment.targetRoom) || assignment.action !== "reserve") {
-    return;
+    return null;
   }
   const territoryMemory = getWritableTerritoryMemoryRecord2();
   if (!territoryMemory) {
-    return;
+    return null;
   }
-  const followUp = normalizeTerritoryFollowUp2(assignment.followUp);
   const intents = normalizeTerritoryIntents2(territoryMemory.intents);
   territoryMemory.intents = intents;
+  const followUp = getTerritoryReserveFallbackFollowUp(assignment, intents, colony, gameTime);
   const requiresControllerPressure = getPersistedTerritoryIntentPressureRequirement(
     intents,
     colony,
@@ -1757,6 +1757,12 @@ function recordTerritoryReserveFallbackIntent(colony, assignment, gameTime) {
     "reserve",
     assignment.controllerId
   );
+  const reserveAssignment = {
+    targetRoom: assignment.targetRoom,
+    action: "reserve",
+    ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
+    ...followUp ? { followUp } : {}
+  };
   const plan = {
     colony,
     targetRoom: assignment.targetRoom,
@@ -1783,6 +1789,7 @@ function recordTerritoryReserveFallbackIntent(colony, assignment, gameTime) {
   });
   recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
   recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
+  return reserveAssignment;
 }
 function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
@@ -3058,6 +3065,32 @@ function getPersistedTerritoryIntentFollowUp(intents, colony, targetRoom, action
     ...selectedIntent.status === "suppressed" ? { suppressedAt: selectedIntent.updatedAt } : {},
     ...shouldPreservePersistedTerritoryIntentPressureRequirement2(selectedIntent, controllerId) ? { requiresControllerPressure: true } : {}
   };
+}
+function getTerritoryReserveFallbackFollowUp(assignment, intents, colony, gameTime) {
+  var _a, _b, _c;
+  const assignmentFollowUp = normalizeTerritoryFollowUp2(assignment.followUp);
+  if (assignmentFollowUp) {
+    return assignmentFollowUp;
+  }
+  const persistedReserveFollowUp = (_a = getPersistedTerritoryIntentFollowUp(
+    intents,
+    colony,
+    assignment.targetRoom,
+    "reserve",
+    gameTime,
+    assignment.controllerId
+  )) == null ? void 0 : _a.followUp;
+  if (persistedReserveFollowUp) {
+    return persistedReserveFollowUp;
+  }
+  return (_c = (_b = getPersistedTerritoryIntentFollowUp(
+    intents,
+    colony,
+    assignment.targetRoom,
+    "claim",
+    gameTime,
+    assignment.controllerId
+  )) == null ? void 0 : _b.followUp) != null ? _c : null;
 }
 function recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime) {
   const demands = pruneCurrentTerritoryFollowUpDemands(territoryMemory, gameTime);
@@ -7826,6 +7859,7 @@ function runTerritoryControllerCreep(creep) {
   }
 }
 function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
+  var _a;
   if (typeof creep.reserveController !== "function" || !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
     return false;
   }
@@ -7837,8 +7871,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
     ...assignment.followUp ? { followUp: assignment.followUp } : {}
   };
   suppressTerritoryIntent(creep.memory.colony, assignment, gameTime);
-  recordTerritoryReserveFallbackIntent(creep.memory.colony, reserveAssignment, gameTime);
-  creep.memory.territory = reserveAssignment;
+  creep.memory.territory = (_a = recordTerritoryReserveFallbackIntent(creep.memory.colony, reserveAssignment, gameTime)) != null ? _a : reserveAssignment;
   const reserveResult = executeControllerAction(creep, controller, "reserveController");
   if (reserveResult === ERR_NOT_IN_RANGE_CODE2 && typeof creep.moveTo === "function") {
     creep.moveTo(controller);

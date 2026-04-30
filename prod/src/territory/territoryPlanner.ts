@@ -592,19 +592,19 @@ export function recordTerritoryReserveFallbackIntent(
   colony: string | undefined,
   assignment: CreepTerritoryMemory,
   gameTime: number
-): void {
+): CreepTerritoryMemory | null {
   if (!isNonEmptyString(colony) || !isNonEmptyString(assignment.targetRoom) || assignment.action !== 'reserve') {
-    return;
+    return null;
   }
 
   const territoryMemory = getWritableTerritoryMemoryRecord();
   if (!territoryMemory) {
-    return;
+    return null;
   }
 
-  const followUp = normalizeTerritoryFollowUp(assignment.followUp);
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
+  const followUp = getTerritoryReserveFallbackFollowUp(assignment, intents, colony, gameTime);
   const requiresControllerPressure = getPersistedTerritoryIntentPressureRequirement(
     intents,
     colony,
@@ -612,6 +612,12 @@ export function recordTerritoryReserveFallbackIntent(
     'reserve',
     assignment.controllerId
   );
+  const reserveAssignment: CreepTerritoryMemory = {
+    targetRoom: assignment.targetRoom,
+    action: 'reserve',
+    ...(assignment.controllerId ? { controllerId: assignment.controllerId } : {}),
+    ...(followUp ? { followUp } : {})
+  };
   const plan: TerritoryIntentPlan = {
     colony,
     targetRoom: assignment.targetRoom,
@@ -639,6 +645,7 @@ export function recordTerritoryReserveFallbackIntent(
   });
   recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
   recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
+  return reserveAssignment;
 }
 
 export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
@@ -2657,6 +2664,41 @@ function getPersistedTerritoryIntentFollowUp(
       ? { requiresControllerPressure: true }
       : {})
   };
+}
+
+function getTerritoryReserveFallbackFollowUp(
+  assignment: CreepTerritoryMemory,
+  intents: TerritoryIntentMemory[],
+  colony: string,
+  gameTime: number
+): TerritoryFollowUpMemory | null {
+  const assignmentFollowUp = normalizeTerritoryFollowUp(assignment.followUp);
+  if (assignmentFollowUp) {
+    return assignmentFollowUp;
+  }
+
+  const persistedReserveFollowUp = getPersistedTerritoryIntentFollowUp(
+    intents,
+    colony,
+    assignment.targetRoom,
+    'reserve',
+    gameTime,
+    assignment.controllerId
+  )?.followUp;
+  if (persistedReserveFollowUp) {
+    return persistedReserveFollowUp;
+  }
+
+  return (
+    getPersistedTerritoryIntentFollowUp(
+      intents,
+      colony,
+      assignment.targetRoom,
+      'claim',
+      gameTime,
+      assignment.controllerId
+    )?.followUp ?? null
+  );
 }
 
 function recordTerritoryFollowUpDemand(
