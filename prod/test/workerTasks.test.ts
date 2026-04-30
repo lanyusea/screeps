@@ -4284,6 +4284,109 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
+  it('builds a finishable extension before a closer unfinished extension', () => {
+    const nearExtensionSite = {
+      id: 'extension-near',
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 200
+    } as ConstructionSite;
+    const finishableExtensionSite = {
+      id: 'extension-finishable',
+      structureType: 'extension',
+      progress: 175,
+      progressTotal: 200
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const getRangeTo = jest.fn((target: ConstructionSite) =>
+      target.id === 'extension-finishable' ? 8 : 1
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({
+        constructionSites: [nearExtensionSite, finishableExtensionSite],
+        controller
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-finishable' });
+  });
+
+  it('keeps closest extension construction when no extension can be completed with carried energy', () => {
+    const nearExtensionSite = {
+      id: 'extension-near',
+      structureType: 'extension',
+      progress: 0,
+      progressTotal: 200
+    } as ConstructionSite;
+    const fartherExtensionSite = {
+      id: 'extension-farther',
+      structureType: 'extension',
+      progress: 100,
+      progressTotal: 200
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const getRangeTo = jest.fn((target: ConstructionSite) =>
+      target.id === 'extension-farther' ? 8 : 1
+    );
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({
+        constructionSites: [nearExtensionSite, fartherExtensionSite],
+        controller
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-near' });
+  });
+
+  it('keeps bootstrap spawn construction before a finishable extension', () => {
+    const spawnSite = {
+      id: 'spawn-site1',
+      structureType: 'spawn',
+      progress: 0,
+      progressTotal: 15_000
+    } as ConstructionSite;
+    const finishableExtensionSite = {
+      id: 'extension-finishable',
+      structureType: 'extension',
+      progress: 175,
+      progressTotal: 200
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 1,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: ConstructionSite) =>
+          target.id === 'extension-finishable' ? 1 : 8
+        )
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [finishableExtensionSite, spawnSite],
+        controller
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
+  });
+
   it('builds container construction before road construction after spawn refill is satisfied', () => {
     const roadSite = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
     const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;

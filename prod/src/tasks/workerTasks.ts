@@ -849,14 +849,12 @@ function selectConstructionSite(
   }).pos;
 
   if (typeof position?.getRangeTo === 'function') {
-    return [...candidates].sort(compareConstructionSiteId).reduce((closest, candidate) => {
-      const closestRange = position.getRangeTo?.(closest) ?? Infinity;
-      const candidateRange = position.getRangeTo?.(candidate) ?? Infinity;
-      return candidateRange < closestRange ||
-        (candidateRange === closestRange && compareConstructionSiteId(candidate, closest) < 0)
-        ? candidate
-        : closest;
-    });
+    return [...candidates].sort((left, right) => compareConstructionSiteCandidates(creep, left, right))[0];
+  }
+
+  const completableConstructionSite = selectNearTermCompletableConstructionSite(creep, candidates);
+  if (completableConstructionSite) {
+    return completableConstructionSite;
   }
 
   if (typeof position?.findClosestByRange === 'function') {
@@ -865,6 +863,72 @@ function selectConstructionSite(
   }
 
   return candidates[0];
+}
+
+function selectNearTermCompletableConstructionSite(
+  creep: Creep,
+  constructionSites: ConstructionSite[]
+): ConstructionSite | null {
+  const candidates = constructionSites.filter((site) => canCompleteConstructionSiteWithCarriedEnergy(creep, site));
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareNearTermCompletableConstructionSites)[0];
+}
+
+function compareConstructionSiteCandidates(
+  creep: Creep,
+  left: ConstructionSite,
+  right: ConstructionSite
+): number {
+  return (
+    compareConstructionSiteCompletion(creep, left, right) ||
+    compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
+    compareConstructionSiteId(left, right)
+  );
+}
+
+function compareConstructionSiteCompletion(
+  creep: Creep,
+  left: ConstructionSite,
+  right: ConstructionSite
+): number {
+  const leftCompletable = canCompleteConstructionSiteWithCarriedEnergy(creep, left);
+  const rightCompletable = canCompleteConstructionSiteWithCarriedEnergy(creep, right);
+  if (leftCompletable !== rightCompletable) {
+    return leftCompletable ? -1 : 1;
+  }
+
+  return leftCompletable && rightCompletable ? compareNearTermCompletableConstructionSites(left, right) : 0;
+}
+
+function compareNearTermCompletableConstructionSites(left: ConstructionSite, right: ConstructionSite): number {
+  return (
+    getConstructionSiteRemainingProgress(left) -
+      getConstructionSiteRemainingProgress(right) ||
+    compareConstructionSiteId(left, right)
+  );
+}
+
+function canCompleteConstructionSiteWithCarriedEnergy(creep: Creep, site: ConstructionSite): boolean {
+  const remainingProgress = getConstructionSiteRemainingProgress(site);
+  return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep);
+}
+
+function getConstructionSiteRemainingProgress(site: ConstructionSite): number {
+  const progress = (site as ConstructionSite & { progress?: number }).progress;
+  const progressTotal = (site as ConstructionSite & { progressTotal?: number }).progressTotal;
+  if (
+    typeof progress !== 'number' ||
+    typeof progressTotal !== 'number' ||
+    !Number.isFinite(progress) ||
+    !Number.isFinite(progressTotal)
+  ) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.max(0, Math.ceil(progressTotal - progress));
 }
 
 function compareConstructionSiteId(left: ConstructionSite, right: ConstructionSite): number {
