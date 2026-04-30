@@ -214,7 +214,16 @@ export function shouldSpawnTerritoryControllerCreep(
 }
 
 export function requiresTerritoryControllerPressure(plan: TerritoryIntentPlan): boolean {
-  return plan.action === 'reserve' && plan.requiresControllerPressure === true;
+  return (
+    plan.action === 'reserve' &&
+    (plan.requiresControllerPressure === true ||
+      isVisibleTerritoryReservePressureAvailable(
+        plan.targetRoom,
+        plan.action,
+        plan.controllerId,
+        getVisibleColonyOwnerUsername(plan.colony)
+      ))
+  );
 }
 
 function isTerritoryIntentPlanSpawnCapable(plan: TerritoryIntentPlan): boolean {
