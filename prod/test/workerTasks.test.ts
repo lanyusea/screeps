@@ -2276,6 +2276,31 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
   });
 
+  it('spends carried energy productively when another worker covers the low tower refill', () => {
+    const lowTower = makeTowerEnergySink('tower-covered', TOWER_REFILL_ENERGY_FLOOR - 1, 50);
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      myStructures: [lowTower as AnyOwnedStructure]
+    });
+    const assignedCarrier = {
+      name: 'TowerCarrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'tower-covered' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo: jest.fn((target: { id: string }) => (target.id === 'site1' ? 1 : 5)) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ TowerCarrier: assignedCarrier, Builder: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'site1' });
+  });
+
   it.each([
     ['spawn', 'spawn-site1'],
     ['extension', 'extension-site1']

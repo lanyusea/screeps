@@ -3893,7 +3893,19 @@ function selectSpawnOrExtensionEnergySink(creep) {
   );
 }
 function selectPriorityTowerEnergySink(creep) {
-  return selectClosestEnergySink(findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink), creep);
+  const priorityTowerEnergySinks = findFillableEnergySinks(creep).filter(isPriorityTowerEnergySink);
+  if (priorityTowerEnergySinks.length === 0) {
+    return null;
+  }
+  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
+  const assignedTransferTargetId = getAssignedTransferTargetId(creep);
+  return selectClosestEnergySink(
+    priorityTowerEnergySinks.filter(
+      (energySink) => isAssignedTransferTarget(energySink, assignedTransferTargetId) || hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
+    ),
+    creep
+  );
 }
 function hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries) {
   return getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) < getFreeStoredEnergyCapacity(energySink);
