@@ -6042,6 +6042,56 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
   });
 
+  it('finishes source2/controller lane construction before a closer unfinished build target', () => {
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
+    const unfinishedSite = {
+      id: 'tower-unfinished',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 1_000,
+      pos: makeRoomPosition(26, 24)
+    } as ConstructionSite;
+    const finishableSite = {
+      id: 'tower-finishable',
+      structureType: 'tower',
+      progress: 250,
+      progressTotal: 500,
+      pos: makeRoomPosition(27, 24)
+    } as ConstructionSite;
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 23);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [unfinishedSite, finishableSite],
+      controller,
+      sources: [source1, source2]
+    });
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        controller1: 4,
+        'tower-finishable': 3,
+        'tower-unfinished': 1
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    const creep = {
+      name: 'LaneWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { ...makeRoomPosition(25, 24), getRangeTo } as unknown as RoomPosition,
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LaneWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-finishable' });
+  });
+
   it.each([
     ['spawn', 'spawn1'],
     ['extension', 'extension1']
