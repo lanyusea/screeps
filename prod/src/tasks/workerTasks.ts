@@ -218,14 +218,21 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   if (bootstrapNonCriticalWorkSuppressed) {
-    return selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, recoveryOnlyWorkSuppressed);
+    return selectBootstrapSurvivalSpendingTask(
+      creep,
+      controller,
+      constructionSites,
+      constructionReservationContext,
+      recoveryOnlyWorkSuppressed
+    );
   }
 
   const readyFollowUpProductiveEnergySinkTask = selectReadyFollowUpProductiveEnergySinkTask(
     creep,
     capacityConstructionSite,
     controller,
-    constructionSites
+    constructionSites,
+    constructionReservationContext
   );
   if (readyFollowUpProductiveEnergySinkTask) {
     return readyFollowUpProductiveEnergySinkTask;
@@ -259,12 +266,21 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return null;
   }
 
-  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
   if (criticalRoadConstructionSite) {
     return { type: 'build', targetId: criticalRoadConstructionSite.id };
   }
 
-  const containerConstructionSite = selectConstructionSite(creep, constructionSites, isContainerConstructionSite);
+  const containerConstructionSite = selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    isContainerConstructionSite
+  );
   if (containerConstructionSite) {
     return { type: 'build', targetId: containerConstructionSite.id };
   }
@@ -363,6 +379,7 @@ function selectBootstrapSurvivalSpendingTask(
   creep: Creep,
   controller: StructureController | undefined,
   constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext,
   recoveryOnlyWorkSuppressed: boolean
 ): CreepTaskMemory | null {
   if (
@@ -386,7 +403,11 @@ function selectBootstrapSurvivalSpendingTask(
     return null;
   }
 
-  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
   if (criticalRoadConstructionSite) {
     return { type: 'build', targetId: criticalRoadConstructionSite.id };
   }
@@ -1098,17 +1119,18 @@ function compareConstructionSiteId(left: ConstructionSite, right: ConstructionSi
 
 function selectCriticalRoadConstructionSite(
   creep: Creep,
-  constructionSites: ConstructionSite[]
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext()
 ): ConstructionSite | null {
-  const roadConstructionSites = constructionSites.filter(isRoadConstructionSite);
-  if (roadConstructionSites.length === 0) {
+  if (!constructionSites.some(isRoadConstructionSite)) {
     return null;
   }
 
   const criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
-  return selectConstructionSite(
+  return selectUnreservedConstructionSite(
     creep,
-    roadConstructionSites,
+    constructionSites,
+    constructionReservationContext,
     (site) => isCriticalRoadLogisticsWork(site, criticalRoadContext)
   );
 }
@@ -1228,7 +1250,8 @@ function selectReadyFollowUpProductiveEnergySinkTask(
   creep: Creep,
   capacityConstructionSite: ConstructionSite | null,
   controller: StructureController | undefined,
-  constructionSites: ConstructionSite[]
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
 ): ProductiveEnergySinkTask | null {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
     return null;
@@ -1247,7 +1270,11 @@ function selectReadyFollowUpProductiveEnergySinkTask(
     return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
   }
 
-  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext
+  );
   return criticalRoadConstructionSite ? { type: 'build', targetId: criticalRoadConstructionSite.id } : null;
 }
 
