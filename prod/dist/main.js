@@ -4002,7 +4002,7 @@ function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSite
   if (controller && shouldRushRcl1Controller(controller) && !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)) {
     return { type: "upgrade", targetId: controller.id };
   }
-  if (recoveryOnlyWorkSuppressed) {
+  if (recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep)) {
     return null;
   }
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);

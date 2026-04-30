@@ -257,16 +257,14 @@ function recordSurvivalMode(
     ...(globalScope.Game ?? {}),
     time: tick
   };
-  recordColonySurvivalAssessment(
-    'W1N1',
-    assessColonySurvival({
-      roomName: 'W1N1',
-      energyCapacityAvailable: 650,
-      controller: { my: true, level: 3, ticksToDowngrade: 10_000 },
-      ...inputByMode
-    }),
-    tick
-  );
+  const assessment = assessColonySurvival({
+    roomName: 'W1N1',
+    energyCapacityAvailable: 650,
+    controller: { my: true, level: 3, ticksToDowngrade: 10_000 },
+    ...inputByMode
+  });
+  expect(assessment.mode).toBe(mode);
+  recordColonySurvivalAssessment('W1N1', assessment, tick);
 }
 
 describe('selectWorkerTask', () => {
@@ -3094,7 +3092,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
-  it('suppresses critical infrastructure repair during bootstrap', () => {
+  it('allows home critical infrastructure repair during bootstrap', () => {
     recordSurvivalMode('BOOTSTRAP');
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
       pos: makeRoomPosition(10, 10)
@@ -3111,6 +3109,40 @@ describe('selectWorkerTask', () => {
         sources: [source],
         structures: [road]
       })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-critical' });
+  });
+
+  it('suppresses remote critical infrastructure repair during bootstrap', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const road = makeStructure('remote-road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(12, 10, 'W2N1')
+    });
+    const source = makeSource('source1', 20, 10, 'W2N1');
+    const controller = {
+      id: 'controller2',
+      my: false,
+      pos: makeRoomPosition(10, 10, 'W2N1'),
+      reservation: { username: 'Self', ticksToEnd: 1_000 }
+    } as StructureController;
+    setGameSpawns({ Spawn1: makeSpawn('Spawn1', 10, 10, 'W1N1') });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+    const room = makeWorkerTaskRoom({
+      controller,
+      sources: [source],
+      structures: [road]
+    });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      owner: { username: 'Self' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toBeNull();

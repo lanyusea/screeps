@@ -300,7 +300,7 @@ function selectBootstrapSurvivalSpendingTask(
     return { type: 'upgrade', targetId: controller.id };
   }
 
-  if (recoveryOnlyWorkSuppressed) {
+  if (recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep)) {
     return null;
   }
 
