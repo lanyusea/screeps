@@ -5,6 +5,7 @@ import {
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
 } from '../tasks/workerTasks';
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
+import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 
 type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
 type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
@@ -543,6 +544,13 @@ function executeTask(
     case 'claim':
       return creep.claimController(target as StructureController);
     case 'reserve':
+      if (
+        typeof creep.attackController === 'function' &&
+        canCreepPressureTerritoryController(creep, target as StructureController, creep.memory.colony)
+      ) {
+        return creep.attackController(target as StructureController);
+      }
+
       return creep.reserveController(target as StructureController);
     case 'upgrade':
       signOccupiedControllerIfNeeded(creep, target as StructureController);

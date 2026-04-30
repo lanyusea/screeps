@@ -21,6 +21,7 @@ export interface OccupationRecommendationScore {
   risks: string[];
   routeDistance?: number;
   controllerId?: Id<StructureController>;
+  requiresControllerPressure?: boolean;
   sourceCount?: number;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
@@ -31,6 +32,7 @@ export interface OccupationRecommendationFollowUpIntent {
   targetRoom: string;
   action: TerritoryIntentAction;
   controllerId?: Id<StructureController>;
+  requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
 }
 
@@ -130,6 +132,11 @@ export function persistOccupationRecommendationFollowUpIntent(
   }
 
   const controllerId = followUpIntent.controllerId ?? existingIntent?.controllerId;
+  const requiresControllerPressure =
+    followUpIntent.requiresControllerPressure === true ||
+    (existingIntent
+      ? shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId)
+      : false);
   const followUp = normalizeTerritoryFollowUp(followUpIntent.followUp) ?? existingIntent?.followUp;
   const nextIntent: TerritoryIntentMemory = {
     colony: followUpIntent.colony,
@@ -138,6 +145,7 @@ export function persistOccupationRecommendationFollowUpIntent(
     status: existingIntent?.status === 'active' ? 'active' : 'planned',
     updatedAt: gameTime,
     ...(controllerId ? { controllerId } : {}),
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(followUp ? { followUp } : {})
   };
 
@@ -269,6 +277,7 @@ function scoreOccupationCandidate(
   const routeDistance = typeof candidate.routeDistance === 'number' ? candidate.routeDistance : undefined;
   let action: OccupationRecommendationAction = 'scout';
   let evidenceStatus: OccupationRecommendationEvidenceStatus = 'sufficient';
+  let requiresControllerPressure = false;
 
   if (candidate.routeDistance === null) {
     risks.push('no known route from colony');
@@ -283,8 +292,19 @@ function scoreOccupationCandidate(
     evidenceStatus = 'unavailable';
   } else {
     evidence.push('room visible', 'controller visible');
+    const controllerPressureEvidence = getControllerPressureEvidence(input, candidate);
     const unavailableReason = getControllerUnavailableReason(input, candidate.controller);
-    if (unavailableReason) {
+    if (controllerPressureEvidence) {
+      evidence.push(controllerPressureEvidence);
+      action = 'reserve';
+      requiresControllerPressure = true;
+      if (candidate.sourceCount === undefined) {
+        risks.push('source count evidence missing');
+        evidenceStatus = 'insufficient-evidence';
+      } else {
+        evidence.push(`${candidate.sourceCount} sources visible`);
+      }
+    } else if (unavailableReason) {
       risks.push(unavailableReason);
       evidenceStatus = 'unavailable';
       action = candidate.actionHint === 'claim' ? 'occupy' : 'reserve';
@@ -324,6 +344,7 @@ function scoreOccupationCandidate(
     risks,
     ...(routeDistance !== undefined ? { routeDistance } : {}),
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.sourceCount !== undefined ? { sourceCount: candidate.sourceCount } : {}),
     ...(candidate.hostileCreepCount !== undefined ? { hostileCreepCount: candidate.hostileCreepCount } : {}),
     ...(candidate.hostileStructureCount !== undefined ? { hostileStructureCount: candidate.hostileStructureCount } : {})
@@ -342,7 +363,8 @@ function buildOccupationRecommendationFollowUpIntent(
     colony: input.colonyName,
     targetRoom: next.roomName,
     action: getTerritoryIntentAction(next.action),
-    ...(next.controllerId ? { controllerId: next.controllerId } : {})
+    ...(next.controllerId ? { controllerId: next.controllerId } : {}),
+    ...(next.requiresControllerPressure ? { requiresControllerPressure: true } : {})
   };
 }
 
@@ -370,6 +392,8 @@ function calculateOccupationScore(
     ((input.controllerLevel ?? 0) >= 2 ? 30 : 0) +
     (input.ticksToDowngrade === undefined || input.ticksToDowngrade > DOWNGRADE_GUARD_TICKS ? 20 : 0);
   const riskPenalty = (candidate.hostileCreepCount ?? 0) * 160 + (candidate.hostileStructureCount ?? 0) * 120;
+  const controllerPressurePenalty =
+    candidate.controller && isForeignReservation(input, candidate.controller) ? 180 : 0;
   const evidencePenalty = evidenceStatus === 'insufficient-evidence' ? 260 : 0;
   const unavailablePenalty = evidenceStatus === 'unavailable' ? 2_000 : 0;
 
@@ -382,9 +406,26 @@ function calculateOccupationScore(
     supportScore +
     readinessScore -
     riskPenalty -
+    controllerPressurePenalty -
     evidencePenalty -
     unavailablePenalty
   );
+}
+
+function getControllerPressureEvidence(
+  input: OccupationRecommendationInput,
+  candidate: OccupationRecommendationCandidateInput
+): string | null {
+  if (
+    candidate.source !== 'configured' ||
+    candidate.actionHint !== 'reserve' ||
+    !candidate.controller ||
+    !isForeignReservation(input, candidate.controller)
+  ) {
+    return null;
+  }
+
+  return 'foreign reservation can be pressured';
 }
 
 function getColonyReadinessPreconditions(input: OccupationRecommendationInput): string[] {
@@ -453,6 +494,19 @@ function isOwnReservation(input: OccupationRecommendationInput, controller: Occu
   return (
     input.colonyOwnerUsername !== undefined &&
     controller.reservationUsername === input.colonyOwnerUsername
+  );
+}
+
+function isForeignReservation(
+  input: OccupationRecommendationInput,
+  controller: OccupationControllerEvidence
+): boolean {
+  return (
+    input.colonyOwnerUsername !== undefined &&
+    controller.my !== true &&
+    controller.ownerUsername === undefined &&
+    controller.reservationUsername !== undefined &&
+    controller.reservationUsername !== input.colonyOwnerUsername
   );
 }
 
@@ -668,6 +722,7 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
     ...(typeof rawIntent.controllerId === 'string'
       ? { controllerId: rawIntent.controllerId as Id<StructureController> }
       : {}),
+    ...(rawIntent.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
     ...(followUp ? { followUp } : {})
   };
 }
@@ -696,11 +751,52 @@ function getTerritoryFollowUpOriginAction(source: TerritoryFollowUpSource): Terr
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
   const existingIndex = intents.findIndex((intent) => isSameTerritoryIntent(intent, nextIntent));
   if (existingIndex >= 0) {
-    intents[existingIndex] = nextIntent;
+    const existingIntent = intents[existingIndex];
+    const controllerId = nextIntent.controllerId ?? existingIntent.controllerId;
+    const preserveControllerPressure =
+      !nextIntent.requiresControllerPressure &&
+      shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId);
+    intents[existingIndex] = {
+      ...nextIntent,
+      ...(preserveControllerPressure ? { requiresControllerPressure: true } : {})
+    };
     return;
   }
 
   intents.push(nextIntent);
+}
+
+function shouldPreservePersistedTerritoryIntentPressureRequirement(
+  intent: TerritoryIntentMemory,
+  controllerId: Id<StructureController> | undefined = intent.controllerId
+): boolean {
+  return (
+    intent.requiresControllerPressure === true &&
+    isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId)
+  );
+}
+
+function isTerritoryControllerPressureVisibilityMissing(
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  controllerId?: Id<StructureController>
+): boolean {
+  return action === 'reserve' && getVisibleController(targetRoom, controllerId) === null;
+}
+
+function getVisibleController(targetRoom: string, controllerId?: Id<StructureController>): StructureController | null {
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  const roomController = game?.rooms?.[targetRoom]?.controller;
+  if (roomController) {
+    return roomController;
+  }
+
+  const getObjectById = game?.getObjectById;
+  if (controllerId && typeof getObjectById === 'function') {
+    return getObjectById.call(game, controllerId) as StructureController | null;
+  }
+
+  return null;
 }
 
 function isSameTerritoryIntent(

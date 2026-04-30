@@ -49,6 +49,7 @@ declare global {
     updatedAt: number;
     lastAttemptAt?: number;
     controllerId?: Id<StructureController>;
+    requiresControllerPressure?: boolean;
     followUp?: TerritoryFollowUpMemory;
   }
 

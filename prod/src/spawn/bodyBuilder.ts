@@ -4,6 +4,13 @@ const WORKER_LOGISTICS_PAIR: BodyPartConstant[] = ['carry', 'move'];
 const WORKER_LOGISTICS_PAIR_COST = 100;
 const TERRITORY_CONTROLLER_BODY: BodyPartConstant[] = ['claim', 'move'];
 export const TERRITORY_CONTROLLER_BODY_COST = 650;
+export const TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS = 5;
+const TERRITORY_CONTROLLER_PRESSURE_BODY: BodyPartConstant[] = Array.from(
+  { length: TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS },
+  () => TERRITORY_CONTROLLER_BODY
+).flat();
+export const TERRITORY_CONTROLLER_PRESSURE_BODY_COST =
+  TERRITORY_CONTROLLER_BODY_COST * TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
 const MAX_CREEP_PARTS = 50;
 // General workers cover harvest, haul, build, and upgrade duties. Cap them at
 // four 200-energy patterns (800 energy) so early rooms do not sink capacity into
@@ -66,6 +73,14 @@ export function buildTerritoryControllerBody(energyAvailable: number): BodyPartC
   }
 
   return [...TERRITORY_CONTROLLER_BODY];
+}
+
+export function buildTerritoryControllerPressureBody(energyAvailable: number): BodyPartConstant[] {
+  if (energyAvailable < TERRITORY_CONTROLLER_PRESSURE_BODY_COST) {
+    return [];
+  }
+
+  return [...TERRITORY_CONTROLLER_PRESSURE_BODY];
 }
 
 export function getBodyCost(body: BodyPartConstant[]): number {

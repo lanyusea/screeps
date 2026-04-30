@@ -1,6 +1,7 @@
 import {
   buildEmergencyWorkerBody,
   buildTerritoryControllerBody,
+  buildTerritoryControllerPressureBody,
   buildWorkerBody,
   getBodyCost
 } from '../src/spawn/bodyBuilder';
@@ -80,6 +81,27 @@ describe('buildTerritoryControllerBody', () => {
 
   it('builds one claim and move part when affordable', () => {
     expect(buildTerritoryControllerBody(650)).toEqual(['claim', 'move']);
+  });
+});
+
+describe('buildTerritoryControllerPressureBody', () => {
+  it('returns an empty body below five claim/move pairs', () => {
+    expect(buildTerritoryControllerPressureBody(3249)).toEqual([]);
+  });
+
+  it('builds five claim/move pairs when affordable', () => {
+    expect(buildTerritoryControllerPressureBody(3250)).toEqual([
+      'claim',
+      'move',
+      'claim',
+      'move',
+      'claim',
+      'move',
+      'claim',
+      'move',
+      'claim',
+      'move'
+    ]);
   });
 });
 
