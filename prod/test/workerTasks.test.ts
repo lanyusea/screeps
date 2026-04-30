@@ -1482,6 +1482,42 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
+  it('uses source access capacity before closeness when harvest assignments tie', () => {
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    const tightSource = makeSource('source-tight', 10, 10);
+    const openSource = makeSource('source-open', 20, 20);
+    const openHarvestTiles = new Set(['10,9', '19,20', '20,19', '21,20']);
+    const room = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([tightSource, openSource])
+    } as unknown as Room;
+    const getRangeTo = jest.fn((target: Source) => (target.id === 'source-tight' ? 1 : 8));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        TightHarvester: {
+          memory: { role: 'worker', task: { type: 'harvest', targetId: 'source-tight' as Id<Source> } },
+          room
+        } as unknown as Creep,
+        OpenHarvester: {
+          memory: { role: 'worker', task: { type: 'harvest', targetId: 'source-open' as Id<Source> } },
+          room
+        } as unknown as Creep
+      },
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({
+          get: jest.fn((x: number, y: number) => (openHarvestTiles.has(`${x},${y}`) ? 0 : TERRAIN_MASK_WALL))
+        })
+      } as unknown as GameMap
+    };
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-open' });
+  });
+
   it('avoids depleted harvest sources when another source has energy', () => {
     const depletedSource = { id: 'source-empty', energy: 0 } as Source;
     const viableSource = { id: 'source-full', energy: 300 } as Source;
