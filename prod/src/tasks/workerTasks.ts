@@ -1083,7 +1083,7 @@ function selectCapacityEnablingConstructionSite(
   constructionSites: ConstructionSite[],
   controller: StructureController | undefined
 ): ConstructionSite | null {
-  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
+  const spawnConstructionSite = selectUnreservedConstructionSite(creep, constructionSites, isSpawnConstructionSite);
   if (spawnConstructionSite) {
     return spawnConstructionSite;
   }
@@ -1092,7 +1092,7 @@ function selectCapacityEnablingConstructionSite(
     return null;
   }
 
-  return selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
+  return selectUnreservedConstructionSite(creep, constructionSites, isExtensionConstructionSite);
 }
 
 function selectReadyFollowUpProductiveEnergySinkTask(

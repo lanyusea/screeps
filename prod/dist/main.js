@@ -4647,14 +4647,14 @@ function compareProductiveEnergySinkCandidates(left, right) {
   return left.range - right.range || left.taskPriority - right.taskPriority || String(left.task.targetId).localeCompare(String(right.task.targetId));
 }
 function selectCapacityEnablingConstructionSite(creep, constructionSites, controller) {
-  const spawnConstructionSite = selectConstructionSite(creep, constructionSites, isSpawnConstructionSite);
+  const spawnConstructionSite = selectUnreservedConstructionSite(creep, constructionSites, isSpawnConstructionSite);
   if (spawnConstructionSite) {
     return spawnConstructionSite;
   }
   if (controller && shouldRushRcl1Controller(controller)) {
     return null;
   }
-  return selectConstructionSite(creep, constructionSites, isExtensionConstructionSite);
+  return selectUnreservedConstructionSite(creep, constructionSites, isExtensionConstructionSite);
 }
 function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstructionSite, controller, constructionSites) {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
