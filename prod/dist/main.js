@@ -1440,7 +1440,13 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
     recoveredTerritoryFollowUpRetryMetadata.set(plan, { suppressedAt: selection.recoveredFollowUpSuppressedAt });
   }
   const status = getTerritoryCreepCountForTarget(roleCounts, plan.targetRoom, plan.action) > 0 ? "active" : "planned";
-  recordTerritoryIntent(plan, status, gameTime, selection.commitTarget ? target : null);
+  recordTerritoryIntent(
+    plan,
+    status,
+    gameTime,
+    selection.commitTarget ? target : null,
+    selection.routeDistanceLookupContext
+  );
   return plan;
 }
 function recordRecoveredTerritoryFollowUpRetryCooldown(plan, gameTime = getGameTime3()) {
@@ -1816,8 +1822,8 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
   if (sanitizedStaleProgress.changed) {
     intents = sanitizedStaleProgress.intents;
   }
-  refreshTerritoryFollowUpExecutionHints(territoryMemory, intents);
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
+  refreshTerritoryFollowUpExecutionHints(territoryMemory, intents, routeDistanceLookupContext);
   const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
     colony,
     territoryMemory,
@@ -1866,7 +1872,7 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
     );
     const shouldEvaluateAdjacentFollowUp = shouldEvaluateVisibleAdjacentFollowUpPreference(bestReadyPrimaryCandidate);
     if (!shouldEvaluateAdjacentControllerProgress && !shouldEvaluateAdjacentFollowUp) {
-      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate);
+      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
     const visibleAdjacentControllerProgressCandidates = applyOccupationRecommendationScores(
       colony,
@@ -1893,7 +1899,7 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
       ]
     );
     if (visibleAdjacentControllerProgressCandidates.length === 0) {
-      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate);
+      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
     return toSelectedTerritoryTarget(
       (_a = selectBestScoredTerritoryCandidate(
@@ -1902,7 +1908,8 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
           roleCounts,
           colony
         )
-      )) != null ? _a : bestReadyPrimaryCandidate
+      )) != null ? _a : bestReadyPrimaryCandidate,
+      routeDistanceLookupContext
     );
   }
   const adjacentCandidates = applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
@@ -1931,7 +1938,8 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
   ]);
   const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
   return toSelectedTerritoryTarget(
-    (_c = (_b = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates)
+    (_c = (_b = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates),
+    routeDistanceLookupContext
   );
 }
 function selectBestScoredTerritoryCandidate(candidates) {
@@ -1943,7 +1951,7 @@ function selectBestScoredTerritoryCandidate(candidates) {
   }
   return bestCandidate;
 }
-function toSelectedTerritoryTarget(candidate) {
+function toSelectedTerritoryTarget(candidate, routeDistanceLookupContext) {
   return candidate ? {
     target: candidate.target,
     intentAction: candidate.intentAction,
@@ -1951,7 +1959,8 @@ function toSelectedTerritoryTarget(candidate) {
     ...candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...candidate.followUp ? { followUp: candidate.followUp } : {},
     ...candidate.recoveredFollowUp ? { recoveredFollowUp: true } : {},
-    ...typeof candidate.recoveredFollowUpSuppressedAt === "number" ? { recoveredFollowUpSuppressedAt: candidate.recoveredFollowUpSuppressedAt } : {}
+    ...typeof candidate.recoveredFollowUpSuppressedAt === "number" ? { recoveredFollowUpSuppressedAt: candidate.recoveredFollowUpSuppressedAt } : {},
+    ...routeDistanceLookupContext ? { routeDistanceLookupContext } : {}
   } : null;
 }
 function shouldEvaluateVisibleAdjacentControllerProgressPreference(candidate, colony, roleCounts, workerTarget) {
@@ -2840,7 +2849,7 @@ function normalizeTerritoryTarget2(rawTarget) {
     ...rawTarget.enabled === false ? { enabled: false } : {}
   };
 }
-function recordTerritoryIntent(plan, status, gameTime, seededTarget = null) {
+function recordTerritoryIntent(plan, status, gameTime, seededTarget = null, routeDistanceLookupContext = createRouteDistanceLookupContext()) {
   const territoryMemory = getWritableTerritoryMemoryRecord2();
   if (!territoryMemory) {
     return;
@@ -2862,7 +2871,7 @@ function recordTerritoryIntent(plan, status, gameTime, seededTarget = null) {
   };
   upsertTerritoryIntent2(intents, nextIntent);
   recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
-  recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
+  recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime, routeDistanceLookupContext);
 }
 function normalizeTerritoryIntents2(rawIntents) {
   return Array.isArray(rawIntents) ? rawIntents.flatMap((intent) => {
@@ -3110,11 +3119,12 @@ function getCurrentTerritoryFollowUpDemand(plan, gameTime) {
     (demand) => demand.updatedAt === gameTime && demand.colony === plan.colony && demand.targetRoom === plan.targetRoom && demand.action === plan.action
   )) != null ? _a : null;
 }
-function recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime) {
+function recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime, routeDistanceLookupContext = createRouteDistanceLookupContext()) {
   const intents = normalizeTerritoryIntents2(territoryMemory.intents);
   const currentHints = getBoundedActiveTerritoryFollowUpExecutionHints(
     normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints),
-    intents
+    intents,
+    routeDistanceLookupContext
   );
   const nextHint = buildTerritoryFollowUpExecutionHint(plan, gameTime);
   if (!nextHint) {
@@ -3127,7 +3137,7 @@ function recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime) {
   upsertTerritoryFollowUpExecutionHint(currentHints, nextHint);
   setTerritoryFollowUpExecutionHints(territoryMemory, currentHints);
 }
-function refreshTerritoryFollowUpExecutionHints(territoryMemory, intents) {
+function refreshTerritoryFollowUpExecutionHints(territoryMemory, intents, routeDistanceLookupContext) {
   if (!territoryMemory || !Array.isArray(territoryMemory.executionHints)) {
     return;
   }
@@ -3135,14 +3145,15 @@ function refreshTerritoryFollowUpExecutionHints(territoryMemory, intents) {
     territoryMemory,
     getBoundedActiveTerritoryFollowUpExecutionHints(
       normalizeTerritoryFollowUpExecutionHints(territoryMemory.executionHints),
-      intents
+      intents,
+      routeDistanceLookupContext
     )
   );
 }
-function getBoundedActiveTerritoryFollowUpExecutionHints(hints, intents) {
+function getBoundedActiveTerritoryFollowUpExecutionHints(hints, intents, routeDistanceLookupContext = createRouteDistanceLookupContext()) {
   const latestHintByColony = /* @__PURE__ */ new Map();
   for (const hint of hints) {
-    if (!isTerritoryFollowUpExecutionHintStillActive(hint, intents)) {
+    if (!isTerritoryFollowUpExecutionHintStillActive(hint, intents, routeDistanceLookupContext)) {
       continue;
     }
     const existingHint = latestHintByColony.get(hint.colony);
@@ -3152,8 +3163,8 @@ function getBoundedActiveTerritoryFollowUpExecutionHints(hints, intents) {
   }
   return Array.from(latestHintByColony.values()).sort((left, right) => left.colony.localeCompare(right.colony));
 }
-function isTerritoryFollowUpExecutionHintStillActive(hint, intents) {
-  if (isTerritoryFollowUpExecutionHintKnownUnreachable(hint)) {
+function isTerritoryFollowUpExecutionHintStillActive(hint, intents, routeDistanceLookupContext) {
+  if (isTerritoryFollowUpExecutionHintKnownUnreachable(hint, routeDistanceLookupContext)) {
     return false;
   }
   const matchingIntent = findMatchingActiveTerritoryFollowUpIntent(hint, intents);
@@ -3168,13 +3179,8 @@ function isTerritoryFollowUpExecutionHintStillActive(hint, intents) {
   );
   return currentReason === hint.reason;
 }
-function isTerritoryFollowUpExecutionHintKnownUnreachable(hint) {
-  var _a;
-  const routeDistances = (_a = getTerritoryMemoryRecord2()) == null ? void 0 : _a.routeDistances;
-  if (!isRecord2(routeDistances)) {
-    return false;
-  }
-  return routeDistances[getTerritoryRouteDistanceCacheKey(hint.colony, hint.targetRoom)] === null;
+function isTerritoryFollowUpExecutionHintKnownUnreachable(hint, routeDistanceLookupContext) {
+  return hasKnownNoRoute(hint.colony, hint.targetRoom, routeDistanceLookupContext);
 }
 function findMatchingActiveTerritoryFollowUpIntent(hint, intents) {
   var _a;
