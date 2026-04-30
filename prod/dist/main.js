@@ -7035,7 +7035,9 @@ var RUNTIME_SUMMARY_INTERVAL = 20;
 var MAX_REPORTED_EVENTS = 10;
 var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
-var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "upgrade"];
+var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 1e5;
+var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
+var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
 function emitRuntimeSummary(colonies, creeps, events = []) {
   if (colonies.length === 0 && events.length === 0) {
     return;
@@ -7104,6 +7106,7 @@ function countWorkerTasks(workers) {
     harvest: 0,
     transfer: 0,
     build: 0,
+    repair: 0,
     upgrade: 0,
     none: 0
   };
@@ -7186,17 +7189,105 @@ function buildControllerSummary(room) {
   return { controller: summary };
 }
 function summarizeResources(colony, colonyWorkers, events) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d;
   const roomStructures = (_a = findRoomObjects4(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
-  const droppedResources = (_b = findRoomObjects4(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _b : [];
-  const sources = (_c = findRoomObjects4(colony.room, "FIND_SOURCES")) != null ? _c : [];
+  const constructionSites = (_b = findRoomObjects4(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
+  const droppedResources = (_c = findRoomObjects4(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _c : [];
+  const sources = (_d = findRoomObjects4(colony.room, "FIND_SOURCES")) != null ? _d : [];
   return {
     storedEnergy: sumEnergyInStores(roomStructures),
     workerCarriedEnergy: sumEnergyInStores(colonyWorkers),
     droppedEnergy: sumDroppedEnergy(droppedResources),
     sourceCount: sources.length,
+    productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
     ...events ? { events } : {}
   };
+}
+function summarizeProductiveEnergy(room, colonyWorkers, constructionSites, roomStructures) {
+  const productiveAssignments = summarizeProductiveWorkerAssignments(colonyWorkers);
+  return {
+    ...productiveAssignments,
+    pendingBuildProgress: sumPendingBuildProgress(constructionSites),
+    repairBacklogHits: sumRepairBacklogHits(roomStructures),
+    ...buildControllerProgressRemaining(room)
+  };
+}
+function summarizeProductiveWorkerAssignments(colonyWorkers) {
+  var _a;
+  const summary = {
+    assignedWorkerCount: 0,
+    assignedCarriedEnergy: 0,
+    buildCarriedEnergy: 0,
+    repairCarriedEnergy: 0,
+    upgradeCarriedEnergy: 0
+  };
+  for (const worker of colonyWorkers) {
+    const taskType = (_a = worker.memory.task) == null ? void 0 : _a.type;
+    if (!isProductiveWorkerTaskType(taskType)) {
+      continue;
+    }
+    const carriedEnergy = getEnergyInStore(worker);
+    summary.assignedWorkerCount += 1;
+    summary.assignedCarriedEnergy += carriedEnergy;
+    if (taskType === "build") {
+      summary.buildCarriedEnergy += carriedEnergy;
+    } else if (taskType === "repair") {
+      summary.repairCarriedEnergy += carriedEnergy;
+    } else {
+      summary.upgradeCarriedEnergy += carriedEnergy;
+    }
+  }
+  return summary;
+}
+function isProductiveWorkerTaskType(taskType) {
+  return PRODUCTIVE_WORKER_TASK_TYPES.includes(taskType);
+}
+function sumPendingBuildProgress(constructionSites) {
+  return constructionSites.reduce((total, constructionSite) => total + getPendingBuildProgress(constructionSite), 0);
+}
+function getPendingBuildProgress(constructionSite) {
+  if (!isRecord5(constructionSite)) {
+    return 0;
+  }
+  const progress = getFiniteNumber(constructionSite.progress);
+  const progressTotal = getFiniteNumber(constructionSite.progressTotal);
+  if (progress === null || progressTotal === null) {
+    return 0;
+  }
+  return Math.max(0, Math.ceil(progressTotal - progress));
+}
+function sumRepairBacklogHits(roomStructures) {
+  return roomStructures.reduce((total, structure) => total + getRepairBacklogHits(structure), 0);
+}
+function getRepairBacklogHits(structure) {
+  if (!isRecord5(structure) || !isObservableRepairBacklogStructure(structure)) {
+    return 0;
+  }
+  const hits = getFiniteNumber(structure.hits);
+  const hitsMax = getFiniteNumber(structure.hitsMax);
+  if (hits === null || hitsMax === null || hitsMax <= 0) {
+    return 0;
+  }
+  const repairCeiling = isObservedOwnedRampart(structure) ? Math.min(hitsMax, OBSERVED_RAMPART_REPAIR_HITS_CEILING) : hitsMax;
+  return Math.max(0, Math.ceil(repairCeiling - hits));
+}
+function isObservableRepairBacklogStructure(structure) {
+  return matchesStructureType5(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container") || isObservedOwnedRampart(structure);
+}
+function isObservedOwnedRampart(structure) {
+  return matchesStructureType5(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true;
+}
+function buildControllerProgressRemaining(room) {
+  const controller = room.controller;
+  if ((controller == null ? void 0 : controller.my) !== true) {
+    return {};
+  }
+  const progress = getFiniteNumber(controller.progress);
+  const progressTotal = getFiniteNumber(controller.progressTotal);
+  if (progress === null || progressTotal === null) {
+    return {};
+  }
+  return { controllerProgressRemaining: Math.max(0, Math.ceil(progressTotal - progress)) };
 }
 function summarizeCombat(room, events) {
   var _a, _b;
@@ -7243,11 +7334,17 @@ function summarizeRoomEventMetrics(room) {
   }
   const harvestEvent = getGlobalNumber3("EVENT_HARVEST");
   const transferEvent = getGlobalNumber3("EVENT_TRANSFER");
+  const buildEvent = getGlobalNumber3("EVENT_BUILD");
+  const repairEvent = getGlobalNumber3("EVENT_REPAIR");
+  const upgradeControllerEvent = getGlobalNumber3("EVENT_UPGRADE_CONTROLLER");
   const attackEvent = getGlobalNumber3("EVENT_ATTACK");
   const objectDestroyedEvent = getGlobalNumber3("EVENT_OBJECT_DESTROYED");
   const resourceEvents = {
     harvestedEnergy: 0,
-    transferredEnergy: 0
+    transferredEnergy: 0,
+    builtProgress: 0,
+    repairedHits: 0,
+    upgradedControllerProgress: 0
   };
   const combatEvents = {
     attackCount: 0,
@@ -7268,6 +7365,18 @@ function summarizeRoomEventMetrics(room) {
     }
     if (entry.event === transferEvent && isEnergyEventData(data)) {
       resourceEvents.transferredEnergy += getNumericEventData(data, "amount");
+      hasResourceEvents = true;
+    }
+    if (entry.event === buildEvent) {
+      resourceEvents.builtProgress += getNumericEventData(data, "amount");
+      hasResourceEvents = true;
+    }
+    if (entry.event === repairEvent) {
+      resourceEvents.repairedHits += getNumericEventData(data, "amount");
+      hasResourceEvents = true;
+    }
+    if (entry.event === upgradeControllerEvent) {
+      resourceEvents.upgradedControllerProgress += getNumericEventData(data, "amount");
       hasResourceEvents = true;
     }
     if (entry.event === attackEvent) {
@@ -7347,6 +7456,14 @@ function getNumericEventData(data, key) {
 function getGlobalNumber3(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
+}
+function matchesStructureType5(value, globalName, fallback) {
+  var _a;
+  const expectedValue = (_a = globalThis[globalName]) != null ? _a : fallback;
+  return value === expectedValue;
+}
+function getFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 function getEnergyResource2() {
   const value = globalThis.RESOURCE_ENERGY;
