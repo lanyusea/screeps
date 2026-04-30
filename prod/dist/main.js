@@ -1806,12 +1806,15 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
   if (sanitizedClaimReserveHandoffs.changed) {
     intents = sanitizedClaimReserveHandoffs.intents;
   }
-  const sanitizedFollowUps = sanitizeInvalidPersistedTerritoryFollowUps(intents, colonyName, colonyOwnerUsername);
-  if (sanitizedFollowUps.changed) {
-    intents = sanitizedFollowUps.intents;
-    if (territoryMemory) {
-      territoryMemory.intents = intents;
-    }
+  const sanitizedStaleProgress = sanitizeStaleTerritoryProgressIntents(
+    territoryMemory,
+    intents,
+    colonyName,
+    colonyOwnerUsername,
+    roleCounts
+  );
+  if (sanitizedStaleProgress.changed) {
+    intents = sanitizedStaleProgress.intents;
   }
   refreshTerritoryFollowUpExecutionHints(territoryMemory, intents);
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
@@ -2945,31 +2948,52 @@ function getSatisfiedConfiguredClaimRoomNames(rawTargets, colonyName, colonyOwne
   }
   return satisfiedClaimRooms;
 }
-function sanitizeInvalidPersistedTerritoryFollowUps(intents, colonyName, colonyOwnerUsername) {
-  let changed = false;
-  const sanitizedIntents = intents.map((intent) => {
-    if (intent.colony !== colonyName || intent.followUp === void 0 || intent.status === "suppressed") {
-      return intent;
+function sanitizeStaleTerritoryProgressIntents(territoryMemory, intents, colonyName, colonyOwnerUsername, roleCounts) {
+  const staleIntents = [];
+  const sanitizedIntents = intents.filter((intent) => {
+    if (!isStaleTerritoryProgressIntent(intent, colonyName, colonyOwnerUsername, roleCounts)) {
+      return true;
     }
-    if (intent.status === "active" && intent.action === "reserve") {
-      return intent;
-    }
-    if (!isTerritoryControlAction(intent.action) || isPersistedTerritoryFollowUpStillActionable(intent, intent.action, colonyOwnerUsername)) {
-      return intent;
-    }
-    changed = true;
-    return omitTerritoryIntentFollowUp(intent);
+    staleIntents.push(intent);
+    return false;
   });
-  return { intents: sanitizedIntents, changed };
+  if (staleIntents.length === 0) {
+    return { intents, changed: false };
+  }
+  if (territoryMemory) {
+    setTerritoryIntents(territoryMemory, sanitizedIntents);
+    for (const staleIntent of staleIntents) {
+      removeStaleTerritoryProgressIntentState(territoryMemory, staleIntent);
+    }
+  }
+  return { intents: sanitizedIntents, changed: true };
 }
-function isPersistedTerritoryFollowUpStillActionable(intent, action, colonyOwnerUsername) {
+function isStaleTerritoryProgressIntent(intent, colonyName, colonyOwnerUsername, roleCounts) {
+  if (intent.colony !== colonyName) {
+    return false;
+  }
+  if (intent.action === "scout") {
+    return isVisibleRoomKnown(intent.targetRoom);
+  }
+  if (intent.followUp === void 0 || !isTerritoryControlAction(intent.action) || intent.status === "suppressed") {
+    return false;
+  }
+  if (intent.status === "active" && getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) > 0) {
+    return false;
+  }
   const controllerState = getVisibleTerritoryControllerEvidenceState(
     intent.targetRoom,
-    action,
+    intent.action,
     intent.controllerId,
     colonyOwnerUsername
   );
-  return controllerState === null || controllerState === "available" || isVisibleTerritoryReservePressureAvailable(intent.targetRoom, action, intent.controllerId, colonyOwnerUsername);
+  const stillActionable = controllerState === null || controllerState === "available" || isVisibleTerritoryReservePressureAvailable(
+    intent.targetRoom,
+    intent.action,
+    intent.controllerId,
+    colonyOwnerUsername
+  );
+  return !stillActionable;
 }
 function getVisibleTerritoryControllerEvidenceState(targetRoom, action, controllerId, colonyOwnerUsername) {
   if (isVisibleRoomMissingController(targetRoom)) {
@@ -2981,16 +3005,18 @@ function getVisibleTerritoryControllerEvidenceState(targetRoom, action, controll
   }
   return getTerritoryControllerTargetState(controller, action, colonyOwnerUsername);
 }
-function omitTerritoryIntentFollowUp(intent) {
-  return {
-    colony: intent.colony,
-    targetRoom: intent.targetRoom,
-    action: intent.action,
-    status: intent.status,
-    updatedAt: intent.updatedAt,
-    ...shouldPreservePersistedTerritoryIntentPressureRequirement2(intent) ? { requiresControllerPressure: true } : {},
-    ...intent.controllerId ? { controllerId: intent.controllerId } : {}
-  };
+function removeStaleTerritoryProgressIntentState(territoryMemory, intent) {
+  if (isTerritoryControlAction(intent.action)) {
+    removeTerritoryFollowUpDemand(territoryMemory, intent.colony, intent.targetRoom, intent.action);
+  }
+  removeTerritoryFollowUpExecutionHint(territoryMemory, intent.colony, intent.targetRoom, intent.action);
+}
+function setTerritoryIntents(territoryMemory, intents) {
+  if (intents.length > 0) {
+    territoryMemory.intents = intents;
+  } else {
+    delete territoryMemory.intents;
+  }
 }
 function shouldPreservePersistedTerritoryIntentPressureRequirement2(intent, controllerId = intent.controllerId) {
   return intent.requiresControllerPressure === true && isTerritoryControllerPressureVisibilityMissing2(intent.targetRoom, intent.action, controllerId);

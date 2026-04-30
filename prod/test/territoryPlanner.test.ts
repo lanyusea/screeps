@@ -202,13 +202,6 @@ describe('planTerritoryIntent', () => {
       {
         colony: 'W1N1',
         targetRoom: 'W1N2',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 527
-      },
-      {
-        colony: 'W1N1',
-        targetRoom: 'W1N2',
         action: 'reserve',
         status: 'planned',
         updatedAt: 528
@@ -254,7 +247,6 @@ describe('planTerritoryIntent', () => {
       }
     ]);
     expect(Memory.territory?.intents).toEqual([
-      suppressedScout,
       {
         colony: 'W1N1',
         targetRoom: 'W1N2',
@@ -2637,7 +2629,7 @@ describe('planTerritoryIntent', () => {
     expect(getActiveTerritoryFollowUpExecutionHints('W1N1')).toEqual([existingHint]);
   });
 
-  it('drops persisted follow-up metadata after visible controller evidence satisfies the target', () => {
+  it('clears stale follow-up controller intent after visible evidence satisfies the target', () => {
     const colony = makeSafeColony();
     const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
     const staleFollowUpTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
@@ -2688,13 +2680,6 @@ describe('planTerritoryIntent', () => {
       action: 'reserve'
     });
     expect(Memory.territory?.intents).toEqual([
-      {
-        colony: 'W1N1',
-        targetRoom: 'W3N1',
-        action: 'reserve',
-        status: 'planned',
-        updatedAt: 590
-      },
       {
         colony: 'W1N1',
         targetRoom: 'W2N1',
@@ -3013,7 +2998,6 @@ describe('planTerritoryIntent', () => {
     ]);
     expect(Memory.territory?.intents).toEqual([
       suppressedClaimIntent,
-      activeReserveIntent,
       {
         colony: 'W1N1',
         targetRoom: 'W2N2',
