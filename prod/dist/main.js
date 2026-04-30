@@ -3153,16 +3153,28 @@ function getBoundedActiveTerritoryFollowUpExecutionHints(hints, intents) {
   return Array.from(latestHintByColony.values()).sort((left, right) => left.colony.localeCompare(right.colony));
 }
 function isTerritoryFollowUpExecutionHintStillActive(hint, intents) {
+  if (isTerritoryFollowUpExecutionHintKnownUnreachable(hint)) {
+    return false;
+  }
   const matchingIntent = findMatchingActiveTerritoryFollowUpIntent(hint, intents);
   if (!(matchingIntent == null ? void 0 : matchingIntent.followUp) || !isSameTerritoryFollowUp(hint.followUp, matchingIntent.followUp)) {
     return false;
   }
-  return getTerritoryFollowUpExecutionHintReason(
+  const currentReason = getTerritoryFollowUpExecutionHintReason(
     matchingIntent.targetRoom,
     matchingIntent.action,
     matchingIntent.controllerId,
     getVisibleColonyOwnerUsername(matchingIntent.colony)
-  ) !== null;
+  );
+  return currentReason === hint.reason;
+}
+function isTerritoryFollowUpExecutionHintKnownUnreachable(hint) {
+  var _a;
+  const routeDistances = (_a = getTerritoryMemoryRecord2()) == null ? void 0 : _a.routeDistances;
+  if (!isRecord2(routeDistances)) {
+    return false;
+  }
+  return routeDistances[getTerritoryRouteDistanceCacheKey(hint.colony, hint.targetRoom)] === null;
 }
 function findMatchingActiveTerritoryFollowUpIntent(hint, intents) {
   var _a;

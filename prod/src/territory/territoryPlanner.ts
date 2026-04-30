@@ -2812,19 +2812,32 @@ function isTerritoryFollowUpExecutionHintStillActive(
   hint: TerritoryExecutionHintMemory,
   intents: TerritoryIntentMemory[]
 ): boolean {
+  if (isTerritoryFollowUpExecutionHintKnownUnreachable(hint)) {
+    return false;
+  }
+
   const matchingIntent = findMatchingActiveTerritoryFollowUpIntent(hint, intents);
   if (!matchingIntent?.followUp || !isSameTerritoryFollowUp(hint.followUp, matchingIntent.followUp)) {
     return false;
   }
 
-  return (
-    getTerritoryFollowUpExecutionHintReason(
-      matchingIntent.targetRoom,
-      matchingIntent.action,
-      matchingIntent.controllerId,
-      getVisibleColonyOwnerUsername(matchingIntent.colony)
-    ) !== null
+  const currentReason = getTerritoryFollowUpExecutionHintReason(
+    matchingIntent.targetRoom,
+    matchingIntent.action,
+    matchingIntent.controllerId,
+    getVisibleColonyOwnerUsername(matchingIntent.colony)
   );
+
+  return currentReason === hint.reason;
+}
+
+function isTerritoryFollowUpExecutionHintKnownUnreachable(hint: TerritoryExecutionHintMemory): boolean {
+  const routeDistances = getTerritoryMemoryRecord()?.routeDistances;
+  if (!isRecord(routeDistances)) {
+    return false;
+  }
+
+  return routeDistances[getTerritoryRouteDistanceCacheKey(hint.colony, hint.targetRoom)] === null;
 }
 
 function findMatchingActiveTerritoryFollowUpIntent(
