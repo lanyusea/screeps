@@ -29,7 +29,7 @@ GITHUB_PROJECT_URL = "https://github.com/users/lanyusea/projects/3"
 SCREEPS_ROOM_URL_BASE = "https://screeps.com/a/#!/room"
 # AGENTS.md official deployment target; generation env can override it.
 OFFICIAL_SCREEPS_SHARD = "shardX"
-OFFICIAL_SCREEPS_ROOM = "E48S28"
+OFFICIAL_SCREEPS_ROOM = "E48S29"
 DISCORD_URL = "https://discord.gg/XenFZG9bCE"
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 SCREEPS_SHARD_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -550,7 +550,7 @@ REPORT_ROADMAP_CARDS: tuple[JsonObject, ...] = (
         "goal": "Claim, hold, and grow the controlled room footprint first.",
         "next": "owned/reserved/room gain/RCL KPI",
         "progress": 15,
-        "status": "E48S28 Spawn1 observed; multi-room strategy is pending.",
+        "status": "E48S29 Spawn1 observed; multi-room strategy is pending.",
     },
     {
         "title": "Resource Economy",

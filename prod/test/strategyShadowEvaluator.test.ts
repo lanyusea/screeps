@@ -34,7 +34,7 @@ describe('strategy shadow evaluator', () => {
     expect(constructionReport?.rankingDiffs[0]).toMatchObject({
       artifactIndex: 0,
       tick: 200,
-      roomName: 'E48S28',
+      roomName: 'E48S29',
       context: 'construction-priority',
       changedTop: true,
       incumbentTop: {
