@@ -1,5 +1,11 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import {
+  assessColonySnapshotSurvival,
+  type ColonyMode,
+  type ColonySuppressionReason
+} from '../colony/survivalMode';
 import { buildRuntimeConstructionPriorityReport, type ConstructionPriorityScore } from '../construction/constructionPriority';
+import { countCreepsByRole } from '../creeps/roleCounts';
 import {
   buildRuntimeOccupationRecommendationReport,
   persistOccupationRecommendationFollowUpIntent,
@@ -49,6 +55,7 @@ interface RuntimeRoomSummary {
   resources: RuntimeResourceSummary;
   combat: RuntimeCombatSummary;
   constructionPriority: RuntimeConstructionPrioritySummary;
+  survival: RuntimeSurvivalSummary;
   territoryRecommendation: OccupationRecommendationReport;
   territoryExecutionHints?: TerritoryExecutionHintMemory[];
 }
@@ -117,6 +124,14 @@ interface RuntimeConstructionPriorityCandidateSummary {
   risk: string[];
 }
 
+interface RuntimeSurvivalSummary {
+  mode: ColonyMode;
+  workerCapacity: number;
+  workerTarget: number;
+  survivalWorkerFloor: number;
+  suppressionReasons?: ColonySuppressionReason[];
+}
+
 interface RuntimeRoomEventMetrics {
   resources?: RuntimeResourceEventSummary;
   combat?: RuntimeCombatEventSummary;
@@ -181,6 +196,7 @@ function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSumm
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
+    survival: summarizeSurvival(colony, creeps),
     territoryRecommendation,
     ...buildTerritoryExecutionHintSummary(colony.room.name)
   };
@@ -393,6 +409,18 @@ function summarizeConstructionPriority(
   return {
     candidates: report.candidates.map(toRuntimeConstructionPriorityCandidateSummary),
     nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
+  };
+}
+
+function summarizeSurvival(colony: ColonySnapshot, creeps: Creep[]): RuntimeSurvivalSummary {
+  const assessment = assessColonySnapshotSurvival(colony, countCreepsByRole(creeps, colony.room.name));
+
+  return {
+    mode: assessment.mode,
+    workerCapacity: assessment.workerCapacity,
+    workerTarget: assessment.workerTarget,
+    survivalWorkerFloor: assessment.survivalWorkerFloor,
+    ...(assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {})
   };
 }
 
