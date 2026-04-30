@@ -2198,6 +2198,36 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-closer' });
   });
 
+  it('prefers a recovery sink that can accept the full carried load over a closer partial top-off', () => {
+    const recoverySpawn = makeEnergySink('spawn-recovery', 'spawn' as StructureConstant, 300);
+    const partialExtension = makeEnergySink('extension-partial', 'extension' as StructureConstant, 10);
+    const structures = [partialExtension, recoverySpawn];
+    const getRangeTo = jest.fn((target: TestEnergySink) => {
+      const ranges: Record<string, number> = {
+        'extension-partial': 1,
+        'spawn-recovery': 5
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-recovery' });
+  });
+
   it('builds loaded worker energy sink reservations once while screening primary energy sinks', () => {
     const spawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);
     const extension = makeEnergySink('extension-b', 'extension' as StructureConstant, 50);
