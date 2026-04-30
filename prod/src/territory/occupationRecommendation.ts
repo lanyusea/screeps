@@ -21,6 +21,7 @@ export interface OccupationRecommendationScore {
   risks: string[];
   routeDistance?: number;
   controllerId?: Id<StructureController>;
+  requiresControllerPressure?: boolean;
   sourceCount?: number;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
@@ -132,7 +133,10 @@ export function persistOccupationRecommendationFollowUpIntent(
 
   const controllerId = followUpIntent.controllerId ?? existingIntent?.controllerId;
   const requiresControllerPressure =
-    followUpIntent.requiresControllerPressure === true || existingIntent?.requiresControllerPressure === true;
+    followUpIntent.requiresControllerPressure === true ||
+    (existingIntent
+      ? shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId)
+      : false);
   const followUp = normalizeTerritoryFollowUp(followUpIntent.followUp) ?? existingIntent?.followUp;
   const nextIntent: TerritoryIntentMemory = {
     colony: followUpIntent.colony,
@@ -273,6 +277,7 @@ function scoreOccupationCandidate(
   const routeDistance = typeof candidate.routeDistance === 'number' ? candidate.routeDistance : undefined;
   let action: OccupationRecommendationAction = 'scout';
   let evidenceStatus: OccupationRecommendationEvidenceStatus = 'sufficient';
+  let requiresControllerPressure = false;
 
   if (candidate.routeDistance === null) {
     risks.push('no known route from colony');
@@ -292,6 +297,7 @@ function scoreOccupationCandidate(
     if (controllerPressureEvidence) {
       evidence.push(controllerPressureEvidence);
       action = 'reserve';
+      requiresControllerPressure = true;
       if (candidate.sourceCount === undefined) {
         risks.push('source count evidence missing');
         evidenceStatus = 'insufficient-evidence';
@@ -338,6 +344,7 @@ function scoreOccupationCandidate(
     risks,
     ...(routeDistance !== undefined ? { routeDistance } : {}),
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.sourceCount !== undefined ? { sourceCount: candidate.sourceCount } : {}),
     ...(candidate.hostileCreepCount !== undefined ? { hostileCreepCount: candidate.hostileCreepCount } : {}),
     ...(candidate.hostileStructureCount !== undefined ? { hostileStructureCount: candidate.hostileStructureCount } : {})
@@ -356,7 +363,8 @@ function buildOccupationRecommendationFollowUpIntent(
     colony: input.colonyName,
     targetRoom: next.roomName,
     action: getTerritoryIntentAction(next.action),
-    ...(next.controllerId ? { controllerId: next.controllerId } : {})
+    ...(next.controllerId ? { controllerId: next.controllerId } : {}),
+    ...(next.requiresControllerPressure ? { requiresControllerPressure: true } : {})
   };
 }
 
@@ -744,16 +752,51 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
   const existingIndex = intents.findIndex((intent) => isSameTerritoryIntent(intent, nextIntent));
   if (existingIndex >= 0) {
     const existingIntent = intents[existingIndex];
+    const controllerId = nextIntent.controllerId ?? existingIntent.controllerId;
+    const preserveControllerPressure =
+      !nextIntent.requiresControllerPressure &&
+      shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId);
     intents[existingIndex] = {
       ...nextIntent,
-      ...(!nextIntent.requiresControllerPressure && existingIntent.requiresControllerPressure
-        ? { requiresControllerPressure: true }
-        : {})
+      ...(preserveControllerPressure ? { requiresControllerPressure: true } : {})
     };
     return;
   }
 
   intents.push(nextIntent);
+}
+
+function shouldPreservePersistedTerritoryIntentPressureRequirement(
+  intent: TerritoryIntentMemory,
+  controllerId: Id<StructureController> | undefined = intent.controllerId
+): boolean {
+  return (
+    intent.requiresControllerPressure === true &&
+    isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId)
+  );
+}
+
+function isTerritoryControllerPressureVisibilityMissing(
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  controllerId?: Id<StructureController>
+): boolean {
+  return action === 'reserve' && getVisibleController(targetRoom, controllerId) === null;
+}
+
+function getVisibleController(targetRoom: string, controllerId?: Id<StructureController>): StructureController | null {
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  const roomController = game?.rooms?.[targetRoom]?.controller;
+  if (roomController) {
+    return roomController;
+  }
+
+  const getObjectById = game?.getObjectById;
+  if (controllerId && typeof getObjectById === 'function') {
+    return getObjectById.call(game, controllerId) as StructureController | null;
+  }
+
+  return null;
 }
 
 function isSameTerritoryIntent(

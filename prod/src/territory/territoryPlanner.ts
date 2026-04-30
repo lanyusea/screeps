@@ -311,7 +311,7 @@ export function selectVisibleTerritoryControllerTask(creep: Creep): CreepTaskMem
   }
 
   if (intent.action === 'reserve') {
-    return canCreepReserveTerritoryController(creep, controller, intent.colony)
+    return canCreepActOnVisibleReserveController(creep, controller, intent.colony)
       ? { type: 'reserve', targetId: controller.id }
       : null;
   }
@@ -3007,12 +3007,23 @@ function isCreepVisibleTerritoryIntentActionable(creep: Creep, intent: Territory
   }
 
   if (intent.action === 'reserve') {
-    return canCreepReserveTerritoryController(creep, controller, intent.colony);
+    return canCreepActOnVisibleReserveController(creep, controller, intent.colony);
   }
 
   return (
     getTerritoryControllerTargetState(controller, intent.action, getTerritoryActorUsername(creep, intent.colony)) ===
     'available'
+  );
+}
+
+function canCreepActOnVisibleReserveController(
+  creep: Creep,
+  controller: StructureController,
+  colony: string | undefined
+): boolean {
+  return (
+    canCreepReserveTerritoryController(creep, controller, colony) ||
+    canCreepPressureTerritoryController(creep, controller, colony)
   );
 }
 

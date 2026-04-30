@@ -1317,6 +1317,63 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('executes pressure reservation tasks with attackController against foreign reservations', () => {
+    const controller = {
+      id: 'controller2',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 202,
+            requiresControllerPressure: true
+          }
+        ]
+      }
+    };
+    const room = {
+      name: 'W2N1',
+      controller,
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+    const creep = {
+      owner: { username: 'me' },
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'reserve', targetId: 'controller2' as Id<StructureController> }
+      },
+      getActiveBodyparts: jest.fn().mockReturnValue(5),
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      attackController: jest.fn().mockReturnValue(0),
+      reserveController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const getObjectById = jest.fn().mockReturnValue(controller);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById
+    };
+
+    runWorker(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('controller2');
+    expect(creep.memory.task).toEqual({ type: 'reserve', targetId: 'controller2' });
+    expect(creep.attackController).toHaveBeenCalledWith(controller);
+    expect(creep.reserveController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('clears completed repair targets and reassigns without repairing the stale target', () => {
     const fullRoad = { id: 'road-full', structureType: 'road', hits: 5_000, hitsMax: 5_000 } as StructureRoad;
     const damagedRoad = { id: 'road-damaged', structureType: 'road', hits: 1_000, hitsMax: 5_000 } as StructureRoad;

@@ -673,7 +673,7 @@ function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGam
     return null;
   }
   const controllerId = (_a = followUpIntent.controllerId) != null ? _a : existingIntent == null ? void 0 : existingIntent.controllerId;
-  const requiresControllerPressure = followUpIntent.requiresControllerPressure === true || (existingIntent == null ? void 0 : existingIntent.requiresControllerPressure) === true;
+  const requiresControllerPressure = followUpIntent.requiresControllerPressure === true || (existingIntent ? shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId) : false);
   const followUp = (_b = normalizeTerritoryFollowUp(followUpIntent.followUp)) != null ? _b : existingIntent == null ? void 0 : existingIntent.followUp;
   const nextIntent = {
     colony: followUpIntent.colony,
@@ -790,6 +790,7 @@ function scoreOccupationCandidate(input, candidate) {
   const routeDistance = typeof candidate.routeDistance === "number" ? candidate.routeDistance : void 0;
   let action = "scout";
   let evidenceStatus = "sufficient";
+  let requiresControllerPressure = false;
   if (candidate.routeDistance === null) {
     risks.push("no known route from colony");
     evidenceStatus = "unavailable";
@@ -808,6 +809,7 @@ function scoreOccupationCandidate(input, candidate) {
     if (controllerPressureEvidence) {
       evidence.push(controllerPressureEvidence);
       action = "reserve";
+      requiresControllerPressure = true;
       if (candidate.sourceCount === void 0) {
         risks.push("source count evidence missing");
         evidenceStatus = "insufficient-evidence";
@@ -852,6 +854,7 @@ function scoreOccupationCandidate(input, candidate) {
     risks,
     ...routeDistance !== void 0 ? { routeDistance } : {},
     ...candidate.controllerId ? { controllerId: candidate.controllerId } : {},
+    ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...candidate.sourceCount !== void 0 ? { sourceCount: candidate.sourceCount } : {},
     ...candidate.hostileCreepCount !== void 0 ? { hostileCreepCount: candidate.hostileCreepCount } : {},
     ...candidate.hostileStructureCount !== void 0 ? { hostileStructureCount: candidate.hostileStructureCount } : {}
@@ -865,7 +868,8 @@ function buildOccupationRecommendationFollowUpIntent(input, next) {
     colony: input.colonyName,
     targetRoom: next.roomName,
     action: getTerritoryIntentAction(next.action),
-    ...next.controllerId ? { controllerId: next.controllerId } : {}
+    ...next.controllerId ? { controllerId: next.controllerId } : {},
+    ...next.requiresControllerPressure ? { requiresControllerPressure: true } : {}
   };
 }
 function getTerritoryIntentAction(action) {
@@ -1105,16 +1109,38 @@ function getTerritoryFollowUpOriginAction(source) {
   return source === "satisfiedClaimAdjacent" ? "claim" : "reserve";
 }
 function upsertTerritoryIntent(intents, nextIntent) {
+  var _a;
   const existingIndex = intents.findIndex((intent) => isSameTerritoryIntent(intent, nextIntent));
   if (existingIndex >= 0) {
     const existingIntent = intents[existingIndex];
+    const controllerId = (_a = nextIntent.controllerId) != null ? _a : existingIntent.controllerId;
+    const preserveControllerPressure = !nextIntent.requiresControllerPressure && shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId);
     intents[existingIndex] = {
       ...nextIntent,
-      ...!nextIntent.requiresControllerPressure && existingIntent.requiresControllerPressure ? { requiresControllerPressure: true } : {}
+      ...preserveControllerPressure ? { requiresControllerPressure: true } : {}
     };
     return;
   }
   intents.push(nextIntent);
+}
+function shouldPreservePersistedTerritoryIntentPressureRequirement(intent, controllerId = intent.controllerId) {
+  return intent.requiresControllerPressure === true && isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId);
+}
+function isTerritoryControllerPressureVisibilityMissing(targetRoom, action, controllerId) {
+  return action === "reserve" && getVisibleController(targetRoom, controllerId) === null;
+}
+function getVisibleController(targetRoom, controllerId) {
+  var _a, _b;
+  const game = globalThis.Game;
+  const roomController = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[targetRoom]) == null ? void 0 : _b.controller;
+  if (roomController) {
+    return roomController;
+  }
+  const getObjectById = game == null ? void 0 : game.getObjectById;
+  if (controllerId && typeof getObjectById === "function") {
+    return getObjectById.call(game, controllerId);
+  }
+  return null;
 }
 function isSameTerritoryIntent(intent, followUpIntent) {
   return intent.colony === followUpIntent.colony && intent.targetRoom === followUpIntent.targetRoom && intent.action === followUpIntent.action;
@@ -1347,7 +1373,7 @@ function selectVisibleTerritoryControllerTask(creep) {
     return null;
   }
   if (intent.action === "reserve") {
-    return canCreepReserveTerritoryController(creep, controller, intent.colony) ? { type: "reserve", targetId: controller.id } : null;
+    return canCreepActOnVisibleReserveController(creep, controller, intent.colony) ? { type: "reserve", targetId: controller.id } : null;
   }
   if (controller.my === true) {
     return getStoredEnergy(creep) > 0 ? { type: "upgrade", targetId: controller.id } : null;
@@ -1804,7 +1830,7 @@ function getPersistedTerritoryIntentCandidates(colonyName, colonyOwnerUsername, 
       action: intent.action,
       ...intent.controllerId ? { controllerId: intent.controllerId } : {}
     };
-    const requiresControllerPressure = shouldPreservePersistedTerritoryIntentPressureRequirement(intent);
+    const requiresControllerPressure = shouldPreservePersistedTerritoryIntentPressureRequirement2(intent);
     const candidate = scoreTerritoryCandidate(
       {
         target,
@@ -2190,7 +2216,7 @@ function buildOccupationRecommendationCandidate(candidate) {
   };
 }
 function buildVisibleOccupationRecommendationEvidence(room, controllerId) {
-  const controller = getVisibleController(room.name, controllerId);
+  const controller = getVisibleController2(room.name, controllerId);
   return {
     ...controller ? { controller: summarizeOccupationController(controller) } : {},
     sourceCount: countVisibleRoomObjects(room, getFindConstant("FIND_SOURCES")),
@@ -2226,7 +2252,7 @@ function getOccupationIntentActionableTicks(selection, colonyOwnerUsername) {
   if (!isTerritoryControlAction(selection.intentAction)) {
     return void 0;
   }
-  const controller = getVisibleController(selection.target.roomName, selection.target.controllerId);
+  const controller = getVisibleController2(selection.target.roomName, selection.target.controllerId);
   if (!controller) {
     return void 0;
   }
@@ -2373,7 +2399,7 @@ function getTerritoryFollowUpOriginAction2(source) {
   return source === "satisfiedReserveAdjacent" || source === "activeReserveAdjacent" ? "reserve" : null;
 }
 function isTerritoryTargetVisible(target) {
-  return isVisibleRoomKnown(target.roomName) || getVisibleController(target.roomName, target.controllerId) !== null;
+  return isVisibleRoomKnown(target.roomName) || getVisibleController2(target.roomName, target.controllerId) !== null;
 }
 function createRouteDistanceLookupContext() {
   return { revalidatedNoRouteCacheKeys: /* @__PURE__ */ new Set() };
@@ -2439,7 +2465,7 @@ function getAdjacentReserveCandidateState(targetRoom, colonyOwnerUsername) {
   if (isVisibleRoomMissingController(targetRoom)) {
     return "unavailable";
   }
-  const controller = getVisibleController(targetRoom);
+  const controller = getVisibleController2(targetRoom);
   if (!controller) {
     return "unknown";
   }
@@ -2540,7 +2566,7 @@ function upsertTerritoryIntent2(intents, nextIntent) {
   if (existingIndex >= 0) {
     const existingIntent = intents[existingIndex];
     const controllerId = (_a = nextIntent.controllerId) != null ? _a : existingIntent.controllerId;
-    const preserveControllerPressure = !nextIntent.requiresControllerPressure && shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId);
+    const preserveControllerPressure = !nextIntent.requiresControllerPressure && shouldPreservePersistedTerritoryIntentPressureRequirement2(existingIntent, controllerId);
     intents[existingIndex] = {
       ...nextIntent,
       ...preserveControllerPressure ? { requiresControllerPressure: true } : {},
@@ -2621,7 +2647,7 @@ function getVisibleTerritoryControllerEvidenceState(targetRoom, action, controll
   if (isVisibleRoomMissingController(targetRoom)) {
     return "unavailable";
   }
-  const controller = getVisibleController(targetRoom, controllerId);
+  const controller = getVisibleController2(targetRoom, controllerId);
   if (!controller) {
     return null;
   }
@@ -2634,18 +2660,18 @@ function omitTerritoryIntentFollowUp(intent) {
     action: intent.action,
     status: intent.status,
     updatedAt: intent.updatedAt,
-    ...shouldPreservePersistedTerritoryIntentPressureRequirement(intent) ? { requiresControllerPressure: true } : {},
+    ...shouldPreservePersistedTerritoryIntentPressureRequirement2(intent) ? { requiresControllerPressure: true } : {},
     ...intent.controllerId ? { controllerId: intent.controllerId } : {}
   };
 }
-function shouldPreservePersistedTerritoryIntentPressureRequirement(intent, controllerId = intent.controllerId) {
-  return intent.requiresControllerPressure === true && isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId);
+function shouldPreservePersistedTerritoryIntentPressureRequirement2(intent, controllerId = intent.controllerId) {
+  return intent.requiresControllerPressure === true && isTerritoryControllerPressureVisibilityMissing2(intent.targetRoom, intent.action, controllerId);
 }
-function isTerritoryControllerPressureVisibilityMissing(targetRoom, action, controllerId) {
-  return action === "reserve" && getVisibleController(targetRoom, controllerId) === null;
+function isTerritoryControllerPressureVisibilityMissing2(targetRoom, action, controllerId) {
+  return action === "reserve" && getVisibleController2(targetRoom, controllerId) === null;
 }
 function getPersistedTerritoryIntentPressureRequirement(intents, colony, targetRoom, action, controllerId) {
-  if (!isTerritoryControllerPressureVisibilityMissing(targetRoom, action, controllerId)) {
+  if (!isTerritoryControllerPressureVisibilityMissing2(targetRoom, action, controllerId)) {
     return false;
   }
   return intents.some(
@@ -2667,7 +2693,7 @@ function getPersistedTerritoryIntentFollowUp(intents, colony, targetRoom, action
     recovered: isRecoveredTerritoryFollowUpIntent(selectedIntent, gameTime),
     coolingDown: isRecoveredTerritoryFollowUpAttemptCoolingDown2(selectedIntent, gameTime),
     ...selectedIntent.status === "suppressed" ? { suppressedAt: selectedIntent.updatedAt } : {},
-    ...shouldPreservePersistedTerritoryIntentPressureRequirement(selectedIntent, controllerId) ? { requiresControllerPressure: true } : {}
+    ...shouldPreservePersistedTerritoryIntentPressureRequirement2(selectedIntent, controllerId) ? { requiresControllerPressure: true } : {}
   };
 }
 function recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime) {
@@ -3065,13 +3091,16 @@ function isCreepVisibleTerritoryIntentActionable(creep, intent) {
     return true;
   }
   if (intent.action === "reserve") {
-    return canCreepReserveTerritoryController(creep, controller, intent.colony);
+    return canCreepActOnVisibleReserveController(creep, controller, intent.colony);
   }
   return getTerritoryControllerTargetState(controller, intent.action, getTerritoryActorUsername(creep, intent.colony)) === "available";
 }
+function canCreepActOnVisibleReserveController(creep, controller, colony) {
+  return canCreepReserveTerritoryController(creep, controller, colony) || canCreepPressureTerritoryController(creep, controller, colony);
+}
 function selectVisibleTerritoryAssignmentController(assignment, creep) {
   var _a;
-  return ((_a = creep == null ? void 0 : creep.room) == null ? void 0 : _a.name) === assignment.targetRoom ? selectCreepRoomController(creep, assignment.controllerId) : getVisibleController(assignment.targetRoom, assignment.controllerId);
+  return ((_a = creep == null ? void 0 : creep.room) == null ? void 0 : _a.name) === assignment.targetRoom ? selectCreepRoomController(creep, assignment.controllerId) : getVisibleController2(assignment.targetRoom, assignment.controllerId);
 }
 function selectCreepRoomController(creep, controllerId) {
   var _a;
@@ -3176,7 +3205,7 @@ function getVisibleTerritoryTargetState(targetRoom, action, controllerId, colony
   if (action === "scout") {
     return isVisibleRoomKnown(targetRoom) ? "unavailable" : "available";
   }
-  const controller = getVisibleController(targetRoom, controllerId);
+  const controller = getVisibleController2(targetRoom, controllerId);
   if (!controller) {
     return "available";
   }
@@ -3192,7 +3221,7 @@ function isVisibleTerritoryReservePressureAvailable(targetRoom, action, controll
   if (action !== "reserve" || isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
     return false;
   }
-  const controller = getVisibleController(targetRoom, controllerId);
+  const controller = getVisibleController2(targetRoom, controllerId);
   return controller !== null && isForeignReservedController(controller, colonyOwnerUsername);
 }
 function isVisibleRoomKnown(targetRoom) {
@@ -3237,7 +3266,7 @@ function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
   if (target.action !== "reserve" || colonyOwnerUsername === null) {
     return null;
   }
-  const controller = getVisibleController(target.roomName, target.controllerId);
+  const controller = getVisibleController2(target.roomName, target.controllerId);
   if (!controller || isControllerOwned(controller)) {
     return null;
   }
@@ -3247,7 +3276,7 @@ function shouldSpawnEmergencyReservationRenewal(plan, activeCoverageCount) {
   if (activeCoverageCount >= TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET || plan.action !== "reserve") {
     return false;
   }
-  const controller = getVisibleController(plan.targetRoom, plan.controllerId);
+  const controller = getVisibleController2(plan.targetRoom, plan.controllerId);
   if (!controller || isControllerOwned(controller)) {
     return false;
   }
@@ -3270,7 +3299,7 @@ function getOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
   return reservation.ticksToEnd;
 }
 function getVisibleColonyOwnerUsername(colonyName) {
-  const controller = getVisibleController(colonyName);
+  const controller = getVisibleController2(colonyName);
   return getControllerOwnerUsername2(controller != null ? controller : void 0);
 }
 function getControllerOwnerUsername2(controller) {
@@ -3278,7 +3307,7 @@ function getControllerOwnerUsername2(controller) {
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
   return isNonEmptyString2(username) ? username : null;
 }
-function getVisibleController(targetRoom, controllerId) {
+function getVisibleController2(targetRoom, controllerId) {
   var _a, _b;
   const game = globalThis.Game;
   const roomController = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[targetRoom]) == null ? void 0 : _b.controller;
@@ -5358,6 +5387,9 @@ function executeTask(creep, task, target) {
     case "claim":
       return creep.claimController(target);
     case "reserve":
+      if (typeof creep.attackController === "function" && canCreepPressureTerritoryController(creep, target, creep.memory.colony)) {
+        return creep.attackController(target);
+      }
       return creep.reserveController(target);
     case "upgrade":
       signOccupiedControllerIfNeeded(creep, target);

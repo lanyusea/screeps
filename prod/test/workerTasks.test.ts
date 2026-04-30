@@ -2615,6 +2615,42 @@ describe('selectWorkerTask', () => {
     expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it('selects pressure reserve intents for five-CLAIM creeps against foreign reservations', () => {
+    const controller = {
+      id: 'controller2',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController;
+    const site = { id: 'site1', structureType: 'road' } as ConstructionSite;
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller });
+    (room as Room & { name: string }).name = 'W2N1';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 101,
+            requiresControllerPressure: true
+          }
+        ]
+      }
+    };
+    const makeCreep = (claimParts: number): Creep =>
+      ({
+        owner: { username: 'me' },
+        memory: { role: 'worker', colony: 'W1N1' },
+        getActiveBodyparts: jest.fn().mockReturnValue(claimParts),
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room
+      }) as unknown as Creep;
+
+    expect(selectWorkerTask(makeCreep(1))).toEqual({ type: 'build', targetId: 'site1' });
+    expect(selectWorkerTask(makeCreep(5))).toEqual({ type: 'reserve', targetId: 'controller2' });
+  });
+
   it('keeps a visible reserve target before spawn refill under concurrent energy pressure', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const controller = { id: 'controller2', my: false } as StructureController;
