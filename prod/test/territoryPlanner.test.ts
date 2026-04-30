@@ -5,6 +5,7 @@ import {
   planTerritoryIntent,
   recordTerritoryReserveFallbackIntent,
   recordRecoveredTerritoryFollowUpRetryCooldown,
+  requiresTerritoryControllerPressure,
   shouldSpawnTerritoryControllerCreep,
   suppressTerritoryIntent,
   TERRITORY_DOWNGRADE_GUARD_TICKS,
@@ -3611,6 +3612,31 @@ describe('planTerritoryIntent', () => {
       )
     ).toBe(false);
     expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('infers visible foreign reservation pressure before spawning stale reserve intents', () => {
+    const colony = makeSafeColony();
+    const stalePlan = { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' } as const;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController
+        })
+      }
+    };
+
+    expect(requiresTerritoryControllerPressure(stalePlan)).toBe(true);
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        stalePlan,
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        542
+      )
+    ).toBe(false);
   });
 
   it('does not renew an explicitly suppressed own reserve target near expiry', () => {
