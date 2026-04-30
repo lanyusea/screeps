@@ -2323,6 +2323,10 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
     return false;
   }
 
+  if (getRecordedColonySurvivalAssessment(colonyName)?.mode === 'TERRITORY_READY') {
+    return true;
+  }
+
   if (hasReadyTerritoryFollowUpEnergy(creep)) {
     return true;
   }
