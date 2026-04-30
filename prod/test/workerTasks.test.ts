@@ -290,6 +290,7 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
     (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
     (globalThis as unknown as { WORK: BodyPartConstant }).WORK = 'work';
+    delete (globalThis as unknown as { BUILD_POWER?: number }).BUILD_POWER;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
   });
@@ -4284,18 +4285,19 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
-  it('builds a finishable extension before a closer unfinished extension', () => {
+  it('builds an extension finishable with Screeps build power before a closer unfinished extension', () => {
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
     const nearExtensionSite = {
       id: 'extension-near',
       structureType: 'extension',
       progress: 0,
-      progressTotal: 200
+      progressTotal: 500
     } as ConstructionSite;
     const finishableExtensionSite = {
       id: 'extension-finishable',
       structureType: 'extension',
-      progress: 175,
-      progressTotal: 200
+      progress: 250,
+      progressTotal: 500
     } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -4328,8 +4330,8 @@ describe('selectWorkerTask', () => {
     const fartherExtensionSite = {
       id: 'extension-farther',
       structureType: 'extension',
-      progress: 100,
-      progressTotal: 200
+      progress: 200,
+      progressTotal: 500
     } as ConstructionSite;
     const controller = {
       id: 'controller1',

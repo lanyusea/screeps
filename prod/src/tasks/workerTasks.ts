@@ -35,6 +35,7 @@ const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
+const DEFAULT_BUILD_POWER = 5;
 const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 const SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 const SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
@@ -913,7 +914,7 @@ function compareNearTermCompletableConstructionSites(left: ConstructionSite, rig
 
 function canCompleteConstructionSiteWithCarriedEnergy(creep: Creep, site: ConstructionSite): boolean {
   const remainingProgress = getConstructionSiteRemainingProgress(site);
-  return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep);
+  return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep) * getBuildPower();
 }
 
 function getConstructionSiteRemainingProgress(site: ConstructionSite): number {
@@ -929,6 +930,12 @@ function getConstructionSiteRemainingProgress(site: ConstructionSite): number {
   }
 
   return Math.max(0, Math.ceil(progressTotal - progress));
+}
+
+function getBuildPower(): number {
+  return typeof BUILD_POWER === 'number' && Number.isFinite(BUILD_POWER) && BUILD_POWER > 0
+    ? BUILD_POWER
+    : DEFAULT_BUILD_POWER;
 }
 
 function compareConstructionSiteId(left: ConstructionSite, right: ConstructionSite): number {

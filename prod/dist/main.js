@@ -3910,6 +3910,7 @@ var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
+var DEFAULT_BUILD_POWER = 5;
 var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 var SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 var SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
@@ -4480,7 +4481,7 @@ function compareNearTermCompletableConstructionSites(left, right) {
 }
 function canCompleteConstructionSiteWithCarriedEnergy(creep, site) {
   const remainingProgress = getConstructionSiteRemainingProgress(site);
-  return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep);
+  return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep) * getBuildPower();
 }
 function getConstructionSiteRemainingProgress(site) {
   const progress = site.progress;
@@ -4489,6 +4490,9 @@ function getConstructionSiteRemainingProgress(site) {
     return Number.POSITIVE_INFINITY;
   }
   return Math.max(0, Math.ceil(progressTotal - progress));
+}
+function getBuildPower() {
+  return typeof BUILD_POWER === "number" && Number.isFinite(BUILD_POWER) && BUILD_POWER > 0 ? BUILD_POWER : DEFAULT_BUILD_POWER;
 }
 function compareConstructionSiteId(left, right) {
   return String(left.id).localeCompare(String(right.id));
