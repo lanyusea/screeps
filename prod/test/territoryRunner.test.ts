@@ -777,6 +777,89 @@ describe('runTerritoryControllerCreep', () => {
     ]);
   });
 
+  it('recovers persisted follow-up metadata when an older claim assignment falls back to reserve', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'satisfiedClaimAdjacent',
+      originRoom: 'W1N1',
+      originAction: 'claim'
+    };
+    const claimTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W1N2',
+      action: 'claim'
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 516,
+      rooms: {
+        W1N2: {
+          name: 'W1N2',
+          controller: { id: 'controller1', my: false } as StructureController,
+          find: jest.fn().mockReturnValue([])
+        } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [claimTarget],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 515,
+            followUp
+          }
+        ]
+      }
+    };
+    const controller = { id: 'controller1', my: false } as StructureController;
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      claimController: jest.fn().mockReturnValue(-15),
+      reserveController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.claimController).toHaveBeenCalledWith(controller);
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve', followUp });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 516,
+        followUp
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 516,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: 516,
+        followUp
+      }
+    ]);
+  });
+
   it('pressures a foreign reservation before trying to reserve the controller', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 516,

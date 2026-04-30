@@ -153,8 +153,8 @@ function tryFallbackClaimAssignmentToReserve(
   };
 
   suppressTerritoryIntent(creep.memory.colony, assignment, gameTime);
-  recordTerritoryReserveFallbackIntent(creep.memory.colony, reserveAssignment, gameTime);
-  creep.memory.territory = reserveAssignment;
+  creep.memory.territory =
+    recordTerritoryReserveFallbackIntent(creep.memory.colony, reserveAssignment, gameTime) ?? reserveAssignment;
 
   const reserveResult = executeControllerAction(creep, controller, 'reserveController');
   if (reserveResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
