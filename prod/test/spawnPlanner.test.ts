@@ -69,11 +69,17 @@ describe('planSpawn', () => {
     return { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController;
   }
 
-  function makeTerritoryRoom(roomName: string, controller: StructureController): Room {
+  function makeTerritoryRoom(roomName: string, controller: StructureController, sourceCount = 0): Room {
     return {
       name: roomName,
       controller,
-      find: jest.fn().mockReturnValue([])
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return Array.from({ length: sourceCount }, (_, index) => ({ id: `${roomName}-source${index}` }));
+        }
+
+        return [];
+      })
     } as unknown as Room;
   }
 
@@ -1267,6 +1273,79 @@ describe('planSpawn', () => {
         status: 'planned',
         updatedAt: 150
       }
+    ]);
+  });
+
+  it('keeps a farther configured reserve before adjacent progress at the baseline worker floor', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W4N1: makeTerritoryRoom('W4N1', { my: false } as StructureController, 1),
+        W2N1: makeTerritoryRoom('W2N1', { my: false } as StructureController, 2)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W4N1', action: 'reserve' }],
+        routeDistances: { 'W1N1>W4N1': 3 }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 160)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W4N1-160',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W4N1', action: 'reserve' }
+      }
+    });
+    expect(describeExits).not.toHaveBeenCalled();
+    expect(Memory.territory?.targets).toEqual([{ colony: 'W1N1', roomName: 'W4N1', action: 'reserve' }]);
+  });
+
+  it('prefers safe visible adjacent reserve progress over a farther configured reserve with worker surplus', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W4N1: makeTerritoryRoom('W4N1', { my: false } as StructureController, 1),
+        W2N1: makeTerritoryRoom('W2N1', { my: false } as StructureController, 2)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W4N1', action: 'reserve' }],
+        routeDistances: { 'W1N1>W4N1': 3 }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 161)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-161',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve' }
+      }
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.targets).toEqual([
+      { colony: 'W1N1', roomName: 'W4N1', action: 'reserve' },
+      { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }
     ]);
   });
 
