@@ -7853,7 +7853,7 @@ function runTerritoryControllerCreep(creep) {
     suppressTerritoryAssignment(creep, assignment);
     return;
   }
-  if (assignment.action === "reserve" && typeof creep.attackController === "function" && canCreepPressureTerritoryController(creep, controller, creep.memory.colony)) {
+  if (isTerritoryControlAction3(assignment.action) && typeof creep.attackController === "function" && canCreepPressureTerritoryController(creep, controller, creep.memory.colony)) {
     const pressureResult = executeControllerAction(creep, controller, "attackController");
     if (pressureResult === ERR_NOT_IN_RANGE_CODE2 && typeof creep.moveTo === "function") {
       creep.moveTo(controller);

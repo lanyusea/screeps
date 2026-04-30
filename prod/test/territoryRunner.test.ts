@@ -276,6 +276,56 @@ describe('runTerritoryControllerCreep', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
+  it('pressures a foreign reservation before trying to claim the controller', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(5),
+      attackController: jest.fn().mockReturnValue(0),
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.attackController).toHaveBeenCalledWith(controller);
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim' });
+    expect(Memory.territory).toBeUndefined();
+  });
+
+  it('moves a claim-pressure creep into range before claiming a foreign-reserved controller', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(5),
+      attackController: jest.fn().mockReturnValue(-9),
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.attackController).toHaveBeenCalledWith(controller);
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim' });
+    expect(Memory.territory).toBeUndefined();
+  });
+
   it('suppresses an unworkable follow-up claim assignment so the planner stops requeueing it', () => {
     const followUp: TerritoryFollowUpMemory = {
       source: 'satisfiedClaimAdjacent',

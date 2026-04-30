@@ -79,7 +79,7 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   }
 
   if (
-    assignment.action === 'reserve' &&
+    isTerritoryControlAction(assignment.action) &&
     typeof creep.attackController === 'function' &&
     canCreepPressureTerritoryController(creep, controller, creep.memory.colony)
   ) {
