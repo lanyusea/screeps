@@ -3902,20 +3902,28 @@ function selectWorkerTask(creep) {
       recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "urgentSpawnExtensionRefill");
       return spawnOrExtensionRefillTask;
     }
-    const lowLoadEnergyAcquisitionCandidate2 = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-    if (lowLoadEnergyAcquisitionCandidate2) {
-      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate2);
-      return lowLoadEnergyAcquisitionCandidate2.task;
+    if (!remoteProductiveSpendingSuppressed) {
+      const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+      if (lowLoadEnergyAcquisitionCandidate) {
+        recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+        return lowLoadEnergyAcquisitionCandidate.task;
+      }
     }
     recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "noNearbyEnergy");
     return spawnOrExtensionRefillTask;
   }
-  const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-  if (lowLoadEnergyAcquisitionCandidate) {
-    recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-    return lowLoadEnergyAcquisitionCandidate.task;
+  if (!remoteProductiveSpendingSuppressed) {
+    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+    if (lowLoadEnergyAcquisitionCandidate) {
+      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+      return lowLoadEnergyAcquisitionCandidate.task;
+    }
   }
   if (remoteProductiveSpendingSuppressed) {
+    const suppressedRemoteEnergyHandlingTask = selectSuppressedRemoteEnergyHandlingTask(creep);
+    if (suppressedRemoteEnergyHandlingTask) {
+      return suppressedRemoteEnergyHandlingTask;
+    }
     return null;
   }
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
@@ -3997,6 +4005,34 @@ function getWorkerColonySurvivalAssessment(creep) {
 function isWorkerInColonyRoom(creep) {
   const colonyName = getCreepColonyName(creep);
   return colonyName !== null && getRoomName2(creep.room) === colonyName;
+}
+function selectSuppressedRemoteEnergyHandlingTask(creep) {
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink) {
+    return { type: "transfer", targetId: priorityTowerEnergySink.id };
+  }
+  return selectColonyRecallEnergySpendingTask(creep);
+}
+function selectColonyRecallEnergySpendingTask(creep) {
+  const colonyRoom = getCreepColonyRoom(creep);
+  if (!colonyRoom || isInRoom(creep, colonyRoom)) {
+    return null;
+  }
+  const energySink = selectColonyRecallEnergySink(colonyRoom);
+  if (energySink) {
+    return { type: "transfer", targetId: energySink.id };
+  }
+  const controller = colonyRoom.controller;
+  return (controller == null ? void 0 : controller.my) === true ? { type: "upgrade", targetId: controller.id } : null;
+}
+function selectColonyRecallEnergySink(room) {
+  var _a;
+  const energySinks = findFillableEnergySinksInRoom(room);
+  return (_a = selectFirstEnergySinkByStableId(energySinks.filter(isSpawnOrExtensionEnergySink))) != null ? _a : selectFirstEnergySinkByStableId(energySinks.filter(isTowerEnergySink));
+}
+function selectFirstEnergySinkByStableId(energySinks) {
+  var _a;
+  return (_a = [...energySinks].sort(compareEnergySinkId)[0]) != null ? _a : null;
 }
 function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, recoveryOnlyWorkSuppressed) {
   if (controller && shouldRushRcl1Controller(controller) && !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)) {
@@ -4219,7 +4255,13 @@ function isAssignedTransferTarget(energySink, assignedTransferTargetId) {
   return assignedTransferTargetId !== null && String(energySink.id) === assignedTransferTargetId;
 }
 function findFillableEnergySinks(creep) {
-  const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
+  return findFillableEnergySinksInRoom(creep.room);
+}
+function findFillableEnergySinksInRoom(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  const energySinks = room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
   return energySinks;
@@ -5266,6 +5308,14 @@ function getCreepColonyName(creep) {
     return colony;
   }
   return null;
+}
+function getCreepColonyRoom(creep) {
+  var _a, _b, _c;
+  const colonyName = getCreepColonyName(creep);
+  if (!colonyName) {
+    return null;
+  }
+  return (_c = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[colonyName]) != null ? _c : null;
 }
 function isActiveTerritoryPressureIntent(intent, colonyName) {
   if (!isWorkerTaskRecord(intent)) {

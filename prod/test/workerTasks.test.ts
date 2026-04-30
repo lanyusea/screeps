@@ -3015,6 +3015,74 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
+  it.each(['BOOTSTRAP', 'LOCAL_STABLE'] as const)(
+    'recalls loaded remote workers to home refill while %s suppresses remote spending',
+    (mode) => {
+      recordSurvivalMode(mode);
+      const homeSpawn = makeEnergySink('home-spawn', 'spawn' as StructureConstant, 300);
+      const homeRoom = makeWorkerTaskRoom({ myStructures: [homeSpawn as AnyOwnedStructure] });
+      const remoteRoom = makeWorkerTaskRoom({
+        controller: {
+          id: 'controller2',
+          my: false,
+          reservation: { username: 'Self', ticksToEnd: 1_000 }
+        } as StructureController
+      });
+      (remoteRoom as Room & { name: string }).name = 'W2N1';
+      const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+      globalScope.Game = {
+        ...(globalScope.Game ?? {}),
+        creeps: {},
+        rooms: { W1N1: homeRoom, W2N1: remoteRoom }
+      };
+      const creep = {
+        memory: { role: 'worker', colony: 'W1N1' },
+        owner: { username: 'Self' },
+        store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+        room: remoteRoom
+      } as unknown as Creep;
+
+      expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'home-spawn' });
+    }
+  );
+
+  it('recalls loaded remote workers to the home controller when bootstrap refill sinks are full', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const homeController = {
+      id: 'home-controller',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const fullHomeSpawn = makeEnergySink('home-spawn-full', 'spawn' as StructureConstant, 0);
+    const homeRoom = makeWorkerTaskRoom({
+      controller: homeController,
+      myStructures: [fullHomeSpawn as AnyOwnedStructure]
+    });
+    const remoteRoom = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller2',
+        my: false,
+        reservation: { username: 'Self', ticksToEnd: 1_000 }
+      } as StructureController
+    });
+    (remoteRoom as Room & { name: string }).name = 'W2N1';
+    const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+    globalScope.Game = {
+      ...(globalScope.Game ?? {}),
+      creeps: {},
+      rooms: { W1N1: homeRoom, W2N1: remoteRoom }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      owner: { username: 'Self' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: remoteRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'home-controller' });
+  });
+
   it('suppresses remote critical road repair while local stability gates are still short', () => {
     recordSurvivalMode('LOCAL_STABLE');
     const road = makeStructure('remote-road-critical', 'road' as StructureConstant, 1_000, 5_000, {

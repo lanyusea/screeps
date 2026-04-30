@@ -163,23 +163,32 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       return spawnOrExtensionRefillTask;
     }
 
-    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-    if (lowLoadEnergyAcquisitionCandidate) {
-      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-      return lowLoadEnergyAcquisitionCandidate.task;
+    if (!remoteProductiveSpendingSuppressed) {
+      const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+      if (lowLoadEnergyAcquisitionCandidate) {
+        recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+        return lowLoadEnergyAcquisitionCandidate.task;
+      }
     }
 
     recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, 'noNearbyEnergy');
     return spawnOrExtensionRefillTask;
   }
 
-  const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-  if (lowLoadEnergyAcquisitionCandidate) {
-    recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-    return lowLoadEnergyAcquisitionCandidate.task;
+  if (!remoteProductiveSpendingSuppressed) {
+    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+    if (lowLoadEnergyAcquisitionCandidate) {
+      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+      return lowLoadEnergyAcquisitionCandidate.task;
+    }
   }
 
   if (remoteProductiveSpendingSuppressed) {
+    const suppressedRemoteEnergyHandlingTask = selectSuppressedRemoteEnergyHandlingTask(creep);
+    if (suppressedRemoteEnergyHandlingTask) {
+      return suppressedRemoteEnergyHandlingTask;
+    }
+
     return null;
   }
 
@@ -284,6 +293,42 @@ function getWorkerColonySurvivalAssessment(creep: Creep): ColonySurvivalAssessme
 function isWorkerInColonyRoom(creep: Creep): boolean {
   const colonyName = getCreepColonyName(creep);
   return colonyName !== null && getRoomName(creep.room) === colonyName;
+}
+
+function selectSuppressedRemoteEnergyHandlingTask(creep: Creep): CreepTaskMemory | null {
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink) {
+    return { type: 'transfer', targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure> };
+  }
+
+  return selectColonyRecallEnergySpendingTask(creep);
+}
+
+function selectColonyRecallEnergySpendingTask(creep: Creep): CreepTaskMemory | null {
+  const colonyRoom = getCreepColonyRoom(creep);
+  if (!colonyRoom || isInRoom(creep, colonyRoom)) {
+    return null;
+  }
+
+  const energySink = selectColonyRecallEnergySink(colonyRoom);
+  if (energySink) {
+    return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
+  }
+
+  const controller = colonyRoom.controller;
+  return controller?.my === true ? { type: 'upgrade', targetId: controller.id } : null;
+}
+
+function selectColonyRecallEnergySink(room: Room): FillableEnergySink | null {
+  const energySinks = findFillableEnergySinksInRoom(room);
+  return (
+    selectFirstEnergySinkByStableId(energySinks.filter(isSpawnOrExtensionEnergySink)) ??
+    selectFirstEnergySinkByStableId(energySinks.filter(isTowerEnergySink))
+  );
+}
+
+function selectFirstEnergySinkByStableId<T extends FillableEnergySink>(energySinks: T[]): T | null {
+  return [...energySinks].sort(compareEnergySinkId)[0] ?? null;
 }
 
 function selectBootstrapSurvivalSpendingTask(
@@ -616,7 +661,15 @@ function isAssignedTransferTarget(
 }
 
 function findFillableEnergySinks(creep: Creep): FillableEnergySink[] {
-  const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
+  return findFillableEnergySinksInRoom(creep.room);
+}
+
+function findFillableEnergySinksInRoom(room: Room): FillableEnergySink[] {
+  if (typeof FIND_MY_STRUCTURES !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  const energySinks = room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
 
@@ -2261,6 +2314,15 @@ function getCreepColonyName(creep: Creep): string | null {
   }
 
   return null;
+}
+
+function getCreepColonyRoom(creep: Creep): Room | null {
+  const colonyName = getCreepColonyName(creep);
+  if (!colonyName) {
+    return null;
+  }
+
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[colonyName] ?? null;
 }
 
 function isActiveTerritoryPressureIntent(intent: unknown, colonyName: string): boolean {
