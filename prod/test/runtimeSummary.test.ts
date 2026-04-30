@@ -548,6 +548,89 @@ describe('runtime telemetry summaries', () => {
     expect(room.territoryExecutionHints).toEqual([executionHint]);
   });
 
+  it('groups creeps by colony before building per-room summaries', () => {
+    const firstColony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      roomName: 'W1N1',
+      spawn: { name: 'Spawn1', spawning: null }
+    });
+    const secondColony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      roomName: 'W2N2',
+      spawn: { name: 'Spawn2', spawning: null }
+    });
+    const offColonyTelemetry = { memoryReadCount: 0 };
+
+    emitRuntimeSummary(
+      [firstColony, secondColony],
+      [
+        makeWorker({ role: 'worker', colony: 'W1N1' }, 10, 'WorkerW1N1'),
+        makeWorker({ role: 'worker', colony: 'W2N2' }, 20, 'WorkerW2N2'),
+        makeTrackedWorker({ role: 'worker', colony: 'W9N9' }, offColonyTelemetry, 30, 'WorkerW9N9')
+      ]
+    );
+
+    const payload = parseLoggedSummary();
+    const rooms = payload.rooms as Array<Record<string, unknown>>;
+    expect(rooms.map((room) => [room.roomName, room.workerCount])).toEqual([
+      ['W1N1', 1],
+      ['W2N2', 1]
+    ]);
+    expect(offColonyTelemetry.memoryReadCount).toBe(1);
+  });
+
+  it('emits adjacent territory controller-progress intent coverage in room telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game.map = {
+      describeExits
+    } as unknown as GameMap;
+    (Game.rooms as Record<string, Room>).W2N1 = makeRemoteRoom('W2N1', {
+      controller: { my: false } as StructureController,
+      sourceCount: 2
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+          }
+        ]
+      }
+    };
+
+    emitRuntimeSummary(
+      [colony],
+      [
+        makeWorker({ role: 'worker', colony: 'W1N1' }),
+        makeWorker({ role: 'worker', colony: 'W1N1' }),
+        makeWorker({ role: 'worker', colony: 'W1N1' }),
+        makeTerritoryClaimer({ targetRoom: 'W2N1', action: 'reserve' }, 'claimer-W1N1-W2N1')
+      ]
+    );
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.territoryIntents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: RUNTIME_SUMMARY_INTERVAL,
+        activeCreepCount: 1,
+        adjacentToColony: true
+      }
+    ]);
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+  });
+
   it('keeps emission gating deterministic', () => {
     expect(shouldEmitRuntimeSummary(1, [])).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [])).toBe(true);
@@ -601,14 +684,16 @@ function makeColony(options: {
   installGlobals?: boolean;
   includeRoomFind?: boolean;
   includeEventLog?: boolean;
+  roomName?: string;
   structures?: unknown[];
 }): ColonySnapshot {
   if (options.installGlobals !== false) {
     installRuntimeTelemetryGlobals();
   }
 
+  const roomName = options.roomName ?? 'W1N1';
   const room = {
-    name: 'W1N1',
+    name: roomName,
     energyAvailable: 250,
     energyCapacityAvailable: 300,
     controller: {
@@ -620,7 +705,7 @@ function makeColony(options: {
     }
   } as unknown as Room;
   const spawn = {
-    name: options.spawn?.name ?? 'Spawn1',
+    name: options.spawn?.name ?? (roomName === 'W1N1' ? 'Spawn1' : `Spawn-${roomName}`),
     room,
     spawning: options.spawn?.spawning ?? null,
     store: makeEnergyStore(50)
@@ -667,11 +752,14 @@ function makeColony(options: {
     ]);
   }
 
+  const existingGame = (globalThis as unknown as { Game?: Partial<Game> }).Game;
+  const existingRooms = existingGame?.rooms ?? {};
+  const existingSpawns = existingGame?.spawns ?? {};
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
     time: options.time,
-    rooms: { W1N1: room },
-    spawns: { [spawn.name]: spawn },
-    creeps: {},
+    rooms: { ...existingRooms, [roomName]: room },
+    spawns: { ...existingSpawns, [spawn.name]: spawn },
+    creeps: existingGame?.creeps ?? {},
     cpu: {
       getUsed: jest.fn().mockReturnValue(4.2),
       bucket: 9000
@@ -691,6 +779,39 @@ function makeWorker(memory: CreepMemory, energy = 0, name?: string): Creep {
     ...(name ? { name } : {}),
     memory,
     store: makeEnergyStore(energy)
+  } as unknown as Creep;
+}
+
+function makeTrackedWorker(
+  memory: CreepMemory,
+  telemetry: { memoryReadCount: number },
+  energy = 0,
+  name?: string
+): Creep {
+  return {
+    ...(name ? { name } : {}),
+    get memory(): CreepMemory {
+      telemetry.memoryReadCount += 1;
+      return memory;
+    },
+    store: makeEnergyStore(energy)
+  } as unknown as Creep;
+}
+
+function makeTerritoryClaimer(
+  territory: CreepTerritoryMemory,
+  name: string,
+  colony = 'W1N1'
+): Creep {
+  return {
+    name,
+    memory: {
+      role: 'claimer',
+      colony,
+      territory
+    },
+    body: [{ type: 'claim', hits: 100 }],
+    ticksToLive: 1_200
   } as unknown as Creep;
 }
 

@@ -152,6 +152,7 @@ function makeWorkerTaskRoom({
   energyCapacityAvailable,
   hostileCreeps = [],
   hostileStructures = [],
+  myCreeps = [],
   myStructures = [],
   sources = [],
   structures = []
@@ -162,6 +163,7 @@ function makeWorkerTaskRoom({
   energyCapacityAvailable?: number;
   hostileCreeps?: Creep[];
   hostileStructures?: AnyStructure[];
+  myCreeps?: Creep[];
   myStructures?: AnyOwnedStructure[];
   sources?: Source[];
   structures?: AnyStructure[];
@@ -171,9 +173,14 @@ function makeWorkerTaskRoom({
     controller,
     ...(energyAvailable === undefined ? {} : { energyAvailable }),
     ...(energyCapacityAvailable === undefined ? {} : { energyCapacityAvailable }),
-    find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+    find: jest.fn((type: number, options?: { filter?: (object: AnyOwnedStructure | Creep) => boolean }) => {
       if (type === FIND_MY_STRUCTURES) {
         return options?.filter ? myStructures.filter(options.filter) : myStructures;
+      }
+
+      const findMyCreeps = (globalThis as unknown as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
+      if (typeof findMyCreeps === 'number' && type === findMyCreeps) {
+        return options?.filter ? myCreeps.filter(options.filter) : myCreeps;
       }
 
       if (type === FIND_HOSTILE_CREEPS) {
@@ -290,6 +297,7 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
     (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
     (globalThis as unknown as { WORK: BodyPartConstant }).WORK = 'work';
+    delete (globalThis as unknown as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
     delete (globalThis as unknown as { BUILD_POWER?: number }).BUILD_POWER;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
@@ -3924,7 +3932,9 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
   });
 
-  it('routes carried energy to repair when routine construction progress is already covered', () => {
+  it('uses room-local BUILD_POWER progress reservations when routine construction is already covered', () => {
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
     const site = {
       id: 'generic-site1',
       structureType: 'tower',
@@ -3938,7 +3948,8 @@ describe('selectWorkerTask', () => {
       level: 3,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
-    const room = makeWorkerTaskRoom({ constructionSites: [site], controller, structures: [road] });
+    const myCreeps: Creep[] = [];
+    const room = makeWorkerTaskRoom({ constructionSites: [site], controller, myCreeps, structures: [road] });
     const assignedBuilder = {
       name: 'AssignedBuilder',
       memory: { role: 'worker', task: { type: 'build', targetId: 'generic-site1' as Id<ConstructionSite> } },
@@ -3960,7 +3971,8 @@ describe('selectWorkerTask', () => {
       pos: { getRangeTo },
       room
     } as unknown as Creep;
-    setGameCreeps({ AssignedBuilder: assignedBuilder, Repairer: creep });
+    myCreeps.push(assignedBuilder, creep);
+    setGameCreeps({});
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road-worn' });
   });
@@ -4004,6 +4016,53 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ AssignedBuilder: assignedBuilder, Builder: creep });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
+  });
+
+  it('ignores off-room global builders when room-local construction reservations are available', () => {
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
+    const site = {
+      id: 'generic-site1',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 100
+    } as ConstructionSite;
+    const myCreeps: Creep[] = [];
+    const room = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => {
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return [site];
+        }
+
+        if (type === (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS) {
+          return myCreeps;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const creep = {
+      name: 'Builder',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const offRoomAssignedBuilder = {
+      name: 'OffRoomBuilder',
+      memory: { role: 'worker', task: { type: 'build', targetId: 'generic-site1' as Id<ConstructionSite> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: { name: 'W9N9' }
+    } as unknown as Creep;
+    const globalCreeps = new Proxy({ OffRoomBuilder: offRoomAssignedBuilder } as Record<string, Creep>, {
+      ownKeys: () => {
+        throw new Error('construction reservations should use room-local creeps');
+      }
+    });
+    myCreeps.push(creep);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: globalCreeps };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'generic-site1' });
+    expect(room.find).toHaveBeenCalledWith(10);
   });
 
   it('keeps off-route road repair behind generic construction even at the critical hit threshold', () => {

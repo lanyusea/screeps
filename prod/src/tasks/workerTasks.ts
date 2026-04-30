@@ -892,7 +892,7 @@ function hasUnreservedConstructionProgress(creep: Creep, site: ConstructionSite)
 }
 
 function getReservedConstructionProgress(creep: Creep, site: ConstructionSite): number {
-  return getGameCreeps().reduce((total, worker) => {
+  return getRoomOwnedCreeps(creep.room).reduce((total, worker) => {
     if (
       isSameCreep(worker, creep) ||
       !isSameRoomWorker(worker, creep.room) ||
@@ -903,6 +903,18 @@ function getReservedConstructionProgress(creep: Creep, site: ConstructionSite): 
 
     return total + getUsedEnergy(worker) * getBuildPower();
   }, 0);
+}
+
+function getRoomOwnedCreeps(room: Room): Creep[] {
+  const findMyCreeps = (globalThis as unknown as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
+  if (typeof findMyCreeps === 'number') {
+    const roomCreeps = (room as Room & { find?: (type: number) => Creep[] }).find?.(findMyCreeps);
+    if (Array.isArray(roomCreeps)) {
+      return roomCreeps;
+    }
+  }
+
+  return getGameCreeps().filter((worker) => isSameRoomWorker(worker, room));
 }
 
 function isWorkerAssignedToConstructionSite(worker: Creep, site: ConstructionSite): boolean {
