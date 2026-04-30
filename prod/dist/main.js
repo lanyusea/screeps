@@ -5331,15 +5331,18 @@ function hasRecoverableSurplusEnergy(creep) {
   return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null || findDroppedResources(creep.room).some(isUsefulDroppedEnergy);
 }
 function hasActiveTerritoryPressure(creep) {
-  var _a;
+  var _a, _b;
   const colonyName = getCreepColonyName(creep);
   if (!colonyName) {
     return false;
   }
+  if (((_a = getRecordedColonySurvivalAssessment(colonyName)) == null ? void 0 : _a.mode) === "TERRITORY_READY") {
+    return true;
+  }
   if (hasReadyTerritoryFollowUpEnergy(creep)) {
     return true;
   }
-  const territoryMemory = (_a = globalThis.Memory) == null ? void 0 : _a.territory;
+  const territoryMemory = (_b = globalThis.Memory) == null ? void 0 : _b.territory;
   if (!territoryMemory || !Array.isArray(territoryMemory.intents)) {
     return false;
   }

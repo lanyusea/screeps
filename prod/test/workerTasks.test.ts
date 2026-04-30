@@ -3142,6 +3142,29 @@ describe('selectWorkerTask', () => {
     expect(spawn.store.getFreeCapacity).not.toHaveBeenCalled();
   });
 
+  it('routes carried energy to controller progress when survival gates are territory-ready', () => {
+    recordSurvivalMode('TERRITORY_READY');
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('suppresses non-critical construction and routine upgrading during bootstrap', () => {
     recordSurvivalMode('BOOTSTRAP');
     const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
@@ -3260,6 +3283,34 @@ describe('selectWorkerTask', () => {
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
     } as StructureController;
     const room = makeWorkerTaskRoom({ controller });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('suppresses claimed remote controller progress during defense', () => {
+    recordSurvivalMode('DEFENSE');
+    const controller = {
+      id: 'controller2',
+      my: true,
+      level: 2,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim', status: 'active', updatedAt: 900 }]
+      }
+    };
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller
+    });
     (room as Room & { name: string }).name = 'W2N1';
     const creep = {
       memory: { role: 'worker', colony: 'W1N1' },
