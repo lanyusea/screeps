@@ -1081,7 +1081,13 @@ function selectNearbyProductiveEnergySinkTask(
     ...constructionSites
       .filter((site) => hasUnreservedConstructionProgress(creep, site, constructionReservationContext))
       .map((site) =>
-        createProductiveEnergySinkCandidate(creep, site, { type: 'build', targetId: site.id }, 0)
+        createProductiveEnergySinkCandidate(
+          creep,
+          site,
+          { type: 'build', targetId: site.id },
+          0,
+          canCompleteConstructionSiteWithCarriedEnergy(creep, site)
+        )
       ),
     ...findVisibleRoomStructures(creep.room)
       .filter(isSafeRepairTarget)
@@ -1109,14 +1115,15 @@ function createProductiveEnergySinkCandidate(
   creep: Creep,
   target: ConstructionSite | RepairableWorkerStructure,
   task: ProductiveEnergySinkTask,
-  taskPriority: number
+  taskPriority: number,
+  canCompleteConstruction = false
 ): ProductiveEnergySinkCandidate | null {
   const range = getRangeBetweenRoomObjects(creep, target);
   if (range === null) {
     return null;
   }
 
-  return { range, task, taskPriority };
+  return { canCompleteConstruction, range, task, taskPriority };
 }
 
 function compareProductiveEnergySinkCandidates(
@@ -1124,10 +1131,22 @@ function compareProductiveEnergySinkCandidates(
   right: ProductiveEnergySinkCandidate
 ): number {
   return (
+    compareProductiveEnergySinkCompletion(left, right) ||
     left.range - right.range ||
     left.taskPriority - right.taskPriority ||
     String(left.task.targetId).localeCompare(String(right.task.targetId))
   );
+}
+
+function compareProductiveEnergySinkCompletion(
+  left: ProductiveEnergySinkCandidate,
+  right: ProductiveEnergySinkCandidate
+): number {
+  if (left.canCompleteConstruction === right.canCompleteConstruction) {
+    return 0;
+  }
+
+  return left.canCompleteConstruction ? -1 : 1;
 }
 
 function selectCapacityEnablingConstructionSite(
@@ -1355,6 +1374,7 @@ interface SpawnRecoveryEnergyAcquisitionCandidate extends WorkerEnergyAcquisitio
 }
 
 interface ProductiveEnergySinkCandidate {
+  canCompleteConstruction: boolean;
   range: number;
   task: ProductiveEnergySinkTask;
   taskPriority: number;
