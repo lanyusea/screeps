@@ -4777,12 +4777,17 @@ function selectHarvestSource(creep) {
   let selectedCount = (_a = assignmentCounts.get(selectedSource.id)) != null ? _a : 0;
   for (const source of viableSources.slice(1)) {
     const count = (_b = assignmentCounts.get(source.id)) != null ? _b : 0;
-    if (count < selectedCount) {
+    if (count < selectedCount || count === selectedCount && isCloserHarvestSource(creep, source, selectedSource)) {
       selectedSource = source;
       selectedCount = count;
     }
   }
   return selectedSource;
+}
+function isCloserHarvestSource(creep, candidate, selected) {
+  const candidateRange = getRangeBetweenRoomObjects(creep, candidate);
+  const selectedRange = getRangeBetweenRoomObjects(creep, selected);
+  return candidateRange !== null && selectedRange !== null && candidateRange < selectedRange;
 }
 function selectViableHarvestSources(sources) {
   const sourcesWithEnergy = sources.filter((source) => typeof source.energy === "number" && source.energy > 0);
