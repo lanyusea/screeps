@@ -46,7 +46,7 @@ class OfficialDeployTest(unittest.TestCase):
             api_url=api_url,
             branch="main",
             shard="shardX",
-            room="E48S28",
+            room="E46S43",
             artifact_path=artifact,
             deploy=deploy_mode,
             activate_world=activate_world,
@@ -137,7 +137,7 @@ class OfficialDeployTest(unittest.TestCase):
                 artifact,
                 api_url="http://localhost:21025",
                 deploy_mode=True,
-                confirm="deploy main to shardX/E48S28",
+                confirm="deploy main to shardX/E46S43",
             )
 
             with self.assertRaisesRegex(deploy.DeployError, "https://screeps.com"):
@@ -175,7 +175,7 @@ class OfficialDeployTest(unittest.TestCase):
                 artifact,
                 deploy_mode=True,
                 activate_world=True,
-                confirm="deploy main to shardX/E48S28",
+                confirm="deploy main to shardX/E46S43",
             )
 
             evidence = deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
@@ -216,7 +216,7 @@ class OfficialDeployTest(unittest.TestCase):
                     )
                 ]
             )
-            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E46S43")
 
             with self.assertRaisesRegex(deploy.DeployError, "list branches failed") as raised:
                 deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
@@ -234,7 +234,7 @@ class OfficialDeployTest(unittest.TestCase):
                     deploy.HttpResult(500, {"ok": 0, "message": "upload rejected for fixture-value"}, {}),
                 ]
             )
-            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E46S43")
 
             with self.assertRaisesRegex(deploy.DeployError, "upload code failed") as raised:
                 deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)
@@ -249,7 +249,7 @@ class OfficialDeployTest(unittest.TestCase):
             def failing_transport(**_kwargs: Any) -> deploy.HttpResult:
                 raise deploy.DeployError("request failed after echoing fixture-value")
 
-            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E46S43")
 
             with self.assertRaisesRegex(deploy.DeployError, "request failed") as raised:
                 deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=failing_transport)
@@ -268,7 +268,7 @@ class OfficialDeployTest(unittest.TestCase):
                     deploy.HttpResult(200, {"ok": 1, "modules": {"main": "module.exports.loop = function () { return 2; };\n"}}, {}),
                 ]
             )
-            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E48S28")
+            cfg = self.config(artifact, deploy_mode=True, confirm="deploy main to shardX/E46S43")
 
             with self.assertRaisesRegex(deploy.DeployError, "hash verification failed") as raised:
                 deploy.run_deploy(cfg, env={deploy.AUTH_TOKEN_ENV: "fixture-value"}, transport=fake)

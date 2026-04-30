@@ -29,7 +29,7 @@ DEFAULT_ARTIFACT_PATH = REPO_ROOT / "prod" / "dist" / "main.js"
 DEFAULT_API_URL = "https://screeps.com"
 DEFAULT_BRANCH = "main"
 DEFAULT_SHARD = "shardX"
-DEFAULT_ROOM = "E48S28"
+DEFAULT_ROOM = "E46S43"
 DEFAULT_TIMEOUT_SECONDS = 30
 AUTH_TOKEN_ENV = "SCREEPS_AUTH_TOKEN"
 SECRET_KEY_RE = re.compile(r"(authorization|password|secret|steam[_-]?key|token|x[_-]?token|x[_-]?username)", re.I)
@@ -662,7 +662,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--dry-run", action="store_true", help="Verify artifact metadata only; default when --deploy is omitted.")
     mode.add_argument("--deploy", action="store_true", help="Perform authenticated API writes.")
     parser.add_argument("--activate-world", action="store_true", help="Set the deployed branch as activeWorld and verify it by hash.")
-    parser.add_argument("--confirm", help='Required for --deploy, e.g. "deploy main to shardX/E48S28".')
+    parser.add_argument("--confirm", help='Required for --deploy, e.g. "deploy main to shardX/E46S43".')
     parser.add_argument("--api-url", default=os.environ.get("SCREEPS_API_URL", DEFAULT_API_URL))
     parser.add_argument("--branch", default=os.environ.get("SCREEPS_BRANCH", DEFAULT_BRANCH))
     parser.add_argument("--shard", default=os.environ.get("SCREEPS_SHARD", DEFAULT_SHARD))

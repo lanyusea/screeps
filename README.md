@@ -70,7 +70,7 @@ Make official/private runtime state visible without noisy spam. This domain cove
 
 ### 6. Official MMO deployment
 
-Deploy to the official Screeps MMO only after release-quality evidence exists. The current official target is branch `main`, shard `shardX`, room `E48S28`, with deployment gated by deterministic tests, build verification, private-server smoke evidence, safe token handling, and post-deploy observation.
+Deploy to the official Screeps MMO only after release-quality evidence exists. The current official target is branch `main`, shard `shardX`, room `E46S43`, with deployment gated by deterministic tests, build verification, private-server smoke evidence, safe token handling, and post-deploy observation.
 
 Runbook: `docs/ops/official-mmo-deploy.md`.
 

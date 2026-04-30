@@ -20,7 +20,7 @@ BASE_HTTP = os.environ.get("SCREEPS_API_URL", "https://screeps.com").rstrip("/")
 BASE_WS = BASE_HTTP.replace("https://", "wss://").replace("http://", "ws://")
 TOKEN = os.environ["SCREEPS_AUTH_TOKEN"]
 SHARD = os.environ.get("SCREEPS_SHARD", "shardX")
-ROOM = os.environ.get("SCREEPS_ROOM", "E48S28")
+ROOM = os.environ.get("SCREEPS_ROOM", "E46S43")
 OWNER = os.environ.get("SCREEPS_OWNER", "lanyusea")
 
 OUT_SVG = Path(f"/root/screeps/docs/process/room-snapshot-design-canvas-{ROOM}.svg")

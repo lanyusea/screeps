@@ -8,7 +8,7 @@ base_http = os.environ.get('SCREEPS_API_URL', 'https://screeps.com').rstrip('/')
 base_ws = base_http.replace('https://', 'wss://').replace('http://', 'ws://')
 tok = os.environ['SCREEPS_AUTH_TOKEN']
 shard = os.environ.get('SCREEPS_SHARD', 'shardX')
-room = os.environ.get('SCREEPS_ROOM', 'E48S28')
+room = os.environ.get('SCREEPS_ROOM', 'E46S43')
 owner = 'lanyusea'
 
 def get_json(path, params=None):
@@ -195,7 +195,7 @@ for i,(col,text) in enumerate(leg):
 
 add(f'<text class="sub" x="70" y="1070">Design target: clearer than raw client map — coordinate grid, object labels, health/energy bars, tactical summary, alert-ready color coding.</text>')
 add('</svg>')
-out_svg=Path('/root/screeps/docs/process/room-snapshot-refined-E48S28.svg')
+out_svg=Path('/root/screeps/docs/process/room-snapshot-refined-E46S43.svg')
 out_png=out_svg.with_suffix('.png')
 out_svg.write_text('\n'.join(svg), encoding='utf-8')
 print(json.dumps({'svg':str(out_svg),'png':str(out_png),'objects':len(objs),'hostiles':len(hostiles),'counts':dict(counts)}, ensure_ascii=False))

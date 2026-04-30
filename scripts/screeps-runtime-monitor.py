@@ -38,7 +38,7 @@ DEFAULT_DEBOUNCE_SECONDS = 300
 DEFAULT_COLLECTION_ATTEMPTS = 3
 DEFAULT_COLLECTION_RETRY_DELAY_SECONDS = 5
 DEFAULT_SHARD = "shardX"
-DEFAULT_ROOM = "E48S28"
+DEFAULT_ROOM = "E46S43"
 
 ROOM_SIZE = 50
 TERRAIN_CELLS = ROOM_SIZE * ROOM_SIZE
@@ -456,7 +456,7 @@ def parse_room_arg(value: str | None, default_shard: str) -> RoomRef | None:
     if "/" in value:
         shard, room = value.split("/", 1)
         if not shard or not room:
-            raise ValueError("--room must use shard/room, for example shardX/E48S28")
+            raise ValueError("--room must use shard/room, for example shardX/E46S43")
         return RoomRef(shard=shard, room=room)
     return RoomRef(shard=default_shard, room=value)
 
