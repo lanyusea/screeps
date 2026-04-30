@@ -4093,11 +4093,11 @@ function selectWorkerTask(creep) {
     }
     return { type: "upgrade", targetId: controller.id };
   }
-  const roadConstructionSite = selectConstructionSite(creep, constructionSites, isRoadConstructionSite2);
+  const roadConstructionSite = selectUnreservedConstructionSite(creep, constructionSites, isRoadConstructionSite2);
   if (roadConstructionSite) {
     return { type: "build", targetId: roadConstructionSite.id };
   }
-  const constructionSite = selectConstructionSite(creep, constructionSites);
+  const constructionSite = selectUnreservedConstructionSite(creep, constructionSites);
   if (constructionSite) {
     return { type: "build", targetId: constructionSite.id };
   }
@@ -4493,6 +4493,47 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
   }
   return candidates[0];
 }
+function selectUnreservedConstructionSite(creep, constructionSites, predicate = () => true) {
+  return selectConstructionSite(
+    creep,
+    constructionSites,
+    (site) => predicate(site) && hasUnreservedConstructionProgress(creep, site)
+  );
+}
+function hasUnreservedConstructionProgress(creep, site) {
+  if (isWorkerAssignedToConstructionSite(creep, site)) {
+    return true;
+  }
+  const remainingProgress = getConstructionSiteRemainingProgress(site);
+  if (!Number.isFinite(remainingProgress)) {
+    return true;
+  }
+  return remainingProgress > getReservedConstructionProgress(creep, site);
+}
+function getReservedConstructionProgress(creep, site) {
+  return getRoomOwnedCreeps(creep.room).reduce((total, worker) => {
+    if (isSameCreep(worker, creep) || !isSameRoomWorker(worker, creep.room) || !isWorkerAssignedToConstructionSite(worker, site)) {
+      return total;
+    }
+    return total + getUsedEnergy(worker) * getBuildPower();
+  }, 0);
+}
+function getRoomOwnedCreeps(room) {
+  var _a;
+  const findMyCreeps = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps === "number") {
+    const roomCreeps = (_a = room.find) == null ? void 0 : _a.call(room, findMyCreeps);
+    if (Array.isArray(roomCreeps)) {
+      return roomCreeps;
+    }
+  }
+  return getGameCreeps().filter((worker) => isSameRoomWorker(worker, room));
+}
+function isWorkerAssignedToConstructionSite(worker, site) {
+  var _a;
+  const task = (_a = worker.memory) == null ? void 0 : _a.task;
+  return (task == null ? void 0 : task.type) === "build" && String(task.targetId) === String(site.id);
+}
 function selectNearTermCompletableConstructionSite(creep, constructionSites) {
   const candidates = constructionSites.filter((site) => canCompleteConstructionSiteWithCarriedEnergy(creep, site));
   if (candidates.length === 0) {
@@ -4550,7 +4591,7 @@ function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controll
     return null;
   }
   const candidates = [
-    ...constructionSites.map(
+    ...constructionSites.filter((site) => hasUnreservedConstructionProgress(creep, site)).map(
       (site) => createProductiveEnergySinkCandidate(creep, site, { type: "build", targetId: site.id }, 0)
     ),
     ...findVisibleRoomStructures(creep.room).filter(isSafeRepairTarget).map(
