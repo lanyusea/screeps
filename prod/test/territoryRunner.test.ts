@@ -34,6 +34,28 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.reserveController).not.toHaveBeenCalled();
   });
 
+  it('moves toward a visible target controller before entering the target room', () => {
+    const controller = { id: 'controller1', my: false } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 500,
+      rooms: {
+        W1N2: { name: 'W1N2', controller, find: jest.fn().mockReturnValue([]) } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    const creep = {
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
+      room: { name: 'W1N1' },
+      moveTo: jest.fn(),
+      reserveController: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.reserveController).not.toHaveBeenCalled();
+  });
+
   it('suppresses and does not move toward a visible hostile target room', () => {
     const hostile = { id: 'enemy1' } as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -408,7 +430,7 @@ describe('runTerritoryControllerCreep', () => {
 
     expect(creep.claimController).not.toHaveBeenCalled();
     expect(creep.signController).not.toHaveBeenCalled();
-    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W1N2' });
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim', followUp });
     expect(Memory.territory).toBeUndefined();
   });

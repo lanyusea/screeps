@@ -45,7 +45,7 @@ export function runTerritoryControllerCreep(creep: Creep): void {
   }
 
   if (creep.room?.name !== assignment.targetRoom) {
-    moveTowardTargetRoom(creep, assignment.targetRoom);
+    moveTowardTargetRoom(creep, assignment);
     return;
   }
 
@@ -206,13 +206,39 @@ function executeControllerAction(
   return controllerAction.call(creep, controller);
 }
 
-function moveTowardTargetRoom(creep: Creep, targetRoom: string): void {
-  const RoomPositionCtor = (globalThis as { RoomPosition?: RoomPositionConstructor }).RoomPosition;
-  if (typeof RoomPositionCtor !== 'function' || typeof creep.moveTo !== 'function') {
+function moveTowardTargetRoom(creep: Creep, assignment: CreepTerritoryMemory): void {
+  if (typeof creep.moveTo !== 'function') {
     return;
   }
 
-  creep.moveTo(new RoomPositionCtor(25, 25, targetRoom));
+  const visibleController = selectVisibleTargetRoomController(assignment);
+  if (visibleController) {
+    creep.moveTo(visibleController);
+    return;
+  }
+
+  const RoomPositionCtor = (globalThis as { RoomPosition?: RoomPositionConstructor }).RoomPosition;
+  if (typeof RoomPositionCtor !== 'function') {
+    return;
+  }
+
+  creep.moveTo(new RoomPositionCtor(25, 25, assignment.targetRoom));
+}
+
+function selectVisibleTargetRoomController(assignment: CreepTerritoryMemory): StructureController | null {
+  if (!isTerritoryControlAction(assignment.action)) {
+    return null;
+  }
+
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  if (assignment.controllerId && typeof game?.getObjectById === 'function') {
+    const controller = game.getObjectById.call(game, assignment.controllerId) as StructureController | null;
+    if (controller) {
+      return controller;
+    }
+  }
+
+  return game?.rooms?.[assignment.targetRoom]?.controller ?? null;
 }
 
 function getGameTime(): number {
