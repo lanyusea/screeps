@@ -1297,7 +1297,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('keeps a farther configured reserve before adjacent progress at the baseline worker floor', () => {
+  it('prefers safe visible adjacent reserve progress at the territory-ready worker floor', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
@@ -1321,18 +1321,21 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 160)).toEqual({
       spawn,
       body: ['claim', 'move'],
-      name: 'claimer-W1N1-W4N1-160',
+      name: 'claimer-W1N1-W2N1-160',
       memory: {
         role: 'claimer',
         colony: 'W1N1',
-        territory: { targetRoom: 'W4N1', action: 'reserve' }
+        territory: { targetRoom: 'W2N1', action: 'reserve' }
       }
     });
-    expect(describeExits).not.toHaveBeenCalled();
-    expect(Memory.territory?.targets).toEqual([{ colony: 'W1N1', roomName: 'W4N1', action: 'reserve' }]);
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.targets).toEqual([
+      { colony: 'W1N1', roomName: 'W4N1', action: 'reserve' },
+      { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }
+    ]);
   });
 
-  it('prefers safe visible adjacent reserve progress over a farther configured reserve with worker surplus', () => {
+  it('keeps worker recovery before adjacent reserve progress below the territory-ready worker floor', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
@@ -1353,21 +1356,15 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 4, claimer: 0, claimersByTargetRoom: {} }, 161)).toEqual({
+    expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 161)).toEqual({
       spawn,
-      body: ['claim', 'move'],
-      name: 'claimer-W1N1-W2N1-161',
-      memory: {
-        role: 'claimer',
-        colony: 'W1N1',
-        territory: { targetRoom: 'W2N1', action: 'reserve' }
-      }
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N1-161',
+      memory: { role: 'worker', colony: 'W1N1' }
     });
-    expect(describeExits).toHaveBeenCalledWith('W1N1');
-    expect(Memory.territory?.targets).toEqual([
-      { colony: 'W1N1', roomName: 'W4N1', action: 'reserve' },
-      { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }
-    ]);
+    expect(describeExits).not.toHaveBeenCalled();
+    expect(Memory.territory?.targets).toEqual([{ colony: 'W1N1', roomName: 'W4N1', action: 'reserve' }]);
+    expect(Memory.territory?.intents).toBeUndefined();
   });
 
   it('targets a fourth worker for two-source rooms', () => {
