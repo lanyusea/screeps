@@ -4061,6 +4061,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('finishes construction whose remaining unreserved progress fits carried energy', () => {
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
     (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
     const nearUnfinishedSite = {
       id: 'tower-near-unfinished',
@@ -4074,9 +4075,11 @@ describe('selectWorkerTask', () => {
       progress: 250,
       progressTotal: 500
     } as ConstructionSite;
+    const myCreeps: Creep[] = [];
     const room = makeWorkerTaskRoom({
       constructionSites: [nearUnfinishedSite, reservedFinishableSite],
-      controller: undefined
+      controller: undefined,
+      myCreeps
     });
     const assignedBuilder = {
       name: 'AssignedBuilder',
@@ -4101,9 +4104,11 @@ describe('selectWorkerTask', () => {
       pos: { getRangeTo },
       room
     } as unknown as Creep;
+    myCreeps.push(assignedBuilder, creep);
     setGameCreeps({ AssignedBuilder: assignedBuilder, Builder: creep });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-reserved-finishable' });
+    expect(room.find).toHaveBeenCalledWith(10);
   });
 
   it('keeps a worker on its assigned capacity construction site', () => {
