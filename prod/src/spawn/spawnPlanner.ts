@@ -1,4 +1,9 @@
 import { ColonySnapshot } from '../colony/colonyRegistry';
+import {
+  assessColonySnapshotSurvival,
+  getWorkerTarget,
+  type ColonySurvivalAssessment
+} from '../colony/survivalMode';
 import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import {
   buildEmergencyWorkerBody,
@@ -14,10 +19,26 @@ import {
   recordRecoveredTerritoryFollowUpRetryCooldown,
   requiresTerritoryControllerPressure,
   shouldSpawnTerritoryControllerCreep,
-  TERRITORY_DOWNGRADE_GUARD_TICKS,
   TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND,
   type TerritoryIntentPlan
 } from '../territory/territoryPlanner';
+
+type SpawnPriorityTier =
+  | 'emergencyBootstrap'
+  | 'localRefillSurvival'
+  | 'controllerDowngradeGuard'
+  | 'defense'
+  | 'territoryRemote';
+
+interface SpawnPlanningContext {
+  colony: ColonySnapshot;
+  gameTime: number;
+  options: SpawnPlanningOptions;
+  roleCounts: RoleCounts;
+  survival: ColonySurvivalAssessment;
+  workerCapacity: number;
+  workerTarget: number;
+}
 
 export interface SpawnRequest {
   spawn: StructureSpawn;
@@ -31,15 +52,15 @@ export interface SpawnPlanningOptions {
   workersOnly?: boolean;
 }
 
-const MIN_WORKER_TARGET = 3;
-const WORKERS_PER_SOURCE = 2;
-const CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
-const SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT = 5;
 const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 const TERRITORY_SCOUT_BODY_COST = 50;
-// Keep source-aware scaling bounded so unusual source data cannot create runaway early-room spawn pressure.
-const MAX_WORKER_TARGET = 6;
-const sourceCountByRoomName = new Map<string, number>();
+const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
+  'emergencyBootstrap',
+  'localRefillSurvival',
+  'controllerDowngradeGuard',
+  'defense',
+  'territoryRemote'
+];
 
 export function planSpawn(
   colony: ColonySnapshot,
@@ -49,45 +70,126 @@ export function planSpawn(
 ): SpawnRequest | null {
   const workerTarget = getWorkerTarget(colony, roleCounts);
   const workerCapacity = getWorkerCapacity(roleCounts);
-  const shouldPlanWorkerRecovery = workerCapacity < workerTarget;
-  const nearWorkerTarget = workerCapacity >= workerTarget - 1;
+  const context: SpawnPlanningContext = {
+    colony,
+    gameTime,
+    options,
+    roleCounts,
+    survival: assessColonySnapshotSurvival(colony, roleCounts),
+    workerCapacity,
+    workerTarget
+  };
 
-  if (shouldPlanWorkerRecovery && (!nearWorkerTarget || options.workersOnly)) {
-    return planWorkerSpawn(colony, roleCounts, gameTime, options);
+  for (const tier of SPAWN_PRIORITY_TIERS) {
+    const request = planSpawnForPriorityTier(tier, context);
+    if (request) {
+      return request;
+    }
   }
 
-  if (options.workersOnly) {
+  return null;
+}
+
+function planSpawnForPriorityTier(
+  tier: SpawnPriorityTier,
+  context: SpawnPlanningContext
+): SpawnRequest | null {
+  switch (tier) {
+    case 'emergencyBootstrap':
+      return planEmergencyBootstrapSpawn(context);
+    case 'localRefillSurvival':
+      return planLocalSurvivalSpawn(context);
+    case 'controllerDowngradeGuard':
+      return planControllerDowngradeGuardSpawn(context);
+    case 'defense':
+      return planDefenseSpawn(context);
+    case 'territoryRemote':
+      return planTerritoryRemoteSpawn(context);
+  }
+}
+
+function planEmergencyBootstrapSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.survival.mode !== 'BOOTSTRAP' ||
+    context.workerCapacity >= context.survival.survivalWorkerFloor
+  ) {
     return null;
   }
 
-  const territoryWorkerTarget = shouldPlanWorkerRecovery ? workerTarget - 1 : workerTarget;
-  const territoryIntent = planTerritoryIntent(colony, roleCounts, territoryWorkerTarget, gameTime);
-  if (territoryIntent) {
-    const demandedWorkerTarget = getWorkerTargetWithTerritoryDemand(workerTarget, territoryIntent, gameTime);
-    if (workerCapacity < demandedWorkerTarget) {
-      const workerSpawn = planWorkerSpawn(colony, roleCounts, gameTime, options);
-      if (workerSpawn) {
-        return workerSpawn;
-      }
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
 
-      recordRecoveredFollowUpCooldownIfControllerCreepNeeded(territoryIntent, roleCounts, gameTime);
-      return null;
-    }
-
-    const territorySpawn = planTerritorySpawn(colony, roleCounts, territoryIntent, gameTime, options);
-    if (territorySpawn) {
-      return territorySpawn;
-    }
+function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (context.workerCapacity >= context.workerTarget) {
+    return null;
   }
 
-  if (shouldPlanWorkerRecovery) {
-    const workerSpawn = planWorkerSpawn(colony, roleCounts, gameTime, options);
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function planControllerDowngradeGuardSpawn(_context: SpawnPlanningContext): SpawnRequest | null {
+  return null;
+}
+
+function planDefenseSpawn(_context: SpawnPlanningContext): SpawnRequest | null {
+  return null;
+}
+
+function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (context.options.workersOnly || context.survival.mode !== 'TERRITORY_READY') {
+    return null;
+  }
+
+  const territoryIntent = planTerritoryIntent(
+    context.colony,
+    context.roleCounts,
+    context.workerTarget,
+    context.gameTime
+  );
+  if (!territoryIntent) {
+    return null;
+  }
+
+  const demandedWorkerTarget = getWorkerTargetWithTerritoryDemand(
+    context.workerTarget,
+    territoryIntent,
+    context.gameTime
+  );
+  if (context.workerCapacity < demandedWorkerTarget) {
+    const workerSpawn = planWorkerSpawn(
+      context.colony,
+      context.roleCounts,
+      context.gameTime,
+      context.options
+    );
     if (workerSpawn) {
       return workerSpawn;
     }
+
+    recordRecoveredFollowUpCooldownIfControllerCreepNeeded(
+      territoryIntent,
+      context.roleCounts,
+      context.gameTime
+    );
+    return null;
   }
 
-  recordRecoveredFollowUpCooldownIfControllerCreepNeeded(territoryIntent, roleCounts, gameTime);
+  const territorySpawn = planTerritorySpawn(
+    context.colony,
+    context.roleCounts,
+    territoryIntent,
+    context.gameTime,
+    context.options
+  );
+  if (territorySpawn) {
+    return territorySpawn;
+  }
+
+  recordRecoveredFollowUpCooldownIfControllerCreepNeeded(
+    territoryIntent,
+    context.roleCounts,
+    context.gameTime
+  );
 
   return null;
 }
@@ -140,7 +242,7 @@ function getWorkerTargetWithTerritoryDemand(
   gameTime: number
 ): number {
   const demandWorkerCount = getTerritoryFollowUpPreparationWorkerDemand(territoryIntent, gameTime);
-  return Math.min(MAX_WORKER_TARGET + TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND, workerTarget + demandWorkerCount);
+  return workerTarget + Math.min(TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND, demandWorkerCount);
 }
 
 function planWorkerSpawn(
@@ -198,71 +300,4 @@ function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryInten
   }
 
   return buildTerritoryControllerBody(energyAvailable);
-}
-
-function getWorkerTarget(colony: ColonySnapshot, roleCounts: RoleCounts): number {
-  const sourceCount = getSourceCount(colony.room);
-  const sourceAwareTarget = sourceCount * WORKERS_PER_SOURCE;
-  const baseTarget = Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
-  const workerCapacity = getWorkerCapacity(roleCounts);
-
-  if (workerCapacity < baseTarget || !isConstructionBonusHomeSafe(colony.room.controller)) {
-    return baseTarget;
-  }
-
-  const constructionBacklogSiteCount = getConstructionBacklogSiteCount(colony.room);
-  if (constructionBacklogSiteCount === 0) {
-    return baseTarget;
-  }
-
-  const firstBonusTarget = Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
-  if (
-    workerCapacity < firstBonusTarget ||
-    constructionBacklogSiteCount < SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT
-  ) {
-    return firstBonusTarget;
-  }
-
-  return Math.min(MAX_WORKER_TARGET, firstBonusTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
-}
-
-function isConstructionBonusHomeSafe(controller: StructureController | undefined): boolean {
-  return (
-    controller?.my === true &&
-    (typeof controller.ticksToDowngrade !== 'number' ||
-      controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS)
-  );
-}
-
-function getConstructionBacklogSiteCount(room: Room): number {
-  if (typeof room.find !== 'function' || typeof FIND_MY_CONSTRUCTION_SITES !== 'number') {
-    return 0;
-  }
-
-  return room.find(FIND_MY_CONSTRUCTION_SITES).length;
-}
-
-function getSourceCount(room: Room): number {
-  const roomName = typeof room.name === 'string' && room.name.length > 0 ? room.name : undefined;
-  if (roomName) {
-    const cachedSourceCount = sourceCountByRoomName.get(roomName);
-    if (cachedSourceCount !== undefined) {
-      return cachedSourceCount;
-    }
-  }
-
-  const sourceCount = findSourceCount(room);
-  if (roomName) {
-    sourceCountByRoomName.set(roomName, sourceCount);
-  }
-
-  return sourceCount;
-}
-
-function findSourceCount(room: Room): number {
-  if (typeof FIND_SOURCES === 'undefined' || typeof room.find !== 'function') {
-    return 1;
-  }
-
-  return room.find(FIND_SOURCES).length;
 }

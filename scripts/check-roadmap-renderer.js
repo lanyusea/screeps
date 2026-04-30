@@ -140,7 +140,7 @@ function assertNoOldVisibleFallbacks(text) {
   }
 
   assert(!/https:\/\/screeps\.com\/?/i.test(text), 'visible text still contains the Screeps game link');
-  assert(!/\bshardX\s*\/\s*E48S28\b|\bE48S28\b/.test(text), 'visible text still contains the room target');
+  assert(!/\bshardX\s*\/\s*E48S29\b|\bE48S29\b/.test(text), 'visible text still contains the room target');
   assert(!/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(text), 'visible text still contains CJK characters');
 }
 

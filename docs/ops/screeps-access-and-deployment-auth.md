@@ -54,7 +54,7 @@ SCREEPS_AUTH_TOKEN=***
 SCREEPS_BRANCH=main
 SCREEPS_API_URL=https://screeps.com
 SCREEPS_SHARD=shardX
-SCREEPS_ROOM=E48S28
+SCREEPS_ROOM=E48S29
 ```
 
 For private-server smoke tests:
@@ -81,7 +81,7 @@ Verified local secret state on 2026-04-26:
 - `SCREEPS_BRANCH=main`.
 - `SCREEPS_API_URL=https://screeps.com`.
 - `SCREEPS_SHARD=shardX`.
-- `SCREEPS_ROOM=E48S28`.
+- `SCREEPS_ROOM=E48S29`.
 
 Likely private-server inputs:
 
@@ -104,7 +104,7 @@ Likely private-server inputs:
 
 - Auth token: present in local secret storage; do not paste or commit it.
 - Deployment branch: `main`.
-- First public room: `E48S28`.
+- First public room: `E48S29`.
 - Shard: `shardX`, verified against the official API. The earlier `sharedX` spelling is invalid for official API calls.
 
 ## Open decisions
@@ -120,5 +120,5 @@ Result:
 - Created official code branch `main`.
 - Uploaded the current bundled `prod/dist/main.js` as module `main`.
 - Set `main` as `activeWorld`.
-- Placed `Spawn1` in `E48S28` on `shardX` at `(25,23)`.
-- Verified world status `normal`, user overview includes `shardX.rooms=[E48S28]`, and room owner is `lanyusea`.
+- Placed `Spawn1` in `E48S29` on `shardX` at `(25,23)`.
+- Verified world status `normal`, user overview includes `shardX.rooms=[E48S29]`, and room owner is `lanyusea`.

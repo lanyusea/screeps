@@ -5560,7 +5560,7 @@
             "details": {
               "gained": [],
               "latest": [
-                "E48S28"
+                "E48S29"
               ],
               "lost": []
             },
@@ -5584,7 +5584,7 @@
             "details": {
               "gained": [],
               "latest": [
-                "E48S28"
+                "E48S29"
               ],
               "lost": []
             },
@@ -6491,16 +6491,16 @@
     "pagesUrl": "https://lanyusea.github.io/screeps/",
     "projectUrl": "https://github.com/users/lanyusea/projects/3",
     "screepsRoom": {
-      "label": "shardX/E48S28",
+      "label": "shardX/E48S29",
       "message": "Target room from SCREEPS_SHARD and SCREEPS_ROOM with the AGENTS.md official target as fallback.",
-      "room": "E48S28",
+      "room": "E48S29",
       "shard": "shardX",
       "sources": {
         "room": "environment",
         "shard": "environment"
       },
       "status": "configured",
-      "url": "https://screeps.com/a/#!/room/shardX/E48S28"
+      "url": "https://screeps.com/a/#!/room/shardX/E48S29"
     },
     "url": "https://github.com/lanyusea/screeps"
   },

@@ -3,6 +3,12 @@ import {
   selectUrgentVisibleReservationRenewalTask,
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
+import {
+  getRecordedColonySurvivalAssessment,
+  suppressesBootstrapNonCriticalWork,
+  suppressesTerritoryWork,
+  type ColonySurvivalAssessment
+} from '../colony/survivalMode';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 import {
   buildCriticalRoadLogisticsContext,
@@ -84,9 +90,17 @@ let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserv
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerEfficiencyTelemetry(creep);
 
+  const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
+  const territoryWorkSuppressed = suppressesTerritoryWork(survivalAssessment);
+  const bootstrapNonCriticalWorkSuppressed = suppressesBootstrapNonCriticalWork(survivalAssessment);
+  const recoveryOnlyWorkSuppressed = bootstrapNonCriticalWorkSuppressed || territoryWorkSuppressed;
+  const remoteProductiveSpendingSuppressed =
+    recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
   const carriedEnergy = getUsedEnergy(creep);
-  const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
-  const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
+  const urgentReservationRenewalTask = territoryWorkSuppressed
+    ? null
+    : selectUrgentVisibleReservationRenewalTask(creep);
+  const territoryControllerTask = territoryWorkSuppressed ? null : selectVisibleTerritoryControllerTask(creep);
 
   if (carriedEnergy === 0) {
     if (urgentReservationRenewalTask) {
@@ -134,7 +148,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const controller = creep.room.controller;
-  if (controller && shouldGuardControllerDowngrade(controller)) {
+  if (controller && shouldGuardControllerDowngrade(controller) && !remoteProductiveSpendingSuppressed) {
     return { type: 'upgrade', targetId: controller.id };
   }
 
@@ -149,20 +163,33 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       return spawnOrExtensionRefillTask;
     }
 
-    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-    if (lowLoadEnergyAcquisitionCandidate) {
-      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-      return lowLoadEnergyAcquisitionCandidate.task;
+    if (!remoteProductiveSpendingSuppressed) {
+      const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+      if (lowLoadEnergyAcquisitionCandidate) {
+        recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+        return lowLoadEnergyAcquisitionCandidate.task;
+      }
     }
 
     recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, 'noNearbyEnergy');
     return spawnOrExtensionRefillTask;
   }
 
-  const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-  if (lowLoadEnergyAcquisitionCandidate) {
-    recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-    return lowLoadEnergyAcquisitionCandidate.task;
+  if (!remoteProductiveSpendingSuppressed) {
+    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+    if (lowLoadEnergyAcquisitionCandidate) {
+      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+      return lowLoadEnergyAcquisitionCandidate.task;
+    }
+  }
+
+  if (remoteProductiveSpendingSuppressed) {
+    const suppressedRemoteEnergyHandlingTask = selectSuppressedRemoteEnergyHandlingTask(creep);
+    if (suppressedRemoteEnergyHandlingTask) {
+      return suppressedRemoteEnergyHandlingTask;
+    }
+
+    return null;
   }
 
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
@@ -174,6 +201,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   if (priorityTowerEnergySink) {
     return { type: 'transfer', targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure> };
+  }
+
+  if (bootstrapNonCriticalWorkSuppressed) {
+    return selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, recoveryOnlyWorkSuppressed);
   }
 
   const readyFollowUpProductiveEnergySinkTask = selectReadyFollowUpProductiveEnergySinkTask(
@@ -253,6 +284,90 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   return null;
+}
+
+function getWorkerColonySurvivalAssessment(creep: Creep): ColonySurvivalAssessment | null {
+  return getRecordedColonySurvivalAssessment(getCreepColonyName(creep));
+}
+
+function isWorkerInColonyRoom(creep: Creep): boolean {
+  const colonyName = getCreepColonyName(creep);
+  return colonyName !== null && getRoomName(creep.room) === colonyName;
+}
+
+function selectSuppressedRemoteEnergyHandlingTask(creep: Creep): CreepTaskMemory | null {
+  const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
+  if (priorityTowerEnergySink) {
+    return { type: 'transfer', targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure> };
+  }
+
+  return selectColonyRecallEnergySpendingTask(creep);
+}
+
+function selectColonyRecallEnergySpendingTask(creep: Creep): CreepTaskMemory | null {
+  const colonyRoom = getCreepColonyRoom(creep);
+  if (!colonyRoom || isInRoom(creep, colonyRoom)) {
+    return null;
+  }
+
+  const energySink = selectColonyRecallEnergySink(colonyRoom);
+  if (energySink) {
+    return { type: 'transfer', targetId: energySink.id as Id<AnyStoreStructure> };
+  }
+
+  const controller = colonyRoom.controller;
+  return controller?.my === true ? { type: 'upgrade', targetId: controller.id } : null;
+}
+
+function selectColonyRecallEnergySink(room: Room): FillableEnergySink | null {
+  const energySinks = findFillableEnergySinksInRoom(room);
+  return (
+    selectFirstEnergySinkByStableId(energySinks.filter(isSpawnOrExtensionEnergySink)) ??
+    selectFirstEnergySinkByStableId(energySinks.filter(isTowerEnergySink))
+  );
+}
+
+function selectFirstEnergySinkByStableId<T extends FillableEnergySink>(energySinks: T[]): T | null {
+  return [...energySinks].sort(compareEnergySinkId)[0] ?? null;
+}
+
+function selectBootstrapSurvivalSpendingTask(
+  creep: Creep,
+  controller: StructureController | undefined,
+  constructionSites: ConstructionSite[],
+  recoveryOnlyWorkSuppressed: boolean
+): CreepTaskMemory | null {
+  if (
+    controller &&
+    shouldRushRcl1Controller(controller) &&
+    !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)
+  ) {
+    return { type: 'upgrade', targetId: controller.id };
+  }
+
+  if (recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep)) {
+    return null;
+  }
+
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
+  }
+
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+    return null;
+  }
+
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  if (criticalRoadConstructionSite) {
+    return { type: 'build', targetId: criticalRoadConstructionSite.id };
+  }
+
+  return null;
+}
+
+function shouldSuppressBootstrapControllerSpending(creep: Creep, recoveryOnlyWorkSuppressed: boolean): boolean {
+  return recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
 }
 
 export function estimateNearTermSpawnExtensionRefillReserve(room: Room): number {
@@ -408,14 +523,90 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   const assignedTransferTargetId = getAssignedTransferTargetId(creep);
-  return selectClosestEnergySink(
-    energySinks.filter(
-      (energySink) =>
-        isAssignedTransferTarget(energySink, assignedTransferTargetId) ||
-        hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
-    ),
-    creep
+  const unreservedEnergySink = selectSpawnExtensionRecoveryEnergySink(
+    energySinks.filter((energySink) => hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)),
+    creep,
+    reservedEnergyDeliveries,
+    assignedTransferTargetId
   );
+  return (
+    unreservedEnergySink ??
+    selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries)
+  );
+}
+
+function selectSpawnExtensionRecoveryEnergySink<T extends StructureSpawn | StructureExtension>(
+  energySinks: T[],
+  creep: Creep,
+  reservedEnergyDeliveries: Map<string, number>,
+  assignedTransferTargetId: string | null
+): T | null {
+  if (energySinks.length === 0) {
+    return null;
+  }
+
+  return [...energySinks].sort((left, right) =>
+    compareSpawnExtensionRecoveryEnergySinks(
+      left,
+      right,
+      creep,
+      reservedEnergyDeliveries,
+      assignedTransferTargetId
+    )
+  )[0];
+}
+
+function compareSpawnExtensionRecoveryEnergySinks(
+  left: StructureSpawn | StructureExtension,
+  right: StructureSpawn | StructureExtension,
+  creep: Creep,
+  reservedEnergyDeliveries: Map<string, number>,
+  assignedTransferTargetId: string | null
+): number {
+  const carriedEnergy = getUsedEnergy(creep);
+  const leftDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(left, reservedEnergyDeliveries);
+  const rightDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(right, reservedEnergyDeliveries);
+
+  return (
+    compareAcceptedDeliveryEnergy(leftDeliveryCapacity, rightDeliveryCapacity, carriedEnergy) ||
+    compareAssignedTransferTarget(left, right, assignedTransferTargetId) ||
+    compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
+    compareEnergySinkId(left, right)
+  );
+}
+
+function compareAcceptedDeliveryEnergy(leftCapacity: number, rightCapacity: number, carriedEnergy: number): number {
+  if (carriedEnergy <= 0) {
+    return 0;
+  }
+
+  const leftAcceptedEnergy = Math.min(leftCapacity, carriedEnergy);
+  const rightAcceptedEnergy = Math.min(rightCapacity, carriedEnergy);
+  return rightAcceptedEnergy - leftAcceptedEnergy;
+}
+
+function getUnreservedEnergySinkDeliveryCapacity(
+  energySink: FillableEnergySink,
+  reservedEnergyDeliveries: Map<string, number>
+): number {
+  return Math.max(
+    0,
+    getFreeStoredEnergyCapacity(energySink) - getReservedEnergyDelivery(energySink, reservedEnergyDeliveries)
+  );
+}
+
+function compareAssignedTransferTarget(
+  left: FillableEnergySink,
+  right: FillableEnergySink,
+  assignedTransferTargetId: string | null
+): number {
+  const leftAssigned = isAssignedTransferTarget(left, assignedTransferTargetId);
+  const rightAssigned = isAssignedTransferTarget(right, assignedTransferTargetId);
+  if (leftAssigned === rightAssigned) {
+    return 0;
+  }
+
+  return leftAssigned ? -1 : 1;
 }
 
 function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
@@ -426,12 +617,9 @@ function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
 
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
-  const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   return selectClosestEnergySink(
-    priorityTowerEnergySinks.filter(
-      (energySink) =>
-        isAssignedTransferTarget(energySink, assignedTransferTargetId) ||
-        hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
+    priorityTowerEnergySinks.filter((energySink) =>
+      hasUnreservedEnergySinkCapacity(energySink, reservedEnergyDeliveries)
     ),
     creep
   );
@@ -442,6 +630,62 @@ function hasUnreservedEnergySinkCapacity(
   reservedEnergyDeliveries: Map<string, number>
 ): boolean {
   return getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) < getFreeStoredEnergyCapacity(energySink);
+}
+
+function selectCloserReservedEnergySinkFallback<T extends FillableEnergySink>(
+  energySinks: T[],
+  creep: Creep,
+  loadedWorkers: Creep[],
+  reservedEnergyDeliveries: Map<string, number>
+): T | null {
+  return selectClosestEnergySink(
+    energySinks.filter(
+      (energySink) =>
+        getReservedEnergyDelivery(energySink, reservedEnergyDeliveries) >=
+          getFreeStoredEnergyCapacity(energySink) &&
+        isCloserThanReservedEnergyDelivery(creep, energySink, loadedWorkers)
+    ),
+    creep
+  );
+}
+
+function isCloserThanReservedEnergyDelivery(
+  creep: Creep,
+  energySink: FillableEnergySink,
+  loadedWorkers: Creep[]
+): boolean {
+  const creepRange = getRangeBetweenRoomObjects(creep, energySink);
+  if (creepRange === null) {
+    return false;
+  }
+
+  let closestReservedDeliveryRange: number | null = null;
+  let hasReservedDelivery = false;
+  for (const worker of loadedWorkers) {
+    if (isSameCreep(worker, creep) || !isWorkerAssignedToEnergySink(worker, energySink)) {
+      continue;
+    }
+
+    hasReservedDelivery = true;
+    const workerRange = getRangeBetweenRoomObjects(worker, energySink);
+    if (workerRange === null) {
+      continue;
+    }
+
+    closestReservedDeliveryRange =
+      closestReservedDeliveryRange === null ? workerRange : Math.min(closestReservedDeliveryRange, workerRange);
+  }
+
+  if (!hasReservedDelivery) {
+    return false;
+  }
+
+  return closestReservedDeliveryRange === null ? creepRange <= 1 : creepRange < closestReservedDeliveryRange;
+}
+
+function isWorkerAssignedToEnergySink(worker: Creep, energySink: FillableEnergySink): boolean {
+  const task = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return task?.type === 'transfer' && String(task.targetId) === String(energySink.id);
 }
 
 function getReservedEnergyDeliveriesBySinkId(
@@ -486,7 +730,15 @@ function isAssignedTransferTarget(
 }
 
 function findFillableEnergySinks(creep: Creep): FillableEnergySink[] {
-  const energySinks = creep.room.find(FIND_MY_STRUCTURES, {
+  return findFillableEnergySinksInRoom(creep.room);
+}
+
+function findFillableEnergySinksInRoom(room: Room): FillableEnergySink[] {
+  if (typeof FIND_MY_STRUCTURES !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  const energySinks = room.find(FIND_MY_STRUCTURES, {
     filter: isFillableEnergySink
   });
 
@@ -2071,6 +2323,10 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
     return false;
   }
 
+  if (getRecordedColonySurvivalAssessment(colonyName)?.mode === 'TERRITORY_READY') {
+    return true;
+  }
+
   if (hasReadyTerritoryFollowUpEnergy(creep)) {
     return true;
   }
@@ -2131,6 +2387,15 @@ function getCreepColonyName(creep: Creep): string | null {
   }
 
   return null;
+}
+
+function getCreepColonyRoom(creep: Creep): Room | null {
+  const colonyName = getCreepColonyName(creep);
+  if (!colonyName) {
+    return null;
+  }
+
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[colonyName] ?? null;
 }
 
 function isActiveTerritoryPressureIntent(intent: unknown, colonyName: string): boolean {
