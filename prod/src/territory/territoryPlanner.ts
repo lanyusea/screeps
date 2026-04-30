@@ -2126,18 +2126,45 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
   if (existingIndex >= 0) {
     const existingIntent = intents[existingIndex];
     const controllerId = nextIntent.controllerId ?? existingIntent.controllerId;
-    const preserveControllerPressure =
-      !nextIntent.requiresControllerPressure &&
-      shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId);
+    const requiresControllerPressure = shouldRecordTerritoryIntentControllerPressure(
+      nextIntent,
+      controllerId,
+      existingIntent
+    );
     intents[existingIndex] = {
       ...nextIntent,
-      ...(preserveControllerPressure ? { requiresControllerPressure: true } : {}),
+      ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
       ...(!nextIntent.followUp && existingIntent.followUp ? { followUp: existingIntent.followUp } : {})
     };
     return;
   }
 
-  intents.push(nextIntent);
+  const requiresControllerPressure = shouldRecordTerritoryIntentControllerPressure(
+    nextIntent,
+    nextIntent.controllerId
+  );
+  intents.push({
+    ...nextIntent,
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {})
+  });
+}
+
+function shouldRecordTerritoryIntentControllerPressure(
+  nextIntent: TerritoryIntentMemory,
+  controllerId: Id<StructureController> | undefined,
+  existingIntent?: TerritoryIntentMemory
+): boolean {
+  return (
+    nextIntent.requiresControllerPressure === true ||
+    isVisibleTerritoryReservePressureAvailable(
+      nextIntent.targetRoom,
+      nextIntent.action,
+      controllerId,
+      getVisibleColonyOwnerUsername(nextIntent.colony)
+    ) ||
+    (existingIntent !== undefined &&
+      shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId))
+  );
 }
 
 function sanitizeSatisfiedClaimReserveHandoffs(

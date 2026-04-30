@@ -3,6 +3,7 @@ import {
   buildTerritoryCreepMemory,
   getActiveTerritoryFollowUpExecutionHints,
   planTerritoryIntent,
+  recordTerritoryReserveFallbackIntent,
   recordRecoveredTerritoryFollowUpRetryCooldown,
   shouldSpawnTerritoryControllerCreep,
   suppressTerritoryIntent,
@@ -3742,6 +3743,134 @@ describe('planTerritoryIntent', () => {
         status: 'planned',
         updatedAt: 542,
         requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('preserves live pressure when suppressing a visible foreign-reserved reserve intent', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    const target: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const existingIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'active',
+      updatedAt: 543,
+      requiresControllerPressure: true
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [target],
+        intents: [existingIntent]
+      }
+    };
+
+    suppressTerritoryIntent('W1N1', { targetRoom: 'W2N1', action: 'reserve' }, 544);
+
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 544,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('preserves live pressure when recording a visible foreign-reserved fallback intent', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    const target: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const existingIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'active',
+      updatedAt: 543,
+      requiresControllerPressure: true
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [target],
+        intents: [existingIntent]
+      }
+    };
+
+    recordTerritoryReserveFallbackIntent('W1N1', { targetRoom: 'W2N1', action: 'reserve' }, 544);
+
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 544,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('clears pressure when recording a visible unreserved fallback intent', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    const target: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const existingIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'active',
+      updatedAt: 543,
+      requiresControllerPressure: true
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: { my: false } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [target],
+        intents: [existingIntent]
+      }
+    };
+
+    recordTerritoryReserveFallbackIntent('W1N1', { targetRoom: 'W2N1', action: 'reserve' }, 544);
+
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 544
       }
     ]);
   });
