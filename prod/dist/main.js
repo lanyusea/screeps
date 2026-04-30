@@ -1299,7 +1299,12 @@ function shouldSpawnTerritoryControllerCreep(plan, roleCounts, gameTime = getGam
   return activeCoverageCount === 0 || shouldSpawnEmergencyReservationRenewal(plan, activeCoverageCount);
 }
 function requiresTerritoryControllerPressure(plan) {
-  return plan.action === "reserve" && plan.requiresControllerPressure === true;
+  return plan.action === "reserve" && (plan.requiresControllerPressure === true || isVisibleTerritoryReservePressureAvailable(
+    plan.targetRoom,
+    plan.action,
+    plan.controllerId,
+    getVisibleColonyOwnerUsername(plan.colony)
+  ));
 }
 function isTerritoryIntentPlanSpawnCapable(plan) {
   var _a;
