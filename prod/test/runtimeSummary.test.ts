@@ -17,8 +17,11 @@ const TEST_GLOBALS = {
   FIND_MY_CONSTRUCTION_SITES: 107,
   EVENT_HARVEST: 201,
   EVENT_TRANSFER: 202,
-  EVENT_ATTACK: 203,
-  EVENT_OBJECT_DESTROYED: 204,
+  EVENT_BUILD: 203,
+  EVENT_REPAIR: 204,
+  EVENT_UPGRADE_CONTROLLER: 205,
+  EVENT_ATTACK: 206,
+  EVENT_OBJECT_DESTROYED: 207,
   RESOURCE_ENERGY: 'energy',
   STRUCTURE_EXTENSION: 'extension',
   STRUCTURE_TOWER: 'tower',
@@ -82,6 +85,7 @@ describe('runtime telemetry summaries', () => {
             harvest: 1,
             transfer: 0,
             build: 0,
+            repair: 0,
             upgrade: 0
           },
           controller: {
@@ -95,9 +99,22 @@ describe('runtime telemetry summaries', () => {
             workerCarriedEnergy: 60,
             droppedEnergy: 25,
             sourceCount: 2,
+            productiveEnergy: {
+              assignedWorkerCount: 0,
+              assignedCarriedEnergy: 0,
+              buildCarriedEnergy: 0,
+              repairCarriedEnergy: 0,
+              upgradeCarriedEnergy: 0,
+              pendingBuildProgress: 0,
+              repairBacklogHits: 0,
+              controllerProgressRemaining: 43766
+            },
             events: {
               harvestedEnergy: 10,
-              transferredEnergy: 5
+              transferredEnergy: 5,
+              builtProgress: 25,
+              repairedHits: 100,
+              upgradedControllerProgress: 7
             }
           },
           combat: {
@@ -216,6 +233,77 @@ describe('runtime telemetry summaries', () => {
       result: 0
     });
     expect(payload.omittedEventCount).toBe(2);
+  });
+
+  it('reports productive worker energy and local action backlog in room telemetry', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      constructionSites: [
+        { id: 'road-site', structureType: TEST_GLOBALS.STRUCTURE_ROAD, progress: 30, progressTotal: 100 },
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, progress: 25.5, progressTotal: 50 }
+      ],
+      structures: [
+        { id: 'road-damaged', structureType: TEST_GLOBALS.STRUCTURE_ROAD, hits: 1_000, hitsMax: 5_000 },
+        { id: 'container-damaged', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, hits: 900, hitsMax: 1_000 },
+        {
+          id: 'rampart-damaged',
+          structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+          my: true,
+          hits: 90_000,
+          hitsMax: 300_000
+        },
+        {
+          id: 'enemy-rampart',
+          structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+          my: false,
+          hits: 1,
+          hitsMax: 300_000
+        }
+      ]
+    });
+    const creeps = [
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'build', targetId: 'road-site' as Id<ConstructionSite> } },
+        40,
+        'Builder'
+      ),
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'repair', targetId: 'road-damaged' as Id<Structure> } },
+        20,
+        'Repairer'
+      ),
+      makeWorker(
+        {
+          role: 'worker',
+          colony: 'W1N1',
+          task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+        },
+        10,
+        'Upgrader'
+      ),
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> } },
+        50,
+        'Carrier'
+      )
+    ];
+
+    emitRuntimeSummary([colony], creeps);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.taskCounts).toMatchObject({ build: 1, repair: 1, upgrade: 1, transfer: 1, none: 0 });
+    expect((room.resources as Record<string, unknown>).productiveEnergy).toEqual({
+      assignedWorkerCount: 3,
+      assignedCarriedEnergy: 70,
+      buildCarriedEnergy: 40,
+      repairCarriedEnergy: 20,
+      upgradeCarriedEnergy: 10,
+      pendingBuildProgress: 95,
+      repairBacklogHits: 14100,
+      controllerProgressRemaining: 43766
+    });
   });
 
   it('reports bounded room-level worker efficiency samples', () => {
@@ -509,9 +597,11 @@ function makeColony(options: {
     name: string;
     spawning: { name: string; remainingTime: number } | null;
   };
+  constructionSites?: unknown[];
   installGlobals?: boolean;
   includeRoomFind?: boolean;
   includeEventLog?: boolean;
+  structures?: unknown[];
 }): ColonySnapshot {
   if (options.installGlobals !== false) {
     installRuntimeTelemetryGlobals();
@@ -535,7 +625,8 @@ function makeColony(options: {
     spawning: options.spawn?.spawning ?? null,
     store: makeEnergyStore(50)
   } as unknown as StructureSpawn;
-  const structures = [spawn, { store: makeEnergyStore(125) }];
+  const structures = options.structures ?? [spawn, { store: makeEnergyStore(125) }];
+  const constructionSites = options.constructionSites ?? [];
 
   if (options.includeRoomFind !== false) {
     (room as unknown as { find?: jest.Mock }).find = jest.fn((findType: number): unknown[] => {
@@ -545,7 +636,7 @@ function makeColony(options: {
         case TEST_GLOBALS.FIND_MY_STRUCTURES:
           return structures;
         case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
-          return [];
+          return constructionSites;
         case TEST_GLOBALS.FIND_DROPPED_RESOURCES:
           return [
             { resourceType: TEST_GLOBALS.RESOURCE_ENERGY, amount: 25 },
@@ -568,6 +659,9 @@ function makeColony(options: {
       { event: TEST_GLOBALS.EVENT_HARVEST, data: { amount: 10, resourceType: TEST_GLOBALS.RESOURCE_ENERGY } },
       { event: TEST_GLOBALS.EVENT_TRANSFER, data: { amount: 5, resourceType: TEST_GLOBALS.RESOURCE_ENERGY } },
       { event: TEST_GLOBALS.EVENT_TRANSFER, data: { amount: 99, resourceType: 'power' } },
+      { event: TEST_GLOBALS.EVENT_BUILD, data: { amount: 25 } },
+      { event: TEST_GLOBALS.EVENT_REPAIR, data: { amount: 100 } },
+      { event: TEST_GLOBALS.EVENT_UPGRADE_CONTROLLER, data: { amount: 7 } },
       { event: TEST_GLOBALS.EVENT_ATTACK, data: { damage: 30 } },
       { event: TEST_GLOBALS.EVENT_OBJECT_DESTROYED, data: { type: 'creep' } }
     ]);
