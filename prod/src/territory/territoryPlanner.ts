@@ -673,12 +673,15 @@ function selectTerritoryTarget(
   if (sanitizedClaimReserveHandoffs.changed) {
     intents = sanitizedClaimReserveHandoffs.intents;
   }
-  const sanitizedFollowUps = sanitizeInvalidPersistedTerritoryFollowUps(intents, colonyName, colonyOwnerUsername);
-  if (sanitizedFollowUps.changed) {
-    intents = sanitizedFollowUps.intents;
-    if (territoryMemory) {
-      territoryMemory.intents = intents;
-    }
+  const sanitizedStaleProgress = sanitizeStaleTerritoryProgressIntents(
+    territoryMemory,
+    intents,
+    colonyName,
+    colonyOwnerUsername,
+    roleCounts
+  );
+  if (sanitizedStaleProgress.changed) {
+    intents = sanitizedStaleProgress.intents;
   }
   refreshTerritoryFollowUpExecutionHints(territoryMemory, intents);
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
@@ -2450,51 +2453,82 @@ function getSatisfiedConfiguredClaimRoomNames(
   return satisfiedClaimRooms;
 }
 
-function sanitizeInvalidPersistedTerritoryFollowUps(
+function sanitizeStaleTerritoryProgressIntents(
+  territoryMemory: Record<string, unknown> | null,
   intents: TerritoryIntentMemory[],
   colonyName: string,
-  colonyOwnerUsername: string | null
+  colonyOwnerUsername: string | null,
+  roleCounts: RoleCounts
 ): { intents: TerritoryIntentMemory[]; changed: boolean } {
-  let changed = false;
-  const sanitizedIntents = intents.map((intent) => {
-    if (intent.colony !== colonyName || intent.followUp === undefined || intent.status === 'suppressed') {
-      return intent;
+  const staleIntents: TerritoryIntentMemory[] = [];
+  const sanitizedIntents = intents.filter((intent) => {
+    if (!isStaleTerritoryProgressIntent(intent, colonyName, colonyOwnerUsername, roleCounts)) {
+      return true;
     }
 
-    if (intent.status === 'active' && intent.action === 'reserve') {
-      return intent;
-    }
-
-    if (
-      !isTerritoryControlAction(intent.action) ||
-      isPersistedTerritoryFollowUpStillActionable(intent, intent.action, colonyOwnerUsername)
-    ) {
-      return intent;
-    }
-
-    changed = true;
-    return omitTerritoryIntentFollowUp(intent);
+    staleIntents.push(intent);
+    return false;
   });
 
-  return { intents: sanitizedIntents, changed };
+  if (staleIntents.length === 0) {
+    return { intents, changed: false };
+  }
+
+  if (territoryMemory) {
+    setTerritoryIntents(territoryMemory, sanitizedIntents);
+    for (const staleIntent of staleIntents) {
+      removeStaleTerritoryProgressIntentState(territoryMemory as TerritoryMemory, staleIntent);
+    }
+  }
+
+  return { intents: sanitizedIntents, changed: true };
 }
 
-function isPersistedTerritoryFollowUpStillActionable(
+function isStaleTerritoryProgressIntent(
   intent: TerritoryIntentMemory,
-  action: TerritoryControlAction,
-  colonyOwnerUsername: string | null
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  roleCounts: RoleCounts
 ): boolean {
+  if (intent.colony !== colonyName) {
+    return false;
+  }
+
+  if (intent.action === 'scout') {
+    return isVisibleRoomKnown(intent.targetRoom);
+  }
+
+  if (
+    intent.followUp === undefined ||
+    !isTerritoryControlAction(intent.action) ||
+    intent.status === 'suppressed'
+  ) {
+    return false;
+  }
+
+  if (
+    intent.status === 'active' &&
+    getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) > 0
+  ) {
+    return false;
+  }
+
   const controllerState = getVisibleTerritoryControllerEvidenceState(
     intent.targetRoom,
-    action,
+    intent.action,
     intent.controllerId,
     colonyOwnerUsername
   );
-  return (
+  const stillActionable =
     controllerState === null ||
     controllerState === 'available' ||
-    isVisibleTerritoryReservePressureAvailable(intent.targetRoom, action, intent.controllerId, colonyOwnerUsername)
-  );
+    isVisibleTerritoryReservePressureAvailable(
+      intent.targetRoom,
+      intent.action,
+      intent.controllerId,
+      colonyOwnerUsername
+    );
+  return !stillActionable;
 }
 
 function getVisibleTerritoryControllerEvidenceState(
@@ -2515,16 +2549,26 @@ function getVisibleTerritoryControllerEvidenceState(
   return getTerritoryControllerTargetState(controller, action, colonyOwnerUsername);
 }
 
-function omitTerritoryIntentFollowUp(intent: TerritoryIntentMemory): TerritoryIntentMemory {
-  return {
-    colony: intent.colony,
-    targetRoom: intent.targetRoom,
-    action: intent.action,
-    status: intent.status,
-    updatedAt: intent.updatedAt,
-    ...(shouldPreservePersistedTerritoryIntentPressureRequirement(intent) ? { requiresControllerPressure: true } : {}),
-    ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
-  };
+function removeStaleTerritoryProgressIntentState(
+  territoryMemory: TerritoryMemory,
+  intent: TerritoryIntentMemory
+): void {
+  if (isTerritoryControlAction(intent.action)) {
+    removeTerritoryFollowUpDemand(territoryMemory, intent.colony, intent.targetRoom, intent.action);
+  }
+
+  removeTerritoryFollowUpExecutionHint(territoryMemory, intent.colony, intent.targetRoom, intent.action);
+}
+
+function setTerritoryIntents(
+  territoryMemory: TerritoryMemory | Record<string, unknown>,
+  intents: TerritoryIntentMemory[]
+): void {
+  if (intents.length > 0) {
+    territoryMemory.intents = intents;
+  } else {
+    delete territoryMemory.intents;
+  }
 }
 
 function shouldPreservePersistedTerritoryIntentPressureRequirement(
