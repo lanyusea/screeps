@@ -3,6 +3,12 @@ import {
   selectUrgentVisibleReservationRenewalTask,
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
+import {
+  getRecordedColonySurvivalAssessment,
+  suppressesBootstrapNonCriticalWork,
+  suppressesTerritoryWork,
+  type ColonySurvivalAssessment
+} from '../colony/survivalMode';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 import {
   buildCriticalRoadLogisticsContext,
@@ -84,9 +90,14 @@ let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserv
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerEfficiencyTelemetry(creep);
 
+  const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
+  const territoryWorkSuppressed = suppressesTerritoryWork(survivalAssessment);
+  const bootstrapNonCriticalWorkSuppressed = suppressesBootstrapNonCriticalWork(survivalAssessment);
   const carriedEnergy = getUsedEnergy(creep);
-  const urgentReservationRenewalTask = selectUrgentVisibleReservationRenewalTask(creep);
-  const territoryControllerTask = selectVisibleTerritoryControllerTask(creep);
+  const urgentReservationRenewalTask = territoryWorkSuppressed
+    ? null
+    : selectUrgentVisibleReservationRenewalTask(creep);
+  const territoryControllerTask = territoryWorkSuppressed ? null : selectVisibleTerritoryControllerTask(creep);
 
   if (carriedEnergy === 0) {
     if (urgentReservationRenewalTask) {
@@ -176,6 +187,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return { type: 'transfer', targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure> };
   }
 
+  if (bootstrapNonCriticalWorkSuppressed) {
+    return selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites);
+  }
+
   const readyFollowUpProductiveEnergySinkTask = selectReadyFollowUpProductiveEnergySinkTask(
     creep,
     capacityConstructionSite,
@@ -250,6 +265,36 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (controller?.my) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  return null;
+}
+
+function getWorkerColonySurvivalAssessment(creep: Creep): ColonySurvivalAssessment | null {
+  return getRecordedColonySurvivalAssessment(getCreepColonyName(creep));
+}
+
+function selectBootstrapSurvivalSpendingTask(
+  creep: Creep,
+  controller: StructureController | undefined,
+  constructionSites: ConstructionSite[]
+): CreepTaskMemory | null {
+  if (controller && shouldRushRcl1Controller(controller)) {
+    return { type: 'upgrade', targetId: controller.id };
+  }
+
+  const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
+  if (criticalRepairTarget) {
+    return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
+  }
+
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+    return null;
+  }
+
+  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(creep, constructionSites);
+  if (criticalRoadConstructionSite) {
+    return { type: 'build', targetId: criticalRoadConstructionSite.id };
   }
 
   return null;

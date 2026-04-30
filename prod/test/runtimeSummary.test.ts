@@ -162,6 +162,13 @@ describe('runtime telemetry summaries', () => {
               risk: ['decays without sustained repair budget']
             }
           },
+          survival: {
+            mode: 'BOOTSTRAP',
+            workerCapacity: 2,
+            workerTarget: 4,
+            survivalWorkerFloor: 3,
+            suppressionReasons: ['bootstrapWorkerFloor']
+          },
           territoryRecommendation: {
             candidates: [],
             next: null,

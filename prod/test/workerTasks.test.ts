@@ -7,6 +7,11 @@ import {
   estimateNearTermSpawnExtensionRefillReserve,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
+import {
+  assessColonySurvival,
+  clearColonySurvivalAssessmentCache,
+  recordColonySurvivalAssessment
+} from '../src/colony/survivalMode';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/bodyBuilder';
 import {
   TERRITORY_RESERVATION_COMFORT_TICKS,
@@ -220,8 +225,53 @@ function makeFollowUpDemand(
   };
 }
 
+function recordSurvivalMode(
+  mode: 'BOOTSTRAP' | 'LOCAL_STABLE' | 'TERRITORY_READY' | 'DEFENSE',
+  tick = 900
+): void {
+  const inputByMode = {
+    BOOTSTRAP: {
+      workerCapacity: 1,
+      workerTarget: 3,
+      hostileCreepCount: 0
+    },
+    LOCAL_STABLE: {
+      workerCapacity: 3,
+      workerTarget: 4,
+      hostileCreepCount: 0
+    },
+    TERRITORY_READY: {
+      workerCapacity: 4,
+      workerTarget: 4,
+      hostileCreepCount: 0
+    },
+    DEFENSE: {
+      workerCapacity: 4,
+      workerTarget: 4,
+      hostileCreepCount: 1
+    }
+  }[mode];
+
+  const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+  globalScope.Game = {
+    ...(globalScope.Game ?? {}),
+    time: tick
+  };
+  recordColonySurvivalAssessment(
+    'W1N1',
+    assessColonySurvival({
+      roomName: 'W1N1',
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 },
+      ...inputByMode
+    }),
+    tick
+  );
+}
+
 describe('selectWorkerTask', () => {
   beforeEach(() => {
+    clearColonySurvivalAssessmentCache();
     (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; FIND_HOSTILE_CREEPS: number; FIND_HOSTILE_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_TOWER: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
@@ -2847,6 +2897,115 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
     expect(spawn.store.getFreeCapacity).not.toHaveBeenCalled();
+  });
+
+  it('suppresses visible territory work during bootstrap so spawn refill wins', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const controller = { id: 'controller2', my: false } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 900 }]
+      }
+    };
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'worker', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('suppresses visible territory work while local stability gates are still short', () => {
+    recordSurvivalMode('LOCAL_STABLE');
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const controller = { id: 'controller2', my: false } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 900 }]
+      }
+    };
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'worker', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('allows visible territory work once territory-ready gates are met', () => {
+    recordSurvivalMode('TERRITORY_READY');
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const controller = { id: 'controller2', my: false } as StructureController;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 900 }]
+      }
+    };
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'worker', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'reserve', targetId: 'controller2' });
+    expect(spawn.store.getFreeCapacity).not.toHaveBeenCalled();
+  });
+
+  it('suppresses non-critical construction and routine upgrading during bootstrap', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('keeps controller downgrade guard active during bootstrap', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ constructionSites: [site], controller })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('renews an urgent own visible reservation before local construction with enough CLAIM parts', () => {
