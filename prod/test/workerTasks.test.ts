@@ -3017,6 +3017,40 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
+  it('suppresses remote critical road repair while local stability gates are still short', () => {
+    recordSurvivalMode('LOCAL_STABLE');
+    const road = makeStructure('remote-road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(12, 10, 'W2N1')
+    });
+    const source = makeSource('source1', 20, 10, 'W2N1');
+    const controller = {
+      id: 'controller2',
+      my: false,
+      pos: makeRoomPosition(10, 10, 'W2N1'),
+      reservation: { username: 'Self', ticksToEnd: 1_000 }
+    } as StructureController;
+    setGameSpawns({ Spawn1: makeSpawn('Spawn1', 10, 10, 'W1N1') });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+    const room = makeWorkerTaskRoom({
+      controller,
+      sources: [source],
+      structures: [road]
+    });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      owner: { username: 'Self' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
   it('allows visible territory work once territory-ready gates are met', () => {
     recordSurvivalMode('TERRITORY_READY');
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
@@ -3055,6 +3089,82 @@ describe('selectWorkerTask', () => {
       memory: { role: 'worker', colony: 'W1N1' },
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       room: makeWorkerTaskRoom({ constructionSites: [site], controller })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('suppresses critical infrastructure repair during bootstrap', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(12, 10)
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source],
+        structures: [road]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('suppresses remote critical road construction during bootstrap', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const roadSite = {
+      id: 'remote-road-critical-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(12, 10, 'W2N1')
+    } as ConstructionSite;
+    const source = makeSource('source1', 20, 10, 'W2N1');
+    const controller = {
+      id: 'controller2',
+      my: false,
+      pos: makeRoomPosition(10, 10, 'W2N1'),
+      reservation: { username: 'Self', ticksToEnd: 1_000 }
+    } as StructureController;
+    setGameSpawns({ Spawn1: makeSpawn('Spawn1', 10, 10, 'W1N1') });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+    const room = makeWorkerTaskRoom({
+      constructionSites: [roadSite],
+      controller,
+      sources: [source]
+    });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('suppresses remote RCL1 controller upgrading during bootstrap', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const controller = {
+      id: 'controller2',
+      my: true,
+      level: 1,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ controller });
+    (room as Room & { name: string }).name = 'W2N1';
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toBeNull();

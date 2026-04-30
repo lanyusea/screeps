@@ -3846,6 +3846,8 @@ function selectWorkerTask(creep) {
   const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
   const territoryWorkSuppressed = suppressesTerritoryWork(survivalAssessment);
   const bootstrapNonCriticalWorkSuppressed = suppressesBootstrapNonCriticalWork(survivalAssessment);
+  const recoveryOnlyWorkSuppressed = bootstrapNonCriticalWorkSuppressed || territoryWorkSuppressed;
+  const remoteProductiveSpendingSuppressed = recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = territoryWorkSuppressed ? null : selectUrgentVisibleReservationRenewalTask(creep);
   const territoryControllerTask = territoryWorkSuppressed ? null : selectVisibleTerritoryControllerTask(creep);
@@ -3887,7 +3889,7 @@ function selectWorkerTask(creep) {
     return territoryControllerTask;
   }
   const controller = creep.room.controller;
-  if (controller && shouldGuardControllerDowngrade(controller)) {
+  if (controller && shouldGuardControllerDowngrade(controller) && !remoteProductiveSpendingSuppressed) {
     return { type: "upgrade", targetId: controller.id };
   }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
@@ -3913,6 +3915,9 @@ function selectWorkerTask(creep) {
     recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
     return lowLoadEnergyAcquisitionCandidate.task;
   }
+  if (remoteProductiveSpendingSuppressed) {
+    return null;
+  }
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const capacityConstructionSite = selectCapacityEnablingConstructionSite(creep, constructionSites, controller);
   if (capacityConstructionSite && !territoryControllerTask) {
@@ -3923,7 +3928,7 @@ function selectWorkerTask(creep) {
     return { type: "transfer", targetId: priorityTowerEnergySink.id };
   }
   if (bootstrapNonCriticalWorkSuppressed) {
-    return selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites);
+    return selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, recoveryOnlyWorkSuppressed);
   }
   const readyFollowUpProductiveEnergySinkTask = selectReadyFollowUpProductiveEnergySinkTask(
     creep,
@@ -3989,9 +3994,16 @@ function selectWorkerTask(creep) {
 function getWorkerColonySurvivalAssessment(creep) {
   return getRecordedColonySurvivalAssessment(getCreepColonyName(creep));
 }
-function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites) {
-  if (controller && shouldRushRcl1Controller(controller)) {
+function isWorkerInColonyRoom(creep) {
+  const colonyName = getCreepColonyName(creep);
+  return colonyName !== null && getRoomName2(creep.room) === colonyName;
+}
+function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, recoveryOnlyWorkSuppressed) {
+  if (controller && shouldRushRcl1Controller(controller) && !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)) {
     return { type: "upgrade", targetId: controller.id };
+  }
+  if (recoveryOnlyWorkSuppressed) {
+    return null;
   }
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
@@ -4005,6 +4017,9 @@ function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSite
     return { type: "build", targetId: criticalRoadConstructionSite.id };
   }
   return null;
+}
+function shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed) {
+  return recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
 }
 function estimateNearTermSpawnExtensionRefillReserveFromStructures(room, spawnExtensionEnergyStructures) {
   if (spawnExtensionEnergyStructures.length === 0) {

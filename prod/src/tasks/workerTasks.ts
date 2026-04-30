@@ -93,6 +93,9 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
   const territoryWorkSuppressed = suppressesTerritoryWork(survivalAssessment);
   const bootstrapNonCriticalWorkSuppressed = suppressesBootstrapNonCriticalWork(survivalAssessment);
+  const recoveryOnlyWorkSuppressed = bootstrapNonCriticalWorkSuppressed || territoryWorkSuppressed;
+  const remoteProductiveSpendingSuppressed =
+    recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
   const carriedEnergy = getUsedEnergy(creep);
   const urgentReservationRenewalTask = territoryWorkSuppressed
     ? null
@@ -145,7 +148,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const controller = creep.room.controller;
-  if (controller && shouldGuardControllerDowngrade(controller)) {
+  if (controller && shouldGuardControllerDowngrade(controller) && !remoteProductiveSpendingSuppressed) {
     return { type: 'upgrade', targetId: controller.id };
   }
 
@@ -176,6 +179,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return lowLoadEnergyAcquisitionCandidate.task;
   }
 
+  if (remoteProductiveSpendingSuppressed) {
+    return null;
+  }
+
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const capacityConstructionSite = selectCapacityEnablingConstructionSite(creep, constructionSites, controller);
   if (capacityConstructionSite && !territoryControllerTask) {
@@ -188,7 +195,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   if (bootstrapNonCriticalWorkSuppressed) {
-    return selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites);
+    return selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, recoveryOnlyWorkSuppressed);
   }
 
   const readyFollowUpProductiveEnergySinkTask = selectReadyFollowUpProductiveEnergySinkTask(
@@ -274,13 +281,27 @@ function getWorkerColonySurvivalAssessment(creep: Creep): ColonySurvivalAssessme
   return getRecordedColonySurvivalAssessment(getCreepColonyName(creep));
 }
 
+function isWorkerInColonyRoom(creep: Creep): boolean {
+  const colonyName = getCreepColonyName(creep);
+  return colonyName !== null && getRoomName(creep.room) === colonyName;
+}
+
 function selectBootstrapSurvivalSpendingTask(
   creep: Creep,
   controller: StructureController | undefined,
-  constructionSites: ConstructionSite[]
+  constructionSites: ConstructionSite[],
+  recoveryOnlyWorkSuppressed: boolean
 ): CreepTaskMemory | null {
-  if (controller && shouldRushRcl1Controller(controller)) {
+  if (
+    controller &&
+    shouldRushRcl1Controller(controller) &&
+    !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)
+  ) {
     return { type: 'upgrade', targetId: controller.id };
+  }
+
+  if (recoveryOnlyWorkSuppressed) {
+    return null;
   }
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
@@ -298,6 +319,10 @@ function selectBootstrapSurvivalSpendingTask(
   }
 
   return null;
+}
+
+function shouldSuppressBootstrapControllerSpending(creep: Creep, recoveryOnlyWorkSuppressed: boolean): boolean {
+  return recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep);
 }
 
 export function estimateNearTermSpawnExtensionRefillReserve(room: Room): number {
