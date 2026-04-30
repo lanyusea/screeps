@@ -460,6 +460,56 @@ describe('runtime telemetry summaries', () => {
     expect(room.territoryExecutionHints).toEqual([executionHint]);
   });
 
+  it('emits adjacent territory controller-progress intent coverage in room telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game.map = {
+      describeExits
+    } as unknown as GameMap;
+    (Game.rooms as Record<string, Room>).W2N1 = makeRemoteRoom('W2N1', {
+      controller: { my: false } as StructureController,
+      sourceCount: 2
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+          }
+        ]
+      }
+    };
+
+    emitRuntimeSummary(
+      [colony],
+      [
+        makeWorker({ role: 'worker', colony: 'W1N1' }),
+        makeWorker({ role: 'worker', colony: 'W1N1' }),
+        makeWorker({ role: 'worker', colony: 'W1N1' }),
+        makeTerritoryClaimer({ targetRoom: 'W2N1', action: 'reserve' }, 'claimer-W1N1-W2N1')
+      ]
+    );
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.territoryIntents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: RUNTIME_SUMMARY_INTERVAL,
+        activeCreepCount: 1,
+        adjacentToColony: true
+      }
+    ]);
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+  });
+
   it('keeps emission gating deterministic', () => {
     expect(shouldEmitRuntimeSummary(1, [])).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [])).toBe(true);
@@ -597,6 +647,23 @@ function makeWorker(memory: CreepMemory, energy = 0, name?: string): Creep {
     ...(name ? { name } : {}),
     memory,
     store: makeEnergyStore(energy)
+  } as unknown as Creep;
+}
+
+function makeTerritoryClaimer(
+  territory: CreepTerritoryMemory,
+  name: string,
+  colony = 'W1N1'
+): Creep {
+  return {
+    name,
+    memory: {
+      role: 'claimer',
+      colony,
+      territory
+    },
+    body: [{ type: 'claim', hits: 100 }],
+    ticksToLive: 1_200
   } as unknown as Creep;
 }
 

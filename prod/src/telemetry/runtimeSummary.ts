@@ -5,18 +5,23 @@ import {
   type ColonySuppressionReason
 } from '../colony/survivalMode';
 import { buildRuntimeConstructionPriorityReport, type ConstructionPriorityScore } from '../construction/constructionPriority';
-import { countCreepsByRole } from '../creeps/roleCounts';
+import { countCreepsByRole, type RoleCounts } from '../creeps/roleCounts';
 import {
   buildRuntimeOccupationRecommendationReport,
   persistOccupationRecommendationFollowUpIntent,
   type OccupationRecommendationReport
 } from '../territory/occupationRecommendation';
-import { getActiveTerritoryFollowUpExecutionHints } from '../territory/territoryPlanner';
+import {
+  getActiveTerritoryFollowUpExecutionHints,
+  getTerritoryIntentProgressSummaries,
+  type TerritoryIntentProgressSummary
+} from '../territory/territoryPlanner';
 
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
 const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
+const MAX_TERRITORY_INTENT_SUMMARIES = 5;
 const WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 
 const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'upgrade'] as const;
@@ -57,6 +62,8 @@ interface RuntimeRoomSummary {
   constructionPriority: RuntimeConstructionPrioritySummary;
   survival: RuntimeSurvivalSummary;
   territoryRecommendation: OccupationRecommendationReport;
+  territoryIntents?: TerritoryIntentProgressSummary[];
+  omittedTerritoryIntentCount?: number;
   territoryExecutionHints?: TerritoryExecutionHintMemory[];
 }
 
@@ -180,6 +187,7 @@ export function shouldEmitRuntimeSummary(tick: number, events: RuntimeTelemetryE
 
 function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSummary {
   const colonyWorkers = creeps.filter((creep) => creep.memory.role === 'worker' && creep.memory.colony === colony.room.name);
+  const roleCounts = countCreepsByRole(creeps, colony.room.name);
   const eventMetrics = summarizeRoomEventMetrics(colony.room);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
@@ -196,9 +204,28 @@ function summarizeRoom(colony: ColonySnapshot, creeps: Creep[]): RuntimeRoomSumm
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
-    survival: summarizeSurvival(colony, creeps),
+    survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
+    ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
     ...buildTerritoryExecutionHintSummary(colony.room.name)
+  };
+}
+
+function buildTerritoryIntentSummary(
+  colonyName: string,
+  roleCounts: RoleCounts
+): { territoryIntents?: TerritoryIntentProgressSummary[]; omittedTerritoryIntentCount?: number } {
+  const territoryIntents = getTerritoryIntentProgressSummaries(colonyName, roleCounts);
+  if (territoryIntents.length === 0) {
+    return {};
+  }
+
+  const reportedIntents = territoryIntents.slice(0, MAX_TERRITORY_INTENT_SUMMARIES);
+  return {
+    territoryIntents: reportedIntents,
+    ...(territoryIntents.length > MAX_TERRITORY_INTENT_SUMMARIES
+      ? { omittedTerritoryIntentCount: territoryIntents.length - MAX_TERRITORY_INTENT_SUMMARIES }
+      : {})
   };
 }
 
@@ -412,8 +439,8 @@ function summarizeConstructionPriority(
   };
 }
 
-function summarizeSurvival(colony: ColonySnapshot, creeps: Creep[]): RuntimeSurvivalSummary {
-  const assessment = assessColonySnapshotSurvival(colony, countCreepsByRole(creeps, colony.room.name));
+function summarizeSurvival(colony: ColonySnapshot, roleCounts: RoleCounts): RuntimeSurvivalSummary {
+  const assessment = assessColonySnapshotSurvival(colony, roleCounts);
 
   return {
     mode: assessment.mode,

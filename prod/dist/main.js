@@ -1554,6 +1554,35 @@ function getActiveTerritoryFollowUpExecutionHints(colony = void 0) {
     intents
   ).filter((hint) => !isNonEmptyString3(colony) || hint.colony === colony);
 }
+function getTerritoryIntentProgressSummaries(colony, roleCounts) {
+  if (!isNonEmptyString3(colony)) {
+    return [];
+  }
+  const territoryMemory = getTerritoryMemoryRecord2();
+  if (!territoryMemory) {
+    return [];
+  }
+  return normalizeTerritoryIntents2(territoryMemory.intents).filter(
+    (intent) => isTerritoryIntentProgressVisibleForColony(intent, colony)
+  ).map((intent) => {
+    const activeCreepCount = getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action);
+    return {
+      colony: intent.colony,
+      targetRoom: intent.targetRoom,
+      action: intent.action,
+      status: intent.status,
+      updatedAt: intent.updatedAt,
+      activeCreepCount,
+      adjacentToColony: isRoomAdjacentToColony(intent.colony, intent.targetRoom),
+      ...intent.controllerId ? { controllerId: intent.controllerId } : {},
+      ...intent.requiresControllerPressure ? { requiresControllerPressure: true } : {},
+      ...intent.followUp ? { followUp: intent.followUp } : {}
+    };
+  }).sort(compareTerritoryIntentProgressSummaries);
+}
+function isTerritoryIntentProgressVisibleForColony(intent, colony) {
+  return intent.colony === colony && (intent.status === "planned" || intent.status === "active");
+}
 function buildTerritoryCreepMemory(plan) {
   return {
     role: plan.action === "scout" ? TERRITORY_SCOUT_ROLE : TERRITORY_CLAIMER_ROLE,
@@ -2790,6 +2819,9 @@ function getAdjacentRoomNames2(roomName) {
     return isNonEmptyString3(exitRoom) ? [exitRoom] : [];
   });
 }
+function isRoomAdjacentToColony(colonyName, targetRoom) {
+  return getAdjacentRoomNames2(colonyName).includes(targetRoom);
+}
 function normalizeTerritoryTarget2(rawTarget) {
   if (!isRecord2(rawTarget)) {
     return null;
@@ -3365,6 +3397,9 @@ function isActiveVisibleControllerIntentForCreep(intent, roomName, creepColony) 
 }
 function compareVisibleControllerIntents(left, right) {
   return getIntentStatusPriority(left.status) - getIntentStatusPriority(right.status) || getIntentActionPriority(left.action) - getIntentActionPriority(right.action) || right.updatedAt - left.updatedAt || left.colony.localeCompare(right.colony);
+}
+function compareTerritoryIntentProgressSummaries(left, right) {
+  return getIntentStatusPriority(left.status) - getIntentStatusPriority(right.status) || right.activeCreepCount - left.activeCreepCount || getIntentActionPriority(left.action) - getIntentActionPriority(right.action) || right.updatedAt - left.updatedAt || left.targetRoom.localeCompare(right.targetRoom);
 }
 function getIntentStatusPriority(status) {
   return status === "active" ? 0 : 1;
@@ -7034,6 +7069,7 @@ var RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
 var RUNTIME_SUMMARY_INTERVAL = 20;
 var MAX_REPORTED_EVENTS = 10;
 var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
+var MAX_TERRITORY_INTENT_SUMMARIES = 5;
 var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "upgrade"];
 function emitRuntimeSummary(colonies, creeps, events = []) {
@@ -7060,6 +7096,7 @@ function shouldEmitRuntimeSummary(tick, events) {
 }
 function summarizeRoom(colony, creeps) {
   const colonyWorkers = creeps.filter((creep) => creep.memory.role === "worker" && creep.memory.colony === colony.room.name);
+  const roleCounts = countCreepsByRole(creeps, colony.room.name);
   const eventMetrics = summarizeRoomEventMetrics(colony.room);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime4());
@@ -7075,9 +7112,21 @@ function summarizeRoom(colony, creeps) {
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
-    survival: summarizeSurvival(colony, creeps),
+    survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
+    ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
     ...buildTerritoryExecutionHintSummary(colony.room.name)
+  };
+}
+function buildTerritoryIntentSummary(colonyName, roleCounts) {
+  const territoryIntents = getTerritoryIntentProgressSummaries(colonyName, roleCounts);
+  if (territoryIntents.length === 0) {
+    return {};
+  }
+  const reportedIntents = territoryIntents.slice(0, MAX_TERRITORY_INTENT_SUMMARIES);
+  return {
+    territoryIntents: reportedIntents,
+    ...territoryIntents.length > MAX_TERRITORY_INTENT_SUMMARIES ? { omittedTerritoryIntentCount: territoryIntents.length - MAX_TERRITORY_INTENT_SUMMARIES } : {}
   };
 }
 function buildTerritoryExecutionHintSummary(colonyName) {
@@ -7215,8 +7264,8 @@ function summarizeConstructionPriority(colony, colonyWorkers) {
     nextPrimary: report.nextPrimary ? toRuntimeConstructionPriorityCandidateSummary(report.nextPrimary) : null
   };
 }
-function summarizeSurvival(colony, creeps) {
-  const assessment = assessColonySnapshotSurvival(colony, countCreepsByRole(creeps, colony.room.name));
+function summarizeSurvival(colony, roleCounts) {
+  const assessment = assessColonySnapshotSurvival(colony, roleCounts);
   return {
     mode: assessment.mode,
     workerCapacity: assessment.workerCapacity,
