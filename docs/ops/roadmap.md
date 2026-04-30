@@ -26,7 +26,7 @@ All roadmap decomposition and priority evaluation must tie back to this ordered 
   - `cd prod && npm run build` — passing
 - Latest production/test milestones: Codex commit `12a2c4a test: harden worker no-target fallbacks` plus review follow-up `test: cover stale harvest worker tasks` added deterministic no-source/no-controller/no-target worker fallback coverage, including stale harvest targets; refreshed PR #9 commits `a95afdc test: handle full transfer result race` and `83eb0d5 fix: use screeps err full constant` clear stale transfer tasks when `creep.transfer` returns the Screeps global `ERR_FULL`
 - Latest validation milestone: pinned Dockerized private-server smoke now initializes rooms via `utils.importMapFile`, places a local spawn, observes owned bot creeps, and has run past private `gametime: 5267` with one RCL 2 owned room; a committed, review-hardened harness now automates that pinned path for fresh local reruns and passes 22 offline self-tests
-- Latest runtime-monitor milestone: live-token monitor smoke succeeded twice for `shardX/E48S28` at official ticks `108687` and `109202`; summary rendered PNGs and alert returned `alert: false` with no warnings
+- Latest runtime-monitor milestone: live-token monitor smoke succeeded twice for `shardX/E48S29` at official ticks `108687` and `109202`; summary rendered PNGs and alert returned `alert: false` with no warnings
 - Latest project-management milestone: roadmap snapshots now include next-point completion percentages, and a six-hour development report is scheduled for `discord:1497587260835758222:1497833662241181746`
 - Active state file: `docs/process/active-work-state.md`
 - Current top priority contract: P0 automation-health blockers remain highest priority; after those are clear, game-result work outranks non-blocking foundation work in the ordered vision chain `territory → resources → enemy kills`; every roadmap line must still keep active or queued worker coverage so gameplay and foundation tracks progress in parallel.
@@ -199,7 +199,7 @@ Artifacts:
 Current result:
 
 - Docker Engine is available on this host (`29.1.3`), and Docker Compose v2 is available (`v2.40.3`).
-- Local secret/config presence now includes `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` without printing secret values; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S28`.
+- Local secret/config presence now includes `SCREEPS_AUTH_TOKEN` and `STEAM_KEY` without printing secret values; safe selectors are `SCREEPS_BRANCH=main`, `SCREEPS_API_URL=https://screeps.com`, `SCREEPS_SHARD=shardX`, and `SCREEPS_ROOM=E48S29`.
 - The first Dockerized `screepers/screeps-launcher` attempt started Mongo/Redis successfully, but the Screeps container restarted before serving a stable runtime.
 - Redacted first failure: `screeps@4.3.0` requires Node.js `>=22.9.0`, while the launcher container installed Node.js `12.22.12`.
 - Follow-up finding: launcher `version: latest` generates `screeps: *`; explicit `version: 4.2.21` is Node 12-compatible.
@@ -286,7 +286,7 @@ Current evidence update:
 
 Docker/Compose, package installation, HTTP startup, local auth, code upload, room/map initialization, spawn placement, and bot tick validation are no longer the primary blockers for the pinned launcher path. The active follow-up is making this repeatable and observable:
 
-1. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded twice (`summary` PNGs rendered; `alert=false` with no warnings for `shardX/E48S28` at official ticks `108687` and `109202`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
+1. configure or verify dedicated runtime-summary/runtime-alert scheduled jobs after the 2026-04-26 live-token monitor smoke succeeded twice (`summary` PNGs rendered; `alert=false` with no warnings for `shardX/E48S29` at official ticks `108687` and `109202`); for no-alert delivery, the scheduler/wrapper must convert the monitor JSON payload into a final `[SILENT]` response rather than expecting the current script to be silent by itself;
 2. observe several additional private-smoke rerun windows to ensure the harness path is stable across fresh data resets;
 3. continue deterministic Jest hardening for risks found during longer real-runtime observation;
 4. if the pinned runtime later exposes simulation incompatibilities, then revisit a Node.js 22.9+ private-server image/toolchain for current `screeps@4.3.0`.
