@@ -3910,6 +3910,7 @@ var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
+var DEFAULT_BUILD_POWER = 5;
 var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 var SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 var SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
@@ -4445,18 +4446,53 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
   }
   const position = creep.pos;
   if (typeof (position == null ? void 0 : position.getRangeTo) === "function") {
-    return [...candidates].sort(compareConstructionSiteId).reduce((closest, candidate) => {
-      var _a2, _b, _c, _d;
-      const closestRange = (_b = (_a2 = position.getRangeTo) == null ? void 0 : _a2.call(position, closest)) != null ? _b : Infinity;
-      const candidateRange = (_d = (_c = position.getRangeTo) == null ? void 0 : _c.call(position, candidate)) != null ? _d : Infinity;
-      return candidateRange < closestRange || candidateRange === closestRange && compareConstructionSiteId(candidate, closest) < 0 ? candidate : closest;
-    });
+    return [...candidates].sort((left, right) => compareConstructionSiteCandidates(creep, left, right))[0];
+  }
+  const completableConstructionSite = selectNearTermCompletableConstructionSite(creep, candidates);
+  if (completableConstructionSite) {
+    return completableConstructionSite;
   }
   if (typeof (position == null ? void 0 : position.findClosestByRange) === "function") {
     const candidatesByStableId = [...candidates].sort(compareConstructionSiteId);
     return (_a = position.findClosestByRange(candidatesByStableId)) != null ? _a : candidatesByStableId[0];
   }
   return candidates[0];
+}
+function selectNearTermCompletableConstructionSite(creep, constructionSites) {
+  const candidates = constructionSites.filter((site) => canCompleteConstructionSiteWithCarriedEnergy(creep, site));
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareNearTermCompletableConstructionSites)[0];
+}
+function compareConstructionSiteCandidates(creep, left, right) {
+  return compareConstructionSiteCompletion(creep, left, right) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareConstructionSiteId(left, right);
+}
+function compareConstructionSiteCompletion(creep, left, right) {
+  const leftCompletable = canCompleteConstructionSiteWithCarriedEnergy(creep, left);
+  const rightCompletable = canCompleteConstructionSiteWithCarriedEnergy(creep, right);
+  if (leftCompletable !== rightCompletable) {
+    return leftCompletable ? -1 : 1;
+  }
+  return leftCompletable && rightCompletable ? compareNearTermCompletableConstructionSites(left, right) : 0;
+}
+function compareNearTermCompletableConstructionSites(left, right) {
+  return getConstructionSiteRemainingProgress(left) - getConstructionSiteRemainingProgress(right) || compareConstructionSiteId(left, right);
+}
+function canCompleteConstructionSiteWithCarriedEnergy(creep, site) {
+  const remainingProgress = getConstructionSiteRemainingProgress(site);
+  return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep) * getBuildPower();
+}
+function getConstructionSiteRemainingProgress(site) {
+  const progress = site.progress;
+  const progressTotal = site.progressTotal;
+  if (typeof progress !== "number" || typeof progressTotal !== "number" || !Number.isFinite(progress) || !Number.isFinite(progressTotal)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.max(0, Math.ceil(progressTotal - progress));
+}
+function getBuildPower() {
+  return typeof BUILD_POWER === "number" && Number.isFinite(BUILD_POWER) && BUILD_POWER > 0 ? BUILD_POWER : DEFAULT_BUILD_POWER;
 }
 function compareConstructionSiteId(left, right) {
   return String(left.id).localeCompare(String(right.id));
@@ -6708,7 +6744,7 @@ function buildExistingSiteCandidates(state) {
       ...createCandidateForBuildType(buildType, state),
       buildItem: `finish ${site.structureType} site`,
       status: "existing-site",
-      estimatedEnergyCost: getConstructionSiteRemainingProgress(site)
+      estimatedEnergyCost: getConstructionSiteRemainingProgress2(site)
     };
   });
 }
@@ -6907,7 +6943,7 @@ function mapStructureTypeToBuildType(structureType) {
   }
   return "observation";
 }
-function getConstructionSiteRemainingProgress(site) {
+function getConstructionSiteRemainingProgress2(site) {
   var _a;
   const progressTotal = typeof site.progressTotal === "number" ? site.progressTotal : (_a = STRUCTURE_BUILD_COSTS.observation) != null ? _a : 0;
   const progress = typeof site.progress === "number" ? site.progress : 0;
