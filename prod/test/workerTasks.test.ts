@@ -5563,6 +5563,81 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
   });
 
+  it('keeps extension construction ahead of source containers before baseline worker capacity is online', () => {
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [containerSite, extensionSite],
+        controller,
+        energyCapacityAvailable: 500
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-site1' });
+  });
+
+  it('builds source containers before additional extensions once baseline worker capacity is online', () => {
+    const containerSite = { id: 'container-site1', structureType: 'container' } as ConstructionSite;
+    const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [extensionSite, containerSite],
+        controller,
+        energyCapacityAvailable: 550,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
+  });
+
+  it('builds critical source route roads before additional extensions once baseline worker capacity is online', () => {
+    const roadSite = {
+      id: 'road-critical-site1',
+      structureType: 'road',
+      pos: makeRoomPosition(12, 10)
+    } as ConstructionSite;
+    const extensionSite = { id: 'extension-site1', structureType: 'extension' } as ConstructionSite;
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source = makeSource('source1', 20, 10);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [extensionSite, roadSite],
+        controller,
+        energyCapacityAvailable: 550,
+        myStructures: [fullSpawn as AnyOwnedStructure],
+        sources: [source]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-critical-site1' });
+  });
+
   it('builds an extension finishable with Screeps build power before a closer unfinished extension', () => {
     (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
     const nearExtensionSite = {
