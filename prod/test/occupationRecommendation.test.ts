@@ -376,6 +376,68 @@ describe('occupation recommendation scoring', () => {
     expect(Memory.territory?.targets).toBeUndefined();
   });
 
+  it('revokes a previously persisted recommendation target when preconditions regress', () => {
+    const staleTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2' as Id<StructureController>
+    };
+    const sameRoomDifferentAction: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'claim'
+    };
+    const differentColonyTarget: TerritoryTargetMemory = {
+      colony: 'W9N9',
+      roomName: 'W2N1',
+      action: 'reserve'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [staleTarget, sameRoomDifferentAction, differentColonyTarget]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput(
+        [
+          makeCandidate({
+            roomName: 'W2N1',
+            controllerId: 'controller2' as Id<StructureController>,
+            sourceCount: 2
+          })
+        ],
+        {
+          energyCapacityAvailable: 300,
+          workerCount: 1,
+          controllerLevel: 1,
+          ticksToDowngrade: 1_000
+        }
+      )
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      action: 'reserve',
+      evidenceStatus: 'sufficient',
+      preconditions: [
+        'raise worker count before dispatching territory creeps',
+        'reach 650 energy capacity for controller work',
+        'reach controller level 2 before expansion',
+        'stabilize home controller downgrade timer'
+      ]
+    });
+    expect(persistOccupationRecommendationFollowUpIntent(report, 703)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 703,
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.targets).toEqual([sameRoomDifferentAction, differentColonyTarget]);
+  });
+
   it('records visible controller ids on runtime recommendation targets', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};

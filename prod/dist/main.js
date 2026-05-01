@@ -1316,11 +1316,12 @@ function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGam
 }
 function persistOccupationRecommendationTarget(report, intent) {
   const target = buildPersistableOccupationRecommendationTarget(report, intent);
-  if (!target) {
-    return;
-  }
   const territoryMemory = getWritableTerritoryMemoryRecord();
   if (!territoryMemory) {
+    return;
+  }
+  if (!target) {
+    revokeOccupationRecommendationTarget(territoryMemory, intent);
     return;
   }
   upsertTerritoryTarget(territoryMemory, target);
@@ -1336,6 +1337,15 @@ function buildPersistableOccupationRecommendationTarget(report, intent) {
     action: intent.action,
     ...intent.controllerId ? { controllerId: intent.controllerId } : {}
   };
+}
+function revokeOccupationRecommendationTarget(territoryMemory, intent) {
+  if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !((target == null ? void 0 : target.colony) === intent.colony && target.roomName === intent.targetRoom && target.action === intent.action);
+  });
 }
 function upsertTerritoryTarget(territoryMemory, target) {
   if (!Array.isArray(territoryMemory.targets)) {

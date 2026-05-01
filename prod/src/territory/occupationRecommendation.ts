@@ -160,12 +160,13 @@ function persistOccupationRecommendationTarget(
   intent: TerritoryIntentMemory
 ): void {
   const target = buildPersistableOccupationRecommendationTarget(report, intent);
-  if (!target) {
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
     return;
   }
 
-  const territoryMemory = getWritableTerritoryMemoryRecord();
-  if (!territoryMemory) {
+  if (!target) {
+    revokeOccupationRecommendationTarget(territoryMemory, intent);
     return;
   }
 
@@ -194,6 +195,21 @@ function buildPersistableOccupationRecommendationTarget(
     action: intent.action,
     ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
   };
+}
+
+function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, intent: TerritoryIntentMemory): void {
+  if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !(
+      target?.colony === intent.colony &&
+      target.roomName === intent.targetRoom &&
+      target.action === intent.action
+    );
+  });
 }
 
 function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
