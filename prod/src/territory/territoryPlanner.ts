@@ -3444,25 +3444,11 @@ function getTerritoryControllerTargetState(
     return 'satisfied';
   }
 
-  return getClaimControllerTargetState(controller, colonyOwnerUsername);
+  return getClaimControllerTargetState(controller);
 }
 
-function getClaimControllerTargetState(
-  controller: StructureController,
-  colonyOwnerUsername: string | null
-): TerritoryTargetVisibilityState {
-  if (isControllerOwned(controller)) {
-    return 'unavailable';
-  }
-
-  const reservation = controller.reservation;
-  if (!reservation) {
-    return 'available';
-  }
-
-  return isNonEmptyString(reservation.username) && reservation.username === colonyOwnerUsername
-    ? 'available'
-    : 'unavailable';
+function getClaimControllerTargetState(controller: StructureController): TerritoryTargetVisibilityState {
+  return isControllerOwned(controller) ? 'unavailable' : 'available';
 }
 
 function getTerritoryActorUsername(creep: Creep | undefined, colony: string | undefined): string | null {

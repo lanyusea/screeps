@@ -3679,13 +3679,15 @@ describe('selectWorkerTask', () => {
       ({
         owner: { username: 'me' },
         memory: { role: 'worker', colony: 'W1N1' },
-        getActiveBodyparts: jest.fn().mockReturnValue(claimParts),
+        getActiveBodyparts: jest.fn((part: BodyPartConstant) => (part === CLAIM ? claimParts : 0)),
         store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
         room
       }) as unknown as Creep;
 
     expect(selectWorkerTask(makeCreep(1))).toEqual({ type: 'build', targetId: 'site1' });
-    expect(selectWorkerTask(makeCreep(5))).toEqual({ type: 'claim', targetId: 'controller2' });
+    const pressureCreep = makeCreep(5);
+    expect(selectWorkerTask(pressureCreep)).toEqual({ type: 'claim', targetId: 'controller2' });
+    expect(pressureCreep.getActiveBodyparts).toHaveBeenCalledWith(CLAIM);
   });
 
   it('upgrades a claimed territory target before unrelated construction support', () => {

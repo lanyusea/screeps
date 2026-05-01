@@ -1002,7 +1002,7 @@ function scoreOccupationCandidate(input, candidate) {
   } else {
     evidence.push("room visible", "controller visible");
     const controllerPressureEvidence = getControllerPressureEvidence(input, candidate);
-    const unavailableReason = getControllerUnavailableReason(input, candidate.controller);
+    const unavailableReason = getControllerUnavailableReason(input, candidate);
     if (controllerPressureEvidence) {
       evidence.push(controllerPressureEvidence);
       action = "reserve";
@@ -1109,14 +1109,18 @@ function getColonyReadinessPreconditions(input) {
   }
   return preconditions;
 }
-function getControllerUnavailableReason(input, controller) {
+function getControllerUnavailableReason(input, candidate) {
+  const controller = candidate.controller;
+  if (!controller) {
+    return null;
+  }
   if (isControllerOwnedByColony(input, controller)) {
     return "controller already owned by colony account";
   }
   if (controller.ownerUsername) {
     return "controller owned by another account";
   }
-  if (controller.reservationUsername && controller.reservationUsername !== input.colonyOwnerUsername) {
+  if (candidate.actionHint !== "claim" && controller.reservationUsername && controller.reservationUsername !== input.colonyOwnerUsername) {
     return "controller reserved by another account";
   }
   return null;
@@ -3540,17 +3544,10 @@ function getTerritoryControllerTargetState(controller, action, colonyOwnerUserna
   if (isControllerOwnedByColony2(controller, colonyOwnerUsername)) {
     return "satisfied";
   }
-  return getClaimControllerTargetState(controller, colonyOwnerUsername);
+  return getClaimControllerTargetState(controller);
 }
-function getClaimControllerTargetState(controller, colonyOwnerUsername) {
-  if (isControllerOwned(controller)) {
-    return "unavailable";
-  }
-  const reservation = controller.reservation;
-  if (!reservation) {
-    return "available";
-  }
-  return isNonEmptyString3(reservation.username) && reservation.username === colonyOwnerUsername ? "available" : "unavailable";
+function getClaimControllerTargetState(controller) {
+  return isControllerOwned(controller) ? "unavailable" : "available";
 }
 function getTerritoryActorUsername(creep, colony) {
   var _a;

@@ -10,6 +10,7 @@ describe('runTerritoryControllerCreep', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
+    (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
     (globalThis as unknown as { RoomPosition: typeof RoomPosition }).RoomPosition = jest.fn(
       (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
     ) as unknown as typeof RoomPosition;
@@ -1109,7 +1110,7 @@ describe('runTerritoryControllerCreep', () => {
       owner: { username: 'me' },
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
       room: { name: 'W1N2', controller },
-      getActiveBodyparts: jest.fn().mockReturnValue(5),
+      getActiveBodyparts: jest.fn((part: BodyPartConstant) => (part === CLAIM ? 5 : 0)),
       attackController: jest.fn().mockReturnValue(-12),
       reserveController: jest.fn(),
       moveTo: jest.fn()
@@ -1117,6 +1118,7 @@ describe('runTerritoryControllerCreep', () => {
 
     runTerritoryControllerCreep(creep);
 
+    expect(creep.getActiveBodyparts).toHaveBeenCalledWith(CLAIM);
     expect(creep.attackController).toHaveBeenCalledWith(controller);
     expect(creep.reserveController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();

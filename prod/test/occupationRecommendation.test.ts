@@ -134,6 +134,31 @@ describe('occupation recommendation scoring', () => {
     });
   });
 
+  it('keeps configured foreign-reserved claim recommendations actionable', () => {
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          actionHint: 'claim',
+          controller: { reservationUsername: 'enemy', reservationTicksToEnd: 3_000 },
+          sourceCount: 2
+        })
+      ])
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      action: 'occupy',
+      evidenceStatus: 'sufficient',
+      evidence: ['room visible', 'controller visible', 'controller is available', '2 sources visible']
+    });
+    expect(report.followUpIntent).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim'
+    });
+  });
+
   it('keeps unreserved reserve candidates ahead of foreign reservation pressure', () => {
     const report = scoreOccupationRecommendations(
       makeInput([

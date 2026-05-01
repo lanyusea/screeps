@@ -293,7 +293,7 @@ function scoreOccupationCandidate(
   } else {
     evidence.push('room visible', 'controller visible');
     const controllerPressureEvidence = getControllerPressureEvidence(input, candidate);
-    const unavailableReason = getControllerUnavailableReason(input, candidate.controller);
+    const unavailableReason = getControllerUnavailableReason(input, candidate);
     if (controllerPressureEvidence) {
       evidence.push(controllerPressureEvidence);
       action = 'reserve';
@@ -451,8 +451,13 @@ function getColonyReadinessPreconditions(input: OccupationRecommendationInput): 
 
 function getControllerUnavailableReason(
   input: OccupationRecommendationInput,
-  controller: OccupationControllerEvidence
+  candidate: OccupationRecommendationCandidateInput
 ): string | null {
+  const controller = candidate.controller;
+  if (!controller) {
+    return null;
+  }
+
   if (isControllerOwnedByColony(input, controller)) {
     return 'controller already owned by colony account';
   }
@@ -461,7 +466,11 @@ function getControllerUnavailableReason(
     return 'controller owned by another account';
   }
 
-  if (controller.reservationUsername && controller.reservationUsername !== input.colonyOwnerUsername) {
+  if (
+    candidate.actionHint !== 'claim' &&
+    controller.reservationUsername &&
+    controller.reservationUsername !== input.colonyOwnerUsername
+  ) {
     return 'controller reserved by another account';
   }
 
