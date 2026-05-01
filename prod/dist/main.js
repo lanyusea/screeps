@@ -4035,6 +4035,7 @@ var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
+var WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
 var DEFAULT_BUILD_POWER = 5;
 var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
@@ -5139,13 +5140,22 @@ function createUnreservedWorkerEnergyAcquisitionCandidate(creep, source, energy,
 }
 function createWorkerEnergyAcquisitionCandidate(creep, source, energy, task) {
   const range = getRangeToWorkerEnergyAcquisitionSource(creep, source);
+  const energyScore = scoreWorkerEnergyAcquisitionAmount(energy, getFreeEnergyCapacity(creep));
   return {
     energy,
     range,
-    score: range === null ? energy : energy - range * ENERGY_ACQUISITION_RANGE_COST,
+    score: range === null ? energyScore : energyScore - range * ENERGY_ACQUISITION_RANGE_COST,
     source,
     task
   };
+}
+function scoreWorkerEnergyAcquisitionAmount(energy, freeCapacity) {
+  if (freeCapacity <= 0) {
+    return energy;
+  }
+  const immediateTripEnergy = Math.min(energy, freeCapacity);
+  const surplusEnergy = Math.max(0, energy - immediateTripEnergy);
+  return immediateTripEnergy + surplusEnergy * WORKER_ENERGY_SURPLUS_SCORE_RATIO;
 }
 function createWorkerEnergyAcquisitionReservationContext(creep) {
   return {

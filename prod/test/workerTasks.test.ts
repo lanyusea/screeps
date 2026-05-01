@@ -962,6 +962,47 @@ describe('selectWorkerTask', () => {
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it('prefers a nearby full-load pickup over distant surplus stored energy', () => {
+    const nearbyDroppedEnergy = { id: 'drop-full-load', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const farStorage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
+      my: true
+    });
+    const source = { id: 'source1' } as Source;
+    const getRangeTo = jest.fn((target: StructureStorage | Resource<ResourceConstant>) => {
+      const ranges: Record<string, number> = {
+        'drop-full-load': 1,
+        'storage-surplus': 10
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [nearbyDroppedEnergy];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [farStorage];
+      }
+
+      if (type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-full-load' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
   it('keeps closest safe stored energy when stored amounts are comparable', () => {
     const nearbyContainer = makeStoredEnergyStructure('container-near', 'container' as StructureConstant, 100);
     const fartherStorage = makeStoredEnergyStructure('storage-far', 'storage' as StructureConstant, 150, { my: true });
