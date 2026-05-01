@@ -1533,6 +1533,7 @@ function shouldKeepLowLoadWorkerAcquiringEnergy(creep: Creep): boolean {
 function findLowLoadWorkerEnergyContinuationCandidates(
   creep: Creep
 ): LowLoadWorkerEnergyAcquisitionCandidate[] {
+  // Use the normal candidate set so continuation can take close energy beyond the nearby-only fast path.
   return [
     ...findWorkerEnergyAcquisitionCandidates(creep, {
       maximumRange: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
