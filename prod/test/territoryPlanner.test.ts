@@ -4697,7 +4697,7 @@ describe('planTerritoryIntent', () => {
     const routeDistance = 5;
     const observedTicksToEnd =
       TERRITORY_RESERVATION_RENEWAL_TICKS +
-      routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS;
+      routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS * 2;
     const findRoute = jest.fn(() =>
       Array.from({ length: routeDistance }, (_value, index) => ({ exit: 3, room: `W1N2-${index}` }))
     );

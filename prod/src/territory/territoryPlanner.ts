@@ -1520,7 +1520,7 @@ function getTerritoryReservationPreRenewScoutLeadTicks(
   return (
     TERRITORY_RESERVATION_RENEWAL_TICKS +
     (typeof routeDistance === 'number'
-      ? routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS
+      ? routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS * 2
       : 0)
   );
 }

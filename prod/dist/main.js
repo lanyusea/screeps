@@ -3268,7 +3268,7 @@ function getStoredTerritoryReservation(territoryMemory, target) {
 }
 function getTerritoryReservationPreRenewScoutLeadTicks(colonyName, targetRoom, routeDistanceLookupContext) {
   const routeDistance = getKnownRouteLength(colonyName, targetRoom, routeDistanceLookupContext);
-  return TERRITORY_RESERVATION_RENEWAL_TICKS + (typeof routeDistance === "number" ? routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS : 0);
+  return TERRITORY_RESERVATION_RENEWAL_TICKS + (typeof routeDistance === "number" ? routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS * 2 : 0);
 }
 function normalizeTerritoryReservations(rawReservations) {
   if (!isRecord3(rawReservations)) {
