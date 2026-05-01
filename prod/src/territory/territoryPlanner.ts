@@ -13,6 +13,7 @@ import {
   type OccupationRecommendationScore
 } from './occupationRecommendation';
 import { shouldSignOccupiedController } from './controllerSigning';
+import { normalizeTerritoryFollowUp, normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -2519,15 +2520,6 @@ function recordTerritoryIntent(
   recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime, routeDistanceLookupContext);
 }
 
-function normalizeTerritoryIntents(rawIntents: TerritoryMemory['intents'] | unknown): TerritoryIntentMemory[] {
-  return Array.isArray(rawIntents)
-    ? rawIntents.flatMap((intent) => {
-        const normalizedIntent = normalizeTerritoryIntent(intent);
-        return normalizedIntent ? [normalizedIntent] : [];
-      })
-    : [];
-}
-
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
   const existingIndex = intents.findIndex(
     (intent) =>
@@ -2599,12 +2591,14 @@ function refreshHostileTerritoryIntentSuspensions(
 
     const hostileCount = getVisibleHostileCreepCount(intent.targetRoom);
     if (hostileCount !== null && hostileCount > 0) {
-      const suspended = buildHostilePresenceTerritoryIntentSuspension(hostileCount, gameTime);
-      if (isSameTerritoryIntentSuspension(intent.suspended, suspended)) {
-        suspendedIntents.push(intent);
+      if (intent.suspended?.reason === 'hostile_presence') {
+        if (isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime)) {
+          suspendedIntents.push(intent);
+        }
         return intent;
       }
 
+      const suspended = buildHostilePresenceTerritoryIntentSuspension(hostileCount, gameTime);
       changed = true;
       const suspendedIntent = {
         ...intent,
@@ -2616,7 +2610,7 @@ function refreshHostileTerritoryIntentSuspensions(
 
     if (
       intent.suspended?.reason === 'hostile_presence' &&
-      (hostileCount === 0 || gameTime - intent.suspended.updatedAt > TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS)
+      (hostileCount === 0 || !isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime))
     ) {
       changed = true;
       return withoutTerritoryIntentSuspension(intent);
@@ -3306,60 +3300,6 @@ function isSameTerritoryFollowUp(left: TerritoryFollowUpMemory, right: Territory
   );
 }
 
-function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | null {
-  if (!isRecord(rawIntent)) {
-    return null;
-  }
-
-  if (
-    !isNonEmptyString(rawIntent.colony) ||
-    !isNonEmptyString(rawIntent.targetRoom) ||
-    !isTerritoryIntentAction(rawIntent.action) ||
-    !isTerritoryIntentStatus(rawIntent.status) ||
-    typeof rawIntent.updatedAt !== 'number'
-  ) {
-    return null;
-  }
-
-  const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
-  const suspended = normalizeTerritoryIntentSuspension(rawIntent.suspended);
-  return {
-    colony: rawIntent.colony,
-    targetRoom: rawIntent.targetRoom,
-    action: rawIntent.action,
-    status: rawIntent.status,
-    updatedAt: rawIntent.updatedAt,
-    ...(followUp && isFiniteNumber(rawIntent.lastAttemptAt) ? { lastAttemptAt: rawIntent.lastAttemptAt } : {}),
-    ...(typeof rawIntent.controllerId === 'string'
-      ? { controllerId: rawIntent.controllerId as Id<StructureController> }
-      : {}),
-    ...(rawIntent.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
-    ...(followUp ? { followUp } : {}),
-    ...(suspended ? { suspended } : {})
-  };
-}
-
-function normalizeTerritoryIntentSuspension(rawSuspension: unknown): TerritoryIntentSuspensionMemory | null {
-  if (!isRecord(rawSuspension)) {
-    return null;
-  }
-
-  if (
-    rawSuspension.reason !== 'hostile_presence' ||
-    !isFiniteNumber(rawSuspension.hostileCount) ||
-    rawSuspension.hostileCount <= 0 ||
-    !isFiniteNumber(rawSuspension.updatedAt)
-  ) {
-    return null;
-  }
-
-  return {
-    reason: rawSuspension.reason,
-    hostileCount: Math.floor(rawSuspension.hostileCount),
-    updatedAt: rawSuspension.updatedAt
-  };
-}
-
 function normalizeTerritoryFollowUpDemands(rawDemands: unknown): TerritoryFollowUpDemandMemory[] {
   return Array.isArray(rawDemands)
     ? rawDemands.flatMap((demand) => {
@@ -3413,28 +3353,6 @@ function getBoundedTerritoryFollowUpWorkerDemand(rawWorkerCount: unknown): numbe
   return Math.max(0, Math.min(TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND, Math.floor(rawWorkerCount)));
 }
 
-function normalizeTerritoryFollowUp(rawFollowUp: unknown): TerritoryFollowUpMemory | null {
-  if (!isRecord(rawFollowUp)) {
-    return null;
-  }
-
-  if (!isTerritoryFollowUpSource(rawFollowUp.source)) {
-    return null;
-  }
-
-  const source = rawFollowUp.source;
-  const originAction = getTerritoryFollowUpOriginAction(source);
-  if (originAction === null || !isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
-    return null;
-  }
-
-  return {
-    source,
-    originRoom: rawFollowUp.originRoom,
-    originAction
-  };
-}
-
 function getTerritoryCreepCountForTarget(
   roleCounts: RoleCounts,
   targetRoom: string,
@@ -3462,21 +3380,16 @@ function buildHostilePresenceTerritoryIntentSuspension(
   };
 }
 
-function isSameTerritoryIntentSuspension(
-  left: TerritoryIntentSuspensionMemory | undefined,
-  right: TerritoryIntentSuspensionMemory
-): boolean {
-  return (
-    left !== undefined &&
-    left.reason === right.reason &&
-    left.hostileCount === right.hostileCount &&
-    left.updatedAt === right.updatedAt
-  );
-}
-
 function withoutTerritoryIntentSuspension(intent: TerritoryIntentMemory): TerritoryIntentMemory {
   const { suspended: _suspended, ...unsuspendedIntent } = intent;
   return unsuspendedIntent;
+}
+
+function isHostileTerritoryIntentSuspensionCoolingDown(
+  suspension: TerritoryIntentSuspensionMemory,
+  gameTime: number
+): boolean {
+  return gameTime - suspension.updatedAt <= TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS;
 }
 
 function isTerritoryIntentSuspended(
@@ -3537,11 +3450,11 @@ function isTerritoryIntentSuspensionActive(intent: TerritoryIntentMemory, gameTi
   if (intent.suspended.reason === 'hostile_presence') {
     const hostileCount = getVisibleHostileCreepCount(intent.targetRoom);
     if (hostileCount !== null) {
-      return hostileCount > 0;
+      return hostileCount > 0 && isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime);
     }
   }
 
-  return gameTime - intent.suspended.updatedAt <= TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS;
+  return isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime);
 }
 
 function isTerritoryTargetSuppressed(
@@ -4147,10 +4060,6 @@ function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUp
     source === 'satisfiedReserveAdjacent' ||
     source === 'activeReserveAdjacent'
   );
-}
-
-function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
-  return status === 'planned' || status === 'active' || status === 'suppressed';
 }
 
 function isTerritoryExecutionHintReason(reason: unknown): reason is TerritoryExecutionHintReason {

@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { normalizeTerritoryFollowUp, normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export type OccupationRecommendationAction = 'occupy' | 'reserve' | 'scout';
 export type OccupationRecommendationEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
@@ -876,90 +877,6 @@ function getWritableTerritoryMemoryRecord(): TerritoryMemory | null {
   return memory.territory as TerritoryMemory;
 }
 
-function normalizeTerritoryIntents(rawIntents: TerritoryMemory['intents'] | unknown): TerritoryIntentMemory[] {
-  return Array.isArray(rawIntents)
-    ? rawIntents.flatMap((intent) => {
-        const normalizedIntent = normalizeTerritoryIntent(intent);
-        return normalizedIntent ? [normalizedIntent] : [];
-      })
-    : [];
-}
-
-function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | null {
-  if (!isRecord(rawIntent)) {
-    return null;
-  }
-
-  if (
-    !isNonEmptyString(rawIntent.colony) ||
-    !isNonEmptyString(rawIntent.targetRoom) ||
-    !isTerritoryIntentAction(rawIntent.action) ||
-    !isTerritoryIntentStatus(rawIntent.status) ||
-    typeof rawIntent.updatedAt !== 'number'
-  ) {
-    return null;
-  }
-
-  const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
-  const suspended = normalizeTerritoryIntentSuspension(rawIntent.suspended);
-  return {
-    colony: rawIntent.colony,
-    targetRoom: rawIntent.targetRoom,
-    action: rawIntent.action,
-    status: rawIntent.status,
-    updatedAt: rawIntent.updatedAt,
-    ...(followUp && isFiniteNumber(rawIntent.lastAttemptAt) ? { lastAttemptAt: rawIntent.lastAttemptAt } : {}),
-    ...(typeof rawIntent.controllerId === 'string'
-      ? { controllerId: rawIntent.controllerId as Id<StructureController> }
-      : {}),
-    ...(rawIntent.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
-    ...(followUp ? { followUp } : {}),
-    ...(suspended ? { suspended } : {})
-  };
-}
-
-function normalizeTerritoryIntentSuspension(rawSuspension: unknown): TerritoryIntentSuspensionMemory | null {
-  if (!isRecord(rawSuspension)) {
-    return null;
-  }
-
-  if (
-    rawSuspension.reason !== 'hostile_presence' ||
-    !isFiniteNumber(rawSuspension.hostileCount) ||
-    rawSuspension.hostileCount <= 0 ||
-    !isFiniteNumber(rawSuspension.updatedAt)
-  ) {
-    return null;
-  }
-
-  return {
-    reason: rawSuspension.reason,
-    hostileCount: Math.floor(rawSuspension.hostileCount),
-    updatedAt: rawSuspension.updatedAt
-  };
-}
-
-function normalizeTerritoryFollowUp(rawFollowUp: unknown): TerritoryFollowUpMemory | null {
-  if (!isRecord(rawFollowUp) || !isTerritoryFollowUpSource(rawFollowUp.source)) {
-    return null;
-  }
-
-  const originAction = getTerritoryFollowUpOriginAction(rawFollowUp.source);
-  if (!isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
-    return null;
-  }
-
-  return {
-    source: rawFollowUp.source,
-    originRoom: rawFollowUp.originRoom,
-    originAction
-  };
-}
-
-function getTerritoryFollowUpOriginAction(source: TerritoryFollowUpSource): TerritoryControlAction {
-  return source === 'satisfiedClaimAdjacent' ? 'claim' : 'reserve';
-}
-
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
   const existingIndex = intents.findIndex((intent) => isSameTerritoryIntent(intent, nextIntent));
   if (existingIndex >= 0) {
@@ -1088,22 +1005,6 @@ function isRecoveredTerritoryFollowUpAttemptCoolingDown(intent: TerritoryIntentM
 
 function isRecoveredTerritoryFollowUpRetryPending(intent: TerritoryIntentMemory): boolean {
   return intent.followUp !== undefined && intent.status === 'suppressed' && isFiniteNumber(intent.lastAttemptAt);
-}
-
-function isTerritoryIntentAction(action: unknown): action is TerritoryIntentAction {
-  return action === 'claim' || action === 'reserve' || action === 'scout';
-}
-
-function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
-  return status === 'planned' || status === 'active' || status === 'suppressed';
-}
-
-function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUpSource {
-  return (
-    source === 'satisfiedClaimAdjacent' ||
-    source === 'satisfiedReserveAdjacent' ||
-    source === 'activeReserveAdjacent'
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

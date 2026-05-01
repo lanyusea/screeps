@@ -1303,6 +1303,70 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('does not re-stamp a hostile suspension while visible hostiles persist', () => {
+    const colony = makeSafeColony();
+    const suspendedAt = 572;
+    const retryTime = suspendedAt + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
+    const suspendedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 571,
+      suspended: {
+        reason: 'hostile_presence',
+        hostileCount: 1,
+        updatedAt: suspendedAt
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', { hostileCreepCount: 3 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [suspendedIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, suspendedAt + 1)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([suspendedIntent]);
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([suspendedIntent]);
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {};
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime + 1)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: retryTime + 1
+      }
+    ]);
+  });
+
   it('clears a hostile suspension immediately when visible hostile creeps leave', () => {
     const colony = makeSafeColony();
     const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
