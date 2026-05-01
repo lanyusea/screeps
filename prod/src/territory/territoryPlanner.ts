@@ -238,7 +238,7 @@ export function shouldSpawnTerritoryControllerCreep(
 
 export function requiresTerritoryControllerPressure(plan: TerritoryIntentPlan): boolean {
   return (
-    plan.action === 'reserve' &&
+    isTerritoryControlAction(plan.action) &&
     (plan.requiresControllerPressure === true ||
       isVisibleTerritoryReservePressureAvailable(
         plan.targetRoom,
@@ -507,12 +507,14 @@ export function isVisibleTerritoryAssignmentSafe(
 
   const actorUsername = getTerritoryActorUsername(creep, colony);
   const targetState = getTerritoryControllerTargetState(controller, assignment.action, actorUsername);
-  const isPressureTarget = assignment.action === 'reserve' && isForeignReservedController(controller, actorUsername);
+  const isPressureTarget = isForeignReservedController(controller, actorUsername);
+  if (isPressureTarget) {
+    return creep === undefined || canCreepPressureTerritoryController(creep, controller, colony);
+  }
+
   return (
     targetState === 'available' ||
-    (assignment.action === 'reserve' && targetState === 'satisfied') ||
-    (isPressureTarget &&
-      (creep === undefined || canCreepPressureTerritoryController(creep, controller, colony)))
+    (assignment.action === 'reserve' && targetState === 'satisfied')
   );
 }
 
@@ -991,7 +993,7 @@ function getTerritoryIntentActionBodyCost(
   action: TerritoryIntentAction,
   requiresControllerPressure = false
 ): number {
-  if (action === 'reserve' && requiresControllerPressure) {
+  if (isTerritoryControlAction(action) && requiresControllerPressure) {
     return TERRITORY_CONTROLLER_PRESSURE_BODY_COST;
   }
 
@@ -1701,7 +1703,8 @@ function applyOccupationRecommendationScore(
   adjacentControllerProgressReady: boolean
 ): ScoredTerritoryTarget {
   const intentAction = getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
-  const requiresControllerPressure = intentAction === 'reserve' && candidate.requiresControllerPressure === true;
+  const requiresControllerPressure =
+    isTerritoryControlAction(intentAction) && candidate.requiresControllerPressure === true;
   const nextSelection: SelectedTerritoryTarget = {
     target: candidate.target,
     intentAction,
@@ -1755,7 +1758,7 @@ function getRecommendedTerritoryIntentAction(
   roleCounts: RoleCounts
 ): TerritoryIntentAction {
   if (recommendation.evidenceStatus === 'insufficient-evidence') {
-    if (candidate.intentAction === 'reserve' && candidate.requiresControllerPressure === true) {
+    if (isTerritoryControlAction(candidate.intentAction) && candidate.requiresControllerPressure === true) {
       return candidate.intentAction;
     }
 
@@ -2607,7 +2610,7 @@ function isTerritoryControllerPressureVisibilityMissing(
   action: TerritoryIntentAction,
   controllerId?: Id<StructureController>
 ): boolean {
-  return action === 'reserve' && getVisibleController(targetRoom, controllerId) === null;
+  return isTerritoryControlAction(action) && getVisibleController(targetRoom, controllerId) === null;
 }
 
 function getPersistedTerritoryIntentPressureRequirement(
@@ -3371,17 +3374,22 @@ function isCreepVisibleTerritoryIntentActionable(creep: Creep, intent: Territory
     return false;
   }
 
-  if (intent.action === 'claim' && controller.my === true) {
-    return true;
-  }
-
   if (intent.action === 'reserve') {
     return canCreepActOnVisibleReserveController(creep, controller, intent.colony);
   }
 
+  const actorUsername = getTerritoryActorUsername(creep, intent.colony);
+  if (controller.my === true) {
+    return true;
+  }
+
+  if (isForeignReservedController(controller, actorUsername)) {
+    return canCreepPressureTerritoryController(creep, controller, intent.colony);
+  }
+
   return (
-    getTerritoryControllerTargetState(controller, intent.action, getTerritoryActorUsername(creep, intent.colony)) ===
-    'available'
+    getTerritoryControllerTargetState(controller, intent.action, actorUsername) === 'available' &&
+    canUseControllerClaimPart(creep)
   );
 }
 
@@ -3437,6 +3445,10 @@ function getTerritoryControllerTargetState(
     return 'satisfied';
   }
 
+  return getClaimControllerTargetState(controller);
+}
+
+function getClaimControllerTargetState(controller: StructureController): TerritoryTargetVisibilityState {
   return isControllerOwned(controller) ? 'unavailable' : 'available';
 }
 
@@ -3576,7 +3588,7 @@ function isVisibleTerritoryReservePressureAvailable(
   controllerId: Id<StructureController> | undefined,
   colonyOwnerUsername: string | null
 ): boolean {
-  if (action !== 'reserve' || isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
+  if (!isTerritoryControlAction(action) || isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
     return false;
   }
 
