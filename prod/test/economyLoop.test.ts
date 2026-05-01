@@ -139,6 +139,66 @@ describe('runEconomy', () => {
     );
   });
 
+  it('keeps spawning a productive worker while baseline workers still leave refill pressure', () => {
+    (globalThis as unknown as {
+      FIND_MY_STRUCTURES: number;
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_SOURCES: number;
+      STRUCTURE_EXTENSION: StructureConstant;
+    }).FIND_MY_STRUCTURES = 1;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 4;
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    const extensions = Array.from(
+      { length: 5 },
+      (_, index) => ({ id: `extension${index}`, structureType: 'extension' }) as StructureExtension
+    );
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 400,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureExtension) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'source1' } as Source];
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          return options?.filter ? extensions.filter(options.filter) : extensions;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 127,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: workers
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      'worker-W1N1-127',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+  });
+
   it('waits through critical energy without invalid spawn attempts and recovers when an emergency body is affordable', () => {
     const room = {
       name: 'W1N1',
