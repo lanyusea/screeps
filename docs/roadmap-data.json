@@ -3,53 +3,51 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-05-01T14:58:24Z",
-  "generatedAtCst": "2026-05-01 22:58:24 CST",
+  "generatedAt": "2026-05-01T15:58:00Z",
+  "generatedAtCst": "2026-05-01 23:58:00 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
     "issues": [
       {
-        "createdAt": "2026-05-01T14:44:31Z",
+        "createdAt": "2026-05-01T15:32:26Z",
         "domain": "Territory/Economy",
         "domainSource": "heuristic",
         "kind": "code",
         "labels": [
           "kind:code",
           "priority:p1",
-          "roadmap",
-          "roadmap:territory-economy"
+          "roadmap"
         ],
         "milestone": "Phase B: Bot capability hardening gate",
-        "number": 452,
+        "number": 455,
         "priority": "P1",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P1 Economy: post-450 worker throughput follow-up",
+        "title": "P1 Economy: post-453 resource throughput follow-up",
         "type": "Issue",
-        "updatedAt": "2026-05-01T14:45:38Z",
-        "url": "https://github.com/lanyusea/screeps/issues/452"
+        "updatedAt": "2026-05-01T15:33:29Z",
+        "url": "https://github.com/lanyusea/screeps/issues/455"
       },
       {
-        "createdAt": "2026-05-01T13:03:13Z",
+        "createdAt": "2026-05-01T15:21:54Z",
         "domain": "Territory/Economy",
         "domainSource": "heuristic",
         "kind": "code",
         "labels": [
           "kind:code",
           "priority:p1",
-          "roadmap",
-          "roadmap:territory-economy"
+          "roadmap"
         ],
         "milestone": "Phase B: Bot capability hardening gate",
-        "number": 446,
+        "number": 454,
         "priority": "P1",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P1 Territory: post-spawn-action controller pressure follow-up",
+        "title": "P1 Territory: post-448 controller progress follow-up",
         "type": "Issue",
-        "updatedAt": "2026-05-01T13:34:46Z",
-        "url": "https://github.com/lanyusea/screeps/issues/446"
+        "updatedAt": "2026-05-01T15:39:31Z",
+        "url": "https://github.com/lanyusea/screeps/issues/454"
       },
       {
         "createdAt": "2026-05-01T02:31:57Z",
@@ -264,7 +262,7 @@
         "status": "Ready",
         "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
         "type": "Issue",
-        "updatedAt": "2026-05-01T14:44:12Z",
+        "updatedAt": "2026-05-01T15:32:04Z",
         "url": "https://github.com/lanyusea/screeps/issues/63"
       },
       {
@@ -1899,38 +1897,20 @@
         },
         {
           "domain": "Bot capability",
-          "domainSource": "project",
-          "evidence": "",
-          "kind": "code",
-          "lane": "Bot capability",
-          "nextAction": "",
-          "number": 452,
-          "priority": "P1",
-          "projectDomain": "Bot capability",
-          "state": "",
-          "status": "In progress",
-          "title": "P1 Economy: post-450 worker throughput follow-up",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/452",
-          "visionLayer": "territory"
-        },
-        {
-          "domain": "Bot capability",
           "domainSource": "heuristic",
-          "evidence": "",
+          "evidence": "PR #456 opened/recovered from Codex commit 80a7b63, then update-branched to head 06a377e after PR #453 merged. prod-ci SUCCESS; GraphQL unresolved-thread requery returned none. Awaiting CodeRabbit/Gemini settlement and exact-head QA.",
           "kind": "code",
           "lane": "",
           "nextAction": "",
-          "number": 448,
+          "number": 456,
           "priority": "P1",
           "projectDomain": "",
           "state": "",
           "status": "In review",
-          "title": "feat: add controller pressure spawn follow-up",
+          "title": "feat: prioritize controller pressure spawn support",
           "type": "PullRequest",
           "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/448",
+          "url": "https://github.com/lanyusea/screeps/pull/456",
           "visionLayer": "territory"
         },
         {
@@ -2201,6 +2181,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/449",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Bot capability",
+          "domainSource": "project",
+          "evidence": "Done: PR #453 merged at 544e055 after exact-head QA PASS on 9279217, green prod-ci/CodeRabbit, no unresolved non-outdated threads; deployed by run 25220430907 with healthy E26S49 evidence.",
+          "kind": "code",
+          "lane": "Bot capability",
+          "nextAction": "",
+          "number": 452,
+          "priority": "P1",
+          "projectDomain": "Bot capability",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Economy: post-450 worker throughput follow-up",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/452",
           "visionLayer": "territory"
         },
         {
@@ -4113,6 +4111,24 @@
         },
         {
           "domain": "Bot capability",
+          "domainSource": "heuristic",
+          "evidence": "",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 448,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "feat: add controller pressure spawn follow-up",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/448",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Bot capability",
           "domainSource": "project",
           "evidence": "",
           "kind": "code",
@@ -4235,6 +4251,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/380",
+          "visionLayer": "resources"
+        },
+        {
+          "domain": "Bot capability",
+          "domainSource": "heuristic",
+          "evidence": "PR #453 opened for #452 from Codex-authored commit 160521e; controller verification passed before commit recovery; branch update requested after PR #448 merge.",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 453,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "feat: balance harvest source work throughput",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/453",
           "visionLayer": "resources"
         },
         {
@@ -5936,15 +5970,33 @@
           "kind": "code",
           "lane": "",
           "nextAction": "",
-          "number": 446,
+          "number": 455,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "In progress",
+          "title": "P1 Economy: post-453 resource throughput follow-up",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/455",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "heuristic",
+          "evidence": "PR #456 opened from Codex-authored commit 80a7b63. Verification passed: typecheck, Jest 24 suites / 654 tests, build, git diff --check. Awaiting PR checks/review/QA.",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 454,
           "priority": "P1",
           "projectDomain": "",
           "state": "",
           "status": "In review",
-          "title": "P1 Territory: post-spawn-action controller pressure follow-up",
+          "title": "P1 Territory: post-448 controller progress follow-up",
           "type": "Issue",
           "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/446",
+          "url": "https://github.com/lanyusea/screeps/issues/454",
           "visionLayer": "territory"
         },
         {
@@ -6017,6 +6069,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/424",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "heuristic",
+          "evidence": "Done: PR #448 merged at adf0359 after exact-head QA PASS on 25192a3, green prod-ci/CodeRabbit, no unresolved non-outdated threads; deployed by run 25219956058 with healthy E26S49 evidence.",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 446,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Territory: post-spawn-action controller pressure follow-up",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/446",
           "visionLayer": "territory"
         },
         {
@@ -7498,24 +7568,6 @@
         {
           "domain": "Docs/process",
           "domainSource": "project",
-          "evidence": "",
-          "kind": "code",
-          "lane": "Docs/process",
-          "nextAction": "",
-          "number": 451,
-          "priority": "P2",
-          "projectDomain": "Docs/process",
-          "state": "",
-          "status": "In review",
-          "title": "fix: add agent metrics to roadmap report",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/451",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Docs/process",
-          "domainSource": "project",
           "evidence": "PR #361 records docs/research/overmind-strategy-gap-audit-2026-04-30.md; git diff --check passed.",
           "kind": "docs",
           "lane": "Docs/process",
@@ -7871,6 +7923,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/24",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "code",
+          "lane": "Docs/process",
+          "nextAction": "",
+          "number": 451,
+          "priority": "P2",
+          "projectDomain": "Docs/process",
+          "state": "",
+          "status": "Done",
+          "title": "fix: add agent metrics to roadmap report",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/451",
           "visionLayer": "foundation blocker"
         }
       ],
@@ -9223,26 +9293,7 @@
               "status": "Ready"
             },
             {
-              "cards": [
-                {
-                  "domain": "Bot capability",
-                  "domainSource": "project",
-                  "evidence": "",
-                  "kind": "code",
-                  "lane": "Bot capability",
-                  "nextAction": "",
-                  "number": 452,
-                  "priority": "P1",
-                  "projectDomain": "Bot capability",
-                  "state": "",
-                  "status": "In progress",
-                  "title": "P1 Economy: post-450 worker throughput follow-up",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/452",
-                  "visionLayer": "territory"
-                }
-              ],
+              "cards": [],
               "status": "In progress"
             },
             {
@@ -9519,6 +9570,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/449",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Bot capability",
+                  "domainSource": "project",
+                  "evidence": "Done: PR #453 merged at 544e055 after exact-head QA PASS on 9279217, green prod-ci/CodeRabbit, no unresolved non-outdated threads; deployed by run 25220430907 with healthy E26S49 evidence.",
+                  "kind": "code",
+                  "lane": "Bot capability",
+                  "nextAction": "",
+                  "number": 452,
+                  "priority": "P1",
+                  "projectDomain": "Bot capability",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1 Economy: post-450 worker throughput follow-up",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/452",
                   "visionLayer": "territory"
                 },
                 {
@@ -13091,26 +13160,7 @@
               "status": "In progress"
             },
             {
-              "cards": [
-                {
-                  "domain": "Docs/process",
-                  "domainSource": "project",
-                  "evidence": "",
-                  "kind": "code",
-                  "lane": "Docs/process",
-                  "nextAction": "",
-                  "number": 451,
-                  "priority": "P2",
-                  "projectDomain": "Docs/process",
-                  "state": "",
-                  "status": "In review",
-                  "title": "fix: add agent metrics to roadmap report",
-                  "type": "PullRequest",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/pull/451",
-                  "visionLayer": "foundation blocker"
-                }
-              ],
+              "cards": [],
               "status": "In review"
             },
             {
@@ -13438,6 +13488,24 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/24",
                   "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "code",
+                  "lane": "Docs/process",
+                  "nextAction": "",
+                  "number": 451,
+                  "priority": "P2",
+                  "projectDomain": "Docs/process",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: add agent metrics to roadmap report",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/451",
+                  "visionLayer": "foundation blocker"
                 }
               ],
               "status": "Done"
@@ -13455,7 +13523,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 2
+        "value": 3
       },
       {
         "instrumented": true,
@@ -13465,7 +13533,7 @@
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 420
+        "value": 424
       },
       {
         "instrumented": true,
@@ -13475,7 +13543,7 @@
       {
         "instrumented": true,
         "label": "In review",
-        "value": 3
+        "value": 2
       }
     ],
     "projectItems": [
@@ -22285,7 +22353,7 @@
         "blockedBy": "",
         "domain": "Territory/Economy",
         "domainSource": "heuristic",
-        "evidence": "",
+        "evidence": "Done: PR #448 merged at adf0359 after exact-head QA PASS on 25192a3, green prod-ci/CodeRabbit, no unresolved non-outdated threads; deployed by run 25219956058 with healthy E26S49 evidence.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -22299,7 +22367,7 @@
         "priority": "P1",
         "projectDomain": "",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "P1 Territory: post-spawn-action controller pressure follow-up",
         "type": "Issue",
         "updatedAt": "",
@@ -22337,7 +22405,7 @@
         "priority": "P1",
         "projectDomain": "",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "feat: add controller pressure spawn follow-up",
         "type": "PullRequest",
         "updatedAt": "",
@@ -22399,7 +22467,7 @@
         "priority": "P2",
         "projectDomain": "Docs/process",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "fix: add agent metrics to roadmap report",
         "type": "PullRequest",
         "updatedAt": "",
@@ -22409,7 +22477,7 @@
         "blockedBy": "",
         "domain": "Bot capability",
         "domainSource": "project",
-        "evidence": "",
+        "evidence": "Done: PR #453 merged at 544e055 after exact-head QA PASS on 9279217, green prod-ci/CodeRabbit, no unresolved non-outdated threads; deployed by run 25220430907 with healthy E26S49 evidence.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -22423,37 +22491,121 @@
         "priority": "P1",
         "projectDomain": "Bot capability",
         "state": "",
-        "status": "In progress",
+        "status": "Done",
         "title": "P1 Economy: post-450 worker throughput follow-up",
         "type": "Issue",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/issues/452"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "domainSource": "heuristic",
+        "evidence": "PR #453 opened for #452 from Codex-authored commit 160521e; controller verification passed before commit recovery; branch update requested after PR #448 merge.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 453,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "Done",
+        "title": "feat: balance harvest source work throughput",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/453"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "evidence": "PR #456 opened from Codex-authored commit 80a7b63. Verification passed: typecheck, Jest 24 suites / 654 tests, build, git diff --check. Awaiting PR checks/review/QA.",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 454,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "In review",
+        "title": "P1 Territory: post-448 controller progress follow-up",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/454"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "evidence": "",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 455,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "In progress",
+        "title": "P1 Economy: post-453 resource throughput follow-up",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/455"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "domainSource": "heuristic",
+        "evidence": "PR #456 opened/recovered from Codex commit 80a7b63, then update-branched to head 06a377e after PR #453 merged. prod-ci SUCCESS; GraphQL unresolved-thread requery returned none. Awaiting CodeRabbit/Gemini settlement and exact-head QA.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 456,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "In review",
+        "title": "feat: prioritize controller pressure spawn support",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/456"
       }
     ],
     "pullRequests": [
       {
         "checks": {
           "failure": 0,
-          "pending": 0,
-          "success": 2,
+          "pending": 1,
+          "success": 1,
           "total": 2
         },
-        "createdAt": "2026-05-01T14:31:45Z",
-        "domain": "Agent OS",
+        "createdAt": "2026-05-01T15:56:36Z",
+        "domain": "Territory/Economy",
         "domainSource": "heuristic",
         "isDraft": false,
         "kind": "code",
         "labels": [],
         "milestone": "",
-        "number": 451,
+        "number": 458,
         "priority": "P1",
         "reviewDecision": "",
         "state": "OPEN",
         "status": "In review",
-        "title": "fix: add agent metrics to roadmap report",
+        "title": "feat: improve low-energy worker throughput",
         "type": "PullRequest",
-        "updatedAt": "2026-05-01T14:51:58Z",
-        "url": "https://github.com/lanyusea/screeps/pull/451"
+        "updatedAt": "2026-05-01T15:56:45Z",
+        "url": "https://github.com/lanyusea/screeps/pull/458"
       },
       {
         "checks": {
@@ -22462,22 +22614,46 @@
           "success": 2,
           "total": 2
         },
-        "createdAt": "2026-05-01T13:33:49Z",
+        "createdAt": "2026-05-01T15:48:37Z",
         "domain": "Bot capability",
         "domainSource": "heuristic",
         "isDraft": false,
         "kind": "code",
         "labels": [],
         "milestone": "",
-        "number": 448,
+        "number": 457,
         "priority": "P1",
         "reviewDecision": "",
         "state": "OPEN",
         "status": "In review",
-        "title": "feat: add controller pressure spawn follow-up",
+        "title": "fix: restore roadmap delivery metric grid",
         "type": "PullRequest",
-        "updatedAt": "2026-05-01T14:52:58Z",
-        "url": "https://github.com/lanyusea/screeps/pull/448"
+        "updatedAt": "2026-05-01T15:53:20Z",
+        "url": "https://github.com/lanyusea/screeps/pull/457"
+      },
+      {
+        "checks": {
+          "failure": 0,
+          "pending": 0,
+          "success": 2,
+          "total": 2
+        },
+        "createdAt": "2026-05-01T15:37:35Z",
+        "domain": "Bot capability",
+        "domainSource": "heuristic",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 456,
+        "priority": "P1",
+        "reviewDecision": "",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "feat: prioritize controller pressure spawn support",
+        "type": "PullRequest",
+        "updatedAt": "2026-05-01T15:55:08Z",
+        "url": "https://github.com/lanyusea/screeps/pull/456"
       }
     ],
     "roadmapCards": [
@@ -23117,7 +23293,7 @@
             "categoryLabel": "Guardrails / Reliability",
             "description": "Runtime-summary lines found by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "259",
+            "formattedValue": "264",
             "instrumented": true,
             "key": "runtime_summary_samples",
             "label": "Runtime summary samples",
@@ -23128,14 +23304,14 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "samples",
-            "value": 259
+            "value": 264
           },
           {
             "category": "guardrails",
             "categoryLabel": "Guardrails / Reliability",
             "description": "Files matched by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "259",
+            "formattedValue": "264",
             "instrumented": true,
             "key": "kpi_artifact_files",
             "label": "KPI artifact files",
@@ -23146,7 +23322,7 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "files",
-            "value": 259
+            "value": 264
           },
           {
             "category": "guardrails",
@@ -23346,7 +23522,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23383,7 +23566,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23418,9 +23608,16 @@
           "value": null
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not observed",
           "value": null
         }
@@ -23455,9 +23652,16 @@
           "value": null
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not observed",
           "value": null
         }
@@ -23492,9 +23696,16 @@
           "value": null
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not observed",
           "value": null
         }
@@ -23529,9 +23740,16 @@
           "value": 2.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 2.0
         }
@@ -23566,9 +23784,16 @@
           "value": -91196.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": -83866.0
         }
@@ -23605,7 +23830,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23642,7 +23874,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23677,9 +23916,16 @@
           "value": null
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not observed",
           "value": null
         }
@@ -23714,9 +23960,16 @@
           "value": 0.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 0.0
         }
@@ -23753,7 +24006,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23790,7 +24050,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23825,9 +24092,16 @@
           "value": null
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not observed",
           "value": null
         }
@@ -23862,9 +24136,16 @@
           "value": 0.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 0.0
         }
@@ -23899,9 +24180,16 @@
           "value": 0.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 0.0
         }
@@ -23938,9 +24226,16 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "observed",
-          "value": 259.0
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 264.0
         }
       ],
       "objects_destroyed": [
@@ -23973,9 +24268,16 @@
           "value": null
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not observed",
           "value": null
         }
@@ -24012,7 +24314,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24047,9 +24356,16 @@
           "value": 0.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 0.0
         }
@@ -24084,9 +24400,16 @@
           "value": 1.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 1.0
         }
@@ -24123,7 +24446,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24160,7 +24490,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24197,9 +24534,16 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "observed",
-          "value": 259.0
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 264.0
         }
       ],
       "source_count": [
@@ -24232,9 +24576,16 @@
           "value": 2.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 2.0
         }
@@ -24271,7 +24622,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24308,7 +24666,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24343,9 +24708,16 @@
           "value": 0.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 0.0
         }
@@ -24380,9 +24752,16 @@
           "value": 0.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 0.0
         }
@@ -24419,7 +24798,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24454,9 +24840,16 @@
           "value": null
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not observed",
           "value": null
         }
@@ -24491,9 +24884,16 @@
           "value": 0.0
         },
         {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "observed",
           "value": 0.0
         }
@@ -24530,7 +24930,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T14:58:24Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24615,17 +25022,7 @@
         "title": "Release/deploy"
       },
       {
-        "items": [
-          {
-            "description": "In progress \u00b7 Bot capability \u00b7 Bot capability",
-            "domain": "Bot capability",
-            "number": 452,
-            "priority": "P1",
-            "status": "In progress",
-            "title": "#452 P1 Economy: post-450 worker throughput follow-up",
-            "url": "https://github.com/lanyusea/screeps/issues/452"
-          }
-        ],
+        "items": [],
         "title": "Bot capability"
       },
       {
@@ -24702,17 +25099,7 @@
         "title": "RL flywheel"
       },
       {
-        "items": [
-          {
-            "description": "In review \u00b7 Docs/process \u00b7 Docs/process",
-            "domain": "Docs/process",
-            "number": 451,
-            "priority": "P2",
-            "status": "In review",
-            "title": "#451 fix: add agent metrics to roadmap report",
-            "url": "https://github.com/lanyusea/screeps/pull/451"
-          }
-        ],
+        "items": [],
         "title": "Docs/process"
       }
     ],
@@ -25013,17 +25400,55 @@
     "processCards": [
       {
         "delta": "+0",
-        "detail": "1,523,589,512 total; latest token_count in 1,032/1,033 sessions",
+        "detail": "git rev-list --count HEAD",
+        "label": "Commits",
+        "rawValue": 321,
+        "source": "git rev-list --count HEAD",
+        "value": 321
+      },
+      {
+        "delta": "+0",
+        "detail": "14 open",
+        "label": "Issues",
+        "rawValue": 210,
+        "source": "github",
+        "value": 210
+      },
+      {
+        "delta": "+0",
+        "detail": "238 merged",
+        "label": "PRs",
+        "rawValue": 248,
+        "source": "github",
+        "value": 248
+      },
+      {
+        "delta": "+0",
+        "detail": "GitHub Project official deploy evidence",
+        "label": "Deploys",
+        "source": "github project evidence",
+        "value": 6
+      },
+      {
+        "delta": "+0",
+        "detail": "smoke/report evidence",
+        "label": "Private smoke",
+        "source": "approved process report count",
+        "value": 1
+      },
+      {
+        "delta": "+0",
+        "detail": "1,545,780,914 total; latest token_count in 1,045/1,046 sessions",
         "label": "Agent tokens",
-        "rawValue": 1523589512,
+        "rawValue": 1545780914,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
         "value": "1.5B"
       },
       {
         "delta": "+0",
-        "detail": "summed first-to-last JSONL timestamps across 1,033/1,033 sessions",
+        "detail": "summed first-to-last JSONL timestamps across 1,046/1,046 sessions",
         "label": "Codex runtime",
-        "rawValueSeconds": 277282,
+        "rawValueSeconds": 280365,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
         "value": "3d 5h"
       },
@@ -25031,24 +25456,25 @@
         "delta": "+0",
         "detail": "rollout JSONL files counted as Codex runs",
         "label": "Codex runs",
-        "rawValue": 1033,
+        "rawValue": 1046,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
-        "value": "1,033"
+        "value": "1,046"
       },
       {
         "delta": "+0",
-        "detail": "2,341 cron outputs across 29 jobs",
-        "label": "Automation runs",
-        "rawValue": 2341,
+        "detail": "2,356 cron outputs across 29 jobs",
+        "label": "Cron runs",
+        "rawValue": 2356,
         "source": "repo-attributed .hermes/cron/output/*/*.md",
-        "value": "2,341"
+        "value": "2,356"
       },
       {
         "delta": "+0",
-        "detail": "GitHub Project official deploy evidence",
-        "label": "Official deploys",
-        "source": "github project evidence",
-        "value": 6
+        "detail": "maximum first-to-last JSONL timestamp span across 1,046/1,046 sessions",
+        "label": "Longest Codex run",
+        "rawValueSeconds": 5765,
+        "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
+        "value": "1h 36m"
       }
     ],
     "roadmapCards": [
@@ -25101,16 +25527,16 @@
         "url": "https://github.com/lanyusea/screeps/issues/63"
       },
       {
-        "activeItems": 1,
+        "activeItems": 0,
         "domain": "Bot capability",
-        "doneItems": 186,
+        "doneItems": 187,
         "goal": "Ship general gameplay behavior that advances the bot beyond single-slice fixes.",
-        "next": "Current: #452 In progress - P1 Economy: post-450 worker throughput follow-up",
-        "progress": 99,
-        "status": "187 Project items \u00b7 1 active \u00b7 186 done",
+        "next": "No active item; latest tracked: #362 Done - P0: add Overmind-inspired bootstrap mode and expl...",
+        "progress": 100,
+        "status": "187 Project items \u00b7 0 active \u00b7 187 done",
         "title": "Bot capability",
         "totalItems": 187,
-        "url": "https://github.com/lanyusea/screeps/issues/452"
+        "url": "https://github.com/lanyusea/screeps/issues/362"
       },
       {
         "activeItems": 1,
@@ -25168,10 +25594,10 @@
         "",
         ""
       ],
-      "matchedFiles": 259,
+      "matchedFiles": 264,
       "reason": "",
-      "runtimeSummaryLines": 259,
-      "scannedFiles": 98095,
+      "runtimeSummaryLines": 264,
+      "scannedFiles": 98153,
       "skippedFileCount": 2217
     },
     "window": {
