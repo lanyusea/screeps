@@ -134,7 +134,7 @@ describe('occupation recommendation scoring', () => {
     });
   });
 
-  it('keeps configured foreign-reserved claim recommendations actionable', () => {
+  it('treats a configured foreign-reserved claim as claim controller pressure', () => {
     const report = scoreOccupationRecommendations(
       makeInput([
         makeCandidate({
@@ -150,12 +150,14 @@ describe('occupation recommendation scoring', () => {
       roomName: 'W2N1',
       action: 'occupy',
       evidenceStatus: 'sufficient',
-      evidence: ['room visible', 'controller visible', 'controller is available', '2 sources visible']
+      requiresControllerPressure: true,
+      evidence: ['room visible', 'controller visible', 'foreign reservation can be pressured', '2 sources visible']
     });
     expect(report.followUpIntent).toEqual({
       colony: 'W1N1',
       targetRoom: 'W2N1',
-      action: 'claim'
+      action: 'claim',
+      requiresControllerPressure: true
     });
   });
 
@@ -535,6 +537,47 @@ describe('occupation recommendation scoring', () => {
         colony: 'W1N1',
         targetRoom: 'W2N1',
         action: 'reserve',
+        status: 'planned',
+        updatedAt: 731,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('preserves stale claim pressure requirements while target controller visibility is missing', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 730,
+            requiresControllerPressure: true
+          }
+        ]
+      }
+    };
+    const report: OccupationRecommendationReport = {
+      candidates: [],
+      next: null,
+      followUpIntent: { colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' }
+    };
+
+    expect(persistOccupationRecommendationFollowUpIntent(report, 731)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 731,
+      requiresControllerPressure: true
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
         status: 'planned',
         updatedAt: 731,
         requiresControllerPressure: true

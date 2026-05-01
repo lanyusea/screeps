@@ -296,7 +296,7 @@ function scoreOccupationCandidate(
     const unavailableReason = getControllerUnavailableReason(input, candidate);
     if (controllerPressureEvidence) {
       evidence.push(controllerPressureEvidence);
-      action = 'reserve';
+      action = candidate.actionHint === 'claim' ? 'occupy' : 'reserve';
       requiresControllerPressure = true;
       if (candidate.sourceCount === undefined) {
         risks.push('source count evidence missing');
@@ -418,7 +418,7 @@ function getControllerPressureEvidence(
 ): string | null {
   if (
     candidate.source !== 'configured' ||
-    candidate.actionHint !== 'reserve' ||
+    !isTerritoryControlAction(candidate.actionHint) ||
     !candidate.controller ||
     !isForeignReservation(input, candidate.controller)
   ) {
@@ -790,7 +790,11 @@ function isTerritoryControllerPressureVisibilityMissing(
   action: TerritoryIntentAction,
   controllerId?: Id<StructureController>
 ): boolean {
-  return action === 'reserve' && getVisibleController(targetRoom, controllerId) === null;
+  return isTerritoryControlAction(action) && getVisibleController(targetRoom, controllerId) === null;
+}
+
+function isTerritoryControlAction(action: unknown): action is TerritoryControlAction {
+  return action === 'claim' || action === 'reserve';
 }
 
 function getVisibleController(targetRoom: string, controllerId?: Id<StructureController>): StructureController | null {

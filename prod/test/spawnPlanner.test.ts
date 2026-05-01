@@ -1,6 +1,10 @@
 import { planSpawn } from '../src/spawn/spawnPlanner';
 import { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
+  persistOccupationRecommendationFollowUpIntent,
+  scoreOccupationRecommendations
+} from '../src/territory/occupationRecommendation';
+import {
   TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS,
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
   TERRITORY_SUPPRESSION_RETRY_TICKS
@@ -495,6 +499,105 @@ describe('planSpawn', () => {
 
     expect(planSpawn(visibleColony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 147)).toMatchObject({
       body: ['claim', 'move', 'claim', 'move', 'claim', 'move', 'claim', 'move', 'claim', 'move']
+    });
+
+    const { colony: darkColony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 3250,
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: darkColony.room
+      }
+    };
+
+    expect(planSpawn(darkColony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 148)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 148,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('does not fall back to a one-CLAIM body after claim pressure recommendation persistence and vision loss', () => {
+    const { colony: visibleColony } = makeColony({
+      energyAvailable: 3250,
+      energyCapacityAvailable: 3250,
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: visibleColony.room,
+        W2N1: makeTerritoryRoom(
+          'W2N1',
+          {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          2
+        )
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 146,
+            requiresControllerPressure: true
+          }
+        ]
+      }
+    };
+    const recommendation = scoreOccupationRecommendations({
+      colonyName: 'W1N1',
+      colonyOwnerUsername: 'me',
+      energyCapacityAvailable: 3250,
+      workerCount: 3,
+      controllerLevel: 3,
+      ticksToDowngrade: 10_000,
+      candidates: [
+        {
+          roomName: 'W2N1',
+          source: 'configured',
+          order: 0,
+          adjacent: false,
+          visible: true,
+          actionHint: 'claim',
+          routeDistance: 1,
+          controller: { reservationUsername: 'enemy', reservationTicksToEnd: 3_000 },
+          sourceCount: 2,
+          hostileCreepCount: 0,
+          hostileStructureCount: 0,
+          constructionSiteCount: 0,
+          ownedStructureCount: 0
+        }
+      ]
+    });
+
+    expect(recommendation.followUpIntent).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      requiresControllerPressure: true
+    });
+    expect(persistOccupationRecommendationFollowUpIntent(recommendation, 147)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 147,
+      requiresControllerPressure: true
     });
 
     const { colony: darkColony } = makeColony({
