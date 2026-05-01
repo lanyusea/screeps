@@ -239,6 +239,20 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 5 }, 149)).toBeNull();
   });
 
+  it('plans one downgrade-guard worker when the home controller needs recovery', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N9',
+      controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 150)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N9-150',
+      memory: { role: 'worker', colony: 'W1N9' }
+    });
+  });
+
   it('does not spend construction backlog bonuses while the home controller needs downgrade recovery', () => {
     const { colony } = makeColony({
       roomName: 'W1N9',
@@ -246,7 +260,7 @@ describe('planSpawn', () => {
       controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
     });
 
-    expect(planSpawn(colony, { worker: 3 }, 150)).toBeNull();
+    expect(planSpawn(colony, { worker: 4 }, 150)).toBeNull();
   });
 
   it('plans an emergency defender when hostile creeps are visible and local worker coverage is stable', () => {
