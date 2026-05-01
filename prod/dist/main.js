@@ -4648,6 +4648,8 @@ var WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
 var DEFAULT_BUILD_POWER = 5;
 var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
+var DEFAULT_SOURCE_ENERGY_CAPACITY = 3e3;
+var DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
 var SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 var SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 var MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
@@ -5741,30 +5743,28 @@ function selectSpawnRecoveryHarvestCandidate(creep, energySink) {
     return null;
   }
   const viableSources = selectViableHarvestSources(sources);
-  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, viableSources);
+  const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
   const candidates = viableSources.map(
-    (source) => {
-      var _a;
-      return createSpawnRecoveryHarvestCandidate(creep, source, energySink, (_a = assignmentCounts.get(source.id)) != null ? _a : 0);
-    }
+    (source) => createSpawnRecoveryHarvestCandidate(
+      creep,
+      source,
+      energySink,
+      getHarvestSourceAssignmentLoad(assignmentLoads, source)
+    )
   ).filter((candidate) => candidate !== null);
   if (candidates.length === 0) {
     return null;
   }
   return candidates.sort(compareSpawnRecoveryHarvestCandidates)[0];
 }
-function createSpawnRecoveryHarvestCandidate(creep, source, energySink, assignmentCount) {
+function createSpawnRecoveryHarvestCandidate(creep, source, energySink, assignmentLoad) {
   const deliveryEta = estimateHarvestDeliveryEtaFromSource(creep, source, energySink);
   if (deliveryEta === null || !Number.isFinite(deliveryEta)) {
     return null;
   }
   return {
     deliveryEta,
-    load: {
-      assignmentCount,
-      capacity: getHarvestSourceCapacity(source),
-      source
-    },
+    load: createHarvestSourceLoad(source, assignmentLoad),
     source
   };
 }
@@ -5935,15 +5935,32 @@ function estimateHarvestSourceAvailabilityDelay(source) {
   return Number.isFinite(ticksToRegeneration) && ticksToRegeneration > 0 ? Math.ceil(ticksToRegeneration) : null;
 }
 function getActiveWorkParts(creep) {
-  const workPart = globalThis.WORK;
-  if (typeof workPart !== "string" || typeof creep.getActiveBodyparts !== "function") {
-    return 1;
+  var _a;
+  const workPart = getBodyPartConstant3("WORK", "work");
+  const activeWorkParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, workPart);
+  if (typeof activeWorkParts === "number" && Number.isFinite(activeWorkParts)) {
+    return Math.max(0, Math.floor(activeWorkParts));
   }
-  const activeWorkParts = creep.getActiveBodyparts(workPart);
-  if (activeWorkParts === 0) {
-    return 0;
+  const bodyWorkParts = countActiveBodyParts(creep.body, workPart);
+  return bodyWorkParts != null ? bodyWorkParts : 1;
+}
+function countActiveBodyParts(body, bodyPartType) {
+  if (!Array.isArray(body)) {
+    return null;
   }
-  return Number.isFinite(activeWorkParts) && activeWorkParts > 0 ? activeWorkParts : 1;
+  return body.filter((part) => isActiveBodyPart3(part, bodyPartType)).length;
+}
+function isActiveBodyPart3(part, bodyPartType) {
+  if (typeof part !== "object" || part === null) {
+    return false;
+  }
+  const bodyPart = part;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
+}
+function getBodyPartConstant3(globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return (_a = constants[globalName]) != null ? _a : fallback;
 }
 function getRangeBetweenRoomObjects(left, right) {
   const position = left.pos;
@@ -6572,15 +6589,10 @@ function selectHarvestSource(creep) {
     return null;
   }
   const viableSources = selectViableHarvestSources(sources);
-  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, viableSources);
-  const sourceLoads = viableSources.map((source) => {
-    var _a;
-    return {
-      assignmentCount: (_a = assignmentCounts.get(source.id)) != null ? _a : 0,
-      capacity: getHarvestSourceCapacity(source),
-      source
-    };
-  });
+  const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
+  const sourceLoads = viableSources.map(
+    (source) => createHarvestSourceLoad(source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
+  );
   let selectedLoad = sourceLoads[0];
   for (const sourceLoad of sourceLoads.slice(1)) {
     if (compareHarvestSourceLoads(creep, sourceLoad, selectedLoad) < 0) {
@@ -6590,13 +6602,21 @@ function selectHarvestSource(creep) {
   return selectedLoad.source;
 }
 function compareHarvestSourceLoads(creep, left, right) {
-  const loadRatioComparison = compareHarvestSourceLoadRatio(left, right);
-  if (loadRatioComparison !== 0) {
-    return loadRatioComparison;
+  const workLoadRatioComparison = compareHarvestSourceWorkLoadRatio(left, right);
+  if (workLoadRatioComparison !== 0) {
+    return workLoadRatioComparison;
+  }
+  const accessLoadRatioComparison = compareHarvestSourceAccessLoadRatio(left, right);
+  if (accessLoadRatioComparison !== 0) {
+    return accessLoadRatioComparison;
   }
   const assignmentComparison = left.assignmentCount - right.assignmentCount;
   if (assignmentComparison !== 0) {
     return assignmentComparison;
+  }
+  const assignedWorkComparison = left.assignedWorkParts - right.assignedWorkParts;
+  if (assignedWorkComparison !== 0) {
+    return assignedWorkComparison;
   }
   if (isCloserHarvestSource(creep, left.source, right.source)) {
     return -1;
@@ -6607,9 +6627,30 @@ function compareHarvestSourceLoads(creep, left, right) {
   return 0;
 }
 function compareHarvestSourceLoadRatio(left, right) {
-  return left.assignmentCount * right.capacity - right.assignmentCount * left.capacity;
+  return compareHarvestSourceWorkLoadRatio(left, right) || compareHarvestSourceAccessLoadRatio(left, right);
 }
-function getHarvestSourceCapacity(source) {
+function compareHarvestSourceWorkLoadRatio(left, right) {
+  return left.assignedWorkParts * right.workCapacity - right.assignedWorkParts * left.workCapacity;
+}
+function compareHarvestSourceAccessLoadRatio(left, right) {
+  return left.assignmentCount * right.accessCapacity - right.assignmentCount * left.accessCapacity;
+}
+function createHarvestSourceLoad(source, assignmentLoad) {
+  return {
+    ...assignmentLoad,
+    accessCapacity: getHarvestSourceAccessCapacity(source),
+    workCapacity: getHarvestSourceWorkCapacity(source),
+    source
+  };
+}
+function getHarvestSourceAssignmentLoad(assignmentLoads, source) {
+  var _a;
+  return (_a = assignmentLoads.get(source.id)) != null ? _a : createEmptyHarvestSourceAssignmentLoad();
+}
+function createEmptyHarvestSourceAssignmentLoad() {
+  return { assignedWorkParts: 0, assignmentCount: 0 };
+}
+function getHarvestSourceAccessCapacity(source) {
   const position = getRoomObjectPosition(source);
   if (!position) {
     return 1;
@@ -6637,6 +6678,23 @@ function getHarvestSourceCapacity(source) {
   }
   return Math.max(1, capacity);
 }
+function getHarvestSourceWorkCapacity(source) {
+  const energyCapacity = getHarvestSourceEnergyCapacity(source);
+  const regenTicks = getSourceEnergyRegenTicks();
+  return Math.max(1, Math.ceil(energyCapacity / regenTicks / HARVEST_ENERGY_PER_WORK_PART));
+}
+function getHarvestSourceEnergyCapacity(source) {
+  const sourceEnergyCapacity = source.energyCapacity;
+  if (typeof sourceEnergyCapacity === "number" && Number.isFinite(sourceEnergyCapacity) && sourceEnergyCapacity > 0) {
+    return sourceEnergyCapacity;
+  }
+  const defaultSourceEnergyCapacity = globalThis.SOURCE_ENERGY_CAPACITY;
+  return typeof defaultSourceEnergyCapacity === "number" && Number.isFinite(defaultSourceEnergyCapacity) && defaultSourceEnergyCapacity > 0 ? defaultSourceEnergyCapacity : DEFAULT_SOURCE_ENERGY_CAPACITY;
+}
+function getSourceEnergyRegenTicks() {
+  const regenTicks = globalThis.ENERGY_REGEN_TIME;
+  return typeof regenTicks === "number" && Number.isFinite(regenTicks) && regenTicks > 0 ? regenTicks : DEFAULT_SOURCE_ENERGY_REGEN_TICKS;
+}
 function getRoomTerrain2(roomName) {
   var _a;
   const map = (_a = globalThis.Game) == null ? void 0 : _a.map;
@@ -6658,14 +6716,14 @@ function selectViableHarvestSources(sources) {
   const sourcesWithEnergy = sources.filter((source) => typeof source.energy === "number" && source.energy > 0);
   return sourcesWithEnergy.length > 0 ? sourcesWithEnergy : sources;
 }
-function countSameRoomWorkerHarvestAssignments(roomName, sources) {
+function getSameRoomWorkerHarvestLoads(roomName, sources) {
   var _a, _b, _c, _d;
-  const assignmentCounts = /* @__PURE__ */ new Map();
+  const assignmentLoads = /* @__PURE__ */ new Map();
   for (const source of sources) {
-    assignmentCounts.set(source.id, 0);
+    assignmentLoads.set(source.id, createEmptyHarvestSourceAssignmentLoad());
   }
   if (!roomName) {
-    return assignmentCounts;
+    return assignmentLoads;
   }
   const sourceIds = new Set(sources.map((source) => source.id));
   for (const assignedCreep of getGameCreeps()) {
@@ -6675,9 +6733,13 @@ function countSameRoomWorkerHarvestAssignments(roomName, sources) {
       continue;
     }
     const sourceId = targetId;
-    assignmentCounts.set(sourceId, ((_d = assignmentCounts.get(sourceId)) != null ? _d : 0) + 1);
+    const currentLoad = (_d = assignmentLoads.get(sourceId)) != null ? _d : createEmptyHarvestSourceAssignmentLoad();
+    assignmentLoads.set(sourceId, {
+      assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts(assignedCreep),
+      assignmentCount: currentLoad.assignmentCount + 1
+    });
   }
-  return assignmentCounts;
+  return assignmentLoads;
 }
 function getGameCreeps() {
   var _a;
@@ -8818,7 +8880,7 @@ function getGameTime6() {
 }
 function isCreepKnownToHaveNoActiveClaimParts(creep) {
   var _a;
-  const claimPart = getBodyPartConstant3("CLAIM", "claim");
+  const claimPart = getBodyPartConstant4("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts <= 0;
@@ -8826,16 +8888,16 @@ function isCreepKnownToHaveNoActiveClaimParts(creep) {
   if (!Array.isArray(creep.body)) {
     return false;
   }
-  return !creep.body.some((part) => isActiveBodyPart3(part, claimPart));
+  return !creep.body.some((part) => isActiveBodyPart4(part, claimPart));
 }
-function isActiveBodyPart3(part, bodyPartType) {
+function isActiveBodyPart4(part, bodyPartType) {
   if (typeof part !== "object" || part === null) {
     return false;
   }
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant3(globalName, fallback) {
+function getBodyPartConstant4(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
