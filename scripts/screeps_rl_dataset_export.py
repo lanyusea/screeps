@@ -393,6 +393,7 @@ def strategy_shadow_report_metadata(raw: JsonObject, source: SourceFile, line_nu
     candidate_ids: set[str] = set()
     incumbent_ids: set[str] = set()
     ranking_diff_count = 0
+    changed_top_count = 0
     for report in model_reports:
         if not isinstance(report, dict):
             continue
@@ -402,8 +403,13 @@ def strategy_shadow_report_metadata(raw: JsonObject, source: SourceFile, line_nu
             candidate_ids.add(report["candidateStrategyId"])
         if isinstance(report.get("incumbentStrategyId"), str):
             incumbent_ids.add(report["incumbentStrategyId"])
-        if isinstance(report.get("rankingDiffs"), list):
-            ranking_diff_count += len(report["rankingDiffs"])
+        ranking_diffs = report.get("rankingDiffs") if isinstance(report.get("rankingDiffs"), list) else []
+        ranking_diff_count += int(report["rankingDiffCount"]) if is_number(report.get("rankingDiffCount")) else len(ranking_diffs)
+        changed_top_count += (
+            int(report["changedTopCount"])
+            if is_number(report.get("changedTopCount"))
+            else sum(1 for diff in ranking_diffs if isinstance(diff, dict) and diff.get("changedTop") is True)
+        )
 
     return {
         "sourceId": source.source_id,
@@ -413,6 +419,7 @@ def strategy_shadow_report_metadata(raw: JsonObject, source: SourceFile, line_nu
         "artifactCount": number_or_none(raw.get("artifactCount")),
         "modelReportCount": len(model_reports),
         "rankingDiffCount": ranking_diff_count,
+        "changedTopCount": changed_top_count,
         "families": sorted(families),
         "candidateStrategyIds": sorted(candidate_ids),
         "incumbentStrategyIds": sorted(incumbent_ids),
