@@ -6777,6 +6777,49 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-underloaded' });
   });
 
+  it('balances spawn recovery harvest by assigned worker work parts', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const heavySource = withRangeTo(makeSource('source-heavy', 11, 10), { spawn1: 1 }) as unknown as Source;
+    const lightSource = withRangeTo(makeSource('source-light', 12, 10), { spawn1: 1 }) as unknown as Source;
+    const room = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [heavySource, lightSource]
+    });
+    const creep = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'source-heavy': 1,
+            'source-light': 2
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      HeavyHarvester: {
+        getActiveBodyparts: jest.fn().mockReturnValue(4),
+        memory: { role: 'worker', task: { type: 'harvest', targetId: heavySource.id } },
+        room
+      } as unknown as Creep,
+      LightHarvester: {
+        getActiveBodyparts: jest.fn().mockReturnValue(1),
+        memory: { role: 'worker', task: { type: 'harvest', targetId: lightSource.id } },
+        room
+      } as unknown as Creep,
+      RecoveryWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-light' });
+  });
+
   it('keeps spawn recovery harvest selection deterministic by source id when load and eta tie', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const laterSource = withRangeTo(makeSource('source-b', 11, 10), { spawn1: 1 }) as unknown as Source;
