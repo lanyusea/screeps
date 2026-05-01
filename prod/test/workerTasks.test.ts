@@ -4,7 +4,7 @@ import {
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   LOW_LOAD_NEARBY_ENERGY_RANGE,
   LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
-  REFILL_DELIVERY_MIN_LOAD,
+  MINIMUM_USEFUL_LOAD_RATIO,
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   estimateNearTermSpawnExtensionRefillReserve,
@@ -1978,8 +1978,8 @@ describe('selectWorkerTask', () => {
         }
       },
       store: {
-        getUsedCapacity: jest.fn().mockReturnValue(50),
-        getFreeCapacity: jest.fn().mockReturnValue(150)
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(100)
       },
       room: {
         energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
@@ -2060,6 +2060,8 @@ describe('selectWorkerTask', () => {
   it('keeps a low-load worker harvesting instead of making a non-urgent primary refill trip', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const source = { id: 'source1', energy: 300 } as Source;
+    const capacity = 50;
+    const carriedEnergy = Math.ceil(capacity * MINIMUM_USEFUL_LOAD_RATIO) - 1;
     const getRangeTo = jest.fn((target: { id: string }) => {
       const ranges: Record<string, number> = {
         source1: 6,
@@ -2091,8 +2093,9 @@ describe('selectWorkerTask', () => {
     const creep = {
       memory: { role: 'worker' },
       store: {
-        getUsedCapacity: jest.fn().mockReturnValue(2),
-        getFreeCapacity: jest.fn().mockReturnValue(48)
+        getCapacity: jest.fn().mockReturnValue(capacity),
+        getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+        getFreeCapacity: jest.fn().mockReturnValue(capacity - carriedEnergy)
       },
       pos: { getRangeTo },
       room: {
@@ -2106,8 +2109,8 @@ describe('selectWorkerTask', () => {
     expect(creep.memory.workerEfficiency).toEqual({
       type: 'nearbyEnergyChoice',
       tick: 327,
-      carriedEnergy: 2,
-      freeCapacity: 48,
+      carriedEnergy,
+      freeCapacity: capacity - carriedEnergy,
       selectedTask: 'harvest',
       targetId: 'source1',
       energy: 300,
@@ -2115,10 +2118,61 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('lets a worker at the minimum useful load proceed with normal refill', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const source = { id: 'source1', energy: 300 } as Source;
+    const capacity = 50;
+    const carriedEnergy = Math.ceil(capacity * MINIMUM_USEFUL_LOAD_RATIO);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        source1: 1,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (
+          type === FIND_DROPPED_RESOURCES ||
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getCapacity: jest.fn().mockReturnValue(capacity),
+        getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+        getFreeCapacity: jest.fn().mockReturnValue(capacity - carriedEnergy)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: roomFind
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toBeUndefined();
+  });
+
   it.each([
     ['spawn', 'spawn1'],
     ['extension', 'extension1']
-  ])('keeps urgent %s refill worker acquiring energy until the min delivery load during spawn recovery', (structureType, id) => {
+  ])('keeps %s refill worker acquiring energy until the minimum useful load during spawn recovery', (structureType, id) => {
     const energySink = makeEnergySink(id, structureType as StructureConstant, 300);
     const lowEnergySource = makeSource('source-low', 8, 8, 10);
     const loadReadySource = makeSource('source-ready', 20, 20, 300);
@@ -2165,6 +2219,7 @@ describe('selectWorkerTask', () => {
   it('returns early for urgent refill when the only visible source is depleted', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const depletedSource = makeSource('source-empty', 8, 8, 0);
+    const carriedEnergy = 2;
     const getRangeTo = jest.fn((target: { id: string }) => {
       const ranges: Record<string, number> = {
         'source-empty': 1,
@@ -2182,8 +2237,8 @@ describe('selectWorkerTask', () => {
       name: 'RecoveryCarrier',
       memory: { role: 'worker', colony: 'W1N1' },
       store: {
-        getUsedCapacity: jest.fn().mockReturnValue(REFILL_DELIVERY_MIN_LOAD - 1),
-        getFreeCapacity: jest.fn().mockReturnValue(81)
+        getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
       },
       pos: { getRangeTo },
       room
@@ -2194,11 +2249,11 @@ describe('selectWorkerTask', () => {
     expect(creep.memory.workerEfficiency).toEqual({
       type: 'lowLoadReturn',
       tick: 0,
-      carriedEnergy: REFILL_DELIVERY_MIN_LOAD - 1,
-      freeCapacity: 81,
+      carriedEnergy,
+      freeCapacity: 48,
       selectedTask: 'transfer',
       targetId: 'spawn1',
-      reason: 'urgentSpawnExtensionRefill'
+      reason: 'emergencySpawnExtensionRefill'
     });
   });
 
@@ -2396,7 +2451,7 @@ describe('selectWorkerTask', () => {
       freeCapacity: 48,
       selectedTask: 'transfer',
       targetId: 'spawn1',
-      reason: 'noNearbyEnergy'
+      reason: 'noReachableEnergy'
     });
   });
 
@@ -2646,7 +2701,7 @@ describe('selectWorkerTask', () => {
       freeCapacity: 40,
       selectedTask: 'transfer',
       targetId: 'spawn1',
-      reason: 'noNearbyEnergy'
+      reason: 'noReachableEnergy'
     });
     expect(findPathTo).toHaveBeenCalledWith(blockedDroppedEnergy, { ignoreCreeps: true });
   });
@@ -2700,7 +2755,7 @@ describe('selectWorkerTask', () => {
       freeCapacity: 40,
       selectedTask: 'transfer',
       targetId: 'spawn1',
-      reason: 'noNearbyEnergy'
+      reason: 'noReachableEnergy'
     });
     expect(getActiveBodyparts).toHaveBeenCalledWith('work');
   });
@@ -2838,7 +2893,7 @@ describe('selectWorkerTask', () => {
     expect(findPathTo).not.toHaveBeenCalled();
   });
 
-  it('keeps urgent spawn refill worker acquiring nearby energy while below the min delivery load', () => {
+  it('lets emergency spawn refill preempt the minimum useful load requirement', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
     const getRangeTo = jest.fn((target: { id: string }) => (target.id === 'drop-near' ? 1 : 99));
@@ -2880,20 +2935,100 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 322 };
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
     expect(creep.memory.workerEfficiency).toEqual({
-      type: 'nearbyEnergyChoice',
+      type: 'lowLoadReturn',
       tick: 322,
       carriedEnergy: 10,
       freeCapacity: 40,
-      selectedTask: 'pickup',
-      targetId: 'drop-near',
-      energy: 50,
-      range: 1
+      selectedTask: 'transfer',
+      targetId: 'spawn1',
+      reason: 'emergencySpawnExtensionRefill'
     });
   });
 
-  it('keeps urgent tower refill allowed for low-load workers that could keep harvesting', () => {
+  it('lets controller downgrade guard preempt the minimum useful load requirement', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
+    } as StructureController;
+    const source = { id: 'source1', energy: 300 } as Source;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        controller1: 2,
+        source1: 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      controller,
+      sources: [source]
+    });
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 335 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'lowLoadReturn',
+      tick: 335,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'upgrade',
+      targetId: 'controller1',
+      reason: 'controllerDowngradeGuard'
+    });
+  });
+
+  it('lets hostile safety conditions preempt the minimum useful load requirement', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const source = { id: 'source1', energy: 300 } as Source;
+    const hostile = { id: 'hostile1' } as Creep;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        source1: 1,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      hostileCreeps: [hostile],
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 336 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'lowLoadReturn',
+      tick: 336,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'transfer',
+      targetId: 'spawn1',
+      reason: 'hostileSafety'
+    });
+  });
+
+  it('keeps low-load workers acquiring before non-emergency tower refill', () => {
     const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
     const source = { id: 'source1', energy: 300 } as Source;
     const getRangeTo = jest.fn((target: { id: string }) => {
@@ -2938,7 +3073,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     creep.room.find = roomFind as unknown as Room['find'];
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
   it('keeps a low-load worker harvesting instead of making a normal controller upgrade trip', () => {

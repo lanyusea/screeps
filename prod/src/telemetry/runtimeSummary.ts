@@ -22,6 +22,7 @@ export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
 const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
+const MAX_WORKER_EFFICIENCY_REASON_SAMPLES = 5;
 const MAX_REFILL_DELIVERY_SAMPLES = 5;
 const MAX_TERRITORY_INTENT_SUMMARIES = 5;
 const WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
@@ -122,13 +123,24 @@ interface RuntimeProductiveEnergySummary {
 
 interface RuntimeWorkerEfficiencySummary {
   lowLoadReturnCount: number;
+  emergencyLowLoadReturnCount: number;
+  avoidableLowLoadReturnCount: number;
   nearbyEnergyChoiceCount: number;
+  lowLoadReturnReasons?: RuntimeWorkerEfficiencyLowLoadReturnReasonSummary[];
   samples: RuntimeWorkerEfficiencySampleSummary[];
   omittedSampleCount?: number;
 }
 
 interface RuntimeWorkerEfficiencySampleSummary extends WorkerEfficiencySampleMemory {
   creepName?: string;
+}
+
+type RuntimeWorkerEfficiencyLowLoadReturnCategory = 'emergency' | 'avoidable';
+
+interface RuntimeWorkerEfficiencyLowLoadReturnReasonSummary {
+  reason: WorkerEfficiencyLowLoadReturnReason | 'unknown';
+  category: RuntimeWorkerEfficiencyLowLoadReturnCategory;
+  count: number;
 }
 
 interface RuntimeWorkerEfficiencySampleEntry {
@@ -475,17 +487,83 @@ function summarizeWorkerEfficiency(
   }
 
   const reportedSamples = samples.slice(0, MAX_WORKER_EFFICIENCY_SAMPLES).map(toRuntimeWorkerEfficiencySample);
+  const lowLoadReturnSamples = samples.filter((entry) => entry.sample.type === 'lowLoadReturn');
+  const emergencyLowLoadReturnCount = lowLoadReturnSamples.filter((entry) =>
+    isEmergencyLowLoadReturnReason(getLowLoadReturnReason(entry.sample))
+  ).length;
+  const lowLoadReturnReasons = summarizeLowLoadReturnReasons(lowLoadReturnSamples);
 
   return {
     workerEfficiency: {
-      lowLoadReturnCount: samples.filter((entry) => entry.sample.type === 'lowLoadReturn').length,
+      lowLoadReturnCount: lowLoadReturnSamples.length,
+      emergencyLowLoadReturnCount,
+      avoidableLowLoadReturnCount: lowLoadReturnSamples.length - emergencyLowLoadReturnCount,
       nearbyEnergyChoiceCount: samples.filter((entry) => entry.sample.type === 'nearbyEnergyChoice').length,
+      ...(lowLoadReturnReasons.length > 0 ? { lowLoadReturnReasons } : {}),
       samples: reportedSamples,
       ...(samples.length > MAX_WORKER_EFFICIENCY_SAMPLES
         ? { omittedSampleCount: samples.length - MAX_WORKER_EFFICIENCY_SAMPLES }
         : {})
     }
   };
+}
+
+function summarizeLowLoadReturnReasons(
+  samples: RuntimeWorkerEfficiencySampleEntry[]
+): RuntimeWorkerEfficiencyLowLoadReturnReasonSummary[] {
+  const countsByReason = new Map<WorkerEfficiencyLowLoadReturnReason | 'unknown', number>();
+  for (const entry of samples) {
+    const reason = getLowLoadReturnReason(entry.sample);
+    countsByReason.set(reason, (countsByReason.get(reason) ?? 0) + 1);
+  }
+
+  return [...countsByReason.entries()]
+    .map(([reason, count]) => ({
+      reason,
+      category: getLowLoadReturnReasonCategory(reason),
+      count
+    }))
+    .sort(compareLowLoadReturnReasonSummaries)
+    .slice(0, MAX_WORKER_EFFICIENCY_REASON_SAMPLES);
+}
+
+function compareLowLoadReturnReasonSummaries(
+  left: RuntimeWorkerEfficiencyLowLoadReturnReasonSummary,
+  right: RuntimeWorkerEfficiencyLowLoadReturnReasonSummary
+): number {
+  return right.count - left.count || left.reason.localeCompare(right.reason);
+}
+
+function getLowLoadReturnReason(
+  sample: WorkerEfficiencySampleMemory
+): WorkerEfficiencyLowLoadReturnReason | 'unknown' {
+  return isLowLoadReturnReason(sample.reason) ? sample.reason : 'unknown';
+}
+
+function getLowLoadReturnReasonCategory(
+  reason: WorkerEfficiencyLowLoadReturnReason | 'unknown'
+): RuntimeWorkerEfficiencyLowLoadReturnCategory {
+  return isEmergencyLowLoadReturnReason(reason) ? 'emergency' : 'avoidable';
+}
+
+function isEmergencyLowLoadReturnReason(reason: WorkerEfficiencyLowLoadReturnReason | 'unknown'): boolean {
+  return (
+    reason === 'emergencySpawnExtensionRefill' ||
+    reason === 'controllerDowngradeGuard' ||
+    reason === 'hostileSafety' ||
+    reason === 'urgentSpawnExtensionRefill'
+  );
+}
+
+function isLowLoadReturnReason(value: unknown): value is WorkerEfficiencyLowLoadReturnReason {
+  return (
+    value === 'emergencySpawnExtensionRefill' ||
+    value === 'controllerDowngradeGuard' ||
+    value === 'hostileSafety' ||
+    value === 'noReachableEnergy' ||
+    value === 'urgentSpawnExtensionRefill' ||
+    value === 'noNearbyEnergy'
+  );
 }
 
 function compareWorkerEfficiencySampleEntries(

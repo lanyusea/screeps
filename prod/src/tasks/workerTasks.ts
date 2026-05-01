@@ -25,14 +25,10 @@ export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 export const TOWER_REFILL_ENERGY_FLOOR = 500;
 export const URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 export const NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
-export const LOW_LOAD_WORKER_ENERGY_RATIO = 0.25;
-export const LOW_LOAD_WORKER_ENERGY_CEILING = 25;
+export const MINIMUM_USEFUL_LOAD_RATIO = 0.4;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
-export const REFILL_DELIVERY_MIN_LOAD = 20;
 const DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
-const SPAWN_RECOVERY_REFILL_PRESSURE_RATIO = 0.75;
-const REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED = 50;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -68,6 +64,11 @@ type WorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'pickup' | '
 type LowLoadWorkerEnergyAcquisitionSource = WorkerEnergyAcquisitionSource | Source;
 type LowLoadWorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>;
 type ProductiveEnergySinkTask = Extract<CreepTaskMemory, { type: 'build' | 'repair' }>;
+type WorkerEnergySpendingTask =
+  | Extract<CreepTaskMemory, { type: 'transfer' }>
+  | Extract<CreepTaskMemory, { type: 'build' }>
+  | Extract<CreepTaskMemory, { type: 'repair' }>
+  | Extract<CreepTaskMemory, { type: 'upgrade' }>;
 
 interface StoredEnergySourceContext {
   creepOwnerUsername: string | null;
@@ -182,7 +183,12 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   const controller = creep.room.controller;
   if (controller && shouldGuardControllerDowngrade(controller) && !remoteProductiveSpendingSuppressed) {
-    return { type: 'upgrade', targetId: controller.id };
+    const downgradeGuardTask: Extract<CreepTaskMemory, { type: 'upgrade' }> = {
+      type: 'upgrade',
+      targetId: controller.id
+    };
+    recordLowLoadReturnTelemetry(creep, downgradeGuardTask, 'controllerDowngradeGuard');
+    return downgradeGuardTask;
   }
 
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
@@ -191,28 +197,12 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       type: 'transfer',
       targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure>
     };
-    if (shouldPrioritizeSpawnOrExtensionRefill(creep)) {
-      const refillMinLoadContinuationTask = selectUrgentRefillMinLoadContinuationTask(
-        creep,
-        spawnOrExtensionEnergySink
-      );
-      if (refillMinLoadContinuationTask) {
-        return refillMinLoadContinuationTask;
-      }
-
-      recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, 'urgentSpawnExtensionRefill');
+    if (hasEmergencySpawnExtensionRefillDemand(creep)) {
+      recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, 'emergencySpawnExtensionRefill');
       return spawnOrExtensionRefillTask;
     }
 
-    if (!remoteProductiveSpendingSuppressed) {
-      const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
-      if (lowLoadEnergyContinuationTask) {
-        return lowLoadEnergyContinuationTask;
-      }
-    }
-
-    recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, 'noNearbyEnergy');
-    return spawnOrExtensionRefillTask;
+    return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
   }
 
   if (remoteProductiveSpendingSuppressed) {
@@ -243,17 +233,23 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       constructionReservationContext
     );
     if (baselineLogisticsConstructionSite) {
-      return { type: 'build', targetId: baselineLogisticsConstructionSite.id };
+      return applyMinimumUsefulLoadPolicy(creep, {
+        type: 'build',
+        targetId: baselineLogisticsConstructionSite.id
+      });
     }
 
     if (capacityConstructionSite) {
-      return { type: 'build', targetId: capacityConstructionSite.id };
+      return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: capacityConstructionSite.id });
     }
   }
 
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   if (priorityTowerEnergySink) {
-    return { type: 'transfer', targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure> };
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'transfer',
+      targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure>
+    });
   }
 
   if (!remoteProductiveSpendingSuppressed) {
@@ -282,7 +278,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     constructionReservationContext
   );
   if (readyFollowUpProductiveEnergySinkTask) {
-    return readyFollowUpProductiveEnergySinkTask;
+    return applyMinimumUsefulLoadPolicy(creep, readyFollowUpProductiveEnergySinkTask);
   }
 
   if (territoryControllerTask) {
@@ -293,20 +289,23 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     ? selectSource2ControllerLaneLoadedTask(creep, controller, constructionSites, constructionReservationContext)
     : null;
   if (source2ControllerLaneLoadedTask) {
-    return source2ControllerLaneLoadedTask;
+    return applyMinimumUsefulLoadPolicy(creep, source2ControllerLaneLoadedTask);
   }
 
   if (capacityConstructionSite) {
-    return { type: 'build', targetId: capacityConstructionSite.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: capacityConstructionSite.id });
   }
 
   if (controller && shouldRushRcl1Controller(controller)) {
-    return { type: 'upgrade', targetId: controller.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
   }
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
-    return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: criticalRepairTarget.id as Id<Structure>
+    });
   }
 
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
@@ -319,7 +318,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     constructionReservationContext
   );
   if (criticalRoadConstructionSite) {
-    return { type: 'build', targetId: criticalRoadConstructionSite.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: criticalRoadConstructionSite.id });
   }
 
   const containerConstructionSite = selectUnreservedConstructionSite(
@@ -329,15 +328,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     isContainerConstructionSite
   );
   if (containerConstructionSite) {
-    return { type: 'build', targetId: containerConstructionSite.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: containerConstructionSite.id });
   }
 
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
-    const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
-    if (lowLoadEnergyContinuationTask) {
-      return lowLoadEnergyContinuationTask;
-    }
-
     const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
       creep,
       constructionSites,
@@ -345,10 +339,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       constructionReservationContext
     );
     if (productiveEnergySinkTask) {
-      return productiveEnergySinkTask;
+      return applyMinimumUsefulLoadPolicy(creep, productiveEnergySinkTask);
     }
 
-    return { type: 'upgrade', targetId: controller.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
   }
 
   const roadConstructionSite = selectUnreservedConstructionSite(
@@ -358,7 +352,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     isRoadConstructionSite
   );
   if (roadConstructionSite) {
-    return { type: 'build', targetId: roadConstructionSite.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: roadConstructionSite.id });
   }
 
   const constructionSite = selectUnreservedConstructionSite(
@@ -367,21 +361,16 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     constructionReservationContext
   );
   if (constructionSite) {
-    return { type: 'build', targetId: constructionSite.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: constructionSite.id });
   }
 
   const repairTarget = selectRepairTarget(creep);
   if (repairTarget) {
-    return { type: 'repair', targetId: repairTarget.id as Id<Structure> };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'repair', targetId: repairTarget.id as Id<Structure> });
   }
 
   if (controller?.my) {
-    const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
-    if (lowLoadEnergyContinuationTask) {
-      return lowLoadEnergyContinuationTask;
-    }
-
-    return { type: 'upgrade', targetId: controller.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
   }
 
   return null;
@@ -444,7 +433,7 @@ function selectBootstrapSurvivalSpendingTask(
     shouldRushRcl1Controller(controller) &&
     !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)
   ) {
-    return { type: 'upgrade', targetId: controller.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
   }
 
   if (recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep)) {
@@ -453,7 +442,10 @@ function selectBootstrapSurvivalSpendingTask(
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
-    return { type: 'repair', targetId: criticalRepairTarget.id as Id<Structure> };
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: criticalRepairTarget.id as Id<Structure>
+    });
   }
 
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
@@ -466,7 +458,7 @@ function selectBootstrapSurvivalSpendingTask(
     constructionReservationContext
   );
   if (criticalRoadConstructionSite) {
-    return { type: 'build', targetId: criticalRoadConstructionSite.id };
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: criticalRoadConstructionSite.id });
   }
 
   return null;
@@ -518,58 +510,14 @@ function isTerritoryControlTask(task: CreepTaskMemory | null): task is Extract<C
   return task?.type === 'claim' || task?.type === 'reserve';
 }
 
-function shouldPrioritizeSpawnOrExtensionRefill(creep: Creep): boolean {
+function hasEmergencySpawnExtensionRefillDemand(creep: Creep): boolean {
   const energyAvailable = getRoomEnergyAvailable(creep.room);
-  if (energyAvailable === null || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD) {
-    return true;
-  }
-
-  if (hasSpawnRecoveryRefillPressure(creep, energyAvailable)) {
-    return true;
-  }
-
-  if (hasReservedTerritoryFollowUpRefillCapacity(creep) && !hasReadyTerritoryFollowUpEnergy(creep)) {
-    return true;
-  }
-
-  return hasNearTermSpawnCompletionRefillDemand(creep.room);
-}
-
-function selectUrgentRefillMinLoadContinuationTask(
-  creep: Creep,
-  energySink: SpawnExtensionEnergyStructure
-): LowLoadWorkerEnergyAcquisitionTask | null {
-  if (getUsedEnergy(creep) >= REFILL_DELIVERY_MIN_LOAD) {
-    return null;
-  }
-
-  if (getFreeStoredEnergyCapacity(energySink) <= REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED) {
-    return null;
-  }
-
-  return selectLowLoadWorkerEnergyContinuationTask(creep);
-}
-
-function hasSpawnRecoveryRefillPressure(creep: Creep, energyAvailable: number): boolean {
-  const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
-  if (!survivalAssessment || survivalAssessment.workerCapacity >= survivalAssessment.workerTarget) {
-    return false;
-  }
-
-  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(creep.room);
-  return (
-    energyCapacityAvailable !== null &&
-    energyCapacityAvailable > 0 &&
-    energyAvailable < energyCapacityAvailable * SPAWN_RECOVERY_REFILL_PRESSURE_RATIO
-  );
-}
-
-function hasNearTermSpawnCompletionRefillDemand(room: Room): boolean {
-  return findSpawnExtensionEnergyStructures(room).some(isNearTermSpawningSpawn);
+  return energyAvailable === null || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
 }
 
 interface LowLoadWorkerEnergyContext {
   carriedEnergy: number;
+  capacity: number;
   freeCapacity: number;
 }
 
@@ -580,12 +528,32 @@ function getLowLoadWorkerEnergyContext(creep: Creep): LowLoadWorkerEnergyContext
     return null;
   }
 
-  const capacity = carriedEnergy + freeCapacity;
-  const lowLoadEnergyLimit = Math.min(
-    LOW_LOAD_WORKER_ENERGY_CEILING,
-    Math.max(1, Math.floor(capacity * LOW_LOAD_WORKER_ENERGY_RATIO))
-  );
-  return carriedEnergy <= lowLoadEnergyLimit ? { carriedEnergy, freeCapacity } : null;
+  const capacity = getEnergyCapacity(creep, carriedEnergy, freeCapacity);
+  return capacity > 0 && carriedEnergy < capacity * MINIMUM_USEFUL_LOAD_RATIO
+    ? { carriedEnergy, capacity, freeCapacity }
+    : null;
+}
+
+function applyMinimumUsefulLoadPolicy(
+  creep: Creep,
+  task: WorkerEnergySpendingTask
+): WorkerEnergySpendingTask | LowLoadWorkerEnergyAcquisitionTask {
+  if (!getLowLoadWorkerEnergyContext(creep)) {
+    return task;
+  }
+
+  if (hasVisibleHostilePresence(creep.room)) {
+    recordLowLoadReturnTelemetry(creep, task, 'hostileSafety');
+    return task;
+  }
+
+  const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+  if (lowLoadEnergyContinuationTask) {
+    return lowLoadEnergyContinuationTask;
+  }
+
+  recordLowLoadReturnTelemetry(creep, task, 'noReachableEnergy');
+  return task;
 }
 
 function clearWorkerEfficiencyTelemetry(creep: Creep): void {
@@ -619,7 +587,7 @@ function recordNearbyEnergyChoiceTelemetry(
 
 function recordLowLoadReturnTelemetry(
   creep: Creep,
-  task: Extract<CreepTaskMemory, { type: 'transfer' }>,
+  task: WorkerEnergySpendingTask,
   reason: WorkerEfficiencyLowLoadReturnReason
 ): void {
   const context = getLowLoadWorkerEnergyContext(creep);
@@ -3125,6 +3093,7 @@ function getFreeEnergyCapacity(creep: Creep): number {
 }
 
 interface StoreLike {
+  getCapacity?: (resource?: ResourceConstant) => number | null;
   getUsedCapacity?: (resource?: ResourceConstant) => number | null;
   getFreeCapacity?: (resource?: ResourceConstant) => number | null;
   [resource: string]: unknown;
@@ -3153,6 +3122,20 @@ function getFreeStoredEnergyCapacity(object: unknown): number {
 
   const freeCapacity = store.getFreeCapacity?.(getWorkerEnergyResource());
   return typeof freeCapacity === 'number' ? freeCapacity : 0;
+}
+
+function getEnergyCapacity(
+  creep: Creep,
+  carriedEnergy = getUsedEnergy(creep),
+  freeCapacity = getFreeEnergyCapacity(creep)
+): number {
+  const store = getStore(creep);
+  const capacity = store?.getCapacity?.(getWorkerEnergyResource());
+  if (typeof capacity === 'number' && Number.isFinite(capacity) && capacity > 0) {
+    return capacity;
+  }
+
+  return Math.max(0, carriedEnergy + freeCapacity);
 }
 
 function getStore(object: unknown): StoreLike | null {

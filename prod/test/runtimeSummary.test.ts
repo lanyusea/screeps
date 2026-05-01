@@ -409,6 +409,11 @@ describe('runtime telemetry summaries', () => {
 
   it('reports bounded room-level worker efficiency samples', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const lowLoadReturnReasons: WorkerEfficiencyLowLoadReturnReason[] = [
+      'noReachableEnergy',
+      'emergencySpawnExtensionRefill',
+      'hostileSafety'
+    ];
     const recentWorkers = Array.from({ length: 7 }, (_, index) =>
       makeWorker(
         {
@@ -433,7 +438,7 @@ describe('runtime telemetry summaries', () => {
                   freeCapacity: 45,
                   selectedTask: 'transfer',
                   targetId: `spawn-${index}`,
-                  reason: 'noNearbyEnergy'
+                  reason: lowLoadReturnReasons[Math.floor(index / 2)]
                 }
         },
         5,
@@ -451,7 +456,7 @@ describe('runtime telemetry summaries', () => {
           freeCapacity: 45,
           selectedTask: 'transfer',
           targetId: 'spawn-stale',
-          reason: 'urgentSpawnExtensionRefill'
+          reason: 'emergencySpawnExtensionRefill'
         }
       },
       5,
@@ -464,7 +469,26 @@ describe('runtime telemetry summaries', () => {
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect(room.workerEfficiency).toEqual({
       lowLoadReturnCount: 3,
+      emergencyLowLoadReturnCount: 2,
+      avoidableLowLoadReturnCount: 1,
       nearbyEnergyChoiceCount: 4,
+      lowLoadReturnReasons: [
+        {
+          reason: 'emergencySpawnExtensionRefill',
+          category: 'emergency',
+          count: 1
+        },
+        {
+          reason: 'hostileSafety',
+          category: 'emergency',
+          count: 1
+        },
+        {
+          reason: 'noReachableEnergy',
+          category: 'avoidable',
+          count: 1
+        }
+      ],
       samples: [
         {
           creepName: 'Worker0',
@@ -485,7 +509,7 @@ describe('runtime telemetry summaries', () => {
           freeCapacity: 45,
           selectedTask: 'transfer',
           targetId: 'spawn-1',
-          reason: 'noNearbyEnergy'
+          reason: 'noReachableEnergy'
         },
         {
           creepName: 'Worker2',
@@ -506,7 +530,7 @@ describe('runtime telemetry summaries', () => {
           freeCapacity: 45,
           selectedTask: 'transfer',
           targetId: 'spawn-3',
-          reason: 'noNearbyEnergy'
+          reason: 'emergencySpawnExtensionRefill'
         },
         {
           creepName: 'Worker4',

@@ -263,7 +263,7 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
     return false;
   }
 
-  return isUrgentEnergySpendingTask(selectedTask);
+  return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
 }
 
 function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(
@@ -447,8 +447,8 @@ function isEnergyAcquisitionTask(task: CreepTaskMemory): task is Extract<
 
 function isLowLoadReturnTask(
   task: CreepTaskMemory
-): task is Extract<CreepTaskMemory, { type: 'transfer' | 'upgrade' }> {
-  return task.type === 'transfer' || task.type === 'upgrade';
+): task is Extract<CreepTaskMemory, { type: 'transfer' | 'build' | 'repair' | 'upgrade' }> {
+  return task.type === 'transfer' || task.type === 'build' || task.type === 'repair' || task.type === 'upgrade';
 }
 
 function isRecoverableEnergyTask(
