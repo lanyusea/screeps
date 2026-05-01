@@ -154,11 +154,11 @@ function assertDomainKanbanFiveColumnCss(html) {
 function assertDeliveryMetricsFiveColumnCss(html) {
   const compact = String(html).replace(/\s+/g, '');
   assert(
-    compact.includes('.metrics{display:grid;grid-template-columns:repeat(5,1fr);'),
+    compact.includes('.process-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));'),
     'delivery metrics renderer CSS must use five metric columns'
   );
   assert(
-    !/\.metrics\{[^}]*grid-template-columns:repeat\((?:3|7),/s.test(compact),
+    !/\.process-grid\{[^}]*grid-template-columns:repeat\((?:3|7),/s.test(compact),
     'delivery metrics renderer CSS must not use a three- or seven-column layout'
   );
 }

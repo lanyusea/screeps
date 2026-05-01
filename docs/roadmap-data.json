@@ -3,8 +3,8 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-05-01T15:42:22Z",
-  "generatedAtCst": "2026-05-01 23:42:22 CST",
+  "generatedAt": "2026-05-01T15:58:00Z",
+  "generatedAtCst": "2026-05-01 23:58:00 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
@@ -13523,7 +13523,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 1
+        "value": 3
       },
       {
         "instrumented": true,
@@ -22586,9 +22586,57 @@
       {
         "checks": {
           "failure": 0,
-          "pending": 0,
+          "pending": 1,
           "success": 1,
-          "total": 1
+          "total": 2
+        },
+        "createdAt": "2026-05-01T15:56:36Z",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 458,
+        "priority": "P1",
+        "reviewDecision": "",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "feat: improve low-energy worker throughput",
+        "type": "PullRequest",
+        "updatedAt": "2026-05-01T15:56:45Z",
+        "url": "https://github.com/lanyusea/screeps/pull/458"
+      },
+      {
+        "checks": {
+          "failure": 0,
+          "pending": 0,
+          "success": 2,
+          "total": 2
+        },
+        "createdAt": "2026-05-01T15:48:37Z",
+        "domain": "Bot capability",
+        "domainSource": "heuristic",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 457,
+        "priority": "P1",
+        "reviewDecision": "",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "fix: restore roadmap delivery metric grid",
+        "type": "PullRequest",
+        "updatedAt": "2026-05-01T15:53:20Z",
+        "url": "https://github.com/lanyusea/screeps/pull/457"
+      },
+      {
+        "checks": {
+          "failure": 0,
+          "pending": 0,
+          "success": 2,
+          "total": 2
         },
         "createdAt": "2026-05-01T15:37:35Z",
         "domain": "Bot capability",
@@ -22604,7 +22652,7 @@
         "status": "In review",
         "title": "feat: prioritize controller pressure spawn support",
         "type": "PullRequest",
-        "updatedAt": "2026-05-01T15:41:18Z",
+        "updatedAt": "2026-05-01T15:55:08Z",
         "url": "https://github.com/lanyusea/screeps/pull/456"
       }
     ],
@@ -22805,37 +22853,57 @@
             "category": "territory",
             "categoryLabel": "Territory",
             "description": "Owned room count in the latest runtime KPI window.",
-            "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "details": {
+              "gained": [
+                "E26S49"
+              ],
+              "latest": [
+                "E26S49"
+              ],
+              "lost": [
+                "E48S28"
+              ]
+            },
+            "formattedValue": "1",
+            "instrumented": true,
             "key": "owned_rooms",
             "label": "Owned rooms",
             "layer": "territory",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 10,
             "source": "runtime-summary rooms",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "rooms",
-            "value": null
+            "value": 1
           },
           {
             "category": "territory",
             "categoryLabel": "Territory",
             "description": "Net owned-room gain or loss across the runtime KPI window.",
-            "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "details": {
+              "gained": [
+                "E26S49"
+              ],
+              "latest": [
+                "E26S49"
+              ],
+              "lost": [
+                "E48S28"
+              ]
+            },
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "owned_room_delta",
             "label": "Owned-room delta",
             "layer": "territory",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 20,
             "source": "runtime-summary rooms",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "rooms/window",
-            "value": null
+            "value": 0
           },
           {
             "category": "territory",
@@ -22860,36 +22928,36 @@
             "categoryLabel": "Territory",
             "description": "Sum of latest room controller levels.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "2",
+            "instrumented": true,
             "key": "controller_level_sum",
             "label": "Controller level sum",
             "layer": "territory",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 40,
             "source": "runtime-summary controller fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "RCL",
-            "value": null
+            "value": 2
           },
           {
             "category": "territory",
             "categoryLabel": "Territory",
             "description": "Total controller progress movement across the runtime KPI window.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "-83866",
+            "instrumented": true,
             "key": "controller_progress_delta",
             "label": "Controller progress delta",
             "layer": "territory",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 50,
             "source": "runtime-summary controller fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "progress/window",
-            "value": null
+            "value": -83866
           }
         ]
       },
@@ -22903,98 +22971,98 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy held in room stores in the latest runtime KPI window.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "stored_energy",
             "label": "Stored energy",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 10,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "energy",
-            "value": null
+            "value": 0
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Stored energy movement across the runtime KPI window.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "stored_energy_delta",
             "label": "Stored-energy delta",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 20,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "energy/window",
-            "value": null
+            "value": 0
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Energy currently carried by workers.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "worker_carried_energy",
             "label": "Worker carried energy",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 30,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "energy",
-            "value": null
+            "value": 0
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Visible dropped energy in owned rooms.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "dropped_energy",
             "label": "Dropped energy",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 40,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "energy",
-            "value": null
+            "value": 0
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Visible source count in currently observed owned rooms.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "2",
+            "instrumented": true,
             "key": "source_count",
             "label": "Source count",
             "layer": "resources",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 50,
             "source": "runtime-summary resource fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "sources",
-            "value": null
+            "value": 2
           },
           {
             "category": "resources",
             "categoryLabel": "Resources / Economy",
             "description": "Energy harvested from runtime event totals when observed.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "harvested_energy",
             "label": "Harvested energy",
             "layer": "resources",
@@ -23002,7 +23070,7 @@
             "observed": false,
             "priority": 60,
             "source": "runtime-summary resource events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "energy/window",
             "value": null
           },
@@ -23011,8 +23079,8 @@
             "categoryLabel": "Resources / Economy",
             "description": "Energy transferred from runtime event totals when observed.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "transferred_energy",
             "label": "Transferred energy",
             "layer": "resources",
@@ -23020,7 +23088,7 @@
             "observed": false,
             "priority": 70,
             "source": "runtime-summary resource events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "energy/window",
             "value": null
           },
@@ -23072,44 +23140,44 @@
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Latest hostile creep count in observed rooms.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "hostile_creeps",
             "label": "Hostile creeps",
             "layer": "enemy kills",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 10,
             "source": "runtime-summary combat fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "creeps",
-            "value": null
+            "value": 0
           },
           {
             "category": "combat",
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Latest hostile structure count in observed rooms.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "0",
+            "instrumented": true,
             "key": "hostile_structures",
             "label": "Hostile structures",
             "layer": "enemy kills",
             "lowerIsBetter": false,
-            "observed": false,
+            "observed": true,
             "priority": 20,
             "source": "runtime-summary combat fields",
-            "status": "not instrumented",
+            "status": "observed",
             "unit": "structures",
-            "value": null
+            "value": 0
           },
           {
             "category": "combat",
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Attack event total across the runtime KPI window when observed.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "attack_count",
             "label": "Attack events",
             "layer": "enemy kills",
@@ -23117,7 +23185,7 @@
             "observed": false,
             "priority": 30,
             "source": "runtime-summary combat events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "events/window",
             "value": null
           },
@@ -23126,8 +23194,8 @@
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Attack damage total across the runtime KPI window when observed.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "attack_damage",
             "label": "Attack damage",
             "layer": "enemy kills",
@@ -23135,7 +23203,7 @@
             "observed": false,
             "priority": 40,
             "source": "runtime-summary combat events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "damage/window",
             "value": null
           },
@@ -23144,8 +23212,8 @@
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Generic destroyed-object event total; this is not enemy-kill proof.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "objects_destroyed",
             "label": "Objects destroyed",
             "layer": "enemy kills",
@@ -23153,7 +23221,7 @@
             "observed": false,
             "priority": 50,
             "source": "runtime-summary combat events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "objects/window",
             "value": null
           },
@@ -23162,8 +23230,8 @@
             "categoryLabel": "Combat / Enemy Kills",
             "description": "Generic destroyed-creep event total; this can include own losses.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "creeps_destroyed_generic",
             "label": "Creeps destroyed, generic",
             "layer": "enemy kills",
@@ -23171,7 +23239,7 @@
             "observed": false,
             "priority": 60,
             "source": "runtime-summary combat events",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "creeps/window",
             "value": null
           },
@@ -23225,7 +23293,7 @@
             "categoryLabel": "Guardrails / Reliability",
             "description": "Runtime-summary lines found by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "0",
+            "formattedValue": "264",
             "instrumented": true,
             "key": "runtime_summary_samples",
             "label": "Runtime summary samples",
@@ -23236,14 +23304,14 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "samples",
-            "value": 0
+            "value": 264
           },
           {
             "category": "guardrails",
             "categoryLabel": "Guardrails / Reliability",
             "description": "Files matched by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "0",
+            "formattedValue": "264",
             "instrumented": true,
             "key": "kpi_artifact_files",
             "label": "KPI artifact files",
@@ -23254,15 +23322,15 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "files",
-            "value": 0
+            "value": 264
           },
           {
             "category": "guardrails",
             "categoryLabel": "Guardrails / Reliability",
             "description": "Minimum ticks-to-downgrade among observed controllers.",
             "details": {},
-            "formattedValue": "not instrumented",
-            "instrumented": false,
+            "formattedValue": "not observed",
+            "instrumented": true,
             "key": "controller_downgrade_min_ticks",
             "label": "Downgrade risk",
             "layer": "guardrails",
@@ -23270,7 +23338,7 @@
             "observed": false,
             "priority": 30,
             "source": "runtime-summary controller fields",
-            "status": "not instrumented",
+            "status": "not observed",
             "unit": "ticks",
             "value": null
           },
@@ -23454,7 +23522,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23491,7 +23566,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23528,8 +23610,15 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "not observed",
           "value": null
         }
       ],
@@ -23565,8 +23654,15 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "not observed",
           "value": null
         }
       ],
@@ -23602,8 +23698,15 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "not observed",
           "value": null
         }
       ],
@@ -23639,9 +23742,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 2.0
         }
       ],
       "controller_progress_delta": [
@@ -23676,9 +23786,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": -83866.0
         }
       ],
       "cpu_bucket": [
@@ -23713,7 +23830,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23750,7 +23874,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23787,8 +23918,15 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "not observed",
           "value": null
         }
       ],
@@ -23824,9 +23962,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "enemy_kills": [
@@ -23861,7 +24006,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23898,7 +24050,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23935,8 +24094,15 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "not observed",
           "value": null
         }
       ],
@@ -23972,9 +24138,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "hostile_structures": [
@@ -24009,9 +24182,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "kpi_artifact_files": [
@@ -24046,9 +24226,16 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 264.0
         }
       ],
       "objects_destroyed": [
@@ -24083,8 +24270,15 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "not observed",
           "value": null
         }
       ],
@@ -24120,7 +24314,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24157,9 +24358,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "owned_rooms": [
@@ -24194,9 +24402,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 1.0
         }
       ],
       "reserved_remote_rooms": [
@@ -24231,7 +24446,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24268,7 +24490,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24305,9 +24534,16 @@
         {
           "instrumented": true,
           "observed": true,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 264.0
         }
       ],
       "source_count": [
@@ -24342,9 +24578,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 2.0
         }
       ],
       "spawn_queue_pressure": [
@@ -24379,7 +24622,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24416,7 +24666,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24453,9 +24710,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "stored_energy_delta": [
@@ -24490,9 +24754,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "telemetry_silence_minutes": [
@@ -24527,7 +24798,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24564,8 +24842,15 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "not observed",
           "value": null
         }
       ],
@@ -24601,9 +24886,16 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T15:58:00Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "worker_recovery_state": [
@@ -24638,7 +24930,14 @@
         {
           "instrumented": false,
           "observed": false,
-          "sampledAt": "2026-05-01T15:42:22Z",
+          "sampledAt": "2026-05-01T15:55:45Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T15:58:00Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24816,7 +25115,7 @@
           "4/30",
           "5/1"
         ],
-        "footer": "No observed runtime KPI history yet; missing buckets stay blank until persisted summaries exist.",
+        "footer": "Series values come from stored KPI history; missing buckets are left blank.",
         "key": "territory",
         "max": 3,
         "pill": "rooms/RCL",
@@ -24832,7 +25131,7 @@
               "missing",
               "missing",
               "missing",
-              "not instrumented"
+              "observed"
             ],
             "values": [
               null,
@@ -24841,7 +25140,7 @@
               null,
               null,
               null,
-              null
+              1
             ],
             "width": 4
           },
@@ -24856,7 +25155,7 @@
               "missing",
               "missing",
               "missing",
-              "not instrumented"
+              "observed"
             ],
             "values": [
               null,
@@ -24865,7 +25164,7 @@
               null,
               null,
               null,
-              null
+              2
             ],
             "width": 4
           },
@@ -24881,7 +25180,7 @@
               "missing",
               "missing",
               "missing",
-              "not instrumented"
+              "observed"
             ],
             "values": [
               null,
@@ -24890,7 +25189,7 @@
               null,
               null,
               null,
-              null
+              0
             ],
             "width": 3
           }
@@ -24913,7 +25212,7 @@
           "4/30",
           "5/1"
         ],
-        "footer": "No observed runtime KPI history yet; missing buckets stay blank until persisted summaries exist.",
+        "footer": "Series values come from stored KPI history; missing buckets are left blank.",
         "key": "resources",
         "max": 1,
         "pill": "energy",
@@ -24929,7 +25228,7 @@
               "missing",
               "missing",
               "missing",
-              "not instrumented"
+              "observed"
             ],
             "values": [
               null,
@@ -24938,7 +25237,7 @@
               null,
               null,
               null,
-              null
+              0
             ],
             "width": 2
           },
@@ -24953,7 +25252,7 @@
               "missing",
               "missing",
               "missing",
-              "not instrumented"
+              "not observed"
             ],
             "values": [
               null,
@@ -24978,7 +25277,7 @@
               "missing",
               "missing",
               "missing",
-              "not instrumented"
+              "observed"
             ],
             "values": [
               null,
@@ -24987,7 +25286,7 @@
               null,
               null,
               null,
-              null
+              0
             ],
             "width": 3
           }
@@ -25010,7 +25309,7 @@
           "4/30",
           "5/1"
         ],
-        "footer": "Enemy-kill ownership data is unavailable; generic creepDestroyed is not counted as kills.",
+        "footer": "Combat series uses ownership-aware values only; missing buckets are left blank.",
         "key": "combat",
         "max": 1,
         "pill": "events",
@@ -25050,7 +25349,7 @@
               "missing",
               "missing",
               "missing",
-              "not instrumented"
+              "observed"
             ],
             "values": [
               null,
@@ -25059,7 +25358,7 @@
               null,
               null,
               null,
-              null
+              0
             ],
             "width": 4
           },
@@ -25103,9 +25402,9 @@
         "delta": "+0",
         "detail": "git rev-list --count HEAD",
         "label": "Commits",
-        "rawValue": 320,
+        "rawValue": 321,
         "source": "git rev-list --count HEAD",
-        "value": 320
+        "value": 321
       },
       {
         "delta": "+0",
@@ -25119,9 +25418,9 @@
         "delta": "+0",
         "detail": "238 merged",
         "label": "PRs",
-        "rawValue": 246,
+        "rawValue": 248,
         "source": "github",
-        "value": 246
+        "value": 248
       },
       {
         "delta": "+0",
@@ -25139,17 +25438,17 @@
       },
       {
         "delta": "+0",
-        "detail": "1,545,271,777 total; latest token_count in 1,042/1,043 sessions",
+        "detail": "1,545,780,914 total; latest token_count in 1,045/1,046 sessions",
         "label": "Agent tokens",
-        "rawValue": 1545271777,
+        "rawValue": 1545780914,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
         "value": "1.5B"
       },
       {
         "delta": "+0",
-        "detail": "summed first-to-last JSONL timestamps across 1,043/1,043 sessions",
+        "detail": "summed first-to-last JSONL timestamps across 1,046/1,046 sessions",
         "label": "Codex runtime",
-        "rawValueSeconds": 280227,
+        "rawValueSeconds": 280365,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
         "value": "3d 5h"
       },
@@ -25157,21 +25456,21 @@
         "delta": "+0",
         "detail": "rollout JSONL files counted as Codex runs",
         "label": "Codex runs",
-        "rawValue": 1043,
+        "rawValue": 1046,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
-        "value": "1,043"
+        "value": "1,046"
       },
       {
         "delta": "+0",
-        "detail": "2,353 cron outputs across 29 jobs",
+        "detail": "2,356 cron outputs across 29 jobs",
         "label": "Cron runs",
-        "rawValue": 2353,
+        "rawValue": 2356,
         "source": "repo-attributed .hermes/cron/output/*/*.md",
-        "value": "2,353"
+        "value": "2,356"
       },
       {
         "delta": "+0",
-        "detail": "maximum first-to-last JSONL timestamp span across 1,043/1,043 sessions",
+        "detail": "maximum first-to-last JSONL timestamp span across 1,046/1,046 sessions",
         "label": "Longest Codex run",
         "rawValueSeconds": 5765,
         "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
@@ -25291,16 +25590,19 @@
   },
   "runtimeReport": {
     "source": {
-      "inputPaths": [],
-      "matchedFiles": 0,
-      "reason": "runtime KPI bridge unavailable",
-      "runtimeSummaryLines": 0,
-      "scannedFiles": 0,
-      "skippedFileCount": 0
+      "inputPaths": [
+        "",
+        ""
+      ],
+      "matchedFiles": 264,
+      "reason": "",
+      "runtimeSummaryLines": 264,
+      "scannedFiles": 98153,
+      "skippedFileCount": 2217
     },
     "window": {
-      "firstTick": null,
-      "latestTick": null
+      "firstTick": 274256,
+      "latestTick": 368949
     }
   },
   "schemaVersion": 1,

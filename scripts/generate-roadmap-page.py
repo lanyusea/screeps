@@ -606,8 +606,6 @@ REPORT_KPI_SERIES_METRICS: dict[str, tuple[str, ...]] = {
     "combat": ("enemy_kills", "hostile_creeps", "own_losses"),
 }
 
-APPROVED_PRIVATE_SMOKE_PROCESS_COUNT = 1
-
 REPORT_ISSUE_DISPLAY_OVERRIDES: dict[int, JsonObject] = {
     26: {
         "title": "Main branch protection and required CI gate",
@@ -2545,12 +2543,13 @@ def build_report_process_cards(
         "delta": "+0",
         "source": official_deploy_source,
     }
+    private_smoke_count = count_private_smoke_process_reports(repo_root)
     private_smoke_card = {
-        "value": count_private_smoke_process_reports(repo_root),
+        "value": private_smoke_count if private_smoke_count > 0 else INSUFFICIENT_EVIDENCE,
         "label": "Private smoke",
-        "detail": "smoke/report evidence",
+        "detail": "smoke/report evidence" if private_smoke_count > 0 else "no accepted private smoke report",
         "delta": "+0",
-        "source": "approved process report count",
+        "source": "approved process report count" if private_smoke_count > 0 else "unavailable",
     }
 
     return [
@@ -3320,7 +3319,7 @@ def count_official_deploy_evidence(repo_root: Path, github_snapshot: JsonObject)
 def count_private_smoke_process_reports(repo_root: Path) -> int:
     process_dir = repo_root / "docs" / "process"
     if not process_dir.exists():
-        return APPROVED_PRIVATE_SMOKE_PROCESS_COUNT
+        return 0
 
     accepted_reports = 0
     for path in process_dir.glob("*private-smoke*.md"):
@@ -3331,7 +3330,7 @@ def count_private_smoke_process_reports(repo_root: Path) -> int:
         if "private-smoke-report-" in text:
             accepted_reports += 1
 
-    return accepted_reports or APPROVED_PRIVATE_SMOKE_PROCESS_COUNT
+    return accepted_reports
 
 
 def render_html(data: JsonObject) -> str:
@@ -3731,7 +3730,7 @@ main {
 
 .process-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
