@@ -8,7 +8,7 @@ import { planExtensionConstruction } from '../construction/extensionPlanner';
 import { planEarlyRoadConstruction } from '../construction/roadPlanner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
-import { getBodyCost } from '../spawn/bodyBuilder';
+import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
 import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
 import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import {
@@ -59,7 +59,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         break;
       }
 
-      if (successfulSpawnCount > 0 && spawnRequest.memory.role !== 'worker') {
+      if (successfulSpawnCount > 0 && !isAllowedPostSpawnRequest(spawnRequest)) {
         break;
       }
 
@@ -124,7 +124,30 @@ function createSpawnPlanningColony(
 }
 
 function getSpawnPlanningOptions(successfulSpawnCount: number): SpawnPlanningOptions {
-  return successfulSpawnCount > 0 ? { nameSuffix: String(successfulSpawnCount + 1), workersOnly: true } : {};
+  return successfulSpawnCount > 0
+    ? {
+        nameSuffix: String(successfulSpawnCount + 1),
+        workersOnly: true,
+        allowTerritoryControllerPressure: true
+      }
+    : {};
+}
+
+function isAllowedPostSpawnRequest(spawnRequest: SpawnRequest): boolean {
+  return spawnRequest.memory.role === 'worker' || isTerritoryControllerPressureSpawnRequest(spawnRequest);
+}
+
+function isTerritoryControllerPressureSpawnRequest(spawnRequest: SpawnRequest): boolean {
+  const territory = spawnRequest.memory.territory;
+  return (
+    spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE &&
+    (territory?.action === 'claim' || territory?.action === 'reserve') &&
+    countBodyParts(spawnRequest.body, 'claim') >= TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
+  );
+}
+
+function countBodyParts(body: BodyPartConstant[], bodyPart: BodyPartConstant): number {
+  return body.filter((part) => part === bodyPart).length;
 }
 
 function attemptSpawnRequest(

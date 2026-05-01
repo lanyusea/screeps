@@ -1986,7 +1986,7 @@ var TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 var TERRITORY_SCOUT_BODY_COST = 50;
 var OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 = "occupationRecommendation";
 var recoveredTerritoryFollowUpRetryMetadata = /* @__PURE__ */ new WeakMap();
-function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
+function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options = {}) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
   }
@@ -2003,6 +2003,9 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
     ...selection.requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...selection.followUp ? { followUp: selection.followUp } : {}
   };
+  if (options.controllerPressureOnly === true && !requiresTerritoryControllerPressure(plan)) {
+    return null;
+  }
   if (selection.recoveredFollowUp === true && typeof selection.recoveredFollowUpSuppressedAt === "number") {
     recoveredTerritoryFollowUpRetryMetadata.set(plan, { suppressedAt: selection.recoveredFollowUpSuppressedAt });
   }
@@ -7191,14 +7194,16 @@ function planDefenseSpawn(context) {
   };
 }
 function planTerritoryRemoteSpawn(context) {
-  if (context.options.workersOnly || context.survival.mode !== "TERRITORY_READY") {
+  if (context.survival.mode !== "TERRITORY_READY" || context.options.workersOnly && context.options.allowTerritoryControllerPressure !== true) {
     return null;
   }
+  const controllerPressureOnly = context.options.workersOnly === true && context.options.allowTerritoryControllerPressure === true;
   const territoryIntent = planTerritoryIntent(
     context.colony,
     context.roleCounts,
     context.workerTarget,
-    context.gameTime
+    context.gameTime,
+    { controllerPressureOnly }
   );
   if (!territoryIntent) {
     return null;
@@ -8833,7 +8838,7 @@ function runEconomy(preludeTelemetryEvents = []) {
       if (!spawnRequest) {
         break;
       }
-      if (successfulSpawnCount > 0 && spawnRequest.memory.role !== "worker") {
+      if (successfulSpawnCount > 0 && !isAllowedPostSpawnRequest(spawnRequest)) {
         break;
       }
       const outcome = attemptSpawnRequest(
@@ -8881,7 +8886,21 @@ function createSpawnPlanningColony(colony, energyAvailable, usedSpawns) {
   };
 }
 function getSpawnPlanningOptions(successfulSpawnCount) {
-  return successfulSpawnCount > 0 ? { nameSuffix: String(successfulSpawnCount + 1), workersOnly: true } : {};
+  return successfulSpawnCount > 0 ? {
+    nameSuffix: String(successfulSpawnCount + 1),
+    workersOnly: true,
+    allowTerritoryControllerPressure: true
+  } : {};
+}
+function isAllowedPostSpawnRequest(spawnRequest) {
+  return spawnRequest.memory.role === "worker" || isTerritoryControllerPressureSpawnRequest(spawnRequest);
+}
+function isTerritoryControllerPressureSpawnRequest(spawnRequest) {
+  const territory = spawnRequest.memory.territory;
+  return spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE && ((territory == null ? void 0 : territory.action) === "claim" || (territory == null ? void 0 : territory.action) === "reserve") && countBodyParts(spawnRequest.body, "claim") >= TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
+}
+function countBodyParts(body, bodyPart) {
+  return body.filter((part) => part === bodyPart).length;
 }
 function attemptSpawnRequest(spawnRequest, roomName, telemetryEvents, spawns) {
   let lastOutcome = null;

@@ -63,6 +63,10 @@ export interface TerritoryIntentProgressSummary {
   followUp?: TerritoryFollowUpMemory;
 }
 
+export interface TerritoryIntentPlanningOptions {
+  controllerPressureOnly?: boolean;
+}
+
 interface MemoryRecord {
   territory?: unknown;
 }
@@ -127,7 +131,8 @@ export function planTerritoryIntent(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
   workerTarget: number,
-  gameTime: number
+  gameTime: number,
+  options: TerritoryIntentPlanningOptions = {}
 ): TerritoryIntentPlan | null {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
@@ -147,6 +152,10 @@ export function planTerritoryIntent(
     ...(selection.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(selection.followUp ? { followUp: selection.followUp } : {})
   };
+  if (options.controllerPressureOnly === true && !requiresTerritoryControllerPressure(plan)) {
+    return null;
+  }
+
   if (selection.recoveredFollowUp === true && typeof selection.recoveredFollowUpSuppressedAt === 'number') {
     recoveredTerritoryFollowUpRetryMetadata.set(plan, { suppressedAt: selection.recoveredFollowUpSuppressedAt });
   }
