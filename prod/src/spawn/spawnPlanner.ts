@@ -30,7 +30,8 @@ type SpawnPriorityTier =
   | 'defense'
   | 'localRefillSurvival'
   | 'controllerDowngradeGuard'
-  | 'territoryRemote';
+  | 'territoryRemote'
+  | 'controllerUpgradeSurplus';
 
 interface SpawnPlanningContext {
   colony: ColonySnapshot;
@@ -38,6 +39,7 @@ interface SpawnPlanningContext {
   options: SpawnPlanningOptions;
   roleCounts: RoleCounts;
   survival: ColonySurvivalAssessment;
+  territoryIntentPending: boolean;
   workerCapacity: number;
   workerTarget: number;
 }
@@ -58,13 +60,18 @@ export interface SpawnPlanningOptions {
 
 const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 const TERRITORY_SCOUT_BODY_COST = 50;
+const CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
+const CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
+const CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
+const MAX_CONTROLLER_LEVEL = 8;
 const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'emergencyBootstrap',
   // Keep defense above local refill so hostiles cannot starve the first defender.
   'defense',
   'localRefillSurvival',
   'controllerDowngradeGuard',
-  'territoryRemote'
+  'territoryRemote',
+  'controllerUpgradeSurplus'
 ];
 
 export function planSpawn(
@@ -81,6 +88,7 @@ export function planSpawn(
     options,
     roleCounts,
     survival: assessColonySnapshotSurvival(colony, roleCounts),
+    territoryIntentPending: false,
     workerCapacity,
     workerTarget
   };
@@ -110,6 +118,8 @@ function planSpawnForPriorityTier(
       return planDefenseSpawn(context);
     case 'territoryRemote':
       return planTerritoryRemoteSpawn(context);
+    case 'controllerUpgradeSurplus':
+      return planControllerUpgradeSurplusSpawn(context);
   }
 }
 
@@ -204,6 +214,7 @@ function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest |
   if (!territoryIntent) {
     return null;
   }
+  context.territoryIntentPending = true;
 
   const demandedWorkerTarget = getWorkerTargetWithTerritoryDemand(
     context.workerTarget,
@@ -247,6 +258,120 @@ function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest |
   );
 
   return null;
+}
+
+function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (!shouldSpawnControllerUpgradeSurplusWorker(context)) {
+    return null;
+  }
+
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function shouldSpawnControllerUpgradeSurplusWorker(context: SpawnPlanningContext): boolean {
+  if (
+    context.options.workersOnly ||
+    context.territoryIntentPending ||
+    context.survival.mode !== 'TERRITORY_READY' ||
+    hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
+    !hasControllerUpgradeSurplusEnergy(context.colony) ||
+    !isControllerUpgradeableForSurplus(context.colony.room.controller)
+  ) {
+    return false;
+  }
+
+  const surplusWorkerTarget = Math.min(
+    CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET,
+    context.workerTarget + CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS
+  );
+  return context.workerCapacity < surplusWorkerTarget;
+}
+
+function hasControllerUpgradeSurplusEnergy(colony: ColonySnapshot): boolean {
+  return (
+    colony.energyCapacityAvailable >= CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY &&
+    colony.energyAvailable >= colony.energyCapacityAvailable
+  );
+}
+
+function isControllerUpgradeableForSurplus(controller: StructureController | undefined): boolean {
+  return (
+    controller?.my === true &&
+    typeof controller.level === 'number' &&
+    controller.level >= 2 &&
+    controller.level < MAX_CONTROLLER_LEVEL
+  );
+}
+
+function hasControllerUpgradeBlockingTerritoryWork(colony: ColonySnapshot): boolean {
+  return (
+    hasActiveTerritoryIntentBacklog(colony.room.name) ||
+    hasVisibleForeignReservedTerritoryTarget(colony)
+  );
+}
+
+function hasActiveTerritoryIntentBacklog(colonyName: string): boolean {
+  const intents = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory?.intents;
+  if (!Array.isArray(intents)) {
+    return false;
+  }
+
+  return intents.some((intent) => {
+    if (
+      intent.colony !== colonyName ||
+      intent.targetRoom === colonyName ||
+      (intent.action !== 'claim' && intent.action !== 'reserve' && intent.action !== 'scout')
+    ) {
+      return false;
+    }
+
+    return intent.status === 'planned' || intent.status === 'active' || intent.followUp !== undefined;
+  });
+}
+
+function hasVisibleForeignReservedTerritoryTarget(colony: ColonySnapshot): boolean {
+  const targets = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory?.targets;
+  if (!Array.isArray(targets)) {
+    return false;
+  }
+
+  const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
+  return targets.some((target) => {
+    if (
+      target.colony !== colony.room.name ||
+      target.enabled === false ||
+      (target.action !== 'claim' && target.action !== 'reserve')
+    ) {
+      return false;
+    }
+
+    const controller = getVisibleRoomController(target.roomName);
+    return isForeignReservedController(controller, colonyOwnerUsername);
+  });
+}
+
+function getVisibleRoomController(roomName: string): StructureController | undefined {
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName]?.controller;
+}
+
+function isForeignReservedController(
+  controller: StructureController | undefined,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  const reservationUsername = (controller as (StructureController & { reservation?: { username?: string } }) | undefined)
+    ?.reservation?.username;
+  return (
+    controller?.my !== true &&
+    typeof reservationUsername === 'string' &&
+    reservationUsername.length > 0 &&
+    reservationUsername !== colonyOwnerUsername
+  );
+}
+
+function getControllerOwnerUsername(controller: StructureController | undefined): string | undefined {
+  const username = (controller as (StructureController & { owner?: { username?: string } }) | undefined)?.owner
+    ?.username;
+  return typeof username === 'string' && username.length > 0 ? username : undefined;
 }
 
 function recordRecoveredFollowUpCooldownIfControllerCreepNeeded(

@@ -179,6 +179,34 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3, workerCapacity: 3 }, 124)).toBeNull();
   });
 
+  it('plans one surplus worker for controller progress when stable room energy is full', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N17',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 126)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N17-126',
+      memory: { role: 'worker', colony: 'W1N17' }
+    });
+    expect(planSpawn(colony, { worker: 4 }, 127)).toBeNull();
+  });
+
+  it('waits on surplus controller workers until spawn energy is full', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N18',
+      energyAvailable: 600,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 128)).toBeNull();
+  });
+
   it('keeps normal replacement body selection when only expiring workers remain', () => {
     const { colony, spawn } = makeColony({ energyAvailable: 600, energyCapacityAvailable: 800 });
 

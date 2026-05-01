@@ -49,7 +49,9 @@ const DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
 const SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 const SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 const MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
+const MIN_LOADED_WORKERS_FOR_SURPLUS_CONTROLLER_PROGRESS = 5;
 const MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
+const MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -2696,22 +2698,45 @@ function shouldApplyControllerPressureLane(creep: Creep, controller: StructureCo
   }
 
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
-  const hasTerritoryPressure = hasActiveTerritoryPressure(creep);
+  const hasControllerProgressPressure = hasActiveControllerProgressPressure(creep);
+  const hasTerritoryExpansionPressure = hasActiveTerritoryExpansionPressure(creep);
   if (
     loadedWorkers.length < MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS &&
-    !(loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE && hasTerritoryPressure)
+    !(loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE && hasControllerProgressPressure)
   ) {
     return false;
   }
 
-  const controllerProgressWorkers =
-    loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS && !hasTerritoryPressure
-      ? MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS
-      : 1;
+  const controllerProgressWorkers = getControllerProgressWorkerLimit(
+    creep,
+    loadedWorkers.length,
+    hasTerritoryExpansionPressure
+  );
   const otherControllerUpgraders = loadedWorkers.filter(
     (worker) => !isSameCreep(worker, creep) && isUpgradingController(worker, controller)
   ).length;
   return otherControllerUpgraders < controllerProgressWorkers;
+}
+
+function getControllerProgressWorkerLimit(
+  creep: Creep,
+  loadedWorkerCount: number,
+  hasTerritoryExpansionPressure: boolean
+): number {
+  if (hasTerritoryExpansionPressure) {
+    return 1;
+  }
+
+  if (
+    loadedWorkerCount >= MIN_LOADED_WORKERS_FOR_SURPLUS_CONTROLLER_PROGRESS &&
+    hasControllerUpgradeEnergySurplus(creep)
+  ) {
+    return MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS;
+  }
+
+  return loadedWorkerCount >= MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS
+    ? MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS
+    : 1;
 }
 
 function shouldUseSurplusForControllerProgress(creep: Creep, controller: StructureController): boolean {
@@ -2887,7 +2912,7 @@ function hasRecoverableSurplusEnergy(creep: Creep): boolean {
   );
 }
 
-function hasActiveTerritoryPressure(creep: Creep): boolean {
+function hasActiveControllerProgressPressure(creep: Creep): boolean {
   const colonyName = getCreepColonyName(creep);
   if (!colonyName) {
     return false;
@@ -2895,6 +2920,15 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
 
   if (getRecordedColonySurvivalAssessment(colonyName)?.mode === 'TERRITORY_READY') {
     return true;
+  }
+
+  return hasActiveTerritoryExpansionPressure(creep);
+}
+
+function hasActiveTerritoryExpansionPressure(creep: Creep): boolean {
+  const colonyName = getCreepColonyName(creep);
+  if (!colonyName) {
+    return false;
   }
 
   if (hasReadyTerritoryFollowUpEnergy(creep)) {
@@ -2907,6 +2941,21 @@ function hasActiveTerritoryPressure(creep: Creep): boolean {
   }
 
   return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
+}
+
+function hasControllerUpgradeEnergySurplus(creep: Creep): boolean {
+  return hasRecoverableSurplusEnergy(creep) || hasFullRoomEnergyForControllerProgress(creep.room);
+}
+
+function hasFullRoomEnergyForControllerProgress(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  return (
+    energyAvailable !== null &&
+    energyCapacityAvailable !== null &&
+    energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST &&
+    energyAvailable >= energyCapacityAvailable
+  );
 }
 
 function hasReservedTerritoryFollowUpRefillCapacity(creep: Creep): boolean {
