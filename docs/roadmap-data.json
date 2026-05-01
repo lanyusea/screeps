@@ -3,32 +3,32 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-05-01T10:13:41Z",
-  "generatedAtCst": "2026-05-01 18:13:41 CST",
+  "generatedAt": "2026-05-01T08:26:38Z",
+  "generatedAtCst": "2026-05-01 16:26:38 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
     "issues": [
       {
-        "createdAt": "2026-05-01T09:28:28Z",
-        "domain": "Combat",
+        "createdAt": "2026-05-01T08:07:41Z",
+        "domain": "Agent OS",
         "domainSource": "heuristic",
-        "kind": "code",
+        "kind": "ops",
         "labels": [
-          "kind:code",
+          "kind:ops",
           "priority:p1",
           "roadmap",
-          "roadmap:territory-economy"
+          "roadmap:p0-agent-ops"
         ],
-        "milestone": "Phase B: Bot capability hardening gate",
-        "number": 434,
+        "milestone": "P0: Agent OS / Discord visibility gate",
+        "number": 427,
         "priority": "P1",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P1 Economy: improve low-energy worker throughput after combat deploy",
+        "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
         "type": "Issue",
-        "updatedAt": "2026-05-01T09:53:11Z",
-        "url": "https://github.com/lanyusea/screeps/issues/434"
+        "updatedAt": "2026-05-01T08:18:34Z",
+        "url": "https://github.com/lanyusea/screeps/issues/427"
       },
       {
         "createdAt": "2026-05-01T06:22:06Z",
@@ -92,7 +92,7 @@
         "status": "Ready",
         "title": "P1: RL Flywheel: historical MMO replay validation before rollout",
         "type": "Issue",
-        "updatedAt": "2026-05-01T08:32:23Z",
+        "updatedAt": "2026-05-01T08:24:26Z",
         "url": "https://github.com/lanyusea/screeps/issues/417"
       },
       {
@@ -242,7 +242,7 @@
         "status": "In review",
         "title": "P1 Combat: one-time code review sweep for dead-zone and placeholder logic",
         "type": "Issue",
-        "updatedAt": "2026-05-01T08:32:21Z",
+        "updatedAt": "2026-05-01T08:24:48Z",
         "url": "https://github.com/lanyusea/screeps/issues/405"
       },
       {
@@ -307,7 +307,7 @@
         "status": "Ready",
         "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
         "type": "Issue",
-        "updatedAt": "2026-05-01T09:20:40Z",
+        "updatedAt": "2026-05-01T08:24:41Z",
         "url": "https://github.com/lanyusea/screeps/issues/63"
       },
       {
@@ -350,7 +350,7 @@
         "status": "Ready",
         "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
         "type": "Issue",
-        "updatedAt": "2026-05-01T08:54:05Z",
+        "updatedAt": "2026-04-28T09:25:18Z",
         "url": "https://github.com/lanyusea/screeps/issues/29"
       }
     ],
@@ -372,6 +372,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/408",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "2026-05-01 live state audit repaired missing Project item and milestone; added to Project #3 as Ready/P1/Agent OS/ops.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 427,
+          "priority": "P1",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Ready",
+          "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/427",
           "visionLayer": "foundation blocker"
         },
         {
@@ -755,24 +773,6 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
-          "evidence": "Live audit 2026-05-01T16:31+08: PR #428 exists; PR Project item repaired/added. Checks pending; mergeState BEHIND.",
-          "kind": "ops",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 427,
-          "priority": "P1",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "Done",
-          "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/427",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Agent OS",
-          "domainSource": "project",
           "evidence": "Merged PR #162 at c75de59; cron continuation prompt also updated with 24h forced-P2 anti-starvation policy; checks green and CodeRabbit resolved.",
           "kind": "ops",
           "lane": "Agent OS",
@@ -858,24 +858,6 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/219",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Agent OS",
-          "domainSource": "project",
-          "evidence": "PR #428 implements Minimal Rules OS registry, cron/route registry, templates, audit script, Project Domain/Kind options, and Pages domain progress regeneration. Local QA PASS: audit --github; pytest 6 passed.",
-          "kind": "ops",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 428,
-          "priority": "P1",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "Done",
-          "title": "docs: unify Screeps rules taxonomy and domain display",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/428",
           "visionLayer": "foundation blocker"
         },
         {
@@ -1457,7 +1439,7 @@
         {
           "domain": "Runtime monitor",
           "domainSource": "project",
-          "evidence": "2026-05-01 shadow cadence audit: evaluator is passive/manual/test-only today; runtime summary/alert jobs generate input artifacts, but no recurring shadow-eval report job yet. #415/#417 comments updated with gap.",
+          "evidence": "Merged PR #423 at 2026-05-01T06:34:31Z; merge commit 0235a3a; final QA/checks/review threads clean.",
           "kind": "code",
           "lane": "Runtime monitor",
           "nextAction": "",
@@ -5813,7 +5795,7 @@
         {
           "domain": "Combat",
           "domainSource": "project",
-          "evidence": "2026-05-01T17:20+08 PR #429 merged and deployed in official run 25209378550 (main 618fc4e); seed combat dead-zone fix landed with exact-head QA PASS and healthy postdeploy sidecars.",
+          "evidence": "",
           "kind": "review",
           "lane": "Combat",
           "nextAction": "",
@@ -5847,45 +5829,9 @@
           "visionLayer": "enemy kills"
         },
         {
-          "domain": "Combat",
-          "domainSource": "heuristic",
-          "evidence": "2026-05-01T17:17+08 exact-head QA PASS on PR #429 head 3669691 (proc_[redacted] exit 0): No critical issues found; prod/dist/main.js sync check passed; LFS docs/roadmap-kpi.sqlite noise treated as infrastructure. Outdated thread PRRT_kwDOSMSsO85-8LBw queued for resolution/re-query.",
-          "kind": "code",
-          "lane": "",
-          "nextAction": "",
-          "number": 429,
-          "priority": "P1",
-          "projectDomain": "",
-          "state": "",
-          "status": "Done",
-          "title": "fix: close combat dead-zone placeholder gap",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/429",
-          "visionLayer": "enemy kills"
-        },
-        {
           "domain": "Territory/Economy",
           "domainSource": "project",
-          "evidence": "",
-          "kind": "code",
-          "lane": "Territory/Economy",
-          "nextAction": "",
-          "number": 434,
-          "priority": "P1",
-          "projectDomain": "Territory/Economy",
-          "state": "",
-          "status": "In review",
-          "title": "P1 Economy: improve low-energy worker throughput after combat deploy",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/434",
-          "visionLayer": "territory"
-        },
-        {
-          "domain": "Territory/Economy",
-          "domainSource": "project",
-          "evidence": "PR #426 review-fix pushed as 83617ba for thread PRRT_kwDOSMSsO85-8Xeg; controller verification passed.",
+          "evidence": "PR #426 updated with Codex-authored review-fix 7f72488; verification passed locally before push.",
           "kind": "code",
           "lane": "Territory/Economy",
           "nextAction": "",
@@ -5902,26 +5848,8 @@
         },
         {
           "domain": "Territory/Economy",
-          "domainSource": "project",
-          "evidence": "",
-          "kind": "code",
-          "lane": "Territory/Economy",
-          "nextAction": "",
-          "number": 435,
-          "priority": "P1",
-          "projectDomain": "Territory/Economy",
-          "state": "",
-          "status": "In review",
-          "title": "feat: improve low-energy worker throughput",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/435",
-          "visionLayer": "territory"
-        },
-        {
-          "domain": "Territory/Economy",
           "domainSource": "heuristic",
-          "evidence": "2026-05-01T18:05+08 PR #426 head 83617ba: prod-ci SUCCESS and CodeRabbit status SUCCESS, but GraphQL still shows unresolved non-outdated thread PRRT_kwDOSMSsO85-8Xeg after pushed fix. Await bot/thread refresh before exact-head QA/merge.",
+          "evidence": "",
           "kind": "code",
           "lane": "",
           "nextAction": "",
@@ -7216,24 +7144,6 @@
         },
         {
           "domain": "RL flywheel",
-          "domainSource": "project",
-          "evidence": "2026-05-01T17:26+08 PR #433 review-fix pushed as fd51b18 after current-main reconcile; verification passed (diff-check, py_compile, unittest 11).",
-          "kind": "code",
-          "lane": "RL flywheel",
-          "nextAction": "",
-          "number": 432,
-          "priority": "P1",
-          "projectDomain": "RL flywheel",
-          "state": "",
-          "status": "Done",
-          "title": "P1: RL Flywheel: scheduled offline strategy-shadow report generation",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/432",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "RL flywheel",
           "domainSource": "heuristic",
           "evidence": "PR #420 merged at e81bc3171957078158805252f15a83d138bcafdf after CodeRabbit link-pinning thread cleared. prod-ci and CodeRabbit were green; unresolved review-thread query returned empty. Issue #413 closed.",
           "kind": "code",
@@ -7248,24 +7158,6 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/420",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "RL flywheel",
-          "domainSource": "project",
-          "evidence": "2026-05-01T17:26+08 review-fix for PR #433 pushed as fd51b18 after reconciling onto main 618fc4e; verification passed (diff-check, py_compile, unittest 11 tests). Await fresh checks/bot review.",
-          "kind": "code",
-          "lane": "RL flywheel",
-          "nextAction": "",
-          "number": 433,
-          "priority": "P1",
-          "projectDomain": "RL flywheel",
-          "state": "",
-          "status": "Done",
-          "title": "feat: generate offline strategy shadow reports",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/433",
           "visionLayer": "foundation blocker"
         },
         {
@@ -7338,24 +7230,6 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/216",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Docs/process",
-          "domainSource": "project",
-          "evidence": "2026-05-01T16:59+08:00 #430 in review via PR #431. Gate now CLEAN: head 410c290, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, no active review threads. Awaiting >=15 minute elapsed review gate.",
-          "kind": "docs",
-          "lane": "Docs/process",
-          "nextAction": "",
-          "number": 430,
-          "priority": "P1",
-          "projectDomain": "Docs/process",
-          "state": "",
-          "status": "Done",
-          "title": "P1: RL Domain Refresh: system roadmap for strategy-change flywheel",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/430",
           "visionLayer": "foundation blocker"
         },
         {
@@ -7464,24 +7338,6 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/267",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Docs/process",
-          "domainSource": "project",
-          "evidence": "Merged PR #431 at 2026-05-01T09:08Z, merge commit 9b1421c; prod-ci PASS, CodeRabbit PASS, no review threads. #430 closed/Done.",
-          "kind": "docs",
-          "lane": "Docs/process",
-          "nextAction": "",
-          "number": 431,
-          "priority": "P1",
-          "projectDomain": "Docs/process",
-          "state": "",
-          "status": "Done",
-          "title": "docs: define RL domain roadmap",
-          "type": "PullRequest",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/431",
           "visionLayer": "foundation blocker"
         },
         {
@@ -7638,6 +7494,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/408",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01 live state audit repaired missing Project item and milestone; added to Project #3 as Ready/P1/Agent OS/ops.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 427,
+                  "priority": "P1",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Ready",
+                  "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/427",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -8034,24 +7908,6 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
-                  "evidence": "Live audit 2026-05-01T16:31+08: PR #428 exists; PR Project item repaired/added. Checks pending; mergeState BEHIND.",
-                  "kind": "ops",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 427,
-                  "priority": "P1",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "Done",
-                  "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/427",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "Agent OS",
-                  "domainSource": "project",
                   "evidence": "Merged PR #162 at c75de59; cron continuation prompt also updated with 24h forced-P2 anti-starvation policy; checks green and CodeRabbit resolved.",
                   "kind": "ops",
                   "lane": "Agent OS",
@@ -8119,24 +7975,6 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/219",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "Agent OS",
-                  "domainSource": "project",
-                  "evidence": "PR #428 implements Minimal Rules OS registry, cron/route registry, templates, audit script, Project Domain/Kind options, and Pages domain progress regeneration. Local QA PASS: audit --github; pytest 6 passed.",
-                  "kind": "ops",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 428,
-                  "priority": "P1",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "Done",
-                  "title": "docs: unify Screeps rules taxonomy and domain display",
-                  "type": "PullRequest",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/pull/428",
                   "visionLayer": "foundation blocker"
                 }
               ],
@@ -8449,7 +8287,7 @@
                 {
                   "domain": "Runtime monitor",
                   "domainSource": "project",
-                  "evidence": "2026-05-01 shadow cadence audit: evaluator is passive/manual/test-only today; runtime summary/alert jobs generate input artifacts, but no recurring shadow-eval report job yet. #415/#417 comments updated with gap.",
+                  "evidence": "Merged PR #423 at 2026-05-01T06:34:31Z; merge commit 0235a3a; final QA/checks/review threads clean.",
                   "kind": "code",
                   "lane": "Runtime monitor",
                   "nextAction": "",
@@ -12304,7 +12142,7 @@
                 {
                   "domain": "Combat",
                   "domainSource": "project",
-                  "evidence": "2026-05-01T17:20+08 PR #429 merged and deployed in official run 25209378550 (main 618fc4e); seed combat dead-zone fix landed with exact-head QA PASS and healthy postdeploy sidecars.",
+                  "evidence": "",
                   "kind": "review",
                   "lane": "Combat",
                   "nextAction": "",
@@ -12353,25 +12191,7 @@
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
-                  "evidence": "",
-                  "kind": "code",
-                  "lane": "Territory/Economy",
-                  "nextAction": "",
-                  "number": 434,
-                  "priority": "P1",
-                  "projectDomain": "Territory/Economy",
-                  "state": "",
-                  "status": "In review",
-                  "title": "P1 Economy: improve low-energy worker throughput after combat deploy",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/434",
-                  "visionLayer": "territory"
-                },
-                {
-                  "domain": "Territory/Economy",
-                  "domainSource": "project",
-                  "evidence": "PR #426 review-fix pushed as 83617ba for thread PRRT_kwDOSMSsO85-8Xeg; controller verification passed.",
+                  "evidence": "PR #426 updated with Codex-authored review-fix 7f72488; verification passed locally before push.",
                   "kind": "code",
                   "lane": "Territory/Economy",
                   "nextAction": "",
@@ -12384,24 +12204,6 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/424",
-                  "visionLayer": "territory"
-                },
-                {
-                  "domain": "Territory/Economy",
-                  "domainSource": "project",
-                  "evidence": "",
-                  "kind": "code",
-                  "lane": "Territory/Economy",
-                  "nextAction": "",
-                  "number": 435,
-                  "priority": "P1",
-                  "projectDomain": "Territory/Economy",
-                  "state": "",
-                  "status": "In review",
-                  "title": "feat: improve low-energy worker throughput",
-                  "type": "PullRequest",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/pull/435",
                   "visionLayer": "territory"
                 }
               ],
@@ -12606,44 +12408,7 @@
               "status": "In review"
             },
             {
-              "cards": [
-                {
-                  "domain": "RL flywheel",
-                  "domainSource": "project",
-                  "evidence": "2026-05-01T17:26+08 PR #433 review-fix pushed as fd51b18 after current-main reconcile; verification passed (diff-check, py_compile, unittest 11).",
-                  "kind": "code",
-                  "lane": "RL flywheel",
-                  "nextAction": "",
-                  "number": 432,
-                  "priority": "P1",
-                  "projectDomain": "RL flywheel",
-                  "state": "",
-                  "status": "Done",
-                  "title": "P1: RL Flywheel: scheduled offline strategy-shadow report generation",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/432",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "RL flywheel",
-                  "domainSource": "project",
-                  "evidence": "2026-05-01T17:26+08 review-fix for PR #433 pushed as fd51b18 after reconciling onto main 618fc4e; verification passed (diff-check, py_compile, unittest 11 tests). Await fresh checks/bot review.",
-                  "kind": "code",
-                  "lane": "RL flywheel",
-                  "nextAction": "",
-                  "number": 433,
-                  "priority": "P1",
-                  "projectDomain": "RL flywheel",
-                  "state": "",
-                  "status": "Done",
-                  "title": "feat: generate offline strategy shadow reports",
-                  "type": "PullRequest",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/pull/433",
-                  "visionLayer": "foundation blocker"
-                }
-              ],
+              "cards": [],
               "status": "Done"
             }
           ]
@@ -12740,24 +12505,6 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/216",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "Docs/process",
-                  "domainSource": "project",
-                  "evidence": "2026-05-01T16:59+08:00 #430 in review via PR #431. Gate now CLEAN: head 410c290, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, no active review threads. Awaiting >=15 minute elapsed review gate.",
-                  "kind": "docs",
-                  "lane": "Docs/process",
-                  "nextAction": "",
-                  "number": 430,
-                  "priority": "P1",
-                  "projectDomain": "Docs/process",
-                  "state": "",
-                  "status": "Done",
-                  "title": "P1: RL Domain Refresh: system roadmap for strategy-change flywheel",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/430",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -12871,24 +12618,6 @@
                 {
                   "domain": "Docs/process",
                   "domainSource": "project",
-                  "evidence": "Merged PR #431 at 2026-05-01T09:08Z, merge commit 9b1421c; prod-ci PASS, CodeRabbit PASS, no review threads. #430 closed/Done.",
-                  "kind": "docs",
-                  "lane": "Docs/process",
-                  "nextAction": "",
-                  "number": 431,
-                  "priority": "P1",
-                  "projectDomain": "Docs/process",
-                  "state": "",
-                  "status": "Done",
-                  "title": "docs: define RL domain roadmap",
-                  "type": "PullRequest",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/pull/431",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "Docs/process",
-                  "domainSource": "project",
                   "evidence": "PR #66 merged at 2026-04-27T03:29:27Z as 1f41670 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and empty GraphQL review threads.",
                   "kind": "docs",
                   "lane": "Docs/process",
@@ -12992,7 +12721,7 @@
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 2
+        "value": 1
       },
       {
         "instrumented": true,
@@ -13002,7 +12731,7 @@
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 403
+        "value": 395
       },
       {
         "instrumented": true,
@@ -13012,7 +12741,7 @@
       {
         "instrumented": true,
         "label": "In review",
-        "value": 4
+        "value": 2
       }
     ],
     "projectItems": [
@@ -13163,7 +12892,7 @@
         "blockedBy": "",
         "domain": "Runtime monitor",
         "domainSource": "project",
-        "evidence": "2026-05-01T16:55+08 audit: runtime summary/alert cron jobs last_status=ok, but screeps-monitor cron-summary.json and cron-alert.json aliases still report obsolete shardX/E48S29. Official deploy postdeploy sidecars for run 25207811166 are healthy for current shardX/E26S49 (owner lanyusea, owned_spawns=1, owned_creeps=4, health ok).",
+        "evidence": "Scheduler audit 2026-04-28T17:15+08: stale In progress state repaired; no active process/PR currently owns #29. Runtime-summary job is healthy, but KPI/console-evidence work remains.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -13856,7 +13585,7 @@
         "blockedBy": "",
         "domain": "Release/deploy",
         "domainSource": "project",
-        "evidence": "2026-05-01T17:31+08 deploy-floor refresh after PR #433 merge: current main 791b9ea is RL/docs/scripts-only; latest gameplay-affecting main remains 618fc4e from PR #429 and is deployed by official run 25209378550 with healthy E26S49 sidecars (owner lanyusea, spawn=1, creeps=4, alert=false, health ok).",
+        "evidence": "2026-05-01 16:20 +08 deployment floor satisfied for main/gameplay commit 0eff7ce via official run 25207811166; deploy ok=true branch/activeWorld matched; postdeploy summary owner lanyusea spawns=1 creeps=4 hostiles=0 tick=364721; alert=false; health ok=true.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -20924,7 +20653,7 @@
         "blockedBy": "",
         "domain": "Combat",
         "domainSource": "project",
-        "evidence": "2026-05-01T17:20+08 PR #429 merged and deployed in official run 25209378550 (main 618fc4e); seed combat dead-zone fix landed with exact-head QA PASS and healthy postdeploy sidecars.",
+        "evidence": "",
         "kind": "review",
         "labels": [
           "kind:review",
@@ -21161,7 +20890,7 @@
         "blockedBy": "",
         "domain": "Runtime monitor",
         "domainSource": "project",
-        "evidence": "2026-05-01 shadow cadence audit: evaluator is passive/manual/test-only today; runtime summary/alert jobs generate input artifacts, but no recurring shadow-eval report job yet. #415/#417 comments updated with gap.",
+        "evidence": "Merged PR #423 at 2026-05-01T06:34:31Z; merge commit 0235a3a; final QA/checks/review threads clean.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -21359,7 +21088,7 @@
         "blockedBy": "",
         "domain": "Territory/Economy",
         "domainSource": "project",
-        "evidence": "PR #426 review-fix pushed as 83617ba for thread PRRT_kwDOSMSsO85-8Xeg; controller verification passed.",
+        "evidence": "PR #426 updated with Codex-authored review-fix 7f72488; verification passed locally before push.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -21402,7 +21131,7 @@
         "blockedBy": "",
         "domain": "Territory/Economy",
         "domainSource": "heuristic",
-        "evidence": "2026-05-01T18:05+08 PR #426 head 83617ba: prod-ci SUCCESS and CodeRabbit status SUCCESS, but GraphQL still shows unresolved non-outdated thread PRRT_kwDOSMSsO85-8Xeg after pushed fix. Await bot/thread refresh before exact-head QA/merge.",
+        "evidence": "",
         "kind": "code",
         "labels": [],
         "milestone": "",
@@ -21421,7 +21150,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "Live audit 2026-05-01T16:31+08: PR #428 exists; PR Project item repaired/added. Checks pending; mergeState BEHIND.",
+        "evidence": "2026-05-01 live state audit repaired missing Project item and milestone; added to Project #3 as Ready/P1/Agent OS/ops.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -21435,205 +21164,14 @@
         "priority": "P1",
         "projectDomain": "Agent OS",
         "state": "",
-        "status": "Done",
+        "status": "Ready",
         "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
         "type": "Issue",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/issues/427"
-      },
-      {
-        "blockedBy": "",
-        "domain": "Agent OS",
-        "domainSource": "project",
-        "evidence": "PR #428 implements Minimal Rules OS registry, cron/route registry, templates, audit script, Project Domain/Kind options, and Pages domain progress regeneration. Local QA PASS: audit --github; pytest 6 passed.",
-        "kind": "ops",
-        "labels": [],
-        "milestone": "",
-        "nextAction": "",
-        "number": 428,
-        "priority": "P1",
-        "projectDomain": "Agent OS",
-        "state": "",
-        "status": "Done",
-        "title": "docs: unify Screeps rules taxonomy and domain display",
-        "type": "PullRequest",
-        "updatedAt": "",
-        "url": "https://github.com/lanyusea/screeps/pull/428"
-      },
-      {
-        "blockedBy": "",
-        "domain": "Combat",
-        "domainSource": "heuristic",
-        "evidence": "2026-05-01T17:17+08 exact-head QA PASS on PR #429 head 3669691 (proc_[redacted] exit 0): No critical issues found; prod/dist/main.js sync check passed; LFS docs/roadmap-kpi.sqlite noise treated as infrastructure. Outdated thread PRRT_kwDOSMSsO85-8LBw queued for resolution/re-query.",
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "nextAction": "",
-        "number": 429,
-        "priority": "P1",
-        "projectDomain": "",
-        "state": "",
-        "status": "Done",
-        "title": "fix: close combat dead-zone placeholder gap",
-        "type": "PullRequest",
-        "updatedAt": "",
-        "url": "https://github.com/lanyusea/screeps/pull/429"
-      },
-      {
-        "blockedBy": "",
-        "domain": "Docs/process",
-        "domainSource": "project",
-        "evidence": "2026-05-01T16:59+08:00 #430 in review via PR #431. Gate now CLEAN: head 410c290, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, no active review threads. Awaiting >=15 minute elapsed review gate.",
-        "kind": "docs",
-        "labels": [
-          "kind:docs",
-          "priority:p1",
-          "roadmap",
-          "roadmap:rl-flywheel"
-        ],
-        "milestone": "P1: RL strategy flywheel gate",
-        "nextAction": "",
-        "number": 430,
-        "priority": "P1",
-        "projectDomain": "Docs/process",
-        "state": "",
-        "status": "Done",
-        "title": "P1: RL Domain Refresh: system roadmap for strategy-change flywheel",
-        "type": "Issue",
-        "updatedAt": "",
-        "url": "https://github.com/lanyusea/screeps/issues/430"
-      },
-      {
-        "blockedBy": "",
-        "domain": "Docs/process",
-        "domainSource": "project",
-        "evidence": "Merged PR #431 at 2026-05-01T09:08Z, merge commit 9b1421c; prod-ci PASS, CodeRabbit PASS, no review threads. #430 closed/Done.",
-        "kind": "docs",
-        "labels": [],
-        "milestone": "",
-        "nextAction": "",
-        "number": 431,
-        "priority": "P1",
-        "projectDomain": "Docs/process",
-        "state": "",
-        "status": "Done",
-        "title": "docs: define RL domain roadmap",
-        "type": "PullRequest",
-        "updatedAt": "",
-        "url": "https://github.com/lanyusea/screeps/pull/431"
-      },
-      {
-        "blockedBy": "",
-        "domain": "RL flywheel",
-        "domainSource": "project",
-        "evidence": "2026-05-01T17:26+08 PR #433 review-fix pushed as fd51b18 after current-main reconcile; verification passed (diff-check, py_compile, unittest 11).",
-        "kind": "code",
-        "labels": [
-          "kind:code",
-          "priority:p1",
-          "roadmap",
-          "roadmap:rl-flywheel"
-        ],
-        "milestone": "P1: RL strategy flywheel gate",
-        "nextAction": "",
-        "number": 432,
-        "priority": "P1",
-        "projectDomain": "RL flywheel",
-        "state": "",
-        "status": "Done",
-        "title": "P1: RL Flywheel: scheduled offline strategy-shadow report generation",
-        "type": "Issue",
-        "updatedAt": "",
-        "url": "https://github.com/lanyusea/screeps/issues/432"
-      },
-      {
-        "blockedBy": "",
-        "domain": "RL flywheel",
-        "domainSource": "project",
-        "evidence": "2026-05-01T17:26+08 review-fix for PR #433 pushed as fd51b18 after reconciling onto main 618fc4e; verification passed (diff-check, py_compile, unittest 11 tests). Await fresh checks/bot review.",
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "nextAction": "",
-        "number": 433,
-        "priority": "P1",
-        "projectDomain": "RL flywheel",
-        "state": "",
-        "status": "Done",
-        "title": "feat: generate offline strategy shadow reports",
-        "type": "PullRequest",
-        "updatedAt": "",
-        "url": "https://github.com/lanyusea/screeps/pull/433"
-      },
-      {
-        "blockedBy": "",
-        "domain": "Territory/Economy",
-        "domainSource": "project",
-        "evidence": "",
-        "kind": "code",
-        "labels": [
-          "kind:code",
-          "priority:p1",
-          "roadmap",
-          "roadmap:territory-economy"
-        ],
-        "milestone": "Phase B: Bot capability hardening gate",
-        "nextAction": "",
-        "number": 434,
-        "priority": "P1",
-        "projectDomain": "Territory/Economy",
-        "state": "",
-        "status": "In review",
-        "title": "P1 Economy: improve low-energy worker throughput after combat deploy",
-        "type": "Issue",
-        "updatedAt": "",
-        "url": "https://github.com/lanyusea/screeps/issues/434"
-      },
-      {
-        "blockedBy": "",
-        "domain": "Territory/Economy",
-        "domainSource": "project",
-        "evidence": "",
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "nextAction": "",
-        "number": 435,
-        "priority": "P1",
-        "projectDomain": "Territory/Economy",
-        "state": "",
-        "status": "In review",
-        "title": "feat: improve low-energy worker throughput",
-        "type": "PullRequest",
-        "updatedAt": "",
-        "url": "https://github.com/lanyusea/screeps/pull/435"
       }
     ],
     "pullRequests": [
-      {
-        "checks": {
-          "failure": 0,
-          "pending": 1,
-          "success": 1,
-          "total": 2
-        },
-        "createdAt": "2026-05-01T09:52:07Z",
-        "domain": "Territory/Economy",
-        "domainSource": "heuristic",
-        "isDraft": false,
-        "kind": "code",
-        "labels": [],
-        "milestone": "",
-        "number": 435,
-        "priority": "P1",
-        "reviewDecision": "",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "feat: improve low-energy worker throughput",
-        "type": "PullRequest",
-        "updatedAt": "2026-05-01T10:12:30Z",
-        "url": "https://github.com/lanyusea/screeps/pull/435"
-      },
       {
         "checks": {
           "failure": 0,
@@ -21655,7 +21193,7 @@
         "status": "In review",
         "title": "feat: make territory recommendations executable",
         "type": "PullRequest",
-        "updatedAt": "2026-05-01T09:59:17Z",
+        "updatedAt": "2026-05-01T08:16:50Z",
         "url": "https://github.com/lanyusea/screeps/pull/426"
       }
     ],
@@ -21949,7 +21487,7 @@
             "categoryLabel": "Territory",
             "description": "Total controller progress movement across the runtime KPI window.",
             "details": {},
-            "formattedValue": "-85597",
+            "formattedValue": "-91196",
             "instrumented": true,
             "key": "controller_progress_delta",
             "label": "Controller progress delta",
@@ -21960,7 +21498,7 @@
             "source": "runtime-summary controller fields",
             "status": "observed",
             "unit": "progress/window",
-            "value": -85597
+            "value": -91196
           }
         ]
       },
@@ -22296,7 +21834,7 @@
             "categoryLabel": "Guardrails / Reliability",
             "description": "Runtime-summary lines found by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "224",
+            "formattedValue": "214",
             "instrumented": true,
             "key": "runtime_summary_samples",
             "label": "Runtime summary samples",
@@ -22307,14 +21845,14 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "samples",
-            "value": 224
+            "value": 214
           },
           {
             "category": "guardrails",
             "categoryLabel": "Guardrails / Reliability",
             "description": "Files matched by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "224",
+            "formattedValue": "214",
             "instrumented": true,
             "key": "kpi_artifact_files",
             "label": "KPI artifact files",
@@ -22325,7 +21863,7 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "files",
-            "value": 224
+            "value": 214
           },
           {
             "category": "guardrails",
@@ -22521,34 +22059,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not instrumented",
-          "value": null
         }
       ],
       "alert_false_positives": [
@@ -22577,34 +22087,6 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not instrumented",
           "value": null
         }
@@ -22637,34 +22119,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not observed",
           "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not observed",
-          "value": null
         }
       ],
       "attack_damage": [
@@ -22693,34 +22147,6 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not observed",
           "value": null
         }
@@ -22753,34 +22179,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not observed",
           "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not observed",
-          "value": null
         }
       ],
       "controller_level_sum": [
@@ -22809,34 +22207,6 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "observed",
           "value": 2.0
         }
@@ -22869,34 +22239,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": -91196.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": -86256.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": -85597.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": -85597.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "observed",
-          "value": -85597.0
         }
       ],
       "cpu_bucket": [
@@ -22925,34 +22267,6 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not instrumented",
           "value": null
         }
@@ -22985,34 +22299,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not instrumented",
-          "value": null
         }
       ],
       "creeps_destroyed_generic": [
@@ -23041,34 +22327,6 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not observed",
           "value": null
         }
@@ -23101,34 +22359,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "observed",
-          "value": 0.0
         }
       ],
       "enemy_kills": [
@@ -23157,34 +22387,6 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23217,34 +22419,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not instrumented",
-          "value": null
         }
       ],
       "harvested_energy": [
@@ -23273,34 +22447,6 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not observed",
           "value": null
         }
@@ -23333,34 +22479,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "observed",
-          "value": 0.0
         }
       ],
       "hostile_structures": [
@@ -23389,34 +22507,6 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "observed",
           "value": 0.0
         }
@@ -23449,34 +22539,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 214.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 223.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 224.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 224.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "observed",
-          "value": 224.0
         }
       ],
       "objects_destroyed": [
@@ -23505,34 +22567,6 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not observed",
           "value": null
         }
@@ -23565,34 +22599,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not instrumented",
-          "value": null
         }
       ],
       "owned_room_delta": [
@@ -23621,34 +22627,6 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "observed",
           "value": 0.0
         }
@@ -23681,34 +22659,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 1.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "observed",
-          "value": 1.0
         }
       ],
       "reserved_remote_rooms": [
@@ -23737,34 +22687,6 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23797,34 +22719,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not instrumented",
-          "value": null
         }
       ],
       "runtime_summary_samples": [
@@ -23855,34 +22749,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 214.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 223.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 224.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 224.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "observed",
-          "value": 224.0
         }
       ],
       "source_count": [
@@ -23911,34 +22777,6 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 2.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "observed",
           "value": 2.0
         }
@@ -23971,34 +22809,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not instrumented",
-          "value": null
         }
       ],
       "spawn_utilization": [
@@ -24027,34 +22837,6 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24087,34 +22869,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "observed",
-          "value": 0.0
         }
       ],
       "stored_energy_delta": [
@@ -24143,34 +22897,6 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "observed",
           "value": 0.0
         }
@@ -24203,34 +22929,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "not instrumented",
-          "value": null
         }
       ],
       "transferred_energy": [
@@ -24259,34 +22957,6 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not observed",
-          "value": null
-        },
-        {
-          "instrumented": true,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not observed",
           "value": null
         }
@@ -24319,34 +22989,6 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "observed",
-          "value": 0.0
-        },
-        {
-          "instrumented": true,
-          "observed": true,
-          "sampledAt": "2026-05-01T10:13:41Z",
-          "status": "observed",
-          "value": 0.0
         }
       ],
       "worker_recovery_state": [
@@ -24375,34 +23017,6 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:00:55Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:07:02Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:09:29Z",
-          "status": "not instrumented",
-          "value": null
-        },
-        {
-          "instrumented": false,
-          "observed": false,
-          "sampledAt": "2026-05-01T10:13:41Z",
           "status": "not instrumented",
           "value": null
         }
@@ -24450,6 +23064,15 @@
             "status": "Ready",
             "title": "#408 P1 Agent OS: strategy reports must include proactive P0 postmortems",
             "url": "https://github.com/lanyusea/screeps/issues/408"
+          },
+          {
+            "description": "Ready \u00b7 Agent OS \u00b7 2026-05-01 live state audit repaired missing Project item and milestone; added to Project...",
+            "domain": "Agent OS",
+            "number": 427,
+            "priority": "P1",
+            "status": "Ready",
+            "title": "#427 P1 Agent OS: unify rules taxonomy and fix domain display drift",
+            "url": "https://github.com/lanyusea/screeps/issues/427"
           }
         ],
         "title": "Agent OS"
@@ -24493,7 +23116,7 @@
       {
         "items": [
           {
-            "description": "In progress \u00b7 Combat \u00b7 2026-05-01T17:20+08 PR #429 merged and deployed in official run 25209378550 (main 618f...",
+            "description": "In progress \u00b7 Combat \u00b7 Combat",
             "domain": "Combat",
             "number": 405,
             "priority": "P1",
@@ -24516,31 +23139,13 @@
       {
         "items": [
           {
-            "description": "In review \u00b7 Territory/Economy \u00b7 PR #426 review-fix pushed as 83617ba for thread PRRT_kwDOSMSsO85-8Xeg; contro...",
+            "description": "In review \u00b7 Territory/Economy \u00b7 PR #426 updated with Codex-authored review-fix 7f72488; verification passed l...",
             "domain": "Territory/Economy",
             "number": 424,
             "priority": "P1",
             "status": "In review",
             "title": "#424 P1 Territory: make next reserve/claim recommendation executable",
             "url": "https://github.com/lanyusea/screeps/issues/424"
-          },
-          {
-            "description": "In review \u00b7 Territory/Economy \u00b7 Territory/Economy",
-            "domain": "Territory/Economy",
-            "number": 434,
-            "priority": "P1",
-            "status": "In review",
-            "title": "#434 P1 Economy: improve low-energy worker throughput after combat de...",
-            "url": "https://github.com/lanyusea/screeps/issues/434"
-          },
-          {
-            "description": "In review \u00b7 Territory/Economy \u00b7 Territory/Economy",
-            "domain": "Territory/Economy",
-            "number": 435,
-            "priority": "P1",
-            "status": "In review",
-            "title": "#435 feat: improve low-energy worker throughput",
-            "url": "https://github.com/lanyusea/screeps/pull/435"
           }
         ],
         "title": "Territory/Economy"
@@ -24904,21 +23509,21 @@
         "delta": "+1",
         "detail": "repository history",
         "label": "Total commits",
-        "value": 307
+        "value": 302
       },
       {
         "delta": "+1",
-        "detail": "225 merged",
+        "detail": "221 merged",
         "label": "Total PRs",
         "source": "github",
-        "value": 234
+        "value": 229
       },
       {
         "delta": "+0",
         "detail": "16 open",
         "label": "Total issues",
         "source": "github",
-        "value": 201
+        "value": 198
       },
       {
         "delta": "+0",
@@ -24937,15 +23542,15 @@
     ],
     "roadmapCards": [
       {
-        "activeItems": 2,
+        "activeItems": 3,
         "domain": "Agent OS",
-        "doneItems": 26,
+        "doneItems": 24,
         "goal": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
         "next": "Current: #273 Ready - RCA from owner report: #232 was marked Done after scaffold/vision PR, w...",
-        "progress": 93,
-        "status": "28 Project items \u00b7 2 active \u00b7 26 done",
+        "progress": 89,
+        "status": "27 Project items \u00b7 3 active \u00b7 24 done",
         "title": "Agent OS",
-        "totalItems": 28,
+        "totalItems": 27,
         "url": "https://github.com/lanyusea/screeps/issues/273"
       },
       {
@@ -25001,7 +23606,7 @@
         "domain": "Combat",
         "doneItems": 0,
         "goal": "Protect survival, hostile response, and defense/combat readiness.",
-        "next": "Current: #405 In progress - 2026-05-01T17:20+08 PR #429 merged and deployed in official run 2...",
+        "next": "Current: #405 In progress - P1 Combat: one-time code review sweep for dead-zone and placehold...",
         "progress": 0,
         "status": "2 Project items \u00b7 2 active \u00b7 0 done",
         "title": "Combat",
@@ -25009,15 +23614,15 @@
         "url": "https://github.com/lanyusea/screeps/issues/405"
       },
       {
-        "activeItems": 3,
+        "activeItems": 1,
         "domain": "Territory/Economy",
         "doneItems": 0,
         "goal": "Advance expansion, controller pressure, worker efficiency, and resource throughput.",
-        "next": "Current: #424 In review - PR #426 review-fix pushed as 83617ba for thread PRRT_kwDOSMSsO85-8X...",
+        "next": "Current: #424 In review - PR #426 updated with Codex-authored review-fix 7f72488; verificatio...",
         "progress": 0,
-        "status": "3 Project items \u00b7 3 active \u00b7 0 done",
+        "status": "1 Project item \u00b7 1 active \u00b7 0 done",
         "title": "Territory/Economy",
-        "totalItems": 3,
+        "totalItems": 1,
         "url": "https://github.com/lanyusea/screeps/issues/424"
       },
       {
@@ -25035,25 +23640,25 @@
       {
         "activeItems": 7,
         "domain": "RL flywheel",
-        "doneItems": 2,
+        "doneItems": 0,
         "goal": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
         "next": "Current: #266 Ready - Owner correction 2026-05-01: all RL/strategy-iteration follow-ups are P...",
-        "progress": 22,
-        "status": "9 Project items \u00b7 7 active \u00b7 2 done",
+        "progress": 0,
+        "status": "7 Project items \u00b7 7 active \u00b7 0 done",
         "title": "RL flywheel",
-        "totalItems": 9,
+        "totalItems": 7,
         "url": "https://github.com/lanyusea/screeps/issues/266"
       },
       {
         "activeItems": 0,
         "domain": "Docs/process",
-        "doneItems": 17,
+        "doneItems": 15,
         "goal": "Preserve decisions, rules, and operating context for agent continuity.",
         "next": "No active item; latest tracked: #38 Done - PR #38 records PR #37 merge checkpoint; merged 202...",
         "progress": 100,
-        "status": "17 Project items \u00b7 0 active \u00b7 17 done",
+        "status": "15 Project items \u00b7 0 active \u00b7 15 done",
         "title": "Docs/process",
-        "totalItems": 17,
+        "totalItems": 15,
         "url": "https://github.com/lanyusea/screeps/pull/38"
       }
     ]
@@ -25064,15 +23669,15 @@
         "",
         ""
       ],
-      "matchedFiles": 224,
+      "matchedFiles": 214,
       "reason": "",
-      "runtimeSummaryLines": 224,
-      "scannedFiles": 97778,
-      "skippedFileCount": 2207
+      "runtimeSummaryLines": 214,
+      "scannedFiles": 97685,
+      "skippedFileCount": 2206
     },
     "window": {
       "firstTick": 274256,
-      "latestTick": 368239
+      "latestTick": 364895
     }
   },
   "schemaVersion": 1,
