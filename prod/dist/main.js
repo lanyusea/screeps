@@ -2003,7 +2003,7 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
   }
-  const selection = selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime);
+  const selection = selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, options);
   if (!selection) {
     return null;
   }
@@ -2016,9 +2016,6 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options
     ...selection.requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...selection.followUp ? { followUp: selection.followUp } : {}
   };
-  if (options.controllerPressureOnly === true && !requiresTerritoryControllerPressure(plan)) {
-    return null;
-  }
   if (selection.recoveredFollowUp === true && typeof selection.recoveredFollowUpSuppressedAt === "number") {
     recoveredTerritoryFollowUpRetryMetadata.set(plan, { suppressedAt: selection.recoveredFollowUpSuppressedAt });
   }
@@ -2390,7 +2387,7 @@ function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   }
   return typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS;
 }
-function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
+function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, options = {}) {
   var _a, _b, _c;
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername2(colony.room.controller);
@@ -2427,27 +2424,33 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
     roleCounts,
     routeDistanceLookupContext
   );
-  const configuredCandidates = applyOccupationRecommendationScores(
-    colony,
-    roleCounts,
-    workerTarget,
-    getConfiguredTerritoryCandidates(
+  const configuredCandidates = filterControllerPressureOnlyCandidates(
+    applyOccupationRecommendationScores(
+      colony,
+      roleCounts,
+      workerTarget,
+      getConfiguredTerritoryCandidates(
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        roleCounts,
+        routeDistanceLookupContext
+      )
+    ),
+    options
+  );
+  const persistedIntentCandidates = filterControllerPressureOnlyCandidates(
+    getPersistedTerritoryIntentCandidates(
       colonyName,
       colonyOwnerUsername,
       territoryMemory,
       intents,
       gameTime,
-      roleCounts,
       routeDistanceLookupContext
-    )
-  );
-  const persistedIntentCandidates = getPersistedTerritoryIntentCandidates(
-    colonyName,
-    colonyOwnerUsername,
-    territoryMemory,
-    intents,
-    gameTime,
-    routeDistanceLookupContext
+    ),
+    options
   );
   const primaryCandidates = getSpawnCapableTerritoryCandidates(
     [...persistedIntentCandidates, ...configuredCandidates],
@@ -2467,29 +2470,32 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
     if (!shouldEvaluateAdjacentControllerProgress && !shouldEvaluateAdjacentFollowUp) {
       return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
-    const visibleAdjacentControllerProgressCandidates = applyOccupationRecommendationScores(
-      colony,
-      roleCounts,
-      workerTarget,
-      [
-        ...shouldEvaluateAdjacentControllerProgress ? getVisibleAdjacentReserveCandidates(
-          colonyName,
-          colonyOwnerUsername,
-          territoryMemory,
-          intents,
-          gameTime,
-          routeDistanceLookupContext
-        ) : [],
-        ...shouldEvaluateAdjacentFollowUp ? getVisibleAdjacentFollowUpReserveCandidates(
-          colonyName,
-          colonyOwnerUsername,
-          territoryMemory,
-          intents,
-          gameTime,
-          roleCounts,
-          routeDistanceLookupContext
-        ) : []
-      ]
+    const visibleAdjacentControllerProgressCandidates = filterControllerPressureOnlyCandidates(
+      applyOccupationRecommendationScores(
+        colony,
+        roleCounts,
+        workerTarget,
+        [
+          ...shouldEvaluateAdjacentControllerProgress ? getVisibleAdjacentReserveCandidates(
+            colonyName,
+            colonyOwnerUsername,
+            territoryMemory,
+            intents,
+            gameTime,
+            routeDistanceLookupContext
+          ) : [],
+          ...shouldEvaluateAdjacentFollowUp ? getVisibleAdjacentFollowUpReserveCandidates(
+            colonyName,
+            colonyOwnerUsername,
+            territoryMemory,
+            intents,
+            gameTime,
+            roleCounts,
+            routeDistanceLookupContext
+          ) : []
+        ]
+      ),
+      options
     );
     if (visibleAdjacentControllerProgressCandidates.length === 0) {
       return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
@@ -2505,35 +2511,47 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime) {
       routeDistanceLookupContext
     );
   }
-  const adjacentCandidates = applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
-    ...getAdjacentReserveCandidates(
-      colonyName,
-      colonyName,
-      colonyOwnerUsername,
-      territoryMemory,
-      intents,
-      gameTime,
-      !hasBlockingConfiguredTarget,
-      "adjacent",
-      0,
-      routeDistanceLookupContext
-    ),
-    ...getAdjacentFollowUpReserveCandidates(
-      colonyName,
-      colonyOwnerUsername,
-      territoryMemory,
-      intents,
-      gameTime,
-      roleCounts,
-      !hasBlockingConfiguredTarget,
-      routeDistanceLookupContext
-    )
-  ]);
+  const adjacentCandidates = filterControllerPressureOnlyCandidates(
+    applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
+      ...getAdjacentReserveCandidates(
+        colonyName,
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        !hasBlockingConfiguredTarget,
+        "adjacent",
+        0,
+        routeDistanceLookupContext
+      ),
+      ...getAdjacentFollowUpReserveCandidates(
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        roleCounts,
+        !hasBlockingConfiguredTarget,
+        routeDistanceLookupContext
+      )
+    ]),
+    options
+  );
   const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
   return toSelectedTerritoryTarget(
     (_c = (_b = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates),
     routeDistanceLookupContext
   );
+}
+function filterControllerPressureOnlyCandidates(candidates, options) {
+  if (options.controllerPressureOnly !== true) {
+    return candidates;
+  }
+  return candidates.filter(isControllerPressureCandidate);
+}
+function isControllerPressureCandidate(candidate) {
+  return isTerritoryControlAction2(candidate.intentAction) && candidate.requiresControllerPressure === true;
 }
 function selectBestScoredTerritoryCandidate(candidates) {
   let bestCandidate = null;
