@@ -1288,7 +1288,10 @@ var RESERVATION_RENEWAL_TICKS = 1e3;
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
+var ERR_NO_PATH_CODE = -2;
 var OCCUPATION_RECOMMENDATION_TARGET_CREATOR = "occupationRecommendation";
+var ROAD_DISTANCE_BASE_SCORE = 100;
+var ROAD_DISTANCE_ROOM_COST_SCORE = 20;
 var ACTION_SCORE = {
   occupy: 1e3,
   reserve: 800,
@@ -1470,20 +1473,23 @@ function buildRuntimeOccupationCandidates(colonyName) {
         visible: false,
         actionHint: target.action,
         ...target.controllerId ? { controllerId: target.controllerId } : {},
-        routeDistance: getCachedRouteDistance(colonyName, target.roomName)
+        routeDistance: getCachedRouteDistance(colonyName, target.roomName),
+        roadDistance: getCachedNearestOwnedRoomRouteDistance(colonyName, target.roomName)
       });
       order += 1;
     }
   }
   for (const roomName of getAdjacentRoomNames(colonyName)) {
     const cachedRouteDistance = getCachedRouteDistance(colonyName, roomName);
+    const routeDistance = cachedRouteDistance === void 0 ? 1 : cachedRouteDistance;
     upsertOccupationCandidate(candidatesByRoom, {
       roomName,
       source: "adjacent",
       order,
       adjacent: true,
       visible: false,
-      routeDistance: cachedRouteDistance === void 0 ? 1 : cachedRouteDistance
+      routeDistance,
+      ...typeof routeDistance === "number" ? { roadDistance: routeDistance } : {}
     });
     order += 1;
   }
@@ -1509,6 +1515,9 @@ function upsertOccupationCandidate(candidatesByRoom, candidate) {
   }
   if (existing.routeDistance === void 0 && candidate.routeDistance !== void 0) {
     existing.routeDistance = candidate.routeDistance;
+  }
+  if (existing.roadDistance === void 0 && candidate.roadDistance !== void 0) {
+    existing.roadDistance = candidate.roadDistance;
   }
 }
 function enrichVisibleOccupationCandidate(candidate) {
@@ -1606,6 +1615,7 @@ function scoreOccupationCandidate(input, candidate) {
     preconditions,
     risks,
     ...routeDistance !== void 0 ? { routeDistance } : {},
+    ...candidate.roadDistance !== void 0 ? { roadDistance: candidate.roadDistance } : {},
     ...candidate.controllerId ? { controllerId: candidate.controllerId } : {},
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...candidate.sourceCount !== void 0 ? { sourceCount: candidate.sourceCount } : {},
@@ -1630,7 +1640,8 @@ function getTerritoryIntentAction(action) {
 }
 function calculateOccupationScore(input, candidate, action, evidenceStatus) {
   var _a, _b, _c, _d, _e;
-  const distanceScore = typeof candidate.routeDistance === "number" ? Math.max(0, 80 - candidate.routeDistance * 15) : 0;
+  const roadDistance = getCandidateRoadDistance(candidate);
+  const roadDistanceScore = typeof roadDistance === "number" ? ROAD_DISTANCE_BASE_SCORE - roadDistance * ROAD_DISTANCE_ROOM_COST_SCORE : 0;
   const sourceScore = typeof candidate.sourceCount === "number" ? Math.min(candidate.sourceCount, 2) * 70 : 0;
   const supportScore = Math.min((_a = candidate.ownedStructureCount) != null ? _a : 0, 3) * 8 + Math.min((_b = candidate.constructionSiteCount) != null ? _b : 0, 3) * 5;
   const sourcePriorityScore = candidate.source === "configured" ? 50 : 25;
@@ -1640,7 +1651,11 @@ function calculateOccupationScore(input, candidate, action, evidenceStatus) {
   const controllerPressurePenalty = candidate.controller && isForeignReservation(input, candidate.controller) ? 180 : 0;
   const evidencePenalty = evidenceStatus === "insufficient-evidence" ? 260 : 0;
   const unavailablePenalty = evidenceStatus === "unavailable" ? 2e3 : 0;
-  return ACTION_SCORE[action] + sourcePriorityScore + adjacencyScore + distanceScore + sourceScore + supportScore + readinessScore - riskPenalty - controllerPressurePenalty - evidencePenalty - unavailablePenalty;
+  return ACTION_SCORE[action] + sourcePriorityScore + adjacencyScore + roadDistanceScore + sourceScore + supportScore + readinessScore - riskPenalty - controllerPressurePenalty - evidencePenalty - unavailablePenalty;
+}
+function getCandidateRoadDistance(candidate) {
+  var _a;
+  return (_a = candidate.roadDistance) != null ? _a : typeof candidate.routeDistance === "number" ? candidate.routeDistance : void 0;
 }
 function getControllerPressureEvidence(input, candidate) {
   if (candidate.source !== "configured" || !isTerritoryControlAction(candidate.actionHint) || !candidate.controller || !isForeignReservation(input, candidate.controller)) {
@@ -1767,6 +1782,56 @@ function getCachedRouteDistance(fromRoom, targetRoom) {
   }
   const distance = routeDistances[`${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}`];
   return typeof distance === "number" || distance === null ? distance : void 0;
+}
+function getCachedNearestOwnedRoomRouteDistance(fromRoom, targetRoom) {
+  const ownedRoomNames = getVisibleOwnedRoomNames(fromRoom);
+  let nearestDistance;
+  for (const ownedRoomName of ownedRoomNames) {
+    const cachedDistance = ownedRoomName === fromRoom ? getCachedRouteDistance(fromRoom, targetRoom) : getCachedRouteDistance(ownedRoomName, targetRoom);
+    const distance = cachedDistance === void 0 ? findUncachedRouteDistance(ownedRoomName, targetRoom) : cachedDistance;
+    if (typeof distance !== "number") {
+      continue;
+    }
+    nearestDistance = nearestDistance === void 0 ? distance : Math.min(nearestDistance, distance);
+  }
+  return nearestDistance;
+}
+function findUncachedRouteDistance(fromRoom, targetRoom) {
+  var _a;
+  if (fromRoom === targetRoom) {
+    return 0;
+  }
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (typeof (gameMap == null ? void 0 : gameMap.findRoute) !== "function") {
+    return void 0;
+  }
+  try {
+    const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
+    if (route === getNoPathResultCode()) {
+      return void 0;
+    }
+    return Array.isArray(route) ? route.length : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getNoPathResultCode() {
+  const noPathCode = globalThis.ERR_NO_PATH;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE;
+}
+function getVisibleOwnedRoomNames(fallbackRoomName) {
+  var _a;
+  const roomNames = /* @__PURE__ */ new Set([fallbackRoomName]);
+  const rooms = getGameRooms();
+  if (!rooms) {
+    return Array.from(roomNames);
+  }
+  for (const room of Object.values(rooms)) {
+    if (((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && typeof room.name === "string" && room.name.length > 0) {
+      roomNames.add(room.name);
+    }
+  }
+  return Array.from(roomNames);
 }
 function findRoomObjects2(room, constantName) {
   const findConstant = getGlobalNumber3(constantName);
@@ -1996,7 +2061,7 @@ var TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND = 1;
 var TERRITORY_ADJACENT_CONTROLLER_PROGRESS_WORKER_SURPLUS = 0;
 var EXIT_DIRECTION_ORDER2 = ["1", "3", "5", "7"];
 var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
-var ERR_NO_PATH_CODE = -2;
+var ERR_NO_PATH_CODE2 = -2;
 var TERRITORY_CANDIDATE_PRIORITY_URGENT_RENEWAL = 0;
 var TERRITORY_CANDIDATE_PRIORITY_VISIBLE_CLAIM = 1;
 var TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE = 2;
@@ -3057,6 +3122,12 @@ function scoreTerritoryCandidate(selection, source, order, colonyName, colonyOwn
     return null;
   }
   const routeDistance = knownRouteDistance != null ? knownRouteDistance : getInferredTerritoryRouteDistance(source);
+  const roadDistance = getNearestOwnedRoomRouteDistance(
+    colonyName,
+    selection.target.roomName,
+    routeDistance,
+    routeDistanceLookupContext
+  );
   const renewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(selection.target, colonyOwnerUsername);
   const occupationActionableTicks = source === "occupationIntent" ? getOccupationIntentActionableTicks(selection, colonyOwnerUsername) : void 0;
   const requiresControllerPressure = selection.requiresControllerPressure === true || isVisibleTerritoryReservePressureAvailable(
@@ -3072,6 +3143,7 @@ function scoreTerritoryCandidate(selection, source, order, colonyName, colonyOwn
     priority: getTerritoryCandidatePriority(selection, renewalTicksToEnd),
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...routeDistance !== void 0 ? { routeDistance } : {},
+    ...roadDistance !== void 0 ? { roadDistance } : {},
     ...renewalTicksToEnd !== null ? { renewalTicksToEnd } : {},
     ...occupationActionableTicks !== void 0 ? { occupationActionableTicks } : {}
   };
@@ -3182,6 +3254,7 @@ function buildOccupationRecommendationCandidate(candidate) {
     visible: room != null,
     actionHint: candidate.target.action,
     ...candidate.routeDistance !== void 0 ? { routeDistance: candidate.routeDistance } : {},
+    ...candidate.roadDistance !== void 0 ? { roadDistance: candidate.roadDistance } : {},
     ...room ? buildVisibleOccupationRecommendationEvidence(room, candidate.target.controllerId) : {}
   };
 }
@@ -3386,6 +3459,31 @@ function createRouteDistanceLookupContext() {
 function hasKnownNoRoute(fromRoom, targetRoom, routeDistanceLookupContext) {
   return getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) === null;
 }
+function getNearestOwnedRoomRouteDistance(colonyName, targetRoom, fallbackRouteDistance, routeDistanceLookupContext) {
+  let nearestDistance = fallbackRouteDistance;
+  for (const ownedRoomName of getVisibleOwnedRoomNames2(colonyName)) {
+    const routeDistance = ownedRoomName === colonyName ? fallbackRouteDistance : getKnownRouteLength(ownedRoomName, targetRoom, routeDistanceLookupContext);
+    if (typeof routeDistance !== "number") {
+      continue;
+    }
+    nearestDistance = nearestDistance === void 0 ? routeDistance : Math.min(nearestDistance, routeDistance);
+  }
+  return nearestDistance;
+}
+function getVisibleOwnedRoomNames2(fallbackRoomName) {
+  var _a, _b;
+  const roomNames = /* @__PURE__ */ new Set([fallbackRoomName]);
+  const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
+  if (!rooms) {
+    return Array.from(roomNames);
+  }
+  for (const room of Object.values(rooms)) {
+    if (((_b = room == null ? void 0 : room.controller) == null ? void 0 : _b.my) === true && isNonEmptyString3(room.name)) {
+      roomNames.add(room.name);
+    }
+  }
+  return Array.from(roomNames);
+}
 function getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) {
   var _a;
   if (fromRoom === targetRoom) {
@@ -3405,7 +3503,7 @@ function getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) {
     return void 0;
   }
   const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
-  if (route === getNoPathResultCode()) {
+  if (route === getNoPathResultCode2()) {
     if (cache) {
       cache[cacheKey] = null;
     }
@@ -3433,9 +3531,9 @@ function getTerritoryRouteDistanceCache() {
 function getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom) {
   return `${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR2}${targetRoom}`;
 }
-function getNoPathResultCode() {
+function getNoPathResultCode2() {
   const noPathCode = globalThis.ERR_NO_PATH;
-  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE2;
 }
 function getAdjacentReserveCandidateState(targetRoom, colonyOwnerUsername) {
   if (isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
@@ -10152,6 +10250,7 @@ function normalizeTerritoryCandidate(rawCandidate) {
       ...Array.isArray(rawCandidate.preconditions) ? { preconditions: rawCandidate.preconditions.filter(isNonEmptyString5) } : {},
       ...Array.isArray(rawCandidate.risks) ? { risks: rawCandidate.risks.filter(isNonEmptyString5) } : {},
       ...isFiniteNumber3(rawCandidate.routeDistance) ? { routeDistance: rawCandidate.routeDistance } : {},
+      ...isFiniteNumber3(rawCandidate.roadDistance) ? { roadDistance: rawCandidate.roadDistance } : {},
       ...isFiniteNumber3(rawCandidate.sourceCount) ? { sourceCount: rawCandidate.sourceCount } : {},
       ...isFiniteNumber3(rawCandidate.hostileCreepCount) ? { hostileCreepCount: rawCandidate.hostileCreepCount } : {},
       ...isFiniteNumber3(rawCandidate.hostileStructureCount) ? { hostileStructureCount: rawCandidate.hostileStructureCount } : {}
@@ -10491,7 +10590,7 @@ function buildConstructionRankingItem(room, candidate, artifactIndex, tick) {
   };
 }
 function buildTerritoryRankingItem(room, candidate, artifactIndex, tick) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
   const actionTerritorySignal = candidate.action === "occupy" ? 8 : candidate.action === "reserve" ? 6 : 2;
   const hostileRisk = ((_a = candidate.hostileCreepCount) != null ? _a : 0) * 5 + ((_b = candidate.hostileStructureCount) != null ? _b : 0) * 4;
   const evidenceRisk = candidate.evidenceStatus === "unavailable" ? 12 : candidate.evidenceStatus === "insufficient-evidence" ? 5 : 0;
@@ -10508,7 +10607,7 @@ function buildTerritoryRankingItem(room, candidate, artifactIndex, tick) {
       resources: Math.min((_f = candidate.sourceCount) != null ? _f : 0, 3) * 2,
       kills: hostileRisk > 0 ? 1 : 0,
       reliability: candidate.evidenceStatus === "sufficient" ? 1 : 0,
-      risk: hostileRisk + evidenceRisk + ((_h = (_g = candidate.risks) == null ? void 0 : _g.length) != null ? _h : 0) + Math.max(0, ((_i = candidate.routeDistance) != null ? _i : 1) - 1)
+      risk: hostileRisk + evidenceRisk + ((_h = (_g = candidate.risks) == null ? void 0 : _g.length) != null ? _h : 0) + Math.max(0, ((_j = (_i = candidate.roadDistance) != null ? _i : candidate.routeDistance) != null ? _j : 1) - 1)
     }
   };
 }
