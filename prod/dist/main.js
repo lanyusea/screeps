@@ -473,7 +473,7 @@ function countCreepsByRole(creeps, colonyName) {
           counts2.workerCapacity = ((_a = counts2.workerCapacity) != null ? _a : 0) + 1;
         }
       }
-      if (isColonyDefender(creep, colonyName) && canSatisfyRoleCapacity(creep)) {
+      if (canSatisfyDefenderCapacity(creep, colonyName)) {
         counts2.defender = ((_b = counts2.defender) != null ? _b : 0) + 1;
       }
       if (isColonyClaimer(creep, colonyName) && canSatisfyTerritoryControllerCapacity(creep)) {
@@ -522,9 +522,6 @@ function incrementTargetRoomActionCount(counts, action, targetRoom) {
 function isColonyWorker(creep, colonyName) {
   return creep.memory.colony === colonyName && creep.memory.role === "worker";
 }
-function isColonyDefender(creep, colonyName) {
-  return creep.memory.colony === colonyName && creep.memory.role === "defender";
-}
 function isColonyClaimer(creep, colonyName) {
   return creep.memory.colony === colonyName && creep.memory.role === "claimer";
 }
@@ -537,17 +534,33 @@ function canSatisfyRoleCapacity(creep) {
 function canSatisfyTerritoryControllerCapacity(creep) {
   return canSatisfyRoleCapacity(creep) && hasActiveClaimPart(creep);
 }
-function hasActiveClaimPart(creep) {
+function canSatisfyDefenderCapacity(creep, colonyName) {
+  return isColonyDefender(creep, colonyName) && isDefenderInColonyRoom(creep, colonyName) && canSatisfyRoleCapacity(creep) && hasActiveAttackPart(creep);
+}
+function isColonyDefender(creep, colonyName) {
   var _a;
-  const claimPart = getBodyPartConstant("CLAIM", "claim");
-  const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
-  if (typeof activeClaimParts === "number") {
-    return activeClaimParts > 0;
+  return creep.memory.role === "defender" && ((_a = creep.memory.defense) == null ? void 0 : _a.homeRoom) === colonyName;
+}
+function isDefenderInColonyRoom(creep, colonyName) {
+  var _a;
+  return ((_a = creep.room) == null ? void 0 : _a.name) === colonyName;
+}
+function hasActiveAttackPart(creep) {
+  return hasActiveBodyPartType(creep, getBodyPartConstant("ATTACK", "attack"));
+}
+function hasActiveClaimPart(creep) {
+  return hasActiveBodyPartType(creep, getBodyPartConstant("CLAIM", "claim"));
+}
+function hasActiveBodyPartType(creep, bodyPartType) {
+  var _a;
+  const activeParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, bodyPartType);
+  if (typeof activeParts === "number") {
+    return activeParts > 0;
   }
   if (!Array.isArray(creep.body)) {
     return false;
   }
-  return creep.body.some((part) => isActiveBodyPart(part, claimPart));
+  return creep.body.some((part) => isActiveBodyPart(part, bodyPartType));
 }
 function isActiveBodyPart(part, bodyPartType) {
   if (typeof part !== "object" || part === null) {
