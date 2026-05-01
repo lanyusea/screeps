@@ -4653,6 +4653,7 @@ var LOW_LOAD_WORKER_ENERGY_RATIO = 0.25;
 var LOW_LOAD_WORKER_ENERGY_CEILING = 25;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
+var SPAWN_RECOVERY_REFILL_PRESSURE_RATIO = 0.75;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -4973,10 +4974,21 @@ function shouldPrioritizeSpawnOrExtensionRefill(creep) {
   if (energyAvailable === null || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD) {
     return true;
   }
+  if (hasSpawnRecoveryRefillPressure(creep, energyAvailable)) {
+    return true;
+  }
   if (hasReservedTerritoryFollowUpRefillCapacity(creep) && !hasReadyTerritoryFollowUpEnergy(creep)) {
     return true;
   }
   return hasNearTermSpawnCompletionRefillDemand(creep.room);
+}
+function hasSpawnRecoveryRefillPressure(creep, energyAvailable) {
+  const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
+  if (!survivalAssessment || survivalAssessment.workerCapacity >= survivalAssessment.workerTarget) {
+    return false;
+  }
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(creep.room);
+  return energyCapacityAvailable !== null && energyCapacityAvailable > 0 && energyAvailable < energyCapacityAvailable * SPAWN_RECOVERY_REFILL_PRESSURE_RATIO;
 }
 function hasNearTermSpawnCompletionRefillDemand(room) {
   return findSpawnExtensionEnergyStructures(room).some(isNearTermSpawningSpawn);
