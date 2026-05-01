@@ -152,6 +152,64 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertNotIn("#runtime-summary", first_text)
         self.assertNotIn("raw warning should not be copied", first_text)
 
+    def test_dry_run_manifest_allows_nullable_local_metadata_ids(self) -> None:
+        partial_metadata = [
+            {"type": "screeps-rl-dataset-run", "sampleCount": 1},
+            {"type": "screeps-rl-dataset-run", "runId": "dataset-run", "sampleCount": 2},
+            {"type": "screeps-rl-historical-artifact-replay", "sourceMode": "local"},
+            {"type": "screeps-rl-historical-artifact-replay", "runId": "scenario-run", "sourceMode": "local"},
+            {"type": "screeps-rl-offline-dataset", "sampleCount": 3},
+            {"type": "screeps-rl-offline-dataset", "runId": "export-run", "sampleCount": 4},
+            {
+                "type": "screeps-strategy-shadow-report",
+                "enabled": True,
+                "liveEffect": False,
+                "modelReports": [],
+            },
+            {
+                "type": "screeps-strategy-shadow-report",
+                "reportId": "shadow-report",
+                "enabled": True,
+                "liveEffect": False,
+                "modelReports": [],
+            },
+            {"ok": True, "dry_run": True, "ports": {"host": {"http": 21025}}, "smoke": {"room": "W1N1"}},
+            {
+                "ok": True,
+                "dry_run": True,
+                "work_dir": "/tmp/screeps-private-smoke",
+                "ports": {"host": {"http": 21026}},
+                "smoke": {"room": "W1N2"},
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            metadata_path = root / "partial_metadata.json"
+            out_dir = root / "out"
+            metadata_path.write_text(json.dumps(partial_metadata, sort_keys=True), encoding="utf-8")
+
+            summary = harness.build_harness_manifest(
+                [str(metadata_path)],
+                out_dir,
+                manifest_id="nullable-metadata-test",
+                bot_commit="e" * 40,
+            )
+            manifest = read_json(out_dir / "nullable-metadata-test" / "simulator_harness_manifest.json")
+
+        self.assertTrue(summary["ok"])
+        self.assertEqual([item["runId"] for item in manifest["datasets"]["runManifests"]], [None, "dataset-run"])
+        self.assertEqual(
+            [item["runId"] for item in manifest["datasets"]["scenarioManifests"]],
+            [None, "scenario-run"],
+        )
+        self.assertEqual([item["runId"] for item in manifest["datasets"]["exportSummaries"]], [None, "export-run"])
+        self.assertEqual(
+            [item["reportId"] for item in manifest["strategyShadow"]["generatedReports"]],
+            [None, "shadow-report"],
+        )
+        self.assertEqual([item["workDir"] for item in manifest["privateSmoke"]], [None, "/tmp/screeps-private-smoke"])
+
     def test_estimated_worker_rate_records_target_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

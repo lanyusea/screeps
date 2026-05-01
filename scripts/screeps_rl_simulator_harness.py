@@ -408,10 +408,18 @@ def collect_local_metadata(scan: dataset_export.ScanResult) -> JsonObject:
                     metadata["privateSmokeReports"].append(smoke)
 
     for key in metadata["datasets"]:
-        metadata["datasets"][key].sort(key=lambda item: (item.get("path", ""), item.get("runId", "")))
-    metadata["strategyShadowReports"].sort(key=lambda item: (item.get("path", ""), item.get("reportId", "")))
-    metadata["privateSmokeReports"].sort(key=lambda item: (item.get("path", ""), item.get("workDir", "")))
+        metadata["datasets"][key].sort(key=lambda item: metadata_sort_key(item, "runId"))
+    metadata["strategyShadowReports"].sort(key=lambda item: metadata_sort_key(item, "reportId"))
+    metadata["privateSmokeReports"].sort(key=lambda item: metadata_sort_key(item, "workDir"))
     return metadata
+
+
+def metadata_sort_key(item: JsonObject, id_key: str) -> tuple[str, str]:
+    return (sort_text(item.get("path")), sort_text(item.get(id_key)))
+
+
+def sort_text(value: Any) -> str:
+    return value if isinstance(value, str) else ""
 
 
 def append_dataset_metadata(
