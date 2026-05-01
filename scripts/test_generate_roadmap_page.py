@@ -60,6 +60,22 @@ def write_evidence(repo_root: Path, name: str, evidence: dict[str, Any] | str) -
         path.write_text(json.dumps(evidence), encoding="utf-8")
 
 
+def write_codex_session(path: Path, records: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+
+
+def token_count_record(timestamp: str, total_tokens: int) -> dict[str, Any]:
+    return {
+        "timestamp": timestamp,
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "info": {"total_token_usage": {"total_tokens": total_tokens}},
+        },
+    }
+
+
 class GenerateRoadmapPageTest(unittest.TestCase):
     def test_screeps_room_target_falls_back_to_current_official_room(self) -> None:
         target = roadmap.build_screeps_room_target({})
@@ -132,6 +148,8 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 patch.object(roadmap, "fetch_all_prs", return_value=([{"state": "MERGED"}], None)),
                 patch.object(roadmap, "fetch_all_issues", return_value=([{"state": "OPEN"}], None)),
                 patch.object(roadmap, "count_private_smoke_process_reports", return_value=1),
+                patch.object(roadmap, "CODEX_SESSION_ROOT", repo_root / "missing-codex-sessions"),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", repo_root / "missing-cron-output"),
             ):
                 cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
 
@@ -140,6 +158,58 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(release_card["source"], "official deploy evidence JSON")
         self.assertIn("latest commit cccccccccccc", release_card["detail"])
         self.assertIn("run 123456", release_card["detail"])
+
+    def test_report_process_cards_compute_agent_metrics_from_local_fixtures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            codex_root = repo_root / "codex-sessions"
+            cron_root = repo_root / "hermes-cron-output"
+            write_codex_session(
+                codex_root / "2026" / "05" / "01" / "rollout-alpha.jsonl",
+                [
+                    {"timestamp": "2026-05-01T00:00:00Z", "type": "session_meta", "payload": {}},
+                    token_count_record("2026-05-01T00:05:00Z", 100),
+                    token_count_record("2026-05-01T00:10:00Z", 150),
+                ],
+            )
+            write_codex_session(
+                codex_root / "2026" / "05" / "01" / "rollout-beta.jsonl",
+                [
+                    {"timestamp": "2026-05-01T01:00:00Z", "type": "session_meta", "payload": {}},
+                    token_count_record("2026-05-01T01:30:00Z", 75),
+                ],
+            )
+            for relative in ("job-a/one.md", "job-a/two.md", "job-b/three.md"):
+                output = cron_root / relative
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("done\n", encoding="utf-8")
+
+            with (
+                patch.object(roadmap, "CODEX_SESSION_ROOT", codex_root),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", cron_root),
+                patch.object(roadmap, "summarize_official_deploy_evidence", return_value=roadmap.OfficialDeployEvidenceSummary(0)),
+                patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
+            ):
+                cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
+
+        cards_by_label = {card["label"]: card for card in cards}
+        self.assertEqual([card["label"] for card in cards], [
+            "Agent tokens",
+            "Codex runtime",
+            "Codex runs",
+            "Automation runs",
+            "Official deploys",
+        ])
+        self.assertEqual(cards_by_label["Agent tokens"]["value"], "225")
+        self.assertEqual(cards_by_label["Agent tokens"]["rawValue"], 225)
+        self.assertIn("latest token_count in 2/2 sessions", cards_by_label["Agent tokens"]["detail"])
+        self.assertEqual(cards_by_label["Agent tokens"]["source"], ".codex/sessions/**/rollout-*.jsonl")
+        self.assertEqual(cards_by_label["Codex runtime"]["value"], "40m")
+        self.assertEqual(cards_by_label["Codex runtime"]["rawValueSeconds"], 2400)
+        self.assertIn("first-to-last JSONL timestamps", cards_by_label["Codex runtime"]["detail"])
+        self.assertEqual(cards_by_label["Codex runs"]["value"], "2")
+        self.assertEqual(cards_by_label["Automation runs"]["value"], "3")
+        self.assertIn("3 cron outputs across 2 jobs", cards_by_label["Automation runs"]["detail"])
 
     def test_report_groups_visible_work_by_project_domain(self) -> None:
         repo = {
@@ -228,8 +298,10 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         roadmap_cards = roadmap.build_report_roadmap_cards(github_snapshot, repo)
         domain_board = roadmap.build_report_domain_kanban(github_snapshot)
 
-        self.assertEqual([card["title"] for card in roadmap_cards], list(roadmap.PROJECT_DOMAIN_ORDER))
+        self.assertEqual([card["title"] for card in roadmap_cards], list(roadmap.REPORT_ROADMAP_DOMAIN_ORDER))
+        self.assertNotIn("Docs/process", [card["title"] for card in roadmap_cards])
         self.assertEqual([column["title"] for column in domain_board], list(roadmap.PROJECT_DOMAIN_ORDER))
+        self.assertIn("Docs/process", [column["title"] for column in domain_board])
 
         runtime_column = next(column for column in domain_board if column["title"] == "Runtime monitor")
         gameplay_column = next(column for column in domain_board if column["title"] == "Gameplay Evolution")
@@ -298,7 +370,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                         "status": "No Project Domain items observed",
                         "url": "",
                     }
-                    for domain in roadmap.PROJECT_DOMAIN_ORDER
+                    for domain in roadmap.REPORT_ROADMAP_DOMAIN_ORDER
                 ],
                 "domainKanban": [{"title": domain, "items": []} for domain in roadmap.PROJECT_DOMAIN_ORDER],
                 "processCards": [],
@@ -306,9 +378,13 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         }
 
         html = roadmap.render_html(data)
+        roadmap_section = html.split("03 Project Domain Board", 1)[0]
+        kanban_section = html.split("03 Project Domain Board", 1)[1]
 
         self.assertIn("02 Project Domains", html)
         self.assertIn("03 Project Domain Board", html)
+        self.assertNotIn("Docs/process", roadmap_section)
+        self.assertIn("Docs/process", kanban_section)
         self.assertIn(
             ".kanban-grid {\n  display: grid;\n  grid-template-columns: repeat(5, minmax(0, 1fr));",
             html,
