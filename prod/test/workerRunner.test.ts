@@ -26,6 +26,7 @@ describe('runWorker', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
     (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
@@ -1955,6 +1956,69 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'extension-far' });
     expect(creep.transfer).toHaveBeenCalledWith(farExtension, 'energy');
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('preempts an over-reserved primary refill target for uncovered spawn-extension demand', () => {
+    const coveredSpawn = {
+      id: 'spawn-covered',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(20) }
+    } as unknown as StructureSpawn;
+    const openExtension = {
+      id: 'extension-open',
+      structureType: 'extension',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(50) }
+    } as unknown as StructureExtension;
+    const roomLocalCreeps: Creep[] = [];
+    const room = {
+      name: 'W1N1',
+      find: jest.fn(
+        (
+          type: number,
+          options?: { filter?: (object: StructureSpawn | StructureExtension | Creep) => boolean }
+        ) => {
+          if (type === FIND_MY_CREEPS) {
+            return options?.filter ? roomLocalCreeps.filter(options.filter) : roomLocalCreeps;
+          }
+
+          if (type === FIND_MY_STRUCTURES) {
+            const structures = [coveredSpawn, openExtension];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+
+          return [];
+        }
+      )
+    } as unknown as Room;
+    const assignedCarrier = {
+      name: 'AssignedCarrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-covered' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Carrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-covered' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    roomLocalCreeps.push(assignedCarrier, creep);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'extension-open' ? openExtension : coveredSpawn))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'extension-open' });
+    expect(room.find).toHaveBeenCalledWith(FIND_MY_CREEPS);
+    expect(creep.transfer).toHaveBeenCalledWith(openExtension, 'energy');
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
