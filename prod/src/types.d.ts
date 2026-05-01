@@ -5,6 +5,7 @@ declare global {
     meta: {
       version: number;
     };
+    defense?: DefenseMemory;
     territory?: TerritoryMemory;
   }
 
@@ -12,8 +13,40 @@ declare global {
     role?: string;
     colony?: string;
     task?: CreepTaskMemory;
+    defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
+  }
+
+  type DefenseActionType =
+    | 'towerAttack'
+    | 'towerHeal'
+    | 'towerRepair'
+    | 'safeMode'
+    | 'defenderAttack'
+    | 'defenderMove'
+    | 'workerFallback';
+
+  interface DefenseMemory {
+    actions?: DefenseActionMemory[];
+    rooms?: Record<string, DefenseActionMemory>;
+  }
+
+  interface DefenseActionMemory {
+    type: DefenseActionType;
+    roomName: string;
+    tick: number;
+    reason: string;
+    hostileCreepCount: number;
+    hostileStructureCount: number;
+    damagedCriticalStructureCount: number;
+    structureId?: string;
+    targetId?: string;
+    result?: ScreepsReturnCode;
+  }
+
+  interface CreepDefenseMemory {
+    homeRoom: string;
   }
 
   type TerritoryControlAction = 'claim' | 'reserve';

@@ -3,6 +3,7 @@ import { countCreepsByRole, WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../src/cree
 describe('countCreepsByRole', () => {
   it('counts creeps by memory role and colony', () => {
     const worker = { memory: { role: 'worker', colony: 'W1N1' } } as Creep;
+    const defender = { memory: { role: 'defender', colony: 'W1N1' } } as Creep;
     const claimer = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } },
       body: [{ type: 'claim', hits: 100 }]
@@ -13,8 +14,9 @@ describe('countCreepsByRole', () => {
     const otherColonyWorker = { memory: { role: 'worker', colony: 'W2N2' } } as Creep;
     const unassigned = { memory: {} } as Creep;
 
-    expect(countCreepsByRole([worker, claimer, scout, otherColonyWorker, unassigned], 'W1N1')).toEqual({
+    expect(countCreepsByRole([worker, defender, claimer, scout, otherColonyWorker, unassigned], 'W1N1')).toEqual({
       worker: 1,
+      defender: 1,
       claimer: 1,
       claimersByTargetRoom: { W2N1: 1 },
       claimersByTargetRoomAction: { reserve: { W2N1: 1 } },

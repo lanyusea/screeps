@@ -35,13 +35,21 @@ interface WorkerTaskCounts extends Record<WorkerTaskType, number> {
   none: number;
 }
 
-export interface RuntimeTelemetryEvent {
+export type RuntimeTelemetryEvent = RuntimeSpawnTelemetryEvent | RuntimeDefenseTelemetryEvent;
+
+export interface RuntimeSpawnTelemetryEvent {
   type: 'spawn';
   roomName: string;
   spawnName: string;
   creepName: string;
   role?: string;
   result: ScreepsReturnCode;
+}
+
+export interface RuntimeDefenseTelemetryEvent extends Omit<DefenseActionMemory, 'type' | 'tick'> {
+  type: 'defense';
+  action: DefenseActionType;
+  tick?: number;
 }
 
 interface RuntimeSpawnStatus {

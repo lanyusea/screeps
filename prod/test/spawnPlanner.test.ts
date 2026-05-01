@@ -10,6 +10,8 @@ describe('planSpawn', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
+    delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
+    delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
     delete (globalThis as { Game?: Partial<Game> }).Game;
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
   });
@@ -20,6 +22,8 @@ describe('planSpawn', () => {
     energyCapacityAvailable = 300,
     roomName = 'W1N1',
     constructionSiteCount = 0,
+    hostileCreeps = [],
+    hostileStructures = [],
     spawning = null,
     controller
   }: {
@@ -28,6 +32,8 @@ describe('planSpawn', () => {
     energyCapacityAvailable?: number;
     roomName?: string;
     constructionSiteCount?: number;
+    hostileCreeps?: Creep[];
+    hostileStructures?: Structure[];
     spawning?: Spawning | null;
     controller?: StructureController;
   } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
@@ -43,6 +49,16 @@ describe('planSpawn', () => {
 
       if (type === FIND_MY_CONSTRUCTION_SITES) {
         return constructionSites;
+      }
+
+      const hostileCreepsFind = (globalThis as Record<string, unknown>).FIND_HOSTILE_CREEPS;
+      if (typeof hostileCreepsFind === 'number' && type === hostileCreepsFind) {
+        return hostileCreeps;
+      }
+
+      const hostileStructuresFind = (globalThis as Record<string, unknown>).FIND_HOSTILE_STRUCTURES;
+      if (typeof hostileStructuresFind === 'number' && type === hostileStructuresFind) {
+        return hostileStructures;
       }
 
       return [];
@@ -67,6 +83,11 @@ describe('planSpawn', () => {
 
   function makeSafeOwnedController(): StructureController {
     return { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController;
+  }
+
+  function installHostileFindGlobals(): void {
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
   }
 
   function makeTerritoryRoom(roomName: string, controller: StructureController, sourceCount = 0): Room {
@@ -222,6 +243,39 @@ describe('planSpawn', () => {
     });
 
     expect(planSpawn(colony, { worker: 3 }, 150)).toBeNull();
+  });
+
+  it('plans an emergency defender when hostile creeps are visible and local worker coverage is stable', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony, spawn } = makeColony({ hostileCreeps: [hostile] });
+
+    expect(planSpawn(colony, { worker: 3 }, 160)).toEqual({
+      spawn,
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W1N1-160',
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
+    });
+  });
+
+  it('does not stack emergency defenders while one defender is already active', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony } = makeColony({ hostileCreeps: [hostile] });
+
+    expect(planSpawn(colony, { worker: 3, defender: 1 }, 161)).toBeNull();
+  });
+
+  it('waits instead of emitting an invalid defender body when hostile defense energy is unavailable', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony } = makeColony({ energyAvailable: 139, hostileCreeps: [hostile] });
+
+    expect(planSpawn(colony, { worker: 3 }, 162)).toBeNull();
   });
 
   it('plans a scout for an explicit memory target when target visibility is missing', () => {
