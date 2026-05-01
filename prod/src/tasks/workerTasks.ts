@@ -52,6 +52,7 @@ const MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
 const MIN_LOADED_WORKERS_FOR_SURPLUS_CONTROLLER_PROGRESS = 5;
 const MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 const MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
+const BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY = 550;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -234,8 +235,20 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     controller,
     constructionReservationContext
   );
-  if (capacityConstructionSite && !territoryControllerTask) {
-    return { type: 'build', targetId: capacityConstructionSite.id };
+  if (!territoryControllerTask) {
+    const baselineLogisticsConstructionSite = selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
+      creep,
+      capacityConstructionSite,
+      constructionSites,
+      constructionReservationContext
+    );
+    if (baselineLogisticsConstructionSite) {
+      return { type: 'build', targetId: baselineLogisticsConstructionSite.id };
+    }
+
+    if (capacityConstructionSite) {
+      return { type: 'build', targetId: capacityConstructionSite.id };
+    }
   }
 
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
@@ -1348,6 +1361,39 @@ function selectCapacityEnablingConstructionSite(
   );
 }
 
+function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
+  creep: Creep,
+  capacityConstructionSite: ConstructionSite | null,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext
+): ConstructionSite | null {
+  if (
+    !capacityConstructionSite ||
+    !isExtensionConstructionSite(capacityConstructionSite) ||
+    shouldPrioritizeExtensionCapacity(creep.room)
+  ) {
+    return null;
+  }
+
+  return (
+    selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext) ??
+    selectUnreservedConstructionSite(
+      creep,
+      constructionSites,
+      constructionReservationContext,
+      isContainerConstructionSite
+    )
+  );
+}
+
+function shouldPrioritizeExtensionCapacity(room: Room): boolean {
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  return (
+    energyCapacityAvailable === null ||
+    energyCapacityAvailable < BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY
+  );
+}
+
 function selectReadyFollowUpProductiveEnergySinkTask(
   creep: Creep,
   capacityConstructionSite: ConstructionSite | null,
@@ -1357,6 +1403,16 @@ function selectReadyFollowUpProductiveEnergySinkTask(
 ): ProductiveEnergySinkTask | null {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
     return null;
+  }
+
+  const baselineLogisticsConstructionSite = selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
+    creep,
+    capacityConstructionSite,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (baselineLogisticsConstructionSite) {
+    return { type: 'build', targetId: baselineLogisticsConstructionSite.id };
   }
 
   if (capacityConstructionSite) {

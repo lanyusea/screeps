@@ -5384,6 +5384,7 @@ var MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
 var MIN_LOADED_WORKERS_FOR_SURPLUS_CONTROLLER_PROGRESS = 5;
 var MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 var MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
+var BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY = 550;
 var nearTermSpawnExtensionRefillReserveCache = null;
 function selectWorkerTask(creep) {
   var _a;
@@ -5486,8 +5487,19 @@ function selectWorkerTask(creep) {
     controller,
     constructionReservationContext
   );
-  if (capacityConstructionSite && !territoryControllerTask) {
-    return { type: "build", targetId: capacityConstructionSite.id };
+  if (!territoryControllerTask) {
+    const baselineLogisticsConstructionSite = selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
+      creep,
+      capacityConstructionSite,
+      constructionSites,
+      constructionReservationContext
+    );
+    if (baselineLogisticsConstructionSite) {
+      return { type: "build", targetId: baselineLogisticsConstructionSite.id };
+    }
+    if (capacityConstructionSite) {
+      return { type: "build", targetId: capacityConstructionSite.id };
+    }
   }
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   if (priorityTowerEnergySink) {
@@ -6231,9 +6243,34 @@ function selectCapacityEnablingConstructionSite(creep, constructionSites, contro
     isExtensionConstructionSite
   );
 }
+function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(creep, capacityConstructionSite, constructionSites, constructionReservationContext) {
+  var _a;
+  if (!capacityConstructionSite || !isExtensionConstructionSite(capacityConstructionSite) || shouldPrioritizeExtensionCapacity(creep.room)) {
+    return null;
+  }
+  return (_a = selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext)) != null ? _a : selectUnreservedConstructionSite(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    isContainerConstructionSite
+  );
+}
+function shouldPrioritizeExtensionCapacity(room) {
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  return energyCapacityAvailable === null || energyCapacityAvailable < BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY;
+}
 function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstructionSite, controller, constructionSites, constructionReservationContext) {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
     return null;
+  }
+  const baselineLogisticsConstructionSite = selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
+    creep,
+    capacityConstructionSite,
+    constructionSites,
+    constructionReservationContext
+  );
+  if (baselineLogisticsConstructionSite) {
+    return { type: "build", targetId: baselineLogisticsConstructionSite.id };
   }
   if (capacityConstructionSite) {
     return { type: "build", targetId: capacityConstructionSite.id };
