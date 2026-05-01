@@ -1335,10 +1335,17 @@ function refreshDeferredTerritoryIntentPressure(existingIntent, followUpIntent) 
   }
 }
 function shouldPreservePersistedTerritoryIntentPressureRequirement(intent, controllerId = intent.controllerId) {
-  return intent.requiresControllerPressure === true && isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId);
+  return intent.requiresControllerPressure === true && (isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId) || isVisibleTerritoryControllerPressureAvailable(intent.targetRoom, intent.action, controllerId, intent.colony));
 }
 function isTerritoryControllerPressureVisibilityMissing(targetRoom, action, controllerId) {
   return isTerritoryControlAction(action) && getVisibleController(targetRoom, controllerId) === null;
+}
+function isVisibleTerritoryControllerPressureAvailable(targetRoom, action, controllerId, colonyName) {
+  if (!isTerritoryControlAction(action)) {
+    return false;
+  }
+  const controller = getVisibleController(targetRoom, controllerId);
+  return controller !== null && isForeignVisibleReservation(controller, getVisibleColonyOwnerUsername(colonyName));
 }
 function isTerritoryControlAction(action) {
   return action === "claim" || action === "reserve";
@@ -1355,6 +1362,14 @@ function getVisibleController(targetRoom, controllerId) {
     return getObjectById.call(game, controllerId);
   }
   return null;
+}
+function getVisibleColonyOwnerUsername(colonyName) {
+  var _a, _b;
+  return getControllerOwnerUsername((_b = (_a = getGameRooms()) == null ? void 0 : _a[colonyName]) == null ? void 0 : _b.controller);
+}
+function isForeignVisibleReservation(controller, colonyOwnerUsername) {
+  const reservationUsername = getReservationUsername(controller);
+  return colonyOwnerUsername !== void 0 && controller.my !== true && getControllerOwnerUsername(controller) === void 0 && reservationUsername !== void 0 && reservationUsername !== colonyOwnerUsername;
 }
 function isSameTerritoryIntent(intent, followUpIntent) {
   return intent.colony === followUpIntent.colony && intent.targetRoom === followUpIntent.targetRoom && intent.action === followUpIntent.action;
@@ -1509,7 +1524,7 @@ function shouldSpawnTerritoryControllerCreep(plan, roleCounts, gameTime = getGam
     plan.targetRoom,
     plan.action,
     plan.controllerId,
-    getVisibleColonyOwnerUsername(plan.colony)
+    getVisibleColonyOwnerUsername2(plan.colony)
   )) {
     return false;
   }
@@ -1524,7 +1539,7 @@ function requiresTerritoryControllerPressure(plan) {
     plan.targetRoom,
     plan.action,
     plan.controllerId,
-    getVisibleColonyOwnerUsername(plan.colony)
+    getVisibleColonyOwnerUsername2(plan.colony)
   ));
 }
 function isTerritoryIntentPlanSpawnCapable(plan) {
@@ -1547,7 +1562,7 @@ function getTerritoryFollowUpPreparationWorkerDemand(plan, gameTime = getGameTim
     plan.targetRoom,
     plan.action,
     plan.controllerId,
-    getVisibleColonyOwnerUsername(plan.colony)
+    getVisibleColonyOwnerUsername2(plan.colony)
   )) {
     return 0;
   }
@@ -2940,7 +2955,7 @@ function shouldRecordTerritoryIntentControllerPressure(nextIntent, controllerId,
     nextIntent.targetRoom,
     nextIntent.action,
     controllerId,
-    getVisibleColonyOwnerUsername(nextIntent.colony)
+    getVisibleColonyOwnerUsername2(nextIntent.colony)
   ) || existingIntent !== void 0 && shouldPreservePersistedTerritoryIntentPressureRequirement2(existingIntent, controllerId);
 }
 function sanitizeSatisfiedClaimReserveHandoffs(territoryMemory, intents, colonyName, colonyOwnerUsername) {
@@ -3228,7 +3243,7 @@ function isTerritoryFollowUpExecutionHintStillActive(hint, intents, routeDistanc
     matchingIntent.targetRoom,
     matchingIntent.action,
     matchingIntent.controllerId,
-    getVisibleColonyOwnerUsername(matchingIntent.colony)
+    getVisibleColonyOwnerUsername2(matchingIntent.colony)
   );
   return currentReason === hint.reason;
 }
@@ -3255,7 +3270,7 @@ function buildTerritoryFollowUpExecutionHint(plan, gameTime) {
     plan.targetRoom,
     plan.action,
     plan.controllerId,
-    getVisibleColonyOwnerUsername(plan.colony)
+    getVisibleColonyOwnerUsername2(plan.colony)
   );
   if (reason === null) {
     return null;
@@ -3564,7 +3579,7 @@ function getClaimControllerTargetState(controller) {
 }
 function getTerritoryActorUsername(creep, colony) {
   var _a;
-  return (_a = getCreepOwnerUsername(creep)) != null ? _a : isNonEmptyString3(colony) ? getVisibleColonyOwnerUsername(colony) : null;
+  return (_a = getCreepOwnerUsername(creep)) != null ? _a : isNonEmptyString3(colony) ? getVisibleColonyOwnerUsername2(colony) : null;
 }
 function getCreepOwnerUsername(creep) {
   var _a;
@@ -3715,7 +3730,7 @@ function shouldSpawnEmergencyReservationRenewal(plan, activeCoverageCount) {
   if (!controller || isControllerOwned(controller)) {
     return false;
   }
-  const colonyOwnerUsername = getVisibleColonyOwnerUsername(plan.colony);
+  const colonyOwnerUsername = getVisibleColonyOwnerUsername2(plan.colony);
   const ticksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
   return ticksToEnd !== null && ticksToEnd <= TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS;
 }
@@ -3733,7 +3748,7 @@ function getOwnReservationTicksToEnd(controller, colonyOwnerUsername) {
   }
   return reservation.ticksToEnd;
 }
-function getVisibleColonyOwnerUsername(colonyName) {
+function getVisibleColonyOwnerUsername2(colonyName) {
   const controller = getVisibleController2(colonyName);
   return getControllerOwnerUsername2(controller != null ? controller : void 0);
 }

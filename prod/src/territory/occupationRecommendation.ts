@@ -796,7 +796,8 @@ function shouldPreservePersistedTerritoryIntentPressureRequirement(
 ): boolean {
   return (
     intent.requiresControllerPressure === true &&
-    isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId)
+    (isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId) ||
+      isVisibleTerritoryControllerPressureAvailable(intent.targetRoom, intent.action, controllerId, intent.colony))
   );
 }
 
@@ -806,6 +807,20 @@ function isTerritoryControllerPressureVisibilityMissing(
   controllerId?: Id<StructureController>
 ): boolean {
   return isTerritoryControlAction(action) && getVisibleController(targetRoom, controllerId) === null;
+}
+
+function isVisibleTerritoryControllerPressureAvailable(
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  controllerId: Id<StructureController> | undefined,
+  colonyName: string
+): boolean {
+  if (!isTerritoryControlAction(action)) {
+    return false;
+  }
+
+  const controller = getVisibleController(targetRoom, controllerId);
+  return controller !== null && isForeignVisibleReservation(controller, getVisibleColonyOwnerUsername(colonyName));
 }
 
 function isTerritoryControlAction(action: unknown): action is TerritoryControlAction {
@@ -825,6 +840,24 @@ function getVisibleController(targetRoom: string, controllerId?: Id<StructureCon
   }
 
   return null;
+}
+
+function getVisibleColonyOwnerUsername(colonyName: string): string | undefined {
+  return getControllerOwnerUsername(getGameRooms()?.[colonyName]?.controller);
+}
+
+function isForeignVisibleReservation(
+  controller: StructureController,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  const reservationUsername = getReservationUsername(controller);
+  return (
+    colonyOwnerUsername !== undefined &&
+    controller.my !== true &&
+    getControllerOwnerUsername(controller) === undefined &&
+    reservationUsername !== undefined &&
+    reservationUsername !== colonyOwnerUsername
+  );
 }
 
 function isSameTerritoryIntent(

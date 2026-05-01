@@ -585,6 +585,63 @@ describe('occupation recommendation scoring', () => {
     ]);
   });
 
+  it.each(['reserve', 'claim'] as const)(
+    'preserves planner-recorded %s pressure when recommendation persistence sees live pressure',
+    (action) => {
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        rooms: {
+          W1N1: {
+            controller: { my: true, owner: { username: 'me' } } as StructureController
+          } as Room,
+          W2N1: {
+            controller: {
+              my: false,
+              reservation: { username: 'enemy', ticksToEnd: 3_000 }
+            } as StructureController
+          } as Room
+        }
+      };
+      (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+        territory: {
+          intents: [
+            {
+              colony: 'W1N1',
+              targetRoom: 'W2N1',
+              action,
+              status: 'planned',
+              updatedAt: 730,
+              requiresControllerPressure: true
+            }
+          ]
+        }
+      };
+      const report: OccupationRecommendationReport = {
+        candidates: [],
+        next: null,
+        followUpIntent: { colony: 'W1N1', targetRoom: 'W2N1', action }
+      };
+
+      expect(persistOccupationRecommendationFollowUpIntent(report, 731)).toEqual({
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action,
+        status: 'planned',
+        updatedAt: 731,
+        requiresControllerPressure: true
+      });
+      expect(Memory.territory?.intents).toEqual([
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action,
+          status: 'planned',
+          updatedAt: 731,
+          requiresControllerPressure: true
+        }
+      ]);
+    }
+  );
+
   it('clears stale pressure follow-ups when the visible target no longer needs pressure', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {
