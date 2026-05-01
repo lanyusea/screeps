@@ -27,6 +27,7 @@ export const TERRITORY_DOWNGRADE_GUARD_TICKS = 5_000;
 export const TERRITORY_RESERVATION_RENEWAL_TICKS = 1_000;
 export const TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
 export const TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 2;
+export const TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS = 50;
 export const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
 export const TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS = 1_500;
 export const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
@@ -810,6 +811,7 @@ function selectTerritoryTarget(
     intents = sanitizedStaleProgress.intents;
   }
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
+  refreshTerritoryReservationMemory(territoryMemory, colonyName, colonyOwnerUsername, gameTime);
   const deadZoneSuppression = suppressDeadZoneTerritoryTargets(
     territoryMemory,
     intents,
@@ -1196,6 +1198,12 @@ function getConfiguredTerritoryCandidates(
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
       isTerritoryIntentSuspendedForAction(intents, target.colony, target.roomName, target.action, gameTime) ||
       isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername, gameTime) ||
+      isConfiguredReserveScoutDeferredByReservationDecay(
+        target,
+        territoryMemory,
+        gameTime,
+        routeDistanceLookupContext
+      ) ||
       !isVisibleTerritoryIntentActionable(target.roomName, target.action, target.controllerId, colonyOwnerUsername)
     ) {
       return [];
@@ -1378,6 +1386,227 @@ function hasBlockingConfiguredTerritoryTargetForColony(
       'satisfied'
     );
   });
+}
+
+function refreshTerritoryReservationMemory(
+  territoryMemory: Record<string, unknown> | null,
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  gameTime: number
+): void {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  const reservations = normalizeTerritoryReservations(territoryMemory.reservations);
+  const activeConfiguredReserveKeys = new Set<string>();
+  let changed = hasMalformedTerritoryReservationMemory(territoryMemory.reservations, reservations);
+
+  for (const rawTarget of territoryMemory.targets) {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (
+      !target ||
+      target.enabled === false ||
+      target.colony !== colonyName ||
+      target.action !== 'reserve' ||
+      target.roomName === colonyName
+    ) {
+      continue;
+    }
+
+    const reservationKey = getTerritoryReservationMemoryKey(target.colony, target.roomName);
+    activeConfiguredReserveKeys.add(reservationKey);
+    const controller = getVisibleController(target.roomName, target.controllerId);
+    if (!controller) {
+      continue;
+    }
+
+    const ticksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+    if (ticksToEnd === null) {
+      if (reservations[reservationKey]) {
+        delete reservations[reservationKey];
+        changed = true;
+      }
+      continue;
+    }
+
+    const nextReservation: TerritoryReservationMemory = {
+      colony: target.colony,
+      roomName: target.roomName,
+      ticksToEnd,
+      updatedAt: gameTime,
+      ...(target.controllerId ? { controllerId: target.controllerId } : {})
+    };
+    if (!isSameTerritoryReservation(reservations[reservationKey], nextReservation)) {
+      reservations[reservationKey] = nextReservation;
+      changed = true;
+    }
+  }
+
+  for (const [reservationKey, reservation] of Object.entries(reservations)) {
+    if (
+      reservation.colony === colonyName &&
+      (!activeConfiguredReserveKeys.has(reservationKey) ||
+        getEstimatedTerritoryReservationTicksToEnd(reservation, gameTime) <= 0)
+    ) {
+      delete reservations[reservationKey];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    setTerritoryReservations(territoryMemory, reservations);
+  }
+}
+
+function isConfiguredReserveScoutDeferredByReservationDecay(
+  target: TerritoryTargetMemory,
+  territoryMemory: Record<string, unknown> | null,
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): boolean {
+  if (target.action !== 'reserve' || isVisibleRoomKnown(target.roomName)) {
+    return false;
+  }
+
+  const reservation = getStoredTerritoryReservation(territoryMemory, target);
+  if (!reservation) {
+    return false;
+  }
+
+  return (
+    getEstimatedTerritoryReservationTicksToEnd(reservation, gameTime) >
+    getTerritoryReservationPreRenewScoutLeadTicks(
+      target.colony,
+      target.roomName,
+      routeDistanceLookupContext
+    )
+  );
+}
+
+function getStoredTerritoryReservation(
+  territoryMemory: Record<string, unknown> | null,
+  target: TerritoryTargetMemory
+): TerritoryReservationMemory | null {
+  if (!territoryMemory) {
+    return null;
+  }
+
+  const reservation = normalizeTerritoryReservation(
+    isRecord(territoryMemory.reservations)
+      ? territoryMemory.reservations[getTerritoryReservationMemoryKey(target.colony, target.roomName)]
+      : undefined
+  );
+  if (
+    !reservation ||
+    reservation.colony !== target.colony ||
+    reservation.roomName !== target.roomName ||
+    (target.controllerId !== undefined &&
+      reservation.controllerId !== undefined &&
+      reservation.controllerId !== target.controllerId)
+  ) {
+    return null;
+  }
+
+  return reservation;
+}
+
+function getTerritoryReservationPreRenewScoutLeadTicks(
+  colonyName: string,
+  targetRoom: string,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): number {
+  const routeDistance = getKnownRouteLength(colonyName, targetRoom, routeDistanceLookupContext);
+  return (
+    TERRITORY_RESERVATION_RENEWAL_TICKS +
+    (typeof routeDistance === 'number'
+      ? routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS * 2
+      : 0)
+  );
+}
+
+function normalizeTerritoryReservations(rawReservations: unknown): Record<string, TerritoryReservationMemory> {
+  if (!isRecord(rawReservations)) {
+    return {};
+  }
+
+  const reservations: Record<string, TerritoryReservationMemory> = {};
+  for (const [key, rawReservation] of Object.entries(rawReservations)) {
+    const reservation = normalizeTerritoryReservation(rawReservation);
+    if (reservation) {
+      reservations[key] = reservation;
+    }
+  }
+
+  return reservations;
+}
+
+function normalizeTerritoryReservation(rawReservation: unknown): TerritoryReservationMemory | null {
+  if (!isRecord(rawReservation)) {
+    return null;
+  }
+
+  if (
+    !isNonEmptyString(rawReservation.colony) ||
+    !isNonEmptyString(rawReservation.roomName) ||
+    !isFiniteNumber(rawReservation.ticksToEnd) ||
+    !isFiniteNumber(rawReservation.updatedAt)
+  ) {
+    return null;
+  }
+
+  return {
+    colony: rawReservation.colony,
+    roomName: rawReservation.roomName,
+    ticksToEnd: Math.floor(Math.max(0, rawReservation.ticksToEnd)),
+    updatedAt: Math.floor(rawReservation.updatedAt),
+    ...(typeof rawReservation.controllerId === 'string'
+      ? { controllerId: rawReservation.controllerId as Id<StructureController> }
+      : {})
+  };
+}
+
+function hasMalformedTerritoryReservationMemory(
+  rawReservations: unknown,
+  reservations: Record<string, TerritoryReservationMemory>
+): boolean {
+  return isRecord(rawReservations) && Object.keys(rawReservations).length !== Object.keys(reservations).length;
+}
+
+function getTerritoryReservationMemoryKey(colonyName: string, roomName: string): string {
+  return `${colonyName}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${roomName}`;
+}
+
+function getEstimatedTerritoryReservationTicksToEnd(
+  reservation: TerritoryReservationMemory,
+  gameTime: number
+): number {
+  return Math.max(0, reservation.ticksToEnd - Math.max(0, gameTime - reservation.updatedAt));
+}
+
+function isSameTerritoryReservation(
+  left: TerritoryReservationMemory | undefined,
+  right: TerritoryReservationMemory
+): boolean {
+  return (
+    left !== undefined &&
+    left.colony === right.colony &&
+    left.roomName === right.roomName &&
+    left.ticksToEnd === right.ticksToEnd &&
+    left.updatedAt === right.updatedAt &&
+    left.controllerId === right.controllerId
+  );
+}
+
+function setTerritoryReservations(
+  territoryMemory: TerritoryMemory | Record<string, unknown>,
+  reservations: Record<string, TerritoryReservationMemory>
+): void {
+  if (Object.keys(reservations).length > 0) {
+    territoryMemory.reservations = reservations;
+  } else {
+    delete territoryMemory.reservations;
+  }
 }
 
 function suppressDeadZoneTerritoryTargets(
