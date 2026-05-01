@@ -16,7 +16,11 @@ import {
   clearOccupationRecommendationFollowUpIntent,
   persistOccupationRecommendationFollowUpIntent
 } from '../territory/occupationRecommendation';
-import { TERRITORY_CLAIMER_ROLE, TERRITORY_SCOUT_ROLE } from '../territory/territoryPlanner';
+import {
+  hasPendingTerritoryFollowUpIntent,
+  TERRITORY_CLAIMER_ROLE,
+  TERRITORY_SCOUT_ROLE
+} from '../territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../territory/territoryRunner';
 
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
@@ -43,6 +47,11 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady);
+    const hasPendingTerritoryFollowUp = hasPendingTerritoryFollowUpIntent(
+      colony.room.name,
+      roleCounts,
+      Game.time
+    );
     let availableEnergy = colony.energyAvailable;
     let successfulSpawnCount = 0;
     const usedSpawns = new Set<StructureSpawn>();
@@ -53,7 +62,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         planningColony,
         roleCounts,
         Game.time,
-        getSpawnPlanningOptions(successfulSpawnCount)
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp)
       );
       if (!spawnRequest) {
         break;
@@ -123,15 +132,21 @@ function createSpawnPlanningColony(
   };
 }
 
-function getSpawnPlanningOptions(successfulSpawnCount: number): SpawnPlanningOptions {
-  return successfulSpawnCount > 0
-    ? {
-        nameSuffix: String(successfulSpawnCount + 1),
-        workersOnly: true,
-        allowTerritoryControllerPressure: true,
-        allowTerritoryFollowUp: true
-      }
-    : {};
+function getSpawnPlanningOptions(
+  successfulSpawnCount: number,
+  hasPendingTerritoryFollowUp: boolean
+): SpawnPlanningOptions {
+  const allowTerritoryFollowUp = successfulSpawnCount > 0 || hasPendingTerritoryFollowUp;
+  if (successfulSpawnCount === 0) {
+    return allowTerritoryFollowUp ? { allowTerritoryFollowUp } : {};
+  }
+
+  return {
+    nameSuffix: String(successfulSpawnCount + 1),
+    workersOnly: true,
+    allowTerritoryControllerPressure: true,
+    allowTerritoryFollowUp
+  };
 }
 
 function isAllowedPostSpawnRequest(spawnRequest: SpawnRequest): boolean {

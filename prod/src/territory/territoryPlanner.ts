@@ -316,6 +316,32 @@ export function hasActiveTerritoryFollowUpPreparationDemand(
   );
 }
 
+export function hasPendingTerritoryFollowUpIntent(
+  colony: string | null | undefined,
+  roleCounts: RoleCounts,
+  gameTime = getGameTime()
+): boolean {
+  if (!isNonEmptyString(colony)) {
+    return false;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return false;
+  }
+
+  return normalizeTerritoryIntents(territoryMemory.intents).some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.followUp !== undefined &&
+      isTerritoryControlAction(intent.action) &&
+      (intent.status === 'planned' ||
+        isRecoveredTerritoryFollowUpIntent(intent, gameTime) ||
+        (intent.status === 'active' &&
+          getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) === 0))
+  );
+}
+
 export function getActiveTerritoryFollowUpExecutionHints(
   colony: string | null | undefined = undefined
 ): TerritoryExecutionHintMemory[] {

@@ -192,8 +192,7 @@ function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest |
 
   const controllerPressureOnly =
     context.options.workersOnly === true && context.options.allowTerritoryControllerPressure === true;
-  const followUpOnly =
-    context.options.workersOnly === true && context.options.allowTerritoryFollowUp === true;
+  const followUpOnly = context.options.allowTerritoryFollowUp === true;
   const territoryIntent = planTerritoryIntent(
     context.colony,
     context.roleCounts,

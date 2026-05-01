@@ -2138,6 +2138,18 @@ function hasActiveTerritoryFollowUpPreparationDemand(colony, gameTime = getGameT
     (demand) => demand.updatedAt === gameTime && demand.colony === colony && demand.workerCount > 0
   );
 }
+function hasPendingTerritoryFollowUpIntent(colony, roleCounts, gameTime = getGameTime4()) {
+  if (!isNonEmptyString3(colony)) {
+    return false;
+  }
+  const territoryMemory = getTerritoryMemoryRecord2();
+  if (!territoryMemory) {
+    return false;
+  }
+  return normalizeTerritoryIntents2(territoryMemory.intents).some(
+    (intent) => intent.colony === colony && intent.followUp !== void 0 && isTerritoryControlAction2(intent.action) && (intent.status === "planned" || isRecoveredTerritoryFollowUpIntent(intent, gameTime) || intent.status === "active" && getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) === 0)
+  );
+}
 function getActiveTerritoryFollowUpExecutionHints(colony = void 0) {
   const territoryMemory = getTerritoryMemoryRecord2();
   if (!territoryMemory) {
@@ -7305,7 +7317,7 @@ function planTerritoryRemoteSpawn(context) {
     return null;
   }
   const controllerPressureOnly = context.options.workersOnly === true && context.options.allowTerritoryControllerPressure === true;
-  const followUpOnly = context.options.workersOnly === true && context.options.allowTerritoryFollowUp === true;
+  const followUpOnly = context.options.allowTerritoryFollowUp === true;
   const territoryIntent = planTerritoryIntent(
     context.colony,
     context.roleCounts,
@@ -8932,6 +8944,11 @@ function runEconomy(preludeTelemetryEvents = []) {
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady);
+    const hasPendingTerritoryFollowUp = hasPendingTerritoryFollowUpIntent(
+      colony.room.name,
+      roleCounts,
+      Game.time
+    );
     let availableEnergy = colony.energyAvailable;
     let successfulSpawnCount = 0;
     const usedSpawns = /* @__PURE__ */ new Set();
@@ -8941,7 +8958,7 @@ function runEconomy(preludeTelemetryEvents = []) {
         planningColony,
         roleCounts,
         Game.time,
-        getSpawnPlanningOptions(successfulSpawnCount)
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp)
       );
       if (!spawnRequest) {
         break;
@@ -8993,13 +9010,17 @@ function createSpawnPlanningColony(colony, energyAvailable, usedSpawns) {
     spawns: colony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn))
   };
 }
-function getSpawnPlanningOptions(successfulSpawnCount) {
-  return successfulSpawnCount > 0 ? {
+function getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp) {
+  const allowTerritoryFollowUp = successfulSpawnCount > 0 || hasPendingTerritoryFollowUp;
+  if (successfulSpawnCount === 0) {
+    return allowTerritoryFollowUp ? { allowTerritoryFollowUp } : {};
+  }
+  return {
     nameSuffix: String(successfulSpawnCount + 1),
     workersOnly: true,
     allowTerritoryControllerPressure: true,
-    allowTerritoryFollowUp: true
-  } : {};
+    allowTerritoryFollowUp
+  };
 }
 function isAllowedPostSpawnRequest(spawnRequest) {
   return spawnRequest.memory.role === "worker" || isTerritoryControllerPressureSpawnRequest(spawnRequest) || isTerritoryControllerFollowUpSpawnRequest(spawnRequest);
