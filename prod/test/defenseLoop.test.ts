@@ -28,10 +28,14 @@ describe('runDefense', () => {
       energy: 500
     });
     roomFixture.setTowers([tower]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {
+      Worker1: { memory: { role: 'worker', colony: 'W1N1' } } as Creep
+    };
 
     const events = runDefense();
 
     expect(tower.attack).toHaveBeenCalledWith(hostile);
+    expect(events).toHaveLength(1);
     expect(events).toMatchObject([
       {
         type: 'defense',
@@ -73,6 +77,57 @@ describe('runDefense', () => {
         targetId: 'spawn1',
         result: OK_CODE,
         damagedCriticalStructureCount: 1
+      }
+    ]);
+  });
+
+  it('lets non-attacking towers recover while another tower attacks', () => {
+    const hostile = makeHostile('hostile1');
+    const roomFixture = makeOwnedRoom({
+      hostiles: [hostile],
+      spawnHits: 2_000,
+      spawnHitsMax: 5_000
+    });
+    const attackingTower = makeTower(roomFixture.room, {
+      id: 'tower-attack',
+      attack: jest.fn().mockReturnValue(OK_CODE),
+      repair: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    const recoveryTower = makeTower(roomFixture.room, {
+      id: 'tower-recover',
+      attack: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE_CODE),
+      repair: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    roomFixture.setTowers([attackingTower, recoveryTower]);
+
+    const events = runDefense();
+
+    expect(attackingTower.attack).toHaveBeenCalledWith(hostile);
+    expect(attackingTower.repair).not.toHaveBeenCalled();
+    expect(recoveryTower.repair).toHaveBeenCalledWith(roomFixture.spawn);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'towerAttack',
+        structureId: 'tower-attack',
+        targetId: 'hostile1',
+        result: OK_CODE
+      },
+      {
+        type: 'defense',
+        action: 'towerAttack',
+        structureId: 'tower-recover',
+        targetId: 'hostile1',
+        result: ERR_NOT_IN_RANGE_CODE
+      },
+      {
+        type: 'defense',
+        action: 'towerRepair',
+        structureId: 'tower-recover',
+        targetId: 'spawn1',
+        result: OK_CODE
       }
     ]);
   });
@@ -159,6 +214,76 @@ describe('runDefense', () => {
         structureId: 'Defender1',
         targetId: 'hostile1',
         result: OK_CODE
+      }
+    ]);
+  });
+
+  it('runs a defender toward the nearest hostile creep before id order', () => {
+    const farHostile = makeHostile('hostile-a', 35, 25);
+    const nearHostile = makeHostile('hostile-z', 26, 25);
+    const room = makeRoom({
+      controller: makeController({ my: false }),
+      hostiles: [farHostile, nearHostile]
+    });
+    const defender = {
+      name: 'Defender1',
+      memory: { role: 'defender', colony: 'W1N1' },
+      pos: makePosition(25, 25),
+      room,
+      attack: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE_CODE),
+      moveTo: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 105,
+      rooms: {},
+      spawns: {},
+      creeps: { Defender1: defender }
+    };
+
+    const events = runDefense();
+
+    expect(defender.attack).toHaveBeenCalledWith(nearHostile);
+    expect(defender.moveTo).toHaveBeenCalledWith(nearHostile);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'defenderMove',
+        targetId: 'hostile-z'
+      }
+    ]);
+  });
+
+  it('runs a defender toward the nearest hostile structure when no hostile creep is visible', () => {
+    const farStructure = makeHostileStructure('structure-a', 34, 25);
+    const nearStructure = makeHostileStructure('structure-z', 26, 25);
+    const room = makeRoom({
+      controller: makeController({ my: false }),
+      hostileStructures: [farStructure, nearStructure]
+    });
+    const defender = {
+      name: 'Defender1',
+      memory: { role: 'defender', colony: 'W1N1' },
+      pos: makePosition(25, 25),
+      room,
+      attack: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE_CODE),
+      moveTo: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 106,
+      rooms: {},
+      spawns: {},
+      creeps: { Defender1: defender }
+    };
+
+    const events = runDefense();
+
+    expect(defender.attack).toHaveBeenCalledWith(nearStructure);
+    expect(defender.moveTo).toHaveBeenCalledWith(nearStructure);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'defenderMove',
+        targetId: 'structure-z'
       }
     ]);
   });
@@ -318,19 +443,33 @@ function makeTower(
   } as unknown as StructureTower;
 }
 
-function makeHostile(id: string): Creep {
+function makeHostile(id: string, x = 25, y = 25): Creep {
   return {
     id,
     owner: { username: 'enemy' },
-    pos: makePosition()
+    pos: makePosition(x, y)
   } as unknown as Creep;
 }
 
-function makePosition(): RoomPosition {
+function makeHostileStructure(id: string, x = 25, y = 25): Structure {
   return {
-    x: 25,
-    y: 25,
+    id,
+    structureType: 'rampart',
+    pos: makePosition(x, y)
+  } as unknown as Structure;
+}
+
+function makePosition(x = 25, y = 25): RoomPosition {
+  return {
+    x,
+    y,
     roomName: 'W1N1',
-    getRangeTo: jest.fn().mockReturnValue(1)
+    getRangeTo: jest.fn((target?: { x?: number; y?: number }) => {
+      if (typeof target?.x !== 'number' || typeof target.y !== 'number') {
+        return 1;
+      }
+
+      return Math.max(Math.abs(x - target.x), Math.abs(y - target.y));
+    })
   } as unknown as RoomPosition;
 }

@@ -36,6 +36,11 @@ interface DefenseActionInput {
   targetId?: string;
 }
 
+interface TowerDefenseResult {
+  attackSucceeded: boolean;
+  attackingTowerIds: Set<string>;
+}
+
 export function runDefense(): RuntimeTelemetryEvent[] {
   const telemetryEvents: RuntimeTelemetryEvent[] = [];
   const colonies = getOwnedColonies();
@@ -50,26 +55,38 @@ export function runDefense(): RuntimeTelemetryEvent[] {
 }
 
 function runColonyDefense(context: DefenseContext, telemetryEvents: RuntimeTelemetryEvent[]): void {
-  const towerAttackSucceeded = runTowerDefense(context, telemetryEvents);
-  const safeModeActivated = activateSafeModeWhenNeeded(context, towerAttackSucceeded, telemetryEvents);
+  const towerDefenseResult = runTowerDefense(context, telemetryEvents);
+  const safeModeActivated = activateSafeModeWhenNeeded(
+    context,
+    towerDefenseResult.attackSucceeded,
+    telemetryEvents
+  );
 
-  if (towerAttackSucceeded || safeModeActivated) {
+  if (safeModeActivated) {
     return;
   }
 
-  if (runTowerRecovery(context, telemetryEvents)) {
+  if (runTowerRecovery(context, telemetryEvents, towerDefenseResult.attackingTowerIds)) {
+    return;
+  }
+
+  if (towerDefenseResult.attackSucceeded) {
     return;
   }
 
   recordWorkerFallbackIfNeeded(context, telemetryEvents);
 }
 
-function runTowerDefense(context: DefenseContext, telemetryEvents: RuntimeTelemetryEvent[]): boolean {
+function runTowerDefense(context: DefenseContext, telemetryEvents: RuntimeTelemetryEvent[]): TowerDefenseResult {
+  const defenseResult: TowerDefenseResult = {
+    attackSucceeded: false,
+    attackingTowerIds: new Set<string>()
+  };
+
   if (context.hostileCreeps.length === 0) {
-    return false;
+    return defenseResult;
   }
 
-  let attackSucceeded = false;
   for (const tower of getUsableTowers(context.towers)) {
     if (typeof tower.attack !== 'function') {
       continue;
@@ -80,22 +97,25 @@ function runTowerDefense(context: DefenseContext, telemetryEvents: RuntimeTeleme
       continue;
     }
 
-    const result = tower.attack(target);
+    const attackResult = tower.attack(target);
     recordDefenseAction(
       {
         action: 'towerAttack',
         context,
         reason: 'hostileVisible',
-        result,
+        result: attackResult,
         structureId: getObjectId(tower),
         targetId: getObjectId(target)
       },
       telemetryEvents
     );
-    attackSucceeded = attackSucceeded || result === OK_CODE;
+    if (attackResult === OK_CODE) {
+      defenseResult.attackSucceeded = true;
+      defenseResult.attackingTowerIds.add(getObjectId(tower));
+    }
   }
 
-  return attackSucceeded;
+  return defenseResult;
 }
 
 function activateSafeModeWhenNeeded(
@@ -126,10 +146,18 @@ function activateSafeModeWhenNeeded(
   return result === OK_CODE;
 }
 
-function runTowerRecovery(context: DefenseContext, telemetryEvents: RuntimeTelemetryEvent[]): boolean {
+function runTowerRecovery(
+  context: DefenseContext,
+  telemetryEvents: RuntimeTelemetryEvent[],
+  attackingTowerIds: Set<string>
+): boolean {
   let acted = false;
 
   for (const tower of getUsableTowers(context.towers)) {
+    if (attackingTowerIds.has(getObjectId(tower))) {
+      continue;
+    }
+
     const woundedCreep = selectWoundedFriendlyCreep(context.colony.room, tower);
     if (woundedCreep && typeof tower.heal === 'function') {
       const result = tower.heal(woundedCreep);
@@ -203,7 +231,7 @@ function runDefender(creep: Creep, telemetryEvents: RuntimeTelemetryEvent[]): vo
     return;
   }
 
-  const target = selectDefenderTarget(creep.room);
+  const target = selectDefenderTarget(creep);
   if (target && typeof creep.attack === 'function') {
     const attackResult = creep.attack(target);
     if (attackResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
@@ -340,13 +368,13 @@ function selectWoundedFriendlyCreep(room: Room, tower: StructureTower): Creep | 
   return selectClosestTarget(tower, woundedCreeps);
 }
 
-function selectDefenderTarget(room: Room): HostileTarget | null {
-  const hostileCreep = [...findHostileCreeps(room)].sort(compareObjectIds)[0];
+function selectDefenderTarget(creep: Creep): HostileTarget | null {
+  const hostileCreep = selectClosestTarget(creep, findHostileCreeps(creep.room));
   if (hostileCreep) {
     return hostileCreep;
   }
 
-  return [...findHostileStructures(room)].sort(compareObjectIds)[0] ?? null;
+  return selectClosestTarget(creep, findHostileStructures(creep.room));
 }
 
 function selectClosestTarget<T extends { pos?: RoomPosition }>(

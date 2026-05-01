@@ -58,9 +58,9 @@ const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 const TERRITORY_SCOUT_BODY_COST = 50;
 const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'emergencyBootstrap',
+  'defense',
   'localRefillSurvival',
   'controllerDowngradeGuard',
-  'defense',
   'territoryRemote'
 ];
 

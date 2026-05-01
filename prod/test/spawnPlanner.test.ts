@@ -262,6 +262,23 @@ describe('planSpawn', () => {
     });
   });
 
+  it('plans an emergency defender before local worker refill while hostiles are visible', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony, spawn } = makeColony({ sourceCount: 2, hostileCreeps: [hostile] });
+
+    expect(planSpawn(colony, { worker: 3 }, 163)).toEqual({
+      spawn,
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W1N1-163',
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
+    });
+  });
+
   it('does not stack emergency defenders while one defender is already active', () => {
     installHostileFindGlobals();
     const hostile = { id: 'hostile1' } as Creep;

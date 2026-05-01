@@ -79,21 +79,31 @@ function runDefense() {
   return telemetryEvents;
 }
 function runColonyDefense(context, telemetryEvents) {
-  const towerAttackSucceeded = runTowerDefense(context, telemetryEvents);
-  const safeModeActivated = activateSafeModeWhenNeeded(context, towerAttackSucceeded, telemetryEvents);
-  if (towerAttackSucceeded || safeModeActivated) {
+  const towerDefenseResult = runTowerDefense(context, telemetryEvents);
+  const safeModeActivated = activateSafeModeWhenNeeded(
+    context,
+    towerDefenseResult.attackSucceeded,
+    telemetryEvents
+  );
+  if (safeModeActivated) {
     return;
   }
-  if (runTowerRecovery(context, telemetryEvents)) {
+  if (runTowerRecovery(context, telemetryEvents, towerDefenseResult.attackingTowerIds)) {
+    return;
+  }
+  if (towerDefenseResult.attackSucceeded) {
     return;
   }
   recordWorkerFallbackIfNeeded(context, telemetryEvents);
 }
 function runTowerDefense(context, telemetryEvents) {
+  const defenseResult = {
+    attackSucceeded: false,
+    attackingTowerIds: /* @__PURE__ */ new Set()
+  };
   if (context.hostileCreeps.length === 0) {
-    return false;
+    return defenseResult;
   }
-  let attackSucceeded = false;
   for (const tower of getUsableTowers(context.towers)) {
     if (typeof tower.attack !== "function") {
       continue;
@@ -102,21 +112,24 @@ function runTowerDefense(context, telemetryEvents) {
     if (!target) {
       continue;
     }
-    const result = tower.attack(target);
+    const attackResult = tower.attack(target);
     recordDefenseAction(
       {
         action: "towerAttack",
         context,
         reason: "hostileVisible",
-        result,
+        result: attackResult,
         structureId: getObjectId(tower),
         targetId: getObjectId(target)
       },
       telemetryEvents
     );
-    attackSucceeded = attackSucceeded || result === OK_CODE;
+    if (attackResult === OK_CODE) {
+      defenseResult.attackSucceeded = true;
+      defenseResult.attackingTowerIds.add(getObjectId(tower));
+    }
   }
-  return attackSucceeded;
+  return defenseResult;
 }
 function activateSafeModeWhenNeeded(context, towerAttackSucceeded, telemetryEvents) {
   var _a, _b;
@@ -139,9 +152,12 @@ function activateSafeModeWhenNeeded(context, towerAttackSucceeded, telemetryEven
   );
   return result === OK_CODE;
 }
-function runTowerRecovery(context, telemetryEvents) {
+function runTowerRecovery(context, telemetryEvents, attackingTowerIds) {
   let acted = false;
   for (const tower of getUsableTowers(context.towers)) {
+    if (attackingTowerIds.has(getObjectId(tower))) {
+      continue;
+    }
     const woundedCreep = selectWoundedFriendlyCreep(context.colony.room, tower);
     if (woundedCreep && typeof tower.heal === "function") {
       const result = tower.heal(woundedCreep);
@@ -205,7 +221,7 @@ function runDefender(creep, telemetryEvents) {
   if (!colonyName) {
     return;
   }
-  const target = selectDefenderTarget(creep.room);
+  const target = selectDefenderTarget(creep);
   if (target && typeof creep.attack === "function") {
     const attackResult = creep.attack(target);
     if (attackResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === "function") {
@@ -295,13 +311,12 @@ function selectWoundedFriendlyCreep(room, tower) {
   const woundedCreeps = findMyCreeps(room).filter(isWoundedCreep);
   return selectClosestTarget(tower, woundedCreeps);
 }
-function selectDefenderTarget(room) {
-  var _a;
-  const hostileCreep = [...findHostileCreeps(room)].sort(compareObjectIds)[0];
+function selectDefenderTarget(creep) {
+  const hostileCreep = selectClosestTarget(creep, findHostileCreeps(creep.room));
   if (hostileCreep) {
     return hostileCreep;
   }
-  return (_a = [...findHostileStructures(room)].sort(compareObjectIds)[0]) != null ? _a : null;
+  return selectClosestTarget(creep, findHostileStructures(creep.room));
 }
 function selectClosestTarget(origin, targets) {
   if (targets.length === 0) {
@@ -6736,9 +6751,9 @@ var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST2 = 50;
 var SPAWN_PRIORITY_TIERS = [
   "emergencyBootstrap",
+  "defense",
   "localRefillSurvival",
   "controllerDowngradeGuard",
-  "defense",
   "territoryRemote"
 ];
 function planSpawn(colony, roleCounts, gameTime, options = {}) {
@@ -8538,6 +8553,7 @@ function attemptSpawn(spawnRequest, roomName, telemetryEvents) {
 }
 
 // src/kernel/Kernel.ts
+var MAX_FORWARDED_DEFENSE_EVENTS_PER_TICK = 5;
 var Kernel = class {
   constructor(dependencies = {
     initializeMemory,
@@ -8546,14 +8562,80 @@ var Kernel = class {
     runEconomy
   }) {
     this.dependencies = dependencies;
+    this.lastForwardedDefenseEventTick = /* @__PURE__ */ new Map();
   }
   run() {
     this.dependencies.initializeMemory();
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
-    this.dependencies.runEconomy(defenseEvents);
+    this.dependencies.runEconomy(
+      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime7())
+    );
   }
 };
+function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tick) {
+  const forwardedEvents = [];
+  const prioritizedEvents = events.map((event, index) => ({ event, index })).sort(
+    (left, right) => getDefenseEventPriority(left.event) - getDefenseEventPriority(right.event) || left.index - right.index
+  );
+  for (const { event } of prioritizedEvents) {
+    if (event.type !== "defense") {
+      forwardedEvents.push(event);
+    } else if (shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick)) {
+      forwardedEvents.push(event);
+    }
+    if (forwardedEvents.length >= MAX_FORWARDED_DEFENSE_EVENTS_PER_TICK) {
+      return forwardedEvents;
+    }
+  }
+  return forwardedEvents;
+}
+function shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick) {
+  if (event.action === "safeMode") {
+    return true;
+  }
+  const key = getDefenseEventForwardingKey(event);
+  const lastForwardedTick = lastForwardedDefenseEventTick.get(key);
+  if (typeof lastForwardedTick === "number" && tick >= lastForwardedTick && tick - lastForwardedTick < RUNTIME_SUMMARY_INTERVAL) {
+    return false;
+  }
+  lastForwardedDefenseEventTick.set(key, tick);
+  return true;
+}
+function getDefenseEventForwardingKey(event) {
+  var _a, _b;
+  return [
+    event.roomName,
+    event.action,
+    event.reason,
+    (_a = event.targetId) != null ? _a : "",
+    (_b = event.result) != null ? _b : "",
+    event.hostileCreepCount,
+    event.hostileStructureCount,
+    event.damagedCriticalStructureCount
+  ].join("|");
+}
+function getDefenseEventPriority(event) {
+  if (event.type !== "defense") {
+    return 0;
+  }
+  switch (event.action) {
+    case "safeMode":
+      return 0;
+    case "workerFallback":
+      return 1;
+    case "towerAttack":
+    case "towerHeal":
+    case "towerRepair":
+    case "defenderAttack":
+      return 2;
+    case "defenderMove":
+      return 3;
+  }
+}
+function getGameTime7() {
+  return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
+}
 
 // src/strategy/strategyRegistry.ts
 var STRATEGY_REGISTRY_SCHEMA_VERSION = 1;
