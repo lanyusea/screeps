@@ -81,6 +81,22 @@ function makeEnergySink(
   } as unknown as TestEnergySink;
 }
 
+function makeEnergySinkWithEnergy(
+  id: string,
+  structureType: StructureConstant,
+  energy: number,
+  freeCapacity: number,
+  extra: Record<string, unknown> = {}
+): TestEnergySink {
+  return makeEnergySink(id, structureType, freeCapacity, {
+    ...extra,
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(energy),
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity)
+    }
+  });
+}
+
 function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
   return { x, y, roomName } as RoomPosition;
 }
@@ -2983,8 +2999,8 @@ describe('selectWorkerTask', () => {
     });
   });
 
-  it('selects the closest spawn or extension before fillable towers', () => {
-    const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
+  it('selects a low-energy spawn before closer extension and tower refills', () => {
+    const farSpawn = makeEnergySinkWithEnergy('spawn-far', 'spawn' as StructureConstant, 0, 300);
     const fullExtension = makeEnergySink('extension-full', 'extension' as StructureConstant, 0);
     const nearExtension = makeEnergySink('extension-near', 'extension' as StructureConstant, 50);
     const nearTower = makeEnergySink('tower-near', 'tower' as StructureConstant, 500);
@@ -3014,14 +3030,14 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-near' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-far' });
     expect(getRangeTo).not.toHaveBeenCalledWith(fullExtension);
     expect(getRangeTo).not.toHaveBeenCalledWith(nearTower);
   });
 
-  it('selects the closest fillable spawn or extension', () => {
-    const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
-    const nearSpawn = makeEnergySink('spawn-near', 'spawn' as StructureConstant, 100);
+  it('selects the closest low-energy spawn before extensions', () => {
+    const farSpawn = makeEnergySinkWithEnergy('spawn-far', 'spawn' as StructureConstant, 0, 300);
+    const nearSpawn = makeEnergySinkWithEnergy('spawn-near', 'spawn' as StructureConstant, 200, 100);
     const closerExtension = makeEnergySink('extension-closer', 'extension' as StructureConstant, 50);
     const structures = [farSpawn, closerExtension, nearSpawn];
     const getRangeTo = jest.fn((target: TestEnergySink) => {
@@ -3048,7 +3064,37 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-closer' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-near' });
+  });
+
+  it('resumes extension refill once the spawn has full spawn energy stored', () => {
+    const fullSpawn = makeEnergySinkWithEnergy('spawn-full', 'spawn' as StructureConstant, 300, 0);
+    const extension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
+    const structures = [fullSpawn, extension];
+    const getRangeTo = jest.fn((target: TestEnergySink) => {
+      const ranges: Record<string, number> = {
+        'extension-open': 1,
+        'spawn-full': 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
   });
 
   it('prefers a recovery sink that can accept the full carried load over a closer partial top-off', () => {
@@ -3271,8 +3317,8 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
   });
 
-  it('prefers larger unreserved recovery capacity over an assigned primary sink', () => {
-    const spawn = makeEnergySink('spawn-assigned', 'spawn' as StructureConstant, 60);
+  it('keeps low-energy spawn refill ahead of larger extension refill capacity', () => {
+    const spawn = makeEnergySinkWithEnergy('spawn-assigned', 'spawn' as StructureConstant, 240, 60);
     const extension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
     const structures = [spawn, extension];
     const room = {
@@ -3304,7 +3350,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     setGameCreeps({ Carrier: creep, OtherCarrier: otherCarrier });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-assigned' });
   });
 
   it('uses assignment only as a tie-breaker among unreserved primary sinks', () => {
@@ -3492,7 +3538,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
   });
 
-  it('keeps id order across primary energy sinks when position helpers are unavailable', () => {
+  it('keeps low-energy spawn priority before id order when position helpers are unavailable', () => {
     const extension = makeEnergySink('extension-first', 'extension' as StructureConstant, 50);
     const laterSpawn = makeEnergySink('spawn-z', 'spawn' as StructureConstant, 300);
     const firstSpawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);
@@ -3512,7 +3558,7 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-first' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
   });
 
   it('preserves no-sink fallback behavior when all energy sinks are full', () => {
