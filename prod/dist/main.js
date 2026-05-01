@@ -6794,7 +6794,7 @@ function isCurrentTransferTargetCoveredByOtherLoadedWorkers(creep, task, target)
     return false;
   }
   let reservedEnergy = 0;
-  for (const worker of getGameCreeps2()) {
+  for (const worker of creep.room.find(FIND_MY_CREEPS)) {
     if (isSameCreep2(worker, creep) || !isSameRoomWorkerWithEnergy2(worker, creep.room)) {
       continue;
     }
@@ -6838,11 +6838,6 @@ function getUsedTransferEnergy(creep) {
   var _a, _b;
   const usedCapacity = (_b = (_a = creep.store) == null ? void 0 : _a.getUsedCapacity) == null ? void 0 : _b.call(_a, RESOURCE_ENERGY);
   return typeof usedCapacity === "number" && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : 0;
-}
-function getGameCreeps2() {
-  var _a;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  return creeps ? Object.values(creeps) : [];
 }
 function isSameRoomWorkerWithEnergy2(creep, room) {
   var _a;
