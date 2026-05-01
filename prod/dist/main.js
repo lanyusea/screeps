@@ -1991,6 +1991,7 @@ var TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWA
 var TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 2;
 var TERRITORY_SUPPRESSION_RETRY_TICKS2 = 1500;
 var TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS2 = 50;
+var TERRITORY_RECOVERED_INTENT_SPAWN_PRIORITY = 1e3;
 var TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND = 1;
 var TERRITORY_ADJACENT_CONTROLLER_PROGRESS_WORKER_SURPLUS = 0;
 var EXIT_DIRECTION_ORDER2 = ["1", "3", "5", "7"];
@@ -3129,18 +3130,24 @@ function applyOccupationRecommendationScore(candidate, recommendation, roleCount
     intentAction,
     commitTarget: nextSelection.commitTarget,
     priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
-    recommendationScore: recommendation.score,
+    recommendationScore: getTerritoryCandidateRecommendationScore(candidate, recommendation),
     recommendationEvidenceStatus: recommendation.evidenceStatus,
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...safeAdjacentControllerProgress ? { safeAdjacentControllerProgress: true } : {},
     ...renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}
   };
 }
+function getTerritoryCandidateRecommendationScore(candidate, recommendation) {
+  return recommendation.score + (candidate.recoveredFollowUp === true ? TERRITORY_RECOVERED_INTENT_SPAWN_PRIORITY : 0);
+}
 function isSafeAdjacentControllerProgressCandidate(candidate, recommendation, intentAction, adjacentControllerProgressReady) {
   return adjacentControllerProgressReady && candidate.source === "adjacent" && candidate.target.action === "reserve" && intentAction === "reserve" && candidate.commitTarget === true && candidate.routeDistance === 1 && recommendation.evidenceStatus === "sufficient" && isTerritoryTargetVisible(candidate.target);
 }
 function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts) {
   if (recommendation.evidenceStatus === "insufficient-evidence") {
+    if (isRecoveredTerritoryFollowUpControlCandidate(candidate)) {
+      return candidate.intentAction;
+    }
     if (isTerritoryControlAction2(candidate.intentAction) && candidate.requiresControllerPressure === true) {
       return candidate.intentAction;
     }
@@ -3153,6 +3160,9 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
     return "claim";
   }
   return recommendation.action === "reserve" ? "reserve" : candidate.intentAction;
+}
+function isRecoveredTerritoryFollowUpControlCandidate(candidate) {
+  return candidate.recoveredFollowUp === true && candidate.followUp !== void 0 && isTerritoryControlAction2(candidate.intentAction);
 }
 function buildOccupationRecommendationCandidate(candidate) {
   const room = getVisibleRoom(candidate.target.roomName);
