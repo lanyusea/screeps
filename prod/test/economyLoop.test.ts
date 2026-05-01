@@ -783,7 +783,7 @@ describe('runEconomy', () => {
     ]);
   });
 
-  it('exposes a pending territory follow-up on the first planning pass', () => {
+  it('keeps normal territory planning available when a pending follow-up is allowed on the first pass', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     const followUp: TerritoryFollowUpMemory = {
       source: 'activeReserveAdjacent',
@@ -831,14 +831,14 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W2N1-325', {
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W3N1-325', {
       memory: {
         role: 'claimer',
         colony: 'W1N1',
         territory: {
-          targetRoom: 'W2N1',
-          action: 'reserve',
-          followUp
+          targetRoom: 'W3N1',
+          action: 'claim',
+          controllerId: 'controller3'
         }
       }
     });
@@ -847,8 +847,16 @@ describe('runEconomy', () => {
       targetRoom: 'W2N1',
       action: 'reserve',
       status: 'planned',
-      updatedAt: 325,
+      updatedAt: 324,
       followUp
+    });
+    expect(Memory.territory?.intents).toContainEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 325,
+      controllerId: 'controller3'
     });
   });
 

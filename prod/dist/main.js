@@ -7344,13 +7344,13 @@ function planTerritoryRemoteSpawn(context) {
     return null;
   }
   const controllerPressureOnly = context.options.workersOnly === true && context.options.allowTerritoryControllerPressure === true;
-  const followUpOnly = context.options.allowTerritoryFollowUp === true;
+  const followUpOnlyFallback = context.options.workersOnly === true && context.options.allowTerritoryFollowUp === true;
   const territoryIntent = planTerritoryIntent(
     context.colony,
     context.roleCounts,
     context.workerTarget,
     context.gameTime,
-    { controllerPressureOnly, followUpOnly }
+    { controllerPressureOnly, followUpOnly: followUpOnlyFallback }
   );
   if (!territoryIntent) {
     return null;
