@@ -24,7 +24,7 @@ NO_ALERT_FIXTURE = {
     "mode": "alert",
     "alert": False,
     "reasons": [],
-    "rooms": ["shardX/E48S29"],
+    "rooms": ["shardX/E26S49"],
     "warnings": [],
 }
 
@@ -35,7 +35,7 @@ HOSTILE_ALERT_FIXTURE = {
     "reasons": [
         {
             "kind": "hostile_creep",
-            "room": "shardX/E48S29",
+            "room": "shardX/E26S49",
             "object_id": "hostile-1",
             "owner": "Invader",
             "x": 20,
@@ -43,7 +43,7 @@ HOSTILE_ALERT_FIXTURE = {
             "message": "hostile creep visible: Invader at 20,21",
         }
     ],
-    "rooms": ["shardX/E48S29"],
+    "rooms": ["shardX/E26S49"],
 }
 
 
@@ -121,7 +121,7 @@ def clean_private_smoke_fixture() -> dict[str, object]:
 
 def make_snapshot(objects: dict[str, dict[str, object]]) -> monitor.RoomSnapshot:
     return monitor.RoomSnapshot(
-        ref=monitor.RoomRef("shardX", "E48S29"),
+        ref=monitor.RoomRef("shardX", "E26S49"),
         terrain="0" * monitor.TERRAIN_CELLS,
         objects=monitor.normalize_objects(objects),
         tick=1,
@@ -194,7 +194,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                 "mode": "alert",
                 "alert": True,
                 "reasons": emitted,
-                "rooms": ["shardX/E48S29"],
+                "rooms": ["shardX/E26S49"],
             }
         )
 
@@ -243,7 +243,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
                 "mode": "alert",
                 "alert": True,
                 "reasons": emitted,
-                "rooms": ["shardX/E48S29"],
+                "rooms": ["shardX/E26S49"],
             }
         )
 
@@ -340,7 +340,7 @@ class TacticalResponseBridgeTest(unittest.TestCase):
 class RuntimeKpiArtifactTests(unittest.TestCase):
     def test_runtime_summary_payload_uses_live_room_snapshot_metrics(self) -> None:
         snapshot = monitor.RoomSnapshot(
-            ref=monitor.RoomRef(shard="shardX", room="E48S29"),
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
             terrain="0" * monitor.TERRAIN_CELLS,
             objects={
                 "controller-1": {
@@ -401,7 +401,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
 
         self.assertEqual(payload["type"], "runtime-summary")
         self.assertEqual(payload["tick"], 265630)
-        self.assertEqual(payload["rooms"][0]["roomName"], "E48S29")
+        self.assertEqual(payload["rooms"][0]["roomName"], "E26S49")
         self.assertEqual(payload["rooms"][0]["controller"]["level"], 3)
         self.assertEqual(payload["rooms"][0]["controller"]["progress"], 1250)
         self.assertEqual(payload["rooms"][0]["resources"]["storedEnergy"], 315)
@@ -411,7 +411,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
 
     def test_runtime_summary_artifact_line_is_bridge_compatible(self) -> None:
         snapshot = monitor.RoomSnapshot(
-            ref=monitor.RoomRef(shard="shardX", room="E48S29"),
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
             terrain="0" * monitor.TERRAIN_CELLS,
             objects={},
             tick=265631,
@@ -425,11 +425,11 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
         self.assertTrue(line.endswith("\n"))
         payload = json.loads(line.split(" ", 1)[1])
         self.assertEqual(payload["tick"], 265631)
-        self.assertEqual(payload["rooms"][0]["roomName"], "E48S29")
+        self.assertEqual(payload["rooms"][0]["roomName"], "E26S49")
 
     def test_runtime_summary_does_not_label_unknown_structures_as_hostile(self) -> None:
         snapshot = monitor.RoomSnapshot(
-            ref=monitor.RoomRef(shard="shardX", room="E48S29"),
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
             terrain="0" * monitor.TERRAIN_CELLS,
             objects={
                 "controller-1": {"_id": "controller-1", "type": "controller", "user": "owner-id", "level": 3},
@@ -447,7 +447,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
 
     def test_runtime_summary_counts_confirmed_foreign_owned_structures(self) -> None:
         snapshot = monitor.RoomSnapshot(
-            ref=monitor.RoomRef(shard="shardX", room="E48S29"),
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
             terrain="0" * monitor.TERRAIN_CELLS,
             objects={
                 "tower-1": {
@@ -469,7 +469,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
 
     def test_runtime_summary_artifact_write_does_not_overwrite_existing_path(self) -> None:
         snapshot = monitor.RoomSnapshot(
-            ref=monitor.RoomRef(shard="shardX", room="E48S29"),
+            ref=monitor.RoomRef(shard="shardX", room="E26S49"),
             terrain="0" * monitor.TERRAIN_CELLS,
             objects={},
             tick=265634,
