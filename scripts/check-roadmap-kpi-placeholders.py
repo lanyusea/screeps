@@ -15,6 +15,18 @@ from typing import Any, Sequence
 
 
 JsonObject = dict[str, Any]
+EXPECTED_PROCESS_LABELS = [
+    "Commits",
+    "Issues",
+    "PRs",
+    "Deploys",
+    "Private smoke",
+    "Agent tokens",
+    "Codex runtime",
+    "Codex runs",
+    "Cron runs",
+    "Longest Codex run",
+]
 EXPECTED_KPI_TITLES = ("Territory", "Resources", "Combat")
 
 
@@ -182,19 +194,27 @@ def process_card_value(data: JsonObject, label: str) -> Any:
 
 
 def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
+    cards = data.get("report", {}).get("processCards", [])
+    labels = [str(card.get("label") or "") for card in cards if isinstance(card, dict)] if isinstance(cards, list) else []
+    assert_check(
+        failures,
+        labels == EXPECTED_PROCESS_LABELS,
+        f"docs/roadmap-data.json: Delivery Metrics cards must be the approved 10-card order; saw {labels!r}",
+    )
+
     evidence_count = deploy_evidence_count(data)
-    official_deploys = process_card_value(data, "Official deploys")
+    official_deploys = process_card_value(data, "Deploys")
     if evidence_count:
         assert_check(
             failures,
             isinstance(official_deploys, int) and official_deploys >= evidence_count,
-            "docs/roadmap-data.json: Official deploys must reflect observed official deploy evidence instead of reporting 0",
+            "docs/roadmap-data.json: Deploys must reflect observed official deploy evidence instead of reporting 0",
         )
     else:
         assert_check(
             failures,
             official_deploys != 0,
-            "docs/roadmap-data.json: Official deploys must not report 0 when no deploy evidence is observed",
+            "docs/roadmap-data.json: Deploys must not report 0 when no deploy evidence is observed",
         )
 
 
@@ -212,6 +232,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         committed_html, committed_cards, committed_data = committed_inputs
         validate_kpi_html("docs/index.html", committed_html, committed_cards, generator, failures)
         validate_process_metrics(committed_data, failures)
+        compact_html = re.sub(r"\s+", "", committed_html)
+        assert_check(
+            failures,
+            ".process-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));" in compact_html,
+            "docs/index.html: Delivery Metrics grid must render as five desktop columns",
+        )
 
     if failures:
         print("Roadmap KPI placeholder check failed:", file=sys.stderr)

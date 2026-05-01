@@ -161,7 +161,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             ):
                 cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
 
-        release_card = next(card for card in cards if card["label"] == "Official deploys")
+        release_card = next(card for card in cards if card["label"] == "Deploys")
         self.assertEqual(release_card["value"], 1)
         self.assertEqual(release_card["source"], "official deploy evidence JSON")
         self.assertIn("latest commit cccccccccccc", release_card["detail"])
@@ -172,6 +172,14 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             repo_root = Path(tmp)
             codex_root = repo_root / "codex-sessions"
             cron_root = repo_root / "hermes-cron-output"
+            write_evidence(
+                repo_root,
+                "official-screeps-deploy-20260501.json",
+                deploy_evidence(timestamp="2026-05-01T03:00:00Z", commit="d" * 40, run_id="555"),
+            )
+            process_doc = repo_root / "docs" / "process" / "2026-05-01-private-smoke.md"
+            process_doc.parent.mkdir(parents=True, exist_ok=True)
+            process_doc.write_text("private-smoke-report-20260501.json\n", encoding="utf-8")
             write_codex_session(
                 codex_root / "2026" / "05" / "01" / "rollout-alpha.jsonl",
                 [
@@ -205,19 +213,42 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             with (
                 patch.object(roadmap, "CODEX_SESSION_ROOT", codex_root),
                 patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", cron_root),
-                patch.object(roadmap, "summarize_official_deploy_evidence", return_value=roadmap.OfficialDeployEvidenceSummary(0)),
+                patch.object(roadmap, "run_text", return_value="42\n"),
+                patch.object(
+                    roadmap,
+                    "fetch_all_prs",
+                    return_value=([{"state": "MERGED"}, {"state": "OPEN"}], None),
+                ),
+                patch.object(
+                    roadmap,
+                    "fetch_all_issues",
+                    return_value=([{"state": "OPEN"}, {"state": "CLOSED"}, {"state": "OPEN"}], None),
+                ),
                 patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
             ):
                 cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
 
         cards_by_label = {card["label"]: card for card in cards}
         self.assertEqual([card["label"] for card in cards], [
+            "Commits",
+            "Issues",
+            "PRs",
+            "Deploys",
+            "Private smoke",
             "Agent tokens",
             "Codex runtime",
             "Codex runs",
-            "Automation runs",
-            "Official deploys",
+            "Cron runs",
+            "Longest Codex run",
         ])
+        self.assertEqual(cards_by_label["Commits"]["value"], 42)
+        self.assertEqual(cards_by_label["Commits"]["source"], "git rev-list --count HEAD")
+        self.assertEqual(cards_by_label["Issues"]["value"], 3)
+        self.assertIn("2 open", cards_by_label["Issues"]["detail"])
+        self.assertEqual(cards_by_label["PRs"]["value"], 2)
+        self.assertIn("1 merged", cards_by_label["PRs"]["detail"])
+        self.assertEqual(cards_by_label["Deploys"]["value"], 1)
+        self.assertEqual(cards_by_label["Private smoke"]["value"], 1)
         self.assertEqual(cards_by_label["Agent tokens"]["value"], "225")
         self.assertEqual(cards_by_label["Agent tokens"]["rawValue"], 225)
         self.assertIn("latest token_count in 2/2 sessions", cards_by_label["Agent tokens"]["detail"])
@@ -226,8 +257,11 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(cards_by_label["Codex runtime"]["rawValueSeconds"], 2400)
         self.assertIn("first-to-last JSONL timestamps", cards_by_label["Codex runtime"]["detail"])
         self.assertEqual(cards_by_label["Codex runs"]["value"], "2")
-        self.assertEqual(cards_by_label["Automation runs"]["value"], "3")
-        self.assertIn("3 cron outputs across 2 jobs", cards_by_label["Automation runs"]["detail"])
+        self.assertEqual(cards_by_label["Cron runs"]["value"], "3")
+        self.assertIn("3 cron outputs across 2 jobs", cards_by_label["Cron runs"]["detail"])
+        self.assertEqual(cards_by_label["Longest Codex run"]["value"], "30m")
+        self.assertEqual(cards_by_label["Longest Codex run"]["rawValueSeconds"], 1800)
+        self.assertIn("maximum first-to-last JSONL timestamp span", cards_by_label["Longest Codex run"]["detail"])
 
     def test_report_process_cards_ignore_unattributed_host_global_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -256,6 +290,9 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             with (
                 patch.object(roadmap, "CODEX_SESSION_ROOT", codex_root),
                 patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", cron_root),
+                patch.object(roadmap, "run_text", return_value=""),
+                patch.object(roadmap, "fetch_all_prs", return_value=([], {"message": "unavailable"})),
+                patch.object(roadmap, "fetch_all_issues", return_value=([], {"message": "unavailable"})),
                 patch.object(roadmap, "summarize_official_deploy_evidence", return_value=roadmap.OfficialDeployEvidenceSummary(0)),
                 patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
             ):
@@ -264,7 +301,8 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         cards_by_label = {card["label"]: card for card in cards}
         self.assertEqual(cards_by_label["Agent tokens"]["value"], "unavailable")
         self.assertEqual(cards_by_label["Codex runs"]["value"], "unavailable")
-        self.assertEqual(cards_by_label["Automation runs"]["value"], "unavailable")
+        self.assertEqual(cards_by_label["Cron runs"]["value"], "unavailable")
+        self.assertEqual(cards_by_label["Longest Codex run"]["value"], "unavailable")
 
     def test_agent_metrics_skip_bad_or_similarly_named_repo_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -306,6 +344,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
 
         self.assertEqual(codex_metrics.session_count, 1)
         self.assertEqual(codex_metrics.total_tokens, 42)
+        self.assertEqual(codex_metrics.longest_elapsed_seconds, 180)
         self.assertEqual(automation_metrics.run_count, 1)
         self.assertEqual(automation_metrics.job_count, 1)
 
