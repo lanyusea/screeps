@@ -1325,6 +1325,7 @@ function persistOccupationRecommendationTarget(report, intent) {
     revokeOccupationRecommendationTarget(territoryMemory, intent);
     return;
   }
+  removeStaleOccupationRecommendationTargets(territoryMemory, target);
   upsertTerritoryTarget(territoryMemory, target);
 }
 function buildPersistableOccupationRecommendationTarget(report, intent) {
@@ -1339,6 +1340,15 @@ function buildPersistableOccupationRecommendationTarget(report, intent) {
     createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
     ...intent.controllerId ? { controllerId: intent.controllerId } : {}
   };
+}
+function removeStaleOccupationRecommendationTargets(territoryMemory, activeTarget) {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !((target == null ? void 0 : target.colony) === activeTarget.colony && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR && (target.roomName !== activeTarget.roomName || target.action !== activeTarget.action));
+  });
 }
 function revokeOccupationRecommendationTarget(territoryMemory, intent) {
   if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {

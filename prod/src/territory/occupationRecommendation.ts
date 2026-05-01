@@ -171,6 +171,7 @@ function persistOccupationRecommendationTarget(
     return;
   }
 
+  removeStaleOccupationRecommendationTargets(territoryMemory, target);
   upsertTerritoryTarget(territoryMemory, target);
 }
 
@@ -197,6 +198,25 @@ function buildPersistableOccupationRecommendationTarget(
     createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
     ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
   };
+}
+
+function removeStaleOccupationRecommendationTargets(
+  territoryMemory: TerritoryMemory,
+  activeTarget: TerritoryTargetMemory
+): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !(
+      target?.colony === activeTarget.colony &&
+      target.enabled !== false &&
+      target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR &&
+      (target.roomName !== activeTarget.roomName || target.action !== activeTarget.action)
+    );
+  });
 }
 
 function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, intent: TerritoryIntentMemory): void {

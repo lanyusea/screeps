@@ -337,6 +337,129 @@ describe('occupation recommendation scoring', () => {
     ]);
   });
 
+  it('supersedes stale recommendation-owned targets for the same colony when persisting a new target', () => {
+    const staleDifferentRoom: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    const staleDifferentAction: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    const manualTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve'
+    };
+    const disabledRecommendationTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W4N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation',
+      enabled: false
+    };
+    const otherColonyRecommendationTarget: TerritoryTargetMemory = {
+      colony: 'W9N9',
+      roomName: 'W8N9',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          staleDifferentRoom,
+          staleDifferentAction,
+          manualTarget,
+          disabledRecommendationTarget,
+          otherColonyRecommendationTarget
+        ]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          actionHint: 'claim',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ])
+    );
+
+    expect(persistOccupationRecommendationFollowUpIntent(report, 704)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 704,
+      controllerId: 'controller3'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      manualTarget,
+      disabledRecommendationTarget,
+      otherColonyRecommendationTarget,
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller3'
+      }
+    ]);
+  });
+
+  it('updates the current recommendation-owned target without duplicating it', () => {
+    const staleTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    const currentTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      action: 'claim',
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [staleTarget, currentTarget]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          actionHint: 'claim',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ])
+    );
+
+    expect(persistOccupationRecommendationFollowUpIntent(report, 705)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 705,
+      controllerId: 'controller3'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller3'
+      }
+    ]);
+  });
+
   it('does not persist a durable target while recommendation preconditions are unmet', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     const report = scoreOccupationRecommendations(
