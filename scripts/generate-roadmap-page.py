@@ -136,6 +136,12 @@ class AutomationRunMetrics:
     available: bool
 
 
+@dataclass(frozen=True)
+class RepoAttribution:
+    path_roots: tuple[Path, ...]
+    text_terms: tuple[str, ...]
+
+
 METRIC_SPECS: tuple[MetricSpec, ...] = (
     MetricSpec(
         "owned_rooms",
@@ -2471,7 +2477,7 @@ def build_report_process_cards(
         official_deploy_source = "unavailable"
 
     return [
-        *build_agent_process_cards(cached_process_cards),
+        *build_agent_process_cards(repo_root, repo, cached_process_cards),
         {
             "value": official_deploy_value,
             "label": "Official deploys",
@@ -2482,27 +2488,32 @@ def build_report_process_cards(
     ]
 
 
-def build_agent_process_cards(cached_process_cards: Sequence[JsonObject]) -> list[JsonObject]:
-    codex_metrics = summarize_codex_sessions(CODEX_SESSION_ROOT)
-    automation_metrics = summarize_automation_runs(HERMES_CRON_OUTPUT_ROOT)
+def build_agent_process_cards(
+    repo_root: Path,
+    repo: JsonObject,
+    cached_process_cards: Sequence[JsonObject],
+) -> list[JsonObject]:
+    attribution = build_repo_attribution(repo_root, repo)
+    codex_metrics = summarize_codex_sessions(CODEX_SESSION_ROOT, attribution)
+    automation_metrics = summarize_automation_runs(HERMES_CRON_OUTPUT_ROOT, attribution)
 
     if codex_metrics.session_count == 0:
         token_card = cached_or_unavailable_process_card(
             cached_process_cards,
             "Agent tokens",
-            "no local Codex rollout JSONL files found",
+            "no repo-attributed local Codex rollout JSONL files found",
             "unavailable",
         )
         runtime_card = cached_or_unavailable_process_card(
             cached_process_cards,
             "Codex runtime",
-            "no local Codex rollout JSONL files found",
+            "no repo-attributed local Codex rollout JSONL files found",
             "unavailable",
         )
         runs_card = cached_or_unavailable_process_card(
             cached_process_cards,
             "Codex runs",
-            "no local Codex rollout JSONL files found",
+            "no repo-attributed local Codex rollout JSONL files found",
             "unavailable",
         )
     else:
@@ -2532,7 +2543,7 @@ def build_agent_process_cards(cached_process_cards: Sequence[JsonObject]) -> lis
             "label": "Agent tokens",
             "detail": token_detail,
             "delta": "+0",
-            "source": ".codex/sessions/**/rollout-*.jsonl",
+            "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
         }
         runtime_card = {
             "value": runtime_value,
@@ -2540,7 +2551,7 @@ def build_agent_process_cards(cached_process_cards: Sequence[JsonObject]) -> lis
             "label": "Codex runtime",
             "detail": runtime_detail,
             "delta": "+0",
-            "source": ".codex/sessions/**/rollout-*.jsonl timestamps",
+            "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
         }
         runs_card = {
             "value": format_compact_count(codex_metrics.session_count),
@@ -2548,7 +2559,7 @@ def build_agent_process_cards(cached_process_cards: Sequence[JsonObject]) -> lis
             "label": "Codex runs",
             "detail": "rollout JSONL files counted as Codex runs",
             "delta": "+0",
-            "source": ".codex/sessions/**/rollout-*.jsonl",
+            "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
         }
 
     if automation_metrics.available:
@@ -2561,13 +2572,13 @@ def build_agent_process_cards(cached_process_cards: Sequence[JsonObject]) -> lis
                 f"{automation_metrics.job_count:,} jobs"
             ),
             "delta": "+0",
-            "source": ".hermes/cron/output/*/*.md",
+            "source": "repo-attributed .hermes/cron/output/*/*.md",
         }
     else:
         automation_card = cached_or_unavailable_process_card(
             cached_process_cards,
             "Automation runs",
-            "no local Hermes cron markdown outputs found",
+            "no repo-attributed local Hermes cron markdown outputs found",
             "unavailable",
         )
 
@@ -2605,10 +2616,14 @@ def process_cached_detail(cached_card: JsonObject, fallback: str) -> str:
     return f"{cached_detail} · cached"
 
 
-def summarize_codex_sessions(session_root: Path) -> CodexSessionMetrics:
+def summarize_codex_sessions(
+    session_root: Path,
+    attribution: RepoAttribution | None = None,
+) -> CodexSessionMetrics:
     if not session_root.exists():
         return CodexSessionMetrics(0, 0, 0, None, None, 0)
 
+    attribution = attribution or build_repo_attribution(None, None)
     session_count = 0
     token_session_count = 0
     timed_session_count = 0
@@ -2617,6 +2632,8 @@ def summarize_codex_sessions(session_root: Path) -> CodexSessionMetrics:
     elapsed_seconds = 0
     for path in sorted(session_root.glob(f"**/{CODEX_SESSION_PATTERN}")):
         if not path.is_file():
+            continue
+        if not codex_session_is_repo_attributed(path, attribution):
             continue
         session_count += 1
         session = summarize_codex_session_file(path)
@@ -2646,7 +2663,7 @@ def summarize_codex_session_file(path: Path) -> tuple[int | None, int | None] | 
     last_seen: datetime | None = None
     latest_tokens: int | None = None
     try:
-        with path.open("r", encoding="utf-8") as handle:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
             for line in handle:
                 try:
                     record = json.loads(line)
@@ -2683,12 +2700,155 @@ def codex_token_count_from_record(record: Mapping[str, Any]) -> int | None:
     return int(number)
 
 
-def summarize_automation_runs(output_root: Path) -> AutomationRunMetrics:
+def summarize_automation_runs(
+    output_root: Path,
+    attribution: RepoAttribution | None = None,
+) -> AutomationRunMetrics:
     if not output_root.exists():
         return AutomationRunMetrics(0, 0, False)
-    paths = [path for path in output_root.glob("*/*.md") if path.is_file()]
+    attribution = attribution or build_repo_attribution(None, None)
+    paths = []
+    for path in output_root.glob("*/*.md"):
+        if not path.is_file():
+            continue
+        if not text_file_mentions_any(path, attribution.text_terms):
+            continue
+        paths.append(path)
     job_count = len({path.parent for path in paths})
     return AutomationRunMetrics(len(paths), job_count, bool(paths))
+
+
+def build_repo_attribution(repo_root: Path | None, repo: Mapping[str, Any] | None) -> RepoAttribution:
+    path_roots: list[Path] = []
+    text_terms: list[str] = []
+    repo_name = ""
+
+    if repo_root is not None:
+        append_attribution_path(path_roots, text_terms, repo_root)
+    if repo is not None:
+        full_name = str(repo.get("fullName") or "").strip().lower()
+        if full_name:
+            text_terms.extend([full_name, f"github.com/{full_name}"])
+            repo_name = full_name.rsplit("/", 1)[-1]
+        url = str(repo.get("url") or "").strip().lower()
+        if url:
+            text_terms.append(url.removesuffix(".git"))
+
+    if repo_name:
+        append_attribution_path(path_roots, text_terms, Path("/root") / repo_name)
+        append_attribution_path(path_roots, text_terms, Path("/root") / f"{repo_name}-worktrees")
+        append_attribution_path(path_roots, text_terms, Path("/root/worktrees") / repo_name)
+
+    return RepoAttribution(
+        path_roots=tuple(dedupe_paths(path_roots)),
+        text_terms=tuple(dedupe_strings(text_terms)),
+    )
+
+
+def append_attribution_path(path_roots: list[Path], text_terms: list[str], path: Path) -> None:
+    resolved = resolve_path_for_attribution(path)
+    path_roots.append(resolved)
+    text_terms.append(str(resolved).lower())
+
+
+def dedupe_paths(paths: Sequence[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    for path in paths:
+        if path not in deduped:
+            deduped.append(path)
+    return deduped
+
+
+def dedupe_strings(terms: Sequence[str]) -> list[str]:
+    deduped: list[str] = []
+    for term in terms:
+        normalized = term.strip().lower()
+        if normalized and normalized not in deduped:
+            deduped.append(normalized)
+    return deduped
+
+
+def codex_session_is_repo_attributed(path: Path, attribution: RepoAttribution) -> bool:
+    if not attribution.path_roots and not attribution.text_terms:
+        return False
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(record, Mapping):
+                    continue
+                if codex_record_is_repo_attributed(record, attribution):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def codex_record_is_repo_attributed(record: Mapping[str, Any], attribution: RepoAttribution) -> bool:
+    payload = record.get("payload")
+    payload_mapping = payload if isinstance(payload, Mapping) else {}
+    for container in (record, payload_mapping):
+        for key in ("cwd", "workdir", "repoRoot", "repo_root"):
+            value = container.get(key)
+            if isinstance(value, str) and path_text_matches_attribution(value, attribution.path_roots):
+                return True
+        git = container.get("git")
+        if isinstance(git, Mapping):
+            for key in ("repository_url", "repositoryUrl", "remote", "url"):
+                value = git.get(key)
+                if isinstance(value, str) and text_matches_attribution(value, attribution.text_terms):
+                    return True
+    return False
+
+
+def path_text_matches_attribution(value: str, roots: Sequence[Path]) -> bool:
+    if not value.strip():
+        return False
+    try:
+        candidate = resolve_path_for_attribution(Path(value).expanduser())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return any(path_is_relative_to(candidate, root) for root in roots)
+
+
+def resolve_path_for_attribution(path: Path) -> Path:
+    try:
+        return path.expanduser().resolve()
+    except OSError:
+        return path.expanduser().absolute()
+
+
+def path_is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def text_matches_attribution(value: str, terms: Sequence[str]) -> bool:
+    text = value.strip().lower().removesuffix(".git")
+    for term in terms:
+        candidate = term.strip().lower().removesuffix(".git")
+        if not candidate:
+            continue
+        pattern = rf"(?<![a-z0-9_.-]){re.escape(candidate)}(?![a-z0-9_.-])"
+        if re.search(pattern, text):
+            return True
+    return False
+
+
+def text_file_mentions_any(path: Path, terms: Sequence[str], *, max_bytes: int = 2_000_000) -> bool:
+    if not terms:
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")[:max_bytes].lower()
+    except OSError:
+        return False
+    return text_matches_attribution(text, terms)
 
 
 def format_compact_count(value: int | float) -> str:
