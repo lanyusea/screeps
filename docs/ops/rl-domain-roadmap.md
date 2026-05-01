@@ -154,6 +154,7 @@ Target issue: #414.
 Deliverables:
 
 - documented adapter design from Overmind-RL audit to current repo;
+- dry-run manifest generator and contract: `scripts/screeps_rl_simulator_harness.py` and `docs/ops/rl-simulator-harness.md`;
 - local/private Screeps server scenario definition;
 - reset/seed contract;
 - tick-throughput measurement;
