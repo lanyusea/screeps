@@ -16,6 +16,7 @@ declare global {
     defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
+    refillTelemetry?: WorkerRefillTelemetryMemory;
   }
 
   type DefenseActionType =
@@ -134,6 +135,30 @@ declare global {
     energy?: number;
     range?: number;
     reason?: WorkerEfficiencyLowLoadReturnReason;
+  }
+
+  interface WorkerRefillTelemetryMemory {
+    current?: WorkerRefillDeliveryMemory;
+    recentDeliveries?: WorkerRefillDeliverySampleMemory[];
+    refillActiveTicks?: number;
+    idleOrOtherTaskTicks?: number;
+    lastUpdatedAt?: number;
+  }
+
+  interface WorkerRefillDeliveryMemory {
+    targetId: string;
+    startedAt: number;
+    activeTicks: number;
+    idleOrOtherTaskTicks: number;
+  }
+
+  interface WorkerRefillDeliverySampleMemory {
+    tick: number;
+    targetId: string;
+    deliveryTicks: number;
+    activeTicks: number;
+    idleOrOtherTaskTicks: number;
+    energyDelivered: number;
   }
 
   type CreepTaskMemory =

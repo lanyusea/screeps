@@ -4,11 +4,18 @@ import {
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   LOW_LOAD_NEARBY_ENERGY_RANGE,
   LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
+  REFILL_DELIVERY_MIN_LOAD,
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   estimateNearTermSpawnExtensionRefillReserve,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
+import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import {
+  emitRuntimeSummary,
+  RUNTIME_SUMMARY_INTERVAL,
+  RUNTIME_SUMMARY_PREFIX
+} from '../src/telemetry/runtimeSummary';
 import {
   assessColonySurvival,
   clearColonySurvivalAssessmentCache,
@@ -2095,7 +2102,7 @@ describe('selectWorkerTask', () => {
   it.each([
     ['spawn', 'spawn1'],
     ['extension', 'extension1']
-  ])('prioritizes urgent %s refill over low-load harvest continuation during spawn recovery', (structureType, id) => {
+  ])('keeps urgent %s refill worker acquiring energy until the min delivery load during spawn recovery', (structureType, id) => {
     const energySink = makeEnergySink(id, structureType as StructureConstant, 300);
     const lowEnergySource = makeSource('source-low', 8, 8, 10);
     const loadReadySource = makeSource('source-ready', 20, 20, 300);
@@ -2126,16 +2133,157 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ RecoveryCarrier: creep });
     recordSurvivalMode('LOCAL_STABLE', 333);
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
     expect(creep.memory.workerEfficiency).toEqual({
-      type: 'lowLoadReturn',
+      type: 'nearbyEnergyChoice',
       tick: 333,
       carriedEnergy: 2,
       freeCapacity: 48,
+      selectedTask: 'harvest',
+      targetId: 'source-ready',
+      energy: 300,
+      range: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+    });
+  });
+
+  it('returns early for urgent refill when the only visible source is depleted', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const depletedSource = makeSource('source-empty', 8, 8, 0);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'source-empty': 1,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 400,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [depletedSource]
+    });
+    const creep = {
+      name: 'RecoveryCarrier',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(REFILL_DELIVERY_MIN_LOAD - 1),
+        getFreeCapacity: jest.fn().mockReturnValue(81)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryCarrier: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'lowLoadReturn',
+      tick: 0,
+      carriedEnergy: REFILL_DELIVERY_MIN_LOAD - 1,
+      freeCapacity: 81,
       selectedTask: 'transfer',
-      targetId: id,
+      targetId: 'spawn1',
       reason: 'urgentSpawnExtensionRefill'
     });
+  });
+
+  it('records refill delivery ticks and delivered energy in runtime summary telemetry', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300, {
+      name: 'Spawn1'
+    }) as StructureSpawn;
+    const room = makeWorkerTaskRoom({
+      energyAvailable: 100,
+      energyCapacityAvailable: 300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn]
+    });
+    const worker = {
+      id: 'worker1',
+      name: 'RefillWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> },
+        refillTelemetry: {
+          current: {
+            targetId: 'spawn1',
+            startedAt: RUNTIME_SUMMARY_INTERVAL - 2,
+            activeTicks: 2,
+            idleOrOtherTaskTicks: 1
+          },
+          refillActiveTicks: 2,
+          idleOrOtherTaskTicks: 1,
+          lastUpdatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+        }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(15) }
+    } as unknown as Creep;
+    const colony: ColonySnapshot = {
+      room,
+      spawns: [spawn],
+      energyAvailable: 100,
+      energyCapacityAvailable: 300
+    };
+    (room as unknown as { getEventLog: jest.Mock }).getEventLog = jest.fn(() => [
+      {
+        event: 10,
+        objectId: 'worker1',
+        data: { targetId: 'spawn1', amount: 15, resourceType: RESOURCE_ENERGY }
+      }
+    ]);
+    (globalThis as unknown as { EVENT_TRANSFER: number }).EVENT_TRANSFER = 10;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RefillWorker: worker },
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      time: RUNTIME_SUMMARY_INTERVAL
+    };
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    try {
+      emitRuntimeSummary([colony], [worker], [], { persistOccupationRecommendations: false });
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const [message] = logSpy.mock.calls[0];
+      expect(typeof message).toBe('string');
+      const payload = JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length)) as {
+        rooms: Array<Record<string, unknown>>;
+      };
+      const [roomSummary] = payload.rooms;
+      expect((roomSummary.resources as Record<string, Record<string, number>>).events.refillEnergyDelivered).toBe(15);
+      expect(roomSummary.refillDeliveryTicks).toEqual({
+        completedCount: 1,
+        averageTicks: 3,
+        maxTicks: 3,
+        samples: [
+          {
+            creepName: 'RefillWorker',
+            tick: RUNTIME_SUMMARY_INTERVAL,
+            targetId: 'spawn1',
+            deliveryTicks: 3,
+            activeTicks: 3,
+            idleOrOtherTaskTicks: 1,
+            energyDelivered: 15
+          }
+        ]
+      });
+      expect(roomSummary.refillWorkerUtilization).toEqual({
+        assignedWorkerCount: 1,
+        refillActiveTicks: 3,
+        idleOrOtherTaskTicks: 1,
+        ratio: 0.75,
+        workers: [
+          {
+            creepName: 'RefillWorker',
+            refillActiveTicks: 3,
+            idleOrOtherTaskTicks: 1,
+            ratio: 0.75
+          }
+        ]
+      });
+    } finally {
+      logSpy.mockRestore();
+      delete (globalThis as unknown as { EVENT_TRANSFER?: number }).EVENT_TRANSFER;
+    }
   });
 
   it('keeps the load-ready harvest preference during spawn recovery when no refill target exists', () => {
@@ -2674,7 +2822,7 @@ describe('selectWorkerTask', () => {
     expect(findPathTo).not.toHaveBeenCalled();
   });
 
-  it('keeps urgent spawn refill before low-load nearby energy acquisition', () => {
+  it('keeps urgent spawn refill worker acquiring nearby energy while below the min delivery load', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
     const getRangeTo = jest.fn((target: { id: string }) => (target.id === 'drop-near' ? 1 : 99));
@@ -2716,15 +2864,16 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 322 };
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
     expect(creep.memory.workerEfficiency).toEqual({
-      type: 'lowLoadReturn',
+      type: 'nearbyEnergyChoice',
       tick: 322,
       carriedEnergy: 10,
       freeCapacity: 40,
-      selectedTask: 'transfer',
-      targetId: 'spawn1',
-      reason: 'urgentSpawnExtensionRefill'
+      selectedTask: 'pickup',
+      targetId: 'drop-near',
+      energy: 50,
+      range: 1
     });
   });
 
