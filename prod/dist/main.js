@@ -867,6 +867,7 @@ function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGam
   territoryMemory.intents = intents;
   const existingIntent = intents.find((intent) => isSameTerritoryIntent(intent, followUpIntent));
   if (existingIntent && (isTerritorySuppressionFresh(existingIntent, gameTime) || isRecoveredTerritoryFollowUpAttemptCoolingDown(existingIntent, gameTime) || isRecoveredTerritoryFollowUpRetryPending(existingIntent))) {
+    refreshDeferredTerritoryIntentPressure(existingIntent, followUpIntent);
     return null;
   }
   const controllerId = (_a = followUpIntent.controllerId) != null ? _a : existingIntent == null ? void 0 : existingIntent.controllerId;
@@ -1323,6 +1324,15 @@ function upsertTerritoryIntent(intents, nextIntent) {
     return;
   }
   intents.push(nextIntent);
+}
+function refreshDeferredTerritoryIntentPressure(existingIntent, followUpIntent) {
+  if (followUpIntent.requiresControllerPressure !== true) {
+    return;
+  }
+  existingIntent.requiresControllerPressure = true;
+  if (!existingIntent.controllerId && followUpIntent.controllerId) {
+    existingIntent.controllerId = followUpIntent.controllerId;
+  }
 }
 function shouldPreservePersistedTerritoryIntentPressureRequirement(intent, controllerId = intent.controllerId) {
   return intent.requiresControllerPressure === true && isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId);

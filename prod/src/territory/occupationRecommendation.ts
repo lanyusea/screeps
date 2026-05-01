@@ -128,6 +128,7 @@ export function persistOccupationRecommendationFollowUpIntent(
       isRecoveredTerritoryFollowUpAttemptCoolingDown(existingIntent, gameTime) ||
       isRecoveredTerritoryFollowUpRetryPending(existingIntent))
   ) {
+    refreshDeferredTerritoryIntentPressure(existingIntent, followUpIntent);
     return null;
   }
 
@@ -773,6 +774,20 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
   }
 
   intents.push(nextIntent);
+}
+
+function refreshDeferredTerritoryIntentPressure(
+  existingIntent: TerritoryIntentMemory,
+  followUpIntent: OccupationRecommendationFollowUpIntent
+): void {
+  if (followUpIntent.requiresControllerPressure !== true) {
+    return;
+  }
+
+  existingIntent.requiresControllerPressure = true;
+  if (!existingIntent.controllerId && followUpIntent.controllerId) {
+    existingIntent.controllerId = followUpIntent.controllerId;
+  }
 }
 
 function shouldPreservePersistedTerritoryIntentPressureRequirement(

@@ -644,6 +644,46 @@ describe('occupation recommendation scoring', () => {
     expect(Memory.territory?.intents).toEqual([suppressedIntent]);
   });
 
+  it('marks fresh suppressed claim follow-ups as pressure without resetting suppression', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'suppressed',
+            updatedAt: 900
+          }
+        ]
+      }
+    };
+    const report: OccupationRecommendationReport = {
+      candidates: [],
+      next: null,
+      followUpIntent: {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        controllerId: 'controller2' as Id<StructureController>,
+        requiresControllerPressure: true
+      }
+    };
+
+    expect(persistOccupationRecommendationFollowUpIntent(report, 1_000)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 900,
+        controllerId: 'controller2',
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
   it('preserves recovered follow-up cooldown markers from recommendation persistence', () => {
     const followUp: TerritoryFollowUpMemory = {
       source: 'satisfiedReserveAdjacent',
