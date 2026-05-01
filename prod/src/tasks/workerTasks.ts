@@ -30,6 +30,7 @@ export const LOW_LOAD_WORKER_ENERGY_CEILING = 25;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 export const REFILL_DELIVERY_MIN_LOAD = 20;
+const DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
 const SPAWN_RECOVERY_REFILL_PRESSURE_RATIO = 0.75;
 const REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED = 50;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
@@ -643,7 +644,7 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
     return null;
   }
 
-  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const loadedWorkers = getSameRoomLoadedWorkersForRefillReservations(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   const unreservedEnergySink = selectSpawnExtensionRecoveryEnergySink(
@@ -691,11 +692,36 @@ function compareSpawnExtensionRecoveryEnergySinks(
   const rightDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(right, reservedEnergyDeliveries);
 
   return (
+    compareLowEnergySpawnPriority(left, right) ||
     compareAcceptedDeliveryEnergy(leftDeliveryCapacity, rightDeliveryCapacity, carriedEnergy) ||
     compareAssignedTransferTarget(left, right, assignedTransferTargetId) ||
     compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
     compareEnergySinkId(left, right)
   );
+}
+
+function compareLowEnergySpawnPriority(
+  left: StructureSpawn | StructureExtension,
+  right: StructureSpawn | StructureExtension
+): number {
+  const leftLowEnergySpawn = isLowEnergySpawn(left);
+  const rightLowEnergySpawn = isLowEnergySpawn(right);
+  if (leftLowEnergySpawn === rightLowEnergySpawn) {
+    return 0;
+  }
+
+  return leftLowEnergySpawn ? -1 : 1;
+}
+
+function isLowEnergySpawn(structure: StructureSpawn | StructureExtension): structure is StructureSpawn {
+  return isSpawnEnergySink(structure) && getStoredEnergy(structure) < getSpawnEnergyCapacity();
+}
+
+function getSpawnEnergyCapacity(): number {
+  const spawnEnergyCapacity = (globalThis as unknown as { SPAWN_ENERGY_CAPACITY?: number }).SPAWN_ENERGY_CAPACITY;
+  return typeof spawnEnergyCapacity === 'number' && Number.isFinite(spawnEnergyCapacity) && spawnEnergyCapacity > 0
+    ? spawnEnergyCapacity
+    : DEFAULT_SPAWN_ENERGY_CAPACITY;
 }
 
 function compareAcceptedDeliveryEnergy(leftCapacity: number, rightCapacity: number, carriedEnergy: number): number {
@@ -738,7 +764,7 @@ function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
     return null;
   }
 
-  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const loadedWorkers = getSameRoomLoadedWorkersForRefillReservations(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   return selectClosestEnergySink(
     priorityTowerEnergySinks.filter((energySink) =>
@@ -2956,7 +2982,15 @@ function isActiveTerritoryPressureIntent(intent: unknown, colonyName: string): b
 }
 
 function getSameRoomLoadedWorkers(creep: Creep): Creep[] {
-  const loadedWorkers = getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
+  return getSameRoomLoadedWorkersFromCandidates(creep, getGameCreeps());
+}
+
+function getSameRoomLoadedWorkersForRefillReservations(creep: Creep): Creep[] {
+  return getSameRoomLoadedWorkersFromCandidates(creep, getRoomOwnedCreeps(creep.room));
+}
+
+function getSameRoomLoadedWorkersFromCandidates(creep: Creep, candidates: Creep[]): Creep[] {
+  const loadedWorkers = candidates.filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
 
   if (!loadedWorkers.includes(creep) && getUsedEnergy(creep) > 0) {
     loadedWorkers.push(creep);

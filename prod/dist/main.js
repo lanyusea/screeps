@@ -4672,6 +4672,7 @@ var LOW_LOAD_WORKER_ENERGY_CEILING = 25;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 var REFILL_DELIVERY_MIN_LOAD = 20;
+var DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
 var SPAWN_RECOVERY_REFILL_PRESSURE_RATIO = 0.75;
 var REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED = 50;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
@@ -5095,7 +5096,7 @@ function selectSpawnOrExtensionEnergySink(creep) {
   if (energySinks.length === 0) {
     return null;
   }
-  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const loadedWorkers = getSameRoomLoadedWorkersForRefillReservations(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   const unreservedEnergySink = selectSpawnExtensionRecoveryEnergySink(
@@ -5124,7 +5125,22 @@ function compareSpawnExtensionRecoveryEnergySinks(left, right, creep, reservedEn
   const carriedEnergy = getUsedEnergy(creep);
   const leftDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(left, reservedEnergyDeliveries);
   const rightDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(right, reservedEnergyDeliveries);
-  return compareAcceptedDeliveryEnergy(leftDeliveryCapacity, rightDeliveryCapacity, carriedEnergy) || compareAssignedTransferTarget(left, right, assignedTransferTargetId) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareEnergySinkId(left, right);
+  return compareLowEnergySpawnPriority(left, right) || compareAcceptedDeliveryEnergy(leftDeliveryCapacity, rightDeliveryCapacity, carriedEnergy) || compareAssignedTransferTarget(left, right, assignedTransferTargetId) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareEnergySinkId(left, right);
+}
+function compareLowEnergySpawnPriority(left, right) {
+  const leftLowEnergySpawn = isLowEnergySpawn(left);
+  const rightLowEnergySpawn = isLowEnergySpawn(right);
+  if (leftLowEnergySpawn === rightLowEnergySpawn) {
+    return 0;
+  }
+  return leftLowEnergySpawn ? -1 : 1;
+}
+function isLowEnergySpawn(structure) {
+  return isSpawnEnergySink(structure) && getStoredEnergy2(structure) < getSpawnEnergyCapacity();
+}
+function getSpawnEnergyCapacity() {
+  const spawnEnergyCapacity = globalThis.SPAWN_ENERGY_CAPACITY;
+  return typeof spawnEnergyCapacity === "number" && Number.isFinite(spawnEnergyCapacity) && spawnEnergyCapacity > 0 ? spawnEnergyCapacity : DEFAULT_SPAWN_ENERGY_CAPACITY;
 }
 function compareAcceptedDeliveryEnergy(leftCapacity, rightCapacity, carriedEnergy) {
   if (carriedEnergy <= 0) {
@@ -5153,7 +5169,7 @@ function selectPriorityTowerEnergySink(creep) {
   if (priorityTowerEnergySinks.length === 0) {
     return null;
   }
-  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const loadedWorkers = getSameRoomLoadedWorkersForRefillReservations(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   return selectClosestEnergySink(
     priorityTowerEnergySinks.filter(
@@ -6563,7 +6579,13 @@ function isActiveTerritoryPressureIntent(intent, colonyName) {
   return intent.colony === colonyName && intent.targetRoom !== colonyName && (intent.status === "planned" || intent.status === "active") && (intent.action === "claim" || intent.action === "reserve" || intent.action === "scout");
 }
 function getSameRoomLoadedWorkers(creep) {
-  const loadedWorkers = getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
+  return getSameRoomLoadedWorkersFromCandidates(creep, getGameCreeps());
+}
+function getSameRoomLoadedWorkersForRefillReservations(creep) {
+  return getSameRoomLoadedWorkersFromCandidates(creep, getRoomOwnedCreeps(creep.room));
+}
+function getSameRoomLoadedWorkersFromCandidates(creep, candidates) {
+  const loadedWorkers = candidates.filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
   if (!loadedWorkers.includes(creep) && getUsedEnergy(creep) > 0) {
     loadedWorkers.push(creep);
   }
