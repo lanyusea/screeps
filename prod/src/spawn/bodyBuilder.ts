@@ -2,6 +2,8 @@ const WORKER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 const WORKER_PATTERN_COST = 200;
 const WORKER_LOGISTICS_PAIR: BodyPartConstant[] = ['carry', 'move'];
 const WORKER_LOGISTICS_PAIR_COST = 100;
+const EMERGENCY_DEFENDER_BODY: BodyPartConstant[] = ['tough', 'attack', 'move'];
+const EMERGENCY_DEFENDER_BODY_COST = 140;
 const TERRITORY_CONTROLLER_BODY: BodyPartConstant[] = ['claim', 'move'];
 export const TERRITORY_CONTROLLER_BODY_COST = 650;
 export const TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS = 5;
@@ -65,6 +67,14 @@ export function buildEmergencyWorkerBody(energyAvailable: number): BodyPartConst
   }
 
   return [...WORKER_PATTERN];
+}
+
+export function buildEmergencyDefenderBody(energyAvailable: number): BodyPartConstant[] {
+  if (energyAvailable < EMERGENCY_DEFENDER_BODY_COST) {
+    return [];
+  }
+
+  return [...EMERGENCY_DEFENDER_BODY];
 }
 
 export function buildTerritoryControllerBody(energyAvailable: number): BodyPartConstant[] {

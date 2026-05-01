@@ -5,7 +5,9 @@ import {
   type ColonySurvivalAssessment
 } from '../colony/survivalMode';
 import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
+import { DEFENDER_ROLE } from '../defense/defenseLoop';
 import {
+  buildEmergencyDefenderBody,
   buildEmergencyWorkerBody,
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
@@ -25,9 +27,9 @@ import {
 
 type SpawnPriorityTier =
   | 'emergencyBootstrap'
+  | 'defense'
   | 'localRefillSurvival'
   | 'controllerDowngradeGuard'
-  | 'defense'
   | 'territoryRemote';
 
 interface SpawnPlanningContext {
@@ -56,9 +58,10 @@ const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 const TERRITORY_SCOUT_BODY_COST = 50;
 const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'emergencyBootstrap',
+  // Keep defense above local refill so hostiles cannot starve the first defender.
+  'defense',
   'localRefillSurvival',
   'controllerDowngradeGuard',
-  'defense',
   'territoryRemote'
 ];
 
@@ -131,8 +134,32 @@ function planControllerDowngradeGuardSpawn(_context: SpawnPlanningContext): Spaw
   return null;
 }
 
-function planDefenseSpawn(_context: SpawnPlanningContext): SpawnRequest | null {
-  return null;
+function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (!context.survival.hostilePresence || (context.roleCounts.defender ?? 0) > 0) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const body = buildEmergencyDefenderBody(context.colony.energyAvailable);
+  if (body.length === 0) {
+    return null;
+  }
+
+  const roomName = context.colony.room.name;
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(`${DEFENDER_ROLE}-${roomName}-${context.gameTime}`, context.options),
+    memory: {
+      role: DEFENDER_ROLE,
+      colony: roomName,
+      defense: { homeRoom: roomName }
+    }
+  };
 }
 
 function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest | null {

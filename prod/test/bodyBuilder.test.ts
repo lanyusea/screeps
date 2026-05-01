@@ -1,4 +1,5 @@
 import {
+  buildEmergencyDefenderBody,
   buildEmergencyWorkerBody,
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
@@ -71,6 +72,16 @@ describe('buildEmergencyWorkerBody', () => {
 
   it('returns one worker pattern at the worker pattern energy cost', () => {
     expect(buildEmergencyWorkerBody(200)).toEqual(WORKER_PATTERN);
+  });
+});
+
+describe('buildEmergencyDefenderBody', () => {
+  it('returns an empty body below one tough/attack/move set', () => {
+    expect(buildEmergencyDefenderBody(139)).toEqual([]);
+  });
+
+  it('builds the smallest active defender body when affordable', () => {
+    expect(buildEmergencyDefenderBody(140)).toEqual(['tough', 'attack', 'move']);
   });
 });
 
