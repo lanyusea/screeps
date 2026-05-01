@@ -28,6 +28,8 @@ export function runWorker(creep: Creep): void {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
@@ -286,6 +288,28 @@ function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(
   );
 }
 
+function shouldPreemptLowLoadReturnTaskForEnergyAcquisition(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (!isLowLoadReturnTask(task) || !selectedTask || !isEnergyAcquisitionTask(selectedTask)) {
+    return false;
+  }
+
+  if (isSameTask(task, selectedTask)) {
+    return false;
+  }
+
+  const sample = creep.memory?.workerEfficiency;
+  return (
+    sample?.type === 'nearbyEnergyChoice' &&
+    sample.selectedTask === selectedTask.type &&
+    sample.targetId === String(selectedTask.targetId) &&
+    isCurrentWorkerEfficiencySample(sample)
+  );
+}
+
 function shouldPreemptTransferTaskForBetterEnergySink(
   creep: Creep,
   task: CreepTaskMemory,
@@ -408,6 +432,12 @@ function isEnergyAcquisitionTask(task: CreepTaskMemory): task is Extract<
   { type: 'harvest' | 'pickup' | 'withdraw' }
 > {
   return task.type === 'harvest' || task.type === 'pickup' || task.type === 'withdraw';
+}
+
+function isLowLoadReturnTask(
+  task: CreepTaskMemory
+): task is Extract<CreepTaskMemory, { type: 'transfer' | 'upgrade' }> {
+  return task.type === 'transfer' || task.type === 'upgrade';
 }
 
 function isRecoverableEnergyTask(
