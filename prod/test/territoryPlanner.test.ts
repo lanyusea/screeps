@@ -2409,7 +2409,7 @@ describe('planTerritoryIntent', () => {
     expect(planTerritoryIntent(colony, roleCounts, 3, retryTime)).toBeNull();
   });
 
-  it('keeps multiple recovered intents bounded to one spawn candidate', () => {
+  it('keeps multiple recovered intents bounded to one recommendation-scored spawn candidate', () => {
     const colony = makeSafeColony();
     const firstFollowUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim');
     const secondFollowUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N3', 'claim');
@@ -2449,9 +2449,9 @@ describe('planTerritoryIntent', () => {
 
     expect(plan).toEqual({
       colony: 'W1N1',
-      targetRoom: 'W3N1',
+      targetRoom: 'W4N1',
       action: 'claim',
-      followUp: firstFollowUp
+      followUp: secondFollowUp
     });
     expect(shouldSpawnTerritoryControllerCreep(plan!, roleCounts, retryTime)).toBe(true);
     expect(Memory.territory?.intents).toEqual([
@@ -2459,16 +2459,16 @@ describe('planTerritoryIntent', () => {
         colony: 'W1N1',
         targetRoom: 'W3N1',
         action: 'claim',
-        status: 'planned',
-        updatedAt: retryTime,
+        status: 'suppressed',
+        updatedAt: suppressionTime,
         followUp: firstFollowUp
       },
       {
         colony: 'W1N1',
         targetRoom: 'W4N1',
         action: 'claim',
-        status: 'suppressed',
-        updatedAt: suppressionTime,
+        status: 'planned',
+        updatedAt: retryTime,
         followUp: secondFollowUp
       }
     ]);

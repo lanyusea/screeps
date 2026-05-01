@@ -2465,13 +2465,18 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
       routeDistanceLookupContext
     )
   );
-  const persistedIntentCandidates = getPersistedTerritoryIntentCandidates(
-    colonyName,
-    colonyOwnerUsername,
-    territoryMemory,
-    intents,
-    gameTime,
-    routeDistanceLookupContext
+  const persistedIntentCandidates = applyOccupationRecommendationScores(
+    colony,
+    roleCounts,
+    workerTarget,
+    getPersistedTerritoryIntentCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      routeDistanceLookupContext
+    )
   );
   const primaryCandidates = getSpawnCapableTerritoryCandidates(
     filterTerritoryCandidatesForPlanningOptions(
@@ -3144,6 +3149,9 @@ function isSafeAdjacentControllerProgressCandidate(candidate, recommendation, in
   return adjacentControllerProgressReady && candidate.source === "adjacent" && candidate.target.action === "reserve" && intentAction === "reserve" && candidate.commitTarget === true && candidate.routeDistance === 1 && recommendation.evidenceStatus === "sufficient" && isTerritoryTargetVisible(candidate.target);
 }
 function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts) {
+  if (candidate.source === "occupationIntent" && isPersistedControllerFollowUpCandidate(candidate)) {
+    return candidate.intentAction;
+  }
   if (recommendation.evidenceStatus === "insufficient-evidence") {
     if (isRecoveredTerritoryFollowUpControlCandidate(candidate)) {
       return candidate.intentAction;
