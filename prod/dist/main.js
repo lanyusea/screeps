@@ -4484,6 +4484,7 @@ var NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
 var LOW_LOAD_WORKER_ENERGY_RATIO = 0.25;
 var LOW_LOAD_WORKER_ENERGY_CEILING = 25;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
+var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -5440,7 +5441,9 @@ function selectLowLoadWorkerEnergyContinuationCandidate(creep) {
   if (!shouldKeepLowLoadWorkerAcquiringEnergy(creep)) {
     return null;
   }
-  const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep);
+  const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep).filter(
+    isLowLoadWorkerEnergyContinuationCandidateInRange
+  );
   if (candidates.length === 0) {
     return null;
   }
@@ -5450,7 +5453,12 @@ function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
   return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence(creep.room);
 }
 function findLowLoadWorkerEnergyContinuationCandidates(creep) {
-  return findLowLoadWorkerEnergyAcquisitionCandidates(creep);
+  return [
+    ...findWorkerEnergyAcquisitionCandidates(creep, {
+      maximumRange: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+    }).map(toLowLoadWorkerEnergyAcquisitionCandidate),
+    ...findLowLoadHarvestEnergyAcquisitionCandidates(creep)
+  ];
 }
 function findLowLoadWorkerEnergyAcquisitionCandidates(creep) {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -5517,6 +5525,9 @@ function isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source) {
   const range = getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
   return range !== null && range <= LOW_LOAD_NEARBY_ENERGY_RANGE;
 }
+function isLowLoadWorkerEnergyContinuationCandidateInRange(candidate) {
+  return candidate.range !== null && candidate.range <= LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE;
+}
 function toLowLoadWorkerEnergyAcquisitionCandidate(candidate) {
   return candidate;
 }
@@ -5561,7 +5572,7 @@ function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink) {
   }
   return candidates.sort(compareSpawnRecoveryEnergyAcquisitionCandidates)[0].task;
 }
-function findWorkerEnergyAcquisitionCandidates(creep) {
+function findWorkerEnergyAcquisitionCandidates(creep, options = {}) {
   const context = {
     creepOwnerUsername: getCreepOwnerUsername2(creep),
     hasHostilePresence: hasVisibleHostilePresence(creep.room),
@@ -5580,7 +5591,7 @@ function findWorkerEnergyAcquisitionCandidates(creep) {
       reservationContext
     );
     return candidate ? [candidate] : [];
-  });
+  }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options));
   const salvageEnergyCandidates = [...findTombstones(creep.room), ...findRuins(creep.room)].filter(hasSalvageableEnergy).flatMap((source) => {
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
       creep,
@@ -5594,11 +5605,11 @@ function findWorkerEnergyAcquisitionCandidates(creep) {
       MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT
     );
     return candidate ? [candidate] : [];
-  });
-  const droppedEnergyCandidates = findDroppedEnergyAcquisitionCandidates(creep, reservationContext);
+  }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options));
+  const droppedEnergyCandidates = findDroppedEnergyAcquisitionCandidates(creep, reservationContext, options);
   return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
-function findDroppedEnergyAcquisitionCandidates(creep, reservationContext) {
+function findDroppedEnergyAcquisitionCandidates(creep, reservationContext, options = {}) {
   return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).flatMap((source) => {
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
       creep,
@@ -5612,7 +5623,10 @@ function findDroppedEnergyAcquisitionCandidates(creep, reservationContext) {
       MIN_DROPPED_ENERGY_PICKUP_AMOUNT
     );
     return candidate ? [candidate] : [];
-  }).sort(compareDroppedEnergyReachabilityPriority).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
+  }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options)).sort(compareDroppedEnergyReachabilityPriority).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
+}
+function isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options) {
+  return options.maximumRange === void 0 || candidate.range !== null && candidate.range <= options.maximumRange;
 }
 function createUnreservedWorkerEnergyAcquisitionCandidate(creep, source, energy, task, reservationContext, minimumEnergy = 1) {
   const unreservedEnergy = getUnreservedWorkerEnergyAcquisitionAmount(source, energy, reservationContext);

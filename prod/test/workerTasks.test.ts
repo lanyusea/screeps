@@ -2,6 +2,8 @@ import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
+  LOW_LOAD_NEARBY_ENERGY_RANGE,
+  LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   estimateNearTermSpawnExtensionRefillReserve,
@@ -1983,6 +1985,128 @@ describe('selectWorkerTask', () => {
       energy: 300,
       range: 6
     });
+  });
+
+  it('returns to refill instead of taking a far low-load harvest detour', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const source = { id: 'source1', energy: 300 } as Source;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        source1: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE + 1,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (
+          type === FIND_DROPPED_RESOURCES ||
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(2),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 329 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'lowLoadReturn',
+      tick: 329,
+      carriedEnergy: 2,
+      freeCapacity: 48,
+      selectedTask: 'transfer',
+      targetId: 'spawn1',
+      reason: 'noNearbyEnergy'
+    });
+  });
+
+  it('continues with close dropped energy outside the nearby-only range before farther harvest', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const droppedEnergy = { id: 'drop-mid', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const source = { id: 'source1', energy: 300 } as Source;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-mid': LOW_LOAD_NEARBY_ENERGY_RANGE + 1,
+        source1: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const findPathTo = jest.fn((target: { id: string }) => (target.id === 'drop-mid' ? [{ x: 1, y: 1 }] : []));
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedEnergy];
+        }
+
+        if (
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(2),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo, findPathTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 330 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-mid' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 330,
+      carriedEnergy: 2,
+      freeCapacity: 48,
+      selectedTask: 'pickup',
+      targetId: 'drop-mid',
+      energy: 50,
+      range: LOW_LOAD_NEARBY_ENERGY_RANGE + 1
+    });
+    expect(findPathTo).toHaveBeenCalledWith(droppedEnergy, { ignoreCreeps: true });
   });
 
   it('ignores unreachable nearby dropped energy for low-load workers', () => {
