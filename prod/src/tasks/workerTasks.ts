@@ -123,9 +123,18 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
       if (spawnRecoveryEnergySink) {
         hasPriorityEnergySink = true;
-        const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(creep, spawnRecoveryEnergySink);
+        const spawnRecoveryHarvestCandidate = selectSpawnRecoveryHarvestCandidate(creep, spawnRecoveryEnergySink);
+        const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(
+          creep,
+          spawnRecoveryEnergySink,
+          spawnRecoveryHarvestCandidate?.deliveryEta ?? null
+        );
         if (spawnRecoveryTask) {
           return spawnRecoveryTask;
+        }
+
+        if (spawnRecoveryHarvestCandidate) {
+          return { type: 'harvest', targetId: spawnRecoveryHarvestCandidate.source.id };
         }
       }
 
@@ -1458,6 +1467,12 @@ interface SpawnRecoveryEnergyAcquisitionCandidate extends WorkerEnergyAcquisitio
   deliveryEta: number;
 }
 
+interface SpawnRecoveryHarvestCandidate {
+  deliveryEta: number;
+  load: HarvestSourceLoad;
+  source: Source;
+}
+
 interface ProductiveEnergySinkCandidate {
   canCompleteConstruction: boolean;
   range: number;
@@ -1709,9 +1724,9 @@ function compareLowLoadWorkerEnergyAcquisitionCandidates(
 
 function selectSpawnRecoveryEnergyAcquisitionTask(
   creep: Creep,
-  energySink: FillableEnergySink
+  energySink: FillableEnergySink,
+  harvestEta: number | null = estimateHarvestDeliveryEta(creep, energySink)
 ): WorkerEnergyAcquisitionTask | null {
-  const harvestEta = estimateHarvestDeliveryEta(creep, energySink);
   const candidates = findWorkerEnergyAcquisitionCandidates(creep)
     .map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink))
     .filter((candidate): candidate is SpawnRecoveryEnergyAcquisitionCandidate => candidate !== null)
@@ -1722,6 +1737,52 @@ function selectSpawnRecoveryEnergyAcquisitionTask(
   }
 
   return candidates.sort(compareSpawnRecoveryEnergyAcquisitionCandidates)[0].task;
+}
+
+function selectSpawnRecoveryHarvestCandidate(
+  creep: Creep,
+  energySink: FillableEnergySink
+): SpawnRecoveryHarvestCandidate | null {
+  const sources = creep.room.find(FIND_SOURCES);
+  if (sources.length === 0) {
+    return null;
+  }
+
+  const viableSources = selectViableHarvestSources(sources);
+  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, viableSources);
+  const candidates = viableSources
+    .map((source) =>
+      createSpawnRecoveryHarvestCandidate(creep, source, energySink, assignmentCounts.get(source.id) ?? 0)
+    )
+    .filter((candidate): candidate is SpawnRecoveryHarvestCandidate => candidate !== null);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareSpawnRecoveryHarvestCandidates)[0];
+}
+
+function createSpawnRecoveryHarvestCandidate(
+  creep: Creep,
+  source: Source,
+  energySink: FillableEnergySink,
+  assignmentCount: number
+): SpawnRecoveryHarvestCandidate | null {
+  const deliveryEta = estimateHarvestDeliveryEtaFromSource(creep, source, energySink);
+  if (deliveryEta === null || !Number.isFinite(deliveryEta)) {
+    return null;
+  }
+
+  return {
+    deliveryEta,
+    load: {
+      assignmentCount,
+      capacity: getHarvestSourceCapacity(source),
+      source
+    },
+    source
+  };
 }
 
 function findWorkerEnergyAcquisitionCandidates(
@@ -1926,6 +1987,14 @@ function estimateHarvestDeliveryEta(creep: Creep, energySink: FillableEnergySink
     return null;
   }
 
+  return estimateHarvestDeliveryEtaFromSource(creep, source, energySink);
+}
+
+function estimateHarvestDeliveryEtaFromSource(
+  creep: Creep,
+  source: Source,
+  energySink: FillableEnergySink
+): number | null {
   const sourceAvailabilityDelay = estimateHarvestSourceAvailabilityDelay(source);
   if (sourceAvailabilityDelay === null) {
     return null;
@@ -2069,6 +2138,18 @@ function compareSpawnRecoveryEnergyAcquisitionCandidates(
     right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id)) ||
     left.task.type.localeCompare(right.task.type)
+  );
+}
+
+function compareSpawnRecoveryHarvestCandidates(
+  left: SpawnRecoveryHarvestCandidate,
+  right: SpawnRecoveryHarvestCandidate
+): number {
+  return (
+    compareHarvestSourceLoadRatio(left.load, right.load) ||
+    left.load.assignmentCount - right.load.assignmentCount ||
+    left.deliveryEta - right.deliveryEta ||
+    String(left.source.id).localeCompare(String(right.source.id))
   );
 }
 

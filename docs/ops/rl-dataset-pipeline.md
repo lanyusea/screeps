@@ -36,6 +36,20 @@ The exporter does not call live APIs, does not require Screeps or Steam credenti
 
 The output location is gitignored by the repository-level `runtime-artifacts/` ignore rule.
 
+## Strategy-Shadow Report Generation
+
+Generate bounded offline strategy-shadow reports from saved local runtime artifacts:
+
+```bash
+python3 scripts/screeps_strategy_shadow_report.py --out-dir runtime-artifacts/strategy-shadow
+```
+
+With no positional paths, the generator scans the same safe local roots as the dataset exporter: `/root/screeps/runtime-artifacts`, `/root/.hermes/cron/output`, and repo-local `runtime-artifacts`. The command wraps `evaluateStrategyShadowReplay` through the built `prod/dist/main.js` export, so run `npm --prefix prod run build` first if the production bundle is missing or stale. That build form preserves the repo-root cwd for the following Python command and its default paths.
+
+Reports are written under the gitignored `runtime-artifacts/strategy-shadow/` path. Each report records source path/hash metadata, evaluated artifact count, model families, candidate/incumbent strategy IDs, ranking-diff and changed-top counts, KPI summary fields, generated time, bot commit, and bounded sanitized warnings. Ranking diff bodies are sampled and bounded; raw runtime-summary lines, raw logs, and configured secret values are not copied.
+
+Safety contract: the generator only reads saved local artifacts and the local built bundle. It makes no live API calls, performs no official MMO writes, writes no `Memory` or `RawMemory`, and emits `liveEffect: false` plus explicit safety metadata in every report. Generated reports are suitable as offline dataset and historical validation input only.
+
 ## Storage Layout
 
 Each run writes one deterministic directory:

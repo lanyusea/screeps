@@ -1266,6 +1266,7 @@ var RESERVATION_RENEWAL_TICKS = 1e3;
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
+var OCCUPATION_RECOMMENDATION_TARGET_CREATOR = "occupationRecommendation";
 var ACTION_SCORE = {
   occupy: 1e3,
   reserve: 800,
@@ -1278,12 +1279,16 @@ function scoreOccupationRecommendations(input) {
   var _a;
   const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreOccupationCandidate(input, candidate)).sort(compareOccupationRecommendationScores);
   const next = (_a = candidates.find((candidate) => candidate.evidenceStatus !== "unavailable")) != null ? _a : null;
-  return { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) };
+  return attachOccupationRecommendationReportColony(
+    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) },
+    input.colonyName
+  );
 }
 function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGameTime3()) {
   var _a, _b;
   const followUpIntent = report.followUpIntent;
   if (!followUpIntent) {
+    revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report);
     return null;
   }
   const territoryMemory = getWritableTerritoryMemoryRecord();
@@ -1311,7 +1316,102 @@ function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGam
     ...followUp ? { followUp } : {}
   };
   upsertTerritoryIntent(intents, nextIntent);
+  persistOccupationRecommendationTarget(report, nextIntent);
   return nextIntent;
+}
+function persistOccupationRecommendationTarget(report, intent) {
+  const target = buildPersistableOccupationRecommendationTarget(report, intent);
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+  if (!target) {
+    revokeOccupationRecommendationTarget(territoryMemory, intent);
+    removeStaleOccupationRecommendationTargets(
+      territoryMemory,
+      intent.colony,
+      buildActiveOccupationRecommendationControlTarget(report)
+    );
+    return;
+  }
+  removeStaleOccupationRecommendationTargets(territoryMemory, target.colony, target);
+  upsertTerritoryTarget(territoryMemory, target);
+}
+function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report) {
+  const colony = report.colonyName;
+  if (!isNonEmptyString2(colony)) {
+    return;
+  }
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+  removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
+}
+function buildPersistableOccupationRecommendationTarget(report, intent) {
+  const recommendation = report.next;
+  if (!recommendation || recommendation.roomName !== intent.targetRoom || getTerritoryIntentAction(recommendation.action) !== intent.action || recommendation.evidenceStatus !== "sufficient" || recommendation.preconditions.length > 0 || !isTerritoryControlAction(intent.action)) {
+    return null;
+  }
+  return {
+    colony: intent.colony,
+    roomName: intent.targetRoom,
+    action: intent.action,
+    createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
+    ...intent.controllerId ? { controllerId: intent.controllerId } : {}
+  };
+}
+function removeStaleOccupationRecommendationTargets(territoryMemory, colony, activeTarget) {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !((target == null ? void 0 : target.colony) === colony && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR && (!activeTarget || target.roomName !== activeTarget.roomName || target.action !== activeTarget.action));
+  });
+}
+function buildActiveOccupationRecommendationControlTarget(report) {
+  const recommendation = report.next;
+  if (!recommendation) {
+    return null;
+  }
+  const action = getTerritoryIntentAction(recommendation.action);
+  if (!isTerritoryControlAction(action)) {
+    return null;
+  }
+  return { roomName: recommendation.roomName, action };
+}
+function revokeOccupationRecommendationTarget(territoryMemory, intent) {
+  if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !((target == null ? void 0 : target.colony) === intent.colony && target.roomName === intent.targetRoom && target.action === intent.action && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR);
+  });
+}
+function upsertTerritoryTarget(territoryMemory, target) {
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+  const existingTarget = territoryMemory.targets.find((rawTarget) => {
+    const normalizedTarget = normalizeTerritoryTarget(rawTarget);
+    return (normalizedTarget == null ? void 0 : normalizedTarget.colony) === target.colony && normalizedTarget.roomName === target.roomName && normalizedTarget.action === target.action;
+  });
+  if (!existingTarget) {
+    territoryMemory.targets.push(target);
+    return;
+  }
+  if (isRecord(existingTarget) && existingTarget.enabled !== false && !existingTarget.controllerId && target.controllerId) {
+    existingTarget.controllerId = target.controllerId;
+  }
+}
+function attachOccupationRecommendationReportColony(report, colonyName) {
+  Object.defineProperty(report, "colonyName", {
+    value: colonyName,
+    enumerable: false
+  });
+  return report;
 }
 function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
   var _a, _b;
@@ -1386,7 +1486,7 @@ function upsertOccupationCandidate(candidatesByRoom, candidate) {
   }
 }
 function enrichVisibleOccupationCandidate(candidate) {
-  var _a;
+  var _a, _b;
   const room = (_a = getGameRooms()) == null ? void 0 : _a[candidate.roomName];
   if (!room) {
     return candidate;
@@ -1396,10 +1496,12 @@ function enrichVisibleOccupationCandidate(candidate) {
   const sources = findRoomObjects2(room, "FIND_SOURCES");
   const constructionSites = findRoomObjects2(room, "FIND_MY_CONSTRUCTION_SITES");
   const ownedStructures = findRoomObjects2(room, "FIND_MY_STRUCTURES");
+  const controllerId = (_b = room.controller) == null ? void 0 : _b.id;
   return {
     ...candidate,
     visible: true,
     ...room.controller ? { controller: summarizeController(room.controller) } : {},
+    ...typeof controllerId === "string" ? { controllerId } : {},
     ...sources ? { sourceCount: sources.length } : {},
     ...hostileCreeps ? { hostileCreepCount: hostileCreeps.length } : {},
     ...hostileStructures ? { hostileStructureCount: hostileStructures.length } : {},
@@ -1627,7 +1729,8 @@ function normalizeTerritoryTarget(rawTarget) {
     roomName: rawTarget.roomName,
     action: rawTarget.action,
     ...typeof rawTarget.controllerId === "string" ? { controllerId: rawTarget.controllerId } : {},
-    ...rawTarget.enabled === false ? { enabled: false } : {}
+    ...rawTarget.enabled === false ? { enabled: false } : {},
+    ...rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR } : {}
   };
 }
 function getCachedRouteDistance(fromRoom, targetRoom) {
@@ -1877,6 +1980,7 @@ var MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISI
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR2 = ">";
 var TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 var TERRITORY_SCOUT_BODY_COST = 50;
+var OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 = "occupationRecommendation";
 var recoveredTerritoryFollowUpRetryMetadata = /* @__PURE__ */ new WeakMap();
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
@@ -3315,7 +3419,8 @@ function normalizeTerritoryTarget2(rawTarget) {
     roomName: rawTarget.roomName,
     action: rawTarget.action,
     ...typeof rawTarget.controllerId === "string" ? { controllerId: rawTarget.controllerId } : {},
-    ...rawTarget.enabled === false ? { enabled: false } : {}
+    ...rawTarget.enabled === false ? { enabled: false } : {},
+    ...rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 } : {}
   };
 }
 function recordTerritoryIntent(plan, status, gameTime, seededTarget = null, routeDistanceLookupContext = createRouteDistanceLookupContext()) {
@@ -4501,6 +4606,7 @@ var MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
 var MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 var nearTermSpawnExtensionRefillReserveCache = null;
 function selectWorkerTask(creep) {
+  var _a;
   clearWorkerEfficiencyTelemetry(creep);
   const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
   const territoryWorkSuppressed = suppressesTerritoryWork(survivalAssessment);
@@ -4522,9 +4628,17 @@ function selectWorkerTask(creep) {
       const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
       if (spawnRecoveryEnergySink) {
         hasPriorityEnergySink = true;
-        const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(creep, spawnRecoveryEnergySink);
+        const spawnRecoveryHarvestCandidate = selectSpawnRecoveryHarvestCandidate(creep, spawnRecoveryEnergySink);
+        const spawnRecoveryTask = selectSpawnRecoveryEnergyAcquisitionTask(
+          creep,
+          spawnRecoveryEnergySink,
+          (_a = spawnRecoveryHarvestCandidate == null ? void 0 : spawnRecoveryHarvestCandidate.deliveryEta) != null ? _a : null
+        );
         if (spawnRecoveryTask) {
           return spawnRecoveryTask;
+        }
+        if (spawnRecoveryHarvestCandidate) {
+          return { type: "harvest", targetId: spawnRecoveryHarvestCandidate.source.id };
         }
       }
       const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
@@ -5564,13 +5678,45 @@ function createLowLoadWorkerEnergyAcquisitionCandidate(creep, source, energy, ta
 function compareLowLoadWorkerEnergyAcquisitionCandidates(left, right) {
   return compareOptionalRanges(left.range, right.range) || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
 }
-function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink) {
-  const harvestEta = estimateHarvestDeliveryEta(creep, energySink);
+function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink, harvestEta = estimateHarvestDeliveryEta(creep, energySink)) {
   const candidates = findWorkerEnergyAcquisitionCandidates(creep).map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
   if (candidates.length === 0) {
     return null;
   }
   return candidates.sort(compareSpawnRecoveryEnergyAcquisitionCandidates)[0].task;
+}
+function selectSpawnRecoveryHarvestCandidate(creep, energySink) {
+  const sources = creep.room.find(FIND_SOURCES);
+  if (sources.length === 0) {
+    return null;
+  }
+  const viableSources = selectViableHarvestSources(sources);
+  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, viableSources);
+  const candidates = viableSources.map(
+    (source) => {
+      var _a;
+      return createSpawnRecoveryHarvestCandidate(creep, source, energySink, (_a = assignmentCounts.get(source.id)) != null ? _a : 0);
+    }
+  ).filter((candidate) => candidate !== null);
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareSpawnRecoveryHarvestCandidates)[0];
+}
+function createSpawnRecoveryHarvestCandidate(creep, source, energySink, assignmentCount) {
+  const deliveryEta = estimateHarvestDeliveryEtaFromSource(creep, source, energySink);
+  if (deliveryEta === null || !Number.isFinite(deliveryEta)) {
+    return null;
+  }
+  return {
+    deliveryEta,
+    load: {
+      assignmentCount,
+      capacity: getHarvestSourceCapacity(source),
+      source
+    },
+    source
+  };
 }
 function findWorkerEnergyAcquisitionCandidates(creep, options = {}) {
   const context = {
@@ -5704,6 +5850,9 @@ function estimateHarvestDeliveryEta(creep, energySink) {
   if (!source) {
     return null;
   }
+  return estimateHarvestDeliveryEtaFromSource(creep, source, energySink);
+}
+function estimateHarvestDeliveryEtaFromSource(creep, source, energySink) {
   const sourceAvailabilityDelay = estimateHarvestSourceAvailabilityDelay(source);
   if (sourceAvailabilityDelay === null) {
     return null;
@@ -5783,6 +5932,9 @@ function compareDroppedEnergyReachabilityPriority(left, right) {
 }
 function compareSpawnRecoveryEnergyAcquisitionCandidates(left, right) {
   return left.deliveryEta - right.deliveryEta || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+}
+function compareSpawnRecoveryHarvestCandidates(left, right) {
+  return compareHarvestSourceLoadRatio(left.load, right.load) || left.load.assignmentCount - right.load.assignmentCount || left.deliveryEta - right.deliveryEta || String(left.source.id).localeCompare(String(right.source.id));
 }
 function compareOptionalRanges(left, right) {
   if (left !== null && right !== null) {
@@ -6708,7 +6860,12 @@ function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask)
     return true;
   }
   const selectedTarget = Game.getObjectById(selectedTask.targetId);
-  return getTransferSinkPriority(selectedTarget) > getTransferSinkPriority(currentTarget);
+  const selectedPriority = getTransferSinkPriority(selectedTarget);
+  const currentPriority = getTransferSinkPriority(currentTarget);
+  if (selectedPriority > currentPriority) {
+    return true;
+  }
+  return isPrimaryTransferSink(currentTarget) && selectedPriority > 0 && isValidTransferTarget(selectedTarget) && isCurrentTransferTargetCoveredByOtherLoadedWorkers(creep, task, currentTarget);
 }
 function shouldPreemptTransferTaskForControllerDowngradeGuard(creep, task, selectedTask) {
   if (task.type !== "transfer") {
@@ -6778,6 +6935,32 @@ function isTerritoryControlTask2(task) {
 function isValidTransferTarget(target) {
   return getFreeTransferEnergyCapacity(target) > 0;
 }
+function isPrimaryTransferSink(target) {
+  return getTransferSinkPriority(target) >= 2;
+}
+function isCurrentTransferTargetCoveredByOtherLoadedWorkers(creep, task, target) {
+  var _a;
+  const targetId = String(task.targetId);
+  const freeCapacity = getFreeTransferEnergyCapacity(target);
+  if (freeCapacity <= 0) {
+    return false;
+  }
+  let reservedEnergy = 0;
+  for (const worker of creep.room.find(FIND_MY_CREEPS)) {
+    if (isSameCreep2(worker, creep) || !isSameRoomWorkerWithEnergy2(worker, creep.room)) {
+      continue;
+    }
+    const workerTask = (_a = worker.memory) == null ? void 0 : _a.task;
+    if ((workerTask == null ? void 0 : workerTask.type) !== "transfer" || String(workerTask.targetId) !== targetId) {
+      continue;
+    }
+    reservedEnergy += getUsedTransferEnergy(worker);
+    if (reservedEnergy >= freeCapacity) {
+      return true;
+    }
+  }
+  return false;
+}
 function isUrgentEnergySpendingTask(task) {
   const target = getTaskTarget(task);
   if (task.type === "transfer") {
@@ -6802,6 +6985,37 @@ function getFreeTransferEnergyCapacity(target) {
   const store = target == null ? void 0 : target.store;
   const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, RESOURCE_ENERGY);
   return typeof freeCapacity === "number" ? freeCapacity : 0;
+}
+function getUsedTransferEnergy(creep) {
+  var _a, _b;
+  const usedCapacity = (_b = (_a = creep.store) == null ? void 0 : _a.getUsedCapacity) == null ? void 0 : _b.call(_a, RESOURCE_ENERGY);
+  return typeof usedCapacity === "number" && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : 0;
+}
+function isSameRoomWorkerWithEnergy2(creep, room) {
+  var _a;
+  return ((_a = creep.memory) == null ? void 0 : _a.role) === "worker" && isInRoom2(creep, room) && getUsedTransferEnergy(creep) > 0;
+}
+function isInRoom2(creep, room) {
+  var _a;
+  if (typeof room.name === "string" && room.name.length > 0) {
+    return ((_a = creep.room) == null ? void 0 : _a.name) === room.name;
+  }
+  return creep.room === room;
+}
+function isSameCreep2(left, right) {
+  if (left === right) {
+    return true;
+  }
+  const leftKey = getCreepStableKey(left);
+  return leftKey.length > 0 && leftKey === getCreepStableKey(right);
+}
+function getCreepStableKey(creep) {
+  const name = creep.name;
+  if (typeof name === "string" && name.length > 0) {
+    return name;
+  }
+  const id = creep.id;
+  return typeof id === "string" && id.length > 0 ? id : "";
 }
 function getTransferSinkPriority(target) {
   const structureType = target == null ? void 0 : target.structureType;

@@ -39,6 +39,7 @@ const MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VI
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 const TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 const TERRITORY_SCOUT_BODY_COST = 50;
+const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
 
 export interface TerritoryIntentPlan {
   colony: string;
@@ -2307,7 +2308,10 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
     ...(typeof rawTarget.controllerId === 'string'
       ? { controllerId: rawTarget.controllerId as Id<StructureController> }
       : {}),
-    ...(rawTarget.enabled === false ? { enabled: false } : {})
+    ...(rawTarget.enabled === false ? { enabled: false } : {}),
+    ...(rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
+      ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR }
+      : {})
   };
 }
 

@@ -72,6 +72,7 @@ declare global {
     action: TerritoryControlAction;
     controllerId?: Id<StructureController>;
     enabled?: boolean;
+    createdBy?: 'occupationRecommendation';
   }
 
   interface TerritoryIntentMemory {

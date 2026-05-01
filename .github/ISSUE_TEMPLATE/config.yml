@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Roadmap source of truth
-    url: https://github.com/lanyusea/screeps/blob/main/docs/ops/roadmap.md
-    about: Use roadmap entries as issue categories and labels.
+  - name: Active roadmap source of truth
+    url: https://github.com/users/lanyusea/projects/3
+    about: Active roadmap work is managed in GitHub Issues, Milestones, and Project screeps. See docs/ops/rules-registry.md for the compact taxonomy.
