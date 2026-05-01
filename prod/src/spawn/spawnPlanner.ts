@@ -317,6 +317,10 @@ function hasActiveTerritoryIntentBacklog(colonyName: string): boolean {
   }
 
   return intents.some((intent) => {
+    if (typeof intent !== 'object' || intent === null) {
+      return false;
+    }
+
     if (
       intent.colony !== colonyName ||
       intent.targetRoom === colonyName ||
@@ -337,11 +341,19 @@ function hasVisibleForeignReservedTerritoryTarget(colony: ColonySnapshot): boole
 
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   return targets.some((target) => {
+    if (typeof target !== 'object' || target === null) {
+      return false;
+    }
+
     if (
       target.colony !== colony.room.name ||
       target.enabled === false ||
       (target.action !== 'claim' && target.action !== 'reserve')
     ) {
+      return false;
+    }
+
+    if (typeof target.roomName !== 'string' || target.roomName.length === 0) {
       return false;
     }
 

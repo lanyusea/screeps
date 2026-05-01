@@ -8262,6 +8262,9 @@ function hasActiveTerritoryIntentBacklog(colonyName) {
     return false;
   }
   return intents.some((intent) => {
+    if (typeof intent !== "object" || intent === null) {
+      return false;
+    }
     if (intent.colony !== colonyName || intent.targetRoom === colonyName || intent.action !== "claim" && intent.action !== "reserve" && intent.action !== "scout") {
       return false;
     }
@@ -8276,7 +8279,13 @@ function hasVisibleForeignReservedTerritoryTarget(colony) {
   }
   const colonyOwnerUsername = getControllerOwnerUsername3(colony.room.controller);
   return targets.some((target) => {
+    if (typeof target !== "object" || target === null) {
+      return false;
+    }
     if (target.colony !== colony.room.name || target.enabled === false || target.action !== "claim" && target.action !== "reserve") {
+      return false;
+    }
+    if (typeof target.roomName !== "string" || target.roomName.length === 0) {
       return false;
     }
     const controller = getVisibleRoomController(target.roomName);
