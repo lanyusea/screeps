@@ -2767,8 +2767,8 @@ function refreshHostileTerritoryIntentSuspensions(
       if (intent.suspended?.reason === 'hostile_presence') {
         if (isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime)) {
           suspendedIntents.push(intent);
+          return intent;
         }
-        return intent;
       }
 
       const suspended = buildHostilePresenceTerritoryIntentSuspension(hostileCount, gameTime);
