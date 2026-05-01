@@ -217,6 +217,23 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 146)).toBeNull();
   });
 
+  it('adds one worker target while spawn-extension refill pressure remains after baseline workers', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N16',
+      energyAvailable: 400,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 146)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N16-146',
+      memory: { role: 'worker', colony: 'W1N16' }
+    });
+    expect(planSpawn(colony, { worker: 4 }, 147)).toBeNull();
+  });
+
   it('adds a second worker target for substantial construction backlog after the first bonus target is safe', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N14',

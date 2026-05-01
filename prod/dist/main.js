@@ -652,6 +652,9 @@ var MIN_WORKER_TARGET = 3;
 var WORKERS_PER_SOURCE = 2;
 var CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
 var SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT = 5;
+var SPAWN_EXTENSION_REFILL_WORKER_BONUS = 1;
+var MIN_PRODUCTIVE_WORKER_BODY_ENERGY = 200;
+var SPAWN_EXTENSION_REFILL_PRESSURE_RATIO = 0.75;
 var MAX_WORKER_TARGET = 6;
 var BOOTSTRAP_WORKER_FLOOR = 3;
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
@@ -706,11 +709,18 @@ function getWorkerTarget(colony, roleCounts) {
   if (workerCapacity < baseTarget || !isConstructionBonusHomeSafe(colony.room.controller)) {
     return baseTarget;
   }
+  const refillPressureTarget = shouldAddSpawnExtensionRefillWorker(colony) ? Math.min(MAX_WORKER_TARGET, baseTarget + SPAWN_EXTENSION_REFILL_WORKER_BONUS) : baseTarget;
+  if (workerCapacity < refillPressureTarget) {
+    return refillPressureTarget;
+  }
   const constructionBacklogSiteCount = getConstructionBacklogSiteCount(colony.room);
   if (constructionBacklogSiteCount === 0) {
-    return baseTarget;
+    return refillPressureTarget;
   }
-  const firstBonusTarget = Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
+  const firstBonusTarget = Math.min(
+    MAX_WORKER_TARGET,
+    refillPressureTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS
+  );
   if (workerCapacity < firstBonusTarget || constructionBacklogSiteCount < SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT) {
     return firstBonusTarget;
   }
@@ -787,6 +797,9 @@ function getControllerSurvivalState(controller) {
 }
 function isConstructionBonusHomeSafe(controller) {
   return (controller == null ? void 0 : controller.my) === true && (typeof controller.ticksToDowngrade !== "number" || controller.ticksToDowngrade > CONTROLLER_DOWNGRADE_GUARD_TICKS);
+}
+function shouldAddSpawnExtensionRefillWorker(colony) {
+  return colony.spawns.length > 0 && colony.energyAvailable >= MIN_PRODUCTIVE_WORKER_BODY_ENERGY && colony.energyAvailable < TERRITORY_CONTROLLER_BODY_COST && colony.energyCapacityAvailable > 0 && colony.energyAvailable < colony.energyCapacityAvailable * SPAWN_EXTENSION_REFILL_PRESSURE_RATIO;
 }
 function getConstructionBacklogSiteCount(room) {
   return countRoomFind(room, "FIND_MY_CONSTRUCTION_SITES");
