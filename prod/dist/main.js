@@ -1266,6 +1266,7 @@ var RESERVATION_RENEWAL_TICKS = 1e3;
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
+var OCCUPATION_RECOMMENDATION_TARGET_CREATOR = "occupationRecommendation";
 var ACTION_SCORE = {
   occupy: 1e3,
   reserve: 800,
@@ -1335,6 +1336,7 @@ function buildPersistableOccupationRecommendationTarget(report, intent) {
     colony: intent.colony,
     roomName: intent.targetRoom,
     action: intent.action,
+    createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
     ...intent.controllerId ? { controllerId: intent.controllerId } : {}
   };
 }
@@ -1344,7 +1346,7 @@ function revokeOccupationRecommendationTarget(territoryMemory, intent) {
   }
   territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
     const target = normalizeTerritoryTarget(rawTarget);
-    return !((target == null ? void 0 : target.colony) === intent.colony && target.roomName === intent.targetRoom && target.action === intent.action);
+    return !((target == null ? void 0 : target.colony) === intent.colony && target.roomName === intent.targetRoom && target.action === intent.action && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR);
   });
 }
 function upsertTerritoryTarget(territoryMemory, target) {
@@ -1679,7 +1681,8 @@ function normalizeTerritoryTarget(rawTarget) {
     roomName: rawTarget.roomName,
     action: rawTarget.action,
     ...typeof rawTarget.controllerId === "string" ? { controllerId: rawTarget.controllerId } : {},
-    ...rawTarget.enabled === false ? { enabled: false } : {}
+    ...rawTarget.enabled === false ? { enabled: false } : {},
+    ...rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR } : {}
   };
 }
 function getCachedRouteDistance(fromRoom, targetRoom) {
@@ -1929,6 +1932,7 @@ var MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISI
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR2 = ">";
 var TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 var TERRITORY_SCOUT_BODY_COST = 50;
+var OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 = "occupationRecommendation";
 var recoveredTerritoryFollowUpRetryMetadata = /* @__PURE__ */ new WeakMap();
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
@@ -3367,7 +3371,8 @@ function normalizeTerritoryTarget2(rawTarget) {
     roomName: rawTarget.roomName,
     action: rawTarget.action,
     ...typeof rawTarget.controllerId === "string" ? { controllerId: rawTarget.controllerId } : {},
-    ...rawTarget.enabled === false ? { enabled: false } : {}
+    ...rawTarget.enabled === false ? { enabled: false } : {},
+    ...rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 } : {}
   };
 }
 function recordTerritoryIntent(plan, status, gameTime, seededTarget = null, routeDistanceLookupContext = createRouteDistanceLookupContext()) {

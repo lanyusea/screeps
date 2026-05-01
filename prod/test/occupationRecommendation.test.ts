@@ -331,6 +331,7 @@ describe('occupation recommendation scoring', () => {
         colony: 'W1N1',
         roomName: 'W3N1',
         action: 'claim',
+        createdBy: 'occupationRecommendation',
         controllerId: 'controller3'
       }
     ]);
@@ -381,7 +382,20 @@ describe('occupation recommendation scoring', () => {
       colony: 'W1N1',
       roomName: 'W2N1',
       action: 'reserve',
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller2' as Id<StructureController>
+    };
+    const manualMatchingTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve'
+    };
+    const disabledMatchingTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation',
+      enabled: false
     };
     const sameRoomDifferentAction: TerritoryTargetMemory = {
       colony: 'W1N1',
@@ -395,7 +409,13 @@ describe('occupation recommendation scoring', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
-        targets: [staleTarget, sameRoomDifferentAction, differentColonyTarget]
+        targets: [
+          staleTarget,
+          manualMatchingTarget,
+          disabledMatchingTarget,
+          sameRoomDifferentAction,
+          differentColonyTarget
+        ]
       }
     };
     const report = scoreOccupationRecommendations(
@@ -435,7 +455,12 @@ describe('occupation recommendation scoring', () => {
       updatedAt: 703,
       controllerId: 'controller2'
     });
-    expect(Memory.territory?.targets).toEqual([sameRoomDifferentAction, differentColonyTarget]);
+    expect(Memory.territory?.targets).toEqual([
+      manualMatchingTarget,
+      disabledMatchingTarget,
+      sameRoomDifferentAction,
+      differentColonyTarget
+    ]);
   });
 
   it('records visible controller ids on runtime recommendation targets', () => {
@@ -481,6 +506,7 @@ describe('occupation recommendation scoring', () => {
         colony: 'W1N1',
         roomName: 'W2N1',
         action: 'reserve',
+        createdBy: 'occupationRecommendation',
         controllerId: 'controller2'
       }
     ]);

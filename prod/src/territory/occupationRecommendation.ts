@@ -78,6 +78,7 @@ const RESERVATION_RENEWAL_TICKS = 1_000;
 const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
 const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
+const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
 
 // Project vision ordering: territory action dominates resource value; combat/risk only gates or deprioritizes.
 const ACTION_SCORE: Record<OccupationRecommendationAction, number> = {
@@ -193,6 +194,7 @@ function buildPersistableOccupationRecommendationTarget(
     colony: intent.colony,
     roomName: intent.targetRoom,
     action: intent.action,
+    createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
     ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
   };
 }
@@ -207,7 +209,9 @@ function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, 
     return !(
       target?.colony === intent.colony &&
       target.roomName === intent.targetRoom &&
-      target.action === intent.action
+      target.action === intent.action &&
+      target.enabled !== false &&
+      target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
     );
   });
 }
@@ -708,7 +712,10 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
     ...(typeof rawTarget.controllerId === 'string'
       ? { controllerId: rawTarget.controllerId as Id<StructureController> }
       : {}),
-    ...(rawTarget.enabled === false ? { enabled: false } : {})
+    ...(rawTarget.enabled === false ? { enabled: false } : {}),
+    ...(rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
+      ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR }
+      : {})
   };
 }
 
