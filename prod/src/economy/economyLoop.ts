@@ -128,13 +128,18 @@ function getSpawnPlanningOptions(successfulSpawnCount: number): SpawnPlanningOpt
     ? {
         nameSuffix: String(successfulSpawnCount + 1),
         workersOnly: true,
-        allowTerritoryControllerPressure: true
+        allowTerritoryControllerPressure: true,
+        allowTerritoryFollowUp: true
       }
     : {};
 }
 
 function isAllowedPostSpawnRequest(spawnRequest: SpawnRequest): boolean {
-  return spawnRequest.memory.role === 'worker' || isTerritoryControllerPressureSpawnRequest(spawnRequest);
+  return (
+    spawnRequest.memory.role === 'worker' ||
+    isTerritoryControllerPressureSpawnRequest(spawnRequest) ||
+    isTerritoryControllerFollowUpSpawnRequest(spawnRequest)
+  );
 }
 
 function isTerritoryControllerPressureSpawnRequest(spawnRequest: SpawnRequest): boolean {
@@ -143,6 +148,15 @@ function isTerritoryControllerPressureSpawnRequest(spawnRequest: SpawnRequest): 
     spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE &&
     (territory?.action === 'claim' || territory?.action === 'reserve') &&
     countBodyParts(spawnRequest.body, 'claim') >= TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
+  );
+}
+
+function isTerritoryControllerFollowUpSpawnRequest(spawnRequest: SpawnRequest): boolean {
+  const territory = spawnRequest.memory.territory;
+  return (
+    spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE &&
+    (territory?.action === 'claim' || territory?.action === 'reserve') &&
+    territory?.followUp !== undefined
   );
 }
 

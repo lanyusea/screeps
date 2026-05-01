@@ -687,6 +687,102 @@ describe('runEconomy', () => {
     ]);
   });
 
+  it('uses a second idle spawn for a non-pressure follow-up after spawning support', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 324,
+            followUp
+          }
+        ]
+      }
+    };
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 1_450,
+      energyCapacityAvailable: 1_450
+    });
+    const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn1 = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const spawn2 = {
+      name: 'Spawn2',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 324,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: { Spawn1: spawn1, Spawn2: spawn2 },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn1.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      'worker-W1N1-324',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+    expect(spawn2.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W2N1-324-2', {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W2N1',
+          action: 'reserve',
+          followUp
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 324,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: 324,
+        followUp
+      }
+    ]);
+  });
+
   it('keeps unsafe occupation recommendations on worker recovery before territory spawn pressure', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};

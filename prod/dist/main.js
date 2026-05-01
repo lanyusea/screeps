@@ -2433,7 +2433,7 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     roleCounts,
     routeDistanceLookupContext
   );
-  const configuredCandidates = filterControllerPressureOnlyCandidates(
+  const configuredCandidates = filterTerritoryCandidatesForPlanningOptions(
     applyOccupationRecommendationScores(
       colony,
       roleCounts,
@@ -2450,7 +2450,7 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     ),
     options
   );
-  const persistedIntentCandidates = filterControllerPressureOnlyCandidates(
+  const persistedIntentCandidates = filterTerritoryCandidatesForPlanningOptions(
     getPersistedTerritoryIntentCandidates(
       colonyName,
       colonyOwnerUsername,
@@ -2479,7 +2479,7 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     if (!shouldEvaluateAdjacentControllerProgress && !shouldEvaluateAdjacentFollowUp) {
       return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
-    const visibleAdjacentControllerProgressCandidates = filterControllerPressureOnlyCandidates(
+    const visibleAdjacentControllerProgressCandidates = filterTerritoryCandidatesForPlanningOptions(
       applyOccupationRecommendationScores(
         colony,
         roleCounts,
@@ -2520,7 +2520,7 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
       routeDistanceLookupContext
     );
   }
-  const adjacentCandidates = filterControllerPressureOnlyCandidates(
+  const adjacentCandidates = filterTerritoryCandidatesForPlanningOptions(
     applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
       ...getAdjacentReserveCandidates(
         colonyName,
@@ -2553,14 +2553,19 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     routeDistanceLookupContext
   );
 }
-function filterControllerPressureOnlyCandidates(candidates, options) {
-  if (options.controllerPressureOnly !== true) {
+function filterTerritoryCandidatesForPlanningOptions(candidates, options) {
+  if (options.controllerPressureOnly !== true && options.followUpOnly !== true) {
     return candidates;
   }
-  return candidates.filter(isControllerPressureCandidate);
+  return candidates.filter(
+    (candidate) => options.controllerPressureOnly === true && isControllerPressureCandidate(candidate) || options.followUpOnly === true && isTerritoryFollowUpControlCandidate(candidate)
+  );
 }
 function isControllerPressureCandidate(candidate) {
   return isTerritoryControlAction2(candidate.intentAction) && candidate.requiresControllerPressure === true;
+}
+function isTerritoryFollowUpControlCandidate(candidate) {
+  return candidate.followUp !== void 0 && isTerritoryControlAction2(candidate.intentAction);
 }
 function selectBestScoredTerritoryCandidate(candidates) {
   let bestCandidate = null;
@@ -7234,16 +7239,17 @@ function planDefenseSpawn(context) {
   };
 }
 function planTerritoryRemoteSpawn(context) {
-  if (context.survival.mode !== "TERRITORY_READY" || context.options.workersOnly && context.options.allowTerritoryControllerPressure !== true) {
+  if (context.survival.mode !== "TERRITORY_READY" || context.options.workersOnly && context.options.allowTerritoryControllerPressure !== true && context.options.allowTerritoryFollowUp !== true) {
     return null;
   }
   const controllerPressureOnly = context.options.workersOnly === true && context.options.allowTerritoryControllerPressure === true;
+  const followUpOnly = context.options.workersOnly === true && context.options.allowTerritoryFollowUp === true;
   const territoryIntent = planTerritoryIntent(
     context.colony,
     context.roleCounts,
     context.workerTarget,
     context.gameTime,
-    { controllerPressureOnly }
+    { controllerPressureOnly, followUpOnly }
   );
   if (!territoryIntent) {
     return null;
@@ -8929,15 +8935,20 @@ function getSpawnPlanningOptions(successfulSpawnCount) {
   return successfulSpawnCount > 0 ? {
     nameSuffix: String(successfulSpawnCount + 1),
     workersOnly: true,
-    allowTerritoryControllerPressure: true
+    allowTerritoryControllerPressure: true,
+    allowTerritoryFollowUp: true
   } : {};
 }
 function isAllowedPostSpawnRequest(spawnRequest) {
-  return spawnRequest.memory.role === "worker" || isTerritoryControllerPressureSpawnRequest(spawnRequest);
+  return spawnRequest.memory.role === "worker" || isTerritoryControllerPressureSpawnRequest(spawnRequest) || isTerritoryControllerFollowUpSpawnRequest(spawnRequest);
 }
 function isTerritoryControllerPressureSpawnRequest(spawnRequest) {
   const territory = spawnRequest.memory.territory;
   return spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE && ((territory == null ? void 0 : territory.action) === "claim" || (territory == null ? void 0 : territory.action) === "reserve") && countBodyParts(spawnRequest.body, "claim") >= TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
+}
+function isTerritoryControllerFollowUpSpawnRequest(spawnRequest) {
+  const territory = spawnRequest.memory.territory;
+  return spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE && ((territory == null ? void 0 : territory.action) === "claim" || (territory == null ? void 0 : territory.action) === "reserve") && (territory == null ? void 0 : territory.followUp) !== void 0;
 }
 function countBodyParts(body, bodyPart) {
   return body.filter((part) => part === bodyPart).length;

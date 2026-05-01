@@ -53,6 +53,7 @@ export interface SpawnPlanningOptions {
   nameSuffix?: string;
   workersOnly?: boolean;
   allowTerritoryControllerPressure?: boolean;
+  allowTerritoryFollowUp?: boolean;
 }
 
 const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
@@ -182,19 +183,23 @@ function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
 function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.survival.mode !== 'TERRITORY_READY' ||
-    (context.options.workersOnly && context.options.allowTerritoryControllerPressure !== true)
+    (context.options.workersOnly &&
+      context.options.allowTerritoryControllerPressure !== true &&
+      context.options.allowTerritoryFollowUp !== true)
   ) {
     return null;
   }
 
   const controllerPressureOnly =
     context.options.workersOnly === true && context.options.allowTerritoryControllerPressure === true;
+  const followUpOnly =
+    context.options.workersOnly === true && context.options.allowTerritoryFollowUp === true;
   const territoryIntent = planTerritoryIntent(
     context.colony,
     context.roleCounts,
     context.workerTarget,
     context.gameTime,
-    { controllerPressureOnly }
+    { controllerPressureOnly, followUpOnly }
   );
   if (!territoryIntent) {
     return null;

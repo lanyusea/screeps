@@ -65,10 +65,12 @@ export interface TerritoryIntentProgressSummary {
 
 export interface TerritoryIntentPlanningOptions {
   controllerPressureOnly?: boolean;
+  followUpOnly?: boolean;
 }
 
 interface TerritoryTargetSelectionOptions {
   controllerPressureOnly?: boolean;
+  followUpOnly?: boolean;
 }
 
 interface MemoryRecord {
@@ -723,7 +725,7 @@ function selectTerritoryTarget(
     roleCounts,
     routeDistanceLookupContext
   );
-  const configuredCandidates = filterControllerPressureOnlyCandidates(
+  const configuredCandidates = filterTerritoryCandidatesForPlanningOptions(
     applyOccupationRecommendationScores(
       colony,
       roleCounts,
@@ -740,7 +742,7 @@ function selectTerritoryTarget(
     ),
     options
   );
-  const persistedIntentCandidates = filterControllerPressureOnlyCandidates(
+  const persistedIntentCandidates = filterTerritoryCandidatesForPlanningOptions(
     getPersistedTerritoryIntentCandidates(
       colonyName,
       colonyOwnerUsername,
@@ -773,7 +775,7 @@ function selectTerritoryTarget(
       return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
 
-    const visibleAdjacentControllerProgressCandidates = filterControllerPressureOnlyCandidates(
+    const visibleAdjacentControllerProgressCandidates = filterTerritoryCandidatesForPlanningOptions(
       applyOccupationRecommendationScores(
         colony,
         roleCounts,
@@ -820,7 +822,7 @@ function selectTerritoryTarget(
     );
   }
 
-  const adjacentCandidates = filterControllerPressureOnlyCandidates(
+  const adjacentCandidates = filterTerritoryCandidatesForPlanningOptions(
     applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
       ...getAdjacentReserveCandidates(
         colonyName,
@@ -857,19 +859,27 @@ function selectTerritoryTarget(
   );
 }
 
-function filterControllerPressureOnlyCandidates(
+function filterTerritoryCandidatesForPlanningOptions(
   candidates: ScoredTerritoryTarget[],
   options: TerritoryTargetSelectionOptions
 ): ScoredTerritoryTarget[] {
-  if (options.controllerPressureOnly !== true) {
+  if (options.controllerPressureOnly !== true && options.followUpOnly !== true) {
     return candidates;
   }
 
-  return candidates.filter(isControllerPressureCandidate);
+  return candidates.filter(
+    (candidate) =>
+      (options.controllerPressureOnly === true && isControllerPressureCandidate(candidate)) ||
+      (options.followUpOnly === true && isTerritoryFollowUpControlCandidate(candidate))
+  );
 }
 
 function isControllerPressureCandidate(candidate: ScoredTerritoryTarget): boolean {
   return isTerritoryControlAction(candidate.intentAction) && candidate.requiresControllerPressure === true;
+}
+
+function isTerritoryFollowUpControlCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return candidate.followUp !== undefined && isTerritoryControlAction(candidate.intentAction);
 }
 
 function selectBestScoredTerritoryCandidate(candidates: ScoredTerritoryTarget[]): ScoredTerritoryTarget | null {

@@ -1192,6 +1192,68 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('uses follow-up-only territory planning for a persisted non-pressure follow-up spawn', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeTerritoryRoom('W2N1', { my: false } as StructureController, 2),
+        W3N1: makeTerritoryRoom('W3N1', { my: false } as StructureController, 2)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 154,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        { worker: 4, claimer: 0, claimersByTargetRoom: {} },
+        155,
+        { workersOnly: true, allowTerritoryFollowUp: true }
+      )
+    ).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W3N1-155',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W3N1', action: 'reserve', followUp }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 155,
+        followUp
+      }
+    ]);
+  });
+
   it('cools down a recovered follow-up when no spawn action is available', () => {
     const followUp: TerritoryFollowUpMemory = {
       source: 'activeReserveAdjacent',
