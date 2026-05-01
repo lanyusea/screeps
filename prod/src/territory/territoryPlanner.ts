@@ -13,7 +13,12 @@ import {
   type OccupationRecommendationScore
 } from './occupationRecommendation';
 import { shouldSignOccupiedController } from './controllerSigning';
-import { getKnownDeadZoneRoom, isKnownDeadZoneRoom, isRouteBlockedByKnownDeadZone } from '../defense/deadZone';
+import {
+  getKnownDeadZoneRoom,
+  isKnownDeadZoneRoom,
+  isRouteBlockedByKnownDeadZone,
+  refreshVisibleRoomDeadZoneMemory
+} from '../defense/deadZone';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -1382,7 +1387,11 @@ function getTerritoryDeadZoneSuppressionReason(
   targetRoom: string,
   routeDistanceLookupContext: RouteDistanceLookupContext
 ): TerritoryIntentSuppressionReason | null {
-  isKnownDeadZoneRoom(targetRoom);
+  const visibleTargetRoom = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
+  if (visibleTargetRoom) {
+    refreshVisibleRoomDeadZoneMemory(visibleTargetRoom);
+  }
+
   if (getKnownDeadZoneRoom(targetRoom)?.reason === 'enemyTower') {
     return 'deadZoneTarget';
   }

@@ -62,9 +62,11 @@ function getOwnedColonies() {
 }
 
 // src/defense/deadZone.ts
+var DEAD_ZONE_MEMORY_TTL = 250;
 var ERR_NO_PATH_CODE = -2;
 function refreshVisibleDeadZoneMemory(gameTime = getGameTime()) {
   var _a;
+  clearExpiredDeadZoneRooms(gameTime);
   const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
   if (!rooms) {
     return;
@@ -101,14 +103,26 @@ function isKnownDeadZoneRoom(roomName) {
   var _a, _b;
   const visibleRoom = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
   if (visibleRoom) {
-    return refreshVisibleRoomDeadZoneMemory(visibleRoom);
+    return assessVisibleRoomDeadZone(visibleRoom).unsafe;
   }
-  return getKnownDeadZoneRoom(roomName) !== null;
+  return readKnownDeadZoneRoom(roomName, false) !== null;
 }
 function getKnownDeadZoneRoom(roomName) {
+  return readKnownDeadZoneRoom(roomName, true);
+}
+function readKnownDeadZoneRoom(roomName, clearExpired) {
   var _a, _b, _c;
   const roomMemory = (_c = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.defense) == null ? void 0 : _b.unsafeRooms) == null ? void 0 : _c[roomName];
-  return isDefenseUnsafeRoomMemory(roomMemory) ? roomMemory : null;
+  if (!isDefenseUnsafeRoomMemory(roomMemory)) {
+    return null;
+  }
+  if (isDeadZoneMemoryExpired(roomMemory)) {
+    if (clearExpired) {
+      clearKnownDeadZoneRoom(roomName);
+    }
+    return null;
+  }
+  return roomMemory;
 }
 function clearKnownDeadZoneRoom(roomName) {
   var _a;
@@ -206,9 +220,13 @@ function isTowerStructure(structure) {
   return structure.structureType === towerType;
 }
 function hasAnyKnownDeadZoneRoom() {
-  var _a, _b;
+  var _a, _b, _c;
   const unsafeRooms = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.defense) == null ? void 0 : _b.unsafeRooms;
-  return unsafeRooms !== void 0 && Object.keys(unsafeRooms).length > 0;
+  if (unsafeRooms && Object.keys(unsafeRooms).some((roomName) => readKnownDeadZoneRoom(roomName, false) !== null)) {
+    return true;
+  }
+  const visibleRooms = (_c = globalThis.Game) == null ? void 0 : _c.rooms;
+  return visibleRooms ? Object.values(visibleRooms).some((room) => assessVisibleRoomDeadZone(room).unsafe) : false;
 }
 function isDefenseUnsafeRoomMemory(value) {
   if (typeof value !== "object" || value === null) {
@@ -216,6 +234,21 @@ function isDefenseUnsafeRoomMemory(value) {
   }
   const candidate = value;
   return typeof candidate.roomName === "string" && candidate.unsafe === true && (candidate.reason === "enemyTower" || candidate.reason === "hostilePresence") && typeof candidate.updatedAt === "number";
+}
+function isDeadZoneMemoryExpired(roomMemory, gameTime = getGameTime()) {
+  return gameTime >= roomMemory.updatedAt && gameTime - roomMemory.updatedAt > DEAD_ZONE_MEMORY_TTL;
+}
+function clearExpiredDeadZoneRooms(gameTime) {
+  var _a, _b;
+  const unsafeRooms = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.defense) == null ? void 0 : _b.unsafeRooms;
+  if (!unsafeRooms) {
+    return;
+  }
+  for (const [roomName, roomMemory] of Object.entries(unsafeRooms)) {
+    if (isDefenseUnsafeRoomMemory(roomMemory) && isDeadZoneMemoryExpired(roomMemory, gameTime)) {
+      clearKnownDeadZoneRoom(roomName);
+    }
+  }
 }
 function getWritableDefenseMemory() {
   var _a;
@@ -405,13 +438,15 @@ function runDefender(creep, telemetryEvents) {
   const target = selectDefenderTarget(creep);
   if (target && typeof creep.attack === "function") {
     const attackResult = creep.attack(target);
-    if (attackResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === "function") {
+    if (attackResult === ERR_NOT_IN_RANGE_CODE) {
       if (shouldSuppressDefenderMove(creep, target)) {
         return;
       }
-      const moveResult = creep.moveTo(target);
-      recordDefenderAction(creep, "defenderMove", target, moveResult, telemetryEvents);
-      return;
+      if (typeof creep.moveTo === "function") {
+        const moveResult = creep.moveTo(target);
+        recordDefenderAction(creep, "defenderMove", target, moveResult, telemetryEvents);
+        return;
+      }
     }
     recordDefenderAction(creep, "defenderAttack", target, attackResult, telemetryEvents);
   }
@@ -419,7 +454,7 @@ function runDefender(creep, telemetryEvents) {
 function shouldSuppressDefenderMove(creep, target) {
   var _a;
   const targetRoom = (_a = target.pos) == null ? void 0 : _a.roomName;
-  if (!targetRoom || targetRoom === creep.room.name || !getKnownDeadZoneRoom(targetRoom)) {
+  if (!targetRoom || targetRoom === creep.room.name || !isKnownDeadZoneRoom(targetRoom)) {
     return false;
   }
   return hasSafeRouteAvoidingDeadZones(creep.room.name, targetRoom) === false;
@@ -3065,9 +3100,12 @@ function suppressDeadZoneTerritoryTargets(territoryMemory, intents, colonyName, 
   return { intents: nextIntents, changed };
 }
 function getTerritoryDeadZoneSuppressionReason(colonyName, targetRoom, routeDistanceLookupContext) {
-  var _a;
-  isKnownDeadZoneRoom(targetRoom);
-  if (((_a = getKnownDeadZoneRoom(targetRoom)) == null ? void 0 : _a.reason) === "enemyTower") {
+  var _a, _b, _c;
+  const visibleTargetRoom = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[targetRoom];
+  if (visibleTargetRoom) {
+    refreshVisibleRoomDeadZoneMemory(visibleTargetRoom);
+  }
+  if (((_c = getKnownDeadZoneRoom(targetRoom)) == null ? void 0 : _c.reason) === "enemyTower") {
     return "deadZoneTarget";
   }
   return isRouteBlockedByKnownDeadZone(colonyName, targetRoom) && getKnownRouteLength(colonyName, targetRoom, routeDistanceLookupContext) !== null ? "deadZoneRoute" : null;

@@ -6,9 +6,13 @@ interface DeadZoneAssessment {
   reason?: DefenseUnsafeRoomReason;
 }
 
+export const DEAD_ZONE_MEMORY_TTL = 250;
+
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 
 export function refreshVisibleDeadZoneMemory(gameTime = getGameTime()): void {
+  clearExpiredDeadZoneRooms(gameTime);
+
   const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
   if (!rooms) {
     return;
@@ -48,15 +52,30 @@ export function refreshVisibleRoomDeadZoneMemory(room: Room, gameTime = getGameT
 export function isKnownDeadZoneRoom(roomName: string): boolean {
   const visibleRoom = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[roomName];
   if (visibleRoom) {
-    return refreshVisibleRoomDeadZoneMemory(visibleRoom);
+    return assessVisibleRoomDeadZone(visibleRoom).unsafe;
   }
 
-  return getKnownDeadZoneRoom(roomName) !== null;
+  return readKnownDeadZoneRoom(roomName, false) !== null;
 }
 
 export function getKnownDeadZoneRoom(roomName: string): DefenseUnsafeRoomMemory | null {
+  return readKnownDeadZoneRoom(roomName, true);
+}
+
+function readKnownDeadZoneRoom(roomName: string, clearExpired: boolean): DefenseUnsafeRoomMemory | null {
   const roomMemory = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense?.unsafeRooms?.[roomName];
-  return isDefenseUnsafeRoomMemory(roomMemory) ? roomMemory : null;
+  if (!isDefenseUnsafeRoomMemory(roomMemory)) {
+    return null;
+  }
+
+  if (isDeadZoneMemoryExpired(roomMemory)) {
+    if (clearExpired) {
+      clearKnownDeadZoneRoom(roomName);
+    }
+    return null;
+  }
+
+  return roomMemory;
 }
 
 export function clearKnownDeadZoneRoom(roomName: string): void {
@@ -172,7 +191,12 @@ function isTowerStructure(structure: Structure): boolean {
 
 function hasAnyKnownDeadZoneRoom(): boolean {
   const unsafeRooms = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense?.unsafeRooms;
-  return unsafeRooms !== undefined && Object.keys(unsafeRooms).length > 0;
+  if (unsafeRooms && Object.keys(unsafeRooms).some((roomName) => readKnownDeadZoneRoom(roomName, false) !== null)) {
+    return true;
+  }
+
+  const visibleRooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+  return visibleRooms ? Object.values(visibleRooms).some((room) => assessVisibleRoomDeadZone(room).unsafe) : false;
 }
 
 function isDefenseUnsafeRoomMemory(value: unknown): value is DefenseUnsafeRoomMemory {
@@ -187,6 +211,23 @@ function isDefenseUnsafeRoomMemory(value: unknown): value is DefenseUnsafeRoomMe
     (candidate.reason === 'enemyTower' || candidate.reason === 'hostilePresence') &&
     typeof candidate.updatedAt === 'number'
   );
+}
+
+function isDeadZoneMemoryExpired(roomMemory: DefenseUnsafeRoomMemory, gameTime = getGameTime()): boolean {
+  return gameTime >= roomMemory.updatedAt && gameTime - roomMemory.updatedAt > DEAD_ZONE_MEMORY_TTL;
+}
+
+function clearExpiredDeadZoneRooms(gameTime: number): void {
+  const unsafeRooms = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense?.unsafeRooms;
+  if (!unsafeRooms) {
+    return;
+  }
+
+  for (const [roomName, roomMemory] of Object.entries(unsafeRooms)) {
+    if (isDefenseUnsafeRoomMemory(roomMemory) && isDeadZoneMemoryExpired(roomMemory, gameTime)) {
+      clearKnownDeadZoneRoom(roomName);
+    }
+  }
 }
 
 function getWritableDefenseMemory(): DefenseMemory | null {

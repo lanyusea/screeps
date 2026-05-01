@@ -899,6 +899,50 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('refreshes a visible dead-zone target before deciding suppression reason', () => {
+    const colony = makeSafeColony();
+    const hostileTower = { id: 'enemy-tower', structureType: 'tower' } as Structure;
+    (globalThis as unknown as { STRUCTURE_TOWER: string }).STRUCTURE_TOWER = 'tower';
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 520,
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false } as StructureController,
+          find: jest.fn((findType: number) => (findType === FIND_HOSTILE_STRUCTURES ? [hostileTower] : []))
+        } as unknown as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 520);
+
+    expect(plan).toBeNull();
+    expect(Memory.defense?.unsafeRooms?.W2N1).toEqual({
+      roomName: 'W2N1',
+      unsafe: true,
+      reason: 'enemyTower',
+      updatedAt: 520,
+      hostileCreepCount: 0,
+      hostileStructureCount: 1,
+      hostileTowerCount: 1
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 520,
+        reason: 'deadZoneTarget'
+      }
+    ]);
+  });
+
   it('clears a dead-zone flag when the room becomes safe', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
