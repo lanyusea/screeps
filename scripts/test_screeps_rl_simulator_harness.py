@@ -287,6 +287,36 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(harness.main(["self-test"], stdout=self_test_output), 0)
         self.assertIn('"officialMmoWrites": false', self_test_output.getvalue())
 
+    def test_zero_room_tick_throughput_sample_cannot_write_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_path = root / "runtime.log"
+            out_dir = root / "out"
+            runtime_path.write_text(
+                runtime_line({"type": "runtime-summary", "tick": 3, "rooms": [{"roomName": "W3N3"}]}),
+                encoding="utf-8",
+            )
+
+            with mock.patch("sys.stderr", new=io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    harness.main(
+                        [
+                            "dry-run",
+                            str(runtime_path),
+                            "--out-dir",
+                            str(out_dir),
+                            "--manifest-id",
+                            "zero-room-ticks",
+                            "--bot-commit",
+                            "f" * 40,
+                            "--throughput-sample",
+                            "worker:0:10",
+                        ],
+                    )
+
+            self.assertEqual(raised.exception.code, 2)
+            self.assertFalse((out_dir / "zero-room-ticks" / "simulator_harness_manifest.json").exists())
+
     def test_throughput_sample_parser_rejects_invalid_shapes(self) -> None:
         valid = harness.parse_throughput_sample("worker-7:1200:30.5:1")
         self.assertEqual(valid.worker_id, "worker-7")
@@ -294,7 +324,7 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         self.assertEqual(valid.wall_seconds, 30.5)
         self.assertEqual(valid.failure_count, 1)
 
-        for sample in ("worker:1", ":1:1", "worker:-1:1", "worker:1:0", "worker:1:1:-1"):
+        for sample in ("worker:1", ":1:1", "worker:-1:1", "worker:0:1", "worker:1:0", "worker:1:1:-1"):
             with self.subTest(sample=sample):
                 with self.assertRaises(argparse.ArgumentTypeError):
                     harness.parse_throughput_sample(sample)

@@ -83,8 +83,8 @@ def parse_throughput_sample(value: str) -> ThroughputSample:
         failure_count = int(parts[3]) if len(parts) == 4 else 0
     except ValueError as error:
         raise argparse.ArgumentTypeError("throughput sample has invalid numeric fields") from error
-    if room_ticks < 0:
-        raise argparse.ArgumentTypeError("throughput sample room_ticks must be at least 0")
+    if room_ticks <= 0:
+        raise argparse.ArgumentTypeError("throughput sample room_ticks must be greater than 0")
     if not math.isfinite(wall_seconds) or wall_seconds <= 0:
         raise argparse.ArgumentTypeError("throughput sample wall_seconds must be greater than 0")
     if failure_count < 0:
