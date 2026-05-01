@@ -1346,6 +1346,11 @@ function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report) {
   if (!territoryMemory) {
     return;
   }
+  const unavailableTargets = buildUnavailableOccupationRecommendationControlTargets(report);
+  if (unavailableTargets.length > 0) {
+    revokeOccupationRecommendationTargets(territoryMemory, colony, unavailableTargets);
+    return;
+  }
   removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
 }
 function buildPersistableOccupationRecommendationTarget(report, intent) {
@@ -1381,6 +1386,20 @@ function buildActiveOccupationRecommendationControlTarget(report) {
   }
   return { roomName: recommendation.roomName, action };
 }
+function buildUnavailableOccupationRecommendationControlTargets(report) {
+  const targetKeys = /* @__PURE__ */ new Map();
+  for (const candidate of report.candidates) {
+    if (candidate.evidenceStatus !== "unavailable") {
+      continue;
+    }
+    const action = getTerritoryIntentAction(candidate.action);
+    if (!isTerritoryControlAction(action)) {
+      continue;
+    }
+    targetKeys.set(`${candidate.roomName}:${action}`, { roomName: candidate.roomName, action });
+  }
+  return Array.from(targetKeys.values());
+}
 function revokeOccupationRecommendationTarget(territoryMemory, intent) {
   if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
     return;
@@ -1389,6 +1408,18 @@ function revokeOccupationRecommendationTarget(territoryMemory, intent) {
     const target = normalizeTerritoryTarget(rawTarget);
     return !((target == null ? void 0 : target.colony) === intent.colony && target.roomName === intent.targetRoom && target.action === intent.action && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR);
   });
+}
+function revokeOccupationRecommendationTargets(territoryMemory, colony, staleTargets) {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !((target == null ? void 0 : target.colony) === colony && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR && staleTargets.some((staleTarget) => isSameTerritoryControlTarget(target, staleTarget)));
+  });
+}
+function isSameTerritoryControlTarget(target, other) {
+  return target.roomName === other.roomName && target.action === other.action;
 }
 function upsertTerritoryTarget(territoryMemory, target) {
   if (!Array.isArray(territoryMemory.targets)) {

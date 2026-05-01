@@ -716,11 +716,17 @@ describe('occupation recommendation scoring', () => {
     ]);
   });
 
-  it('revokes a stale recommendation-owned target when no follow-up exists', () => {
-    const staleTarget: TerritoryTargetMemory = {
+  it('revokes stale recommendation-owned targets when all candidates are unavailable', () => {
+    const staleReserveTarget: TerritoryTargetMemory = {
       colony: 'W1N1',
       roomName: 'W2N1',
       action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    const staleClaimTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      action: 'claim',
       createdBy: 'occupationRecommendation'
     };
     const manualMatchingTarget: TerritoryTargetMemory = {
@@ -744,7 +750,8 @@ describe('occupation recommendation scoring', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         targets: [
-          staleTarget,
+          staleReserveTarget,
+          staleClaimTarget,
           manualMatchingTarget,
           disabledRecommendationTarget,
           otherColonyRecommendationTarget
@@ -757,11 +764,21 @@ describe('occupation recommendation scoring', () => {
           roomName: 'W2N1',
           controller: { ownerUsername: 'enemy' },
           sourceCount: 2
+        }),
+        makeCandidate({
+          roomName: 'W3N1',
+          actionHint: 'claim',
+          controller: { ownerUsername: 'enemy' },
+          sourceCount: 2
         })
       ])
     );
 
     expect(report.next).toBeNull();
+    expect(report.candidates.map((candidate) => candidate.evidenceStatus)).toEqual([
+      'unavailable',
+      'unavailable'
+    ]);
     expect(report.followUpIntent).toBeNull();
     expect(persistOccupationRecommendationFollowUpIntent(report, 708)).toBeNull();
     expect(Memory.territory?.targets).toEqual([

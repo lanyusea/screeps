@@ -80,6 +80,7 @@ const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
 const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
+type OccupationRecommendationControlTargetKey = Pick<TerritoryTargetMemory, 'roomName' | 'action'>;
 
 // Project vision ordering: territory action dominates resource value; combat/risk only gates or deprioritizes.
 const ACTION_SCORE: Record<OccupationRecommendationAction, number> = {
@@ -198,6 +199,12 @@ function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(
     return;
   }
 
+  const unavailableTargets = buildUnavailableOccupationRecommendationControlTargets(report);
+  if (unavailableTargets.length > 0) {
+    revokeOccupationRecommendationTargets(territoryMemory, colony, unavailableTargets);
+    return;
+  }
+
   removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
 }
 
@@ -229,7 +236,7 @@ function buildPersistableOccupationRecommendationTarget(
 function removeStaleOccupationRecommendationTargets(
   territoryMemory: TerritoryMemory,
   colony: string,
-  activeTarget: Pick<TerritoryTargetMemory, 'roomName' | 'action'> | null
+  activeTarget: OccupationRecommendationControlTargetKey | null
 ): void {
   if (!Array.isArray(territoryMemory.targets)) {
     return;
@@ -248,7 +255,7 @@ function removeStaleOccupationRecommendationTargets(
 
 function buildActiveOccupationRecommendationControlTarget(
   report: OccupationRecommendationReport
-): Pick<TerritoryTargetMemory, 'roomName' | 'action'> | null {
+): OccupationRecommendationControlTargetKey | null {
   const recommendation = report.next;
   if (!recommendation) {
     return null;
@@ -260,6 +267,26 @@ function buildActiveOccupationRecommendationControlTarget(
   }
 
   return { roomName: recommendation.roomName, action };
+}
+
+function buildUnavailableOccupationRecommendationControlTargets(
+  report: OccupationRecommendationReport
+): OccupationRecommendationControlTargetKey[] {
+  const targetKeys = new Map<string, OccupationRecommendationControlTargetKey>();
+  for (const candidate of report.candidates) {
+    if (candidate.evidenceStatus !== 'unavailable') {
+      continue;
+    }
+
+    const action = getTerritoryIntentAction(candidate.action);
+    if (!isTerritoryControlAction(action)) {
+      continue;
+    }
+
+    targetKeys.set(`${candidate.roomName}:${action}`, { roomName: candidate.roomName, action });
+  }
+
+  return Array.from(targetKeys.values());
 }
 
 function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, intent: TerritoryIntentMemory): void {
@@ -277,6 +304,33 @@ function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, 
       target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
     );
   });
+}
+
+function revokeOccupationRecommendationTargets(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  staleTargets: OccupationRecommendationControlTargetKey[]
+): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !(
+      target?.colony === colony &&
+      target.enabled !== false &&
+      target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR &&
+      staleTargets.some((staleTarget) => isSameTerritoryControlTarget(target, staleTarget))
+    );
+  });
+}
+
+function isSameTerritoryControlTarget(
+  target: OccupationRecommendationControlTargetKey,
+  other: OccupationRecommendationControlTargetKey
+): boolean {
+  return target.roomName === other.roomName && target.action === other.action;
 }
 
 function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
