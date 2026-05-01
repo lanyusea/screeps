@@ -32,6 +32,7 @@ export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
+const MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT = 10;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
@@ -1486,6 +1487,7 @@ interface WorkerEnergyAcquisitionReservationContext {
 
 interface WorkerEnergyAcquisitionSearchOptions {
   maximumRange?: number;
+  minimumDroppedEnergy?: number;
 }
 
 function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
@@ -1727,7 +1729,9 @@ function selectSpawnRecoveryEnergyAcquisitionTask(
   energySink: FillableEnergySink,
   harvestEta: number | null = estimateHarvestDeliveryEta(creep, energySink)
 ): WorkerEnergyAcquisitionTask | null {
-  const candidates = findWorkerEnergyAcquisitionCandidates(creep)
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
+    minimumDroppedEnergy: MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT
+  })
     .map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink))
     .filter((candidate): candidate is SpawnRecoveryEnergyAcquisitionCandidate => candidate !== null)
     .filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
@@ -1840,8 +1844,10 @@ function findDroppedEnergyAcquisitionCandidates(
   reservationContext: WorkerEnergyAcquisitionReservationContext,
   options: WorkerEnergyAcquisitionSearchOptions = {}
 ): WorkerEnergyAcquisitionCandidate[] {
+  const minimumEnergy = options.minimumDroppedEnergy ?? MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+
   return findDroppedResources(creep.room)
-    .filter(isUsefulDroppedEnergy)
+    .filter((resource): resource is Resource<ResourceConstant> => isDroppedEnergy(resource, minimumEnergy))
     .flatMap((source) => {
       const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
         creep,
@@ -1852,7 +1858,7 @@ function findDroppedEnergyAcquisitionCandidates(
           targetId: source.id
         },
         reservationContext,
-        MIN_DROPPED_ENERGY_PICKUP_AMOUNT
+        minimumEnergy
       );
 
       return candidate ? [candidate] : [];
@@ -2961,7 +2967,11 @@ function findDroppedResources(room: Room): Resource[] {
 }
 
 function isUsefulDroppedEnergy(resource: Resource): resource is Resource<ResourceConstant> {
-  return resource.resourceType === getWorkerEnergyResource() && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+  return isDroppedEnergy(resource, MIN_DROPPED_ENERGY_PICKUP_AMOUNT);
+}
+
+function isDroppedEnergy(resource: Resource, minimumEnergy: number): resource is Resource<ResourceConstant> {
+  return resource.resourceType === getWorkerEnergyResource() && resource.amount >= minimumEnergy;
 }
 
 function findClosestByRange<T extends RoomObject>(creep: Creep, objects: T[]): T | null {
