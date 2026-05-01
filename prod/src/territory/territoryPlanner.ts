@@ -65,10 +65,12 @@ export interface TerritoryIntentProgressSummary {
 
 export interface TerritoryIntentPlanningOptions {
   controllerPressureOnly?: boolean;
+  followUpOnly?: boolean;
 }
 
 interface TerritoryTargetSelectionOptions {
   controllerPressureOnly?: boolean;
+  followUpOnly?: boolean;
 }
 
 interface MemoryRecord {
@@ -311,6 +313,32 @@ export function hasActiveTerritoryFollowUpPreparationDemand(
 
   return normalizeTerritoryFollowUpDemands(territoryMemory.demands).some(
     (demand) => demand.updatedAt === gameTime && demand.colony === colony && demand.workerCount > 0
+  );
+}
+
+export function hasPendingTerritoryFollowUpIntent(
+  colony: string | null | undefined,
+  roleCounts: RoleCounts,
+  gameTime = getGameTime()
+): boolean {
+  if (!isNonEmptyString(colony)) {
+    return false;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return false;
+  }
+
+  return normalizeTerritoryIntents(territoryMemory.intents).some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.followUp !== undefined &&
+      isTerritoryControlAction(intent.action) &&
+      (intent.status === 'planned' ||
+        isRecoveredTerritoryFollowUpIntent(intent, gameTime) ||
+        (intent.status === 'active' &&
+          getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) === 0))
   );
 }
 
@@ -723,36 +751,33 @@ function selectTerritoryTarget(
     roleCounts,
     routeDistanceLookupContext
   );
-  const configuredCandidates = filterControllerPressureOnlyCandidates(
-    applyOccupationRecommendationScores(
-      colony,
-      roleCounts,
-      workerTarget,
-      getConfiguredTerritoryCandidates(
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        roleCounts,
-        routeDistanceLookupContext
-      )
-    ),
-    options
-  );
-  const persistedIntentCandidates = filterControllerPressureOnlyCandidates(
-    getPersistedTerritoryIntentCandidates(
+  const configuredCandidates = applyOccupationRecommendationScores(
+    colony,
+    roleCounts,
+    workerTarget,
+    getConfiguredTerritoryCandidates(
       colonyName,
       colonyOwnerUsername,
       territoryMemory,
       intents,
       gameTime,
+      roleCounts,
       routeDistanceLookupContext
-    ),
-    options
+    )
+  );
+  const persistedIntentCandidates = getPersistedTerritoryIntentCandidates(
+    colonyName,
+    colonyOwnerUsername,
+    territoryMemory,
+    intents,
+    gameTime,
+    routeDistanceLookupContext
   );
   const primaryCandidates = getSpawnCapableTerritoryCandidates(
-    [...persistedIntentCandidates, ...configuredCandidates],
+    filterTerritoryCandidatesForPlanningOptions(
+      [...persistedIntentCandidates, ...configuredCandidates],
+      options
+    ),
     colony
   );
   const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
@@ -773,7 +798,7 @@ function selectTerritoryTarget(
       return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
 
-    const visibleAdjacentControllerProgressCandidates = filterControllerPressureOnlyCandidates(
+    const visibleAdjacentControllerProgressCandidates = filterTerritoryCandidatesForPlanningOptions(
       applyOccupationRecommendationScores(
         colony,
         roleCounts,
@@ -820,7 +845,7 @@ function selectTerritoryTarget(
     );
   }
 
-  const adjacentCandidates = filterControllerPressureOnlyCandidates(
+  const adjacentCandidates = filterTerritoryCandidatesForPlanningOptions(
     applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
       ...getAdjacentReserveCandidates(
         colonyName,
@@ -857,19 +882,30 @@ function selectTerritoryTarget(
   );
 }
 
-function filterControllerPressureOnlyCandidates(
+function filterTerritoryCandidatesForPlanningOptions(
   candidates: ScoredTerritoryTarget[],
   options: TerritoryTargetSelectionOptions
 ): ScoredTerritoryTarget[] {
-  if (options.controllerPressureOnly !== true) {
-    return candidates;
+  if (options.controllerPressureOnly === true) {
+    const pressureCandidates = candidates.filter(isControllerPressureCandidate);
+    if (pressureCandidates.length > 0 || options.followUpOnly !== true) {
+      return pressureCandidates;
+    }
   }
 
-  return candidates.filter(isControllerPressureCandidate);
+  if (options.followUpOnly === true) {
+    return candidates.filter(isTerritoryFollowUpControlCandidate);
+  }
+
+  return candidates;
 }
 
 function isControllerPressureCandidate(candidate: ScoredTerritoryTarget): boolean {
   return isTerritoryControlAction(candidate.intentAction) && candidate.requiresControllerPressure === true;
+}
+
+function isTerritoryFollowUpControlCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return candidate.followUp !== undefined && isTerritoryControlAction(candidate.intentAction);
 }
 
 function selectBestScoredTerritoryCandidate(candidates: ScoredTerritoryTarget[]): ScoredTerritoryTarget | null {
