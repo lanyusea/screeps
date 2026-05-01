@@ -78,6 +78,7 @@ declare global {
     intents?: TerritoryIntentMemory[];
     demands?: TerritoryFollowUpDemandMemory[];
     executionHints?: TerritoryExecutionHintMemory[];
+    reservations?: Record<string, TerritoryReservationMemory>;
     routeDistances?: Record<string, number | null>;
   }
 
@@ -108,6 +109,14 @@ declare global {
     reason: TerritoryIntentSuspensionReason;
     hostileCount: number;
     updatedAt: number;
+  }
+
+  interface TerritoryReservationMemory {
+    colony: string;
+    roomName: string;
+    ticksToEnd: number;
+    updatedAt: number;
+    controllerId?: Id<StructureController>;
   }
 
   interface TerritoryFollowUpMemory {

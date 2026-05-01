@@ -11,6 +11,7 @@ import {
   suppressTerritoryIntent,
   TERRITORY_DOWNGRADE_GUARD_TICKS,
   TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS,
+  TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS,
   TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS,
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
   TERRITORY_RESERVATION_RENEWAL_TICKS,
@@ -4633,6 +4634,139 @@ describe('planTerritoryIntent', () => {
       )
     ).toBe(false);
     expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('defers unseen configured reserve scouting until observed reservation decay nears renewal', () => {
+    const colony = makeSafeColony();
+    const target: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W1N2: {
+          name: 'W1N2',
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 500 }
+          } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [target]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 100)).toBeNull();
+    expect(Memory.territory?.reservations).toEqual({
+      'W1N1>W1N2': {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 500,
+        updatedAt: 100
+      }
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 200)).toBeNull();
+    expect(Memory.territory?.intents).toBeUndefined();
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 601)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 601
+      }
+    ]);
+  });
+
+  it('uses route distance lead when scheduling an unseen reservation renewal scout', () => {
+    const colony = makeSafeColony();
+    const routeDistance = 5;
+    const observedTicksToEnd =
+      TERRITORY_RESERVATION_RENEWAL_TICKS +
+      routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS;
+    const findRoute = jest.fn(() =>
+      Array.from({ length: routeDistance }, (_value, index) => ({ exit: 3, room: `W1N2-${index}` }))
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W1N2', action: 'reserve' }],
+        reservations: {
+          'W1N1>W1N2': {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            ticksToEnd: observedTicksToEnd,
+            updatedAt: 100
+          }
+        }
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 101)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W1N2');
+    expect(Memory.territory?.routeDistances).toEqual({ 'W1N1>W1N2': routeDistance });
+  });
+
+  it('clears stale reservation memory when a configured reserve target becomes unreserved', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W1N2: { name: 'W1N2', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W1N2', action: 'reserve' }],
+        reservations: {
+          'W1N1>W1N2': {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            ticksToEnd: 3_000,
+            updatedAt: 100
+          }
+        }
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 150)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.reservations).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 150
+      }
+    ]);
   });
 
   it('keeps an unreserved target ahead of enemy-reserved controller pressure', () => {
