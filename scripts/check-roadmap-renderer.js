@@ -11,6 +11,15 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roadmap-renderer-check-'))
 const pngPath = path.join(tmpDir, 'roadmap.png');
 const htmlPath = pngPath.replace(/\.png$/, '.html');
 const failures = [];
+const EXPECTED_PROJECT_DOMAINS = [
+  'Change-control',
+  'Agent OS',
+  'Bot capability',
+  'Runtime monitor',
+  'Private smoke',
+  'Official MMO',
+  'Docs/process'
+];
 
 function fail(message) {
   failures.push(message);
@@ -132,7 +141,13 @@ function assertNoOldVisibleFallbacks(text) {
     { name: 'old hard-coded combat proof', value: 'Tactical bridge is ready' },
     { name: 'old hard-coded foundation proof', value: 'Private smoke and release-gate work remain tracked' },
     { name: 'old official deploy label', value: 'Official game deploys' },
-    { name: 'old project-source copy', value: 'data comes from GitHub Project' }
+    { name: 'old project-source copy', value: 'data comes from GitHub Project' },
+    { name: 'old roadmap section heading', value: '02 Development Roadmap - Six Tracks' },
+    { name: 'old gameplay kanban heading', value: '03 Gameplay Strategy Kanban' },
+    { name: 'old foundation kanban heading', value: '04 Foundation Delivery Kanban' },
+    { name: 'old resource track', value: 'Resource Economy' },
+    { name: 'old reliability track', value: 'Reliability / P0' },
+    { name: 'old foundation track', value: 'Foundation Gates' }
   ];
 
   for (const marker of oldMarkers) {
@@ -142,6 +157,26 @@ function assertNoOldVisibleFallbacks(text) {
   assert(!/https:\/\/screeps\.com\/?/i.test(text), 'visible text still contains the Screeps game link');
   assert(!/\bshardX\s*\/\s*E48S29\b|\bE48S29\b/.test(text), 'visible text still contains the room target');
   assert(!/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(text), 'visible text still contains CJK characters');
+}
+
+function assertDomainClassification(report, text) {
+  const roadmapTitles = (report.roadmapCards || []).map(card => String(card.title || ''));
+  assert(
+    JSON.stringify(roadmapTitles) === JSON.stringify(EXPECTED_PROJECT_DOMAINS),
+    `roadmap cards should be current Project Domain categories; saw ${JSON.stringify(roadmapTitles)}`
+  );
+
+  const kanbanTitles = (report.domainKanban || []).map(column => String(column.title || ''));
+  assert(
+    JSON.stringify(kanbanTitles) === JSON.stringify(EXPECTED_PROJECT_DOMAINS),
+    `domain board columns should be current Project Domain categories; saw ${JSON.stringify(kanbanTitles)}`
+  );
+
+  assert(text.includes('02 Project Domains'), 'Domain roadmap heading is missing');
+  assert(text.includes('03 Project Domain Board'), 'Domain board heading is missing');
+  for (const domain of EXPECTED_PROJECT_DOMAINS) {
+    assert(text.includes(domain), `visible report is missing Project Domain category: ${domain}`);
+  }
 }
 
 function assertKpiCardsMatchPagesData(body, text, cards) {
@@ -286,9 +321,9 @@ if (fs.existsSync(htmlPath)) {
   );
 
   assertKpiCardsMatchPagesData(body, text, report.kpiCards || []);
+  assertDomainClassification(report, text);
   assertRoadmapCardsMatchPagesData(body, report.roadmapCards || []);
-  assertKanbanMatchesPagesData(body, report.gameplayKanban || [], '03 Gameplay Strategy Kanban');
-  assertKanbanMatchesPagesData(body, report.foundationKanban || [], '04 Foundation Delivery Kanban');
+  assertKanbanMatchesPagesData(body, report.domainKanban || [], '03 Project Domain Board');
   assertProcessCardsMatchPagesData(body, report.processCards || []);
 }
 
