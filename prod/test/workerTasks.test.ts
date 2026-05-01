@@ -6597,6 +6597,59 @@ describe('selectWorkerTask', () => {
     expect(room.find).not.toHaveBeenCalledWith(FIND_STRUCTURES);
   });
 
+  it('routes an empty worker to the fastest spawn recovery harvest before the source2/controller lane', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const source1 = {
+      ...makeSource('source1', 11, 10),
+      pos: {
+        ...makeRoomPosition(11, 10),
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 1 : 99))
+      }
+    } as unknown as Source;
+    const source2 = {
+      ...makeSource('source2', 24, 23),
+      pos: {
+        ...makeRoomPosition(24, 23),
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'spawn1' ? 20 : 99))
+      }
+    } as unknown as Source;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source1, source2]
+    });
+    const creep = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            source1: 1,
+            source2: 8
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
   it('routes a loaded source2/controller lane worker to upgrade before far generic construction', () => {
     const site = {
       id: 'tower-site1',
