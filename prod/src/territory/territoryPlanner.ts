@@ -335,6 +335,12 @@ export function hasPendingTerritoryFollowUpIntent(
       intent.colony === colony &&
       intent.followUp !== undefined &&
       isTerritoryControlAction(intent.action) &&
+      isVisibleTerritoryIntentActionable(
+        intent.targetRoom,
+        intent.action,
+        intent.controllerId,
+        getVisibleColonyOwnerUsername(intent.colony)
+      ) &&
       (intent.status === 'planned' ||
         isRecoveredTerritoryFollowUpIntent(intent, gameTime) ||
         (intent.status === 'active' &&
@@ -2615,22 +2621,12 @@ function isStaleTerritoryProgressIntent(
     return false;
   }
 
-  const controllerState = getVisibleTerritoryControllerEvidenceState(
+  return !isVisibleTerritoryIntentActionable(
     intent.targetRoom,
     intent.action,
     intent.controllerId,
     colonyOwnerUsername
   );
-  const stillActionable =
-    controllerState === null ||
-    controllerState === 'available' ||
-    isVisibleTerritoryReservePressureAvailable(
-      intent.targetRoom,
-      intent.action,
-      intent.controllerId,
-      colonyOwnerUsername
-    );
-  return !stillActionable;
 }
 
 function getVisibleTerritoryControllerEvidenceState(
