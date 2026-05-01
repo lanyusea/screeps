@@ -23,6 +23,7 @@ const EXPECTED_PROJECT_DOMAINS = [
   'RL flywheel',
   'Docs/process'
 ];
+const EXPECTED_ROADMAP_DOMAINS = EXPECTED_PROJECT_DOMAINS.filter(domain => domain !== 'Docs/process');
 
 function fail(message) {
   failures.push(message);
@@ -177,7 +178,7 @@ function assertNoOldVisibleFallbacks(text) {
 function assertDomainClassification(report, text) {
   const roadmapTitles = (report.roadmapCards || []).map(card => String(card.title || ''));
   assert(
-    JSON.stringify(roadmapTitles) === JSON.stringify(EXPECTED_PROJECT_DOMAINS),
+    JSON.stringify(roadmapTitles) === JSON.stringify(EXPECTED_ROADMAP_DOMAINS),
     `roadmap cards should be current Project Domain categories; saw ${JSON.stringify(roadmapTitles)}`
   );
 
@@ -192,6 +193,15 @@ function assertDomainClassification(report, text) {
   for (const domain of EXPECTED_PROJECT_DOMAINS) {
     assert(text.includes(domain), `visible report is missing Project Domain category: ${domain}`);
   }
+}
+
+function assertProjectDomainSectionSplit(body) {
+  const roadmapSection = findSectionByHeading(body, '02 Project Domains');
+  const kanbanSection = findSectionByHeading(body, '03 Project Domain Board');
+  assert(Boolean(roadmapSection), 'Project Domains section is missing');
+  assert(Boolean(kanbanSection), 'Project Domain Board section is missing');
+  assert(!tagText(roadmapSection).includes('Docs/process'), 'Project Domains section should exclude Docs/process');
+  assert(tagText(kanbanSection).includes('Docs/process'), 'Project Domain Board should include Docs/process');
 }
 
 function assertKpiCardsMatchPagesData(body, text, cards) {
@@ -337,6 +347,7 @@ if (fs.existsSync(htmlPath)) {
   assertDomainKanbanFiveColumnCss(html);
   assertKpiCardsMatchPagesData(body, text, report.kpiCards || []);
   assertDomainClassification(report, text);
+  assertProjectDomainSectionSplit(body);
   assertRoadmapCardsMatchPagesData(body, report.roadmapCards || []);
   assertKanbanMatchesPagesData(body, report.domainKanban || [], '03 Project Domain Board');
   assertProcessCardsMatchPagesData(body, report.processCards || []);
