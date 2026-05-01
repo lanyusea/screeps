@@ -4653,7 +4653,9 @@ var LOW_LOAD_WORKER_ENERGY_RATIO = 0.25;
 var LOW_LOAD_WORKER_ENERGY_CEILING = 25;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
+var REFILL_DELIVERY_MIN_LOAD = 20;
 var SPAWN_RECOVERY_REFILL_PRESSURE_RATIO = 0.75;
+var REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED = 50;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -4739,6 +4741,13 @@ function selectWorkerTask(creep) {
       targetId: spawnOrExtensionEnergySink.id
     };
     if (shouldPrioritizeSpawnOrExtensionRefill(creep)) {
+      const refillMinLoadContinuationTask = selectUrgentRefillMinLoadContinuationTask(
+        creep,
+        spawnOrExtensionEnergySink
+      );
+      if (refillMinLoadContinuationTask) {
+        return refillMinLoadContinuationTask;
+      }
       recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "urgentSpawnExtensionRefill");
       return spawnOrExtensionRefillTask;
     }
@@ -4981,6 +4990,15 @@ function shouldPrioritizeSpawnOrExtensionRefill(creep) {
     return true;
   }
   return hasNearTermSpawnCompletionRefillDemand(creep.room);
+}
+function selectUrgentRefillMinLoadContinuationTask(creep, energySink) {
+  if (getUsedEnergy(creep) >= REFILL_DELIVERY_MIN_LOAD) {
+    return null;
+  }
+  if (getFreeStoredEnergyCapacity(energySink) <= REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED) {
+    return null;
+  }
+  return selectLowLoadWorkerEnergyContinuationTask(creep);
 }
 function hasSpawnRecoveryRefillPressure(creep, energyAvailable) {
   const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
@@ -8266,8 +8284,10 @@ var RUNTIME_SUMMARY_PREFIX = "#runtime-summary ";
 var RUNTIME_SUMMARY_INTERVAL = 20;
 var MAX_REPORTED_EVENTS = 10;
 var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
+var MAX_REFILL_DELIVERY_SAMPLES = 5;
 var MAX_TERRITORY_INTENT_SUMMARIES = 5;
 var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
+var REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
@@ -8276,19 +8296,27 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
     return;
   }
   const tick = getGameTime5();
+  const creepsByColony = groupCreepsByColony(creeps);
+  const refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
+  const eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
+  refreshRefillTelemetry(colonies, creepsByColony, refillTargetIdsByRoom, eventMetricsByRoom, tick);
   if (!shouldEmitRuntimeSummary(tick, events)) {
     return;
   }
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
-  const creepsByColony = groupCreepsByColony(creeps);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const summary = {
     type: "runtime-summary",
     tick,
     rooms: colonies.map(
       (colony) => {
-        var _a;
-        return summarizeRoom(colony, (_a = creepsByColony.get(colony.room.name)) != null ? _a : [], persistOccupationRecommendations);
+        var _a, _b;
+        return summarizeRoom(
+          colony,
+          (_a = creepsByColony.get(colony.room.name)) != null ? _a : [],
+          persistOccupationRecommendations,
+          (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {}
+        );
       }
     ),
     ...reportedEvents.length > 0 ? { events: reportedEvents } : {},
@@ -8314,10 +8342,27 @@ function groupCreepsByColony(creeps) {
   }
   return creepsByColony;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations) {
+function buildRefillTargetIdsByRoom(colonies) {
+  const refillTargetIdsByRoom = /* @__PURE__ */ new Map();
+  for (const colony of colonies) {
+    refillTargetIdsByRoom.set(colony.room.name, getSpawnExtensionEnergyStructureIds(colony.room));
+  }
+  return refillTargetIdsByRoom;
+}
+function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
+  var _a;
+  const eventMetricsByRoom = /* @__PURE__ */ new Map();
+  for (const colony of colonies) {
+    eventMetricsByRoom.set(
+      colony.room.name,
+      summarizeRoomEventMetrics(colony.room, (_a = refillTargetIdsByRoom.get(colony.room.name)) != null ? _a : /* @__PURE__ */ new Set())
+    );
+  }
+  return eventMetricsByRoom;
+}
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics) {
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
-  const eventMetrics = summarizeRoomEventMetrics(colony.room);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   if (persistOccupationRecommendations) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime5());
@@ -8330,6 +8375,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations) {
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime5()),
+    ...summarizeRefillTelemetry(colonyWorkers, getGameTime5()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -8418,6 +8464,102 @@ function toRuntimeWorkerEfficiencySample(entry) {
     ...entry.creepName ? { creepName: entry.creepName } : {},
     ...entry.sample
   };
+}
+function summarizeRefillTelemetry(workers, tick) {
+  return {
+    ...summarizeRefillDeliveryTicks(workers, tick),
+    ...summarizeRefillWorkerUtilization(workers)
+  };
+}
+function summarizeRefillDeliveryTicks(workers, tick) {
+  const samples = workers.flatMap(
+    (worker) => {
+      var _a, _b;
+      return ((_b = (_a = worker.memory.refillTelemetry) == null ? void 0 : _a.recentDeliveries) != null ? _b : []).map((sample) => ({
+        creepName: getCreepName2(worker),
+        sample
+      }));
+    }
+  ).filter(
+    (entry) => isRecentRefillDeliverySample(entry.sample, tick)
+  ).sort(compareRefillDeliverySampleEntries);
+  if (samples.length === 0) {
+    return {};
+  }
+  const reportedSamples = samples.slice(0, MAX_REFILL_DELIVERY_SAMPLES).map(toRuntimeRefillDeliverySample);
+  const deliveryTicks = samples.map((entry) => entry.sample.deliveryTicks);
+  const completedCount = deliveryTicks.length;
+  return {
+    refillDeliveryTicks: {
+      completedCount,
+      averageTicks: roundRatio(deliveryTicks.reduce((total, value) => total + value, 0), completedCount),
+      maxTicks: Math.max(...deliveryTicks),
+      samples: reportedSamples,
+      ...samples.length > MAX_REFILL_DELIVERY_SAMPLES ? { omittedSampleCount: samples.length - MAX_REFILL_DELIVERY_SAMPLES } : {}
+    }
+  };
+}
+function summarizeRefillWorkerUtilization(workers) {
+  const workerSummaries = workers.map((worker) => {
+    var _a, _b;
+    const telemetry = worker.memory.refillTelemetry;
+    if (!telemetry) {
+      return null;
+    }
+    const refillActiveTicks2 = Math.max(0, Math.floor((_a = telemetry.refillActiveTicks) != null ? _a : 0));
+    const idleOrOtherTaskTicks2 = Math.max(0, Math.floor((_b = telemetry.idleOrOtherTaskTicks) != null ? _b : 0));
+    const totalTicks2 = refillActiveTicks2 + idleOrOtherTaskTicks2;
+    if (totalTicks2 <= 0) {
+      return null;
+    }
+    return {
+      ...getCreepName2(worker) ? { creepName: getCreepName2(worker) } : {},
+      refillActiveTicks: refillActiveTicks2,
+      idleOrOtherTaskTicks: idleOrOtherTaskTicks2,
+      ratio: roundRatio(refillActiveTicks2, totalTicks2)
+    };
+  }).filter((summary) => summary !== null).sort(compareRefillWorkerUtilizationSummaries);
+  if (workerSummaries.length === 0) {
+    return {};
+  }
+  const refillActiveTicks = workerSummaries.reduce((total, worker) => total + worker.refillActiveTicks, 0);
+  const idleOrOtherTaskTicks = workerSummaries.reduce((total, worker) => total + worker.idleOrOtherTaskTicks, 0);
+  const totalTicks = refillActiveTicks + idleOrOtherTaskTicks;
+  return {
+    refillWorkerUtilization: {
+      assignedWorkerCount: workerSummaries.length,
+      refillActiveTicks,
+      idleOrOtherTaskTicks,
+      ratio: roundRatio(refillActiveTicks, totalTicks),
+      workers: workerSummaries
+    }
+  };
+}
+function compareRefillDeliverySampleEntries(left, right) {
+  var _a, _b;
+  return right.sample.tick - left.sample.tick || ((_a = left.creepName) != null ? _a : "").localeCompare((_b = right.creepName) != null ? _b : "") || left.sample.targetId.localeCompare(right.sample.targetId);
+}
+function toRuntimeRefillDeliverySample(entry) {
+  return {
+    ...entry.creepName ? { creepName: entry.creepName } : {},
+    ...entry.sample
+  };
+}
+function compareRefillWorkerUtilizationSummaries(left, right) {
+  var _a, _b;
+  return right.refillActiveTicks + right.idleOrOtherTaskTicks - (left.refillActiveTicks + left.idleOrOtherTaskTicks) || ((_a = left.creepName) != null ? _a : "").localeCompare((_b = right.creepName) != null ? _b : "");
+}
+function isRecentRefillDeliverySample(sample, tick) {
+  return isRefillDeliverySample(sample) && (tick <= 0 || sample.tick <= tick && sample.tick > tick - REFILL_DELIVERY_SAMPLE_TTL);
+}
+function isRefillDeliverySample(value) {
+  return isRecord5(value) && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.targetId === "string" && typeof value.deliveryTicks === "number" && Number.isFinite(value.deliveryTicks) && typeof value.activeTicks === "number" && Number.isFinite(value.activeTicks) && typeof value.idleOrOtherTaskTicks === "number" && Number.isFinite(value.idleOrOtherTaskTicks) && typeof value.energyDelivered === "number" && Number.isFinite(value.energyDelivered);
+}
+function roundRatio(numerator, denominator) {
+  if (denominator <= 0) {
+    return 0;
+  }
+  return Math.round(numerator / denominator * 1e3) / 1e3;
 }
 function isRecentWorkerEfficiencySample(sample, tick) {
   if (tick <= 0) {
@@ -8596,7 +8738,133 @@ function toRuntimeConstructionPriorityCandidateSummary(score) {
     risk: score.risk
   };
 }
-function summarizeRoomEventMetrics(room) {
+function refreshRefillTelemetry(colonies, creepsByColony, refillTargetIdsByRoom, eventMetricsByRoom, tick) {
+  var _a, _b, _c, _d;
+  for (const colony of colonies) {
+    const roomName = colony.room.name;
+    const refillTargetIds = (_a = refillTargetIdsByRoom.get(roomName)) != null ? _a : /* @__PURE__ */ new Set();
+    const refillTransfers = (_c = (_b = eventMetricsByRoom.get(roomName)) == null ? void 0 : _b.refillTransfers) != null ? _c : [];
+    const workers = ((_d = creepsByColony.get(roomName)) != null ? _d : []).filter((creep) => creep.memory.role === "worker");
+    for (const worker of workers) {
+      refreshWorkerRefillTelemetry(worker, refillTargetIds, refillTransfers, tick);
+    }
+  }
+}
+function refreshWorkerRefillTelemetry(worker, refillTargetIds, refillTransfers, tick) {
+  var _a;
+  const refillTargetId = getAssignedRefillTargetId(worker, refillTargetIds);
+  let telemetry = worker.memory.refillTelemetry;
+  if (refillTargetId) {
+    telemetry = ensureWorkerRefillTelemetry(worker);
+    if (!telemetry.current || telemetry.current.targetId !== refillTargetId) {
+      telemetry.current = {
+        targetId: refillTargetId,
+        startedAt: tick,
+        activeTicks: 0,
+        idleOrOtherTaskTicks: 0
+      };
+    }
+    recordWorkerRefillTelemetryTick(telemetry, true, tick);
+  } else if (telemetry && (telemetry.current || hasRecentWorkerRefillDelivery(telemetry, tick))) {
+    recordWorkerRefillTelemetryTick(telemetry, false, tick);
+  }
+  if (!(telemetry == null ? void 0 : telemetry.current)) {
+    pruneWorkerRefillTelemetry(worker, tick);
+    return;
+  }
+  const current = telemetry.current;
+  const deliveryEvents = refillTransfers.filter(
+    (event) => isWorkerRefillTransferEvent(worker, current.targetId, event)
+  );
+  if (deliveryEvents.length === 0) {
+    pruneWorkerRefillTelemetry(worker, tick);
+    return;
+  }
+  const energyDelivered = deliveryEvents.reduce((total, event) => total + event.amount, 0);
+  const sample = {
+    tick,
+    targetId: current.targetId,
+    deliveryTicks: Math.max(1, tick - current.startedAt + 1),
+    activeTicks: current.activeTicks,
+    idleOrOtherTaskTicks: current.idleOrOtherTaskTicks,
+    energyDelivered
+  };
+  telemetry.recentDeliveries = [sample, ...(_a = telemetry.recentDeliveries) != null ? _a : []].filter(
+    (recentSample) => isRecentRefillDeliverySample(recentSample, tick)
+  );
+  delete telemetry.current;
+  pruneWorkerRefillTelemetry(worker, tick);
+}
+function ensureWorkerRefillTelemetry(worker) {
+  if (!worker.memory.refillTelemetry) {
+    worker.memory.refillTelemetry = {};
+  }
+  return worker.memory.refillTelemetry;
+}
+function recordWorkerRefillTelemetryTick(telemetry, isRefillActive, tick) {
+  var _a, _b;
+  if (telemetry.lastUpdatedAt === tick) {
+    return;
+  }
+  if (isRefillActive) {
+    telemetry.refillActiveTicks = ((_a = telemetry.refillActiveTicks) != null ? _a : 0) + 1;
+    if (telemetry.current) {
+      telemetry.current.activeTicks += 1;
+    }
+  } else {
+    telemetry.idleOrOtherTaskTicks = ((_b = telemetry.idleOrOtherTaskTicks) != null ? _b : 0) + 1;
+    if (telemetry.current) {
+      telemetry.current.idleOrOtherTaskTicks += 1;
+    }
+  }
+  telemetry.lastUpdatedAt = tick;
+}
+function pruneWorkerRefillTelemetry(worker, tick) {
+  const telemetry = worker.memory.refillTelemetry;
+  if (!telemetry) {
+    return;
+  }
+  if (telemetry.recentDeliveries) {
+    telemetry.recentDeliveries = telemetry.recentDeliveries.filter(
+      (sample) => isRecentRefillDeliverySample(sample, tick)
+    );
+    if (telemetry.recentDeliveries.length === 0) {
+      delete telemetry.recentDeliveries;
+    }
+  }
+  if (!telemetry.current && !telemetry.recentDeliveries && (telemetry.lastUpdatedAt === void 0 || telemetry.lastUpdatedAt <= tick - REFILL_DELIVERY_SAMPLE_TTL)) {
+    delete worker.memory.refillTelemetry;
+  }
+}
+function hasRecentWorkerRefillDelivery(telemetry, tick) {
+  var _a;
+  return ((_a = telemetry.recentDeliveries) != null ? _a : []).some((sample) => isRecentRefillDeliverySample(sample, tick));
+}
+function getAssignedRefillTargetId(worker, refillTargetIds) {
+  const task = worker.memory.task;
+  if ((task == null ? void 0 : task.type) !== "transfer") {
+    return null;
+  }
+  const targetId = String(task.targetId);
+  return refillTargetIds.has(targetId) ? targetId : null;
+}
+function isWorkerRefillTransferEvent(worker, targetId, event) {
+  return event.targetId === targetId && getWorkerEventIds(worker).some((workerId) => workerId === event.objectId);
+}
+function getWorkerEventIds(worker) {
+  const ids = [];
+  const id = worker.id;
+  const name = worker.name;
+  if (typeof id === "string" && id.length > 0) {
+    ids.push(id);
+  }
+  if (typeof name === "string" && name.length > 0) {
+    ids.push(name);
+  }
+  return ids;
+}
+function summarizeRoomEventMetrics(room, refillTargetIds = getSpawnExtensionEnergyStructureIds(room)) {
+  var _a;
   const eventLog = getRoomEventLog(room);
   if (!eventLog) {
     return {};
@@ -8621,6 +8889,7 @@ function summarizeRoomEventMetrics(room) {
     objectDestroyedCount: 0,
     creepDestroyedCount: 0
   };
+  const refillTransfers = [];
   let hasResourceEvents = false;
   let hasCombatEvents = false;
   for (const entry of eventLog) {
@@ -8633,7 +8902,17 @@ function summarizeRoomEventMetrics(room) {
       hasResourceEvents = true;
     }
     if (entry.event === transferEvent && isEnergyEventData(data)) {
-      resourceEvents.transferredEnergy += getNumericEventData(data, "amount");
+      const amount = getNumericEventData(data, "amount");
+      resourceEvents.transferredEnergy += amount;
+      const targetId = getEventTargetId(data);
+      if (targetId && refillTargetIds.has(targetId)) {
+        resourceEvents.refillEnergyDelivered = ((_a = resourceEvents.refillEnergyDelivered) != null ? _a : 0) + amount;
+        refillTransfers.push({
+          ...buildEventObjectId(entry),
+          targetId,
+          amount
+        });
+      }
       hasResourceEvents = true;
     }
     if (entry.event === buildEvent) {
@@ -8663,8 +8942,36 @@ function summarizeRoomEventMetrics(room) {
   }
   return {
     ...hasResourceEvents ? { resources: resourceEvents } : {},
-    ...hasCombatEvents ? { combat: combatEvents } : {}
+    ...hasCombatEvents ? { combat: combatEvents } : {},
+    ...refillTransfers.length > 0 ? { refillTransfers } : {}
   };
+}
+function getSpawnExtensionEnergyStructureIds(room) {
+  var _a, _b;
+  const structures = (_b = (_a = findRoomObjects5(room, "FIND_MY_STRUCTURES")) != null ? _a : findRoomObjects5(room, "FIND_STRUCTURES")) != null ? _b : [];
+  const ids = /* @__PURE__ */ new Set();
+  for (const structure of structures) {
+    if (!isSpawnExtensionEnergyStructure2(structure)) {
+      continue;
+    }
+    const id = getObjectId2(structure);
+    if (id) {
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+function isSpawnExtensionEnergyStructure2(structure) {
+  return isRecord5(structure) && (matchesStructureType6(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType6(structure.structureType, "STRUCTURE_EXTENSION", "extension"));
+}
+function getEventTargetId(data) {
+  return typeof data.targetId === "string" && data.targetId.length > 0 ? data.targetId : null;
+}
+function buildEventObjectId(entry) {
+  return typeof entry.objectId === "string" && entry.objectId.length > 0 ? { objectId: entry.objectId } : {};
+}
+function getObjectId2(value) {
+  return isRecord5(value) && typeof value.id === "string" && value.id.length > 0 ? value.id : null;
 }
 function findRoomObjects5(room, constantName) {
   const findConstant = getGlobalNumber4(constantName);

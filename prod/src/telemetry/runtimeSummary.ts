@@ -21,8 +21,10 @@ export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
 const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
+const MAX_REFILL_DELIVERY_SAMPLES = 5;
 const MAX_TERRITORY_INTENT_SUMMARIES = 5;
 const WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
+const REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const OBSERVED_RAMPART_REPAIR_HITS_CEILING = 100_000;
 
 const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'repair', 'upgrade'] as const;
@@ -67,6 +69,8 @@ interface RuntimeRoomSummary {
   spawnStatus: RuntimeSpawnStatus[];
   taskCounts: WorkerTaskCounts;
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
+  refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary;
+  refillWorkerUtilization?: RuntimeRefillWorkerUtilizationSummary;
   controller?: RuntimeControllerSummary;
   resources: RuntimeResourceSummary;
   combat: RuntimeCombatSummary;
@@ -88,6 +92,7 @@ interface RuntimeControllerSummary {
 interface RuntimeResourceEventSummary {
   harvestedEnergy: number;
   transferredEnergy: number;
+  refillEnergyDelivered?: number;
   builtProgress: number;
   repairedHits: number;
   upgradedControllerProgress: number;
@@ -129,6 +134,38 @@ interface RuntimeWorkerEfficiencySampleEntry {
   sample: WorkerEfficiencySampleMemory;
 }
 
+interface RuntimeRefillDeliveryTicksSummary {
+  completedCount: number;
+  averageTicks: number;
+  maxTicks: number;
+  samples: RuntimeRefillDeliverySampleSummary[];
+  omittedSampleCount?: number;
+}
+
+interface RuntimeRefillDeliverySampleSummary extends WorkerRefillDeliverySampleMemory {
+  creepName?: string;
+}
+
+interface RuntimeRefillDeliverySampleEntry {
+  creepName: string | undefined;
+  sample: WorkerRefillDeliverySampleMemory;
+}
+
+interface RuntimeRefillWorkerUtilizationSummary {
+  assignedWorkerCount: number;
+  refillActiveTicks: number;
+  idleOrOtherTaskTicks: number;
+  ratio: number;
+  workers: RuntimeRefillWorkerUtilizationWorkerSummary[];
+}
+
+interface RuntimeRefillWorkerUtilizationWorkerSummary {
+  creepName?: string;
+  refillActiveTicks: number;
+  idleOrOtherTaskTicks: number;
+  ratio: number;
+}
+
 interface RuntimeCombatEventSummary {
   attackCount: number;
   attackDamage: number;
@@ -168,6 +205,13 @@ interface RuntimeSurvivalSummary {
 interface RuntimeRoomEventMetrics {
   resources?: RuntimeResourceEventSummary;
   combat?: RuntimeCombatEventSummary;
+  refillTransfers?: RuntimeRefillTransferEvent[];
+}
+
+interface RuntimeRefillTransferEvent {
+  objectId?: string;
+  targetId: string;
+  amount: number;
 }
 
 interface RuntimeCpuSummary {
@@ -199,18 +243,26 @@ export function emitRuntimeSummary(
   }
 
   const tick = getGameTime();
+  const creepsByColony = groupCreepsByColony(creeps);
+  const refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
+  const eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
+  refreshRefillTelemetry(colonies, creepsByColony, refillTargetIdsByRoom, eventMetricsByRoom, tick);
   if (!shouldEmitRuntimeSummary(tick, events)) {
     return;
   }
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
-  const creepsByColony = groupCreepsByColony(creeps);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const summary: RuntimeSummary = {
     type: 'runtime-summary',
     tick,
     rooms: colonies.map((colony) =>
-      summarizeRoom(colony, creepsByColony.get(colony.room.name) ?? [], persistOccupationRecommendations)
+      summarizeRoom(
+        colony,
+        creepsByColony.get(colony.room.name) ?? [],
+        persistOccupationRecommendations,
+        eventMetricsByRoom.get(colony.room.name) ?? {}
+      )
     ),
     ...(reportedEvents.length > 0 ? { events: reportedEvents } : {}),
     ...(events.length > MAX_REPORTED_EVENTS ? { omittedEventCount: events.length - MAX_REPORTED_EVENTS } : {}),
@@ -241,14 +293,38 @@ function groupCreepsByColony(creeps: Creep[]): Map<string, Creep[]> {
   return creepsByColony;
 }
 
+function buildRefillTargetIdsByRoom(colonies: ColonySnapshot[]): Map<string, Set<string>> {
+  const refillTargetIdsByRoom = new Map<string, Set<string>>();
+  for (const colony of colonies) {
+    refillTargetIdsByRoom.set(colony.room.name, getSpawnExtensionEnergyStructureIds(colony.room));
+  }
+
+  return refillTargetIdsByRoom;
+}
+
+function buildRoomEventMetricsByRoom(
+  colonies: ColonySnapshot[],
+  refillTargetIdsByRoom: Map<string, Set<string>>
+): Map<string, RuntimeRoomEventMetrics> {
+  const eventMetricsByRoom = new Map<string, RuntimeRoomEventMetrics>();
+  for (const colony of colonies) {
+    eventMetricsByRoom.set(
+      colony.room.name,
+      summarizeRoomEventMetrics(colony.room, refillTargetIdsByRoom.get(colony.room.name) ?? new Set<string>())
+    );
+  }
+
+  return eventMetricsByRoom;
+}
+
 function summarizeRoom(
   colony: ColonySnapshot,
   colonyCreeps: Creep[],
-  persistOccupationRecommendations: boolean
+  persistOccupationRecommendations: boolean,
+  eventMetrics: RuntimeRoomEventMetrics
 ): RuntimeRoomSummary {
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
-  const eventMetrics = summarizeRoomEventMetrics(colony.room);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   if (persistOccupationRecommendations) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
@@ -262,6 +338,7 @@ function summarizeRoom(
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime()),
+    ...summarizeRefillTelemetry(colonyWorkers, getGameTime()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -389,6 +466,164 @@ function toRuntimeWorkerEfficiencySample(entry: {
     ...(entry.creepName ? { creepName: entry.creepName } : {}),
     ...entry.sample
   };
+}
+
+function summarizeRefillTelemetry(
+  workers: Creep[],
+  tick: number
+): {
+  refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary;
+  refillWorkerUtilization?: RuntimeRefillWorkerUtilizationSummary;
+} {
+  return {
+    ...summarizeRefillDeliveryTicks(workers, tick),
+    ...summarizeRefillWorkerUtilization(workers)
+  };
+}
+
+function summarizeRefillDeliveryTicks(
+  workers: Creep[],
+  tick: number
+): { refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary } {
+  const samples = workers
+    .flatMap((worker) =>
+      (worker.memory.refillTelemetry?.recentDeliveries ?? []).map((sample) => ({
+        creepName: getCreepName(worker),
+        sample
+      }))
+    )
+    .filter((entry): entry is RuntimeRefillDeliverySampleEntry =>
+      isRecentRefillDeliverySample(entry.sample, tick)
+    )
+    .sort(compareRefillDeliverySampleEntries);
+
+  if (samples.length === 0) {
+    return {};
+  }
+
+  const reportedSamples = samples.slice(0, MAX_REFILL_DELIVERY_SAMPLES).map(toRuntimeRefillDeliverySample);
+  const deliveryTicks = samples.map((entry) => entry.sample.deliveryTicks);
+  const completedCount = deliveryTicks.length;
+
+  return {
+    refillDeliveryTicks: {
+      completedCount,
+      averageTicks: roundRatio(deliveryTicks.reduce((total, value) => total + value, 0), completedCount),
+      maxTicks: Math.max(...deliveryTicks),
+      samples: reportedSamples,
+      ...(samples.length > MAX_REFILL_DELIVERY_SAMPLES
+        ? { omittedSampleCount: samples.length - MAX_REFILL_DELIVERY_SAMPLES }
+        : {})
+    }
+  };
+}
+
+function summarizeRefillWorkerUtilization(
+  workers: Creep[]
+): { refillWorkerUtilization?: RuntimeRefillWorkerUtilizationSummary } {
+  const workerSummaries = workers
+    .map((worker): RuntimeRefillWorkerUtilizationWorkerSummary | null => {
+      const telemetry = worker.memory.refillTelemetry;
+      if (!telemetry) {
+        return null;
+      }
+
+      const refillActiveTicks = Math.max(0, Math.floor(telemetry.refillActiveTicks ?? 0));
+      const idleOrOtherTaskTicks = Math.max(0, Math.floor(telemetry.idleOrOtherTaskTicks ?? 0));
+      const totalTicks = refillActiveTicks + idleOrOtherTaskTicks;
+      if (totalTicks <= 0) {
+        return null;
+      }
+
+      return {
+        ...(getCreepName(worker) ? { creepName: getCreepName(worker) } : {}),
+        refillActiveTicks,
+        idleOrOtherTaskTicks,
+        ratio: roundRatio(refillActiveTicks, totalTicks)
+      };
+    })
+    .filter((summary): summary is RuntimeRefillWorkerUtilizationWorkerSummary => summary !== null)
+    .sort(compareRefillWorkerUtilizationSummaries);
+
+  if (workerSummaries.length === 0) {
+    return {};
+  }
+
+  const refillActiveTicks = workerSummaries.reduce((total, worker) => total + worker.refillActiveTicks, 0);
+  const idleOrOtherTaskTicks = workerSummaries.reduce((total, worker) => total + worker.idleOrOtherTaskTicks, 0);
+  const totalTicks = refillActiveTicks + idleOrOtherTaskTicks;
+
+  return {
+    refillWorkerUtilization: {
+      assignedWorkerCount: workerSummaries.length,
+      refillActiveTicks,
+      idleOrOtherTaskTicks,
+      ratio: roundRatio(refillActiveTicks, totalTicks),
+      workers: workerSummaries
+    }
+  };
+}
+
+function compareRefillDeliverySampleEntries(
+  left: RuntimeRefillDeliverySampleEntry,
+  right: RuntimeRefillDeliverySampleEntry
+): number {
+  return (
+    right.sample.tick - left.sample.tick ||
+    (left.creepName ?? '').localeCompare(right.creepName ?? '') ||
+    left.sample.targetId.localeCompare(right.sample.targetId)
+  );
+}
+
+function toRuntimeRefillDeliverySample(
+  entry: RuntimeRefillDeliverySampleEntry
+): RuntimeRefillDeliverySampleSummary {
+  return {
+    ...(entry.creepName ? { creepName: entry.creepName } : {}),
+    ...entry.sample
+  };
+}
+
+function compareRefillWorkerUtilizationSummaries(
+  left: RuntimeRefillWorkerUtilizationWorkerSummary,
+  right: RuntimeRefillWorkerUtilizationWorkerSummary
+): number {
+  return (
+    right.refillActiveTicks + right.idleOrOtherTaskTicks - (left.refillActiveTicks + left.idleOrOtherTaskTicks) ||
+    (left.creepName ?? '').localeCompare(right.creepName ?? '')
+  );
+}
+
+function isRecentRefillDeliverySample(sample: WorkerRefillDeliverySampleMemory, tick: number): boolean {
+  return (
+    isRefillDeliverySample(sample) &&
+    (tick <= 0 || (sample.tick <= tick && sample.tick > tick - REFILL_DELIVERY_SAMPLE_TTL))
+  );
+}
+
+function isRefillDeliverySample(value: unknown): value is WorkerRefillDeliverySampleMemory {
+  return (
+    isRecord(value) &&
+    typeof value.tick === 'number' &&
+    Number.isFinite(value.tick) &&
+    typeof value.targetId === 'string' &&
+    typeof value.deliveryTicks === 'number' &&
+    Number.isFinite(value.deliveryTicks) &&
+    typeof value.activeTicks === 'number' &&
+    Number.isFinite(value.activeTicks) &&
+    typeof value.idleOrOtherTaskTicks === 'number' &&
+    Number.isFinite(value.idleOrOtherTaskTicks) &&
+    typeof value.energyDelivered === 'number' &&
+    Number.isFinite(value.energyDelivered)
+  );
+}
+
+function roundRatio(numerator: number, denominator: number): number {
+  if (denominator <= 0) {
+    return 0;
+  }
+
+  return Math.round((numerator / denominator) * 1_000) / 1_000;
 }
 
 function isRecentWorkerEfficiencySample(sample: WorkerEfficiencySampleMemory, tick: number): boolean {
@@ -655,7 +890,176 @@ function toRuntimeConstructionPriorityCandidateSummary(
   };
 }
 
-function summarizeRoomEventMetrics(room: Room): RuntimeRoomEventMetrics {
+function refreshRefillTelemetry(
+  colonies: ColonySnapshot[],
+  creepsByColony: Map<string, Creep[]>,
+  refillTargetIdsByRoom: Map<string, Set<string>>,
+  eventMetricsByRoom: Map<string, RuntimeRoomEventMetrics>,
+  tick: number
+): void {
+  for (const colony of colonies) {
+    const roomName = colony.room.name;
+    const refillTargetIds = refillTargetIdsByRoom.get(roomName) ?? new Set<string>();
+    const refillTransfers = eventMetricsByRoom.get(roomName)?.refillTransfers ?? [];
+    const workers = (creepsByColony.get(roomName) ?? []).filter((creep) => creep.memory.role === 'worker');
+    for (const worker of workers) {
+      refreshWorkerRefillTelemetry(worker, refillTargetIds, refillTransfers, tick);
+    }
+  }
+}
+
+function refreshWorkerRefillTelemetry(
+  worker: Creep,
+  refillTargetIds: Set<string>,
+  refillTransfers: RuntimeRefillTransferEvent[],
+  tick: number
+): void {
+  const refillTargetId = getAssignedRefillTargetId(worker, refillTargetIds);
+  let telemetry = worker.memory.refillTelemetry;
+
+  if (refillTargetId) {
+    telemetry = ensureWorkerRefillTelemetry(worker);
+    if (!telemetry.current || telemetry.current.targetId !== refillTargetId) {
+      telemetry.current = {
+        targetId: refillTargetId,
+        startedAt: tick,
+        activeTicks: 0,
+        idleOrOtherTaskTicks: 0
+      };
+    }
+
+    recordWorkerRefillTelemetryTick(telemetry, true, tick);
+  } else if (telemetry && (telemetry.current || hasRecentWorkerRefillDelivery(telemetry, tick))) {
+    recordWorkerRefillTelemetryTick(telemetry, false, tick);
+  }
+
+  if (!telemetry?.current) {
+    pruneWorkerRefillTelemetry(worker, tick);
+    return;
+  }
+
+  const current = telemetry.current;
+  const deliveryEvents = refillTransfers.filter((event) =>
+    isWorkerRefillTransferEvent(worker, current.targetId, event)
+  );
+  if (deliveryEvents.length === 0) {
+    pruneWorkerRefillTelemetry(worker, tick);
+    return;
+  }
+
+  const energyDelivered = deliveryEvents.reduce((total, event) => total + event.amount, 0);
+  const sample: WorkerRefillDeliverySampleMemory = {
+    tick,
+    targetId: current.targetId,
+    deliveryTicks: Math.max(1, tick - current.startedAt + 1),
+    activeTicks: current.activeTicks,
+    idleOrOtherTaskTicks: current.idleOrOtherTaskTicks,
+    energyDelivered
+  };
+  telemetry.recentDeliveries = [sample, ...(telemetry.recentDeliveries ?? [])].filter((recentSample) =>
+    isRecentRefillDeliverySample(recentSample, tick)
+  );
+  delete telemetry.current;
+  pruneWorkerRefillTelemetry(worker, tick);
+}
+
+function ensureWorkerRefillTelemetry(worker: Creep): WorkerRefillTelemetryMemory {
+  if (!worker.memory.refillTelemetry) {
+    worker.memory.refillTelemetry = {};
+  }
+
+  return worker.memory.refillTelemetry;
+}
+
+function recordWorkerRefillTelemetryTick(
+  telemetry: WorkerRefillTelemetryMemory,
+  isRefillActive: boolean,
+  tick: number
+): void {
+  if (telemetry.lastUpdatedAt === tick) {
+    return;
+  }
+
+  if (isRefillActive) {
+    telemetry.refillActiveTicks = (telemetry.refillActiveTicks ?? 0) + 1;
+    if (telemetry.current) {
+      telemetry.current.activeTicks += 1;
+    }
+  } else {
+    telemetry.idleOrOtherTaskTicks = (telemetry.idleOrOtherTaskTicks ?? 0) + 1;
+    if (telemetry.current) {
+      telemetry.current.idleOrOtherTaskTicks += 1;
+    }
+  }
+
+  telemetry.lastUpdatedAt = tick;
+}
+
+function pruneWorkerRefillTelemetry(worker: Creep, tick: number): void {
+  const telemetry = worker.memory.refillTelemetry;
+  if (!telemetry) {
+    return;
+  }
+
+  if (telemetry.recentDeliveries) {
+    telemetry.recentDeliveries = telemetry.recentDeliveries.filter((sample) =>
+      isRecentRefillDeliverySample(sample, tick)
+    );
+    if (telemetry.recentDeliveries.length === 0) {
+      delete telemetry.recentDeliveries;
+    }
+  }
+
+  if (
+    !telemetry.current &&
+    !telemetry.recentDeliveries &&
+    (telemetry.lastUpdatedAt === undefined || telemetry.lastUpdatedAt <= tick - REFILL_DELIVERY_SAMPLE_TTL)
+  ) {
+    delete worker.memory.refillTelemetry;
+  }
+}
+
+function hasRecentWorkerRefillDelivery(telemetry: WorkerRefillTelemetryMemory, tick: number): boolean {
+  return (telemetry.recentDeliveries ?? []).some((sample) => isRecentRefillDeliverySample(sample, tick));
+}
+
+function getAssignedRefillTargetId(worker: Creep, refillTargetIds: Set<string>): string | null {
+  const task = worker.memory.task;
+  if (task?.type !== 'transfer') {
+    return null;
+  }
+
+  const targetId = String(task.targetId);
+  return refillTargetIds.has(targetId) ? targetId : null;
+}
+
+function isWorkerRefillTransferEvent(
+  worker: Creep,
+  targetId: string,
+  event: RuntimeRefillTransferEvent
+): boolean {
+  return event.targetId === targetId && getWorkerEventIds(worker).some((workerId) => workerId === event.objectId);
+}
+
+function getWorkerEventIds(worker: Creep): string[] {
+  const ids: string[] = [];
+  const id = (worker as Creep & { id?: unknown }).id;
+  const name = (worker as Creep & { name?: unknown }).name;
+  if (typeof id === 'string' && id.length > 0) {
+    ids.push(id);
+  }
+
+  if (typeof name === 'string' && name.length > 0) {
+    ids.push(name);
+  }
+
+  return ids;
+}
+
+function summarizeRoomEventMetrics(
+  room: Room,
+  refillTargetIds: Set<string> = getSpawnExtensionEnergyStructureIds(room)
+): RuntimeRoomEventMetrics {
   const eventLog = getRoomEventLog(room);
   if (!eventLog) {
     return {};
@@ -681,6 +1085,7 @@ function summarizeRoomEventMetrics(room: Room): RuntimeRoomEventMetrics {
     objectDestroyedCount: 0,
     creepDestroyedCount: 0
   };
+  const refillTransfers: RuntimeRefillTransferEvent[] = [];
   let hasResourceEvents = false;
   let hasCombatEvents = false;
 
@@ -696,7 +1101,17 @@ function summarizeRoomEventMetrics(room: Room): RuntimeRoomEventMetrics {
     }
 
     if (entry.event === transferEvent && isEnergyEventData(data)) {
-      resourceEvents.transferredEnergy += getNumericEventData(data, 'amount');
+      const amount = getNumericEventData(data, 'amount');
+      resourceEvents.transferredEnergy += amount;
+      const targetId = getEventTargetId(data);
+      if (targetId && refillTargetIds.has(targetId)) {
+        resourceEvents.refillEnergyDelivered = (resourceEvents.refillEnergyDelivered ?? 0) + amount;
+        refillTransfers.push({
+          ...buildEventObjectId(entry),
+          targetId,
+          amount
+        });
+      }
       hasResourceEvents = true;
     }
 
@@ -732,8 +1147,47 @@ function summarizeRoomEventMetrics(room: Room): RuntimeRoomEventMetrics {
 
   return {
     ...(hasResourceEvents ? { resources: resourceEvents } : {}),
-    ...(hasCombatEvents ? { combat: combatEvents } : {})
+    ...(hasCombatEvents ? { combat: combatEvents } : {}),
+    ...(refillTransfers.length > 0 ? { refillTransfers } : {})
   };
+}
+
+function getSpawnExtensionEnergyStructureIds(room: Room): Set<string> {
+  const structures = findRoomObjects(room, 'FIND_MY_STRUCTURES') ?? findRoomObjects(room, 'FIND_STRUCTURES') ?? [];
+  const ids = new Set<string>();
+
+  for (const structure of structures) {
+    if (!isSpawnExtensionEnergyStructure(structure)) {
+      continue;
+    }
+
+    const id = getObjectId(structure);
+    if (id) {
+      ids.add(id);
+    }
+  }
+
+  return ids;
+}
+
+function isSpawnExtensionEnergyStructure(structure: unknown): boolean {
+  return (
+    isRecord(structure) &&
+    (matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+      matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension'))
+  );
+}
+
+function getEventTargetId(data: Record<string, unknown>): string | null {
+  return typeof data.targetId === 'string' && data.targetId.length > 0 ? data.targetId : null;
+}
+
+function buildEventObjectId(entry: Record<string, unknown>): { objectId?: string } {
+  return typeof entry.objectId === 'string' && entry.objectId.length > 0 ? { objectId: entry.objectId } : {};
+}
+
+function getObjectId(value: unknown): string | null {
+  return isRecord(value) && typeof value.id === 'string' && value.id.length > 0 ? value.id : null;
 }
 
 function findRoomObjects(room: Room, constantName: string): unknown[] | undefined {
@@ -810,7 +1264,12 @@ function getGlobalNumber(name: string): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
-type StructureConstantGlobal = 'STRUCTURE_ROAD' | 'STRUCTURE_CONTAINER' | 'STRUCTURE_RAMPART';
+type StructureConstantGlobal =
+  | 'STRUCTURE_ROAD'
+  | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_RAMPART'
+  | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_EXTENSION';
 
 function matchesStructureType(value: unknown, globalName: StructureConstantGlobal, fallback: string): boolean {
   const expectedValue = (globalThis as Record<string, unknown>)[globalName] ?? fallback;

@@ -29,7 +29,9 @@ export const LOW_LOAD_WORKER_ENERGY_RATIO = 0.25;
 export const LOW_LOAD_WORKER_ENERGY_CEILING = 25;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
+export const REFILL_DELIVERY_MIN_LOAD = 20;
 const SPAWN_RECOVERY_REFILL_PRESSURE_RATIO = 0.75;
+const REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED = 50;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
@@ -186,6 +188,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure>
     };
     if (shouldPrioritizeSpawnOrExtensionRefill(creep)) {
+      const refillMinLoadContinuationTask = selectUrgentRefillMinLoadContinuationTask(
+        creep,
+        spawnOrExtensionEnergySink
+      );
+      if (refillMinLoadContinuationTask) {
+        return refillMinLoadContinuationTask;
+      }
+
       recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, 'urgentSpawnExtensionRefill');
       return spawnOrExtensionRefillTask;
     }
@@ -507,6 +517,21 @@ function shouldPrioritizeSpawnOrExtensionRefill(creep: Creep): boolean {
   }
 
   return hasNearTermSpawnCompletionRefillDemand(creep.room);
+}
+
+function selectUrgentRefillMinLoadContinuationTask(
+  creep: Creep,
+  energySink: SpawnExtensionEnergyStructure
+): LowLoadWorkerEnergyAcquisitionTask | null {
+  if (getUsedEnergy(creep) >= REFILL_DELIVERY_MIN_LOAD) {
+    return null;
+  }
+
+  if (getFreeStoredEnergyCapacity(energySink) <= REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED) {
+    return null;
+  }
+
+  return selectLowLoadWorkerEnergyContinuationTask(creep);
 }
 
 function hasSpawnRecoveryRefillPressure(creep: Creep, energyAvailable: number): boolean {
