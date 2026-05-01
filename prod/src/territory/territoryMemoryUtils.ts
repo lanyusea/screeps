@@ -30,6 +30,7 @@ export function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMem
     action: rawIntent.action,
     status: rawIntent.status,
     updatedAt: rawIntent.updatedAt,
+    ...(isTerritoryIntentSuppressionReason(rawIntent.reason) ? { reason: rawIntent.reason } : {}),
     ...(isFiniteNumber(rawIntent.lastAttemptAt) ? { lastAttemptAt: rawIntent.lastAttemptAt } : {}),
     ...(typeof rawIntent.controllerId === 'string'
       ? { controllerId: rawIntent.controllerId as Id<StructureController> }
@@ -90,6 +91,10 @@ function isTerritoryIntentAction(action: unknown): action is TerritoryIntentActi
 
 function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
   return status === 'planned' || status === 'active' || status === 'suppressed';
+}
+
+function isTerritoryIntentSuppressionReason(reason: unknown): reason is TerritoryIntentSuppressionReason {
+  return reason === 'deadZoneTarget' || reason === 'deadZoneRoute';
 }
 
 function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUpSource {
