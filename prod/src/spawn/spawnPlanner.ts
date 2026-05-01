@@ -27,9 +27,9 @@ import {
 
 type SpawnPriorityTier =
   | 'emergencyBootstrap'
+  | 'defense'
   | 'localRefillSurvival'
   | 'controllerDowngradeGuard'
-  | 'defense'
   | 'territoryRemote';
 
 interface SpawnPlanningContext {
@@ -58,6 +58,7 @@ const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 const TERRITORY_SCOUT_BODY_COST = 50;
 const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'emergencyBootstrap',
+  // Keep defense above local refill so hostiles cannot starve the first defender.
   'defense',
   'localRefillSurvival',
   'controllerDowngradeGuard',

@@ -6759,6 +6759,7 @@ var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST2 = 50;
 var SPAWN_PRIORITY_TIERS = [
   "emergencyBootstrap",
+  // Keep defense above local refill so hostiles cannot starve the first defender.
   "defense",
   "localRefillSurvival",
   "controllerDowngradeGuard",
