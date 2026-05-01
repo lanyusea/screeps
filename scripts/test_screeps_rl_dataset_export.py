@@ -277,6 +277,33 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertNotIn("#runtime-summary", output.getvalue())
         self.assertNotIn("#runtime-summary", exported_text)
 
+    def test_secret_leak_detection_removes_generated_run_directory(self) -> None:
+        secret = "leaked-secret-123456"
+        payload = {
+            "type": "runtime-summary",
+            "tick": 7,
+            "rooms": [{"roomName": "W1N1", "resources": {"storedEnergy": 3}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            artifact = root / "runtime.log"
+            artifact.write_text(runtime_line(payload), encoding="utf-8")
+            out_dir = root / "datasets"
+            run_dir = out_dir / "leak-run"
+
+            with mock.patch.dict(os.environ, {"SCREEPS_AUTH_TOKEN": secret}):
+                with mock.patch.object(exporter, "render_dataset_card", return_value=f"leak: {secret}\n"):
+                    with self.assertRaisesRegex(RuntimeError, "dataset_card\\.md"):
+                        exporter.build_dataset(
+                            [str(artifact)],
+                            out_dir,
+                            run_id="leak-run",
+                            bot_commit="f" * 40,
+                        )
+
+            self.assertFalse(run_dir.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

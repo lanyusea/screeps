@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1081,6 +1082,7 @@ def assert_no_secret_leak(run_dir: Path, secrets: Sequence[str]) -> None:
         text = path.read_text(encoding="utf-8")
         for secret in active_secrets:
             if secret in text:
+                shutil.rmtree(run_dir, ignore_errors=True)
                 raise RuntimeError(f"refusing to persist dataset file containing a configured secret: {path.name}")
 
 
