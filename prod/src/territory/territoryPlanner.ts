@@ -13,6 +13,12 @@ import {
   type OccupationRecommendationScore
 } from './occupationRecommendation';
 import { shouldSignOccupiedController } from './controllerSigning';
+import {
+  getKnownDeadZoneRoom,
+  isKnownDeadZoneRoom,
+  isRouteBlockedByKnownDeadZone,
+  refreshVisibleRoomDeadZoneMemory
+} from '../defense/deadZone';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -222,6 +228,10 @@ export function shouldSpawnTerritoryControllerCreep(
   roleCounts: RoleCounts,
   gameTime = getGameTime()
 ): boolean {
+  if (isKnownDeadZoneRoom(plan.targetRoom)) {
+    return false;
+  }
+
   if (isTerritoryIntentSuppressed(plan.colony, plan.targetRoom, plan.action, gameTime)) {
     return false;
   }
@@ -748,6 +758,16 @@ function selectTerritoryTarget(
     intents = sanitizedStaleProgress.intents;
   }
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
+  const deadZoneSuppression = suppressDeadZoneTerritoryTargets(
+    territoryMemory,
+    intents,
+    colonyName,
+    gameTime,
+    routeDistanceLookupContext
+  );
+  if (deadZoneSuppression.changed) {
+    intents = deadZoneSuppression.intents;
+  }
   refreshTerritoryFollowUpExecutionHints(territoryMemory, intents, routeDistanceLookupContext);
   const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
     colony,
@@ -1120,6 +1140,7 @@ function getConfiguredTerritoryCandidates(
       target.enabled === false ||
       target.colony !== colonyName ||
       target.roomName === colonyName ||
+      isKnownDeadZoneRoom(target.roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
       isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername) ||
       !isVisibleTerritoryIntentActionable(target.roomName, target.action, target.controllerId, colonyOwnerUsername)
@@ -1187,6 +1208,7 @@ function getPersistedTerritoryIntentCandidates(
       intent.colony !== colonyName ||
       intent.targetRoom === colonyName ||
       configuredTargetRooms.has(intent.targetRoom) ||
+      isKnownDeadZoneRoom(intent.targetRoom) ||
       isRecoveredTerritoryFollowUpAttemptCoolingDown(intent, gameTime) ||
       (intent.status !== 'planned' && intent.status !== 'active' && !recoveredFollowUp) ||
       !isTerritoryControlAction(intent.action) ||
@@ -1258,6 +1280,10 @@ function hasBlockingConfiguredTerritoryTargetForColony(
       return true;
     }
 
+    if (isKnownDeadZoneRoom(target.roomName)) {
+      return false;
+    }
+
     if (isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername)) {
       return false;
     }
@@ -1298,6 +1324,103 @@ function hasBlockingConfiguredTerritoryTargetForColony(
       'satisfied'
     );
   });
+}
+
+function suppressDeadZoneTerritoryTargets(
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  colonyName: string,
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): { intents: TerritoryIntentMemory[]; changed: boolean } {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return { intents, changed: false };
+  }
+
+  let nextIntents = intents;
+  let changed = false;
+  for (const rawTarget of territoryMemory.targets) {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (!target || target.enabled === false || target.colony !== colonyName || target.roomName === colonyName) {
+      continue;
+    }
+
+    const reason = getTerritoryDeadZoneSuppressionReason(
+      colonyName,
+      target.roomName,
+      routeDistanceLookupContext
+    );
+    if (!reason) {
+      const filteredIntents = removeDeadZoneSuppression(nextIntents, target);
+      if (filteredIntents.length !== nextIntents.length) {
+        nextIntents = filteredIntents;
+        territoryMemory.intents = nextIntents;
+        changed = true;
+      }
+      continue;
+    }
+
+    territoryMemory.intents = nextIntents;
+    upsertTerritoryIntent(nextIntents, {
+      colony: target.colony,
+      targetRoom: target.roomName,
+      action: target.action,
+      status: 'suppressed',
+      updatedAt: gameTime,
+      reason,
+      ...(target.controllerId ? { controllerId: target.controllerId } : {})
+    });
+    removeTerritoryFollowUpDemand(territoryMemory as TerritoryMemory, target.colony, target.roomName, target.action);
+    removeTerritoryFollowUpExecutionHint(
+      territoryMemory as TerritoryMemory,
+      target.colony,
+      target.roomName,
+      target.action
+    );
+    changed = true;
+  }
+
+  return { intents: nextIntents, changed };
+}
+
+function getTerritoryDeadZoneSuppressionReason(
+  colonyName: string,
+  targetRoom: string,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): TerritoryIntentSuppressionReason | null {
+  const visibleTargetRoom = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
+  if (visibleTargetRoom) {
+    refreshVisibleRoomDeadZoneMemory(visibleTargetRoom);
+  }
+
+  if (getKnownDeadZoneRoom(targetRoom)?.reason === 'enemyTower') {
+    return 'deadZoneTarget';
+  }
+
+  return isRouteBlockedByKnownDeadZone(colonyName, targetRoom) &&
+    getKnownRouteLength(colonyName, targetRoom, routeDistanceLookupContext) !== null
+    ? 'deadZoneRoute'
+    : null;
+}
+
+function removeDeadZoneSuppression(
+  intents: TerritoryIntentMemory[],
+  target: TerritoryTargetMemory
+): TerritoryIntentMemory[] {
+  return intents.filter(
+    (intent) =>
+      !(
+        intent.colony === target.colony &&
+        intent.targetRoom === target.roomName &&
+        intent.action === target.action &&
+        intent.status === 'suppressed' &&
+        isDeadZoneTerritorySuppressionReason(intent.reason)
+      )
+  );
+}
+
+function isDeadZoneTerritorySuppressionReason(reason: unknown): reason is TerritoryIntentSuppressionReason {
+  return reason === 'deadZoneTarget' || reason === 'deadZoneRoute';
 }
 
 function isConfiguredFollowUpTargetBlockedBySpawnReadiness(
@@ -1381,6 +1504,7 @@ function getAdjacentReserveCandidates(
     if (
       roomName === colonyName ||
       existingTargetRooms.has(roomName) ||
+      isKnownDeadZoneRoom(roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
       isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(intents, colonyName, roomName, 'reserve', gameTime)
     ) {
@@ -1635,6 +1759,7 @@ function getActiveCoveredConfiguredReserveTargets(
       target.colony !== colonyName ||
       target.action !== 'reserve' ||
       target.roomName === colonyName ||
+      isKnownDeadZoneRoom(target.roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
       hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext) ||
       !isVisibleRoomKnown(target.roomName) ||
@@ -1689,6 +1814,7 @@ function getSatisfiedConfiguredTargets(
       target.colony !== colonyName ||
       target.action !== action ||
       target.roomName === colonyName ||
+      isKnownDeadZoneRoom(target.roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
       hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext) ||
       getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !==
@@ -3244,6 +3370,7 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
     action: rawIntent.action,
     status: rawIntent.status,
     updatedAt: rawIntent.updatedAt,
+    ...(isDeadZoneTerritorySuppressionReason(rawIntent.reason) ? { reason: rawIntent.reason } : {}),
     ...(followUp && isFiniteNumber(rawIntent.lastAttemptAt) ? { lastAttemptAt: rawIntent.lastAttemptAt } : {}),
     ...(typeof rawIntent.controllerId === 'string'
       ? { controllerId: rawIntent.controllerId as Id<StructureController> }
@@ -3669,6 +3796,10 @@ function getEnergyResource(): ResourceConstant {
 }
 
 function isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom: string): boolean {
+  if (isKnownDeadZoneRoom(targetRoom)) {
+    return true;
+  }
+
   const room = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
   return room ? isVisibleRoomUnsafe(room) : false;
 }

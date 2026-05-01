@@ -27,10 +27,13 @@ declare global {
     | 'defenderAttack'
     | 'defenderMove'
     | 'workerFallback';
+  type DefenseUnsafeRoomReason = 'enemyTower' | 'hostilePresence';
+  type TerritoryIntentSuppressionReason = 'deadZoneTarget' | 'deadZoneRoute';
 
   interface DefenseMemory {
     actions?: DefenseActionMemory[];
     rooms?: Record<string, DefenseActionMemory>;
+    unsafeRooms?: Record<string, DefenseUnsafeRoomMemory>;
   }
 
   interface DefenseActionMemory {
@@ -44,6 +47,16 @@ declare global {
     structureId?: string;
     targetId?: string;
     result?: ScreepsReturnCode;
+  }
+
+  interface DefenseUnsafeRoomMemory {
+    roomName: string;
+    unsafe: true;
+    reason: DefenseUnsafeRoomReason;
+    updatedAt: number;
+    hostileCreepCount: number;
+    hostileStructureCount: number;
+    hostileTowerCount: number;
   }
 
   interface CreepDefenseMemory {
@@ -82,6 +95,7 @@ declare global {
     action: TerritoryIntentAction;
     status: 'planned' | 'active' | 'suppressed';
     updatedAt: number;
+    reason?: TerritoryIntentSuppressionReason;
     lastAttemptAt?: number;
     controllerId?: Id<StructureController>;
     requiresControllerPressure?: boolean;
