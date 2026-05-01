@@ -309,6 +309,15 @@ class GenerateRoadmapPageTest(unittest.TestCase):
 
         self.assertIn("02 Project Domains", html)
         self.assertIn("03 Project Domain Board", html)
+        self.assertIn(
+            ".kanban-grid {\n  display: grid;\n  grid-template-columns: repeat(5, minmax(0, 1fr));",
+            html,
+        )
+        self.assertIn(
+            ".kanban-grid {\n    overflow-x: auto;\n    grid-template-columns: repeat(5, minmax(190px, 1fr));",
+            html,
+        )
+        self.assertNotIn("repeat(7,", html)
         self.assertNotIn("02 Development Roadmap - Six Tracks", html)
         self.assertNotIn("03 Gameplay Strategy Kanban", html)
         self.assertNotIn("04 Foundation Delivery Kanban", html)
