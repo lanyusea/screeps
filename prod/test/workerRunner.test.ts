@@ -1958,6 +1958,59 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts an over-reserved primary refill target for uncovered spawn-extension demand', () => {
+    const coveredSpawn = {
+      id: 'spawn-covered',
+      structureType: 'spawn',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(50) }
+    } as unknown as StructureSpawn;
+    const openExtension = {
+      id: 'extension-open',
+      structureType: 'extension',
+      store: { getFreeCapacity: jest.fn().mockReturnValue(50) }
+    } as unknown as StructureExtension;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn(
+        (type: number, options?: { filter?: (structure: StructureSpawn | StructureExtension) => boolean }) => {
+          if (type !== FIND_MY_STRUCTURES) {
+            return [];
+          }
+
+          const structures = [coveredSpawn, openExtension];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+      )
+    } as unknown as Room;
+    const assignedCarrier = {
+      name: 'AssignedCarrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-covered' as Id<AnyStoreStructure> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Carrier',
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'spawn-covered' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { AssignedCarrier: assignedCarrier, Carrier: creep },
+      getObjectById: jest.fn((id: string) => (id === 'extension-open' ? openExtension : coveredSpawn))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'extension-open' });
+    expect(creep.transfer).toHaveBeenCalledWith(openExtension, 'energy');
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('preempts tower transfer work for a primary fillable energy sink and executes it immediately', () => {
     const extension = {
       id: 'extension1',

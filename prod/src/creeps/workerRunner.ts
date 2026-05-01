@@ -341,7 +341,18 @@ function shouldPreemptTransferTaskForBetterEnergySink(
   }
 
   const selectedTarget = Game.getObjectById(selectedTask.targetId);
-  return getTransferSinkPriority(selectedTarget) > getTransferSinkPriority(currentTarget);
+  const selectedPriority = getTransferSinkPriority(selectedTarget);
+  const currentPriority = getTransferSinkPriority(currentTarget);
+  if (selectedPriority > currentPriority) {
+    return true;
+  }
+
+  return (
+    isPrimaryTransferSink(currentTarget) &&
+    selectedPriority > 0 &&
+    isValidTransferTarget(selectedTarget) &&
+    isCurrentTransferTargetCoveredByOtherLoadedWorkers(creep, task, currentTarget)
+  );
 }
 
 function shouldPreemptTransferTaskForControllerDowngradeGuard(
@@ -461,6 +472,41 @@ function isValidTransferTarget(target: unknown): target is AnyStoreStructure {
   return getFreeTransferEnergyCapacity(target) > 0;
 }
 
+function isPrimaryTransferSink(target: unknown): target is StructureSpawn | StructureExtension {
+  return getTransferSinkPriority(target) >= 2;
+}
+
+function isCurrentTransferTargetCoveredByOtherLoadedWorkers(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'transfer' }>,
+  target: AnyStoreStructure
+): boolean {
+  const targetId = String(task.targetId);
+  const freeCapacity = getFreeTransferEnergyCapacity(target);
+  if (freeCapacity <= 0) {
+    return false;
+  }
+
+  let reservedEnergy = 0;
+  for (const worker of getGameCreeps()) {
+    if (isSameCreep(worker, creep) || !isSameRoomWorkerWithEnergy(worker, creep.room)) {
+      continue;
+    }
+
+    const workerTask = worker.memory?.task as Partial<CreepTaskMemory> | undefined;
+    if (workerTask?.type !== 'transfer' || String(workerTask.targetId) !== targetId) {
+      continue;
+    }
+
+    reservedEnergy += getUsedTransferEnergy(worker);
+    if (reservedEnergy >= freeCapacity) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function isUrgentEnergySpendingTask(task: CreepTaskMemory): boolean {
   const target = getTaskTarget(task);
   if (task.type === 'transfer') {
@@ -493,6 +539,47 @@ function getFreeTransferEnergyCapacity(target: unknown): number {
     ?.store;
   const freeCapacity = store?.getFreeCapacity?.(RESOURCE_ENERGY);
   return typeof freeCapacity === 'number' ? freeCapacity : 0;
+}
+
+function getUsedTransferEnergy(creep: Creep): number {
+  const usedCapacity = creep.store?.getUsedCapacity?.(RESOURCE_ENERGY);
+  return typeof usedCapacity === 'number' && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : 0;
+}
+
+function getGameCreeps(): Creep[] {
+  const creeps = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  return creeps ? Object.values(creeps) : [];
+}
+
+function isSameRoomWorkerWithEnergy(creep: Creep, room: Room): boolean {
+  return creep.memory?.role === 'worker' && isInRoom(creep, room) && getUsedTransferEnergy(creep) > 0;
+}
+
+function isInRoom(creep: Creep, room: Room): boolean {
+  if (typeof room.name === 'string' && room.name.length > 0) {
+    return creep.room?.name === room.name;
+  }
+
+  return creep.room === room;
+}
+
+function isSameCreep(left: Creep, right: Creep): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftKey = getCreepStableKey(left);
+  return leftKey.length > 0 && leftKey === getCreepStableKey(right);
+}
+
+function getCreepStableKey(creep: Creep): string {
+  const name = (creep as Creep & { name?: unknown }).name;
+  if (typeof name === 'string' && name.length > 0) {
+    return name;
+  }
+
+  const id = (creep as Creep & { id?: unknown }).id;
+  return typeof id === 'string' && id.length > 0 ? id : '';
 }
 
 function getTransferSinkPriority(target: unknown): number {
