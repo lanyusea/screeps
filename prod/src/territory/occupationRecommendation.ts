@@ -199,12 +199,6 @@ function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(
     return;
   }
 
-  const unavailableTargets = buildUnavailableOccupationRecommendationControlTargets(report);
-  if (unavailableTargets.length > 0) {
-    revokeOccupationRecommendationTargets(territoryMemory, colony, unavailableTargets);
-    return;
-  }
-
   removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
 }
 
@@ -269,26 +263,6 @@ function buildActiveOccupationRecommendationControlTarget(
   return { roomName: recommendation.roomName, action };
 }
 
-function buildUnavailableOccupationRecommendationControlTargets(
-  report: OccupationRecommendationReport
-): OccupationRecommendationControlTargetKey[] {
-  const targetKeys = new Map<string, OccupationRecommendationControlTargetKey>();
-  for (const candidate of report.candidates) {
-    if (candidate.evidenceStatus !== 'unavailable') {
-      continue;
-    }
-
-    const action = getTerritoryIntentAction(candidate.action);
-    if (!isTerritoryControlAction(action)) {
-      continue;
-    }
-
-    targetKeys.set(`${candidate.roomName}:${action}`, { roomName: candidate.roomName, action });
-  }
-
-  return Array.from(targetKeys.values());
-}
-
 function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, intent: TerritoryIntentMemory): void {
   if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
     return;
@@ -304,33 +278,6 @@ function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, 
       target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
     );
   });
-}
-
-function revokeOccupationRecommendationTargets(
-  territoryMemory: TerritoryMemory,
-  colony: string,
-  staleTargets: OccupationRecommendationControlTargetKey[]
-): void {
-  if (!Array.isArray(territoryMemory.targets)) {
-    return;
-  }
-
-  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
-    const target = normalizeTerritoryTarget(rawTarget);
-    return !(
-      target?.colony === colony &&
-      target.enabled !== false &&
-      target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR &&
-      staleTargets.some((staleTarget) => isSameTerritoryControlTarget(target, staleTarget))
-    );
-  });
-}
-
-function isSameTerritoryControlTarget(
-  target: OccupationRecommendationControlTargetKey,
-  other: OccupationRecommendationControlTargetKey
-): boolean {
-  return target.roomName === other.roomName && target.action === other.action;
 }
 
 function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {

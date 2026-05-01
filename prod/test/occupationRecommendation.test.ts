@@ -716,7 +716,95 @@ describe('occupation recommendation scoring', () => {
     ]);
   });
 
-  it('revokes stale recommendation-owned targets when all candidates are unavailable', () => {
+  it('clears a stale no-follow-up recommendation target for a scout-only unavailable candidate', () => {
+    const staleScoutRoomTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    const staleUnavailableControlTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      action: 'claim',
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [staleScoutRoomTarget, staleUnavailableControlTarget]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          controller: undefined,
+          sourceCount: undefined
+        }),
+        makeCandidate({
+          roomName: 'W3N1',
+          actionHint: 'claim',
+          controller: { ownerUsername: 'enemy' },
+          sourceCount: 2
+        })
+      ])
+    );
+
+    expect(report.next).toBeNull();
+    expect(report.candidates.find((candidate) => candidate.roomName === 'W2N1')).toMatchObject({
+      action: 'scout',
+      evidenceStatus: 'unavailable',
+      risks: ['visible room has no controller']
+    });
+    expect(report.candidates.find((candidate) => candidate.roomName === 'W3N1')).toMatchObject({
+      action: 'occupy',
+      evidenceStatus: 'unavailable'
+    });
+    expect(report.followUpIntent).toBeNull();
+    expect(persistOccupationRecommendationFollowUpIntent(report, 708)).toBeNull();
+    expect(Memory.territory?.targets).toEqual([]);
+  });
+
+  it('clears unrelated stale no-follow-up recommendation targets when an unavailable control target is manual', () => {
+    const manualUnavailableControlTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve'
+    };
+    const unrelatedStaleRecommendationTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      action: 'claim',
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [manualUnavailableControlTarget, unrelatedStaleRecommendationTarget]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          controller: { ownerUsername: 'enemy' },
+          sourceCount: 2
+        })
+      ])
+    );
+
+    expect(report.next).toBeNull();
+    expect(report.candidates).toHaveLength(1);
+    expect(report.candidates[0]).toMatchObject({
+      roomName: 'W2N1',
+      action: 'reserve',
+      evidenceStatus: 'unavailable'
+    });
+    expect(report.followUpIntent).toBeNull();
+    expect(persistOccupationRecommendationFollowUpIntent(report, 709)).toBeNull();
+    expect(Memory.territory?.targets).toEqual([manualUnavailableControlTarget]);
+  });
+
+  it('preserves manual/unmarked, disabled recommendation-owned, and other-colony targets with no follow-up', () => {
     const staleReserveTarget: TerritoryTargetMemory = {
       colony: 'W1N1',
       roomName: 'W2N1',
@@ -733,6 +821,11 @@ describe('occupation recommendation scoring', () => {
       colony: 'W1N1',
       roomName: 'W2N1',
       action: 'reserve'
+    };
+    const unmarkedDifferentRoomTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W4N1',
+      action: 'claim'
     };
     const disabledRecommendationTarget: TerritoryTargetMemory = {
       colony: 'W1N1',
@@ -753,6 +846,7 @@ describe('occupation recommendation scoring', () => {
           staleReserveTarget,
           staleClaimTarget,
           manualMatchingTarget,
+          unmarkedDifferentRoomTarget,
           disabledRecommendationTarget,
           otherColonyRecommendationTarget
         ]
@@ -783,6 +877,7 @@ describe('occupation recommendation scoring', () => {
     expect(persistOccupationRecommendationFollowUpIntent(report, 708)).toBeNull();
     expect(Memory.territory?.targets).toEqual([
       manualMatchingTarget,
+      unmarkedDifferentRoomTarget,
       disabledRecommendationTarget,
       otherColonyRecommendationTarget
     ]);
