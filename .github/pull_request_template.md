@@ -1,10 +1,11 @@
 ## Linked issue
 
-- Fixes #<!-- required: every problem-fix PR must link exactly one or more GitHub issues with a closing keyword -->
+- Fixes #<!-- required: every tracked PR must link one or more GitHub issues with a closing keyword -->
 
-## Roadmap category
+## Domain / Kind
 
-- <!-- Choose one: P0 change-control / P0 agent-ops / Phase A docs-sync / Phase B spawn-lifecycle / Phase C telemetry / Phase D private-smoke / Phase E MMO-deploy -->
+- Domain: <!-- Agent OS / Change-control / Runtime monitor / Release/deploy / Bot capability / Combat / Territory/Economy / Gameplay Evolution / RL flywheel / Docs/process -->
+- Kind: <!-- bug / ops / docs / test / code / review / research / qa -->
 
 ## Summary
 
@@ -12,9 +13,17 @@
 
 ## Verification
 
-- [ ] <!-- command or check -->
+- [ ] Local check: <!-- command/result -->
+- [ ] GitHub Project issue/PR fields are current (`Status`, `Evidence`, `Next action`; plus `Blocked by` when blocked).
+- [ ] Automated review has no blocking findings and review threads are resolved/outdated/non-blocking.
+- [ ] QA gate: <!-- PASS / not required with reason -->
+- [ ] No secrets, unsafe local paths, or owner-facing raw attachment trigger lines are included.
+
+## Runtime / deployment impact
+
+- [ ] No gameplay/runtime/deployment impact.
+- [ ] Gameplay/runtime/deployment impact; Deployment Floor evidence or HELD blocker is recorded.
 
 ## Notes
 
-- No secrets are included in this PR.
-- Review/merge gates: wait at least 15 minutes after PR creation, resolve all discussions, and require green CI once configured.
+- Review/merge gates: wait at least 15 minutes after PR creation, require green checks, and keep linked GitHub issue/PR/Project state current until merged or explicitly closed.
