@@ -5381,7 +5381,9 @@ var DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
 var SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 var SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 var MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
+var MIN_LOADED_WORKERS_FOR_SURPLUS_CONTROLLER_PROGRESS = 5;
 var MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
+var MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
 var BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY = 550;
 var nearTermSpawnExtensionRefillReserveCache = null;
 function selectWorkerTask(creep) {
@@ -7110,15 +7112,29 @@ function shouldApplyControllerPressureLane(creep, controller) {
     return false;
   }
   const loadedWorkers = getSameRoomLoadedWorkers(creep);
-  const hasTerritoryPressure = hasActiveTerritoryPressure(creep);
-  if (loadedWorkers.length < MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS && !(loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE && hasTerritoryPressure)) {
+  const hasControllerProgressPressure = hasActiveControllerProgressPressure(creep);
+  const hasTerritoryExpansionPressure = hasActiveTerritoryExpansionPressure(creep);
+  if (loadedWorkers.length < MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS && !(loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE && hasControllerProgressPressure)) {
     return false;
   }
-  const controllerProgressWorkers = loadedWorkers.length >= MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS && !hasTerritoryPressure ? MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS : 1;
+  const controllerProgressWorkers = getControllerProgressWorkerLimit(
+    creep,
+    loadedWorkers.length,
+    hasTerritoryExpansionPressure
+  );
   const otherControllerUpgraders = loadedWorkers.filter(
     (worker) => !isSameCreep(worker, creep) && isUpgradingController(worker, controller)
   ).length;
   return otherControllerUpgraders < controllerProgressWorkers;
+}
+function getControllerProgressWorkerLimit(creep, loadedWorkerCount, hasTerritoryExpansionPressure) {
+  if (hasTerritoryExpansionPressure) {
+    return 1;
+  }
+  if (loadedWorkerCount >= MIN_LOADED_WORKERS_FOR_SURPLUS_CONTROLLER_PROGRESS && hasControllerUpgradeEnergySurplus(creep)) {
+    return MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS;
+  }
+  return loadedWorkerCount >= MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS ? MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS : 1;
 }
 function shouldUseSurplusForControllerProgress(creep, controller) {
   if (shouldApplyControllerPressureLane(creep, controller)) {
@@ -7234,8 +7250,8 @@ function isRoomPosition(value) {
 function hasRecoverableSurplusEnergy(creep) {
   return selectStoredEnergySource(creep) !== null || selectSalvageEnergySource(creep) !== null || findDroppedResources(creep.room).some(isUsefulDroppedEnergy);
 }
-function hasActiveTerritoryPressure(creep) {
-  var _a, _b;
+function hasActiveControllerProgressPressure(creep) {
+  var _a;
   const colonyName = getCreepColonyName(creep);
   if (!colonyName) {
     return false;
@@ -7243,14 +7259,30 @@ function hasActiveTerritoryPressure(creep) {
   if (((_a = getRecordedColonySurvivalAssessment(colonyName)) == null ? void 0 : _a.mode) === "TERRITORY_READY") {
     return true;
   }
+  return hasActiveTerritoryExpansionPressure(creep);
+}
+function hasActiveTerritoryExpansionPressure(creep) {
+  var _a;
+  const colonyName = getCreepColonyName(creep);
+  if (!colonyName) {
+    return false;
+  }
   if (hasReadyTerritoryFollowUpEnergy(creep)) {
     return true;
   }
-  const territoryMemory = (_b = globalThis.Memory) == null ? void 0 : _b.territory;
+  const territoryMemory = (_a = globalThis.Memory) == null ? void 0 : _a.territory;
   if (!territoryMemory || !Array.isArray(territoryMemory.intents)) {
     return false;
   }
   return territoryMemory.intents.some((intent) => isActiveTerritoryPressureIntent(intent, colonyName));
+}
+function hasControllerUpgradeEnergySurplus(creep) {
+  return hasRecoverableSurplusEnergy(creep) || hasFullRoomEnergyForControllerProgress(creep.room);
+}
+function hasFullRoomEnergyForControllerProgress(room) {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  return energyAvailable !== null && energyCapacityAvailable !== null && energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST && energyAvailable >= energyCapacityAvailable;
 }
 function hasReservedTerritoryFollowUpRefillCapacity(creep) {
   return hasActiveTerritoryFollowUpPreparationDemand(getCreepColonyName(creep));
@@ -8043,13 +8075,18 @@ function executeTask(creep, task, target) {
 // src/spawn/spawnPlanner.ts
 var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST2 = 50;
+var CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
+var CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
+var CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
+var MAX_CONTROLLER_LEVEL = 8;
 var SPAWN_PRIORITY_TIERS = [
   "emergencyBootstrap",
   // Keep defense above local refill so hostiles cannot starve the first defender.
   "defense",
   "localRefillSurvival",
   "controllerDowngradeGuard",
-  "territoryRemote"
+  "territoryRemote",
+  "controllerUpgradeSurplus"
 ];
 function planSpawn(colony, roleCounts, gameTime, options = {}) {
   const workerTarget = getWorkerTarget(colony, roleCounts);
@@ -8060,6 +8097,7 @@ function planSpawn(colony, roleCounts, gameTime, options = {}) {
     options,
     roleCounts,
     survival: assessColonySnapshotSurvival(colony, roleCounts),
+    territoryIntentPending: false,
     workerCapacity,
     workerTarget
   };
@@ -8083,6 +8121,8 @@ function planSpawnForPriorityTier(tier, context) {
       return planDefenseSpawn(context);
     case "territoryRemote":
       return planTerritoryRemoteSpawn(context);
+    case "controllerUpgradeSurplus":
+      return planControllerUpgradeSurplusSpawn(context);
   }
 }
 function planEmergencyBootstrapSpawn(context) {
@@ -8150,6 +8190,7 @@ function planTerritoryRemoteSpawn(context) {
   if (!territoryIntent) {
     return null;
   }
+  context.territoryIntentPending = true;
   const demandedWorkerTarget = getWorkerTargetWithTerritoryDemand(
     context.workerTarget,
     territoryIntent,
@@ -8188,6 +8229,82 @@ function planTerritoryRemoteSpawn(context) {
     context.gameTime
   );
   return null;
+}
+function planControllerUpgradeSurplusSpawn(context) {
+  if (!shouldSpawnControllerUpgradeSurplusWorker(context)) {
+    return null;
+  }
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+function shouldSpawnControllerUpgradeSurplusWorker(context) {
+  if (context.options.workersOnly || context.territoryIntentPending || context.survival.mode !== "TERRITORY_READY" || hasControllerUpgradeBlockingTerritoryWork(context.colony) || !hasControllerUpgradeSurplusEnergy(context.colony) || !isControllerUpgradeableForSurplus(context.colony.room.controller)) {
+    return false;
+  }
+  const surplusWorkerTarget = Math.min(
+    CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET,
+    context.workerTarget + CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS
+  );
+  return context.workerCapacity < surplusWorkerTarget;
+}
+function hasControllerUpgradeSurplusEnergy(colony) {
+  return colony.energyCapacityAvailable >= CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY && colony.energyAvailable >= colony.energyCapacityAvailable;
+}
+function isControllerUpgradeableForSurplus(controller) {
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= 2 && controller.level < MAX_CONTROLLER_LEVEL;
+}
+function hasControllerUpgradeBlockingTerritoryWork(colony) {
+  return hasActiveTerritoryIntentBacklog(colony.room.name) || hasVisibleForeignReservedTerritoryTarget(colony);
+}
+function hasActiveTerritoryIntentBacklog(colonyName) {
+  var _a, _b;
+  const intents = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.intents;
+  if (!Array.isArray(intents)) {
+    return false;
+  }
+  return intents.some((intent) => {
+    if (typeof intent !== "object" || intent === null) {
+      return false;
+    }
+    if (intent.colony !== colonyName || intent.targetRoom === colonyName || intent.action !== "claim" && intent.action !== "reserve" && intent.action !== "scout") {
+      return false;
+    }
+    return intent.status === "planned" || intent.status === "active" || intent.followUp !== void 0;
+  });
+}
+function hasVisibleForeignReservedTerritoryTarget(colony) {
+  var _a, _b;
+  const targets = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.targets;
+  if (!Array.isArray(targets)) {
+    return false;
+  }
+  const colonyOwnerUsername = getControllerOwnerUsername3(colony.room.controller);
+  return targets.some((target) => {
+    if (typeof target !== "object" || target === null) {
+      return false;
+    }
+    if (target.colony !== colony.room.name || target.enabled === false || target.action !== "claim" && target.action !== "reserve") {
+      return false;
+    }
+    if (typeof target.roomName !== "string" || target.roomName.length === 0) {
+      return false;
+    }
+    const controller = getVisibleRoomController(target.roomName);
+    return isForeignReservedController2(controller, colonyOwnerUsername);
+  });
+}
+function getVisibleRoomController(roomName) {
+  var _a, _b, _c;
+  return (_c = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName]) == null ? void 0 : _c.controller;
+}
+function isForeignReservedController2(controller, colonyOwnerUsername) {
+  var _a;
+  const reservationUsername = (_a = controller == null ? void 0 : controller.reservation) == null ? void 0 : _a.username;
+  return (controller == null ? void 0 : controller.my) !== true && typeof reservationUsername === "string" && reservationUsername.length > 0 && reservationUsername !== colonyOwnerUsername;
+}
+function getControllerOwnerUsername3(controller) {
+  var _a;
+  const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
+  return typeof username === "string" && username.length > 0 ? username : void 0;
 }
 function recordRecoveredFollowUpCooldownIfControllerCreepNeeded(territoryIntent, roleCounts, gameTime) {
   if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {

@@ -7007,6 +7007,101 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
   });
 
+  it('allows a third stable-room controller upgrader when spawn energy is full', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
+      energyCapacityAvailable: TERRITORY_CONTROLLER_BODY_COST
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    recordSurvivalMode('TERRITORY_READY', 700);
+    setGameCreeps({
+      UpgraderA: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      UpgraderB: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      BuilderA: makeLoadedWorker(room),
+      BuilderB: makeLoadedWorker(room)
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('bounds stable-room surplus controller pressure once three workers are upgrading', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
+      energyCapacityAvailable: TERRITORY_CONTROLLER_BODY_COST
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    recordSurvivalMode('TERRITORY_READY', 701);
+    setGameCreeps({
+      UpgraderA: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      UpgraderB: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      UpgraderC: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      Builder: makeLoadedWorker(room)
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+  });
+
+  it('keeps active territory pressure capped at one controller upgrader', () => {
+    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      constructionSites: [site],
+      controller,
+      energyAvailable: TERRITORY_CONTROLLER_BODY_COST,
+      energyCapacityAvailable: TERRITORY_CONTROLLER_BODY_COST
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+    recordSurvivalMode('TERRITORY_READY', 702);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', status: 'planned', updatedAt: 702 }]
+      }
+    };
+    setGameCreeps({
+      Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      BuilderA: makeLoadedWorker(room),
+      BuilderB: makeLoadedWorker(room),
+      BuilderC: makeLoadedWorker(room)
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+  });
+
   it('steers an empty worker to source2 when source2 is near the owned controller', () => {
     const source1 = makeSource('source1', 8, 8);
     const source2 = makeSource('source2', 24, 23);
