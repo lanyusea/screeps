@@ -2147,7 +2147,12 @@ function hasPendingTerritoryFollowUpIntent(colony, roleCounts, gameTime = getGam
     return false;
   }
   return normalizeTerritoryIntents2(territoryMemory.intents).some(
-    (intent) => intent.colony === colony && intent.followUp !== void 0 && isTerritoryControlAction2(intent.action) && (intent.status === "planned" || isRecoveredTerritoryFollowUpIntent(intent, gameTime) || intent.status === "active" && getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) === 0)
+    (intent) => intent.colony === colony && intent.followUp !== void 0 && isTerritoryControlAction2(intent.action) && isVisibleTerritoryIntentActionable(
+      intent.targetRoom,
+      intent.action,
+      intent.controllerId,
+      getVisibleColonyOwnerUsername2(intent.colony)
+    ) && (intent.status === "planned" || isRecoveredTerritoryFollowUpIntent(intent, gameTime) || intent.status === "active" && getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) === 0)
   );
 }
 function getActiveTerritoryFollowUpExecutionHints(colony = void 0) {
@@ -3629,19 +3634,12 @@ function isStaleTerritoryProgressIntent(intent, colonyName, colonyOwnerUsername,
   if (intent.status === "active" && getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) > 0) {
     return false;
   }
-  const controllerState = getVisibleTerritoryControllerEvidenceState(
+  return !isVisibleTerritoryIntentActionable(
     intent.targetRoom,
     intent.action,
     intent.controllerId,
     colonyOwnerUsername
   );
-  const stillActionable = controllerState === null || controllerState === "available" || isVisibleTerritoryReservePressureAvailable(
-    intent.targetRoom,
-    intent.action,
-    intent.controllerId,
-    colonyOwnerUsername
-  );
-  return !stillActionable;
 }
 function getVisibleTerritoryControllerEvidenceState(targetRoom, action, controllerId, colonyOwnerUsername) {
   if (isVisibleRoomMissingController(targetRoom)) {
