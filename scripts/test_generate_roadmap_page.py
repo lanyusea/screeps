@@ -135,11 +135,11 @@ class GenerateRoadmapPageTest(unittest.TestCase):
             ):
                 cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
 
-        official_card = next(card for card in cards if card["label"] == "Official deploys")
-        self.assertEqual(official_card["value"], 1)
-        self.assertEqual(official_card["source"], "official deploy evidence JSON")
-        self.assertIn("latest commit cccccccccccc", official_card["detail"])
-        self.assertIn("run 123456", official_card["detail"])
+        release_card = next(card for card in cards if card["label"] == "Official deploys")
+        self.assertEqual(release_card["value"], 1)
+        self.assertEqual(release_card["source"], "official deploy evidence JSON")
+        self.assertIn("latest commit cccccccccccc", release_card["detail"])
+        self.assertIn("run 123456", release_card["detail"])
 
     def test_report_groups_visible_work_by_project_domain(self) -> None:
         repo = {
@@ -167,7 +167,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                     "url": "https://github.com/lanyusea/screeps/issues/59",
                     "status": "In progress",
                     "priority": "P1",
-                    "domain": "Docs/process",
+                    "domain": "Gameplay Evolution",
                     "nextAction": "Refresh roadmap decisions from game-result evidence.",
                 },
                 {
@@ -177,7 +177,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                     "url": "https://github.com/lanyusea/screeps/issues/63",
                     "status": "In review",
                     "priority": "P1",
-                    "domain": "Official MMO",
+                    "domain": "Release/deploy",
                     "nextAction": "Record deployment evidence.",
                 },
                 {
@@ -197,7 +197,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                     "url": "https://github.com/lanyusea/screeps/issues/223",
                     "status": "Ready",
                     "priority": "P1",
-                    "domain": "Bot capability",
+                    "domain": "Territory/Economy",
                     "nextAction": "Extend territory control opportunities.",
                 },
                 {
@@ -232,18 +232,20 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual([column["title"] for column in domain_board], list(roadmap.PROJECT_DOMAIN_ORDER))
 
         runtime_column = next(column for column in domain_board if column["title"] == "Runtime monitor")
-        docs_column = next(column for column in domain_board if column["title"] == "Docs/process")
-        official_column = next(column for column in domain_board if column["title"] == "Official MMO")
+        gameplay_column = next(column for column in domain_board if column["title"] == "Gameplay Evolution")
+        release_column = next(column for column in domain_board if column["title"] == "Release/deploy")
         bot_column = next(column for column in domain_board if column["title"] == "Bot capability")
+        territory_column = next(column for column in domain_board if column["title"] == "Territory/Economy")
         runtime_card = next(card for card in roadmap_cards if card["title"] == "Runtime monitor")
-        official_card = next(card for card in roadmap_cards if card["title"] == "Official MMO")
+        release_card = next(card for card in roadmap_cards if card["title"] == "Release/deploy")
 
         self.assertEqual(runtime_card["totalItems"], 1)
-        self.assertEqual(official_card["totalItems"], 1)
+        self.assertEqual(release_card["totalItems"], 1)
         self.assertEqual([item["number"] for item in runtime_column["items"]], [29])
-        self.assertEqual([item["number"] for item in docs_column["items"]], [59])
-        self.assertEqual([item["number"] for item in official_column["items"]], [63])
-        self.assertEqual([item["number"] for item in bot_column["items"]], [165, 223])
+        self.assertEqual([item["number"] for item in gameplay_column["items"]], [59])
+        self.assertEqual([item["number"] for item in release_column["items"]], [63])
+        self.assertEqual([item["number"] for item in bot_column["items"]], [165])
+        self.assertEqual([item["number"] for item in territory_column["items"]], [223])
 
     def test_project_domain_requires_explicit_recognized_value(self) -> None:
         self.assertEqual(roadmap.project_domain({"domain": "runtime monitor"}), "Runtime monitor")

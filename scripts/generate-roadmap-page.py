@@ -475,12 +475,15 @@ CATEGORY_ACCENTS = {
 }
 
 PROJECT_DOMAIN_ORDER: tuple[str, ...] = (
-    "Change-control",
     "Agent OS",
-    "Bot capability",
+    "Change-control",
     "Runtime monitor",
-    "Private smoke",
-    "Official MMO",
+    "Release/deploy",
+    "Bot capability",
+    "Combat",
+    "Territory/Economy",
+    "Gameplay Evolution",
+    "RL flywheel",
     "Docs/process",
 )
 
@@ -492,13 +495,16 @@ PROJECT_DOMAIN_FIELD_KEYS: tuple[str, ...] = (
 )
 
 PROJECT_DOMAIN_GOALS: dict[str, str] = {
-    "Change-control": "Keep repository, PR, Project, and release governance enforceable.",
     "Agent OS": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
-    "Bot capability": "Ship gameplay behavior that advances territory, resources, and combat outcomes.",
+    "Change-control": "Keep repository, PR, Project, and release governance enforceable.",
     "Runtime monitor": "Turn live Screeps telemetry into reliable KPI, alert, and report evidence.",
-    "Private smoke": "Validate runtime changes safely before official MMO release pressure.",
-    "Official MMO": "Deploy and verify accepted changes against the official Screeps world.",
-    "Docs/process": "Preserve decisions, roadmap contracts, and operating context for agent continuity.",
+    "Release/deploy": "Validate, deploy, and observe accepted changes across private smoke and official MMO gates.",
+    "Bot capability": "Ship general gameplay behavior that advances the bot beyond single-slice fixes.",
+    "Combat": "Protect survival, hostile response, and defense/combat readiness.",
+    "Territory/Economy": "Advance expansion, controller pressure, worker efficiency, and resource throughput.",
+    "Gameplay Evolution": "Convert game-result evidence into accepted roadmap, release, and strategy decisions.",
+    "RL flywheel": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
+    "Docs/process": "Preserve decisions, rules, and operating context for agent continuity.",
 }
 
 CST = timezone(timedelta(hours=8), "CST")
@@ -1590,12 +1596,18 @@ def infer_domain(labels: Sequence[str], milestone: str, title: str) -> str:
         return "Agent OS"
     if "change-control" in haystack or "ci" in haystack or "branch" in haystack:
         return "Change-control"
-    if "private" in haystack or "smoke" in haystack:
-        return "Private smoke"
+    if "rl" in haystack or "reinforcement" in haystack or "flywheel" in haystack:
+        return "RL flywheel"
+    if "gameplay evolution" in haystack or "strategy" in haystack or "retrospective" in haystack:
+        return "Gameplay Evolution"
+    if "combat" in haystack or "defense" in haystack or "hostile" in haystack:
+        return "Combat"
+    if "territory" in haystack or "expansion" in haystack or "economy" in haystack or "worker" in haystack or "resource" in haystack:
+        return "Territory/Economy"
+    if "private" in haystack or "smoke" in haystack or "official" in haystack or "deploy" in haystack or "release" in haystack:
+        return "Release/deploy"
     if "runtime" in haystack or "monitor" in haystack or "telemetry" in haystack:
         return "Runtime monitor"
-    if "official" in haystack or "deploy" in haystack:
-        return "Official MMO"
     if "docs" in haystack or "process" in haystack:
         return "Docs/process"
     return "Bot capability"
@@ -1606,7 +1618,19 @@ def canonical_project_domain(value: Any) -> str:
     if not raw:
         return ""
     by_lower = {domain.lower(): domain for domain in PROJECT_DOMAIN_ORDER}
-    return by_lower.get(raw.lower(), "")
+    aliases = {
+        "private smoke": "Release/deploy",
+        "official mmo": "Release/deploy",
+        "official deploy": "Release/deploy",
+        "release": "Release/deploy",
+        "deploy": "Release/deploy",
+        "territory": "Territory/Economy",
+        "economy": "Territory/Economy",
+        "resources": "Territory/Economy",
+        "strategy/rl": "RL flywheel",
+        "rl strategy": "RL flywheel",
+    }
+    return by_lower.get(raw.lower(), aliases.get(raw.lower(), ""))
 
 
 def project_domain(item: Mapping[str, Any]) -> str:
