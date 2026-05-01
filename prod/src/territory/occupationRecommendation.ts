@@ -5,6 +5,7 @@ export type OccupationRecommendationEvidenceStatus = 'sufficient' | 'insufficien
 export type OccupationRecommendationCandidateSource = 'configured' | 'adjacent';
 
 export interface OccupationRecommendationReport {
+  colonyName?: string;
   candidates: OccupationRecommendationScore[];
   next: OccupationRecommendationScore | null;
   followUpIntent: OccupationRecommendationFollowUpIntent | null;
@@ -78,6 +79,8 @@ const RESERVATION_RENEWAL_TICKS = 1_000;
 const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
 const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
+const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
+type OccupationRecommendationControlTargetKey = Pick<TerritoryTargetMemory, 'roomName' | 'action'>;
 
 // Project vision ordering: territory action dominates resource value; combat/risk only gates or deprioritizes.
 const ACTION_SCORE: Record<OccupationRecommendationAction, number> = {
@@ -102,7 +105,10 @@ export function scoreOccupationRecommendations(
     .sort(compareOccupationRecommendationScores);
   const next = candidates.find((candidate) => candidate.evidenceStatus !== 'unavailable') ?? null;
 
-  return { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) };
+  return attachOccupationRecommendationReportColony(
+    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) },
+    input.colonyName
+  );
 }
 
 export function persistOccupationRecommendationFollowUpIntent(
@@ -111,6 +117,7 @@ export function persistOccupationRecommendationFollowUpIntent(
 ): TerritoryIntentMemory | null {
   const followUpIntent = report.followUpIntent;
   if (!followUpIntent) {
+    revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report);
     return null;
   }
 
@@ -151,7 +158,165 @@ export function persistOccupationRecommendationFollowUpIntent(
   };
 
   upsertTerritoryIntent(intents, nextIntent);
+  persistOccupationRecommendationTarget(report, nextIntent);
   return nextIntent;
+}
+
+function persistOccupationRecommendationTarget(
+  report: OccupationRecommendationReport,
+  intent: TerritoryIntentMemory
+): void {
+  const target = buildPersistableOccupationRecommendationTarget(report, intent);
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  if (!target) {
+    revokeOccupationRecommendationTarget(territoryMemory, intent);
+    removeStaleOccupationRecommendationTargets(
+      territoryMemory,
+      intent.colony,
+      buildActiveOccupationRecommendationControlTarget(report)
+    );
+    return;
+  }
+
+  removeStaleOccupationRecommendationTargets(territoryMemory, target.colony, target);
+  upsertTerritoryTarget(territoryMemory, target);
+}
+
+function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(
+  report: OccupationRecommendationReport
+): void {
+  const colony = report.colonyName;
+  if (!isNonEmptyString(colony)) {
+    return;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
+}
+
+function buildPersistableOccupationRecommendationTarget(
+  report: OccupationRecommendationReport,
+  intent: TerritoryIntentMemory
+): TerritoryTargetMemory | null {
+  const recommendation = report.next;
+  if (
+    !recommendation ||
+    recommendation.roomName !== intent.targetRoom ||
+    getTerritoryIntentAction(recommendation.action) !== intent.action ||
+    recommendation.evidenceStatus !== 'sufficient' ||
+    recommendation.preconditions.length > 0 ||
+    !isTerritoryControlAction(intent.action)
+  ) {
+    return null;
+  }
+
+  return {
+    colony: intent.colony,
+    roomName: intent.targetRoom,
+    action: intent.action,
+    createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
+    ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+  };
+}
+
+function removeStaleOccupationRecommendationTargets(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  activeTarget: OccupationRecommendationControlTargetKey | null
+): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !(
+      target?.colony === colony &&
+      target.enabled !== false &&
+      target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR &&
+      (!activeTarget || target.roomName !== activeTarget.roomName || target.action !== activeTarget.action)
+    );
+  });
+}
+
+function buildActiveOccupationRecommendationControlTarget(
+  report: OccupationRecommendationReport
+): OccupationRecommendationControlTargetKey | null {
+  const recommendation = report.next;
+  if (!recommendation) {
+    return null;
+  }
+
+  const action = getTerritoryIntentAction(recommendation.action);
+  if (!isTerritoryControlAction(action)) {
+    return null;
+  }
+
+  return { roomName: recommendation.roomName, action };
+}
+
+function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, intent: TerritoryIntentMemory): void {
+  if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !(
+      target?.colony === intent.colony &&
+      target.roomName === intent.targetRoom &&
+      target.action === intent.action &&
+      target.enabled !== false &&
+      target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
+    );
+  });
+}
+
+function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+
+  const existingTarget = territoryMemory.targets.find((rawTarget) => {
+    const normalizedTarget = normalizeTerritoryTarget(rawTarget);
+    return (
+      normalizedTarget?.colony === target.colony &&
+      normalizedTarget.roomName === target.roomName &&
+      normalizedTarget.action === target.action
+    );
+  });
+  if (!existingTarget) {
+    territoryMemory.targets.push(target);
+    return;
+  }
+
+  if (
+    isRecord(existingTarget) &&
+    existingTarget.enabled !== false &&
+    !existingTarget.controllerId &&
+    target.controllerId
+  ) {
+    existingTarget.controllerId = target.controllerId;
+  }
+}
+
+function attachOccupationRecommendationReportColony(
+  report: OccupationRecommendationReport,
+  colonyName: string
+): OccupationRecommendationReport {
+  Object.defineProperty(report, 'colonyName', {
+    value: colonyName,
+    enumerable: false
+  });
+  return report;
 }
 
 function buildRuntimeOccupationRecommendationInput(
@@ -255,11 +420,13 @@ function enrichVisibleOccupationCandidate(
   const sources = findRoomObjects(room, 'FIND_SOURCES');
   const constructionSites = findRoomObjects(room, 'FIND_MY_CONSTRUCTION_SITES');
   const ownedStructures = findRoomObjects(room, 'FIND_MY_STRUCTURES');
+  const controllerId = room.controller?.id;
 
   return {
     ...candidate,
     visible: true,
     ...(room.controller ? { controller: summarizeController(room.controller) } : {}),
+    ...(typeof controllerId === 'string' ? { controllerId: controllerId as Id<StructureController> } : {}),
     ...(sources ? { sourceCount: sources.length } : {}),
     ...(hostileCreeps ? { hostileCreepCount: hostileCreeps.length } : {}),
     ...(hostileStructures ? { hostileStructureCount: hostileStructures.length } : {}),
@@ -620,7 +787,10 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
     ...(typeof rawTarget.controllerId === 'string'
       ? { controllerId: rawTarget.controllerId as Id<StructureController> }
       : {}),
-    ...(rawTarget.enabled === false ? { enabled: false } : {})
+    ...(rawTarget.enabled === false ? { enabled: false } : {}),
+    ...(rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
+      ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR }
+      : {})
   };
 }
 
