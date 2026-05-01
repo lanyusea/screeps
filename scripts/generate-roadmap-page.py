@@ -126,6 +126,7 @@ class CodexSessionMetrics:
     timed_session_count: int
     total_tokens: int | None
     elapsed_seconds: int | None
+    longest_elapsed_seconds: int | None
     unreadable_count: int
 
 
@@ -2462,6 +2463,67 @@ def build_report_process_cards(
     cached_page_data: JsonObject,
 ) -> list[JsonObject]:
     cached_process_cards = cached_report_process_cards(cached_page_data)
+    commit_count = git_commit_count(repo_root)
+    if commit_count is None:
+        commit_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Commits",
+            "git rev-list --count HEAD unavailable",
+            "unavailable",
+            "Total commits",
+        )
+    else:
+        commit_card = {
+            "value": commit_count,
+            "rawValue": commit_count,
+            "label": "Commits",
+            "detail": "git rev-list --count HEAD",
+            "delta": "+0",
+            "source": "git rev-list --count HEAD",
+        }
+
+    prs, pr_error = fetch_all_prs(repo_root, str(repo["fullName"]))
+    cached_pr_card = cached_process_card(cached_process_cards, "PRs", "Total PRs")
+    if pr_error is None:
+        merged_prs = sum(1 for item in prs if str(item.get("state") or "").upper() == "MERGED")
+        pr_card = {
+            "value": len(prs),
+            "rawValue": len(prs),
+            "label": "PRs",
+            "detail": f"{merged_prs} merged",
+            "delta": "+0",
+            "source": "github",
+        }
+    else:
+        pr_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "PRs",
+            process_detail(pr_error, "gh pr list", "unavailable", cached_pr_card),
+            "unavailable",
+            "Total PRs",
+        )
+
+    issues, issue_error = fetch_all_issues(repo_root, str(repo["fullName"]))
+    cached_issue_card = cached_process_card(cached_process_cards, "Issues", "Total issues")
+    if issue_error is None:
+        open_issues = sum(1 for item in issues if str(item.get("state") or "").upper() == "OPEN")
+        issue_card = {
+            "value": len(issues),
+            "rawValue": len(issues),
+            "label": "Issues",
+            "detail": f"{open_issues} open",
+            "delta": "+0",
+            "source": "github",
+        }
+    else:
+        issue_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Issues",
+            process_detail(issue_error, "gh issue list", "unavailable", cached_issue_card),
+            "unavailable",
+            "Total issues",
+        )
+
     official_deploy_summary = summarize_official_deploy_evidence(repo_root)
     official_deploy_project_count = count_official_deploy_evidence(repo_root, github_snapshot)
     official_deploy_count = max(official_deploy_summary.count, official_deploy_project_count)
@@ -2476,15 +2538,28 @@ def build_report_process_cards(
         official_deploy_detail = "evidence unavailable"
         official_deploy_source = "unavailable"
 
+    deploy_card = {
+        "value": official_deploy_value,
+        "label": "Deploys",
+        "detail": official_deploy_detail,
+        "delta": "+0",
+        "source": official_deploy_source,
+    }
+    private_smoke_card = {
+        "value": count_private_smoke_process_reports(repo_root),
+        "label": "Private smoke",
+        "detail": "smoke/report evidence",
+        "delta": "+0",
+        "source": "approved process report count",
+    }
+
     return [
+        commit_card,
+        issue_card,
+        pr_card,
+        deploy_card,
+        private_smoke_card,
         *build_agent_process_cards(repo_root, repo, cached_process_cards),
-        {
-            "value": official_deploy_value,
-            "label": "Official deploys",
-            "detail": official_deploy_detail,
-            "delta": "+0",
-            "source": official_deploy_source,
-        },
     ]
 
 
@@ -2516,6 +2591,12 @@ def build_agent_process_cards(
             "no repo-attributed local Codex rollout JSONL files found",
             "unavailable",
         )
+        longest_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Longest Codex run",
+            "no repo-attributed local Codex rollout JSONL files found",
+            "unavailable",
+        )
     else:
         token_value: str = "unavailable"
         token_detail = f"0/{codex_metrics.session_count:,} sessions exposed token_count totals"
@@ -2536,6 +2617,26 @@ def build_agent_process_cards(
                 "summed first-to-last JSONL timestamps across "
                 f"{codex_metrics.timed_session_count:,}/{codex_metrics.session_count:,} sessions"
             )
+
+        if codex_metrics.longest_elapsed_seconds is None:
+            longest_card = cached_or_unavailable_process_card(
+                cached_process_cards,
+                "Longest Codex run",
+                f"0/{codex_metrics.session_count:,} sessions exposed timestamps",
+                "unavailable",
+            )
+        else:
+            longest_card = {
+                "value": format_duration(codex_metrics.longest_elapsed_seconds),
+                "rawValueSeconds": codex_metrics.longest_elapsed_seconds,
+                "label": "Longest Codex run",
+                "detail": (
+                    "maximum first-to-last JSONL timestamp span across "
+                    f"{codex_metrics.timed_session_count:,}/{codex_metrics.session_count:,} sessions"
+                ),
+                "delta": "+0",
+                "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
+            }
 
         token_card = {
             "value": token_value,
@@ -2566,7 +2667,7 @@ def build_agent_process_cards(
         automation_card = {
             "value": format_compact_count(automation_metrics.run_count),
             "rawValue": automation_metrics.run_count,
-            "label": "Automation runs",
+            "label": "Cron runs",
             "detail": (
                 f"{automation_metrics.run_count:,} cron outputs across "
                 f"{automation_metrics.job_count:,} jobs"
@@ -2577,12 +2678,13 @@ def build_agent_process_cards(
     else:
         automation_card = cached_or_unavailable_process_card(
             cached_process_cards,
-            "Automation runs",
+            "Cron runs",
             "no repo-attributed local Hermes cron markdown outputs found",
             "unavailable",
+            "Automation runs",
         )
 
-    return [token_card, runtime_card, runs_card, automation_card]
+    return [token_card, runtime_card, runs_card, automation_card, longest_card]
 
 
 def cached_or_unavailable_process_card(
@@ -2590,11 +2692,13 @@ def cached_or_unavailable_process_card(
     label: str,
     detail: str,
     source: str,
+    *cached_labels: str,
 ) -> JsonObject:
-    cached_card = cached_process_card(cached_process_cards, label)
+    cached_card = cached_process_card(cached_process_cards, label, *cached_labels)
     if cached_card:
         return {
             **cached_card,
+            "label": label,
             "detail": process_cached_detail(cached_card, detail),
             "source": "cached",
             "delta": cached_card.get("delta", "cached"),
@@ -2621,7 +2725,7 @@ def summarize_codex_sessions(
     attribution: RepoAttribution | None = None,
 ) -> CodexSessionMetrics:
     if not session_root.exists():
-        return CodexSessionMetrics(0, 0, 0, None, None, 0)
+        return CodexSessionMetrics(0, 0, 0, None, None, None, 0)
 
     attribution = attribution or build_repo_attribution(None, None)
     session_count = 0
@@ -2630,6 +2734,7 @@ def summarize_codex_sessions(
     unreadable_count = 0
     total_tokens = 0
     elapsed_seconds = 0
+    longest_elapsed_seconds = 0
     for path in sorted(session_root.glob(f"**/{CODEX_SESSION_PATTERN}")):
         if not path.is_file():
             continue
@@ -2647,6 +2752,7 @@ def summarize_codex_sessions(
         if elapsed is not None:
             timed_session_count += 1
             elapsed_seconds += elapsed
+            longest_elapsed_seconds = max(longest_elapsed_seconds, elapsed)
 
     return CodexSessionMetrics(
         session_count=session_count,
@@ -2654,6 +2760,7 @@ def summarize_codex_sessions(
         timed_session_count=timed_session_count,
         total_tokens=total_tokens if token_session_count else None,
         elapsed_seconds=elapsed_seconds if timed_session_count else None,
+        longest_elapsed_seconds=longest_elapsed_seconds if timed_session_count else None,
         unreadable_count=unreadable_count,
     )
 
@@ -2948,6 +3055,20 @@ def parse_count(value: str) -> int:
         return int(value.strip())
     except ValueError:
         return 0
+
+
+def git_commit_count(repo_root: Path) -> int | None:
+    try:
+        return parse_optional_count(run_text(["git", "rev-list", "--count", "HEAD"], repo_root))
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def parse_optional_count(value: str) -> int | None:
+    try:
+        return int(value.strip())
+    except ValueError:
+        return None
 
 
 def summarize_official_deploy_evidence(repo_root: Path) -> OfficialDeployEvidenceSummary:

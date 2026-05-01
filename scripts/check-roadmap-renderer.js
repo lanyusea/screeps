@@ -24,6 +24,18 @@ const EXPECTED_PROJECT_DOMAINS = [
   'Docs/process'
 ];
 const EXPECTED_ROADMAP_DOMAINS = EXPECTED_PROJECT_DOMAINS.filter(domain => domain !== 'Docs/process');
+const EXPECTED_PROCESS_LABELS = [
+  'Commits',
+  'Issues',
+  'PRs',
+  'Deploys',
+  'Private smoke',
+  'Agent tokens',
+  'Codex runtime',
+  'Codex runs',
+  'Cron runs',
+  'Longest Codex run'
+];
 
 function fail(message) {
   failures.push(message);
@@ -136,6 +148,18 @@ function assertDomainKanbanFiveColumnCss(html) {
   assert(
     !/\.kanban\{[^}]*grid-template-columns:repeat\(7,/s.test(compact),
     'domain board renderer CSS must not use the old seven-column layout'
+  );
+}
+
+function assertDeliveryMetricsFiveColumnCss(html) {
+  const compact = String(html).replace(/\s+/g, '');
+  assert(
+    compact.includes('.metrics{display:grid;grid-template-columns:repeat(5,1fr);'),
+    'delivery metrics renderer CSS must use five metric columns'
+  );
+  assert(
+    !/\.metrics\{[^}]*grid-template-columns:repeat\((?:3|7),/s.test(compact),
+    'delivery metrics renderer CSS must not use a three- or seven-column layout'
   );
 }
 
@@ -289,6 +313,11 @@ function assertKanbanMatchesPagesData(body, columns, sectionTitle) {
 }
 
 function assertProcessCardsMatchPagesData(body, cards) {
+  const labels = cards.map(card => String(card.label || ''));
+  assert(
+    JSON.stringify(labels) === JSON.stringify(EXPECTED_PROCESS_LABELS),
+    `delivery metric cards should be the approved 10-card order; saw ${JSON.stringify(labels)}`
+  );
   for (const card of cards) {
     const value = displayValue(card.value);
     const token = `data-process-label="${esc(card.label)}" data-process-value="${esc(value)}"`;
@@ -345,6 +374,7 @@ if (fs.existsSync(htmlPath)) {
   );
 
   assertDomainKanbanFiveColumnCss(html);
+  assertDeliveryMetricsFiveColumnCss(html);
   assertKpiCardsMatchPagesData(body, text, report.kpiCards || []);
   assertDomainClassification(report, text);
   assertProjectDomainSectionSplit(body);
