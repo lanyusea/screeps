@@ -3,35 +3,14 @@
     "logo": "assets/screeps-community-logo.png"
   },
   "format": "roadmap-portrait-kpi-kanban-v5",
-  "generatedAt": "2026-05-01T08:26:38Z",
-  "generatedAtCst": "2026-05-01 16:26:38 CST",
+  "generatedAt": "2026-05-01T14:58:24Z",
+  "generatedAtCst": "2026-05-01 22:58:24 CST",
   "github": {
     "fetchErrors": [],
     "fetched": true,
     "issues": [
       {
-        "createdAt": "2026-05-01T08:07:41Z",
-        "domain": "Agent OS",
-        "domainSource": "heuristic",
-        "kind": "ops",
-        "labels": [
-          "kind:ops",
-          "priority:p1",
-          "roadmap",
-          "roadmap:p0-agent-ops"
-        ],
-        "milestone": "P0: Agent OS / Discord visibility gate",
-        "number": 427,
-        "priority": "P1",
-        "state": "OPEN",
-        "status": "Ready",
-        "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
-        "type": "Issue",
-        "updatedAt": "2026-05-01T08:18:34Z",
-        "url": "https://github.com/lanyusea/screeps/issues/427"
-      },
-      {
-        "createdAt": "2026-05-01T06:22:06Z",
+        "createdAt": "2026-05-01T14:44:31Z",
         "domain": "Territory/Economy",
         "domainSource": "heuristic",
         "kind": "code",
@@ -42,14 +21,35 @@
           "roadmap:territory-economy"
         ],
         "milestone": "Phase B: Bot capability hardening gate",
-        "number": 424,
+        "number": 452,
         "priority": "P1",
         "state": "OPEN",
         "status": "Ready",
-        "title": "P1 Territory: make next reserve/claim recommendation executable",
+        "title": "P1 Economy: post-450 worker throughput follow-up",
         "type": "Issue",
-        "updatedAt": "2026-05-01T08:24:22Z",
-        "url": "https://github.com/lanyusea/screeps/issues/424"
+        "updatedAt": "2026-05-01T14:45:38Z",
+        "url": "https://github.com/lanyusea/screeps/issues/452"
+      },
+      {
+        "createdAt": "2026-05-01T13:03:13Z",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "number": 446,
+        "priority": "P1",
+        "state": "OPEN",
+        "status": "Ready",
+        "title": "P1 Territory: post-spawn-action controller pressure follow-up",
+        "type": "Issue",
+        "updatedAt": "2026-05-01T13:34:46Z",
+        "url": "https://github.com/lanyusea/screeps/issues/446"
       },
       {
         "createdAt": "2026-05-01T02:31:57Z",
@@ -92,7 +92,7 @@
         "status": "Ready",
         "title": "P1: RL Flywheel: historical MMO replay validation before rollout",
         "type": "Issue",
-        "updatedAt": "2026-05-01T08:24:26Z",
+        "updatedAt": "2026-05-01T08:32:23Z",
         "url": "https://github.com/lanyusea/screeps/issues/417"
       },
       {
@@ -116,28 +116,6 @@
         "type": "Issue",
         "updatedAt": "2026-05-01T08:24:29Z",
         "url": "https://github.com/lanyusea/screeps/issues/416"
-      },
-      {
-        "createdAt": "2026-05-01T02:31:43Z",
-        "domain": "Change-control",
-        "domainSource": "heuristic",
-        "kind": "code",
-        "labels": [
-          "kind:code",
-          "priority:p1",
-          "roadmap",
-          "roadmap:phase-c-telemetry",
-          "roadmap:rl-flywheel"
-        ],
-        "milestone": "P1: RL strategy flywheel gate",
-        "number": 414,
-        "priority": "P1",
-        "state": "OPEN",
-        "status": "Ready",
-        "title": "P1: RL Flywheel: build accelerated self-hosted simulator harness target 100x official tick speed",
-        "type": "Issue",
-        "updatedAt": "2026-05-01T08:24:31Z",
-        "url": "https://github.com/lanyusea/screeps/issues/414"
       },
       {
         "createdAt": "2026-05-01T02:31:35Z",
@@ -225,27 +203,6 @@
         "url": "https://github.com/lanyusea/screeps/issues/407"
       },
       {
-        "createdAt": "2026-05-01T02:03:28Z",
-        "domain": "Combat",
-        "domainSource": "heuristic",
-        "kind": "review",
-        "labels": [
-          "kind:review",
-          "priority:p1",
-          "roadmap",
-          "roadmap:combat"
-        ],
-        "milestone": "Combat: Survival / defense gate",
-        "number": 405,
-        "priority": "P1",
-        "state": "OPEN",
-        "status": "In review",
-        "title": "P1 Combat: one-time code review sweep for dead-zone and placeholder logic",
-        "type": "Issue",
-        "updatedAt": "2026-05-01T08:24:48Z",
-        "url": "https://github.com/lanyusea/screeps/issues/405"
-      },
-      {
         "createdAt": "2026-04-29T02:56:34Z",
         "domain": "Agent OS",
         "domainSource": "heuristic",
@@ -307,7 +264,7 @@
         "status": "Ready",
         "title": "P1: Phase E: gameplay release cadence and emergency hotfix gate are not enforced",
         "type": "Issue",
-        "updatedAt": "2026-05-01T08:24:41Z",
+        "updatedAt": "2026-05-01T14:44:12Z",
         "url": "https://github.com/lanyusea/screeps/issues/63"
       },
       {
@@ -350,7 +307,7 @@
         "status": "Ready",
         "title": "P1:Phase C:runtime-summary/runtime-alert \u5b9a\u65f6\u76d1\u63a7\u6295\u9012\u5c1a\u672a\u5b8c\u6210",
         "type": "Issue",
-        "updatedAt": "2026-04-28T09:25:18Z",
+        "updatedAt": "2026-05-01T13:38:47Z",
         "url": "https://github.com/lanyusea/screeps/issues/29"
       }
     ],
@@ -372,24 +329,6 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/408",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "Agent OS",
-          "domainSource": "project",
-          "evidence": "2026-05-01 live state audit repaired missing Project item and milestone; added to Project #3 as Ready/P1/Agent OS/ops.",
-          "kind": "ops",
-          "lane": "Agent OS",
-          "nextAction": "",
-          "number": 427,
-          "priority": "P1",
-          "projectDomain": "Agent OS",
-          "state": "",
-          "status": "Ready",
-          "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/427",
           "visionLayer": "foundation blocker"
         },
         {
@@ -773,6 +712,24 @@
         {
           "domain": "Agent OS",
           "domainSource": "project",
+          "evidence": "Live audit 2026-05-01T16:31+08: PR #428 exists; PR Project item repaired/added. Checks pending; mergeState BEHIND.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 427,
+          "priority": "P1",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/427",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
           "evidence": "Merged PR #162 at c75de59; cron continuation prompt also updated with 24h forced-P2 anti-starvation policy; checks green and CodeRabbit resolved.",
           "kind": "ops",
           "lane": "Agent OS",
@@ -858,6 +815,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/219",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Agent OS",
+          "domainSource": "project",
+          "evidence": "PR #428 implements Minimal Rules OS registry, cron/route registry, templates, audit script, Project Domain/Kind options, and Pages domain progress regeneration. Local QA PASS: audit --github; pytest 6 passed.",
+          "kind": "ops",
+          "lane": "Agent OS",
+          "nextAction": "",
+          "number": 428,
+          "priority": "P1",
+          "projectDomain": "Agent OS",
+          "state": "",
+          "status": "Done",
+          "title": "docs: unify Screeps rules taxonomy and domain display",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/428",
           "visionLayer": "foundation blocker"
         },
         {
@@ -1439,7 +1414,7 @@
         {
           "domain": "Runtime monitor",
           "domainSource": "project",
-          "evidence": "Merged PR #423 at 2026-05-01T06:34:31Z; merge commit 0235a3a; final QA/checks/review threads clean.",
+          "evidence": "2026-05-01 shadow cadence audit: evaluator is passive/manual/test-only today; runtime summary/alert jobs generate input artifacts, but no recurring shadow-eval report job yet. #415/#417 comments updated with gap.",
           "kind": "code",
           "lane": "Runtime monitor",
           "nextAction": "",
@@ -1925,6 +1900,42 @@
         {
           "domain": "Bot capability",
           "domainSource": "project",
+          "evidence": "",
+          "kind": "code",
+          "lane": "Bot capability",
+          "nextAction": "",
+          "number": 452,
+          "priority": "P1",
+          "projectDomain": "Bot capability",
+          "state": "",
+          "status": "In progress",
+          "title": "P1 Economy: post-450 worker throughput follow-up",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/452",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Bot capability",
+          "domainSource": "heuristic",
+          "evidence": "",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 448,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "In review",
+          "title": "feat: add controller pressure spawn follow-up",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/448",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Bot capability",
+          "domainSource": "project",
           "evidence": "2026-05-01 13:58 +08: PR #419 recovered by Codex commits 97b9859 + merge 1535c7d; exact-head QA PASS (24 suites/616 tests); threads 0 active/0 unresolved; GitHub checks green/CLEAN.",
           "kind": "code",
           "lane": "Bot capability",
@@ -2155,6 +2166,42 @@
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/30",
           "visionLayer": "resources"
+        },
+        {
+          "domain": "Bot capability",
+          "domainSource": "project",
+          "evidence": "2026-05-01T18:57+08 PR #438 live thread PRRT_kwDOSMSsO85-8-ak fixed/pushed as Codex-authored commit 4fd003d; verification diff-check, typecheck, Jest 24/631, build.",
+          "kind": "code",
+          "lane": "Bot capability",
+          "nextAction": "",
+          "number": 437,
+          "priority": "P1",
+          "projectDomain": "Bot capability",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Economy: continue resource throughput after worker lookup deploy",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/437",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Bot capability",
+          "domainSource": "project",
+          "evidence": "2026-05-01 22:40+08 scheduler: PR #450 merged as fb4831734bf200e250622440aeb7bb5b227cccd7; official deploy run 25218553175 succeeded for shardX/E26S49; postdeploy healthy owner=lanyusea spawn=1 creeps=5 hostiles=0.",
+          "kind": "code",
+          "lane": "Bot capability",
+          "nextAction": "",
+          "number": 449,
+          "priority": "P1",
+          "projectDomain": "Bot capability",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Economy: post-447 worker throughput follow-up",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/449",
+          "visionLayer": "territory"
         },
         {
           "domain": "Bot capability",
@@ -4498,6 +4545,24 @@
         },
         {
           "domain": "Bot capability",
+          "domainSource": "project",
+          "evidence": "2026-05-01T19:05+08 updated branch to 5c54d5a after #426 merge; prod-ci/CodeRabbit success, no unresolved GraphQL threads; exact-head QA proc_[redacted] pid 1727803 dispatched.",
+          "kind": "code",
+          "lane": "Bot capability",
+          "nextAction": "",
+          "number": 438,
+          "priority": "P1",
+          "projectDomain": "Bot capability",
+          "state": "",
+          "status": "Done",
+          "title": "feat: improve post-lookup resource throughput",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/438",
+          "visionLayer": "resources"
+        },
+        {
+          "domain": "Bot capability",
           "domainSource": "heuristic",
           "evidence": "2026-04-28 18:55 +08: PR #184 merged after prod-ci SUCCESS, CodeRabbit/Gemini no blocking findings, update-branch onto PR #183/main (head c16439c), exact-head QA PASS (295 tests), merge commit c798a32. Local main at c798a32.",
           "kind": "code",
@@ -5795,24 +5860,6 @@
         {
           "domain": "Combat",
           "domainSource": "project",
-          "evidence": "",
-          "kind": "review",
-          "lane": "Combat",
-          "nextAction": "",
-          "number": 405,
-          "priority": "P1",
-          "projectDomain": "Combat",
-          "state": "",
-          "status": "In progress",
-          "title": "P1 Combat: one-time code review sweep for dead-zone and placeholder logic",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/405",
-          "visionLayer": "enemy kills"
-        },
-        {
-          "domain": "Combat",
-          "domainSource": "project",
           "evidence": "QA requirement added to Hermes Screeps deploy-floor skill: dead-zone/placeholders block QA if survival-critical; non-severe findings need Combat issues.",
           "kind": "qa",
           "lane": "Combat",
@@ -5829,22 +5876,58 @@
           "visionLayer": "enemy kills"
         },
         {
-          "domain": "Territory/Economy",
+          "domain": "Combat",
           "domainSource": "project",
-          "evidence": "PR #426 updated with Codex-authored review-fix 7f72488; verification passed locally before push.",
-          "kind": "code",
-          "lane": "Territory/Economy",
+          "evidence": "Authoritative PR #443 updated via REST update-branch to bbf3104; prod-ci/CodeRabbit green at checkpoint; final GraphQL thread requery still needed.",
+          "kind": "review",
+          "lane": "Combat",
           "nextAction": "",
-          "number": 424,
+          "number": 405,
           "priority": "P1",
-          "projectDomain": "Territory/Economy",
+          "projectDomain": "Combat",
           "state": "",
-          "status": "In review",
-          "title": "P1 Territory: make next reserve/claim recommendation executable",
+          "status": "Done",
+          "title": "P1 Combat: one-time code review sweep for dead-zone and placeholder logic",
           "type": "Issue",
           "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/424",
-          "visionLayer": "territory"
+          "url": "https://github.com/lanyusea/screeps/issues/405",
+          "visionLayer": "enemy kills"
+        },
+        {
+          "domain": "Combat",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "code",
+          "lane": "Combat",
+          "nextAction": "",
+          "number": 443,
+          "priority": "P1",
+          "projectDomain": "Combat",
+          "state": "",
+          "status": "Done",
+          "title": "fix: avoid downgrade guard blocking defender replacement",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/443",
+          "visionLayer": "enemy kills"
+        },
+        {
+          "domain": "Combat",
+          "domainSource": "heuristic",
+          "evidence": "2026-05-01T17:17+08 exact-head QA PASS on PR #429 head 3669691 (proc_[redacted] exit 0): No critical issues found; prod/dist/main.js sync check passed; LFS docs/roadmap-kpi.sqlite noise treated as infrastructure. Outdated thread PRRT_kwDOSMSsO85-8LBw queued for resolution/re-query.",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 429,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "fix: close combat dead-zone placeholder gap",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/429",
+          "visionLayer": "enemy kills"
         },
         {
           "domain": "Territory/Economy",
@@ -5853,15 +5936,105 @@
           "kind": "code",
           "lane": "",
           "nextAction": "",
-          "number": 426,
+          "number": 446,
           "priority": "P1",
           "projectDomain": "",
           "state": "",
           "status": "In review",
-          "title": "feat: make territory recommendations executable",
-          "type": "PullRequest",
+          "title": "P1 Territory: post-spawn-action controller pressure follow-up",
+          "type": "Issue",
           "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/pull/426",
+          "url": "https://github.com/lanyusea/screeps/issues/446",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "Done via merged PR #444; merge commit f8fd7a9 after exact-head QA PASS, prod-ci/CodeRabbit green, and GraphQL live threads clear.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 442,
+          "priority": "P1",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Economy: continue early-room resource throughput after spawn recovery deploy",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/442",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "2026-05-01T18:20+08 completed: PR #435 merged at 7d760c6 after green prod-ci/CodeRabbit, no unresolved review threads, exact-head QA proc_[redacted] PASS (typecheck/Jest/build/bundle drift; no critical issues).",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 434,
+          "priority": "P1",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Economy: improve low-energy worker throughput after combat deploy",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/434",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "heuristic",
+          "evidence": "2026-05-01 21:50+08 scheduler: completed via PR #447; merged commit fb0d5508 after green CI/bot review and exact-head QA PASS. Deployed in official workflow run 25216817698 with healthy E26S49 sidecars.",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 445,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Economy: post-deploy productive worker pressure follow-up",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/445",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "Completed by merged PR #426; merge commit fb44ef4 after green prod-ci, CodeRabbit, no unresolved GraphQL threads, exact-head QA PASS proc_[redacted].",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 424,
+          "priority": "P1",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Territory: make next reserve/claim recommendation executable",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/424",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "Authoritative PR #441 head 34b00bb includes recovered review-fix for CodeRabbit PRRT_kwDOSMSsO85-9X1Z; local controller verification PASS before commit; prod-ci success and CodeRabbit pending after push.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 440,
+          "priority": "P1",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "P1 Territory: turn executable recommendations into spawn/task action",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/440",
           "visionLayer": "territory"
         },
         {
@@ -6533,6 +6706,60 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "heuristic",
+          "evidence": "2026-05-01 scheduler: PR #447/#448 CI green, CodeRabbit success, GraphQL unresolved threads empty, exact-head QA PASS. #447 head 79c4fc5; #448 head 432ca4b.",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 447,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "feat: harden productive worker pressure recovery",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/447",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "heuristic",
+          "evidence": "2026-05-01 22:40+08 scheduler: PR #450 merged as fb4831734bf200e250622440aeb7bb5b227cccd7; official deploy run 25218553175 succeeded for shardX/E26S49; postdeploy healthy owner=lanyusea spawn=1 creeps=5 hostiles=0.",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 450,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "feat: harden worker body scaling for throughput",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/450",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "Merged 2026-05-01T12:19:46Z as f8fd7a9 after exact-head QA PASS, prod-ci/CodeRabbit green, GraphQL threads clear.",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 444,
+          "priority": "P1",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "feat: improve early resource throughput",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/444",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "heuristic",
           "evidence": "2026-04-28T20:59+08 exact-head QA PASS on ad5c64f: diff-check, typecheck, Jest 16 suites/303 tests, build, dist drift check. prod-ci/review gate still pending.",
           "kind": "code",
           "lane": "",
@@ -6546,6 +6773,24 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/197",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "2026-05-01T18:20+08 completed: PR #435 merged at 7d760c6 after green prod-ci/CodeRabbit, no unresolved review threads, exact-head QA proc_[redacted] PASS (typecheck/Jest/build/bundle drift; no critical issues).",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 435,
+          "priority": "P1",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "feat: improve low-energy worker throughput",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/435",
           "visionLayer": "territory"
         },
         {
@@ -6767,6 +7012,24 @@
         {
           "domain": "Territory/Economy",
           "domainSource": "heuristic",
+          "evidence": "Merged at 2026-05-01T10:59Z as fb44ef4 after green prod-ci, CodeRabbit, no unresolved threads, exact-head QA PASS.",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 426,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "feat: make territory recommendations executable",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/426",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
+          "domainSource": "heuristic",
           "evidence": "PR #168 opened for #167 on head a8e964a. Controller verification and independent exact-head QA PASS: diff-check, typecheck, Jest 16 suites/259 tests, build, dist drift check. prod-ci SUCCESS; CodeRabbit pending/UNSTABLE at 16:14+08.",
           "kind": "code",
           "lane": "",
@@ -6928,6 +7191,24 @@
         },
         {
           "domain": "Territory/Economy",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "code",
+          "lane": "Territory/Economy",
+          "nextAction": "",
+          "number": 441,
+          "priority": "P1",
+          "projectDomain": "Territory/Economy",
+          "state": "",
+          "status": "Done",
+          "title": "feat: spawn workers for territory recommendations",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/441",
+          "visionLayer": "territory"
+        },
+        {
+          "domain": "Territory/Economy",
           "domainSource": "heuristic",
           "evidence": "PR #212 opened at 4634f08 after stale Codex lane recovery. Controller verification after merging main: diff-check; typecheck; Jest 16 suites/324 tests; build; dist clean. prod-ci queued; review gate pending.",
           "kind": "code",
@@ -7073,24 +7354,6 @@
         {
           "domain": "RL flywheel",
           "domainSource": "project",
-          "evidence": "Owner requires self-hosted accelerated parallel simulation targeting ~100x official service throughput; implementation issue created.",
-          "kind": "code",
-          "lane": "RL flywheel",
-          "nextAction": "",
-          "number": 414,
-          "priority": "P1",
-          "projectDomain": "RL flywheel",
-          "state": "",
-          "status": "Ready",
-          "title": "P1: RL Flywheel: build accelerated self-hosted simulator harness target 100x official tick speed",
-          "type": "Issue",
-          "updatedAt": "",
-          "url": "https://github.com/lanyusea/screeps/issues/414",
-          "visionLayer": "foundation blocker"
-        },
-        {
-          "domain": "RL flywheel",
-          "domainSource": "project",
           "evidence": "Owner requires RL framework selection and reward tuning workflow; implementation issue created.",
           "kind": "code",
           "lane": "RL flywheel",
@@ -7144,6 +7407,42 @@
         },
         {
           "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-01T18:38+08 recovered verified Codex #414 work into commit 1a517ed and opened PR #439. Verification: diff-check, py_compile, unittest 4 OK.",
+          "kind": "code",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 414,
+          "priority": "P1",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "P1: RL Flywheel: build accelerated self-hosted simulator harness target 100x official tick speed",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/414",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-01T17:26+08 PR #433 review-fix pushed as fd51b18 after current-main reconcile; verification passed (diff-check, py_compile, unittest 11).",
+          "kind": "code",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 432,
+          "priority": "P1",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "P1: RL Flywheel: scheduled offline strategy-shadow report generation",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/432",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
           "domainSource": "heuristic",
           "evidence": "PR #420 merged at e81bc3171957078158805252f15a83d138bcafdf after CodeRabbit link-pinning thread cleared. prod-ci and CodeRabbit were green; unresolved review-thread query returned empty. Issue #413 closed.",
           "kind": "code",
@@ -7158,6 +7457,60 @@
           "type": "PullRequest",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/pull/420",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "heuristic",
+          "evidence": "",
+          "kind": "code",
+          "lane": "",
+          "nextAction": "",
+          "number": 439,
+          "priority": "P1",
+          "projectDomain": "",
+          "state": "",
+          "status": "Done",
+          "title": "feat: add RL simulator harness dry-run slice",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/439",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "RL flywheel",
+          "domainSource": "project",
+          "evidence": "2026-05-01T17:26+08 review-fix for PR #433 pushed as fd51b18 after reconciling onto main 618fc4e; verification passed (diff-check, py_compile, unittest 11 tests). Await fresh checks/bot review.",
+          "kind": "code",
+          "lane": "RL flywheel",
+          "nextAction": "",
+          "number": 433,
+          "priority": "P1",
+          "projectDomain": "RL flywheel",
+          "state": "",
+          "status": "Done",
+          "title": "feat: generate offline strategy shadow reports",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/433",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "domainSource": "project",
+          "evidence": "",
+          "kind": "code",
+          "lane": "Docs/process",
+          "nextAction": "",
+          "number": 451,
+          "priority": "P2",
+          "projectDomain": "Docs/process",
+          "state": "",
+          "status": "In review",
+          "title": "fix: add agent metrics to roadmap report",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/451",
           "visionLayer": "foundation blocker"
         },
         {
@@ -7230,6 +7583,24 @@
           "type": "Issue",
           "updatedAt": "",
           "url": "https://github.com/lanyusea/screeps/issues/216",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "domainSource": "project",
+          "evidence": "2026-05-01T16:59+08:00 #430 in review via PR #431. Gate now CLEAN: head 410c290, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, no active review threads. Awaiting >=15 minute elapsed review gate.",
+          "kind": "docs",
+          "lane": "Docs/process",
+          "nextAction": "",
+          "number": 430,
+          "priority": "P1",
+          "projectDomain": "Docs/process",
+          "state": "",
+          "status": "Done",
+          "title": "P1: RL Domain Refresh: system roadmap for strategy-change flywheel",
+          "type": "Issue",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/issues/430",
           "visionLayer": "foundation blocker"
         },
         {
@@ -7343,6 +7714,24 @@
         {
           "domain": "Docs/process",
           "domainSource": "project",
+          "evidence": "Merged PR #431 at 2026-05-01T09:08Z, merge commit 9b1421c; prod-ci PASS, CodeRabbit PASS, no review threads. #430 closed/Done.",
+          "kind": "docs",
+          "lane": "Docs/process",
+          "nextAction": "",
+          "number": 431,
+          "priority": "P1",
+          "projectDomain": "Docs/process",
+          "state": "",
+          "status": "Done",
+          "title": "docs: define RL domain roadmap",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/431",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "domainSource": "project",
           "evidence": "PR #66 merged at 2026-04-27T03:29:27Z as 1f41670 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and empty GraphQL review threads.",
           "kind": "docs",
           "lane": "Docs/process",
@@ -7433,6 +7822,24 @@
         {
           "domain": "Docs/process",
           "domainSource": "project",
+          "evidence": "PR #436 merged at 2026-05-01T10:29:48Z, merge 880d0cc. Main ff verified. Pages live CSS: repeat(5) present, repeat(7) absent. Roadmap cron job 92ca290f7996 run 2026-05-01 18:33 ok, delivered MEDIA image sha256 9c3ac0b264d85a3e6f9a706cd42b253d69d4be7f186354b61f18258f3a35d607; vision QA confirms 5/5 no clipping.",
+          "kind": "code",
+          "lane": "Docs/process",
+          "nextAction": "",
+          "number": 436,
+          "priority": "P1",
+          "projectDomain": "Docs/process",
+          "state": "",
+          "status": "Done",
+          "title": "fix: render domain kanban as five-column rows",
+          "type": "PullRequest",
+          "updatedAt": "",
+          "url": "https://github.com/lanyusea/screeps/pull/436",
+          "visionLayer": "foundation blocker"
+        },
+        {
+          "domain": "Docs/process",
+          "domainSource": "project",
           "evidence": "DONE via PR #220 merged 2026-04-28T17:03:10Z, merge commit 7cb8dac. Gates: >=15min, prod-ci success, CodeRabbit success, no active review threads. Verification: check-roadmap-kpi-placeholders PASS, py_compile PASS, local+live browser/vision QA PASS. Live Pages https://lanyusea.github.io/screeps/ contains 9 placeholder lines and 63 placeholder points; charts show axes/date labels, muted placeholder lines, and hollow markers. No sqlite sidecars.",
           "kind": "docs",
           "lane": "Docs/process",
@@ -7494,24 +7901,6 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/408",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "Agent OS",
-                  "domainSource": "project",
-                  "evidence": "2026-05-01 live state audit repaired missing Project item and milestone; added to Project #3 as Ready/P1/Agent OS/ops.",
-                  "kind": "ops",
-                  "lane": "Agent OS",
-                  "nextAction": "",
-                  "number": 427,
-                  "priority": "P1",
-                  "projectDomain": "Agent OS",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/427",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -7908,6 +8297,24 @@
                 {
                   "domain": "Agent OS",
                   "domainSource": "project",
+                  "evidence": "Live audit 2026-05-01T16:31+08: PR #428 exists; PR Project item repaired/added. Checks pending; mergeState BEHIND.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 427,
+                  "priority": "P1",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/427",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
                   "evidence": "Merged PR #162 at c75de59; cron continuation prompt also updated with 24h forced-P2 anti-starvation policy; checks green and CodeRabbit resolved.",
                   "kind": "ops",
                   "lane": "Agent OS",
@@ -7975,6 +8382,24 @@
                   "type": "PullRequest",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/pull/219",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Agent OS",
+                  "domainSource": "project",
+                  "evidence": "PR #428 implements Minimal Rules OS registry, cron/route registry, templates, audit script, Project Domain/Kind options, and Pages domain progress regeneration. Local QA PASS: audit --github; pytest 6 passed.",
+                  "kind": "ops",
+                  "lane": "Agent OS",
+                  "nextAction": "",
+                  "number": 428,
+                  "priority": "P1",
+                  "projectDomain": "Agent OS",
+                  "state": "",
+                  "status": "Done",
+                  "title": "docs: unify Screeps rules taxonomy and domain display",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/428",
                   "visionLayer": "foundation blocker"
                 }
               ],
@@ -8287,7 +8712,7 @@
                 {
                   "domain": "Runtime monitor",
                   "domainSource": "project",
-                  "evidence": "Merged PR #423 at 2026-05-01T06:34:31Z; merge commit 0235a3a; final QA/checks/review threads clean.",
+                  "evidence": "2026-05-01 shadow cadence audit: evaluator is passive/manual/test-only today; runtime summary/alert jobs generate input artifacts, but no recurring shadow-eval report job yet. #415/#417 comments updated with gap.",
                   "kind": "code",
                   "lane": "Runtime monitor",
                   "nextAction": "",
@@ -8798,7 +9223,26 @@
               "status": "Ready"
             },
             {
-              "cards": [],
+              "cards": [
+                {
+                  "domain": "Bot capability",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "code",
+                  "lane": "Bot capability",
+                  "nextAction": "",
+                  "number": 452,
+                  "priority": "P1",
+                  "projectDomain": "Bot capability",
+                  "state": "",
+                  "status": "In progress",
+                  "title": "P1 Economy: post-450 worker throughput follow-up",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/452",
+                  "visionLayer": "territory"
+                }
+              ],
               "status": "In progress"
             },
             {
@@ -9040,6 +9484,42 @@
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/30",
                   "visionLayer": "resources"
+                },
+                {
+                  "domain": "Bot capability",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01T18:57+08 PR #438 live thread PRRT_kwDOSMSsO85-8-ak fixed/pushed as Codex-authored commit 4fd003d; verification diff-check, typecheck, Jest 24/631, build.",
+                  "kind": "code",
+                  "lane": "Bot capability",
+                  "nextAction": "",
+                  "number": 437,
+                  "priority": "P1",
+                  "projectDomain": "Bot capability",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1 Economy: continue resource throughput after worker lookup deploy",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/437",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Bot capability",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01 22:40+08 scheduler: PR #450 merged as fb4831734bf200e250622440aeb7bb5b227cccd7; official deploy run 25218553175 succeeded for shardX/E26S49; postdeploy healthy owner=lanyusea spawn=1 creeps=5 hostiles=0.",
+                  "kind": "code",
+                  "lane": "Bot capability",
+                  "nextAction": "",
+                  "number": 449,
+                  "priority": "P1",
+                  "projectDomain": "Bot capability",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1 Economy: post-447 worker throughput follow-up",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/449",
+                  "visionLayer": "territory"
                 },
                 {
                   "domain": "Bot capability",
@@ -11186,6 +11666,24 @@
                 {
                   "domain": "Bot capability",
                   "domainSource": "project",
+                  "evidence": "2026-05-01T19:05+08 updated branch to 5c54d5a after #426 merge; prod-ci/CodeRabbit success, no unresolved GraphQL threads; exact-head QA proc_[redacted] pid 1727803 dispatched.",
+                  "kind": "code",
+                  "lane": "Bot capability",
+                  "nextAction": "",
+                  "number": 438,
+                  "priority": "P1",
+                  "projectDomain": "Bot capability",
+                  "state": "",
+                  "status": "Done",
+                  "title": "feat: improve post-lookup resource throughput",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/438",
+                  "visionLayer": "resources"
+                },
+                {
+                  "domain": "Bot capability",
+                  "domainSource": "project",
                   "evidence": "PR #343 head 428a66d had QA pass, but CodeRabbit posted fresh live blocker at territoryPlanner.ts:2135; review-fix Codex proc_[redacted] dispatched.",
                   "kind": "code",
                   "lane": "Bot capability",
@@ -12138,26 +12636,7 @@
               "status": "Ready"
             },
             {
-              "cards": [
-                {
-                  "domain": "Combat",
-                  "domainSource": "project",
-                  "evidence": "",
-                  "kind": "review",
-                  "lane": "Combat",
-                  "nextAction": "",
-                  "number": 405,
-                  "priority": "P1",
-                  "projectDomain": "Combat",
-                  "state": "",
-                  "status": "In progress",
-                  "title": "P1 Combat: one-time code review sweep for dead-zone and placeholder logic",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/405",
-                  "visionLayer": "enemy kills"
-                }
-              ],
+              "cards": [],
               "status": "In progress"
             },
             {
@@ -12165,7 +12644,44 @@
               "status": "In review"
             },
             {
-              "cards": [],
+              "cards": [
+                {
+                  "domain": "Combat",
+                  "domainSource": "project",
+                  "evidence": "Authoritative PR #443 updated via REST update-branch to bbf3104; prod-ci/CodeRabbit green at checkpoint; final GraphQL thread requery still needed.",
+                  "kind": "review",
+                  "lane": "Combat",
+                  "nextAction": "",
+                  "number": 405,
+                  "priority": "P1",
+                  "projectDomain": "Combat",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1 Combat: one-time code review sweep for dead-zone and placeholder logic",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/405",
+                  "visionLayer": "enemy kills"
+                },
+                {
+                  "domain": "Combat",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "code",
+                  "lane": "Combat",
+                  "nextAction": "",
+                  "number": 443,
+                  "priority": "P1",
+                  "projectDomain": "Combat",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: avoid downgrade guard blocking defender replacement",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/443",
+                  "visionLayer": "enemy kills"
+                }
+              ],
               "status": "Done"
             }
           ]
@@ -12187,11 +12703,51 @@
               "status": "In progress"
             },
             {
+              "cards": [],
+              "status": "In review"
+            },
+            {
               "cards": [
                 {
                   "domain": "Territory/Economy",
                   "domainSource": "project",
-                  "evidence": "PR #426 updated with Codex-authored review-fix 7f72488; verification passed locally before push.",
+                  "evidence": "Done via merged PR #444; merge commit f8fd7a9 after exact-head QA PASS, prod-ci/CodeRabbit green, and GraphQL live threads clear.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 442,
+                  "priority": "P1",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1 Economy: continue early-room resource throughput after spawn recovery deploy",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/442",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01T18:20+08 completed: PR #435 merged at 7d760c6 after green prod-ci/CodeRabbit, no unresolved review threads, exact-head QA proc_[redacted] PASS (typecheck/Jest/build/bundle drift; no critical issues).",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 434,
+                  "priority": "P1",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1 Economy: improve low-energy worker throughput after combat deploy",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/434",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "Completed by merged PR #426; merge commit fb44ef4 after green prod-ci, CodeRabbit, no unresolved GraphQL threads, exact-head QA PASS proc_[redacted].",
                   "kind": "code",
                   "lane": "Territory/Economy",
                   "nextAction": "",
@@ -12199,18 +12755,86 @@
                   "priority": "P1",
                   "projectDomain": "Territory/Economy",
                   "state": "",
-                  "status": "In review",
+                  "status": "Done",
                   "title": "P1 Territory: make next reserve/claim recommendation executable",
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/424",
                   "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "Authoritative PR #441 head 34b00bb includes recovered review-fix for CodeRabbit PRRT_kwDOSMSsO85-9X1Z; local controller verification PASS before commit; prod-ci success and CodeRabbit pending after push.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 440,
+                  "priority": "P1",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1 Territory: turn executable recommendations into spawn/task action",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/440",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "Merged 2026-05-01T12:19:46Z as f8fd7a9 after exact-head QA PASS, prod-ci/CodeRabbit green, GraphQL threads clear.",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 444,
+                  "priority": "P1",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "feat: improve early resource throughput",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/444",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01T18:20+08 completed: PR #435 merged at 7d760c6 after green prod-ci/CodeRabbit, no unresolved review threads, exact-head QA proc_[redacted] PASS (typecheck/Jest/build/bundle drift; no critical issues).",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 435,
+                  "priority": "P1",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "feat: improve low-energy worker throughput",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/435",
+                  "visionLayer": "territory"
+                },
+                {
+                  "domain": "Territory/Economy",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "code",
+                  "lane": "Territory/Economy",
+                  "nextAction": "",
+                  "number": 441,
+                  "priority": "P1",
+                  "projectDomain": "Territory/Economy",
+                  "state": "",
+                  "status": "Done",
+                  "title": "feat: spawn workers for territory recommendations",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/441",
+                  "visionLayer": "territory"
                 }
               ],
-              "status": "In review"
-            },
-            {
-              "cards": [],
               "status": "Done"
             }
           ]
@@ -12345,24 +12969,6 @@
                 {
                   "domain": "RL flywheel",
                   "domainSource": "project",
-                  "evidence": "Owner requires self-hosted accelerated parallel simulation targeting ~100x official service throughput; implementation issue created.",
-                  "kind": "code",
-                  "lane": "RL flywheel",
-                  "nextAction": "",
-                  "number": 414,
-                  "priority": "P1",
-                  "projectDomain": "RL flywheel",
-                  "state": "",
-                  "status": "Ready",
-                  "title": "P1: RL Flywheel: build accelerated self-hosted simulator harness target 100x official tick speed",
-                  "type": "Issue",
-                  "updatedAt": "",
-                  "url": "https://github.com/lanyusea/screeps/issues/414",
-                  "visionLayer": "foundation blocker"
-                },
-                {
-                  "domain": "RL flywheel",
-                  "domainSource": "project",
                   "evidence": "Owner requires RL framework selection and reward tuning workflow; implementation issue created.",
                   "kind": "code",
                   "lane": "RL flywheel",
@@ -12408,7 +13014,62 @@
               "status": "In review"
             },
             {
-              "cards": [],
+              "cards": [
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01T18:38+08 recovered verified Codex #414 work into commit 1a517ed and opened PR #439. Verification: diff-check, py_compile, unittest 4 OK.",
+                  "kind": "code",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 414,
+                  "priority": "P1",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1: RL Flywheel: build accelerated self-hosted simulator harness target 100x official tick speed",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/414",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01T17:26+08 PR #433 review-fix pushed as fd51b18 after current-main reconcile; verification passed (diff-check, py_compile, unittest 11).",
+                  "kind": "code",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 432,
+                  "priority": "P1",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1: RL Flywheel: scheduled offline strategy-shadow report generation",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/432",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "RL flywheel",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01T17:26+08 review-fix for PR #433 pushed as fd51b18 after reconciling onto main 618fc4e; verification passed (diff-check, py_compile, unittest 11 tests). Await fresh checks/bot review.",
+                  "kind": "code",
+                  "lane": "RL flywheel",
+                  "nextAction": "",
+                  "number": 433,
+                  "priority": "P1",
+                  "projectDomain": "RL flywheel",
+                  "state": "",
+                  "status": "Done",
+                  "title": "feat: generate offline strategy shadow reports",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/433",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
               "status": "Done"
             }
           ]
@@ -12430,7 +13091,26 @@
               "status": "In progress"
             },
             {
-              "cards": [],
+              "cards": [
+                {
+                  "domain": "Docs/process",
+                  "domainSource": "project",
+                  "evidence": "",
+                  "kind": "code",
+                  "lane": "Docs/process",
+                  "nextAction": "",
+                  "number": 451,
+                  "priority": "P2",
+                  "projectDomain": "Docs/process",
+                  "state": "",
+                  "status": "In review",
+                  "title": "fix: add agent metrics to roadmap report",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/451",
+                  "visionLayer": "foundation blocker"
+                }
+              ],
               "status": "In review"
             },
             {
@@ -12505,6 +13185,24 @@
                   "type": "Issue",
                   "updatedAt": "",
                   "url": "https://github.com/lanyusea/screeps/issues/216",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "domainSource": "project",
+                  "evidence": "2026-05-01T16:59+08:00 #430 in review via PR #431. Gate now CLEAN: head 410c290, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, no active review threads. Awaiting >=15 minute elapsed review gate.",
+                  "kind": "docs",
+                  "lane": "Docs/process",
+                  "nextAction": "",
+                  "number": 430,
+                  "priority": "P1",
+                  "projectDomain": "Docs/process",
+                  "state": "",
+                  "status": "Done",
+                  "title": "P1: RL Domain Refresh: system roadmap for strategy-change flywheel",
+                  "type": "Issue",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/issues/430",
                   "visionLayer": "foundation blocker"
                 },
                 {
@@ -12618,6 +13316,24 @@
                 {
                   "domain": "Docs/process",
                   "domainSource": "project",
+                  "evidence": "Merged PR #431 at 2026-05-01T09:08Z, merge commit 9b1421c; prod-ci PASS, CodeRabbit PASS, no review threads. #430 closed/Done.",
+                  "kind": "docs",
+                  "lane": "Docs/process",
+                  "nextAction": "",
+                  "number": 431,
+                  "priority": "P1",
+                  "projectDomain": "Docs/process",
+                  "state": "",
+                  "status": "Done",
+                  "title": "docs: define RL domain roadmap",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/431",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "domainSource": "project",
                   "evidence": "PR #66 merged at 2026-04-27T03:29:27Z as 1f41670 after >=15m gate, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, and empty GraphQL review threads.",
                   "kind": "docs",
                   "lane": "Docs/process",
@@ -12672,6 +13388,24 @@
                 {
                   "domain": "Docs/process",
                   "domainSource": "project",
+                  "evidence": "PR #436 merged at 2026-05-01T10:29:48Z, merge 880d0cc. Main ff verified. Pages live CSS: repeat(5) present, repeat(7) absent. Roadmap cron job 92ca290f7996 run 2026-05-01 18:33 ok, delivered MEDIA image sha256 9c3ac0b264d85a3e6f9a706cd42b253d69d4be7f186354b61f18258f3a35d607; vision QA confirms 5/5 no clipping.",
+                  "kind": "code",
+                  "lane": "Docs/process",
+                  "nextAction": "",
+                  "number": 436,
+                  "priority": "P1",
+                  "projectDomain": "Docs/process",
+                  "state": "",
+                  "status": "Done",
+                  "title": "fix: render domain kanban as five-column rows",
+                  "type": "PullRequest",
+                  "updatedAt": "",
+                  "url": "https://github.com/lanyusea/screeps/pull/436",
+                  "visionLayer": "foundation blocker"
+                },
+                {
+                  "domain": "Docs/process",
+                  "domainSource": "project",
                   "evidence": "DONE via PR #220 merged 2026-04-28T17:03:10Z, merge commit 7cb8dac. Gates: >=15min, prod-ci success, CodeRabbit success, no active review threads. Verification: check-roadmap-kpi-placeholders PASS, py_compile PASS, local+live browser/vision QA PASS. Live Pages https://lanyusea.github.io/screeps/ contains 9 placeholder lines and 63 placeholder points; charts show axes/date labels, muted placeholder lines, and hollow markers. No sqlite sidecars.",
                   "kind": "docs",
                   "lane": "Docs/process",
@@ -12716,12 +13450,12 @@
       {
         "instrumented": true,
         "label": "Open roadmap issues",
-        "value": 16
+        "value": 14
       },
       {
         "instrumented": true,
         "label": "Open PRs",
-        "value": 1
+        "value": 2
       },
       {
         "instrumented": true,
@@ -12731,7 +13465,7 @@
       {
         "instrumented": true,
         "label": "Project cards",
-        "value": 395
+        "value": 420
       },
       {
         "instrumented": true,
@@ -12741,7 +13475,7 @@
       {
         "instrumented": true,
         "label": "In review",
-        "value": 2
+        "value": 3
       }
     ],
     "projectItems": [
@@ -12892,7 +13626,7 @@
         "blockedBy": "",
         "domain": "Runtime monitor",
         "domainSource": "project",
-        "evidence": "Scheduler audit 2026-04-28T17:15+08: stale In progress state repaired; no active process/PR currently owns #29. Runtime-summary job is healthy, but KPI/console-evidence work remains.",
+        "evidence": "2026-05-01 21:36+08 scheduler: latest deploy run 25215098606 for main 77b66cbd archived; E26S49 sidecars healthy (owner lanyusea, spawn=1, creeps=4, health ok). Runtime monitor aliases still stale to E48S29 and need repair.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -13585,7 +14319,7 @@
         "blockedBy": "",
         "domain": "Release/deploy",
         "domainSource": "project",
-        "evidence": "2026-05-01 16:20 +08 deployment floor satisfied for main/gameplay commit 0eff7ce via official run 25207811166; deploy ok=true branch/activeWorld matched; postdeploy summary owner lanyusea spawns=1 creeps=4 hostiles=0 tick=364721; alert=false; health ok=true.",
+        "evidence": "2026-05-01 22:41+08 scheduler: PR #450 merged; official deploy run 25218553175 deployed main fb4831734bf200e250622440aeb7bb5b227cccd7 to shardX/E26S49. Sidecars healthy: owner lanyusea, spawn=1, creeps=5, hostiles=0, health ok. Runtime summary/alert jobs manually triggered post-deploy.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -20653,7 +21387,7 @@
         "blockedBy": "",
         "domain": "Combat",
         "domainSource": "project",
-        "evidence": "",
+        "evidence": "Authoritative PR #443 updated via REST update-branch to bbf3104; prod-ci/CodeRabbit green at checkpoint; final GraphQL thread requery still needed.",
         "kind": "review",
         "labels": [
           "kind:review",
@@ -20667,7 +21401,7 @@
         "priority": "P1",
         "projectDomain": "Combat",
         "state": "",
-        "status": "In progress",
+        "status": "Done",
         "title": "P1 Combat: one-time code review sweep for dead-zone and placeholder logic",
         "type": "Issue",
         "updatedAt": "",
@@ -20865,7 +21599,7 @@
         "blockedBy": "",
         "domain": "RL flywheel",
         "domainSource": "project",
-        "evidence": "Owner requires self-hosted accelerated parallel simulation targeting ~100x official service throughput; implementation issue created.",
+        "evidence": "2026-05-01T18:38+08 recovered verified Codex #414 work into commit 1a517ed and opened PR #439. Verification: diff-check, py_compile, unittest 4 OK.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -20880,7 +21614,7 @@
         "priority": "P1",
         "projectDomain": "RL flywheel",
         "state": "",
-        "status": "Ready",
+        "status": "Done",
         "title": "P1: RL Flywheel: build accelerated self-hosted simulator harness target 100x official tick speed",
         "type": "Issue",
         "updatedAt": "",
@@ -20890,7 +21624,7 @@
         "blockedBy": "",
         "domain": "Runtime monitor",
         "domainSource": "project",
-        "evidence": "Merged PR #423 at 2026-05-01T06:34:31Z; merge commit 0235a3a; final QA/checks/review threads clean.",
+        "evidence": "2026-05-01 shadow cadence audit: evaluator is passive/manual/test-only today; runtime summary/alert jobs generate input artifacts, but no recurring shadow-eval report job yet. #415/#417 comments updated with gap.",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -21088,7 +21822,7 @@
         "blockedBy": "",
         "domain": "Territory/Economy",
         "domainSource": "project",
-        "evidence": "PR #426 updated with Codex-authored review-fix 7f72488; verification passed locally before push.",
+        "evidence": "Completed by merged PR #426; merge commit fb44ef4 after green prod-ci, CodeRabbit, no unresolved GraphQL threads, exact-head QA PASS proc_[redacted].",
         "kind": "code",
         "labels": [
           "kind:code",
@@ -21102,7 +21836,7 @@
         "priority": "P1",
         "projectDomain": "Territory/Economy",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "P1 Territory: make next reserve/claim recommendation executable",
         "type": "Issue",
         "updatedAt": "",
@@ -21131,7 +21865,7 @@
         "blockedBy": "",
         "domain": "Territory/Economy",
         "domainSource": "heuristic",
-        "evidence": "",
+        "evidence": "Merged at 2026-05-01T10:59Z as fb44ef4 after green prod-ci, CodeRabbit, no unresolved threads, exact-head QA PASS.",
         "kind": "code",
         "labels": [],
         "milestone": "",
@@ -21140,7 +21874,7 @@
         "priority": "P1",
         "projectDomain": "",
         "state": "",
-        "status": "In review",
+        "status": "Done",
         "title": "feat: make territory recommendations executable",
         "type": "PullRequest",
         "updatedAt": "",
@@ -21150,7 +21884,7 @@
         "blockedBy": "",
         "domain": "Agent OS",
         "domainSource": "project",
-        "evidence": "2026-05-01 live state audit repaired missing Project item and milestone; added to Project #3 as Ready/P1/Agent OS/ops.",
+        "evidence": "Live audit 2026-05-01T16:31+08: PR #428 exists; PR Project item repaired/added. Checks pending; mergeState BEHIND.",
         "kind": "ops",
         "labels": [
           "kind:ops",
@@ -21164,11 +21898,536 @@
         "priority": "P1",
         "projectDomain": "Agent OS",
         "state": "",
-        "status": "Ready",
+        "status": "Done",
         "title": "P1 Agent OS: unify rules taxonomy and fix domain display drift",
         "type": "Issue",
         "updatedAt": "",
         "url": "https://github.com/lanyusea/screeps/issues/427"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Agent OS",
+        "domainSource": "project",
+        "evidence": "PR #428 implements Minimal Rules OS registry, cron/route registry, templates, audit script, Project Domain/Kind options, and Pages domain progress regeneration. Local QA PASS: audit --github; pytest 6 passed.",
+        "kind": "ops",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 428,
+        "priority": "P1",
+        "projectDomain": "Agent OS",
+        "state": "",
+        "status": "Done",
+        "title": "docs: unify Screeps rules taxonomy and domain display",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/428"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Combat",
+        "domainSource": "heuristic",
+        "evidence": "2026-05-01T17:17+08 exact-head QA PASS on PR #429 head 3669691 (proc_[redacted] exit 0): No critical issues found; prod/dist/main.js sync check passed; LFS docs/roadmap-kpi.sqlite noise treated as infrastructure. Outdated thread PRRT_kwDOSMSsO85-8LBw queued for resolution/re-query.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 429,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "Done",
+        "title": "fix: close combat dead-zone placeholder gap",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/429"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "domainSource": "project",
+        "evidence": "2026-05-01T16:59+08:00 #430 in review via PR #431. Gate now CLEAN: head 410c290, prod-ci SUCCESS, CodeRabbit SUCCESS/no actionable comments, Gemini no feedback, no active review threads. Awaiting >=15 minute elapsed review gate.",
+        "kind": "docs",
+        "labels": [
+          "kind:docs",
+          "priority:p1",
+          "roadmap",
+          "roadmap:rl-flywheel"
+        ],
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 430,
+        "priority": "P1",
+        "projectDomain": "Docs/process",
+        "state": "",
+        "status": "Done",
+        "title": "P1: RL Domain Refresh: system roadmap for strategy-change flywheel",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/430"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "domainSource": "project",
+        "evidence": "Merged PR #431 at 2026-05-01T09:08Z, merge commit 9b1421c; prod-ci PASS, CodeRabbit PASS, no review threads. #430 closed/Done.",
+        "kind": "docs",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 431,
+        "priority": "P1",
+        "projectDomain": "Docs/process",
+        "state": "",
+        "status": "Done",
+        "title": "docs: define RL domain roadmap",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/431"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-05-01T17:26+08 PR #433 review-fix pushed as fd51b18 after current-main reconcile; verification passed (diff-check, py_compile, unittest 11).",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:rl-flywheel"
+        ],
+        "milestone": "P1: RL strategy flywheel gate",
+        "nextAction": "",
+        "number": 432,
+        "priority": "P1",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "Done",
+        "title": "P1: RL Flywheel: scheduled offline strategy-shadow report generation",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/432"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "project",
+        "evidence": "2026-05-01T17:26+08 review-fix for PR #433 pushed as fd51b18 after reconciling onto main 618fc4e; verification passed (diff-check, py_compile, unittest 11 tests). Await fresh checks/bot review.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 433,
+        "priority": "P1",
+        "projectDomain": "RL flywheel",
+        "state": "",
+        "status": "Done",
+        "title": "feat: generate offline strategy shadow reports",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/433"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-05-01T18:20+08 completed: PR #435 merged at 7d760c6 after green prod-ci/CodeRabbit, no unresolved review threads, exact-head QA proc_[redacted] PASS (typecheck/Jest/build/bundle drift; no critical issues).",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 434,
+        "priority": "P1",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "P1 Economy: improve low-energy worker throughput after combat deploy",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/434"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "2026-05-01T18:20+08 completed: PR #435 merged at 7d760c6 after green prod-ci/CodeRabbit, no unresolved review threads, exact-head QA proc_[redacted] PASS (typecheck/Jest/build/bundle drift; no critical issues).",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 435,
+        "priority": "P1",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "feat: improve low-energy worker throughput",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/435"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "domainSource": "project",
+        "evidence": "PR #436 merged at 2026-05-01T10:29:48Z, merge 880d0cc. Main ff verified. Pages live CSS: repeat(5) present, repeat(7) absent. Roadmap cron job 92ca290f7996 run 2026-05-01 18:33 ok, delivered MEDIA image sha256 9c3ac0b264d85a3e6f9a706cd42b253d69d4be7f186354b61f18258f3a35d607; vision QA confirms 5/5 no clipping.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 436,
+        "priority": "P1",
+        "projectDomain": "Docs/process",
+        "state": "",
+        "status": "Done",
+        "title": "fix: render domain kanban as five-column rows",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/436"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "domainSource": "project",
+        "evidence": "2026-05-01T18:57+08 PR #438 live thread PRRT_kwDOSMSsO85-8-ak fixed/pushed as Codex-authored commit 4fd003d; verification diff-check, typecheck, Jest 24/631, build.",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 437,
+        "priority": "P1",
+        "projectDomain": "Bot capability",
+        "state": "",
+        "status": "Done",
+        "title": "P1 Economy: continue resource throughput after worker lookup deploy",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/437"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "domainSource": "project",
+        "evidence": "2026-05-01T19:05+08 updated branch to 5c54d5a after #426 merge; prod-ci/CodeRabbit success, no unresolved GraphQL threads; exact-head QA proc_[redacted] pid 1727803 dispatched.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 438,
+        "priority": "P1",
+        "projectDomain": "Bot capability",
+        "state": "",
+        "status": "Done",
+        "title": "feat: improve post-lookup resource throughput",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/438"
+      },
+      {
+        "blockedBy": "",
+        "domain": "RL flywheel",
+        "domainSource": "heuristic",
+        "evidence": "",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 439,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "Done",
+        "title": "feat: add RL simulator harness dry-run slice",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/439"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "Authoritative PR #441 head 34b00bb includes recovered review-fix for CodeRabbit PRRT_kwDOSMSsO85-9X1Z; local controller verification PASS before commit; prod-ci success and CodeRabbit pending after push.",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 440,
+        "priority": "P1",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "P1 Territory: turn executable recommendations into spawn/task action",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/440"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 441,
+        "priority": "P1",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "feat: spawn workers for territory recommendations",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/441"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "Done via merged PR #444; merge commit f8fd7a9 after exact-head QA PASS, prod-ci/CodeRabbit green, and GraphQL live threads clear.",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 442,
+        "priority": "P1",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "P1 Economy: continue early-room resource throughput after spawn recovery deploy",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/442"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Combat",
+        "domainSource": "project",
+        "evidence": "",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 443,
+        "priority": "P1",
+        "projectDomain": "Combat",
+        "state": "",
+        "status": "Done",
+        "title": "fix: avoid downgrade guard blocking defender replacement",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/443"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "project",
+        "evidence": "Merged 2026-05-01T12:19:46Z as f8fd7a9 after exact-head QA PASS, prod-ci/CodeRabbit green, GraphQL threads clear.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 444,
+        "priority": "P1",
+        "projectDomain": "Territory/Economy",
+        "state": "",
+        "status": "Done",
+        "title": "feat: improve early resource throughput",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/444"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "evidence": "2026-05-01 21:50+08 scheduler: completed via PR #447; merged commit fb0d5508 after green CI/bot review and exact-head QA PASS. Deployed in official workflow run 25216817698 with healthy E26S49 sidecars.",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 445,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "Done",
+        "title": "P1 Economy: post-deploy productive worker pressure follow-up",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/445"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "evidence": "",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 446,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "In review",
+        "title": "P1 Territory: post-spawn-action controller pressure follow-up",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/446"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "evidence": "2026-05-01 scheduler: PR #447/#448 CI green, CodeRabbit success, GraphQL unresolved threads empty, exact-head QA PASS. #447 head 79c4fc5; #448 head 432ca4b.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 447,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "Done",
+        "title": "feat: harden productive worker pressure recovery",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/447"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "domainSource": "heuristic",
+        "evidence": "",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 448,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "In review",
+        "title": "feat: add controller pressure spawn follow-up",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/448"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "domainSource": "project",
+        "evidence": "2026-05-01 22:40+08 scheduler: PR #450 merged as fb4831734bf200e250622440aeb7bb5b227cccd7; official deploy run 25218553175 succeeded for shardX/E26S49; postdeploy healthy owner=lanyusea spawn=1 creeps=5 hostiles=0.",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 449,
+        "priority": "P1",
+        "projectDomain": "Bot capability",
+        "state": "",
+        "status": "Done",
+        "title": "P1 Economy: post-447 worker throughput follow-up",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/449"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Territory/Economy",
+        "domainSource": "heuristic",
+        "evidence": "2026-05-01 22:40+08 scheduler: PR #450 merged as fb4831734bf200e250622440aeb7bb5b227cccd7; official deploy run 25218553175 succeeded for shardX/E26S49; postdeploy healthy owner=lanyusea spawn=1 creeps=5 hostiles=0.",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 450,
+        "priority": "P1",
+        "projectDomain": "",
+        "state": "",
+        "status": "Done",
+        "title": "feat: harden worker body scaling for throughput",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/450"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Docs/process",
+        "domainSource": "project",
+        "evidence": "",
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "nextAction": "",
+        "number": 451,
+        "priority": "P2",
+        "projectDomain": "Docs/process",
+        "state": "",
+        "status": "In review",
+        "title": "fix: add agent metrics to roadmap report",
+        "type": "PullRequest",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/pull/451"
+      },
+      {
+        "blockedBy": "",
+        "domain": "Bot capability",
+        "domainSource": "project",
+        "evidence": "",
+        "kind": "code",
+        "labels": [
+          "kind:code",
+          "priority:p1",
+          "roadmap",
+          "roadmap:territory-economy"
+        ],
+        "milestone": "Phase B: Bot capability hardening gate",
+        "nextAction": "",
+        "number": 452,
+        "priority": "P1",
+        "projectDomain": "Bot capability",
+        "state": "",
+        "status": "In progress",
+        "title": "P1 Economy: post-450 worker throughput follow-up",
+        "type": "Issue",
+        "updatedAt": "",
+        "url": "https://github.com/lanyusea/screeps/issues/452"
       }
     ],
     "pullRequests": [
@@ -21179,22 +22438,46 @@
           "success": 2,
           "total": 2
         },
-        "createdAt": "2026-05-01T06:40:16Z",
-        "domain": "Territory/Economy",
+        "createdAt": "2026-05-01T14:31:45Z",
+        "domain": "Agent OS",
         "domainSource": "heuristic",
         "isDraft": false,
         "kind": "code",
         "labels": [],
         "milestone": "",
-        "number": 426,
+        "number": 451,
         "priority": "P1",
         "reviewDecision": "",
         "state": "OPEN",
         "status": "In review",
-        "title": "feat: make territory recommendations executable",
+        "title": "fix: add agent metrics to roadmap report",
         "type": "PullRequest",
-        "updatedAt": "2026-05-01T08:16:50Z",
-        "url": "https://github.com/lanyusea/screeps/pull/426"
+        "updatedAt": "2026-05-01T14:51:58Z",
+        "url": "https://github.com/lanyusea/screeps/pull/451"
+      },
+      {
+        "checks": {
+          "failure": 0,
+          "pending": 0,
+          "success": 2,
+          "total": 2
+        },
+        "createdAt": "2026-05-01T13:33:49Z",
+        "domain": "Bot capability",
+        "domainSource": "heuristic",
+        "isDraft": false,
+        "kind": "code",
+        "labels": [],
+        "milestone": "",
+        "number": 448,
+        "priority": "P1",
+        "reviewDecision": "",
+        "state": "OPEN",
+        "status": "In review",
+        "title": "feat: add controller pressure spawn follow-up",
+        "type": "PullRequest",
+        "updatedAt": "2026-05-01T14:52:58Z",
+        "url": "https://github.com/lanyusea/screeps/pull/448"
       }
     ],
     "roadmapCards": [
@@ -21487,7 +22770,7 @@
             "categoryLabel": "Territory",
             "description": "Total controller progress movement across the runtime KPI window.",
             "details": {},
-            "formattedValue": "-91196",
+            "formattedValue": "-83866",
             "instrumented": true,
             "key": "controller_progress_delta",
             "label": "Controller progress delta",
@@ -21498,7 +22781,7 @@
             "source": "runtime-summary controller fields",
             "status": "observed",
             "unit": "progress/window",
-            "value": -91196
+            "value": -83866
           }
         ]
       },
@@ -21834,7 +23117,7 @@
             "categoryLabel": "Guardrails / Reliability",
             "description": "Runtime-summary lines found by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "214",
+            "formattedValue": "259",
             "instrumented": true,
             "key": "runtime_summary_samples",
             "label": "Runtime summary samples",
@@ -21845,14 +23128,14 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "samples",
-            "value": 214
+            "value": 259
           },
           {
             "category": "guardrails",
             "categoryLabel": "Guardrails / Reliability",
             "description": "Files matched by the persisted artifact feeder.",
             "details": {},
-            "formattedValue": "214",
+            "formattedValue": "259",
             "instrumented": true,
             "key": "kpi_artifact_files",
             "label": "KPI artifact files",
@@ -21863,7 +23146,7 @@
             "source": "runtime KPI artifact bridge",
             "status": "observed",
             "unit": "files",
-            "value": 214
+            "value": 259
           },
           {
             "category": "guardrails",
@@ -22059,6 +23342,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "alert_false_positives": [
@@ -22087,6 +23377,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not instrumented",
           "value": null
         }
@@ -22119,6 +23416,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not observed",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not observed",
+          "value": null
         }
       ],
       "attack_damage": [
@@ -22147,6 +23451,13 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not observed",
           "value": null
         }
@@ -22179,6 +23490,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not observed",
           "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not observed",
+          "value": null
         }
       ],
       "controller_level_sum": [
@@ -22207,6 +23525,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "observed",
+          "value": 2.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "observed",
           "value": 2.0
         }
@@ -22239,6 +23564,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": -91196.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "observed",
+          "value": -83866.0
         }
       ],
       "cpu_bucket": [
@@ -22267,6 +23599,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not instrumented",
           "value": null
         }
@@ -22299,6 +23638,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "creeps_destroyed_generic": [
@@ -22327,6 +23673,13 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not observed",
           "value": null
         }
@@ -22359,6 +23712,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "enemy_kills": [
@@ -22387,6 +23747,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not instrumented",
           "value": null
         }
@@ -22419,6 +23786,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "harvested_energy": [
@@ -22447,6 +23821,13 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not observed",
           "value": null
         }
@@ -22479,6 +23860,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "hostile_structures": [
@@ -22507,6 +23895,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "observed",
           "value": 0.0
         }
@@ -22539,6 +23934,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 214.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "observed",
+          "value": 259.0
         }
       ],
       "objects_destroyed": [
@@ -22567,6 +23969,13 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not observed",
           "value": null
         }
@@ -22599,6 +24008,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "owned_room_delta": [
@@ -22627,6 +24043,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "observed",
           "value": 0.0
         }
@@ -22659,6 +24082,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 1.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "observed",
+          "value": 1.0
         }
       ],
       "reserved_remote_rooms": [
@@ -22687,6 +24117,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not instrumented",
           "value": null
         }
@@ -22719,6 +24156,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "runtime_summary_samples": [
@@ -22749,6 +24193,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 214.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "observed",
+          "value": 259.0
         }
       ],
       "source_count": [
@@ -22777,6 +24228,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "observed",
+          "value": 2.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "observed",
           "value": 2.0
         }
@@ -22809,6 +24267,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "spawn_utilization": [
@@ -22837,6 +24302,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not instrumented",
           "value": null
         }
@@ -22869,6 +24341,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "stored_energy_delta": [
@@ -22897,6 +24376,13 @@
           "instrumented": true,
           "observed": true,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "observed",
+          "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "observed",
           "value": 0.0
         }
@@ -22929,6 +24415,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "not instrumented",
           "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "not instrumented",
+          "value": null
         }
       ],
       "transferred_energy": [
@@ -22957,6 +24450,13 @@
           "instrumented": true,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not observed",
+          "value": null
+        },
+        {
+          "instrumented": true,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not observed",
           "value": null
         }
@@ -22989,6 +24489,13 @@
           "sampledAt": "2026-05-01T08:26:38Z",
           "status": "observed",
           "value": 0.0
+        },
+        {
+          "instrumented": true,
+          "observed": true,
+          "sampledAt": "2026-05-01T14:58:24Z",
+          "status": "observed",
+          "value": 0.0
         }
       ],
       "worker_recovery_state": [
@@ -23017,6 +24524,13 @@
           "instrumented": false,
           "observed": false,
           "sampledAt": "2026-05-01T08:26:38Z",
+          "status": "not instrumented",
+          "value": null
+        },
+        {
+          "instrumented": false,
+          "observed": false,
+          "sampledAt": "2026-05-01T14:58:24Z",
           "status": "not instrumented",
           "value": null
         }
@@ -23064,15 +24578,6 @@
             "status": "Ready",
             "title": "#408 P1 Agent OS: strategy reports must include proactive P0 postmortems",
             "url": "https://github.com/lanyusea/screeps/issues/408"
-          },
-          {
-            "description": "Ready \u00b7 Agent OS \u00b7 2026-05-01 live state audit repaired missing Project item and milestone; added to Project...",
-            "domain": "Agent OS",
-            "number": 427,
-            "priority": "P1",
-            "status": "Ready",
-            "title": "#427 P1 Agent OS: unify rules taxonomy and fix domain display drift",
-            "url": "https://github.com/lanyusea/screeps/issues/427"
           }
         ],
         "title": "Agent OS"
@@ -23110,20 +24615,21 @@
         "title": "Release/deploy"
       },
       {
-        "items": [],
+        "items": [
+          {
+            "description": "In progress \u00b7 Bot capability \u00b7 Bot capability",
+            "domain": "Bot capability",
+            "number": 452,
+            "priority": "P1",
+            "status": "In progress",
+            "title": "#452 P1 Economy: post-450 worker throughput follow-up",
+            "url": "https://github.com/lanyusea/screeps/issues/452"
+          }
+        ],
         "title": "Bot capability"
       },
       {
         "items": [
-          {
-            "description": "In progress \u00b7 Combat \u00b7 Combat",
-            "domain": "Combat",
-            "number": 405,
-            "priority": "P1",
-            "status": "In progress",
-            "title": "#405 P1 Combat: one-time code review sweep for dead-zone and placehol...",
-            "url": "https://github.com/lanyusea/screeps/issues/405"
-          },
           {
             "description": "Ready \u00b7 Combat \u00b7 QA requirement added to Hermes Screeps deploy-floor skill: dead-zone/placeholders block QA i...",
             "domain": "Combat",
@@ -23137,17 +24643,7 @@
         "title": "Combat"
       },
       {
-        "items": [
-          {
-            "description": "In review \u00b7 Territory/Economy \u00b7 PR #426 updated with Codex-authored review-fix 7f72488; verification passed l...",
-            "domain": "Territory/Economy",
-            "number": 424,
-            "priority": "P1",
-            "status": "In review",
-            "title": "#424 P1 Territory: make next reserve/claim recommendation executable",
-            "url": "https://github.com/lanyusea/screeps/issues/424"
-          }
-        ],
+        "items": [],
         "title": "Territory/Economy"
       },
       {
@@ -23194,19 +24690,29 @@
             "url": "https://github.com/lanyusea/screeps/issues/412"
           },
           {
-            "description": "Ready \u00b7 RL flywheel \u00b7 Owner requires self-hosted accelerated parallel simulation targeting ~100x official ser...",
+            "description": "Ready \u00b7 RL flywheel \u00b7 Owner requires RL framework selection and reward tuning workflow; implementation issue...",
             "domain": "RL flywheel",
-            "number": 414,
+            "number": 416,
             "priority": "P1",
             "status": "Ready",
-            "title": "#414 P1: RL Flywheel: build accelerated self-hosted simulator harness...",
-            "url": "https://github.com/lanyusea/screeps/issues/414"
+            "title": "#416 P1: RL Flywheel: choose RL training framework and reward tuning...",
+            "url": "https://github.com/lanyusea/screeps/issues/416"
           }
         ],
         "title": "RL flywheel"
       },
       {
-        "items": [],
+        "items": [
+          {
+            "description": "In review \u00b7 Docs/process \u00b7 Docs/process",
+            "domain": "Docs/process",
+            "number": 451,
+            "priority": "P2",
+            "status": "In review",
+            "title": "#451 fix: add agent metrics to roadmap report",
+            "url": "https://github.com/lanyusea/screeps/pull/451"
+          }
+        ],
         "title": "Docs/process"
       }
     ],
@@ -23506,51 +25012,56 @@
     ],
     "processCards": [
       {
-        "delta": "+1",
-        "detail": "repository history",
-        "label": "Total commits",
-        "value": 302
-      },
-      {
-        "delta": "+1",
-        "detail": "221 merged",
-        "label": "Total PRs",
-        "source": "github",
-        "value": 229
+        "delta": "+0",
+        "detail": "1,523,589,512 total; latest token_count in 1,032/1,033 sessions",
+        "label": "Agent tokens",
+        "rawValue": 1523589512,
+        "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
+        "value": "1.5B"
       },
       {
         "delta": "+0",
-        "detail": "16 open",
-        "label": "Total issues",
-        "source": "github",
-        "value": 198
+        "detail": "summed first-to-last JSONL timestamps across 1,033/1,033 sessions",
+        "label": "Codex runtime",
+        "rawValueSeconds": 277282,
+        "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
+        "value": "3d 5h"
+      },
+      {
+        "delta": "+0",
+        "detail": "rollout JSONL files counted as Codex runs",
+        "label": "Codex runs",
+        "rawValue": 1033,
+        "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
+        "value": "1,033"
+      },
+      {
+        "delta": "+0",
+        "detail": "2,341 cron outputs across 29 jobs",
+        "label": "Automation runs",
+        "rawValue": 2341,
+        "source": "repo-attributed .hermes/cron/output/*/*.md",
+        "value": "2,341"
       },
       {
         "delta": "+0",
         "detail": "GitHub Project official deploy evidence",
         "label": "Official deploys",
         "source": "github project evidence",
-        "value": 5
-      },
-      {
-        "delta": "+0",
-        "detail": "smoke/report evidence",
-        "label": "Private smoke tests",
-        "source": "approved process report count",
-        "value": 1
+        "value": 6
       }
     ],
     "roadmapCards": [
       {
-        "activeItems": 3,
+        "activeItems": 2,
         "domain": "Agent OS",
-        "doneItems": 24,
+        "doneItems": 26,
         "goal": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
         "next": "Current: #273 Ready - RCA from owner report: #232 was marked Done after scaffold/vision PR, w...",
-        "progress": 89,
-        "status": "27 Project items \u00b7 3 active \u00b7 24 done",
+        "progress": 93,
+        "status": "28 Project items \u00b7 2 active \u00b7 26 done",
         "title": "Agent OS",
-        "totalItems": 27,
+        "totalItems": 28,
         "url": "https://github.com/lanyusea/screeps/issues/273"
       },
       {
@@ -23590,39 +25101,39 @@
         "url": "https://github.com/lanyusea/screeps/issues/63"
       },
       {
-        "activeItems": 0,
+        "activeItems": 1,
         "domain": "Bot capability",
-        "doneItems": 183,
+        "doneItems": 186,
         "goal": "Ship general gameplay behavior that advances the bot beyond single-slice fixes.",
-        "next": "No active item; latest tracked: #362 Done - P0: add Overmind-inspired bootstrap mode and expl...",
-        "progress": 100,
-        "status": "183 Project items \u00b7 0 active \u00b7 183 done",
+        "next": "Current: #452 In progress - P1 Economy: post-450 worker throughput follow-up",
+        "progress": 99,
+        "status": "187 Project items \u00b7 1 active \u00b7 186 done",
         "title": "Bot capability",
-        "totalItems": 183,
-        "url": "https://github.com/lanyusea/screeps/issues/362"
-      },
-      {
-        "activeItems": 2,
-        "domain": "Combat",
-        "doneItems": 0,
-        "goal": "Protect survival, hostile response, and defense/combat readiness.",
-        "next": "Current: #405 In progress - P1 Combat: one-time code review sweep for dead-zone and placehold...",
-        "progress": 0,
-        "status": "2 Project items \u00b7 2 active \u00b7 0 done",
-        "title": "Combat",
-        "totalItems": 2,
-        "url": "https://github.com/lanyusea/screeps/issues/405"
+        "totalItems": 187,
+        "url": "https://github.com/lanyusea/screeps/issues/452"
       },
       {
         "activeItems": 1,
+        "domain": "Combat",
+        "doneItems": 2,
+        "goal": "Protect survival, hostile response, and defense/combat readiness.",
+        "next": "Current: #407 Ready - QA requirement added to Hermes Screeps deploy-floor skill: dead-zone/pl...",
+        "progress": 67,
+        "status": "3 Project items \u00b7 1 active \u00b7 2 done",
+        "title": "Combat",
+        "totalItems": 3,
+        "url": "https://github.com/lanyusea/screeps/issues/407"
+      },
+      {
+        "activeItems": 0,
         "domain": "Territory/Economy",
-        "doneItems": 0,
+        "doneItems": 7,
         "goal": "Advance expansion, controller pressure, worker efficiency, and resource throughput.",
-        "next": "Current: #424 In review - PR #426 updated with Codex-authored review-fix 7f72488; verificatio...",
-        "progress": 0,
-        "status": "1 Project item \u00b7 1 active \u00b7 0 done",
+        "next": "No active item; latest tracked: #424 Done - Completed by merged PR #426; merge commit fb44ef4...",
+        "progress": 100,
+        "status": "7 Project items \u00b7 0 active \u00b7 7 done",
         "title": "Territory/Economy",
-        "totalItems": 1,
+        "totalItems": 7,
         "url": "https://github.com/lanyusea/screeps/issues/424"
       },
       {
@@ -23638,28 +25149,16 @@
         "url": "https://github.com/lanyusea/screeps/issues/59"
       },
       {
-        "activeItems": 7,
+        "activeItems": 6,
         "domain": "RL flywheel",
-        "doneItems": 0,
+        "doneItems": 3,
         "goal": "Drive offline/simulator/data/training/validation work for safe strategy self-evolution.",
         "next": "Current: #266 Ready - Owner correction 2026-05-01: all RL/strategy-iteration follow-ups are P...",
-        "progress": 0,
-        "status": "7 Project items \u00b7 7 active \u00b7 0 done",
+        "progress": 33,
+        "status": "9 Project items \u00b7 6 active \u00b7 3 done",
         "title": "RL flywheel",
-        "totalItems": 7,
+        "totalItems": 9,
         "url": "https://github.com/lanyusea/screeps/issues/266"
-      },
-      {
-        "activeItems": 0,
-        "domain": "Docs/process",
-        "doneItems": 15,
-        "goal": "Preserve decisions, rules, and operating context for agent continuity.",
-        "next": "No active item; latest tracked: #38 Done - PR #38 records PR #37 merge checkpoint; merged 202...",
-        "progress": 100,
-        "status": "15 Project items \u00b7 0 active \u00b7 15 done",
-        "title": "Docs/process",
-        "totalItems": 15,
-        "url": "https://github.com/lanyusea/screeps/pull/38"
       }
     ]
   },
@@ -23669,15 +25168,15 @@
         "",
         ""
       ],
-      "matchedFiles": 214,
+      "matchedFiles": 259,
       "reason": "",
-      "runtimeSummaryLines": 214,
-      "scannedFiles": 97685,
-      "skippedFileCount": 2206
+      "runtimeSummaryLines": 259,
+      "scannedFiles": 98095,
+      "skippedFileCount": 2217
     },
     "window": {
       "firstTick": 274256,
-      "latestTick": 364895
+      "latestTick": 368949
     }
   },
   "schemaVersion": 1,
