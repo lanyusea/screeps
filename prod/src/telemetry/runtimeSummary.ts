@@ -13,6 +13,7 @@ import {
 } from '../territory/occupationRecommendation';
 import {
   getActiveTerritoryFollowUpExecutionHints,
+  getSuspendedTerritoryIntentCountsByRoom,
   getTerritoryIntentProgressSummaries,
   type TerritoryIntentProgressSummary
 } from '../territory/territoryPlanner';
@@ -79,6 +80,7 @@ interface RuntimeRoomSummary {
   territoryRecommendation: OccupationRecommendationReport;
   territoryIntents?: TerritoryIntentProgressSummary[];
   omittedTerritoryIntentCount?: number;
+  suspendedTerritoryIntentCounts?: Record<string, number>;
   territoryExecutionHints?: TerritoryExecutionHintMemory[];
 }
 
@@ -385,18 +387,25 @@ function summarizeRoom(
 function buildTerritoryIntentSummary(
   colonyName: string,
   roleCounts: RoleCounts
-): { territoryIntents?: TerritoryIntentProgressSummary[]; omittedTerritoryIntentCount?: number } {
+): {
+  territoryIntents?: TerritoryIntentProgressSummary[];
+  omittedTerritoryIntentCount?: number;
+  suspendedTerritoryIntentCounts?: Record<string, number>;
+} {
   const territoryIntents = getTerritoryIntentProgressSummaries(colonyName, roleCounts);
-  if (territoryIntents.length === 0) {
+  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime());
+  const hasSuspendedTerritoryIntents = Object.keys(suspendedTerritoryIntentCounts).length > 0;
+  if (territoryIntents.length === 0 && !hasSuspendedTerritoryIntents) {
     return {};
   }
 
   const reportedIntents = territoryIntents.slice(0, MAX_TERRITORY_INTENT_SUMMARIES);
   return {
-    territoryIntents: reportedIntents,
+    ...(reportedIntents.length > 0 ? { territoryIntents: reportedIntents } : {}),
     ...(territoryIntents.length > MAX_TERRITORY_INTENT_SUMMARIES
       ? { omittedTerritoryIntentCount: territoryIntents.length - MAX_TERRITORY_INTENT_SUMMARIES }
-      : {})
+      : {}),
+    ...(hasSuspendedTerritoryIntents ? { suspendedTerritoryIntentCounts } : {})
   };
 }
 

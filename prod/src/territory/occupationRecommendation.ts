@@ -162,7 +162,8 @@ export function persistOccupationRecommendationFollowUpIntent(
     updatedAt: gameTime,
     ...(controllerId ? { controllerId } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
-    ...(followUp ? { followUp } : {})
+    ...(followUp ? { followUp } : {}),
+    ...(existingIntent?.suspended ? { suspended: existingIntent.suspended } : {})
   };
 
   upsertTerritoryIntent(intents, nextIntent);
@@ -900,6 +901,7 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
   }
 
   const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
+  const suspended = normalizeTerritoryIntentSuspension(rawIntent.suspended);
   return {
     colony: rawIntent.colony,
     targetRoom: rawIntent.targetRoom,
@@ -911,7 +913,29 @@ function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | n
       ? { controllerId: rawIntent.controllerId as Id<StructureController> }
       : {}),
     ...(rawIntent.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
-    ...(followUp ? { followUp } : {})
+    ...(followUp ? { followUp } : {}),
+    ...(suspended ? { suspended } : {})
+  };
+}
+
+function normalizeTerritoryIntentSuspension(rawSuspension: unknown): TerritoryIntentSuspensionMemory | null {
+  if (!isRecord(rawSuspension)) {
+    return null;
+  }
+
+  if (
+    rawSuspension.reason !== 'hostile_presence' ||
+    !isFiniteNumber(rawSuspension.hostileCount) ||
+    rawSuspension.hostileCount <= 0 ||
+    !isFiniteNumber(rawSuspension.updatedAt)
+  ) {
+    return null;
+  }
+
+  return {
+    reason: rawSuspension.reason,
+    hostileCount: Math.floor(rawSuspension.hostileCount),
+    updatedAt: rawSuspension.updatedAt
   };
 }
 

@@ -54,6 +54,7 @@ declare global {
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
   type TerritoryDemandType = 'followUpPreparation';
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
+  type TerritoryIntentSuspensionReason = 'hostile_presence';
   type TerritoryExecutionHintReason =
     | 'controlEvidenceStillMissing'
     | 'followUpTargetStillUnseen'
@@ -86,6 +87,13 @@ declare global {
     controllerId?: Id<StructureController>;
     requiresControllerPressure?: boolean;
     followUp?: TerritoryFollowUpMemory;
+    suspended?: TerritoryIntentSuspensionMemory;
+  }
+
+  interface TerritoryIntentSuspensionMemory {
+    reason: TerritoryIntentSuspensionReason;
+    hostileCount: number;
+    updatedAt: number;
   }
 
   interface TerritoryFollowUpMemory {

@@ -732,6 +732,62 @@ describe('runtime telemetry summaries', () => {
     expect(describeExits).toHaveBeenCalledWith('W1N1');
   });
 
+  it('emits suspended territory intent counts by target room in room telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 2,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 1,
+              updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+            }
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 2,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 2,
+              updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+            }
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 2,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 1,
+              updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+            }
+          }
+        ]
+      }
+    };
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.suspendedTerritoryIntentCounts).toEqual({
+      W2N1: 2,
+      W3N1: 1
+    });
+    expect(room.territoryIntents).toBeUndefined();
+  });
+
   it('keeps emission gating deterministic', () => {
     expect(shouldEmitRuntimeSummary(1, [])).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [])).toBe(true);
