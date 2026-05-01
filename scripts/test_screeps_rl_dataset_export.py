@@ -261,6 +261,7 @@ class RlDatasetExportTest(unittest.TestCase):
         shadow_metadata = run_manifest["strategy"]["shadowReports"][0]
         self.assertEqual(shadow_metadata["families"], ["construction-priority"])
         self.assertEqual(shadow_metadata["rankingDiffCount"], 2)
+        self.assertEqual(shadow_metadata["changedTopCount"], 1)
         self.assertNotIn("warnings", shadow_metadata)
 
     def test_cli_output_and_dataset_do_not_include_configured_secret_or_raw_artifact_line(self) -> None:
