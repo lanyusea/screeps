@@ -637,6 +637,8 @@ describe('runEconomy', () => {
 
     runEconomy();
 
+    expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
     expect(spawn1.spawnCreep).toHaveBeenCalledWith(
       ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
       'worker-W1N1-323',
