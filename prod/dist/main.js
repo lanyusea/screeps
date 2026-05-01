@@ -1323,9 +1323,14 @@ function persistOccupationRecommendationTarget(report, intent) {
   }
   if (!target) {
     revokeOccupationRecommendationTarget(territoryMemory, intent);
+    removeStaleOccupationRecommendationTargets(
+      territoryMemory,
+      intent.colony,
+      buildActiveOccupationRecommendationControlTarget(report)
+    );
     return;
   }
-  removeStaleOccupationRecommendationTargets(territoryMemory, target);
+  removeStaleOccupationRecommendationTargets(territoryMemory, target.colony, target);
   upsertTerritoryTarget(territoryMemory, target);
 }
 function buildPersistableOccupationRecommendationTarget(report, intent) {
@@ -1341,14 +1346,25 @@ function buildPersistableOccupationRecommendationTarget(report, intent) {
     ...intent.controllerId ? { controllerId: intent.controllerId } : {}
   };
 }
-function removeStaleOccupationRecommendationTargets(territoryMemory, activeTarget) {
+function removeStaleOccupationRecommendationTargets(territoryMemory, colony, activeTarget) {
   if (!Array.isArray(territoryMemory.targets)) {
     return;
   }
   territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
     const target = normalizeTerritoryTarget(rawTarget);
-    return !((target == null ? void 0 : target.colony) === activeTarget.colony && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR && (target.roomName !== activeTarget.roomName || target.action !== activeTarget.action));
+    return !((target == null ? void 0 : target.colony) === colony && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR && (!activeTarget || target.roomName !== activeTarget.roomName || target.action !== activeTarget.action));
   });
+}
+function buildActiveOccupationRecommendationControlTarget(report) {
+  const recommendation = report.next;
+  if (!recommendation) {
+    return null;
+  }
+  const action = getTerritoryIntentAction(recommendation.action);
+  if (!isTerritoryControlAction(action)) {
+    return null;
+  }
+  return { roomName: recommendation.roomName, action };
 }
 function revokeOccupationRecommendationTarget(territoryMemory, intent) {
   if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {

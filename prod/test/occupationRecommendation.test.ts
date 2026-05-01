@@ -460,6 +460,136 @@ describe('occupation recommendation scoring', () => {
     ]);
   });
 
+  it('clears stale recommendation-owned control targets when the active recommendation is scout-only', () => {
+    const staleReserveTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    const staleClaimTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      action: 'claim',
+      createdBy: 'occupationRecommendation'
+    };
+    const manualTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W4N1',
+      action: 'reserve'
+    };
+    const disabledRecommendationTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W5N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation',
+      enabled: false
+    };
+    const otherColonyRecommendationTarget: TerritoryTargetMemory = {
+      colony: 'W9N9',
+      roomName: 'W8N9',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          staleReserveTarget,
+          staleClaimTarget,
+          manualTarget,
+          disabledRecommendationTarget,
+          otherColonyRecommendationTarget
+        ]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W6N1',
+          visible: false,
+          controller: undefined,
+          sourceCount: undefined
+        })
+      ])
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W6N1',
+      action: 'scout',
+      evidenceStatus: 'insufficient-evidence'
+    });
+    expect(persistOccupationRecommendationFollowUpIntent(report, 706)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W6N1',
+      action: 'scout',
+      status: 'planned',
+      updatedAt: 706
+    });
+    expect(Memory.territory?.targets).toEqual([
+      manualTarget,
+      disabledRecommendationTarget,
+      otherColonyRecommendationTarget
+    ]);
+  });
+
+  it('clears stale recommendation-owned targets when a different control recommendation has unmet preconditions', () => {
+    const staleReserveTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    const staleClaimTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W4N1',
+      action: 'claim',
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [staleReserveTarget, staleClaimTarget]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput(
+        [
+          makeCandidate({
+            roomName: 'W3N1',
+            controllerId: 'controller3' as Id<StructureController>,
+            sourceCount: 2
+          })
+        ],
+        {
+          energyCapacityAvailable: 300,
+          workerCount: 1,
+          controllerLevel: 1,
+          ticksToDowngrade: 1_000
+        }
+      )
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W3N1',
+      action: 'reserve',
+      evidenceStatus: 'sufficient',
+      preconditions: [
+        'raise worker count before dispatching territory creeps',
+        'reach 650 energy capacity for controller work',
+        'reach controller level 2 before expansion',
+        'stabilize home controller downgrade timer'
+      ]
+    });
+    expect(persistOccupationRecommendationFollowUpIntent(report, 707)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 707,
+      controllerId: 'controller3'
+    });
+    expect(Memory.territory?.targets).toEqual([]);
+  });
+
   it('does not persist a durable target while recommendation preconditions are unmet', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     const report = scoreOccupationRecommendations(

@@ -168,10 +168,15 @@ function persistOccupationRecommendationTarget(
 
   if (!target) {
     revokeOccupationRecommendationTarget(territoryMemory, intent);
+    removeStaleOccupationRecommendationTargets(
+      territoryMemory,
+      intent.colony,
+      buildActiveOccupationRecommendationControlTarget(report)
+    );
     return;
   }
 
-  removeStaleOccupationRecommendationTargets(territoryMemory, target);
+  removeStaleOccupationRecommendationTargets(territoryMemory, target.colony, target);
   upsertTerritoryTarget(territoryMemory, target);
 }
 
@@ -202,7 +207,8 @@ function buildPersistableOccupationRecommendationTarget(
 
 function removeStaleOccupationRecommendationTargets(
   territoryMemory: TerritoryMemory,
-  activeTarget: TerritoryTargetMemory
+  colony: string,
+  activeTarget: Pick<TerritoryTargetMemory, 'roomName' | 'action'> | null
 ): void {
   if (!Array.isArray(territoryMemory.targets)) {
     return;
@@ -211,12 +217,28 @@ function removeStaleOccupationRecommendationTargets(
   territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
     const target = normalizeTerritoryTarget(rawTarget);
     return !(
-      target?.colony === activeTarget.colony &&
+      target?.colony === colony &&
       target.enabled !== false &&
       target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR &&
-      (target.roomName !== activeTarget.roomName || target.action !== activeTarget.action)
+      (!activeTarget || target.roomName !== activeTarget.roomName || target.action !== activeTarget.action)
     );
   });
+}
+
+function buildActiveOccupationRecommendationControlTarget(
+  report: OccupationRecommendationReport
+): Pick<TerritoryTargetMemory, 'roomName' | 'action'> | null {
+  const recommendation = report.next;
+  if (!recommendation) {
+    return null;
+  }
+
+  const action = getTerritoryIntentAction(recommendation.action);
+  if (!isTerritoryControlAction(action)) {
+    return null;
+  }
+
+  return { roomName: recommendation.roomName, action };
 }
 
 function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, intent: TerritoryIntentMemory): void {
