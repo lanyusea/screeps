@@ -232,6 +232,10 @@ interface RuntimeSummaryOptions {
   persistOccupationRecommendations?: boolean;
 }
 
+let cachedRefillTargetIdsByRoom = new Map<string, Set<string>>();
+let cachedEventMetricsByRoom = new Map<string, RuntimeRoomEventMetrics>();
+let cachedEventMetricsTick: number | undefined;
+
 export function emitRuntimeSummary(
   colonies: ColonySnapshot[],
   creeps: Creep[],
@@ -243,14 +247,31 @@ export function emitRuntimeSummary(
   }
 
   const tick = getGameTime();
-  if (!shouldEmitRuntimeSummary(tick, events)) {
-    return;
+  resetCachedRefillTelemetryIfTickRewound(tick);
+  const emitsSummary = shouldEmitRuntimeSummary(tick, events);
+  const creepsByColony = groupCreepsByColony(creeps);
+  let refillTargetIdsByRoom = cachedRefillTargetIdsByRoom;
+  let eventMetricsByRoom = cachedEventMetricsByRoom;
+
+  if (emitsSummary) {
+    refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
+    eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
+    cachedRefillTargetIdsByRoom = refillTargetIdsByRoom;
+    cachedEventMetricsByRoom = eventMetricsByRoom;
+    cachedEventMetricsTick = tick;
   }
 
-  const creepsByColony = groupCreepsByColony(creeps);
-  const refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
-  const eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
-  refreshRefillTelemetry(colonies, creepsByColony, refillTargetIdsByRoom, eventMetricsByRoom, tick);
+  refreshRefillTelemetry(
+    colonies,
+    creepsByColony,
+    refillTargetIdsByRoom,
+    eventMetricsByRoom,
+    tick,
+    cachedEventMetricsTick
+  );
+  if (!emitsSummary) {
+    return;
+  }
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
@@ -275,6 +296,16 @@ export function emitRuntimeSummary(
 
 export function shouldEmitRuntimeSummary(tick: number, events: RuntimeTelemetryEvent[]): boolean {
   return events.length > 0 || (tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0);
+}
+
+function resetCachedRefillTelemetryIfTickRewound(tick: number): void {
+  if (cachedEventMetricsTick === undefined || tick >= cachedEventMetricsTick) {
+    return;
+  }
+
+  cachedRefillTargetIdsByRoom = new Map<string, Set<string>>();
+  cachedEventMetricsByRoom = new Map<string, RuntimeRoomEventMetrics>();
+  cachedEventMetricsTick = undefined;
 }
 
 function groupCreepsByColony(creeps: Creep[]): Map<string, Creep[]> {
@@ -896,12 +927,14 @@ function refreshRefillTelemetry(
   creepsByColony: Map<string, Creep[]>,
   refillTargetIdsByRoom: Map<string, Set<string>>,
   eventMetricsByRoom: Map<string, RuntimeRoomEventMetrics>,
-  tick: number
+  tick: number,
+  eventMetricsTick: number | undefined
 ): void {
   for (const colony of colonies) {
     const roomName = colony.room.name;
     const refillTargetIds = refillTargetIdsByRoom.get(roomName) ?? new Set<string>();
-    const refillTransfers = eventMetricsByRoom.get(roomName)?.refillTransfers ?? [];
+    // Room event logs are tick-scoped; cached refill transfer events must not be replayed on later ticks.
+    const refillTransfers = eventMetricsTick === tick ? eventMetricsByRoom.get(roomName)?.refillTransfers ?? [] : [];
     const workers = (creepsByColony.get(roomName) ?? []).filter((creep) => creep.memory.role === 'worker');
     for (const worker of workers) {
       refreshWorkerRefillTelemetry(worker, refillTargetIds, refillTransfers, tick);

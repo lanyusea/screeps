@@ -208,6 +208,107 @@ describe('runtime telemetry summaries', () => {
     expect(logSpy).not.toHaveBeenCalled();
   });
 
+  it('refreshes refill telemetry on non-cadence ticks from cached room data without rescanning', () => {
+    const refillTarget = {
+      id: 'extension1',
+      structureType: TEST_GLOBALS.STRUCTURE_EXTENSION,
+      store: makeEnergyStore(0)
+    };
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      structures: [refillTarget]
+    });
+    const roomFind = (colony.room as unknown as { find: jest.Mock }).find;
+    const getEventLog = jest.fn(() =>
+      Game.time === RUNTIME_SUMMARY_INTERVAL * 2
+        ? [
+            {
+              event: TEST_GLOBALS.EVENT_TRANSFER,
+              objectId: 'worker1',
+              data: {
+                targetId: 'extension1',
+                amount: 25,
+                resourceType: TEST_GLOBALS.RESOURCE_ENERGY
+              }
+            }
+          ]
+        : []
+    );
+    (colony.room as unknown as { getEventLog: jest.Mock }).getEventLog = getEventLog;
+    const worker = {
+      id: 'worker1',
+      name: 'RefillWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'extension1' as Id<AnyStoreStructure> }
+      },
+      store: makeEnergyStore(25)
+    } as unknown as Creep;
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+    logSpy.mockClear();
+    roomFind.mockClear();
+    getEventLog.mockClear();
+
+    for (let tick = RUNTIME_SUMMARY_INTERVAL + 1; tick < RUNTIME_SUMMARY_INTERVAL * 2; tick += 1) {
+      (globalThis as unknown as { Game: Partial<Game> }).Game.time = tick;
+      emitRuntimeSummary([colony], [worker], [], { persistOccupationRecommendations: false });
+    }
+
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(roomFind).not.toHaveBeenCalled();
+    expect(getEventLog).not.toHaveBeenCalled();
+    expect(worker.memory.refillTelemetry).toMatchObject({
+      current: {
+        targetId: 'extension1',
+        startedAt: RUNTIME_SUMMARY_INTERVAL + 1,
+        activeTicks: RUNTIME_SUMMARY_INTERVAL - 1,
+        idleOrOtherTaskTicks: 0
+      },
+      refillActiveTicks: RUNTIME_SUMMARY_INTERVAL - 1,
+      lastUpdatedAt: RUNTIME_SUMMARY_INTERVAL * 2 - 1
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = RUNTIME_SUMMARY_INTERVAL * 2;
+    emitRuntimeSummary([colony], [worker], [], { persistOccupationRecommendations: false });
+
+    expect(roomFind).toHaveBeenCalled();
+    expect(getEventLog).toHaveBeenCalledTimes(1);
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.refillDeliveryTicks).toEqual({
+      completedCount: 1,
+      averageTicks: RUNTIME_SUMMARY_INTERVAL,
+      maxTicks: RUNTIME_SUMMARY_INTERVAL,
+      samples: [
+        {
+          creepName: 'RefillWorker',
+          tick: RUNTIME_SUMMARY_INTERVAL * 2,
+          targetId: 'extension1',
+          deliveryTicks: RUNTIME_SUMMARY_INTERVAL,
+          activeTicks: RUNTIME_SUMMARY_INTERVAL,
+          idleOrOtherTaskTicks: 0,
+          energyDelivered: 25
+        }
+      ]
+    });
+    expect(room.refillWorkerUtilization).toEqual({
+      assignedWorkerCount: 1,
+      refillActiveTicks: RUNTIME_SUMMARY_INTERVAL,
+      idleOrOtherTaskTicks: 0,
+      ratio: 1,
+      workers: [
+        {
+          creepName: 'RefillWorker',
+          refillActiveTicks: RUNTIME_SUMMARY_INTERVAL,
+          idleOrOtherTaskTicks: 0,
+          ratio: 1
+        }
+      ]
+    });
+  });
+
   it('emits non-cadence summaries for spawn events and bounds event payload size', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL + 1 });
     const events = Array.from({ length: 12 }, (_, index): RuntimeTelemetryEvent => ({

@@ -8291,18 +8291,37 @@ var REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
+var cachedRefillTargetIdsByRoom = /* @__PURE__ */ new Map();
+var cachedEventMetricsByRoom = /* @__PURE__ */ new Map();
+var cachedEventMetricsTick;
 function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   if (colonies.length === 0 && events.length === 0) {
     return;
   }
   const tick = getGameTime5();
-  if (!shouldEmitRuntimeSummary(tick, events)) {
+  resetCachedRefillTelemetryIfTickRewound(tick);
+  const emitsSummary = shouldEmitRuntimeSummary(tick, events);
+  const creepsByColony = groupCreepsByColony(creeps);
+  let refillTargetIdsByRoom = cachedRefillTargetIdsByRoom;
+  let eventMetricsByRoom = cachedEventMetricsByRoom;
+  if (emitsSummary) {
+    refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
+    eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
+    cachedRefillTargetIdsByRoom = refillTargetIdsByRoom;
+    cachedEventMetricsByRoom = eventMetricsByRoom;
+    cachedEventMetricsTick = tick;
+  }
+  refreshRefillTelemetry(
+    colonies,
+    creepsByColony,
+    refillTargetIdsByRoom,
+    eventMetricsByRoom,
+    tick,
+    cachedEventMetricsTick
+  );
+  if (!emitsSummary) {
     return;
   }
-  const creepsByColony = groupCreepsByColony(creeps);
-  const refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
-  const eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
-  refreshRefillTelemetry(colonies, creepsByColony, refillTargetIdsByRoom, eventMetricsByRoom, tick);
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const summary = {
@@ -8327,6 +8346,14 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
 }
 function shouldEmitRuntimeSummary(tick, events) {
   return events.length > 0 || tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
+}
+function resetCachedRefillTelemetryIfTickRewound(tick) {
+  if (cachedEventMetricsTick === void 0 || tick >= cachedEventMetricsTick) {
+    return;
+  }
+  cachedRefillTargetIdsByRoom = /* @__PURE__ */ new Map();
+  cachedEventMetricsByRoom = /* @__PURE__ */ new Map();
+  cachedEventMetricsTick = void 0;
 }
 function groupCreepsByColony(creeps) {
   var _a;
@@ -8738,12 +8765,12 @@ function toRuntimeConstructionPriorityCandidateSummary(score) {
     risk: score.risk
   };
 }
-function refreshRefillTelemetry(colonies, creepsByColony, refillTargetIdsByRoom, eventMetricsByRoom, tick) {
+function refreshRefillTelemetry(colonies, creepsByColony, refillTargetIdsByRoom, eventMetricsByRoom, tick, eventMetricsTick) {
   var _a, _b, _c, _d;
   for (const colony of colonies) {
     const roomName = colony.room.name;
     const refillTargetIds = (_a = refillTargetIdsByRoom.get(roomName)) != null ? _a : /* @__PURE__ */ new Set();
-    const refillTransfers = (_c = (_b = eventMetricsByRoom.get(roomName)) == null ? void 0 : _b.refillTransfers) != null ? _c : [];
+    const refillTransfers = eventMetricsTick === tick ? (_c = (_b = eventMetricsByRoom.get(roomName)) == null ? void 0 : _b.refillTransfers) != null ? _c : [] : [];
     const workers = ((_d = creepsByColony.get(roomName)) != null ? _d : []).filter((creep) => creep.memory.role === "worker");
     for (const worker of workers) {
       refreshWorkerRefillTelemetry(worker, refillTargetIds, refillTransfers, tick);
