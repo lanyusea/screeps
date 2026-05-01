@@ -17,7 +17,7 @@ export function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMem
     !isNonEmptyString(rawIntent.targetRoom) ||
     !isTerritoryIntentAction(rawIntent.action) ||
     !isTerritoryIntentStatus(rawIntent.status) ||
-    typeof rawIntent.updatedAt !== 'number'
+    !isFiniteNumber(rawIntent.updatedAt)
   ) {
     return null;
   }

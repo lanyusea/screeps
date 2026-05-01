@@ -1454,7 +1454,16 @@ describe('planTerritoryIntent', () => {
     ).toBe(false);
     expect(Memory.territory?.intents).toEqual([
       {
-        ...persistedIntent,
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 570,
+        followUp: {
+          source: 'satisfiedReserveAdjacent',
+          originRoom: 'W1N2',
+          originAction: 'reserve'
+        },
         suspended: {
           reason: 'hostile_presence',
           hostileCount: 2,
@@ -1492,7 +1501,25 @@ describe('planTerritoryIntent', () => {
     expect(
       planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, suspendedAt + 1)
     ).toBeNull();
-    expect(Memory.territory?.intents).toEqual([suspendedIntent]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571,
+        followUp: {
+          source: 'satisfiedReserveAdjacent',
+          originRoom: 'W1N2',
+          originAction: 'reserve'
+        },
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 1,
+          updatedAt: suspendedAt
+        }
+      }
+    ]);
 
     expect(
       planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime)
@@ -1500,7 +1527,11 @@ describe('planTerritoryIntent', () => {
       colony: 'W1N1',
       targetRoom: 'W2N1',
       action: 'reserve',
-      followUp
+      followUp: {
+        source: 'satisfiedReserveAdjacent',
+        originRoom: 'W1N2',
+        originAction: 'reserve'
+      }
     });
     expect(Memory.territory?.intents).toEqual([
       {
@@ -1509,15 +1540,20 @@ describe('planTerritoryIntent', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: retryTime,
-        followUp
+        followUp: {
+          source: 'satisfiedReserveAdjacent',
+          originRoom: 'W1N2',
+          originAction: 'reserve'
+        }
       }
     ]);
   });
 
-  it('does not re-stamp a hostile suspension while visible hostiles persist', () => {
+  it('re-suspends a hostile-suspended intent after cooldown when visible hostiles persist', () => {
     const colony = makeSafeColony();
     const suspendedAt = 572;
     const retryTime = suspendedAt + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
+    const secondRetryTime = retryTime + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
     const suspendedIntent: TerritoryIntentMemory = {
       colony: 'W1N1',
       targetRoom: 'W2N1',
@@ -1544,17 +1580,61 @@ describe('planTerritoryIntent', () => {
     expect(
       planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, suspendedAt + 1)
     ).toBeNull();
-    expect(Memory.territory?.intents).toEqual([suspendedIntent]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 1,
+          updatedAt: suspendedAt
+        }
+      }
+    ]);
 
     expect(
       planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime)
     ).toBeNull();
-    expect(Memory.territory?.intents).toEqual([suspendedIntent]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 3,
+          updatedAt: retryTime
+        }
+      }
+    ]);
 
     (globalThis as unknown as { Game: Partial<Game> }).Game = {};
 
     expect(
       planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime + 1)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 3,
+          updatedAt: retryTime
+        }
+      }
+    ]);
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, secondRetryTime)
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W2N1',
@@ -1573,7 +1653,7 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W2N1',
         action: 'scout',
         status: 'planned',
-        updatedAt: retryTime + 1
+        updatedAt: secondRetryTime
       }
     ]);
   });

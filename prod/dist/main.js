@@ -1517,7 +1517,7 @@ function normalizeTerritoryIntent(rawIntent) {
   if (!isRecord(rawIntent)) {
     return null;
   }
-  if (!isNonEmptyString2(rawIntent.colony) || !isNonEmptyString2(rawIntent.targetRoom) || !isTerritoryIntentAction(rawIntent.action) || !isTerritoryIntentStatus(rawIntent.status) || typeof rawIntent.updatedAt !== "number") {
+  if (!isNonEmptyString2(rawIntent.colony) || !isNonEmptyString2(rawIntent.targetRoom) || !isTerritoryIntentAction(rawIntent.action) || !isTerritoryIntentStatus(rawIntent.status) || !isFiniteNumber(rawIntent.updatedAt)) {
     return null;
   }
   const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
@@ -4061,8 +4061,8 @@ function refreshHostileTerritoryIntentSuspensions(territoryMemory, intents, colo
       if (((_a = intent.suspended) == null ? void 0 : _a.reason) === "hostile_presence") {
         if (isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime)) {
           suspendedIntents.push(intent);
+          return intent;
         }
-        return intent;
       }
       const suspended = buildHostilePresenceTerritoryIntentSuspension(hostileCount, gameTime);
       changed = true;
