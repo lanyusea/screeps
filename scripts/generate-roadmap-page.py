@@ -83,7 +83,7 @@ STATIC_SUPPORT_ISSUES: tuple[JsonObject, ...] = (
         "milestone": "Phase C",
         "status": "Ready",
         "priority": "P1",
-        "domain": "Gameplay Evolution",
+        "domain": "Docs/process",
         "kind": "ops",
         "visionLayer": "territory",
         "evidence": "Anchors territory > resources > enemy kills KPI reporting and task feedback.",
@@ -474,6 +474,26 @@ CATEGORY_ACCENTS = {
     "guardrails": "#244c73",
 }
 
+PROJECT_DOMAIN_ORDER: tuple[str, ...] = (
+    "Change-control",
+    "Agent OS",
+    "Bot capability",
+    "Runtime monitor",
+    "Private smoke",
+    "Official MMO",
+    "Docs/process",
+)
+
+PROJECT_DOMAIN_GOALS: dict[str, str] = {
+    "Change-control": "Keep repository, PR, Project, and release governance enforceable.",
+    "Agent OS": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
+    "Bot capability": "Ship gameplay behavior that advances territory, resources, and combat outcomes.",
+    "Runtime monitor": "Turn live Screeps telemetry into reliable KPI, alert, and report evidence.",
+    "Private smoke": "Validate runtime changes safely before official MMO release pressure.",
+    "Official MMO": "Deploy and verify accepted changes against the official Screeps world.",
+    "Docs/process": "Preserve decisions, roadmap contracts, and operating context for agent continuity.",
+}
+
 CST = timezone(timedelta(hours=8), "CST")
 REPORT_FORMAT = "roadmap-portrait-kpi-kanban-v5"
 APPROVED_REPORT_MODEL_ID = REPORT_FORMAT
@@ -536,101 +556,6 @@ REPORT_KPI_CARDS: tuple[JsonObject, ...] = (
     },
 )
 
-REPORT_ROADMAP_CARDS: tuple[JsonObject, ...] = (
-    {
-        "title": "Gameplay Evolution",
-        "goal": "Use real game outcomes to drive roadmap, task, and release decisions.",
-        "next": "#59 coordinates the review loop; #60 is done; #61 bridge work is in progress.",
-        "progress": 10,
-        "status": "12h review job created; PR #66 merged.",
-        "issue": 59,
-    },
-    {
-        "title": "Territory",
-        "goal": "Claim, hold, and grow the controlled room footprint first.",
-        "next": "owned/reserved/room gain/RCL KPI",
-        "progress": 15,
-        "status": "E26S49 Spawn1 observed; multi-room strategy is pending.",
-    },
-    {
-        "title": "Resource Economy",
-        "goal": "Convert territory into energy, minerals, logistics, and spawn scale.",
-        "next": "harvest/transfer/store deltas",
-        "progress": 15,
-        "status": "PR #65 payload merged; #29 reducer remains pending.",
-        "issue": 29,
-    },
-    {
-        "title": "Combat",
-        "goal": "Make defense and offense serve territorial and economic control.",
-        "next": "event-log kills/losses + tactical bridge",
-        "progress": 5,
-        "status": "#62 Ready; kill KPI reducer remains pending.",
-        "issue": 62,
-    },
-    {
-        "title": "Reliability / P0",
-        "goal": "Let automation health override game goals only when it blocks delivery.",
-        "next": "P0 monitor watch / no silent scheduler failures",
-        "progress": 100,
-        "status": "#27 Done watch-only.",
-        "issue": 27,
-    },
-    {
-        "title": "Foundation Gates",
-        "goal": "Private smoke proof, release gates, and official MMO deployment evidence.",
-        "next": "private smoke + release/hotfix evidence",
-        "progress": 85,
-        "status": "#28 Ready; #63 Ready; #33 blocked.",
-        "issue": 28,
-    },
-)
-
-REPORT_GAMEPLAY_KANBAN: tuple[JsonObject, ...] = (
-    {
-        "title": "Backlog",
-        "items": (
-            {
-                "number": 30,
-                "priority": "P1",
-                "title": "#30 Mock harness multi-tick spawn lifecycle",
-                "description": "Queue a bounded Codex/test slice after the current KPI telemetry bridge (#29).",
-            },
-            {
-                "number": 31,
-                "priority": "P1",
-                "title": "#31 Zero-creep emergency recovery coverage",
-                "description": "Confirm worker recovery when creeps are gone or energy is insufficient.",
-            },
-            {
-                "number": 62,
-                "priority": "P1",
-                "title": "#62 Tactical emergency response wiring",
-                "description": "Define trigger matrix, report template, and no-alert dry-run before emergency routing.",
-            },
-        ),
-    },
-    {
-        "title": "Active",
-        "items": (
-            {
-                "number": 59,
-                "priority": "P1",
-                "title": "#59 Gameplay Evolution review loop",
-                "description": "Use game-result evidence to drive roadmap, task, and release updates.",
-            },
-            {
-                "number": 29,
-                "priority": "P1",
-                "title": "#29 Runtime summary and alert scheduled delivery",
-                "description": "Persist runtime-summary lines, reduce KPI evidence, and deliver monitor reports.",
-            },
-        ),
-    },
-    {"title": "Private Smoke", "items": ()},
-    {"title": "Done", "items": ()},
-)
-
 REPORT_KPI_SERIES_METRICS: dict[str, tuple[str, ...]] = {
     "territory": ("owned_rooms", "controller_level_sum", "owned_room_delta"),
     "resources": ("stored_energy", "harvested_energy", "worker_carried_energy"),
@@ -638,39 +563,6 @@ REPORT_KPI_SERIES_METRICS: dict[str, tuple[str, ...]] = {
 }
 
 APPROVED_PRIVATE_SMOKE_PROCESS_COUNT = 1
-
-REPORT_FOUNDATION_KANBAN: tuple[JsonObject, ...] = (
-    {
-        "title": "Backlog",
-        "items": (
-            {
-                "number": 33,
-                "priority": "P1",
-                "title": "#33 Official MMO deployment gate",
-                "description": "Do not deploy until private-smoke gate and monitor proof are complete.",
-            },
-            {
-                "number": 63,
-                "priority": "P1",
-                "title": "#63 Gameplay release cadence and hotfix evidence",
-                "description": "Record expected KPI movement and proof for gameplay releases and emergency hotfixes.",
-            },
-        ),
-    },
-    {"title": "Active", "items": ()},
-    {
-        "title": "Private Smoke",
-        "items": (
-            {
-                "number": 28,
-                "priority": "P1",
-                "title": "#28 Private smoke harness clean live rerun",
-                "description": "Run clean ignored-workdir private smoke harness and attach/report redacted evidence.",
-            },
-        ),
-    },
-    {"title": "Done", "items": ()},
-)
 
 REPORT_ISSUE_DISPLAY_OVERRIDES: dict[int, JsonObject] = {
     26: {
@@ -1471,7 +1363,7 @@ def fetch_github_snapshot(
         errors.append({"source": "pullRequests", **pr_error})
 
     project_json, project_error = run_json(
-        ["gh", "project", "item-list", str(project_number), "--owner", project_owner, "--limit", "100", "--format", "json"],
+        ["gh", "project", "item-list", str(project_number), "--owner", project_owner, "--limit", "500", "--format", "json"],
         repo_root,
     )
     if project_error:
@@ -1697,6 +1589,24 @@ def infer_domain(labels: Sequence[str], milestone: str, title: str) -> str:
     return "Bot capability"
 
 
+def project_domain(item: Mapping[str, Any]) -> str:
+    raw = str(item.get("Domain") or item.get("domain") or "").strip()
+    if raw:
+        by_lower = {domain.lower(): domain for domain in PROJECT_DOMAIN_ORDER}
+        matched = by_lower.get(raw.lower())
+        if matched:
+            return matched
+    labels = item.get("labels") if isinstance(item.get("labels"), list) else []
+    return infer_domain([str(label) for label in labels], str(item.get("milestone") or ""), str(item.get("title") or ""))
+
+
+def domain_order_index(domain: str) -> int:
+    try:
+        return PROJECT_DOMAIN_ORDER.index(domain)
+    except ValueError:
+        return len(PROJECT_DOMAIN_ORDER)
+
+
 def summarize_checks(value: Any) -> JsonObject:
     if not isinstance(value, list):
         return {"total": 0, "success": 0, "failure": 0, "pending": 0}
@@ -1779,7 +1689,7 @@ def build_kanban_cards(
                 "domain": item.get("domain", "Bot capability"),
                 "kind": item.get("kind", "code"),
                 "visionLayer": vision_layer,
-                "lane": "Gameplay" if vision_layer in {"territory", "resources", "enemy kills"} else "Foundation",
+                "lane": project_domain(item),
                 "nextAction": next_action,
                 "evidence": evidence,
                 "state": item.get("state", ""),
@@ -1843,11 +1753,11 @@ def roadmap_sort_key(card: JsonObject) -> tuple[int, int, str]:
     )
 
 
-def kanban_sort_key(card: JsonObject) -> tuple[str, int, int, str]:
+def kanban_sort_key(card: JsonObject) -> tuple[int, int, int, str]:
     priority_order = {"P0": 0, "P1": 1, "P2": 2}
     status_order = {"In progress": 0, "In review": 1, "Ready": 2, "Backlog": 3, "Done": 4}
     return (
-        str(card.get("lane", "")),
+        domain_order_index(str(card.get("domain") or card.get("lane") or "")),
         status_order.get(str(card.get("status")), 5),
         priority_order.get(str(card.get("priority")), 5),
         str(card.get("title", "")),
@@ -1856,19 +1766,19 @@ def kanban_sort_key(card: JsonObject) -> tuple[str, int, int, str]:
 
 def build_kanban_columns(cards: Sequence[JsonObject]) -> list[JsonObject]:
     statuses = ["Backlog", "Ready", "In progress", "In review", "Done"]
-    lanes = ["Gameplay", "Foundation"]
     return [
         {
-            "lane": lane,
+            "lane": domain,
+            "domain": domain,
             "statuses": [
                 {
                     "status": status,
-                    "cards": [card for card in cards if card["lane"] == lane and card["status"] == status],
+                    "cards": [card for card in cards if project_domain(card) == domain and card["status"] == status],
                 }
                 for status in statuses
             ],
         }
-        for lane in lanes
+        for domain in PROJECT_DOMAIN_ORDER
     ]
 
 
@@ -1997,8 +1907,7 @@ def build_approved_report_model(
         ),
         "kpiCards": build_report_kpi_cards(history, generated_at),
         "roadmapCards": build_report_roadmap_cards(github_snapshot, repo),
-        "gameplayKanban": build_report_kanban(github_snapshot, "Gameplay"),
-        "foundationKanban": build_report_kanban(github_snapshot, "Foundation"),
+        "domainKanban": build_report_domain_kanban(github_snapshot),
         "processCards": build_report_process_cards(repo_root, repo, github_snapshot, cached_page_data),
     }
 
@@ -2136,60 +2045,34 @@ def report_kpi_footer(card: JsonObject) -> str:
 
 
 def build_report_roadmap_cards(github_snapshot: JsonObject, repo: JsonObject) -> list[JsonObject]:
-    source_items = [
-        dict(item)
-        for item in github_snapshot.get("roadmapCards", [])
-        if isinstance(item, dict) and item.get("title")
-    ]
-    issue_lookup = build_issue_context_lookup(github_snapshot)
-    used: set[tuple[str, str]] = set()
+    items = report_domain_source_items(github_snapshot)
+    items_by_domain = {
+        domain: sorted(
+            [item for item in items if project_domain(item) == domain],
+            key=domain_item_sort_key,
+        )
+        for domain in PROJECT_DOMAIN_ORDER
+    }
     return [
-        build_report_roadmap_card(template, choose_report_roadmap_item(template, source_items, issue_lookup, used), repo, github_snapshot)
-        for template in REPORT_ROADMAP_CARDS
+        build_report_domain_card(domain, items_by_domain[domain], repo, github_snapshot)
+        for domain in PROJECT_DOMAIN_ORDER
     ]
 
 
-def choose_report_roadmap_item(
-    template: JsonObject,
-    source_items: Sequence[JsonObject],
-    issue_lookup: Mapping[int, JsonObject],
-    used: set[tuple[str, str]],
-) -> JsonObject | None:
-    issue = template.get("issue")
-    if isinstance(issue, int):
-        for item in source_items:
-            if item_key(item) in used:
-                continue
-            if item.get("number") == issue:
-                used.add(item_key(item))
-                return merge_issue_context(item, issue_lookup)
-        if issue in issue_lookup:
-            return merge_issue_context({"number": issue, "title": template.get("title", "")}, issue_lookup)
-
-    terms = roadmap_template_terms(template)
-    for item in source_items:
-        if item_key(item) in used:
+def report_domain_source_items(github_snapshot: JsonObject) -> list[JsonObject]:
+    issue_lookup = build_issue_context_lookup(github_snapshot)
+    for collection_name in ("projectItems", "roadmapCards", "issues", "pullRequests"):
+        collection = github_snapshot.get(collection_name)
+        if not isinstance(collection, list):
             continue
-        haystack = roadmap_item_haystack(item)
-        if any(term in haystack for term in terms):
-            used.add(item_key(item))
-            return merge_issue_context(item, issue_lookup)
-    return None
-
-
-def roadmap_template_terms(template: JsonObject) -> tuple[str, ...]:
-    title = str(template.get("title") or "").lower()
-    if "territory" in title:
-        return ("territory", "controller", "room", "claim", "reserve")
-    if "resource" in title:
-        return ("resources", "resource", "economy", "energy", "harvest")
-    if "combat" in title:
-        return ("enemy kills", "combat", "enemy", "hostile", "kill")
-    if "reliability" in title:
-        return ("p0", "reliability", "monitor", "scheduler", "change-control")
-    if "foundation" in title:
-        return ("private smoke", "private", "smoke", "official", "deploy", "release")
-    return ("gameplay evolution", "game-result", "vision-driven")
+        items = [
+            merge_issue_context(dict(item), issue_lookup)
+            for item in collection
+            if isinstance(item, dict) and (item.get("title") or item.get("domain"))
+        ]
+        if items:
+            return items
+    return []
 
 
 def roadmap_item_haystack(item: JsonObject) -> str:
@@ -2211,44 +2094,88 @@ def merge_issue_context(item: JsonObject, issue_lookup: Mapping[int, JsonObject]
     return {**context, **item}
 
 
-def build_report_roadmap_card(
-    template: JsonObject,
-    item: JsonObject | None,
+def build_report_domain_card(
+    domain: str,
+    items: Sequence[JsonObject],
     repo: JsonObject,
     github_snapshot: JsonObject,
 ) -> JsonObject:
+    total = len(items)
+    done = sum(1 for item in items if is_done_item(item))
+    active_items = [item for item in items if not is_done_item(item)]
+    representative = active_items[0] if active_items else (items[0] if items else None)
     card = {
-        "title": template["title"],
-        "goal": template["goal"],
+        "title": domain,
+        "domain": domain,
+        "goal": PROJECT_DOMAIN_GOALS[domain],
         "next": "No current GitHub/Project evidence available.",
-        "progress": 0,
+        "progress": None,
         "status": github_unavailable_text(github_snapshot),
-        "url": "",
+        "url": repo.get("projectUrl") or repo.get("url") or "",
+        "totalItems": total,
+        "activeItems": len(active_items),
+        "doneItems": done,
     }
-    issue = template.get("issue")
-    if isinstance(issue, int):
-        card["url"] = issue_url(repo, issue)
-    if item is None:
+    if total == 0:
         return card
 
-    item_url = item.get("url")
+    card["progress"] = int(round((done / total) * 100))
+    card["status"] = report_domain_status(domain, total, len(active_items), done, github_snapshot)
+    item = representative or {}
+    item_url = item.get("url") if isinstance(item, dict) else ""
     if isinstance(item_url, str) and item_url:
         card["url"] = item_url
-    override = report_issue_display_override(item.get("number"))
-    card["next"] = shorten_text(
-        first_visible_report_text(
-            override.get("description"),
-            item.get("nextAction"),
-            item.get("evidence"),
-            item.get("title"),
-            template.get("next"),
-            "Track current GitHub/Project evidence.",
-        ),
-        88,
-    )
-    card["progress"] = report_progress(item)
-    card["status"] = report_item_status(item, github_snapshot)
+    if active_items:
+        card["next"] = shorten_text(report_domain_item_summary(active_items[0]), 96)
+    else:
+        card["next"] = shorten_text(report_domain_item_summary(item, prefix="No active item; latest tracked"), 96)
     return card
+
+
+def report_domain_status(
+    domain: str,
+    total: int,
+    active: int,
+    done: int,
+    github_snapshot: JsonObject,
+) -> str:
+    suffix = ""
+    if github_snapshot.get("sourceMode") != "live":
+        suffix = f" · {github_snapshot.get('sourceMode') or 'snapshot'}"
+    item_word = "item" if total == 1 else "items"
+    return f"{total} Project {item_word} · {active} active · {done} done{suffix}"
+
+
+def report_domain_item_summary(item: JsonObject, prefix: str = "Current") -> str:
+    number = f"#{item['number']} " if isinstance(item.get("number"), int) else ""
+    status = normalize_status(item.get("status"))
+    override = report_issue_display_override(item.get("number"))
+    description = first_visible_report_text(
+        override.get("description"),
+        item.get("nextAction"),
+        item.get("evidence"),
+        item.get("title"),
+        project_domain(item),
+        "Track Project evidence and next action.",
+    )
+    return f"{prefix}: {number}{status} - {description}"
+
+
+def is_done_item(item: Mapping[str, Any]) -> bool:
+    state = str(item.get("state") or "").upper()
+    return state in {"CLOSED", "MERGED"} or normalize_status(item.get("status")) == "Done"
+
+
+def domain_item_sort_key(item: JsonObject) -> tuple[int, int, int, int, str]:
+    priority_order = {"P0": 0, "P1": 1, "P2": 2}
+    status_order = {"In progress": 0, "In review": 1, "Ready": 2, "Backlog": 3, "Done": 4}
+    return (
+        1 if is_done_item(item) else 0,
+        status_order.get(normalize_status(item.get("status")), 5),
+        priority_order.get(str(item.get("priority")), 5),
+        int(item["number"]) if isinstance(item.get("number"), int) else 999999,
+        str(item.get("title") or item.get("domain") or ""),
+    )
 
 
 def first_text(*values: Any) -> str:
@@ -2316,61 +2243,49 @@ def report_item_status(item: JsonObject, github_snapshot: JsonObject) -> str:
 def github_unavailable_text(github_snapshot: JsonObject) -> str:
     mode = str(github_snapshot.get("sourceMode") or "unavailable")
     if mode == "live":
-        return "No matching Project item"
+        return "No Project Domain items observed"
     return f"GitHub snapshot {mode}"
 
 
-def build_report_kanban(github_snapshot: JsonObject, lane: str) -> list[JsonObject]:
-    cards = [
-        dict(card)
-        for card in github_snapshot.get("kanban", {}).get("cards", [])
-        if isinstance(card, dict) and card.get("lane") == lane and card.get("title")
-    ]
-    columns = [
-        {"title": "Backlog", "items": []},
-        {"title": "Active", "items": []},
-        {"title": "Private Smoke", "items": []},
-        {"title": "Done", "items": []},
-    ]
-    columns_by_title = {column["title"]: column for column in columns}
-    for card in cards:
-        column = columns_by_title[report_kanban_column_title(card)]
-        column["items"].append(report_kanban_item(card))
-    for column in columns:
-        column["items"] = column["items"][:4]
+def build_report_domain_kanban(github_snapshot: JsonObject) -> list[JsonObject]:
+    source_items = report_domain_source_items(github_snapshot)
+    columns: list[JsonObject] = []
+    for domain in PROJECT_DOMAIN_ORDER:
+        domain_items = sorted(
+            [item for item in source_items if project_domain(item) == domain and not is_done_item(item)],
+            key=domain_item_sort_key,
+        )
+        columns.append(
+            {
+                "title": domain,
+                "items": [report_domain_kanban_item(item) for item in domain_items[:4]],
+            }
+        )
     return columns
 
 
-def report_kanban_column_title(card: JsonObject) -> str:
-    state = str(card.get("state") or "").upper()
-    if state in {"CLOSED", "MERGED"} or normalize_status(card.get("status")) == "Done":
-        return "Done"
-    haystack = roadmap_item_haystack(card)
-    if "private" in haystack or "smoke" in haystack:
-        return "Private Smoke"
-    status = normalize_status(card.get("status"))
-    if status in {"In progress", "In review", "Ready"}:
-        return "Active"
-    return "Backlog"
-
-
-def report_kanban_item(card: JsonObject) -> JsonObject:
+def report_domain_kanban_item(card: JsonObject) -> JsonObject:
     override = report_issue_display_override(card.get("number"))
     number = f"#{card['number']} " if isinstance(card.get("number"), int) else ""
-    title = first_visible_report_text(override.get("title"), card.get("title"), card.get("domain"), "Roadmap item")
+    title = first_visible_report_text(override.get("title"), card.get("title"), project_domain(card), "Roadmap item")
+    status = normalize_status(card.get("status"))
     description = first_visible_report_text(
         override.get("description"),
         card.get("nextAction"),
         card.get("evidence"),
         card.get("domain"),
-        card.get("status"),
         "Track Project evidence and next action.",
     )
+    detail = f"{status} · {project_domain(card)}"
+    if description:
+        detail = f"{detail} · {description}"
     return {
         "number": card.get("number"),
         "priority": card.get("priority") or "P1",
+        "status": status,
+        "domain": project_domain(card),
         "title": shorten_text(f"{number}{title}", 72),
-        "description": shorten_text(description, 112),
+        "description": shorten_text(detail, 112),
         "url": card.get("url") or "",
     }
 
@@ -2438,6 +2353,11 @@ def build_issue_context_lookup(github_snapshot: JsonObject) -> dict[int, JsonObj
                 "number": number,
                 "state": item.get("state") or existing.get("state") or "",
                 "status": item.get("status") or existing.get("status") or "",
+                "priority": item.get("priority") or existing.get("priority") or "",
+                "domain": item.get("domain") or existing.get("domain") or "",
+                "kind": item.get("kind") or existing.get("kind") or "",
+                "milestone": item.get("milestone") or existing.get("milestone") or "",
+                "labels": item.get("labels") or existing.get("labels") or [],
                 "evidence": item.get("evidence") or existing.get("evidence") or "",
                 "nextAction": item.get("nextAction") or existing.get("nextAction") or "",
                 "url": item.get("url") or existing.get("url") or "",
@@ -3500,8 +3420,8 @@ def render_kanban(data: JsonObject) -> str:
     return f"""
     <section class="section" id="kanban">
       <div class="section-header">
-        <h2>Gameplay / Foundation Kanban</h2>
-        <p>Gameplay cards serve territory, resources, and enemy-kill outcomes; foundation cards keep the autonomous delivery system safe.</p>
+        <h2>Project Domain Kanban</h2>
+        <p>Cards are grouped by the current GitHub Project Domain field when it is available.</p>
       </div>
       {''.join(lanes_html)}
     </section>
@@ -3576,8 +3496,7 @@ def render_html(data: JsonObject) -> str:
     <main>
       {render_report_kpis(data)}
       {render_report_roadmap(data)}
-      {render_kanban_section("gameplay-kanban", "03 Gameplay Strategy Kanban", data["report"]["gameplayKanban"])}
-      {render_kanban_section("foundation-kanban", "04 Foundation Delivery Kanban", data["report"]["foundationKanban"])}
+      {render_kanban_section("domain-kanban", "03 Project Domain Board", data["report"]["domainKanban"])}
       {render_report_process(data)}
     </main>
     <footer class="report-footer">format {esc(data["format"])} · repo {esc(repo["url"])} · generated {generated_at}</footer>
@@ -3872,7 +3791,7 @@ main {
 
 .kanban-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
 }
 
@@ -3893,13 +3812,12 @@ main {
 }
 
 .kanban-item {
-  position: relative;
   display: block;
   min-height: 88px;
   margin-top: 10px;
   border: 1px solid var(--line-soft);
   border-radius: 12px;
-  padding: 12px 40px 12px 12px;
+  padding: 12px;
   background: var(--card);
 }
 
@@ -3918,9 +3836,8 @@ main {
 }
 
 .kanban-priority {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+  display: inline-block;
+  margin-bottom: 7px;
   color: var(--copper-dark);
   font-size: 0.78rem;
   font-weight: 900;
@@ -4011,7 +3928,7 @@ main {
 
   .kanban-grid {
     overflow-x: auto;
-    grid-template-columns: repeat(4, minmax(260px, 1fr));
+    grid-template-columns: repeat(7, minmax(230px, 1fr));
     padding-bottom: 4px;
   }
 }
@@ -4230,7 +4147,7 @@ def render_report_roadmap(data: JsonObject) -> str:
     cards = "\n".join(render_report_roadmap_card(card) for card in data["report"]["roadmapCards"])
     return f"""
       <section class="section" id="roadmap">
-        <h2 class="section-title">02 Development Roadmap - Six Tracks</h2>
+        <h2 class="section-title">02 Project Domains</h2>
         <div class="roadmap-grid">
           {cards}
         </div>
@@ -4241,7 +4158,9 @@ def render_report_roadmap(data: JsonObject) -> str:
 def render_report_roadmap_card(card: JsonObject) -> str:
     tag = "a" if card.get("url") else "article"
     href = f' href="{esc(card["url"])}"' if card.get("url") else ""
-    progress = int(card["progress"])
+    raw_progress = card.get("progress")
+    progress = int(raw_progress) if isinstance(raw_progress, (int, float)) else 0
+    progress_label = f"{progress}%" if isinstance(raw_progress, (int, float)) else "n/a"
     return f"""
           <{tag} class="roadmap-card"{href}>
             <h3>{esc(card["title"])}</h3>
@@ -4250,7 +4169,7 @@ def render_report_roadmap_card(card: JsonObject) -> str:
               <span class="roadmap-label">Next</span><span>{esc(card["next"])}</span>
             </div>
             <div class="progress-row">
-              <span class="progress-value">{progress}%</span>
+              <span class="progress-value">{esc(progress_label)}</span>
               <span class="progress-track"><span class="progress-fill" style="width: {progress}%"></span></span>
             </div>
             <div class="roadmap-status">{esc(card["status"])}</div>
@@ -4301,7 +4220,7 @@ def render_report_process(data: JsonObject) -> str:
     cards = "\n".join(render_process_card(card) for card in data["report"]["processCards"])
     return f"""
       <section class="section" id="process">
-        <h2 class="section-title">05 Development Process Data</h2>
+        <h2 class="section-title">04 Development Process Data</h2>
         <div class="process-grid">
           {cards}
         </div>

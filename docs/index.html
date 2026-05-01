@@ -289,7 +289,7 @@ main {
 
 .kanban-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
 }
 
@@ -310,13 +310,12 @@ main {
 }
 
 .kanban-item {
-  position: relative;
   display: block;
   min-height: 88px;
   margin-top: 10px;
   border: 1px solid var(--line-soft);
   border-radius: 12px;
-  padding: 12px 40px 12px 12px;
+  padding: 12px;
   background: var(--card);
 }
 
@@ -335,9 +334,8 @@ main {
 }
 
 .kanban-priority {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+  display: inline-block;
+  margin-bottom: 7px;
   color: var(--copper-dark);
   font-size: 0.78rem;
   font-weight: 900;
@@ -428,7 +426,7 @@ main {
 
   .kanban-grid {
     overflow-x: auto;
-    grid-template-columns: repeat(4, minmax(260px, 1fr));
+    grid-template-columns: repeat(7, minmax(230px, 1fr));
     padding-bottom: 4px;
   }
 }
@@ -479,7 +477,7 @@ main {
           <p><strong>Project</strong> · Long-running Screeps: World AI and autonomous operations project.</p>
           <p><strong>Links</strong> · <a href="https://github.com/lanyusea/screeps">https://github.com/lanyusea/screeps</a></p>
         </div>
-        <p class="published"><strong>PUBLISHED</strong> · 2026-04-29 21:16:29 CST</p>
+        <p class="published"><strong>PUBLISHED</strong> · 2026-05-01 11:36:06 CST</p>
       </div>
       <div class="hero-art">
         <div class="brand-logo-frame"><img class="brand-logo" src="assets/screeps-community-logo.png" alt="Screeps community logo"></div>
@@ -506,15 +504,15 @@ main {
               <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="195.0" text-anchor="end" fill="#8b6d55" font-size="15">0</text><line x1="70.0" y1="107.0" x2="500.0" y2="107.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="112.0" text-anchor="end" fill="#8b6d55" font-size="15">1.5</text><line x1="70.0" y1="24.0" x2="500.0" y2="24.0" stroke="#e4d7c8" stroke-width="1"/><text x="58.0" y="29.0" text-anchor="end" fill="#8b6d55" font-size="15">3</text>
               <line x1="70.0" y1="24.0" x2="70.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
               <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
-              <circle cx="500.0" cy="134.7" r="4" fill="#9f6a3a"/><text x="500.0" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><circle cx="500.0" cy="24.0" r="4" fill="#77716a"/><text x="500.0" y="46.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">3</text><circle cx="500.0" cy="190.0" r="4" fill="#c8945a"/><text x="500.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text>
+              <circle cx="500.0" cy="134.7" r="4" fill="#9f6a3a"/><text x="500.0" y="123.7" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">1</text><circle cx="500.0" cy="79.3" r="4" fill="#77716a"/><text x="500.0" y="68.3" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">2</text><circle cx="500.0" cy="190.0" r="4" fill="#c8945a"/><text x="500.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text>
 
-              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/23</text>
-<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/24</text>
-<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
-<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
-<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
-<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/28</text>
-<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/29</text>
+              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
+<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
+<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
+<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/28</text>
+<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/29</text>
+<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/30</text>
+<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">5/1</text>
               <line x1="8" y1="250" x2="30" y2="250" stroke="#9f6a3a" stroke-width="3"/><text x="38" y="255" fill="#4f443a" font-size="14">Owned rooms</text><line x1="172" y1="250" x2="194" y2="250" stroke="#77716a" stroke-width="3"/><text x="202" y="255" fill="#4f443a" font-size="14">RCL</text><line x1="314" y1="250" x2="336" y2="250" stroke="#c8945a" stroke-width="3" stroke-dasharray="6 6"/><text x="344" y="255" fill="#4f443a" font-size="14">Room gain</text>
             </svg>
 
@@ -538,13 +536,13 @@ main {
               <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
               <circle cx="500.0" cy="190.0" r="4" fill="#25211c"/><text x="500.0" y="182.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text><circle cx="500.0" cy="190.0" r="4" fill="#c8945a"/><text x="500.0" y="156.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text>
 
-              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/23</text>
-<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/24</text>
-<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
-<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
-<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
-<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/28</text>
-<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/29</text>
+              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
+<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
+<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
+<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/28</text>
+<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/29</text>
+<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/30</text>
+<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">5/1</text>
               <line x1="8" y1="250" x2="30" y2="250" stroke="#25211c" stroke-width="3"/><text x="38" y="255" fill="#4f443a" font-size="14">Stored energy</text><line x1="172" y1="250" x2="194" y2="250" stroke="#66605a" stroke-width="3"/><text x="202" y="255" fill="#4f443a" font-size="14">Harvest delta</text><line x1="336" y1="250" x2="358" y2="250" stroke="#c8945a" stroke-width="3" stroke-dasharray="6 6"/><text x="366" y="255" fill="#4f443a" font-size="14">Worker carried</text>
             </svg>
 
@@ -568,13 +566,13 @@ main {
               <line x1="70.0" y1="190.0" x2="500.0" y2="190.0" stroke="#cdbba7" stroke-width="1.5"/>
               <circle cx="500.0" cy="190.0" r="4" fill="#77716a"/><text x="500.0" y="169.0" text-anchor="middle" fill="#241d17" font-size="14" font-weight="800">0</text>
 
-              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/23</text>
-<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/24</text>
-<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
-<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
-<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
-<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/28</text>
-<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/29</text>
+              <text x="70.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/25</text>
+<text x="141.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/26</text>
+<text x="213.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/27</text>
+<text x="285.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/28</text>
+<text x="356.7" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/29</text>
+<text x="428.3" y="226" text-anchor="middle" fill="#7b6654" font-size="15">4/30</text>
+<text x="500.0" y="226" text-anchor="middle" fill="#7b6654" font-size="15">5/1</text>
               <line x1="8" y1="250" x2="30" y2="250" stroke="#25211c" stroke-width="3"/><text x="38" y="255" fill="#4f443a" font-size="14">Enemy kills</text><line x1="172" y1="250" x2="194" y2="250" stroke="#77716a" stroke-width="3"/><text x="202" y="255" fill="#4f443a" font-size="14">Hostiles seen</text><line x1="336" y1="250" x2="358" y2="250" stroke="#c8945a" stroke-width="3" stroke-dasharray="6 6"/><text x="366" y="255" fill="#4f443a" font-size="14">Own loss</text>
             </svg>
 
@@ -586,103 +584,117 @@ main {
 
 
       <section class="section" id="roadmap">
-        <h2 class="section-title">02 Development Roadmap - Six Tracks</h2>
+        <h2 class="section-title">02 Project Domains</h2>
         <div class="roadmap-grid">
 
-          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/59">
-            <h3>Gameplay Evolution</h3>
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/22">
+            <h3>Change-control</h3>
             <div class="roadmap-table">
-              <span class="roadmap-label">Goal</span><span>Use real game outcomes to drive roadmap, task, and release decisions.</span>
-              <span class="roadmap-label">Next</span><span>Use game-result evidence to drive roadmap, task, and release updates.</span>
+              <span class="roadmap-label">Goal</span><span>Keep repository, PR, Project, and release governance enforceable.</span>
+              <span class="roadmap-label">Next</span><span>No active item; latest tracked: #22 Done - PR #34; issue form + PR template + docs contract</span>
             </div>
             <div class="progress-row">
-              <span class="progress-value">58%</span>
-              <span class="progress-track"><span class="progress-fill" style="width: 58%"></span></span>
+              <span class="progress-value">100%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 100%"></span></span>
             </div>
-            <div class="roadmap-status">#59 In progress · GitHub</div>
+            <div class="roadmap-status">19 Project items · 0 active · 19 done</div>
           </a>
 
 
-          <article class="roadmap-card">
-            <h3>Territory</h3>
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/273">
+            <h3>Agent OS</h3>
             <div class="roadmap-table">
-              <span class="roadmap-label">Goal</span><span>Claim, hold, and grow the controlled room footprint first.</span>
-              <span class="roadmap-label">Next</span><span>No current GitHub/Project evidence available.</span>
+              <span class="roadmap-label">Goal</span><span>Keep autonomous scheduling, routing, review, and handoff operations healthy.</span>
+              <span class="roadmap-label">Next</span><span>Current: #273 Ready - RCA from owner report: #232 was marked Done after scaffold/vision PR, w...</span>
             </div>
             <div class="progress-row">
-              <span class="progress-value">0%</span>
-              <span class="progress-track"><span class="progress-fill" style="width: 0%"></span></span>
+              <span class="progress-value">93%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 93%"></span></span>
             </div>
-            <div class="roadmap-status">No matching Project item</div>
-          </article>
+            <div class="roadmap-status">27 Project items · 2 active · 25 done</div>
+          </a>
+
+
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/165">
+            <h3>Bot capability</h3>
+            <div class="roadmap-table">
+              <span class="roadmap-label">Goal</span><span>Ship gameplay behavior that advances territory, resources, and combat outcomes.</span>
+              <span class="roadmap-label">Next</span><span>Current: #165 In progress - 2026-04-28 scheduler created resources/economy gameplay lane to r...</span>
+            </div>
+            <div class="progress-row">
+              <span class="progress-value">94%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 94%"></span></span>
+            </div>
+            <div class="roadmap-status">282 Project items · 16 active · 266 done</div>
+          </a>
 
 
           <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/29">
-            <h3>Resource Economy</h3>
+            <h3>Runtime monitor</h3>
             <div class="roadmap-table">
-              <span class="roadmap-label">Goal</span><span>Convert territory into energy, minerals, logistics, and spawn scale.</span>
-              <span class="roadmap-label">Next</span><span>Persist runtime-summary lines, reduce KPI evidence, and deliver scheduled monitor rep...</span>
+              <span class="roadmap-label">Goal</span><span>Turn live Screeps telemetry into reliable KPI, alert, and report evidence.</span>
+              <span class="roadmap-label">Next</span><span>Current: #29 Ready - Persist runtime-summary lines, reduce KPI evidence, and deliver schedule...</span>
             </div>
             <div class="progress-row">
-              <span class="progress-value">35%</span>
-              <span class="progress-track"><span class="progress-fill" style="width: 35%"></span></span>
+              <span class="progress-value">96%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 96%"></span></span>
             </div>
-            <div class="roadmap-status">#29 Ready · GitHub</div>
+            <div class="roadmap-status">28 Project items · 1 active · 27 done</div>
           </a>
 
 
-          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/62">
-            <h3>Combat</h3>
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/23">
+            <h3>Private smoke</h3>
             <div class="roadmap-table">
-              <span class="roadmap-label">Goal</span><span>Make defense and offense serve territorial and economic control.</span>
-              <span class="roadmap-label">Next</span><span>Connect alert signals to bounded tactical emergency triage.</span>
+              <span class="roadmap-label">Goal</span><span>Validate runtime changes safely before official MMO release pressure.</span>
+              <span class="roadmap-label">Next</span><span>No active item; latest tracked: #23 Done - Linked PR #16 / smoke harness verification evidence</span>
             </div>
             <div class="progress-row">
               <span class="progress-value">100%</span>
               <span class="progress-track"><span class="progress-fill" style="width: 100%"></span></span>
             </div>
-            <div class="roadmap-status">#62 Done · GitHub</div>
+            <div class="roadmap-status">3 Project items · 0 active · 3 done</div>
           </a>
 
 
-          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/27">
-            <h3>Reliability / P0</h3>
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/63">
+            <h3>Official MMO</h3>
             <div class="roadmap-table">
-              <span class="roadmap-label">Goal</span><span>Let automation health override game goals only when it blocks delivery.</span>
-              <span class="roadmap-label">Next</span><span>Keep watch-only P0 monitor evidence current.</span>
+              <span class="roadmap-label">Goal</span><span>Deploy and verify accepted changes against the official Screeps world.</span>
+              <span class="roadmap-label">Next</span><span>Current: #63 In progress - Record expected KPI movement and proof for gameplay releases and h...</span>
             </div>
             <div class="progress-row">
-              <span class="progress-value">100%</span>
-              <span class="progress-track"><span class="progress-fill" style="width: 100%"></span></span>
+              <span class="progress-value">90%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 90%"></span></span>
             </div>
-            <div class="roadmap-status">#27 Done · Agent OS</div>
+            <div class="roadmap-status">10 Project items · 1 active · 9 done</div>
           </a>
 
 
-          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/28">
-            <h3>Foundation Gates</h3>
+          <a class="roadmap-card" href="https://github.com/lanyusea/screeps/issues/59">
+            <h3>Docs/process</h3>
             <div class="roadmap-table">
-              <span class="roadmap-label">Goal</span><span>Private smoke proof, release gates, and official MMO deployment evidence.</span>
-              <span class="roadmap-label">Next</span><span>Run a clean private-server smoke check and publish redacted evidence.</span>
+              <span class="roadmap-label">Goal</span><span>Preserve decisions, roadmap contracts, and operating context for agent continuity.</span>
+              <span class="roadmap-label">Next</span><span>Current: #59 In progress - Use game-result evidence to drive roadmap, task, and release updates.</span>
             </div>
             <div class="progress-row">
-              <span class="progress-value">100%</span>
-              <span class="progress-track"><span class="progress-fill" style="width: 100%"></span></span>
+              <span class="progress-value">80%</span>
+              <span class="progress-track"><span class="progress-fill" style="width: 80%"></span></span>
             </div>
-            <div class="roadmap-status">#28 Done · GitHub</div>
+            <div class="roadmap-status">20 Project items · 4 active · 16 done</div>
           </a>
 
         </div>
       </section>
 
 
-      <section class="section" id="gameplay-kanban">
-        <h2 class="section-title">03 Gameplay Strategy Kanban</h2>
+      <section class="section" id="domain-kanban">
+        <h2 class="section-title">03 Project Domain Board</h2>
         <div class="kanban-grid">
 
           <article class="kanban-column">
             <div class="column-heading">
-              <h3>Backlog</h3>
+              <h3>Change-control</h3>
               <span class="column-count">0</span>
             </div>
             <div class="kanban-empty">—</div>
@@ -691,14 +703,21 @@ main {
 
           <article class="kanban-column">
             <div class="column-heading">
-              <h3>Active</h3>
-              <span class="column-count">1</span>
+              <h3>Agent OS</h3>
+              <span class="column-count">2</span>
             </div>
 
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/59">
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/273">
               <span class="kanban-priority">P1</span>
-              <h4>#59 Gameplay Evolution: game-result review to roadmap loop</h4>
-              <p>Use game-result evidence to drive roadmap, task, and release updates.</p>
+              <h4>#273 P1: Agent OS: prevent research scaffold closure false positives</h4>
+              <p>Ready · Agent OS · RCA from owner report: #232 was marked Done after scaffold/vision PR, while full autoresea...</p>
+            </a>
+
+
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/408">
+              <span class="kanban-priority">P1</span>
+              <h4>#408 P1 Agent OS: strategy reports must include proactive P0 postmortems</h4>
+              <p>Ready · Agent OS · Owner correction: strategy-adjustment reports in 1497586175580311654 must proactively incl...</p>
             </a>
 
           </article>
@@ -706,59 +725,58 @@ main {
 
           <article class="kanban-column">
             <div class="column-heading">
-              <h3>Private Smoke</h3>
-              <span class="column-count">0</span>
-            </div>
-            <div class="kanban-empty">—</div>
-          </article>
-
-
-          <article class="kanban-column">
-            <div class="column-heading">
-              <h3>Done</h3>
+              <h3>Bot capability</h3>
               <span class="column-count">4</span>
             </div>
 
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/78">
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/165">
+              <span class="kanban-priority">P1</span>
+              <h4>#165 P1: Bot Capability: prefer spawn refill before extension top-off</h4>
+              <p>In progress · Bot capability · 2026-04-28 scheduler created resources/economy gameplay lane to restore two-la...</p>
+            </a>
+
+
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/223">
+              <span class="kanban-priority">P1</span>
+              <h4>#223 P1: Bot Capability: extend territory control opportunities after...</h4>
+              <p>In progress · Bot capability · Closed by merged PR #224; main 9e36c93 deployed to official MMO by run 2506801...</p>
+            </a>
+
+
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/406">
               <span class="kanban-priority">P0</span>
-              <h4>#78 P0: Agent OS continuation worker autonomous scheduler migration</h4>
-              <p>Agent OS</p>
+              <h4>#406 P0 Combat: replace null-stub defense path with real survival res...</h4>
+              <p>In review · Bot capability · Bot capability</p>
             </a>
 
 
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/85">
-              <span class="kanban-priority">P1</span>
-              <h4>#85 Bot capability</h4>
-              <p>Bot capability</p>
-            </a>
-
-
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/89">
-              <span class="kanban-priority">P1</span>
-              <h4>#89 Bot capability</h4>
-              <p>Bot capability</p>
-            </a>
-
-
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/91">
-              <span class="kanban-priority">P1</span>
-              <h4>#91 Bot capability</h4>
-              <p>PR #92 review-fix QA PASS proc_[redacted]: source-count cache verified, diff-check, typecheck, Jest 92, build...</p>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/pull/419">
+              <span class="kanban-priority">P0</span>
+              <h4>#419 feat: add concrete combat survival response</h4>
+              <p>In review · Bot capability · Bot capability</p>
             </a>
 
           </article>
 
-        </div>
-      </section>
-
-
-      <section class="section" id="foundation-kanban">
-        <h2 class="section-title">04 Foundation Delivery Kanban</h2>
-        <div class="kanban-grid">
 
           <article class="kanban-column">
             <div class="column-heading">
-              <h3>Backlog</h3>
+              <h3>Runtime monitor</h3>
+              <span class="column-count">1</span>
+            </div>
+
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/29">
+              <span class="kanban-priority">P1</span>
+              <h4>#29 Runtime summary and alert scheduled monitor delivery</h4>
+              <p>Ready · Runtime monitor · Persist runtime-summary lines, reduce KPI evidence, and deliver scheduled monitor r...</p>
+            </a>
+
+          </article>
+
+
+          <article class="kanban-column">
+            <div class="column-heading">
+              <h3>Private smoke</h3>
               <span class="column-count">0</span>
             </div>
             <div class="kanban-empty">—</div>
@@ -767,21 +785,14 @@ main {
 
           <article class="kanban-column">
             <div class="column-heading">
-              <h3>Active</h3>
-              <span class="column-count">2</span>
+              <h3>Official MMO</h3>
+              <span class="column-count">1</span>
             </div>
 
             <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/63">
               <span class="kanban-priority">P1</span>
               <h4>#63 Gameplay release cadence and emergency hotfix evidence</h4>
-              <p>Record expected KPI movement and proof for gameplay releases and hotfixes.</p>
-            </a>
-
-
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/29">
-              <span class="kanban-priority">P1</span>
-              <h4>#29 Runtime summary and alert scheduled monitor delivery</h4>
-              <p>Persist runtime-summary lines, reduce KPI evidence, and deliver scheduled monitor reports.</p>
+              <p>In progress · Official MMO · Record expected KPI movement and proof for gameplay releases and hotfixes.</p>
             </a>
 
           </article>
@@ -789,44 +800,35 @@ main {
 
           <article class="kanban-column">
             <div class="column-heading">
-              <h3>Private Smoke</h3>
-              <span class="column-count">0</span>
-            </div>
-            <div class="kanban-empty">—</div>
-          </article>
-
-
-          <article class="kanban-column">
-            <div class="column-heading">
-              <h3>Done</h3>
+              <h3>Docs/process</h3>
               <span class="column-count">4</span>
             </div>
 
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/22">
-              <span class="kanban-priority">P0</span>
-              <h4>#22 Change-control</h4>
-              <p>PR #34; issue form + PR template + docs contract</p>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/59">
+              <span class="kanban-priority">P1</span>
+              <h4>#59 Gameplay Evolution: game-result review to roadmap loop</h4>
+              <p>In progress · Docs/process · Use game-result evidence to drive roadmap, task, and release updates.</p>
             </a>
 
 
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/36">
-              <span class="kanban-priority">P0</span>
-              <h4>#36 Change-control</h4>
-              <p>PR documenting GitHub roadmap management contract; verifies milestones/project fields/items</p>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/421">
+              <span class="kanban-priority">P1</span>
+              <h4>#421 Refresh roadmap report classification from current Project domains</h4>
+              <p>In progress · Docs/process · Issue #421 created from owner request; current report uses old six-track classif...</p>
             </a>
 
 
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/39">
-              <span class="kanban-priority">P0</span>
-              <h4>#39 Change-control</h4>
-              <p>PR #40 merged at 2026-04-26T08:19:33Z; issue closed via Fixes #39; main fast-forwarded to d64f30a.</p>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/409">
+              <span class="kanban-priority">P1</span>
+              <h4>#409 P1: Gameplay Evolution: make RL dataset/evaluation gate executable</h4>
+              <p>Ready · Docs/process · Owner escalation 2026-05-01: RL strategy iteration must not stall. #262 paper done, #2...</p>
             </a>
 
 
-            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/41">
-              <span class="kanban-priority">P0</span>
-              <h4>#41 Establish dedicated QA acceptance-check agent gate</h4>
-              <p>PR #42 merged at 2026-04-26T08:26:48Z after QA PASS; issue #41 closed; docs-only QA acceptance gate landed wi...</p>
+            <a class="kanban-item" href="https://github.com/lanyusea/screeps/issues/412">
+              <span class="kanban-priority">P1</span>
+              <h4>#412 P1: RL Flywheel: aggressive simulator-training-validation rollou...</h4>
+              <p>Ready · Docs/process · Project reconciliation 2026-05-01T02:56Z: #412 is a parent RL flywheel planning/loop i...</p>
             </a>
 
           </article>
@@ -836,34 +838,34 @@ main {
 
 
       <section class="section" id="process">
-        <h2 class="section-title">05 Development Process Data</h2>
+        <h2 class="section-title">04 Development Process Data</h2>
         <div class="process-grid">
 
           <article class="process-card">
-            <p class="process-value">249</p>
+            <p class="process-value">298</p>
             <p class="process-label">Total commits</p>
             <p class="process-detail">repository history</p>
           </article>
 
 
           <article class="process-card">
-            <p class="process-value">173</p>
+            <p class="process-value">225</p>
             <p class="process-label">Total PRs</p>
-            <p class="process-detail">167 merged</p>
+            <p class="process-detail">216 merged</p>
           </article>
 
 
           <article class="process-card">
-            <p class="process-value">141</p>
+            <p class="process-value">196</p>
             <p class="process-label">Total issues</p>
-            <p class="process-detail">8 open</p>
+            <p class="process-detail">19 open</p>
           </article>
 
 
           <article class="process-card">
-            <p class="process-value">44</p>
+            <p class="process-value">6</p>
             <p class="process-label">Official deploys</p>
-            <p class="process-detail">official deploy evidence · latest commit b420085b785f</p>
+            <p class="process-detail">GitHub Project official deploy evidence</p>
           </article>
 
 
@@ -877,7 +879,7 @@ main {
       </section>
 
     </main>
-    <footer class="report-footer">format roadmap-portrait-kpi-kanban-v5 · repo https://github.com/lanyusea/screeps · generated 2026-04-29T13:16:29Z</footer>
+    <footer class="report-footer">format roadmap-portrait-kpi-kanban-v5 · repo https://github.com/lanyusea/screeps · generated 2026-05-01T03:36:06Z</footer>
   </div>
 </body>
 </html>
