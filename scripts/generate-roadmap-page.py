@@ -484,6 +484,13 @@ PROJECT_DOMAIN_ORDER: tuple[str, ...] = (
     "Docs/process",
 )
 
+PROJECT_DOMAIN_FIELD_KEYS: tuple[str, ...] = (
+    "Project Domain",
+    "projectDomain",
+    "project_domain",
+    "Domain",
+)
+
 PROJECT_DOMAIN_GOALS: dict[str, str] = {
     "Change-control": "Keep repository, PR, Project, and release governance enforceable.",
     "Agent OS": "Keep autonomous scheduling, routing, review, and handoff operations healthy.",
@@ -1462,6 +1469,7 @@ def normalize_issue(item: Any) -> JsonObject:
         "status": infer_status_from_labels(labels),
         "priority": infer_priority(labels),
         "domain": infer_domain(labels, milestone.get("title") or "", item.get("title") or ""),
+        "domainSource": "heuristic",
         "kind": infer_kind(labels),
         "updatedAt": item.get("updatedAt") or "",
         "createdAt": item.get("createdAt") or "",
@@ -1483,6 +1491,7 @@ def normalize_pull_request(item: Any) -> JsonObject:
         "status": "In review",
         "priority": infer_priority(labels),
         "domain": infer_domain(labels, "", item.get("title") or ""),
+        "domainSource": "heuristic",
         "kind": "code",
         "isDraft": bool(item.get("isDraft")),
         "reviewDecision": item.get("reviewDecision"),
@@ -1508,7 +1517,8 @@ def normalize_project_item(item: JsonObject) -> JsonObject:
     milestone = normalize_milestone(item.get("milestone") or content.get("milestone"))
     status = str(item.get("Status") or item.get("status") or infer_status_from_labels(labels) or "Backlog")
     priority = str(item.get("Priority") or item.get("priority") or infer_priority(labels))
-    domain = str(item.get("Domain") or item.get("domain") or infer_domain(labels, milestone, title))
+    explicit_domain = project_domain(item)
+    domain = explicit_domain or infer_domain(labels, milestone, title)
     kind = str(item.get("Kind") or item.get("kind") or infer_kind(labels))
     return {
         "type": item.get("type") or content.get("type") or "",
@@ -1521,6 +1531,8 @@ def normalize_project_item(item: JsonObject) -> JsonObject:
         "status": status,
         "priority": priority,
         "domain": domain,
+        "projectDomain": explicit_domain,
+        "domainSource": "project" if explicit_domain else "heuristic",
         "kind": kind,
         "evidence": str(item.get("Evidence") or item.get("evidence") or ""),
         "nextAction": str(item.get("Next action") or item.get("nextAction") or ""),
@@ -1589,15 +1601,29 @@ def infer_domain(labels: Sequence[str], milestone: str, title: str) -> str:
     return "Bot capability"
 
 
+def canonical_project_domain(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    by_lower = {domain.lower(): domain for domain in PROJECT_DOMAIN_ORDER}
+    return by_lower.get(raw.lower(), "")
+
+
 def project_domain(item: Mapping[str, Any]) -> str:
-    raw = str(item.get("Domain") or item.get("domain") or "").strip()
-    if raw:
-        by_lower = {domain.lower(): domain for domain in PROJECT_DOMAIN_ORDER}
-        matched = by_lower.get(raw.lower())
+    saw_explicit_field = False
+    for key in PROJECT_DOMAIN_FIELD_KEYS:
+        if str(item.get(key) or "").strip():
+            saw_explicit_field = True
+        matched = canonical_project_domain(item.get(key))
         if matched:
             return matched
-    labels = item.get("labels") if isinstance(item.get("labels"), list) else []
-    return infer_domain([str(label) for label in labels], str(item.get("milestone") or ""), str(item.get("title") or ""))
+    if saw_explicit_field:
+        return ""
+
+    source = str(item.get("domainSource") or item.get("domain_source") or "").strip().lower()
+    if source != "heuristic":
+        return canonical_project_domain(item.get("domain"))
+    return ""
 
 
 def domain_order_index(domain: str) -> int:
@@ -1650,6 +1676,8 @@ def build_roadmap_cards(project_items: Sequence[JsonObject], issues: Sequence[Js
                 "status": item.get("status", "Backlog"),
                 "priority": item.get("priority", "P1"),
                 "domain": item.get("domain", "Bot capability"),
+                "projectDomain": project_domain(item),
+                "domainSource": item.get("domainSource", ""),
                 "milestone": item.get("milestone", ""),
                 "visionLayer": classify_vision_layer(item),
                 "nextAction": next_action,
@@ -1687,6 +1715,8 @@ def build_kanban_cards(
                 "status": normalize_status(item.get("status")),
                 "priority": item.get("priority", "P1"),
                 "domain": item.get("domain", "Bot capability"),
+                "projectDomain": project_domain(item),
+                "domainSource": item.get("domainSource", ""),
                 "kind": item.get("kind", "code"),
                 "visionLayer": vision_layer,
                 "lane": project_domain(item),

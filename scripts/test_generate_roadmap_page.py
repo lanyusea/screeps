@@ -200,6 +200,25 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                     "domain": "Bot capability",
                     "nextAction": "Extend territory control opportunities.",
                 },
+                {
+                    "type": "Issue",
+                    "number": 421,
+                    "title": "Runtime monitor title should not be guessed",
+                    "url": "https://github.com/lanyusea/screeps/issues/421",
+                    "status": "Ready",
+                    "priority": "P1",
+                    "nextAction": "This item has no explicit Project Domain.",
+                },
+                {
+                    "type": "Issue",
+                    "number": 422,
+                    "title": "Official deploy title should not override an unknown domain",
+                    "url": "https://github.com/lanyusea/screeps/issues/422",
+                    "status": "Ready",
+                    "priority": "P1",
+                    "domain": "Official release",
+                    "nextAction": "This item has an unrecognized Project Domain value.",
+                },
             ],
             "issues": [],
             "pullRequests": [],
@@ -216,11 +235,43 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         docs_column = next(column for column in domain_board if column["title"] == "Docs/process")
         official_column = next(column for column in domain_board if column["title"] == "Official MMO")
         bot_column = next(column for column in domain_board if column["title"] == "Bot capability")
+        runtime_card = next(card for card in roadmap_cards if card["title"] == "Runtime monitor")
+        official_card = next(card for card in roadmap_cards if card["title"] == "Official MMO")
 
+        self.assertEqual(runtime_card["totalItems"], 1)
+        self.assertEqual(official_card["totalItems"], 1)
         self.assertEqual([item["number"] for item in runtime_column["items"]], [29])
         self.assertEqual([item["number"] for item in docs_column["items"]], [59])
         self.assertEqual([item["number"] for item in official_column["items"]], [63])
         self.assertEqual([item["number"] for item in bot_column["items"]], [165, 223])
+
+    def test_project_domain_requires_explicit_recognized_value(self) -> None:
+        self.assertEqual(roadmap.project_domain({"domain": "runtime monitor"}), "Runtime monitor")
+        self.assertEqual(roadmap.project_domain({"Project Domain": "bot capability"}), "Bot capability")
+        self.assertEqual(
+            roadmap.project_domain({"title": "Runtime monitor delivery", "labels": ["roadmap"]}),
+            "",
+        )
+        self.assertEqual(
+            roadmap.project_domain({"domain": "Runtime delivery", "title": "Official deploy"}),
+            "",
+        )
+        self.assertEqual(
+            roadmap.project_domain({"Project Domain": "Runtime delivery", "domain": "Runtime monitor"}),
+            "",
+        )
+
+        normalized = roadmap.normalize_project_item(
+            {
+                "type": "Issue",
+                "number": 9001,
+                "title": "Runtime monitor delivery",
+                "labels": ["roadmap"],
+            }
+        )
+        self.assertEqual(normalized["domain"], "Runtime monitor")
+        self.assertEqual(normalized["domainSource"], "heuristic")
+        self.assertEqual(roadmap.project_domain(normalized), "")
 
     def test_visible_report_sections_use_project_domain_language(self) -> None:
         data = {
