@@ -340,7 +340,11 @@ function buildTerritoryRankingItem(
       resources: Math.min(candidate.sourceCount ?? 0, 3) * 2,
       kills: hostileRisk > 0 ? 1 : 0,
       reliability: candidate.evidenceStatus === 'sufficient' ? 1 : 0,
-      risk: hostileRisk + evidenceRisk + (candidate.risks?.length ?? 0) + Math.max(0, (candidate.routeDistance ?? 1) - 1)
+      risk:
+        hostileRisk +
+        evidenceRisk +
+        (candidate.risks?.length ?? 0) +
+        Math.max(0, (candidate.roadDistance ?? candidate.routeDistance ?? 1) - 1)
     }
   };
 }
