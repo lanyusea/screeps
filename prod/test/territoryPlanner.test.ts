@@ -721,6 +721,76 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('scores expansion candidates by road distance from the nearest owned room', () => {
+    const colony = makeSafeColony();
+    const secondaryOwnedRoom = {
+      name: 'W8N1',
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 }
+    } as Room;
+    const findRoute = jest.fn((fromRoom: string, toRoom: string) =>
+      Array.from(
+        {
+          length:
+            fromRoom === 'W8N1' && toRoom === 'W9N1'
+              ? 1
+              : fromRoom === 'W1N1' && toRoom === 'W3N1'
+                ? 2
+                : fromRoom === 'W1N1' && toRoom === 'W9N1'
+                  ? 6
+                  : 8
+        },
+        (_value, index) => ({
+          exit: 3,
+          room: `${toRoom}-${index}`
+        })
+      )
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W8N1: secondaryOwnedRoom,
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 1 }),
+        W9N1: makeRecommendationRoom('W9N1', { sourceCount: 1 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W9N1', action: 'reserve' }
+        ]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 566)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W9N1',
+      action: 'reserve'
+    });
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W3N1');
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W9N1');
+    expect(findRoute).toHaveBeenCalledWith('W8N1', 'W3N1');
+    expect(findRoute).toHaveBeenCalledWith('W8N1', 'W9N1');
+    expect(Memory.territory?.routeDistances).toEqual({
+      'W1N1>W3N1': 2,
+      'W8N1>W3N1': 8,
+      'W1N1>W9N1': 6,
+      'W8N1>W9N1': 1
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W9N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 566
+      }
+    ]);
+  });
+
   it('excludes a cached no-route recommendation before selecting the next visible reserve candidate', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = -2 as ScreepsReturnCode;

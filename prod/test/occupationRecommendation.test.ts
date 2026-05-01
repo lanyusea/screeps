@@ -51,6 +51,43 @@ describe('occupation recommendation scoring', () => {
     expect(report.candidates.map((candidate) => candidate.roomName)).toEqual(['W3N1', 'W2N1']);
   });
 
+  it('uses road distance to prefer closer reserve rooms with similar resource potential', () => {
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          sourceCount: 1,
+          routeDistance: 1,
+          roadDistance: 1
+        }),
+        makeCandidate({
+          roomName: 'W7N1',
+          sourceCount: 2,
+          routeDistance: 6,
+          roadDistance: 6
+        })
+      ])
+    );
+
+    const closeCandidate = report.candidates.find((candidate) => candidate.roomName === 'W2N1');
+    const distantCandidate = report.candidates.find((candidate) => candidate.roomName === 'W7N1');
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      action: 'reserve',
+      evidenceStatus: 'sufficient',
+      sourceCount: 1,
+      roadDistance: 1
+    });
+    expect(distantCandidate).toMatchObject({
+      roomName: 'W7N1',
+      sourceCount: 2,
+      roadDistance: 6
+    });
+    expect(closeCandidate?.score).toBeGreaterThan(distantCandidate?.score ?? 0);
+    expect(report.candidates.map((candidate) => candidate.roomName)).toEqual(['W2N1', 'W7N1']);
+  });
+
   it('recommends scouting when visibility evidence is missing', () => {
     const report = scoreOccupationRecommendations(
       makeInput([

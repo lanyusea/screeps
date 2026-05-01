@@ -21,6 +21,7 @@ export interface OccupationRecommendationScore {
   preconditions: string[];
   risks: string[];
   routeDistance?: number;
+  roadDistance?: number;
   controllerId?: Id<StructureController>;
   requiresControllerPressure?: boolean;
   sourceCount?: number;
@@ -56,6 +57,7 @@ export interface OccupationRecommendationCandidateInput {
   actionHint?: TerritoryControlAction;
   controllerId?: Id<StructureController>;
   routeDistance?: number | null;
+  roadDistance?: number;
   controller?: OccupationControllerEvidence;
   sourceCount?: number;
   hostileCreepCount?: number;
@@ -80,6 +82,8 @@ const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
 const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
+const ROAD_DISTANCE_BASE_SCORE = 100;
+const ROAD_DISTANCE_ROOM_COST_SCORE = 20;
 type OccupationRecommendationControlTargetKey = Pick<TerritoryTargetMemory, 'roomName' | 'action'>;
 
 // Project vision ordering: territory action dominates resource value; combat/risk only gates or deprioritizes.
@@ -365,7 +369,8 @@ function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecomme
         visible: false,
         actionHint: target.action,
         ...(target.controllerId ? { controllerId: target.controllerId } : {}),
-        routeDistance: getCachedRouteDistance(colonyName, target.roomName)
+        routeDistance: getCachedRouteDistance(colonyName, target.roomName),
+        roadDistance: getCachedNearestOwnedRoomRouteDistance(colonyName, target.roomName)
       });
       order += 1;
     }
@@ -373,13 +378,15 @@ function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecomme
 
   for (const roomName of getAdjacentRoomNames(colonyName)) {
     const cachedRouteDistance = getCachedRouteDistance(colonyName, roomName);
+    const routeDistance = cachedRouteDistance === undefined ? 1 : cachedRouteDistance;
     upsertOccupationCandidate(candidatesByRoom, {
       roomName,
       source: 'adjacent',
       order,
       adjacent: true,
       visible: false,
-      routeDistance: cachedRouteDistance === undefined ? 1 : cachedRouteDistance
+      routeDistance,
+      ...(typeof routeDistance === 'number' ? { roadDistance: routeDistance } : {})
     });
     order += 1;
   }
@@ -412,6 +419,9 @@ function upsertOccupationCandidate(
   }
   if (existing.routeDistance === undefined && candidate.routeDistance !== undefined) {
     existing.routeDistance = candidate.routeDistance;
+  }
+  if (existing.roadDistance === undefined && candidate.roadDistance !== undefined) {
+    existing.roadDistance = candidate.roadDistance;
   }
 }
 
@@ -519,6 +529,7 @@ function scoreOccupationCandidate(
     preconditions,
     risks,
     ...(routeDistance !== undefined ? { routeDistance } : {}),
+    ...(candidate.roadDistance !== undefined ? { roadDistance: candidate.roadDistance } : {}),
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.sourceCount !== undefined ? { sourceCount: candidate.sourceCount } : {}),
@@ -554,8 +565,11 @@ function calculateOccupationScore(
   action: OccupationRecommendationAction,
   evidenceStatus: OccupationRecommendationEvidenceStatus
 ): number {
-  const distanceScore =
-    typeof candidate.routeDistance === 'number' ? Math.max(0, 80 - candidate.routeDistance * 15) : 0;
+  const roadDistance = getCandidateRoadDistance(candidate);
+  const roadDistanceScore =
+    typeof roadDistance === 'number'
+      ? ROAD_DISTANCE_BASE_SCORE - roadDistance * ROAD_DISTANCE_ROOM_COST_SCORE
+      : 0;
   const sourceScore = typeof candidate.sourceCount === 'number' ? Math.min(candidate.sourceCount, 2) * 70 : 0;
   const supportScore =
     Math.min(candidate.ownedStructureCount ?? 0, 3) * 8 +
@@ -577,7 +591,7 @@ function calculateOccupationScore(
     ACTION_SCORE[action] +
     sourcePriorityScore +
     adjacencyScore +
-    distanceScore +
+    roadDistanceScore +
     sourceScore +
     supportScore +
     readinessScore -
@@ -586,6 +600,10 @@ function calculateOccupationScore(
     evidencePenalty -
     unavailablePenalty
   );
+}
+
+function getCandidateRoadDistance(candidate: OccupationRecommendationCandidateInput): number | undefined {
+  return candidate.roadDistance ?? (typeof candidate.routeDistance === 'number' ? candidate.routeDistance : undefined);
 }
 
 function getControllerPressureEvidence(
@@ -810,6 +828,40 @@ function getCachedRouteDistance(fromRoom: string, targetRoom: string): number | 
 
   const distance = routeDistances[`${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}`];
   return typeof distance === 'number' || distance === null ? distance : undefined;
+}
+
+function getCachedNearestOwnedRoomRouteDistance(fromRoom: string, targetRoom: string): number | undefined {
+  const ownedRoomNames = getVisibleOwnedRoomNames(fromRoom);
+  let nearestDistance: number | undefined;
+  for (const ownedRoomName of ownedRoomNames) {
+    const distance =
+      ownedRoomName === fromRoom
+        ? getCachedRouteDistance(fromRoom, targetRoom)
+        : getCachedRouteDistance(ownedRoomName, targetRoom);
+    if (typeof distance !== 'number') {
+      continue;
+    }
+
+    nearestDistance = nearestDistance === undefined ? distance : Math.min(nearestDistance, distance);
+  }
+
+  return nearestDistance;
+}
+
+function getVisibleOwnedRoomNames(fallbackRoomName: string): string[] {
+  const roomNames = new Set<string>([fallbackRoomName]);
+  const rooms = getGameRooms();
+  if (!rooms) {
+    return Array.from(roomNames);
+  }
+
+  for (const room of Object.values(rooms)) {
+    if (room?.controller?.my === true && typeof room.name === 'string' && room.name.length > 0) {
+      roomNames.add(room.name);
+    }
+  }
+
+  return Array.from(roomNames);
 }
 
 function findRoomObjects(room: Room, constantName: string): unknown[] | undefined {
