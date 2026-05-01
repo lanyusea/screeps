@@ -1266,6 +1266,7 @@ var RESERVATION_RENEWAL_TICKS = 1e3;
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
+var OCCUPATION_RECOMMENDATION_TARGET_CREATOR = "occupationRecommendation";
 var ACTION_SCORE = {
   occupy: 1e3,
   reserve: 800,
@@ -1278,12 +1279,16 @@ function scoreOccupationRecommendations(input) {
   var _a;
   const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreOccupationCandidate(input, candidate)).sort(compareOccupationRecommendationScores);
   const next = (_a = candidates.find((candidate) => candidate.evidenceStatus !== "unavailable")) != null ? _a : null;
-  return { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) };
+  return attachOccupationRecommendationReportColony(
+    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) },
+    input.colonyName
+  );
 }
 function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGameTime3()) {
   var _a, _b;
   const followUpIntent = report.followUpIntent;
   if (!followUpIntent) {
+    revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report);
     return null;
   }
   const territoryMemory = getWritableTerritoryMemoryRecord();
@@ -1311,7 +1316,102 @@ function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGam
     ...followUp ? { followUp } : {}
   };
   upsertTerritoryIntent(intents, nextIntent);
+  persistOccupationRecommendationTarget(report, nextIntent);
   return nextIntent;
+}
+function persistOccupationRecommendationTarget(report, intent) {
+  const target = buildPersistableOccupationRecommendationTarget(report, intent);
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+  if (!target) {
+    revokeOccupationRecommendationTarget(territoryMemory, intent);
+    removeStaleOccupationRecommendationTargets(
+      territoryMemory,
+      intent.colony,
+      buildActiveOccupationRecommendationControlTarget(report)
+    );
+    return;
+  }
+  removeStaleOccupationRecommendationTargets(territoryMemory, target.colony, target);
+  upsertTerritoryTarget(territoryMemory, target);
+}
+function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report) {
+  const colony = report.colonyName;
+  if (!isNonEmptyString2(colony)) {
+    return;
+  }
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+  removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
+}
+function buildPersistableOccupationRecommendationTarget(report, intent) {
+  const recommendation = report.next;
+  if (!recommendation || recommendation.roomName !== intent.targetRoom || getTerritoryIntentAction(recommendation.action) !== intent.action || recommendation.evidenceStatus !== "sufficient" || recommendation.preconditions.length > 0 || !isTerritoryControlAction(intent.action)) {
+    return null;
+  }
+  return {
+    colony: intent.colony,
+    roomName: intent.targetRoom,
+    action: intent.action,
+    createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
+    ...intent.controllerId ? { controllerId: intent.controllerId } : {}
+  };
+}
+function removeStaleOccupationRecommendationTargets(territoryMemory, colony, activeTarget) {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !((target == null ? void 0 : target.colony) === colony && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR && (!activeTarget || target.roomName !== activeTarget.roomName || target.action !== activeTarget.action));
+  });
+}
+function buildActiveOccupationRecommendationControlTarget(report) {
+  const recommendation = report.next;
+  if (!recommendation) {
+    return null;
+  }
+  const action = getTerritoryIntentAction(recommendation.action);
+  if (!isTerritoryControlAction(action)) {
+    return null;
+  }
+  return { roomName: recommendation.roomName, action };
+}
+function revokeOccupationRecommendationTarget(territoryMemory, intent) {
+  if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !((target == null ? void 0 : target.colony) === intent.colony && target.roomName === intent.targetRoom && target.action === intent.action && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR);
+  });
+}
+function upsertTerritoryTarget(territoryMemory, target) {
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+  const existingTarget = territoryMemory.targets.find((rawTarget) => {
+    const normalizedTarget = normalizeTerritoryTarget(rawTarget);
+    return (normalizedTarget == null ? void 0 : normalizedTarget.colony) === target.colony && normalizedTarget.roomName === target.roomName && normalizedTarget.action === target.action;
+  });
+  if (!existingTarget) {
+    territoryMemory.targets.push(target);
+    return;
+  }
+  if (isRecord(existingTarget) && existingTarget.enabled !== false && !existingTarget.controllerId && target.controllerId) {
+    existingTarget.controllerId = target.controllerId;
+  }
+}
+function attachOccupationRecommendationReportColony(report, colonyName) {
+  Object.defineProperty(report, "colonyName", {
+    value: colonyName,
+    enumerable: false
+  });
+  return report;
 }
 function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
   var _a, _b;
@@ -1386,7 +1486,7 @@ function upsertOccupationCandidate(candidatesByRoom, candidate) {
   }
 }
 function enrichVisibleOccupationCandidate(candidate) {
-  var _a;
+  var _a, _b;
   const room = (_a = getGameRooms()) == null ? void 0 : _a[candidate.roomName];
   if (!room) {
     return candidate;
@@ -1396,10 +1496,12 @@ function enrichVisibleOccupationCandidate(candidate) {
   const sources = findRoomObjects2(room, "FIND_SOURCES");
   const constructionSites = findRoomObjects2(room, "FIND_MY_CONSTRUCTION_SITES");
   const ownedStructures = findRoomObjects2(room, "FIND_MY_STRUCTURES");
+  const controllerId = (_b = room.controller) == null ? void 0 : _b.id;
   return {
     ...candidate,
     visible: true,
     ...room.controller ? { controller: summarizeController(room.controller) } : {},
+    ...typeof controllerId === "string" ? { controllerId } : {},
     ...sources ? { sourceCount: sources.length } : {},
     ...hostileCreeps ? { hostileCreepCount: hostileCreeps.length } : {},
     ...hostileStructures ? { hostileStructureCount: hostileStructures.length } : {},
@@ -1627,7 +1729,8 @@ function normalizeTerritoryTarget(rawTarget) {
     roomName: rawTarget.roomName,
     action: rawTarget.action,
     ...typeof rawTarget.controllerId === "string" ? { controllerId: rawTarget.controllerId } : {},
-    ...rawTarget.enabled === false ? { enabled: false } : {}
+    ...rawTarget.enabled === false ? { enabled: false } : {},
+    ...rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR } : {}
   };
 }
 function getCachedRouteDistance(fromRoom, targetRoom) {
@@ -1877,6 +1980,7 @@ var MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VISI
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR2 = ">";
 var TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 var TERRITORY_SCOUT_BODY_COST = 50;
+var OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 = "occupationRecommendation";
 var recoveredTerritoryFollowUpRetryMetadata = /* @__PURE__ */ new WeakMap();
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
@@ -3315,7 +3419,8 @@ function normalizeTerritoryTarget2(rawTarget) {
     roomName: rawTarget.roomName,
     action: rawTarget.action,
     ...typeof rawTarget.controllerId === "string" ? { controllerId: rawTarget.controllerId } : {},
-    ...rawTarget.enabled === false ? { enabled: false } : {}
+    ...rawTarget.enabled === false ? { enabled: false } : {},
+    ...rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 } : {}
   };
 }
 function recordTerritoryIntent(plan, status, gameTime, seededTarget = null, routeDistanceLookupContext = createRouteDistanceLookupContext()) {
