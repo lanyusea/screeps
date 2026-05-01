@@ -3,7 +3,7 @@ const STRATEGY_SHADOW_REPLAY_RUNTIME_SUMMARY = {
   tick: 200,
   rooms: [
     {
-      roomName: 'E48S29',
+      roomName: 'E26S49',
       energyAvailable: 350,
       energyCapacity: 550,
       workerCount: 4,
@@ -38,7 +38,7 @@ const STRATEGY_SHADOW_REPLAY_RUNTIME_SUMMARY = {
         candidates: [
           {
             buildItem: 'build extension capacity',
-            room: 'E48S29',
+            room: 'E26S49',
             score: 70,
             urgency: 'high',
             preconditions: [],
@@ -47,7 +47,7 @@ const STRATEGY_SHADOW_REPLAY_RUNTIME_SUMMARY = {
           },
           {
             buildItem: 'build remote road/container logistics',
-            room: 'E48S29',
+            room: 'E26S49',
             score: 62,
             urgency: 'medium',
             preconditions: [],
@@ -60,7 +60,7 @@ const STRATEGY_SHADOW_REPLAY_RUNTIME_SUMMARY = {
           },
           {
             buildItem: 'build rampart defense',
-            room: 'E48S29',
+            room: 'E26S49',
             score: 45,
             urgency: 'medium',
             preconditions: [],
@@ -70,7 +70,7 @@ const STRATEGY_SHADOW_REPLAY_RUNTIME_SUMMARY = {
         ],
         nextPrimary: {
           buildItem: 'build extension capacity',
-          room: 'E48S29',
+          room: 'E26S49',
           score: 70,
           urgency: 'high',
           preconditions: [],
@@ -129,7 +129,7 @@ const STRATEGY_SHADOW_REPLAY_RUNTIME_SUMMARY = {
           sourceCount: 2
         },
         followUpIntent: {
-          colony: 'E48S29',
+          colony: 'E26S49',
           targetRoom: 'E48S27',
           action: 'reserve'
         }

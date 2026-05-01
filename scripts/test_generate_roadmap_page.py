@@ -61,6 +61,15 @@ def write_evidence(repo_root: Path, name: str, evidence: dict[str, Any] | str) -
 
 
 class GenerateRoadmapPageTest(unittest.TestCase):
+    def test_screeps_room_target_falls_back_to_current_official_room(self) -> None:
+        target = roadmap.build_screeps_room_target({})
+
+        self.assertEqual(target["status"], "official target")
+        self.assertEqual(target["label"], "shardX/E26S49")
+        self.assertEqual(target["shard"], "shardX")
+        self.assertEqual(target["room"], "E26S49")
+        self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E26S49")
+
     def test_counts_only_successful_official_deploy_evidence_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
