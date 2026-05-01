@@ -107,6 +107,7 @@ interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
   recommendationScore?: number;
   recommendationEvidenceStatus?: OccupationRecommendationEvidenceStatus;
   routeDistance?: number;
+  roadDistance?: number;
   renewalTicksToEnd?: number;
   immediateControllerFollowUp?: boolean;
   occupationActionableTicks?: number;
@@ -1772,6 +1773,12 @@ function scoreTerritoryCandidate(
     return null;
   }
   const routeDistance = knownRouteDistance ?? getInferredTerritoryRouteDistance(source);
+  const roadDistance = getNearestOwnedRoomRouteDistance(
+    colonyName,
+    selection.target.roomName,
+    routeDistance,
+    routeDistanceLookupContext
+  );
 
   const renewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(selection.target, colonyOwnerUsername);
   const occupationActionableTicks =
@@ -1793,6 +1800,7 @@ function scoreTerritoryCandidate(
     priority: getTerritoryCandidatePriority(selection, renewalTicksToEnd),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(routeDistance !== undefined ? { routeDistance } : {}),
+    ...(roadDistance !== undefined ? { roadDistance } : {}),
     ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}),
     ...(occupationActionableTicks !== undefined ? { occupationActionableTicks } : {})
   };
@@ -1963,6 +1971,7 @@ function buildOccupationRecommendationCandidate(
     visible: room != null,
     actionHint: candidate.target.action,
     ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
+    ...(candidate.roadDistance !== undefined ? { roadDistance: candidate.roadDistance } : {}),
     ...(room ? buildVisibleOccupationRecommendationEvidence(room, candidate.target.controllerId) : {})
   };
 }
@@ -2302,6 +2311,44 @@ function hasKnownNoRoute(
   routeDistanceLookupContext: RouteDistanceLookupContext
 ): boolean {
   return getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) === null;
+}
+
+function getNearestOwnedRoomRouteDistance(
+  colonyName: string,
+  targetRoom: string,
+  fallbackRouteDistance: number | undefined,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): number | undefined {
+  let nearestDistance = fallbackRouteDistance;
+  for (const ownedRoomName of getVisibleOwnedRoomNames(colonyName)) {
+    const routeDistance =
+      ownedRoomName === colonyName
+        ? fallbackRouteDistance
+        : getKnownRouteLength(ownedRoomName, targetRoom, routeDistanceLookupContext);
+    if (typeof routeDistance !== 'number') {
+      continue;
+    }
+
+    nearestDistance = nearestDistance === undefined ? routeDistance : Math.min(nearestDistance, routeDistance);
+  }
+
+  return nearestDistance;
+}
+
+function getVisibleOwnedRoomNames(fallbackRoomName: string): string[] {
+  const roomNames = new Set<string>([fallbackRoomName]);
+  const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+  if (!rooms) {
+    return Array.from(roomNames);
+  }
+
+  for (const room of Object.values(rooms)) {
+    if (room?.controller?.my === true && isNonEmptyString(room.name)) {
+      roomNames.add(room.name);
+    }
+  }
+
+  return Array.from(roomNames);
 }
 
 function getKnownRouteLength(

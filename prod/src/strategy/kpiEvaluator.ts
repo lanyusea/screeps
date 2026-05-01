@@ -94,6 +94,7 @@ export interface StrategyRuntimeTerritoryCandidate {
   preconditions?: string[];
   risks?: string[];
   routeDistance?: number;
+  roadDistance?: number;
   sourceCount?: number;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
@@ -585,6 +586,7 @@ function normalizeTerritoryCandidate(rawCandidate: unknown): StrategyRuntimeTerr
         : {}),
       ...(Array.isArray(rawCandidate.risks) ? { risks: rawCandidate.risks.filter(isNonEmptyString) } : {}),
       ...(isFiniteNumber(rawCandidate.routeDistance) ? { routeDistance: rawCandidate.routeDistance } : {}),
+      ...(isFiniteNumber(rawCandidate.roadDistance) ? { roadDistance: rawCandidate.roadDistance } : {}),
       ...(isFiniteNumber(rawCandidate.sourceCount) ? { sourceCount: rawCandidate.sourceCount } : {}),
       ...(isFiniteNumber(rawCandidate.hostileCreepCount)
         ? { hostileCreepCount: rawCandidate.hostileCreepCount }
