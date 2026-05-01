@@ -170,23 +170,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
 
     if (!remoteProductiveSpendingSuppressed) {
-      const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-      if (lowLoadEnergyAcquisitionCandidate) {
-        recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-        return lowLoadEnergyAcquisitionCandidate.task;
+      const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+      if (lowLoadEnergyContinuationTask) {
+        return lowLoadEnergyContinuationTask;
       }
     }
 
     recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, 'noNearbyEnergy');
     return spawnOrExtensionRefillTask;
-  }
-
-  if (!remoteProductiveSpendingSuppressed) {
-    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-    if (lowLoadEnergyAcquisitionCandidate) {
-      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-      return lowLoadEnergyAcquisitionCandidate.task;
-    }
   }
 
   if (remoteProductiveSpendingSuppressed) {
@@ -216,6 +207,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   if (priorityTowerEnergySink) {
     return { type: 'transfer', targetId: priorityTowerEnergySink.id as Id<AnyStoreStructure> };
+  }
+
+  if (!remoteProductiveSpendingSuppressed) {
+    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+    if (lowLoadEnergyAcquisitionCandidate) {
+      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+      return lowLoadEnergyAcquisitionCandidate.task;
+    }
   }
 
   if (bootstrapNonCriticalWorkSuppressed) {
@@ -287,6 +286,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
+    const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+    if (lowLoadEnergyContinuationTask) {
+      return lowLoadEnergyContinuationTask;
+    }
+
     const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
       creep,
       constructionSites,
@@ -325,6 +329,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   if (controller?.my) {
+    const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+    if (lowLoadEnergyContinuationTask) {
+      return lowLoadEnergyContinuationTask;
+    }
+
     return { type: 'upgrade', targetId: controller.id };
   }
 
@@ -1485,8 +1494,39 @@ function selectLowLoadWorkerEnergyAcquisitionCandidate(
   return nearbyCandidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
 }
 
+function selectLowLoadWorkerEnergyContinuationTask(creep: Creep): LowLoadWorkerEnergyAcquisitionTask | null {
+  const candidate = selectLowLoadWorkerEnergyContinuationCandidate(creep);
+  if (!candidate) {
+    return null;
+  }
+
+  recordNearbyEnergyChoiceTelemetry(creep, candidate);
+  return candidate.task;
+}
+
+function selectLowLoadWorkerEnergyContinuationCandidate(
+  creep: Creep
+): LowLoadWorkerEnergyAcquisitionCandidate | null {
+  if (!shouldKeepLowLoadWorkerAcquiringEnergy(creep)) {
+    return null;
+  }
+
+  const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
+}
+
 function shouldKeepLowLoadWorkerAcquiringEnergy(creep: Creep): boolean {
   return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence(creep.room);
+}
+
+function findLowLoadWorkerEnergyContinuationCandidates(
+  creep: Creep
+): LowLoadWorkerEnergyAcquisitionCandidate[] {
+  return findLowLoadWorkerEnergyAcquisitionCandidates(creep);
 }
 
 function findLowLoadWorkerEnergyAcquisitionCandidates(creep: Creep): LowLoadWorkerEnergyAcquisitionCandidate[] {

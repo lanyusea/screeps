@@ -4561,21 +4561,13 @@ function selectWorkerTask(creep) {
       return spawnOrExtensionRefillTask;
     }
     if (!remoteProductiveSpendingSuppressed) {
-      const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-      if (lowLoadEnergyAcquisitionCandidate) {
-        recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-        return lowLoadEnergyAcquisitionCandidate.task;
+      const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+      if (lowLoadEnergyContinuationTask) {
+        return lowLoadEnergyContinuationTask;
       }
     }
     recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "noNearbyEnergy");
     return spawnOrExtensionRefillTask;
-  }
-  if (!remoteProductiveSpendingSuppressed) {
-    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
-    if (lowLoadEnergyAcquisitionCandidate) {
-      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
-      return lowLoadEnergyAcquisitionCandidate.task;
-    }
   }
   if (remoteProductiveSpendingSuppressed) {
     const suppressedRemoteEnergyHandlingTask = selectSuppressedRemoteEnergyHandlingTask(creep);
@@ -4598,6 +4590,13 @@ function selectWorkerTask(creep) {
   const priorityTowerEnergySink = selectPriorityTowerEnergySink(creep);
   if (priorityTowerEnergySink) {
     return { type: "transfer", targetId: priorityTowerEnergySink.id };
+  }
+  if (!remoteProductiveSpendingSuppressed) {
+    const lowLoadEnergyAcquisitionCandidate = selectLowLoadWorkerEnergyAcquisitionCandidate(creep);
+    if (lowLoadEnergyAcquisitionCandidate) {
+      recordNearbyEnergyChoiceTelemetry(creep, lowLoadEnergyAcquisitionCandidate);
+      return lowLoadEnergyAcquisitionCandidate.task;
+    }
   }
   if (bootstrapNonCriticalWorkSuppressed) {
     return selectBootstrapSurvivalSpendingTask(
@@ -4656,6 +4655,10 @@ function selectWorkerTask(creep) {
     return { type: "build", targetId: containerConstructionSite.id };
   }
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
+    const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+    if (lowLoadEnergyContinuationTask) {
+      return lowLoadEnergyContinuationTask;
+    }
     const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
       creep,
       constructionSites,
@@ -4689,6 +4692,10 @@ function selectWorkerTask(creep) {
     return { type: "repair", targetId: repairTarget.id };
   }
   if (controller == null ? void 0 : controller.my) {
+    const lowLoadEnergyContinuationTask = selectLowLoadWorkerEnergyContinuationTask(creep);
+    if (lowLoadEnergyContinuationTask) {
+      return lowLoadEnergyContinuationTask;
+    }
     return { type: "upgrade", targetId: controller.id };
   }
   return null;
@@ -5421,8 +5428,29 @@ function selectLowLoadWorkerEnergyAcquisitionCandidate(creep) {
   }
   return nearbyCandidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
 }
+function selectLowLoadWorkerEnergyContinuationTask(creep) {
+  const candidate = selectLowLoadWorkerEnergyContinuationCandidate(creep);
+  if (!candidate) {
+    return null;
+  }
+  recordNearbyEnergyChoiceTelemetry(creep, candidate);
+  return candidate.task;
+}
+function selectLowLoadWorkerEnergyContinuationCandidate(creep) {
+  if (!shouldKeepLowLoadWorkerAcquiringEnergy(creep)) {
+    return null;
+  }
+  const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep);
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
+}
 function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
   return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence(creep.room);
+}
+function findLowLoadWorkerEnergyContinuationCandidates(creep) {
+  return findLowLoadWorkerEnergyAcquisitionCandidates(creep);
 }
 function findLowLoadWorkerEnergyAcquisitionCandidates(creep) {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -6453,6 +6481,8 @@ function runWorker(creep) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
@@ -6631,6 +6661,17 @@ function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, task, se
   const sample = (_a = creep.memory) == null ? void 0 : _a.workerEfficiency;
   return (sample == null ? void 0 : sample.type) === "nearbyEnergyChoice" && sample.selectedTask === selectedTask.type && sample.targetId === String(selectedTask.targetId) && isCurrentWorkerEfficiencySample(sample);
 }
+function shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, task, selectedTask) {
+  var _a;
+  if (!isLowLoadReturnTask(task) || !selectedTask || !isEnergyAcquisitionTask(selectedTask)) {
+    return false;
+  }
+  if (isSameTask(task, selectedTask)) {
+    return false;
+  }
+  const sample = (_a = creep.memory) == null ? void 0 : _a.workerEfficiency;
+  return (sample == null ? void 0 : sample.type) === "nearbyEnergyChoice" && sample.selectedTask === selectedTask.type && sample.targetId === String(selectedTask.targetId) && isCurrentWorkerEfficiencySample(sample);
+}
 function shouldPreemptTransferTaskForBetterEnergySink(creep, task, selectedTask) {
   var _a, _b;
   if (task.type !== "transfer") {
@@ -6705,6 +6746,9 @@ function isEnergySpendingTask(task) {
 }
 function isEnergyAcquisitionTask(task) {
   return task.type === "harvest" || task.type === "pickup" || task.type === "withdraw";
+}
+function isLowLoadReturnTask(task) {
+  return task.type === "transfer" || task.type === "upgrade";
 }
 function isRecoverableEnergyTask(task) {
   return (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";

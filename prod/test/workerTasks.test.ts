@@ -1927,6 +1927,64 @@ describe('selectWorkerTask', () => {
     expect(findPathTo).not.toHaveBeenCalled();
   });
 
+  it('keeps a low-load worker harvesting instead of making a non-urgent primary refill trip', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const source = { id: 'source1', energy: 300 } as Source;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        source1: 6,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (
+          type === FIND_DROPPED_RESOURCES ||
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(2),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 327 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 327,
+      carriedEnergy: 2,
+      freeCapacity: 48,
+      selectedTask: 'harvest',
+      targetId: 'source1',
+      energy: 300,
+      range: 6
+    });
+  });
+
   it('ignores unreachable nearby dropped energy for low-load workers', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const blockedDroppedEnergy = {
@@ -2225,6 +2283,112 @@ describe('selectWorkerTask', () => {
       selectedTask: 'transfer',
       targetId: 'spawn1',
       reason: 'urgentSpawnExtensionRefill'
+    });
+  });
+
+  it('keeps urgent tower refill allowed for low-load workers that could keep harvesting', () => {
+    const lowTower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const source = { id: 'source1', energy: 300 } as Source;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        source1: 1,
+        'tower-low': 3
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [lowTower];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (
+          type === FIND_DROPPED_RESOURCES ||
+          type === FIND_STRUCTURES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(2),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo },
+      room: makeWorkerTaskRoom({
+        myStructures: [lowTower as AnyOwnedStructure],
+        sources: [source]
+      })
+    } as unknown as Creep;
+    creep.room.find = roomFind as unknown as Room['find'];
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
+  });
+
+  it('keeps a low-load worker harvesting instead of making a normal controller upgrade trip', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const source = { id: 'source1', energy: 300 } as Source;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        controller1: 2,
+        source1: 6
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (
+        type === FIND_DROPPED_RESOURCES ||
+        type === FIND_STRUCTURES ||
+        type === FIND_MY_STRUCTURES ||
+        type === FIND_CONSTRUCTION_SITES ||
+        type === FIND_HOSTILE_CREEPS ||
+        type === FIND_HOSTILE_STRUCTURES ||
+        type === FIND_TOMBSTONES ||
+        type === FIND_RUINS
+      ) {
+        return [];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(2),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo },
+      room: {
+        controller,
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 328 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 328,
+      carriedEnergy: 2,
+      freeCapacity: 48,
+      selectedTask: 'harvest',
+      targetId: 'source1',
+      energy: 300,
+      range: 6
     });
   });
 
