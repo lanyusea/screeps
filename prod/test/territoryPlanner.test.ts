@@ -841,6 +841,103 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('does not select a territory target in a known dead zone as spawnable', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W3N1: { name: 'W3N1', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        unsafeRooms: {
+          W2N1: {
+            roomName: 'W2N1',
+            unsafe: true,
+            reason: 'enemyTower',
+            updatedAt: 517,
+            hostileCreepCount: 0,
+            hostileStructureCount: 1,
+            hostileTowerCount: 1
+          }
+        }
+      },
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 518);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W3N1', action: 'reserve' });
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        518
+      )
+    ).toBe(false);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 518,
+        reason: 'deadZoneTarget'
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 518
+      }
+    ]);
+  });
+
+  it('clears a dead-zone flag when the room becomes safe', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false } as StructureController,
+          find: jest.fn().mockReturnValue([])
+        } as unknown as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        unsafeRooms: {
+          W2N1: {
+            roomName: 'W2N1',
+            unsafe: true,
+            reason: 'enemyTower',
+            updatedAt: 517,
+            hostileCreepCount: 0,
+            hostileStructureCount: 1,
+            hostileTowerCount: 1
+          }
+        }
+      },
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 519);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' });
+    expect(
+      shouldSpawnTerritoryControllerCreep(plan!, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 519)
+    ).toBe(true);
+    expect(Memory.defense?.unsafeRooms?.W2N1).toBeUndefined();
+  });
+
   it('skips visible adjacent rooms without controllers', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {

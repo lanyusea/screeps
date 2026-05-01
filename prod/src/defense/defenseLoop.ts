@@ -1,5 +1,10 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import {
+  getKnownDeadZoneRoom,
+  hasSafeRouteAvoidingDeadZones,
+  refreshVisibleDeadZoneMemory
+} from './deadZone';
 
 export const DEFENDER_ROLE = 'defender';
 
@@ -43,6 +48,7 @@ interface TowerDefenseResult {
 
 export function runDefense(): RuntimeTelemetryEvent[] {
   const telemetryEvents: RuntimeTelemetryEvent[] = [];
+  refreshVisibleDeadZoneMemory();
   const colonies = getOwnedColonies();
 
   for (const colony of colonies) {
@@ -235,6 +241,10 @@ function runDefender(creep: Creep, telemetryEvents: RuntimeTelemetryEvent[]): vo
   if (target && typeof creep.attack === 'function') {
     const attackResult = creep.attack(target);
     if (attackResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
+      if (shouldSuppressDefenderMove(creep, target)) {
+        return;
+      }
+
       const moveResult = creep.moveTo(target);
       recordDefenderAction(creep, 'defenderMove', target, moveResult, telemetryEvents);
       return;
@@ -242,6 +252,15 @@ function runDefender(creep: Creep, telemetryEvents: RuntimeTelemetryEvent[]): vo
 
     recordDefenderAction(creep, 'defenderAttack', target, attackResult, telemetryEvents);
   }
+}
+
+function shouldSuppressDefenderMove(creep: Creep, target: HostileTarget): boolean {
+  const targetRoom = target.pos?.roomName;
+  if (!targetRoom || targetRoom === creep.room.name || !getKnownDeadZoneRoom(targetRoom)) {
+    return false;
+  }
+
+  return hasSafeRouteAvoidingDeadZones(creep.room.name, targetRoom) === false;
 }
 
 function recordDefenderAction(

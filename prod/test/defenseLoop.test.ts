@@ -1,7 +1,10 @@
 import { runDefense } from '../src/defense/defenseLoop';
+import { planTerritoryIntent } from '../src/territory/territoryPlanner';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
+type TestFindRouteOptions = { routeCallback?: (roomName: string, fromRoomName: string) => number };
 
 const TEST_GLOBALS = {
   FIND_HOSTILE_CREEPS: 101,
@@ -392,6 +395,136 @@ describe('runDefense', () => {
       }
     ]);
   });
+
+  it('does not path a defender toward a known enemy tower room when no safe route exists', () => {
+    const hostileTower = makeHostileStructure('enemy-tower', 25, 25, 'W2N1', TEST_GLOBALS.STRUCTURE_TOWER);
+    const deadZoneRoom = makeRoom({
+      roomName: 'W2N1',
+      controller: makeController({ my: false }),
+      hostileStructures: [hostileTower]
+    });
+    const remoteHostile = makeHostile('remote-hostile', 25, 25, 'W2N1');
+    const homeRoom = makeRoom({
+      roomName: 'W1N1',
+      controller: makeController(),
+      hostiles: [remoteHostile]
+    });
+    const findRoute = jest.fn((_fromRoom: string, _toRoom: string, options?: TestFindRouteOptions) =>
+      options?.routeCallback?.('W2N1', 'W1N1') === Infinity
+        ? ERR_NO_PATH_CODE
+        : [{ exit: 3, room: 'W2N1' }]
+    );
+    const defender = {
+      name: 'Defender1',
+      memory: { role: 'defender', colony: 'W1N1' },
+      pos: makePosition(25, 25, 'W1N1'),
+      room: homeRoom,
+      attack: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE_CODE),
+      moveTo: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 108,
+      map: { findRoute } as unknown as GameMap,
+      rooms: { W1N1: homeRoom, W2N1: deadZoneRoom },
+      spawns: {},
+      creeps: { Defender1: defender }
+    };
+
+    const events = runDefense();
+
+    expect(defender.attack).toHaveBeenCalledWith(remoteHostile);
+    expect(defender.moveTo).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+    expect(Memory.defense?.unsafeRooms?.W2N1).toMatchObject({
+      roomName: 'W2N1',
+      unsafe: true,
+      reason: 'enemyTower',
+      hostileTowerCount: 1
+    });
+  });
+
+  it('marks dead-zone rooms as unsafe in defense memory', () => {
+    const hostileTower = makeHostileStructure('enemy-tower', 25, 25, 'W2N1', TEST_GLOBALS.STRUCTURE_TOWER);
+    const deadZoneRoom = makeRoom({
+      roomName: 'W2N1',
+      controller: makeController({ my: false }),
+      hostileStructures: [hostileTower]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 109,
+      rooms: { W2N1: deadZoneRoom },
+      spawns: {},
+      creeps: {}
+    };
+
+    runDefense();
+
+    expect(Memory.defense?.unsafeRooms?.W2N1).toEqual({
+      roomName: 'W2N1',
+      unsafe: true,
+      reason: 'enemyTower',
+      updatedAt: 109,
+      hostileCreepCount: 0,
+      hostileStructureCount: 1,
+      hostileTowerCount: 1
+    });
+  });
+
+  it('suppresses territory intent with a dead-zone reason when all paths to target cross dead zones', () => {
+    const colonyRoom = makeRoom({ roomName: 'W1N1', controller: makeController() });
+    const hostileTower = makeHostileStructure('enemy-tower', 25, 25, 'W2N1', TEST_GLOBALS.STRUCTURE_TOWER);
+    const deadZoneRoom = makeRoom({
+      roomName: 'W2N1',
+      controller: makeController({ my: false }),
+      hostileStructures: [hostileTower]
+    });
+    const targetRoom = makeRoom({
+      roomName: 'W3N1',
+      controller: makeController({ my: false })
+    });
+    const findRoute = jest.fn((_fromRoom: string, toRoom: string, options?: TestFindRouteOptions) =>
+      options?.routeCallback?.('W2N1', 'W1N1') === Infinity
+        ? ERR_NO_PATH_CODE
+        : [
+            { exit: 3, room: 'W2N1' },
+            { exit: 3, room: toRoom }
+          ]
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 110,
+      map: { findRoute } as unknown as GameMap,
+      rooms: { W1N1: colonyRoom, W2N1: deadZoneRoom, W3N1: targetRoom },
+      spawns: {},
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      meta: { version: 1 },
+      creeps: {},
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }]
+      }
+    };
+
+    runDefense();
+    const plan = planTerritoryIntent(
+      { room: colonyRoom, spawns: [], energyAvailable: 650, energyCapacityAvailable: 650 },
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      110
+    );
+
+    expect(plan).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 110,
+        reason: 'deadZoneRoute'
+      }
+    ]);
+  });
 });
 
 interface OwnedRoomFixture {
@@ -558,10 +691,16 @@ function makeHostile(id: string, x = 25, y = 25, roomName = 'W1N1'): Creep {
   } as unknown as Creep;
 }
 
-function makeHostileStructure(id: string, x = 25, y = 25, roomName = 'W1N1'): Structure {
+function makeHostileStructure(
+  id: string,
+  x = 25,
+  y = 25,
+  roomName = 'W1N1',
+  structureType: StructureConstant = 'rampart'
+): Structure {
   return {
     id,
-    structureType: 'rampart',
+    structureType,
     pos: makePosition(x, y, roomName)
   } as unknown as Structure;
 }
