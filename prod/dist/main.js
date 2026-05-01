@@ -4597,6 +4597,7 @@ var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 var MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
+var MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT = 10;
 var MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
@@ -5683,7 +5684,9 @@ function compareLowLoadWorkerEnergyAcquisitionCandidates(left, right) {
   return compareOptionalRanges(left.range, right.range) || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
 }
 function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink, harvestEta = estimateHarvestDeliveryEta(creep, energySink)) {
-  const candidates = findWorkerEnergyAcquisitionCandidates(creep).map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
+    minimumDroppedEnergy: MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT
+  }).map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
   if (candidates.length === 0) {
     return null;
   }
@@ -5760,7 +5763,9 @@ function findWorkerEnergyAcquisitionCandidates(creep, options = {}) {
   return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
 function findDroppedEnergyAcquisitionCandidates(creep, reservationContext, options = {}) {
-  return findDroppedResources(creep.room).filter(isUsefulDroppedEnergy).flatMap((source) => {
+  var _a;
+  const minimumEnergy = (_a = options.minimumDroppedEnergy) != null ? _a : MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+  return findDroppedResources(creep.room).filter((resource) => isDroppedEnergy(resource, minimumEnergy)).flatMap((source) => {
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
       creep,
       source,
@@ -5770,7 +5775,7 @@ function findDroppedEnergyAcquisitionCandidates(creep, reservationContext, optio
         targetId: source.id
       },
       reservationContext,
-      MIN_DROPPED_ENERGY_PICKUP_AMOUNT
+      minimumEnergy
     );
     return candidate ? [candidate] : [];
   }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options)).sort(compareDroppedEnergyReachabilityPriority).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
@@ -6498,7 +6503,10 @@ function findDroppedResources(room) {
   return room.find(FIND_DROPPED_RESOURCES);
 }
 function isUsefulDroppedEnergy(resource) {
-  return resource.resourceType === getWorkerEnergyResource() && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+  return isDroppedEnergy(resource, MIN_DROPPED_ENERGY_PICKUP_AMOUNT);
+}
+function isDroppedEnergy(resource, minimumEnergy) {
+  return resource.resourceType === getWorkerEnergyResource() && resource.amount >= minimumEnergy;
 }
 function findClosestByRange(creep, objects) {
   if (objects.length === 0) {
