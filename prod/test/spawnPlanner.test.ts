@@ -264,13 +264,21 @@ describe('planSpawn', () => {
 
   it('plans an emergency defender before local worker refill while hostiles are visible', () => {
     installHostileFindGlobals();
+    const { colony: localRefillColony, spawn: localRefillSpawn } = makeColony({ sourceCount: 2 });
+    expect(planSpawn(localRefillColony, { worker: 3 }, 163)).toEqual({
+      spawn: localRefillSpawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-163',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+
     const hostile = { id: 'hostile1' } as Creep;
     const { colony, spawn } = makeColony({ sourceCount: 2, hostileCreeps: [hostile] });
 
-    expect(planSpawn(colony, { worker: 3 }, 163)).toEqual({
+    expect(planSpawn(colony, { worker: 3 }, 164)).toEqual({
       spawn,
       body: ['tough', 'attack', 'move'],
-      name: 'defender-W1N1-163',
+      name: 'defender-W1N1-164',
       memory: {
         role: 'defender',
         colony: 'W1N1',

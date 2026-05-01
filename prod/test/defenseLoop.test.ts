@@ -265,6 +265,64 @@ describe('runDefense', () => {
     ]);
   });
 
+  it('records defender action evidence against the defender room when away from home', () => {
+    const homeRoom = makeRoom({
+      roomName: 'W1N1',
+      controller: makeController()
+    });
+    const homeSpawn = {
+      id: 'home-spawn',
+      name: 'HomeSpawn',
+      room: homeRoom,
+      structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
+      hits: 1_000,
+      hitsMax: 5_000,
+      spawning: null
+    } as unknown as StructureSpawn;
+    const hostile = makeHostile('remote-hostile', 26, 25, 'W2N1');
+    const remoteRoom = makeRoom({
+      roomName: 'W2N1',
+      controller: makeController({ my: false }),
+      hostiles: [hostile]
+    });
+    const defender = {
+      name: 'Defender1',
+      memory: { role: 'defender', colony: 'W1N1' },
+      pos: makePosition(25, 25, 'W2N1'),
+      room: remoteRoom,
+      attack: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE_CODE),
+      moveTo: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 107,
+      rooms: { W1N1: homeRoom, W2N1: remoteRoom },
+      spawns: { HomeSpawn: homeSpawn },
+      creeps: { Defender1: defender }
+    };
+
+    const events = runDefense();
+
+    expect(defender.attack).toHaveBeenCalledWith(hostile);
+    expect(defender.moveTo).toHaveBeenCalledWith(hostile);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'defenderMove',
+        roomName: 'W2N1',
+        structureId: 'Defender1',
+        targetId: 'remote-hostile',
+        result: OK_CODE,
+        hostileCreepCount: 1,
+        damagedCriticalStructureCount: 0
+      }
+    ]);
+    expect(Memory.defense?.rooms?.W2N1).toMatchObject({
+      type: 'defenderMove',
+      damagedCriticalStructureCount: 0
+    });
+    expect(Memory.defense?.rooms?.W1N1).toBeUndefined();
+  });
+
   it('runs a defender toward the nearest hostile creep before id order', () => {
     const farHostile = makeHostile('hostile-a', 35, 25);
     const nearHostile = makeHostile('hostile-z', 26, 25);
@@ -388,12 +446,14 @@ function makeOwnedRoom({
 }
 
 function makeRoom({
+  roomName = 'W1N1',
   controller,
   hostiles = [],
   hostileStructures = [],
   myCreeps = [],
   getTowers = () => []
 }: {
+  roomName?: string;
   controller: StructureController;
   hostiles?: Creep[];
   hostileStructures?: Structure[];
@@ -401,7 +461,7 @@ function makeRoom({
   getTowers?: () => StructureTower[];
 }): Room {
   const room = {
-    name: 'W1N1',
+    name: roomName,
     energyAvailable: 300,
     energyCapacityAvailable: 300,
     controller,
@@ -490,27 +550,27 @@ function makeTower(
   } as unknown as StructureTower;
 }
 
-function makeHostile(id: string, x = 25, y = 25): Creep {
+function makeHostile(id: string, x = 25, y = 25, roomName = 'W1N1'): Creep {
   return {
     id,
     owner: { username: 'enemy' },
-    pos: makePosition(x, y)
+    pos: makePosition(x, y, roomName)
   } as unknown as Creep;
 }
 
-function makeHostileStructure(id: string, x = 25, y = 25): Structure {
+function makeHostileStructure(id: string, x = 25, y = 25, roomName = 'W1N1'): Structure {
   return {
     id,
     structureType: 'rampart',
-    pos: makePosition(x, y)
+    pos: makePosition(x, y, roomName)
   } as unknown as Structure;
 }
 
-function makePosition(x = 25, y = 25): RoomPosition {
+function makePosition(x = 25, y = 25, roomName = 'W1N1'): RoomPosition {
   return {
     x,
     y,
-    roomName: 'W1N1',
+    roomName,
     getRangeTo: jest.fn((target?: { x?: number; y?: number }) => {
       if (typeof target?.x !== 'number' || typeof target.y !== 'number') {
         return 1;

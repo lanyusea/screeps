@@ -226,13 +226,14 @@ function runDefender(creep, telemetryEvents) {
     const attackResult = creep.attack(target);
     if (attackResult === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === "function") {
       const moveResult = creep.moveTo(target);
-      recordDefenderAction(creep, colonyName, "defenderMove", target, moveResult, telemetryEvents);
+      recordDefenderAction(creep, "defenderMove", target, moveResult, telemetryEvents);
       return;
     }
-    recordDefenderAction(creep, colonyName, "defenderAttack", target, attackResult, telemetryEvents);
+    recordDefenderAction(creep, "defenderAttack", target, attackResult, telemetryEvents);
   }
 }
-function recordDefenderAction(creep, roomName, action, target, result, telemetryEvents) {
+function recordDefenderAction(creep, action, target, result, telemetryEvents) {
+  const roomName = creep.room.name;
   const context = createDefenseContext({
     room: creep.room,
     spawns: Object.values(Game.spawns).filter((spawn) => spawn.room.name === roomName),
