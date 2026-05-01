@@ -8752,11 +8752,9 @@ function runEconomy(preludeTelemetryEvents = []) {
       planEarlyRoadConstruction(colony);
     }
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
-    recordColonySurvivalAssessment(
-      colony.room.name,
-      assessColonySnapshotSurvival(colony, roleCounts),
-      Game.time
-    );
+    const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
+    refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady);
     let availableEnergy = colony.energyAvailable;
     let successfulSpawnCount = 0;
     const usedSpawns = /* @__PURE__ */ new Set();
@@ -8800,6 +8798,18 @@ function runEconomy(preludeTelemetryEvents = []) {
     }
   }
   emitRuntimeSummary(colonies, creeps, telemetryEvents);
+}
+function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady) {
+  if (!territoryReady) {
+    return;
+  }
+  const colonyWorkers = creeps.filter(
+    (creep) => creep.memory.role === "worker" && creep.memory.colony === colony.room.name
+  );
+  persistOccupationRecommendationFollowUpIntent(
+    buildRuntimeOccupationRecommendationReport(colony, colonyWorkers),
+    Game.time
+  );
 }
 function createSpawnPlanningColony(colony, energyAvailable, usedSpawns) {
   return {
