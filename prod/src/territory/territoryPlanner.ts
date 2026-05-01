@@ -13,6 +13,13 @@ import {
   type OccupationRecommendationScore
 } from './occupationRecommendation';
 import { shouldSignOccupiedController } from './controllerSigning';
+import { normalizeTerritoryFollowUp, normalizeTerritoryIntents } from './territoryMemoryUtils';
+import {
+  getKnownDeadZoneRoom,
+  isKnownDeadZoneRoom,
+  isRouteBlockedByKnownDeadZone,
+  refreshVisibleRoomDeadZoneMemory
+} from '../defense/deadZone';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -20,8 +27,11 @@ export const TERRITORY_DOWNGRADE_GUARD_TICKS = 5_000;
 export const TERRITORY_RESERVATION_RENEWAL_TICKS = 1_000;
 export const TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
 export const TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 2;
+export const TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS = 50;
 export const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
+export const TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS = 1_500;
 export const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
+export const TERRITORY_RECOVERED_INTENT_SPAWN_PRIORITY = 1_000;
 export const TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND = 1;
 // TERRITORY_READY already proves local worker recovery; use that floor for adjacent visible controller progress.
 export const TERRITORY_ADJACENT_CONTROLLER_PROGRESS_WORKER_SURPLUS = 0;
@@ -63,6 +73,16 @@ export interface TerritoryIntentProgressSummary {
   followUp?: TerritoryFollowUpMemory;
 }
 
+export interface TerritoryIntentPlanningOptions {
+  controllerPressureOnly?: boolean;
+  followUpOnly?: boolean;
+}
+
+interface TerritoryTargetSelectionOptions {
+  controllerPressureOnly?: boolean;
+  followUpOnly?: boolean;
+}
+
 interface MemoryRecord {
   territory?: unknown;
 }
@@ -94,6 +114,7 @@ interface ScoredTerritoryTarget extends SelectedTerritoryTarget {
   recommendationScore?: number;
   recommendationEvidenceStatus?: OccupationRecommendationEvidenceStatus;
   routeDistance?: number;
+  roadDistance?: number;
   renewalTicksToEnd?: number;
   immediateControllerFollowUp?: boolean;
   occupationActionableTicks?: number;
@@ -127,13 +148,14 @@ export function planTerritoryIntent(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
   workerTarget: number,
-  gameTime: number
+  gameTime: number,
+  options: TerritoryIntentPlanningOptions = {}
 ): TerritoryIntentPlan | null {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
   }
 
-  const selection = selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime);
+  const selection = selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, options);
   if (!selection) {
     return null;
   }
@@ -147,6 +169,7 @@ export function planTerritoryIntent(
     ...(selection.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(selection.followUp ? { followUp: selection.followUp } : {})
   };
+
   if (selection.recoveredFollowUp === true && typeof selection.recoveredFollowUpSuppressedAt === 'number') {
     recoveredTerritoryFollowUpRetryMetadata.set(plan, { suppressedAt: selection.recoveredFollowUpSuppressedAt });
   }
@@ -208,7 +231,15 @@ export function shouldSpawnTerritoryControllerCreep(
   roleCounts: RoleCounts,
   gameTime = getGameTime()
 ): boolean {
+  if (isKnownDeadZoneRoom(plan.targetRoom)) {
+    return false;
+  }
+
   if (isTerritoryIntentSuppressed(plan.colony, plan.targetRoom, plan.action, gameTime)) {
+    return false;
+  }
+
+  if (isTerritoryIntentSuspended(plan.colony, plan.targetRoom, plan.action, gameTime)) {
     return false;
   }
 
@@ -271,6 +302,10 @@ export function getTerritoryFollowUpPreparationWorkerDemand(
     return 0;
   }
 
+  if (isTerritoryIntentSuspended(plan.colony, plan.targetRoom, plan.action, gameTime)) {
+    return 0;
+  }
+
   if (
     !isVisibleTerritoryIntentActionable(
       plan.targetRoom,
@@ -304,6 +339,39 @@ export function hasActiveTerritoryFollowUpPreparationDemand(
   );
 }
 
+export function hasPendingTerritoryFollowUpIntent(
+  colony: string | null | undefined,
+  roleCounts: RoleCounts,
+  gameTime = getGameTime()
+): boolean {
+  if (!isNonEmptyString(colony)) {
+    return false;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return false;
+  }
+
+  return normalizeTerritoryIntents(territoryMemory.intents).some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.followUp !== undefined &&
+      isTerritoryControlAction(intent.action) &&
+      !isTerritoryIntentSuspensionActive(intent, gameTime) &&
+      isVisibleTerritoryIntentActionable(
+        intent.targetRoom,
+        intent.action,
+        intent.controllerId,
+        getVisibleColonyOwnerUsername(intent.colony)
+      ) &&
+      (intent.status === 'planned' ||
+        isRecoveredTerritoryFollowUpIntent(intent, gameTime) ||
+        (intent.status === 'active' &&
+          getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action) === 0))
+  );
+}
+
 export function getActiveTerritoryFollowUpExecutionHints(
   colony: string | null | undefined = undefined
 ): TerritoryExecutionHintMemory[] {
@@ -332,9 +400,10 @@ export function getTerritoryIntentProgressSummaries(
     return [];
   }
 
+  const gameTime = getGameTime();
   return normalizeTerritoryIntents(territoryMemory.intents)
     .filter((intent): intent is TerritoryIntentMemory & { status: 'planned' | 'active' } =>
-      isTerritoryIntentProgressVisibleForColony(intent, colony)
+      isTerritoryIntentProgressVisibleForColony(intent, colony, gameTime)
     )
     .map((intent): TerritoryIntentProgressSummary => {
       const activeCreepCount = getTerritoryCreepCountForTarget(roleCounts, intent.targetRoom, intent.action);
@@ -354,11 +423,41 @@ export function getTerritoryIntentProgressSummaries(
     .sort(compareTerritoryIntentProgressSummaries);
 }
 
+export function getSuspendedTerritoryIntentCountsByRoom(
+  colony: string | null | undefined,
+  gameTime = getGameTime()
+): Record<string, number> {
+  if (!isNonEmptyString(colony)) {
+    return {};
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return {};
+  }
+
+  const countsByRoom: Record<string, number> = {};
+  for (const intent of normalizeTerritoryIntents(territoryMemory.intents)) {
+    if (intent.colony !== colony || !isTerritoryIntentSuspensionActive(intent, gameTime)) {
+      continue;
+    }
+
+    countsByRoom[intent.targetRoom] = (countsByRoom[intent.targetRoom] ?? 0) + 1;
+  }
+
+  return countsByRoom;
+}
+
 function isTerritoryIntentProgressVisibleForColony(
   intent: TerritoryIntentMemory,
-  colony: string
+  colony: string,
+  gameTime: number
 ): intent is TerritoryIntentMemory & { status: 'planned' | 'active' } {
-  return intent.colony === colony && (intent.status === 'planned' || intent.status === 'active');
+  return (
+    intent.colony === colony &&
+    (intent.status === 'planned' || intent.status === 'active') &&
+    !isTerritoryIntentSuspensionActive(intent, gameTime)
+  );
 }
 
 export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemory {
@@ -675,12 +774,22 @@ function selectTerritoryTarget(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
   workerTarget: number,
-  gameTime: number
+  gameTime: number,
+  options: TerritoryTargetSelectionOptions = {}
 ): SelectedTerritoryTarget | null {
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord();
   let intents = normalizeTerritoryIntents(territoryMemory?.intents);
+  const refreshedHostileSuspensions = refreshHostileTerritoryIntentSuspensions(
+    territoryMemory,
+    intents,
+    colonyName,
+    gameTime
+  );
+  if (refreshedHostileSuspensions.changed) {
+    intents = refreshedHostileSuspensions.intents;
+  }
   const sanitizedClaimReserveHandoffs = sanitizeSatisfiedClaimReserveHandoffs(
     territoryMemory,
     intents,
@@ -695,12 +804,24 @@ function selectTerritoryTarget(
     intents,
     colonyName,
     colonyOwnerUsername,
-    roleCounts
+    roleCounts,
+    gameTime
   );
   if (sanitizedStaleProgress.changed) {
     intents = sanitizedStaleProgress.intents;
   }
   const routeDistanceLookupContext = createRouteDistanceLookupContext();
+  refreshTerritoryReservationMemory(territoryMemory, colonyName, colonyOwnerUsername, gameTime);
+  const deadZoneSuppression = suppressDeadZoneTerritoryTargets(
+    territoryMemory,
+    intents,
+    colonyName,
+    gameTime,
+    routeDistanceLookupContext
+  );
+  if (deadZoneSuppression.changed) {
+    intents = deadZoneSuppression.intents;
+  }
   refreshTerritoryFollowUpExecutionHints(territoryMemory, intents, routeDistanceLookupContext);
   const hasBlockingConfiguredTarget = hasBlockingConfiguredTerritoryTargetForColony(
     colony,
@@ -726,16 +847,24 @@ function selectTerritoryTarget(
       routeDistanceLookupContext
     )
   );
-  const persistedIntentCandidates = getPersistedTerritoryIntentCandidates(
-    colonyName,
-    colonyOwnerUsername,
-    territoryMemory,
-    intents,
-    gameTime,
-    routeDistanceLookupContext
+  const persistedIntentCandidates = applyOccupationRecommendationScores(
+    colony,
+    roleCounts,
+    workerTarget,
+    getPersistedTerritoryIntentCandidates(
+      colonyName,
+      colonyOwnerUsername,
+      territoryMemory,
+      intents,
+      gameTime,
+      routeDistanceLookupContext
+    )
   );
   const primaryCandidates = getSpawnCapableTerritoryCandidates(
-    [...persistedIntentCandidates, ...configuredCandidates],
+    filterTerritoryCandidatesForPlanningOptions(
+      [...persistedIntentCandidates, ...configuredCandidates],
+      options
+    ),
     colony
   );
   const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
@@ -756,33 +885,36 @@ function selectTerritoryTarget(
       return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
     }
 
-    const visibleAdjacentControllerProgressCandidates = applyOccupationRecommendationScores(
-      colony,
-      roleCounts,
-      workerTarget,
-      [
-        ...(shouldEvaluateAdjacentControllerProgress
-          ? getVisibleAdjacentReserveCandidates(
-              colonyName,
-              colonyOwnerUsername,
-              territoryMemory,
-              intents,
-              gameTime,
-              routeDistanceLookupContext
-            )
-          : []),
-        ...(shouldEvaluateAdjacentFollowUp
-          ? getVisibleAdjacentFollowUpReserveCandidates(
-              colonyName,
-              colonyOwnerUsername,
-              territoryMemory,
-              intents,
-              gameTime,
-              roleCounts,
-              routeDistanceLookupContext
-            )
-          : [])
-      ]
+    const visibleAdjacentControllerProgressCandidates = filterTerritoryCandidatesForPlanningOptions(
+      applyOccupationRecommendationScores(
+        colony,
+        roleCounts,
+        workerTarget,
+        [
+          ...(shouldEvaluateAdjacentControllerProgress
+            ? getVisibleAdjacentReserveCandidates(
+                colonyName,
+                colonyOwnerUsername,
+                territoryMemory,
+                intents,
+                gameTime,
+                routeDistanceLookupContext
+              )
+            : []),
+          ...(shouldEvaluateAdjacentFollowUp
+            ? getVisibleAdjacentFollowUpReserveCandidates(
+                colonyName,
+                colonyOwnerUsername,
+                territoryMemory,
+                intents,
+                gameTime,
+                roleCounts,
+                routeDistanceLookupContext
+              )
+            : [])
+        ]
+      ),
+      options
     );
     if (visibleAdjacentControllerProgressCandidates.length === 0) {
       return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
@@ -800,30 +932,33 @@ function selectTerritoryTarget(
     );
   }
 
-  const adjacentCandidates = applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
-    ...getAdjacentReserveCandidates(
-      colonyName,
-      colonyName,
-      colonyOwnerUsername,
-      territoryMemory,
-      intents,
-      gameTime,
-      !hasBlockingConfiguredTarget,
-      'adjacent',
-      0,
-      routeDistanceLookupContext
-    ),
-    ...getAdjacentFollowUpReserveCandidates(
-      colonyName,
-      colonyOwnerUsername,
-      territoryMemory,
-      intents,
-      gameTime,
-      roleCounts,
-      !hasBlockingConfiguredTarget,
-      routeDistanceLookupContext
-    )
-  ]);
+  const adjacentCandidates = filterTerritoryCandidatesForPlanningOptions(
+    applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
+      ...getAdjacentReserveCandidates(
+        colonyName,
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        !hasBlockingConfiguredTarget,
+        'adjacent',
+        0,
+        routeDistanceLookupContext
+      ),
+      ...getAdjacentFollowUpReserveCandidates(
+        colonyName,
+        colonyOwnerUsername,
+        territoryMemory,
+        intents,
+        gameTime,
+        roleCounts,
+        !hasBlockingConfiguredTarget,
+        routeDistanceLookupContext
+      )
+    ]),
+    options
+  );
   const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
 
   return toSelectedTerritoryTarget(
@@ -832,6 +967,32 @@ function selectTerritoryTarget(
       selectBestScoredTerritoryCandidate(candidates),
     routeDistanceLookupContext
   );
+}
+
+function filterTerritoryCandidatesForPlanningOptions(
+  candidates: ScoredTerritoryTarget[],
+  options: TerritoryTargetSelectionOptions
+): ScoredTerritoryTarget[] {
+  if (options.controllerPressureOnly === true) {
+    const pressureCandidates = candidates.filter(isControllerPressureCandidate);
+    if (pressureCandidates.length > 0 || options.followUpOnly !== true) {
+      return pressureCandidates;
+    }
+  }
+
+  if (options.followUpOnly === true) {
+    return candidates.filter(isTerritoryFollowUpControlCandidate);
+  }
+
+  return candidates;
+}
+
+function isControllerPressureCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return isTerritoryControlAction(candidate.intentAction) && candidate.requiresControllerPressure === true;
+}
+
+function isTerritoryFollowUpControlCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return candidate.followUp !== undefined && isTerritoryControlAction(candidate.intentAction);
 }
 
 function selectBestScoredTerritoryCandidate(candidates: ScoredTerritoryTarget[]): ScoredTerritoryTarget | null {
@@ -1033,8 +1194,16 @@ function getConfiguredTerritoryCandidates(
       target.enabled === false ||
       target.colony !== colonyName ||
       target.roomName === colonyName ||
+      isKnownDeadZoneRoom(target.roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
-      isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername) ||
+      isTerritoryIntentSuspendedForAction(intents, target.colony, target.roomName, target.action, gameTime) ||
+      isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername, gameTime) ||
+      isConfiguredReserveScoutDeferredByReservationDecay(
+        target,
+        territoryMemory,
+        gameTime,
+        routeDistanceLookupContext
+      ) ||
       !isVisibleTerritoryIntentActionable(target.roomName, target.action, target.controllerId, colonyOwnerUsername)
     ) {
       return [];
@@ -1100,9 +1269,11 @@ function getPersistedTerritoryIntentCandidates(
       intent.colony !== colonyName ||
       intent.targetRoom === colonyName ||
       configuredTargetRooms.has(intent.targetRoom) ||
+      isKnownDeadZoneRoom(intent.targetRoom) ||
       isRecoveredTerritoryFollowUpAttemptCoolingDown(intent, gameTime) ||
       (intent.status !== 'planned' && intent.status !== 'active' && !recoveredFollowUp) ||
       !isTerritoryControlAction(intent.action) ||
+      isTerritoryIntentSuspensionActive(intent, gameTime) ||
       isSuppressedTerritoryIntentForAction(intents, colonyName, intent.targetRoom, intent.action, gameTime) ||
       !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)
     ) {
@@ -1171,7 +1342,11 @@ function hasBlockingConfiguredTerritoryTargetForColony(
       return true;
     }
 
-    if (isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername)) {
+    if (isKnownDeadZoneRoom(target.roomName)) {
+      return false;
+    }
+
+    if (isClaimTargetDeferredBySameRoomReserveLane(target, intents, roleCounts, colonyOwnerUsername, gameTime)) {
       return false;
     }
 
@@ -1213,6 +1388,324 @@ function hasBlockingConfiguredTerritoryTargetForColony(
   });
 }
 
+function refreshTerritoryReservationMemory(
+  territoryMemory: Record<string, unknown> | null,
+  colonyName: string,
+  colonyOwnerUsername: string | null,
+  gameTime: number
+): void {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  const reservations = normalizeTerritoryReservations(territoryMemory.reservations);
+  const activeConfiguredReserveKeys = new Set<string>();
+  let changed = hasMalformedTerritoryReservationMemory(territoryMemory.reservations, reservations);
+
+  for (const rawTarget of territoryMemory.targets) {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (
+      !target ||
+      target.enabled === false ||
+      target.colony !== colonyName ||
+      target.action !== 'reserve' ||
+      target.roomName === colonyName
+    ) {
+      continue;
+    }
+
+    const reservationKey = getTerritoryReservationMemoryKey(target.colony, target.roomName);
+    activeConfiguredReserveKeys.add(reservationKey);
+    const controller = getVisibleController(target.roomName, target.controllerId);
+    if (!controller) {
+      continue;
+    }
+
+    const ticksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+    if (ticksToEnd === null) {
+      if (reservations[reservationKey]) {
+        delete reservations[reservationKey];
+        changed = true;
+      }
+      continue;
+    }
+
+    const nextReservation: TerritoryReservationMemory = {
+      colony: target.colony,
+      roomName: target.roomName,
+      ticksToEnd,
+      updatedAt: gameTime,
+      ...(target.controllerId ? { controllerId: target.controllerId } : {})
+    };
+    if (!isSameTerritoryReservation(reservations[reservationKey], nextReservation)) {
+      reservations[reservationKey] = nextReservation;
+      changed = true;
+    }
+  }
+
+  for (const [reservationKey, reservation] of Object.entries(reservations)) {
+    if (
+      reservation.colony === colonyName &&
+      (!activeConfiguredReserveKeys.has(reservationKey) ||
+        getEstimatedTerritoryReservationTicksToEnd(reservation, gameTime) <= 0)
+    ) {
+      delete reservations[reservationKey];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    setTerritoryReservations(territoryMemory, reservations);
+  }
+}
+
+function isConfiguredReserveScoutDeferredByReservationDecay(
+  target: TerritoryTargetMemory,
+  territoryMemory: Record<string, unknown> | null,
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): boolean {
+  if (target.action !== 'reserve' || isVisibleRoomKnown(target.roomName)) {
+    return false;
+  }
+
+  const reservation = getStoredTerritoryReservation(territoryMemory, target);
+  if (!reservation) {
+    return false;
+  }
+
+  return (
+    getEstimatedTerritoryReservationTicksToEnd(reservation, gameTime) >
+    getTerritoryReservationPreRenewScoutLeadTicks(
+      target.colony,
+      target.roomName,
+      routeDistanceLookupContext
+    )
+  );
+}
+
+function getStoredTerritoryReservation(
+  territoryMemory: Record<string, unknown> | null,
+  target: TerritoryTargetMemory
+): TerritoryReservationMemory | null {
+  if (!territoryMemory) {
+    return null;
+  }
+
+  const reservation = normalizeTerritoryReservation(
+    isRecord(territoryMemory.reservations)
+      ? territoryMemory.reservations[getTerritoryReservationMemoryKey(target.colony, target.roomName)]
+      : undefined
+  );
+  if (
+    !reservation ||
+    reservation.colony !== target.colony ||
+    reservation.roomName !== target.roomName ||
+    (target.controllerId !== undefined &&
+      reservation.controllerId !== undefined &&
+      reservation.controllerId !== target.controllerId)
+  ) {
+    return null;
+  }
+
+  return reservation;
+}
+
+function getTerritoryReservationPreRenewScoutLeadTicks(
+  colonyName: string,
+  targetRoom: string,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): number {
+  const routeDistance = getKnownRouteLength(colonyName, targetRoom, routeDistanceLookupContext);
+  return (
+    TERRITORY_RESERVATION_RENEWAL_TICKS +
+    (typeof routeDistance === 'number'
+      ? routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS * 2
+      : 0)
+  );
+}
+
+function normalizeTerritoryReservations(rawReservations: unknown): Record<string, TerritoryReservationMemory> {
+  if (!isRecord(rawReservations)) {
+    return {};
+  }
+
+  const reservations: Record<string, TerritoryReservationMemory> = {};
+  for (const [key, rawReservation] of Object.entries(rawReservations)) {
+    const reservation = normalizeTerritoryReservation(rawReservation);
+    if (reservation) {
+      reservations[key] = reservation;
+    }
+  }
+
+  return reservations;
+}
+
+function normalizeTerritoryReservation(rawReservation: unknown): TerritoryReservationMemory | null {
+  if (!isRecord(rawReservation)) {
+    return null;
+  }
+
+  if (
+    !isNonEmptyString(rawReservation.colony) ||
+    !isNonEmptyString(rawReservation.roomName) ||
+    !isFiniteNumber(rawReservation.ticksToEnd) ||
+    !isFiniteNumber(rawReservation.updatedAt)
+  ) {
+    return null;
+  }
+
+  return {
+    colony: rawReservation.colony,
+    roomName: rawReservation.roomName,
+    ticksToEnd: Math.floor(Math.max(0, rawReservation.ticksToEnd)),
+    updatedAt: Math.floor(rawReservation.updatedAt),
+    ...(typeof rawReservation.controllerId === 'string'
+      ? { controllerId: rawReservation.controllerId as Id<StructureController> }
+      : {})
+  };
+}
+
+function hasMalformedTerritoryReservationMemory(
+  rawReservations: unknown,
+  reservations: Record<string, TerritoryReservationMemory>
+): boolean {
+  return isRecord(rawReservations) && Object.keys(rawReservations).length !== Object.keys(reservations).length;
+}
+
+function getTerritoryReservationMemoryKey(colonyName: string, roomName: string): string {
+  return `${colonyName}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${roomName}`;
+}
+
+function getEstimatedTerritoryReservationTicksToEnd(
+  reservation: TerritoryReservationMemory,
+  gameTime: number
+): number {
+  return Math.max(0, reservation.ticksToEnd - Math.max(0, gameTime - reservation.updatedAt));
+}
+
+function isSameTerritoryReservation(
+  left: TerritoryReservationMemory | undefined,
+  right: TerritoryReservationMemory
+): boolean {
+  return (
+    left !== undefined &&
+    left.colony === right.colony &&
+    left.roomName === right.roomName &&
+    left.ticksToEnd === right.ticksToEnd &&
+    left.updatedAt === right.updatedAt &&
+    left.controllerId === right.controllerId
+  );
+}
+
+function setTerritoryReservations(
+  territoryMemory: TerritoryMemory | Record<string, unknown>,
+  reservations: Record<string, TerritoryReservationMemory>
+): void {
+  if (Object.keys(reservations).length > 0) {
+    territoryMemory.reservations = reservations;
+  } else {
+    delete territoryMemory.reservations;
+  }
+}
+
+function suppressDeadZoneTerritoryTargets(
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  colonyName: string,
+  gameTime: number,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): { intents: TerritoryIntentMemory[]; changed: boolean } {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return { intents, changed: false };
+  }
+
+  let nextIntents = intents;
+  let changed = false;
+  for (const rawTarget of territoryMemory.targets) {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (!target || target.enabled === false || target.colony !== colonyName || target.roomName === colonyName) {
+      continue;
+    }
+
+    const reason = getTerritoryDeadZoneSuppressionReason(
+      colonyName,
+      target.roomName,
+      routeDistanceLookupContext
+    );
+    if (!reason) {
+      const filteredIntents = removeDeadZoneSuppression(nextIntents, target);
+      if (filteredIntents.length !== nextIntents.length) {
+        nextIntents = filteredIntents;
+        territoryMemory.intents = nextIntents;
+        changed = true;
+      }
+      continue;
+    }
+
+    territoryMemory.intents = nextIntents;
+    upsertTerritoryIntent(nextIntents, {
+      colony: target.colony,
+      targetRoom: target.roomName,
+      action: target.action,
+      status: 'suppressed',
+      updatedAt: gameTime,
+      reason,
+      ...(target.controllerId ? { controllerId: target.controllerId } : {})
+    });
+    removeTerritoryFollowUpDemand(territoryMemory as TerritoryMemory, target.colony, target.roomName, target.action);
+    removeTerritoryFollowUpExecutionHint(
+      territoryMemory as TerritoryMemory,
+      target.colony,
+      target.roomName,
+      target.action
+    );
+    changed = true;
+  }
+
+  return { intents: nextIntents, changed };
+}
+
+function getTerritoryDeadZoneSuppressionReason(
+  colonyName: string,
+  targetRoom: string,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): TerritoryIntentSuppressionReason | null {
+  const visibleTargetRoom = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
+  if (visibleTargetRoom) {
+    refreshVisibleRoomDeadZoneMemory(visibleTargetRoom);
+  }
+
+  if (getKnownDeadZoneRoom(targetRoom)?.reason === 'enemyTower') {
+    return 'deadZoneTarget';
+  }
+
+  return isRouteBlockedByKnownDeadZone(colonyName, targetRoom) &&
+    getKnownRouteLength(colonyName, targetRoom, routeDistanceLookupContext) !== null
+    ? 'deadZoneRoute'
+    : null;
+}
+
+function removeDeadZoneSuppression(
+  intents: TerritoryIntentMemory[],
+  target: TerritoryTargetMemory
+): TerritoryIntentMemory[] {
+  return intents.filter(
+    (intent) =>
+      !(
+        intent.colony === target.colony &&
+        intent.targetRoom === target.roomName &&
+        intent.action === target.action &&
+        intent.status === 'suppressed' &&
+        isDeadZoneTerritorySuppressionReason(intent.reason)
+      )
+  );
+}
+
+function isDeadZoneTerritorySuppressionReason(reason: unknown): reason is TerritoryIntentSuppressionReason {
+  return reason === 'deadZoneTarget' || reason === 'deadZoneRoute';
+}
+
 function isConfiguredFollowUpTargetBlockedBySpawnReadiness(
   target: TerritoryTargetMemory,
   intents: TerritoryIntentMemory[],
@@ -1241,7 +1734,8 @@ function isClaimTargetDeferredBySameRoomReserveLane(
   target: TerritoryTargetMemory,
   intents: TerritoryIntentMemory[],
   roleCounts: RoleCounts,
-  colonyOwnerUsername: string | null
+  colonyOwnerUsername: string | null,
+  gameTime: number
 ): boolean {
   if (target.action !== 'claim') {
     return false;
@@ -1252,7 +1746,8 @@ function isClaimTargetDeferredBySameRoomReserveLane(
       intent.colony === target.colony &&
       intent.targetRoom === target.roomName &&
       intent.action === 'reserve' &&
-      (intent.status === 'active' || intent.status === 'planned')
+      (intent.status === 'active' || intent.status === 'planned') &&
+      !isTerritoryIntentSuspensionActive(intent, gameTime)
   );
   if (!reserveIntent) {
     return false;
@@ -1294,7 +1789,9 @@ function getAdjacentReserveCandidates(
     if (
       roomName === colonyName ||
       existingTargetRooms.has(roomName) ||
+      isKnownDeadZoneRoom(roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
+      isTerritoryRoomSuspendedForColony(intents, colonyName, roomName, gameTime) ||
       isRecoveredTerritoryFollowUpAttemptCoolingDownForAction(intents, colonyName, roomName, 'reserve', gameTime)
     ) {
       return [];
@@ -1548,7 +2045,9 @@ function getActiveCoveredConfiguredReserveTargets(
       target.colony !== colonyName ||
       target.action !== 'reserve' ||
       target.roomName === colonyName ||
+      isKnownDeadZoneRoom(target.roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
+      isTerritoryIntentSuspendedForAction(intents, target.colony, target.roomName, target.action, gameTime) ||
       hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext) ||
       !isVisibleRoomKnown(target.roomName) ||
       getTerritoryCreepCountForTarget(roleCounts, target.roomName, target.action) <= 0 ||
@@ -1602,7 +2101,9 @@ function getSatisfiedConfiguredTargets(
       target.colony !== colonyName ||
       target.action !== action ||
       target.roomName === colonyName ||
+      isKnownDeadZoneRoom(target.roomName) ||
       isTerritoryTargetSuppressed(target, intents, gameTime) ||
+      isTerritoryIntentSuspendedForAction(intents, target.colony, target.roomName, target.action, gameTime) ||
       hasKnownNoRoute(colonyName, target.roomName, routeDistanceLookupContext) ||
       getVisibleTerritoryTargetState(target.roomName, target.action, target.controllerId, colonyOwnerUsername) !==
         'satisfied'
@@ -1627,6 +2128,12 @@ function scoreTerritoryCandidate(
     return null;
   }
   const routeDistance = knownRouteDistance ?? getInferredTerritoryRouteDistance(source);
+  const roadDistance = getNearestOwnedRoomRouteDistance(
+    colonyName,
+    selection.target.roomName,
+    routeDistance,
+    routeDistanceLookupContext
+  );
 
   const renewalTicksToEnd = getConfiguredReserveRenewalTicksToEnd(selection.target, colonyOwnerUsername);
   const occupationActionableTicks =
@@ -1648,6 +2155,7 @@ function scoreTerritoryCandidate(
     priority: getTerritoryCandidatePriority(selection, renewalTicksToEnd),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(routeDistance !== undefined ? { routeDistance } : {}),
+    ...(roadDistance !== undefined ? { roadDistance } : {}),
     ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}),
     ...(occupationActionableTicks !== undefined ? { occupationActionableTicks } : {})
   };
@@ -1727,12 +2235,22 @@ function applyOccupationRecommendationScore(
     intentAction,
     commitTarget: nextSelection.commitTarget,
     priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
-    recommendationScore: recommendation.score,
+    recommendationScore: getTerritoryCandidateRecommendationScore(candidate, recommendation),
     recommendationEvidenceStatus: recommendation.evidenceStatus,
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(safeAdjacentControllerProgress ? { safeAdjacentControllerProgress: true } : {}),
     ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {})
   };
+}
+
+function getTerritoryCandidateRecommendationScore(
+  candidate: ScoredTerritoryTarget,
+  recommendation: OccupationRecommendationScore
+): number {
+  return (
+    recommendation.score +
+    (candidate.recoveredFollowUp === true ? TERRITORY_RECOVERED_INTENT_SPAWN_PRIORITY : 0)
+  );
 }
 
 function isSafeAdjacentControllerProgressCandidate(
@@ -1758,7 +2276,15 @@ function getRecommendedTerritoryIntentAction(
   recommendation: OccupationRecommendationScore,
   roleCounts: RoleCounts
 ): TerritoryIntentAction {
+  if (candidate.source === 'occupationIntent' && isPersistedControllerFollowUpCandidate(candidate)) {
+    return candidate.intentAction;
+  }
+
   if (recommendation.evidenceStatus === 'insufficient-evidence') {
+    if (isRecoveredTerritoryFollowUpControlCandidate(candidate)) {
+      return candidate.intentAction;
+    }
+
     if (isTerritoryControlAction(candidate.intentAction) && candidate.requiresControllerPressure === true) {
       return candidate.intentAction;
     }
@@ -1780,6 +2306,14 @@ function getRecommendedTerritoryIntentAction(
   return recommendation.action === 'reserve' ? 'reserve' : candidate.intentAction;
 }
 
+function isRecoveredTerritoryFollowUpControlCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return (
+    candidate.recoveredFollowUp === true &&
+    candidate.followUp !== undefined &&
+    isTerritoryControlAction(candidate.intentAction)
+  );
+}
+
 function buildOccupationRecommendationCandidate(
   candidate: ScoredTerritoryTarget
 ): OccupationRecommendationCandidateInput {
@@ -1792,6 +2326,7 @@ function buildOccupationRecommendationCandidate(
     visible: room != null,
     actionHint: candidate.target.action,
     ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
+    ...(candidate.roadDistance !== undefined ? { roadDistance: candidate.roadDistance } : {}),
     ...(room ? buildVisibleOccupationRecommendationEvidence(room, candidate.target.controllerId) : {})
   };
 }
@@ -2133,6 +2668,44 @@ function hasKnownNoRoute(
   return getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) === null;
 }
 
+function getNearestOwnedRoomRouteDistance(
+  colonyName: string,
+  targetRoom: string,
+  fallbackRouteDistance: number | undefined,
+  routeDistanceLookupContext: RouteDistanceLookupContext
+): number | undefined {
+  let nearestDistance = fallbackRouteDistance;
+  for (const ownedRoomName of getVisibleOwnedRoomNames(colonyName)) {
+    const routeDistance =
+      ownedRoomName === colonyName
+        ? fallbackRouteDistance
+        : getKnownRouteLength(ownedRoomName, targetRoom, routeDistanceLookupContext);
+    if (typeof routeDistance !== 'number') {
+      continue;
+    }
+
+    nearestDistance = nearestDistance === undefined ? routeDistance : Math.min(nearestDistance, routeDistance);
+  }
+
+  return nearestDistance;
+}
+
+function getVisibleOwnedRoomNames(fallbackRoomName: string): string[] {
+  const roomNames = new Set<string>([fallbackRoomName]);
+  const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+  if (!rooms) {
+    return Array.from(roomNames);
+  }
+
+  for (const room of Object.values(rooms)) {
+    if (room?.controller?.my === true && isNonEmptyString(room.name)) {
+      roomNames.add(room.name);
+    }
+  }
+
+  return Array.from(roomNames);
+}
+
 function getKnownRouteLength(
   fromRoom: string,
   targetRoom: string,
@@ -2349,15 +2922,6 @@ function recordTerritoryIntent(
   recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime, routeDistanceLookupContext);
 }
 
-function normalizeTerritoryIntents(rawIntents: TerritoryMemory['intents'] | unknown): TerritoryIntentMemory[] {
-  return Array.isArray(rawIntents)
-    ? rawIntents.flatMap((intent) => {
-        const normalizedIntent = normalizeTerritoryIntent(intent);
-        return normalizedIntent ? [normalizedIntent] : [];
-      })
-    : [];
-}
-
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
   const existingIndex = intents.findIndex(
     (intent) =>
@@ -2408,6 +2972,71 @@ function shouldRecordTerritoryIntentControllerPressure(
     (existingIntent !== undefined &&
       shouldPreservePersistedTerritoryIntentPressureRequirement(existingIntent, controllerId))
   );
+}
+
+function refreshHostileTerritoryIntentSuspensions(
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  colonyName: string,
+  gameTime: number
+): { intents: TerritoryIntentMemory[]; changed: boolean } {
+  if (!territoryMemory || intents.length === 0) {
+    return { intents, changed: false };
+  }
+
+  let changed = false;
+  const suspendedIntents: TerritoryIntentMemory[] = [];
+  const refreshedIntents = intents.map((intent) => {
+    if (intent.colony !== colonyName || !isTerritoryControlAction(intent.action)) {
+      return intent;
+    }
+
+    const hostileCount = getVisibleHostileCreepCount(intent.targetRoom);
+    if (hostileCount !== null && hostileCount > 0) {
+      if (intent.suspended?.reason === 'hostile_presence') {
+        if (isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime)) {
+          suspendedIntents.push(intent);
+          return intent;
+        }
+      }
+
+      const suspended = buildHostilePresenceTerritoryIntentSuspension(hostileCount, gameTime);
+      changed = true;
+      const suspendedIntent = {
+        ...intent,
+        suspended
+      };
+      suspendedIntents.push(suspendedIntent);
+      return suspendedIntent;
+    }
+
+    if (
+      intent.suspended?.reason === 'hostile_presence' &&
+      (hostileCount === 0 || !isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime))
+    ) {
+      changed = true;
+      return withoutTerritoryIntentSuspension(intent);
+    }
+
+    return intent;
+  });
+
+  if (!changed) {
+    return { intents, changed: false };
+  }
+
+  setTerritoryIntents(territoryMemory, refreshedIntents);
+  for (const intent of suspendedIntents) {
+    removeTerritoryFollowUpDemand(territoryMemory as TerritoryMemory, intent.colony, intent.targetRoom, intent.action);
+    removeTerritoryFollowUpExecutionHint(
+      territoryMemory as TerritoryMemory,
+      intent.colony,
+      intent.targetRoom,
+      intent.action
+    );
+  }
+
+  return { intents: refreshedIntents, changed: true };
 }
 
 function sanitizeSatisfiedClaimReserveHandoffs(
@@ -2486,11 +3115,12 @@ function sanitizeStaleTerritoryProgressIntents(
   intents: TerritoryIntentMemory[],
   colonyName: string,
   colonyOwnerUsername: string | null,
-  roleCounts: RoleCounts
+  roleCounts: RoleCounts,
+  gameTime: number
 ): { intents: TerritoryIntentMemory[]; changed: boolean } {
   const staleIntents: TerritoryIntentMemory[] = [];
   const sanitizedIntents = intents.filter((intent) => {
-    if (!isStaleTerritoryProgressIntent(intent, colonyName, colonyOwnerUsername, roleCounts)) {
+    if (!isStaleTerritoryProgressIntent(intent, colonyName, colonyOwnerUsername, roleCounts, gameTime)) {
       return true;
     }
 
@@ -2516,9 +3146,14 @@ function isStaleTerritoryProgressIntent(
   intent: TerritoryIntentMemory,
   colonyName: string,
   colonyOwnerUsername: string | null,
-  roleCounts: RoleCounts
+  roleCounts: RoleCounts,
+  gameTime: number
 ): boolean {
   if (intent.colony !== colonyName) {
+    return false;
+  }
+
+  if (isTerritoryIntentSuspensionActive(intent, gameTime)) {
     return false;
   }
 
@@ -2541,22 +3176,12 @@ function isStaleTerritoryProgressIntent(
     return false;
   }
 
-  const controllerState = getVisibleTerritoryControllerEvidenceState(
+  return !isVisibleTerritoryIntentActionable(
     intent.targetRoom,
     intent.action,
     intent.controllerId,
     colonyOwnerUsername
   );
-  const stillActionable =
-    controllerState === null ||
-    controllerState === 'available' ||
-    isVisibleTerritoryReservePressureAvailable(
-      intent.targetRoom,
-      intent.action,
-      intent.controllerId,
-      colonyOwnerUsername
-    );
-  return !stillActionable;
 }
 
 function getVisibleTerritoryControllerEvidenceState(
@@ -2927,7 +3552,11 @@ function hasActiveTerritoryFollowUpIntentForColony(intents: TerritoryIntentMemor
 }
 
 function isActiveTerritoryFollowUpIntent(intent: TerritoryIntentMemory): boolean {
-  return (intent.status === 'planned' || intent.status === 'active') && intent.followUp !== undefined;
+  return (
+    (intent.status === 'planned' || intent.status === 'active') &&
+    intent.followUp !== undefined &&
+    !isTerritoryIntentSuspensionActive(intent, getGameTime())
+  );
 }
 
 function buildTerritoryFollowUpExecutionHint(
@@ -3073,37 +3702,6 @@ function isSameTerritoryFollowUp(left: TerritoryFollowUpMemory, right: Territory
   );
 }
 
-function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | null {
-  if (!isRecord(rawIntent)) {
-    return null;
-  }
-
-  if (
-    !isNonEmptyString(rawIntent.colony) ||
-    !isNonEmptyString(rawIntent.targetRoom) ||
-    !isTerritoryIntentAction(rawIntent.action) ||
-    !isTerritoryIntentStatus(rawIntent.status) ||
-    typeof rawIntent.updatedAt !== 'number'
-  ) {
-    return null;
-  }
-
-  const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
-  return {
-    colony: rawIntent.colony,
-    targetRoom: rawIntent.targetRoom,
-    action: rawIntent.action,
-    status: rawIntent.status,
-    updatedAt: rawIntent.updatedAt,
-    ...(followUp && isFiniteNumber(rawIntent.lastAttemptAt) ? { lastAttemptAt: rawIntent.lastAttemptAt } : {}),
-    ...(typeof rawIntent.controllerId === 'string'
-      ? { controllerId: rawIntent.controllerId as Id<StructureController> }
-      : {}),
-    ...(rawIntent.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
-    ...(followUp ? { followUp } : {})
-  };
-}
-
 function normalizeTerritoryFollowUpDemands(rawDemands: unknown): TerritoryFollowUpDemandMemory[] {
   return Array.isArray(rawDemands)
     ? rawDemands.flatMap((demand) => {
@@ -3157,28 +3755,6 @@ function getBoundedTerritoryFollowUpWorkerDemand(rawWorkerCount: unknown): numbe
   return Math.max(0, Math.min(TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND, Math.floor(rawWorkerCount)));
 }
 
-function normalizeTerritoryFollowUp(rawFollowUp: unknown): TerritoryFollowUpMemory | null {
-  if (!isRecord(rawFollowUp)) {
-    return null;
-  }
-
-  if (!isTerritoryFollowUpSource(rawFollowUp.source)) {
-    return null;
-  }
-
-  const source = rawFollowUp.source;
-  const originAction = getTerritoryFollowUpOriginAction(source);
-  if (originAction === null || !isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
-    return null;
-  }
-
-  return {
-    source,
-    originRoom: rawFollowUp.originRoom,
-    originAction
-  };
-}
-
 function getTerritoryCreepCountForTarget(
   roleCounts: RoleCounts,
   targetRoom: string,
@@ -3193,6 +3769,94 @@ function getTerritoryCreepCountForTarget(
   }
 
   return roleCounts.claimersByTargetRoom?.[targetRoom] ?? 0;
+}
+
+function buildHostilePresenceTerritoryIntentSuspension(
+  hostileCount: number,
+  gameTime: number
+): TerritoryIntentSuspensionMemory {
+  return {
+    reason: 'hostile_presence',
+    hostileCount,
+    updatedAt: gameTime
+  };
+}
+
+function withoutTerritoryIntentSuspension(intent: TerritoryIntentMemory): TerritoryIntentMemory {
+  const { suspended: _suspended, ...unsuspendedIntent } = intent;
+  return unsuspendedIntent;
+}
+
+function isHostileTerritoryIntentSuspensionCoolingDown(
+  suspension: TerritoryIntentSuspensionMemory,
+  gameTime: number
+): boolean {
+  return gameTime - suspension.updatedAt <= TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS;
+}
+
+function isTerritoryIntentSuspended(
+  colony: string,
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  gameTime = getGameTime()
+): boolean {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return false;
+  }
+
+  return isTerritoryIntentSuspendedForAction(
+    normalizeTerritoryIntents(territoryMemory.intents),
+    colony,
+    targetRoom,
+    action,
+    gameTime
+  );
+}
+
+function isTerritoryIntentSuspendedForAction(
+  intents: TerritoryIntentMemory[],
+  colony: string,
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  gameTime: number
+): boolean {
+  return intents.some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.targetRoom === targetRoom &&
+      intent.action === action &&
+      isTerritoryIntentSuspensionActive(intent, gameTime)
+  );
+}
+
+function isTerritoryRoomSuspendedForColony(
+  intents: TerritoryIntentMemory[],
+  colony: string,
+  targetRoom: string,
+  gameTime: number
+): boolean {
+  return intents.some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.targetRoom === targetRoom &&
+      isTerritoryIntentSuspensionActive(intent, gameTime)
+  );
+}
+
+function isTerritoryIntentSuspensionActive(intent: TerritoryIntentMemory, gameTime: number): boolean {
+  if (!intent.suspended) {
+    return false;
+  }
+
+  if (intent.suspended.reason === 'hostile_presence') {
+    const hostileCount = getVisibleHostileCreepCount(intent.targetRoom);
+    if (hostileCount !== null) {
+      return hostileCount > 0 && isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime);
+    }
+  }
+
+  return isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime);
 }
 
 function isTerritoryTargetSuppressed(
@@ -3244,7 +3908,11 @@ function isTerritorySuppressionFresh(intent: TerritoryIntentMemory, gameTime: nu
 }
 
 function isRecoveredTerritoryFollowUpIntent(intent: TerritoryIntentMemory, gameTime: number): boolean {
-  if (intent.followUp === undefined || isRecoveredTerritoryFollowUpAttemptCoolingDown(intent, gameTime)) {
+  if (
+    intent.followUp === undefined ||
+    isTerritoryIntentSuspensionActive(intent, gameTime) ||
+    isRecoveredTerritoryFollowUpAttemptCoolingDown(intent, gameTime)
+  ) {
     return false;
   }
 
@@ -3520,6 +4188,10 @@ function getEnergyResource(): ResourceConstant {
 }
 
 function isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom: string): boolean {
+  if (isKnownDeadZoneRoom(targetRoom)) {
+    return true;
+  }
+
   const room = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
   return room ? isVisibleRoomUnsafe(room) : false;
 }
@@ -3530,6 +4202,11 @@ function isVisibleRoomSafe(room: Room): boolean {
 
 function isVisibleRoomUnsafe(room: Room): boolean {
   return findVisibleHostileCreeps(room).length > 0 || findVisibleHostileStructures(room).length > 0;
+}
+
+function getVisibleHostileCreepCount(targetRoom: string): number | null {
+  const room = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
+  return room ? findVisibleHostileCreeps(room).length : null;
 }
 
 function findVisibleHostileCreeps(room: Room): Creep[] {
@@ -3789,10 +4466,6 @@ function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUp
     source === 'satisfiedReserveAdjacent' ||
     source === 'activeReserveAdjacent'
   );
-}
-
-function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
-  return status === 'planned' || status === 'active' || status === 'suppressed';
 }
 
 function isTerritoryExecutionHintReason(reason: unknown): reason is TerritoryExecutionHintReason {

@@ -8,10 +8,19 @@ import { planExtensionConstruction } from '../construction/extensionPlanner';
 import { planEarlyRoadConstruction } from '../construction/roadPlanner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
-import { getBodyCost } from '../spawn/bodyBuilder';
+import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
 import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
 import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
-import { TERRITORY_CLAIMER_ROLE, TERRITORY_SCOUT_ROLE } from '../territory/territoryPlanner';
+import {
+  buildRuntimeOccupationRecommendationReport,
+  clearOccupationRecommendationFollowUpIntent,
+  persistOccupationRecommendationFollowUpIntent
+} from '../territory/occupationRecommendation';
+import {
+  hasPendingTerritoryFollowUpIntent,
+  TERRITORY_CLAIMER_ROLE,
+  TERRITORY_SCOUT_ROLE
+} from '../territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../territory/territoryRunner';
 
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
@@ -35,9 +44,12 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     }
 
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
-    recordColonySurvivalAssessment(
+    const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
+    refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady);
+    const hasPendingTerritoryFollowUp = hasPendingTerritoryFollowUpIntent(
       colony.room.name,
-      assessColonySnapshotSurvival(colony, roleCounts),
+      roleCounts,
       Game.time
     );
     let availableEnergy = colony.energyAvailable;
@@ -50,13 +62,13 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         planningColony,
         roleCounts,
         Game.time,
-        getSpawnPlanningOptions(successfulSpawnCount)
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp)
       );
       if (!spawnRequest) {
         break;
       }
 
-      if (successfulSpawnCount > 0 && spawnRequest.memory.role !== 'worker') {
+      if (successfulSpawnCount > 0 && !isAllowedPostSpawnRequest(spawnRequest)) {
         break;
       }
 
@@ -90,7 +102,22 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     }
   }
 
-  emitRuntimeSummary(colonies, creeps, telemetryEvents);
+  emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+
+function refreshExecutableTerritoryRecommendation(
+  colony: ColonySnapshot,
+  creeps: Creep[],
+  territoryReady: boolean
+): void {
+  const colonyWorkers = creeps.filter(
+    (creep) => creep.memory.role === 'worker' && creep.memory.colony === colony.room.name
+  );
+  const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  persistOccupationRecommendationFollowUpIntent(
+    territoryReady ? report : clearOccupationRecommendationFollowUpIntent(report),
+    Game.time
+  );
 }
 
 function createSpawnPlanningColony(
@@ -105,8 +132,51 @@ function createSpawnPlanningColony(
   };
 }
 
-function getSpawnPlanningOptions(successfulSpawnCount: number): SpawnPlanningOptions {
-  return successfulSpawnCount > 0 ? { nameSuffix: String(successfulSpawnCount + 1), workersOnly: true } : {};
+function getSpawnPlanningOptions(
+  successfulSpawnCount: number,
+  hasPendingTerritoryFollowUp: boolean
+): SpawnPlanningOptions {
+  const allowTerritoryFollowUp = successfulSpawnCount > 0 || hasPendingTerritoryFollowUp;
+  if (successfulSpawnCount === 0) {
+    return allowTerritoryFollowUp ? { allowTerritoryFollowUp } : {};
+  }
+
+  return {
+    nameSuffix: String(successfulSpawnCount + 1),
+    workersOnly: true,
+    allowTerritoryControllerPressure: true,
+    allowTerritoryFollowUp
+  };
+}
+
+function isAllowedPostSpawnRequest(spawnRequest: SpawnRequest): boolean {
+  return (
+    spawnRequest.memory.role === 'worker' ||
+    isTerritoryControllerPressureSpawnRequest(spawnRequest) ||
+    isTerritoryControllerFollowUpSpawnRequest(spawnRequest)
+  );
+}
+
+function isTerritoryControllerPressureSpawnRequest(spawnRequest: SpawnRequest): boolean {
+  const territory = spawnRequest.memory.territory;
+  return (
+    spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE &&
+    (territory?.action === 'claim' || territory?.action === 'reserve') &&
+    countBodyParts(spawnRequest.body, 'claim') >= TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
+  );
+}
+
+function isTerritoryControllerFollowUpSpawnRequest(spawnRequest: SpawnRequest): boolean {
+  const territory = spawnRequest.memory.territory;
+  return (
+    spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE &&
+    (territory?.action === 'claim' || territory?.action === 'reserve') &&
+    territory?.followUp !== undefined
+  );
+}
+
+function countBodyParts(body: BodyPartConstant[], bodyPart: BodyPartConstant): number {
+  return body.filter((part) => part === bodyPart).length;
 }
 
 function attemptSpawnRequest(

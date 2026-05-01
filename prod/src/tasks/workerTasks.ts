@@ -29,9 +29,14 @@ export const LOW_LOAD_WORKER_ENERGY_RATIO = 0.25;
 export const LOW_LOAD_WORKER_ENERGY_CEILING = 25;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
+export const REFILL_DELIVERY_MIN_LOAD = 20;
+const DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
+const SPAWN_RECOVERY_REFILL_PRESSURE_RATIO = 0.75;
+const REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED = 50;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
+const MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT = 10;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
@@ -39,6 +44,8 @@ const WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
 const DEFAULT_BUILD_POWER = 5;
 const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
+const DEFAULT_SOURCE_ENERGY_CAPACITY = 3_000;
+const DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
 const SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 const SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 const MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
@@ -87,9 +94,16 @@ interface Source2ControllerLaneTopology {
 }
 
 interface HarvestSourceLoad {
+  assignedWorkParts: number;
   assignmentCount: number;
-  capacity: number;
+  accessCapacity: number;
+  workCapacity: number;
   source: Source;
+}
+
+interface HarvestSourceAssignmentLoad {
+  assignedWorkParts: number;
+  assignmentCount: number;
 }
 
 let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserveCache | null = null;
@@ -175,6 +189,14 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       targetId: spawnOrExtensionEnergySink.id as Id<AnyStoreStructure>
     };
     if (shouldPrioritizeSpawnOrExtensionRefill(creep)) {
+      const refillMinLoadContinuationTask = selectUrgentRefillMinLoadContinuationTask(
+        creep,
+        spawnOrExtensionEnergySink
+      );
+      if (refillMinLoadContinuationTask) {
+        return refillMinLoadContinuationTask;
+      }
+
       recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, 'urgentSpawnExtensionRefill');
       return spawnOrExtensionRefillTask;
     }
@@ -487,11 +509,44 @@ function shouldPrioritizeSpawnOrExtensionRefill(creep: Creep): boolean {
     return true;
   }
 
+  if (hasSpawnRecoveryRefillPressure(creep, energyAvailable)) {
+    return true;
+  }
+
   if (hasReservedTerritoryFollowUpRefillCapacity(creep) && !hasReadyTerritoryFollowUpEnergy(creep)) {
     return true;
   }
 
   return hasNearTermSpawnCompletionRefillDemand(creep.room);
+}
+
+function selectUrgentRefillMinLoadContinuationTask(
+  creep: Creep,
+  energySink: SpawnExtensionEnergyStructure
+): LowLoadWorkerEnergyAcquisitionTask | null {
+  if (getUsedEnergy(creep) >= REFILL_DELIVERY_MIN_LOAD) {
+    return null;
+  }
+
+  if (getFreeStoredEnergyCapacity(energySink) <= REFILL_DELIVERY_SIGNIFICANT_TARGET_NEED) {
+    return null;
+  }
+
+  return selectLowLoadWorkerEnergyContinuationTask(creep);
+}
+
+function hasSpawnRecoveryRefillPressure(creep: Creep, energyAvailable: number): boolean {
+  const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
+  if (!survivalAssessment || survivalAssessment.workerCapacity >= survivalAssessment.workerTarget) {
+    return false;
+  }
+
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(creep.room);
+  return (
+    energyCapacityAvailable !== null &&
+    energyCapacityAvailable > 0 &&
+    energyAvailable < energyCapacityAvailable * SPAWN_RECOVERY_REFILL_PRESSURE_RATIO
+  );
 }
 
 function hasNearTermSpawnCompletionRefillDemand(room: Room): boolean {
@@ -589,7 +644,7 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
     return null;
   }
 
-  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const loadedWorkers = getSameRoomLoadedWorkersForRefillReservations(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   const assignedTransferTargetId = getAssignedTransferTargetId(creep);
   const unreservedEnergySink = selectSpawnExtensionRecoveryEnergySink(
@@ -637,11 +692,36 @@ function compareSpawnExtensionRecoveryEnergySinks(
   const rightDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(right, reservedEnergyDeliveries);
 
   return (
+    compareLowEnergySpawnPriority(left, right) ||
     compareAcceptedDeliveryEnergy(leftDeliveryCapacity, rightDeliveryCapacity, carriedEnergy) ||
     compareAssignedTransferTarget(left, right, assignedTransferTargetId) ||
     compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
     compareEnergySinkId(left, right)
   );
+}
+
+function compareLowEnergySpawnPriority(
+  left: StructureSpawn | StructureExtension,
+  right: StructureSpawn | StructureExtension
+): number {
+  const leftLowEnergySpawn = isLowEnergySpawn(left);
+  const rightLowEnergySpawn = isLowEnergySpawn(right);
+  if (leftLowEnergySpawn === rightLowEnergySpawn) {
+    return 0;
+  }
+
+  return leftLowEnergySpawn ? -1 : 1;
+}
+
+function isLowEnergySpawn(structure: StructureSpawn | StructureExtension): structure is StructureSpawn {
+  return isSpawnEnergySink(structure) && getStoredEnergy(structure) < getSpawnEnergyCapacity();
+}
+
+function getSpawnEnergyCapacity(): number {
+  const spawnEnergyCapacity = (globalThis as unknown as { SPAWN_ENERGY_CAPACITY?: number }).SPAWN_ENERGY_CAPACITY;
+  return typeof spawnEnergyCapacity === 'number' && Number.isFinite(spawnEnergyCapacity) && spawnEnergyCapacity > 0
+    ? spawnEnergyCapacity
+    : DEFAULT_SPAWN_ENERGY_CAPACITY;
 }
 
 function compareAcceptedDeliveryEnergy(leftCapacity: number, rightCapacity: number, carriedEnergy: number): number {
@@ -684,7 +764,7 @@ function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
     return null;
   }
 
-  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const loadedWorkers = getSameRoomLoadedWorkersForRefillReservations(creep);
   const reservedEnergyDeliveries = getReservedEnergyDeliveriesBySinkId(creep, loadedWorkers);
   return selectClosestEnergySink(
     priorityTowerEnergySinks.filter((energySink) =>
@@ -1486,6 +1566,7 @@ interface WorkerEnergyAcquisitionReservationContext {
 
 interface WorkerEnergyAcquisitionSearchOptions {
   maximumRange?: number;
+  minimumDroppedEnergy?: number;
 }
 
 function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
@@ -1727,7 +1808,9 @@ function selectSpawnRecoveryEnergyAcquisitionTask(
   energySink: FillableEnergySink,
   harvestEta: number | null = estimateHarvestDeliveryEta(creep, energySink)
 ): WorkerEnergyAcquisitionTask | null {
-  const candidates = findWorkerEnergyAcquisitionCandidates(creep)
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
+    minimumDroppedEnergy: MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT
+  })
     .map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink))
     .filter((candidate): candidate is SpawnRecoveryEnergyAcquisitionCandidate => candidate !== null)
     .filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
@@ -1748,11 +1831,19 @@ function selectSpawnRecoveryHarvestCandidate(
     return null;
   }
 
-  const viableSources = selectViableHarvestSources(sources);
-  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, viableSources);
+  const viableSources = selectViableHarvestSources(
+    sources,
+    getSpawnRecoveryHarvestEnergyTarget(creep, energySink)
+  );
+  const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
   const candidates = viableSources
     .map((source) =>
-      createSpawnRecoveryHarvestCandidate(creep, source, energySink, assignmentCounts.get(source.id) ?? 0)
+      createSpawnRecoveryHarvestCandidate(
+        creep,
+        source,
+        energySink,
+        getHarvestSourceAssignmentLoad(assignmentLoads, source)
+      )
     )
     .filter((candidate): candidate is SpawnRecoveryHarvestCandidate => candidate !== null);
 
@@ -1767,7 +1858,7 @@ function createSpawnRecoveryHarvestCandidate(
   creep: Creep,
   source: Source,
   energySink: FillableEnergySink,
-  assignmentCount: number
+  assignmentLoad: HarvestSourceAssignmentLoad
 ): SpawnRecoveryHarvestCandidate | null {
   const deliveryEta = estimateHarvestDeliveryEtaFromSource(creep, source, energySink);
   if (deliveryEta === null || !Number.isFinite(deliveryEta)) {
@@ -1776,11 +1867,7 @@ function createSpawnRecoveryHarvestCandidate(
 
   return {
     deliveryEta,
-    load: {
-      assignmentCount,
-      capacity: getHarvestSourceCapacity(source),
-      source
-    },
+    load: createHarvestSourceLoad(source, assignmentLoad),
     source
   };
 }
@@ -1840,8 +1927,10 @@ function findDroppedEnergyAcquisitionCandidates(
   reservationContext: WorkerEnergyAcquisitionReservationContext,
   options: WorkerEnergyAcquisitionSearchOptions = {}
 ): WorkerEnergyAcquisitionCandidate[] {
+  const minimumEnergy = options.minimumDroppedEnergy ?? MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+
   return findDroppedResources(creep.room)
-    .filter(isUsefulDroppedEnergy)
+    .filter((resource): resource is Resource<ResourceConstant> => isDroppedEnergy(resource, minimumEnergy))
     .flatMap((source) => {
       const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
         creep,
@@ -1852,7 +1941,7 @@ function findDroppedEnergyAcquisitionCandidates(
           targetId: source.id
         },
         reservationContext,
-        MIN_DROPPED_ENERGY_PICKUP_AMOUNT
+        minimumEnergy
       );
 
       return candidate ? [candidate] : [];
@@ -2010,13 +2099,17 @@ function estimateHarvestDeliveryEtaFromSource(
 }
 
 function estimateHarvestTicks(creep: Creep, energySink: FillableEnergySink): number {
-  const energyNeeded = Math.max(1, Math.min(getFreeEnergyCapacity(creep), getFreeStoredEnergyCapacity(energySink)));
+  const energyNeeded = getSpawnRecoveryHarvestEnergyTarget(creep, energySink);
   const workParts = getActiveWorkParts(creep);
   if (workParts === 0) {
     return Number.POSITIVE_INFINITY;
   }
 
   return Math.ceil(energyNeeded / Math.max(HARVEST_ENERGY_PER_WORK_PART, workParts * HARVEST_ENERGY_PER_WORK_PART));
+}
+
+function getSpawnRecoveryHarvestEnergyTarget(creep: Creep, energySink: FillableEnergySink): number {
+  return Math.max(1, Math.min(getFreeEnergyCapacity(creep), getFreeStoredEnergyCapacity(energySink)));
 }
 
 function estimateHarvestSourceAvailabilityDelay(source: Source): number | null {
@@ -2033,17 +2126,36 @@ function estimateHarvestSourceAvailabilityDelay(source: Source): number | null {
 }
 
 function getActiveWorkParts(creep: Creep): number {
-  const workPart = (globalThis as unknown as { WORK?: BodyPartConstant }).WORK;
-  if (typeof workPart !== 'string' || typeof creep.getActiveBodyparts !== 'function') {
-    return 1;
+  const workPart = getBodyPartConstant('WORK', 'work');
+  const activeWorkParts = creep.getActiveBodyparts?.(workPart);
+  if (typeof activeWorkParts === 'number' && Number.isFinite(activeWorkParts)) {
+    return Math.max(0, Math.floor(activeWorkParts));
   }
 
-  const activeWorkParts = creep.getActiveBodyparts(workPart);
-  if (activeWorkParts === 0) {
-    return 0;
+  const bodyWorkParts = countActiveBodyParts(creep.body, workPart);
+  return bodyWorkParts ?? 1;
+}
+
+function countActiveBodyParts(body: unknown, bodyPartType: BodyPartConstant): number | null {
+  if (!Array.isArray(body)) {
+    return null;
   }
 
-  return Number.isFinite(activeWorkParts) && activeWorkParts > 0 ? activeWorkParts : 1;
+  return body.filter((part) => isActiveBodyPart(part, bodyPartType)).length;
+}
+
+function isActiveBodyPart(part: unknown, bodyPartType: BodyPartConstant): boolean {
+  if (typeof part !== 'object' || part === null) {
+    return false;
+  }
+
+  const bodyPart = part as Partial<BodyPartDefinition>;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === 'number' && bodyPart.hits > 0;
+}
+
+function getBodyPartConstant(globalName: 'WORK', fallback: BodyPartConstant): BodyPartConstant {
+  const constants = globalThis as unknown as Partial<Record<'WORK', BodyPartConstant>>;
+  return constants[globalName] ?? fallback;
 }
 
 function getRangeBetweenRoomObjects(left: RoomObject, right: RoomObject): number | null {
@@ -2870,7 +2982,15 @@ function isActiveTerritoryPressureIntent(intent: unknown, colonyName: string): b
 }
 
 function getSameRoomLoadedWorkers(creep: Creep): Creep[] {
-  const loadedWorkers = getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
+  return getSameRoomLoadedWorkersFromCandidates(creep, getGameCreeps());
+}
+
+function getSameRoomLoadedWorkersForRefillReservations(creep: Creep): Creep[] {
+  return getSameRoomLoadedWorkersFromCandidates(creep, getRoomOwnedCreeps(creep.room));
+}
+
+function getSameRoomLoadedWorkersFromCandidates(creep: Creep, candidates: Creep[]): Creep[] {
+  const loadedWorkers = candidates.filter((candidate) => isSameRoomWorkerWithEnergy(candidate, creep.room));
 
   if (!loadedWorkers.includes(creep) && getUsedEnergy(creep) > 0) {
     loadedWorkers.push(creep);
@@ -2961,7 +3081,11 @@ function findDroppedResources(room: Room): Resource[] {
 }
 
 function isUsefulDroppedEnergy(resource: Resource): resource is Resource<ResourceConstant> {
-  return resource.resourceType === getWorkerEnergyResource() && resource.amount >= MIN_DROPPED_ENERGY_PICKUP_AMOUNT;
+  return isDroppedEnergy(resource, MIN_DROPPED_ENERGY_PICKUP_AMOUNT);
+}
+
+function isDroppedEnergy(resource: Resource, minimumEnergy: number): resource is Resource<ResourceConstant> {
+  return resource.resourceType === getWorkerEnergyResource() && resource.amount >= minimumEnergy;
 }
 
 function findClosestByRange<T extends RoomObject>(creep: Creep, objects: T[]): T | null {
@@ -2993,13 +3117,11 @@ function selectHarvestSource(creep: Creep): Source | null {
     return null;
   }
 
-  const viableSources = selectViableHarvestSources(sources);
-  const assignmentCounts = countSameRoomWorkerHarvestAssignments(creep.room.name, viableSources);
-  const sourceLoads = viableSources.map((source) => ({
-    assignmentCount: assignmentCounts.get(source.id) ?? 0,
-    capacity: getHarvestSourceCapacity(source),
-    source
-  }));
+  const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
+  const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
+  const sourceLoads = viableSources.map((source) =>
+    createHarvestSourceLoad(source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
+  );
   let selectedLoad = sourceLoads[0];
 
   for (const sourceLoad of sourceLoads.slice(1)) {
@@ -3012,14 +3134,24 @@ function selectHarvestSource(creep: Creep): Source | null {
 }
 
 function compareHarvestSourceLoads(creep: Creep, left: HarvestSourceLoad, right: HarvestSourceLoad): number {
-  const loadRatioComparison = compareHarvestSourceLoadRatio(left, right);
-  if (loadRatioComparison !== 0) {
-    return loadRatioComparison;
+  const workLoadRatioComparison = compareHarvestSourceWorkLoadRatio(left, right);
+  if (workLoadRatioComparison !== 0) {
+    return workLoadRatioComparison;
+  }
+
+  const accessLoadRatioComparison = compareHarvestSourceAccessLoadRatio(left, right);
+  if (accessLoadRatioComparison !== 0) {
+    return accessLoadRatioComparison;
   }
 
   const assignmentComparison = left.assignmentCount - right.assignmentCount;
   if (assignmentComparison !== 0) {
     return assignmentComparison;
+  }
+
+  const assignedWorkComparison = left.assignedWorkParts - right.assignedWorkParts;
+  if (assignedWorkComparison !== 0) {
+    return assignedWorkComparison;
   }
 
   if (isCloserHarvestSource(creep, left.source, right.source)) {
@@ -3034,10 +3166,41 @@ function compareHarvestSourceLoads(creep: Creep, left: HarvestSourceLoad, right:
 }
 
 function compareHarvestSourceLoadRatio(left: HarvestSourceLoad, right: HarvestSourceLoad): number {
-  return left.assignmentCount * right.capacity - right.assignmentCount * left.capacity;
+  return compareHarvestSourceWorkLoadRatio(left, right) || compareHarvestSourceAccessLoadRatio(left, right);
 }
 
-function getHarvestSourceCapacity(source: Source): number {
+function compareHarvestSourceWorkLoadRatio(left: HarvestSourceLoad, right: HarvestSourceLoad): number {
+  return left.assignedWorkParts * right.workCapacity - right.assignedWorkParts * left.workCapacity;
+}
+
+function compareHarvestSourceAccessLoadRatio(left: HarvestSourceLoad, right: HarvestSourceLoad): number {
+  return left.assignmentCount * right.accessCapacity - right.assignmentCount * left.accessCapacity;
+}
+
+function createHarvestSourceLoad(
+  source: Source,
+  assignmentLoad: HarvestSourceAssignmentLoad
+): HarvestSourceLoad {
+  return {
+    ...assignmentLoad,
+    accessCapacity: getHarvestSourceAccessCapacity(source),
+    workCapacity: getHarvestSourceWorkCapacity(source),
+    source
+  };
+}
+
+function getHarvestSourceAssignmentLoad(
+  assignmentLoads: Map<Id<Source>, HarvestSourceAssignmentLoad>,
+  source: Source
+): HarvestSourceAssignmentLoad {
+  return assignmentLoads.get(source.id) ?? createEmptyHarvestSourceAssignmentLoad();
+}
+
+function createEmptyHarvestSourceAssignmentLoad(): HarvestSourceAssignmentLoad {
+  return { assignedWorkParts: 0, assignmentCount: 0 };
+}
+
+function getHarvestSourceAccessCapacity(source: Source): number {
   const position = getRoomObjectPosition(source);
   if (!position) {
     return 1;
@@ -3071,6 +3234,34 @@ function getHarvestSourceCapacity(source: Source): number {
   return Math.max(1, capacity);
 }
 
+function getHarvestSourceWorkCapacity(source: Source): number {
+  const energyCapacity = getHarvestSourceEnergyCapacity(source);
+  const regenTicks = getSourceEnergyRegenTicks();
+  return Math.max(1, Math.ceil(energyCapacity / regenTicks / HARVEST_ENERGY_PER_WORK_PART));
+}
+
+function getHarvestSourceEnergyCapacity(source: Source): number {
+  const sourceEnergyCapacity = source.energyCapacity;
+  if (typeof sourceEnergyCapacity === 'number' && Number.isFinite(sourceEnergyCapacity) && sourceEnergyCapacity > 0) {
+    return sourceEnergyCapacity;
+  }
+
+  const defaultSourceEnergyCapacity = (globalThis as unknown as { SOURCE_ENERGY_CAPACITY?: number })
+    .SOURCE_ENERGY_CAPACITY;
+  return typeof defaultSourceEnergyCapacity === 'number' &&
+    Number.isFinite(defaultSourceEnergyCapacity) &&
+    defaultSourceEnergyCapacity > 0
+    ? defaultSourceEnergyCapacity
+    : DEFAULT_SOURCE_ENERGY_CAPACITY;
+}
+
+function getSourceEnergyRegenTicks(): number {
+  const regenTicks = (globalThis as unknown as { ENERGY_REGEN_TIME?: number }).ENERGY_REGEN_TIME;
+  return typeof regenTicks === 'number' && Number.isFinite(regenTicks) && regenTicks > 0
+    ? regenTicks
+    : DEFAULT_SOURCE_ENERGY_REGEN_TICKS;
+}
+
 function getRoomTerrain(roomName: string): RoomTerrain | null {
   const map = (globalThis as unknown as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map;
   if (typeof map?.getRoomTerrain !== 'function') {
@@ -3091,19 +3282,47 @@ function isCloserHarvestSource(creep: Creep, candidate: Source, selected: Source
   return candidateRange !== null && selectedRange !== null && candidateRange < selectedRange;
 }
 
-function selectViableHarvestSources(sources: Source[]): Source[] {
-  const sourcesWithEnergy = sources.filter((source) => typeof source.energy === 'number' && source.energy > 0);
-  return sourcesWithEnergy.length > 0 ? sourcesWithEnergy : sources;
+function selectViableHarvestSources(sources: Source[], harvestEnergyTarget: number): Source[] {
+  const sourcesWithEnergy = sources.filter(hasHarvestableEnergy);
+  if (sourcesWithEnergy.length === 0) {
+    return sources;
+  }
+
+  const targetEnergy = Math.max(1, Math.ceil(harvestEnergyTarget));
+  const loadReadySources = sourcesWithEnergy.filter(
+    (source) => getHarvestSourceAvailableEnergy(source) >= targetEnergy
+  );
+  return loadReadySources.length > 0 ? loadReadySources : sourcesWithEnergy;
 }
 
-function countSameRoomWorkerHarvestAssignments(roomName: string | undefined, sources: Source[]): Map<Id<Source>, number> {
-  const assignmentCounts = new Map<Id<Source>, number>();
+function hasHarvestableEnergy(source: Source): boolean {
+  return getHarvestSourceAvailableEnergy(source) > 0;
+}
+
+function getHarvestSourceAvailableEnergy(source: Source): number {
+  const energy = source.energy;
+  if (typeof energy === 'number' && Number.isFinite(energy)) {
+    return Math.max(0, energy);
+  }
+
+  return getHarvestSourceEnergyCapacity(source);
+}
+
+function getHarvestEnergyTarget(creep: Creep): number {
+  return Math.max(1, getFreeEnergyCapacity(creep));
+}
+
+function getSameRoomWorkerHarvestLoads(
+  roomName: string | undefined,
+  sources: Source[]
+): Map<Id<Source>, HarvestSourceAssignmentLoad> {
+  const assignmentLoads = new Map<Id<Source>, HarvestSourceAssignmentLoad>();
   for (const source of sources) {
-    assignmentCounts.set(source.id, 0);
+    assignmentLoads.set(source.id, createEmptyHarvestSourceAssignmentLoad());
   }
 
   if (!roomName) {
-    return assignmentCounts;
+    return assignmentLoads;
   }
 
   const sourceIds = new Set(sources.map((source) => source.id as string));
@@ -3122,10 +3341,14 @@ function countSameRoomWorkerHarvestAssignments(roomName: string | undefined, sou
     }
 
     const sourceId = targetId as Id<Source>;
-    assignmentCounts.set(sourceId, (assignmentCounts.get(sourceId) ?? 0) + 1);
+    const currentLoad = assignmentLoads.get(sourceId) ?? createEmptyHarvestSourceAssignmentLoad();
+    assignmentLoads.set(sourceId, {
+      assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts(assignedCreep),
+      assignmentCount: currentLoad.assignmentCount + 1
+    });
   }
 
-  return assignmentCounts;
+  return assignmentLoads;
 }
 
 function getGameCreeps(): Creep[] {

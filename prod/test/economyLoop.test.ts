@@ -139,6 +139,66 @@ describe('runEconomy', () => {
     );
   });
 
+  it('keeps spawning a productive worker while baseline workers still leave refill pressure', () => {
+    (globalThis as unknown as {
+      FIND_MY_STRUCTURES: number;
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_SOURCES: number;
+      STRUCTURE_EXTENSION: StructureConstant;
+    }).FIND_MY_STRUCTURES = 1;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 4;
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    const extensions = Array.from(
+      { length: 5 },
+      (_, index) => ({ id: `extension${index}`, structureType: 'extension' }) as StructureExtension
+    );
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 400,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController,
+      find: jest.fn((type: number, options?: { filter?: (structure: StructureExtension) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'source1' } as Source];
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          return options?.filter ? extensions.filter(options.filter) : extensions;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 127,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: workers
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      'worker-W1N1-127',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+  });
+
   it('waits through critical energy without invalid spawn attempts and recovers when an emergency body is affordable', () => {
     const room = {
       name: 'W1N1',
@@ -470,6 +530,458 @@ describe('runEconomy', () => {
 
     expect(creep.reserveController).toHaveBeenCalledWith(controller);
   });
+
+  it('turns a safe occupation recommendation into same-tick territory spawn pressure', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const room = makeTerritoryReadyEconomyRoom();
+    const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 320,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: { Spawn1: spawn },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null),
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' }))
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W2N1-320', {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W2N1',
+          action: 'reserve',
+          controllerId: 'controller2'
+        }
+      }
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('uses a second idle spawn for controller pressure after spawning follow-up support', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 323,
+            requiresControllerPressure: true,
+            followUp
+          }
+        ]
+      }
+    };
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 4_050,
+      energyCapacityAvailable: 4_050
+    });
+    const targetRoom = makeVisibleForeignReservedRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn1 = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const spawn2 = {
+      name: 'Spawn2',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 323,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: { Spawn1: spawn1, Spawn2: spawn2 },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn1.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      'worker-W1N1-323',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+    expect(spawn2.spawnCreep).toHaveBeenCalledWith(
+      ['claim', 'move', 'claim', 'move', 'claim', 'move', 'claim', 'move', 'claim', 'move'],
+      'claimer-W1N1-W2N1-323-2',
+      {
+        memory: {
+          role: 'claimer',
+          colony: 'W1N1',
+          territory: {
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            controllerId: 'controller2',
+            followUp
+          }
+        }
+      }
+    );
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 323,
+        controllerId: 'controller2',
+        requiresControllerPressure: true,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: 323,
+        followUp
+      }
+    ]);
+  });
+
+  it('uses a second idle spawn for a non-pressure follow-up after spawning support', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 324,
+            followUp
+          }
+        ]
+      }
+    };
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 1_450,
+      energyCapacityAvailable: 1_450
+    });
+    const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn1 = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const spawn2 = {
+      name: 'Spawn2',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 324,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: { Spawn1: spawn1, Spawn2: spawn2 },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn1.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      'worker-W1N1-324',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+    expect(spawn2.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W2N1-324-2', {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W2N1',
+          action: 'reserve',
+          followUp
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 324,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: 324,
+        followUp
+      }
+    ]);
+  });
+
+  it('keeps normal territory planning available when a pending follow-up is allowed on the first pass', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W3N1', action: 'claim' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 324,
+            followUp
+          }
+        ]
+      }
+    };
+    const room = makeTerritoryReadyEconomyRoom();
+    const followUpRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
+    const configuredClaimRoom = makeVisibleReserveRoom('W3N1', 'controller3' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room),
+      Worker4: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 325,
+      rooms: { W1N1: room, W2N1: followUpRoom, W3N1: configuredClaimRoom },
+      spawns: { Spawn1: spawn },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W3N1-325', {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W3N1',
+          action: 'claim',
+          controllerId: 'controller3'
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toContainEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 324,
+      followUp
+    });
+    expect(Memory.territory?.intents).toContainEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 325,
+      controllerId: 'controller3'
+    });
+  });
+
+  it('keeps unsafe occupation recommendations on worker recovery before territory spawn pressure', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const room = makeTerritoryReadyEconomyRoom();
+    const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 321,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: { Spawn1: spawn },
+      creeps: { Worker1: makeEconomyWorker(room) },
+      getObjectById: jest.fn().mockReturnValue(null),
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' }))
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      'worker-W1N1-321',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+    expect(Memory.territory?.targets).toBeUndefined();
+  });
+
+  it('clears stale recommendation-created territory targets on unsafe hostile ticks', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_HOSTILE_CREEPS: number;
+      FIND_HOSTILE_STRUCTURES: number;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 2;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 3;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'reserve',
+            createdBy: 'occupationRecommendation',
+            controllerId: 'controller2' as Id<StructureController>
+          },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'claim' },
+          {
+            colony: 'W1N1',
+            roomName: 'W4N1',
+            action: 'reserve',
+            createdBy: 'occupationRecommendation',
+            enabled: false
+          },
+          {
+            colony: 'W9N9',
+            roomName: 'W9N8',
+            action: 'reserve',
+            createdBy: 'occupationRecommendation'
+          }
+        ],
+        routeDistances: { 'W1N1>W3N1': null }
+      }
+    };
+    const hostile = { id: 'hostile1' } as Creep;
+    const room = makeHostileEconomyRoom([hostile]);
+    const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 322,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: { Spawn1: spawn },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null),
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' }))
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['tough', 'attack', 'move'], 'defender-W1N1-322', {
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
+    });
+    expect(Memory.territory?.targets).toEqual([
+      { colony: 'W1N1', roomName: 'W3N1', action: 'claim' },
+      {
+        colony: 'W1N1',
+        roomName: 'W4N1',
+        action: 'reserve',
+        createdBy: 'occupationRecommendation',
+        enabled: false
+      },
+      {
+        colony: 'W9N9',
+        roomName: 'W9N8',
+        action: 'reserve',
+        createdBy: 'occupationRecommendation'
+      }
+    ]);
+  });
 });
 
 interface LifecycleSpawn extends StructureSpawn {
@@ -516,4 +1028,80 @@ function createLifecycleSpawn(room: Room, creeps: Record<string, Creep>, spawnTi
   };
 
   return spawn as unknown as LifecycleSpawn;
+}
+
+function makeTerritoryReadyEconomyRoom({
+  energyAvailable = 650,
+  energyCapacityAvailable = 650
+}: {
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
+} = {}): Room {
+  return {
+    name: 'W1N1',
+    energyAvailable,
+    energyCapacityAvailable,
+    controller: {
+      my: true,
+      owner: { username: 'me' },
+      level: 3,
+      ticksToDowngrade: 10_000
+    } as StructureController,
+    find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: 'home-source' } as Source] : []))
+  } as unknown as Room;
+}
+
+function makeVisibleForeignReservedRoom(
+  roomName: string,
+  controllerId: Id<StructureController>
+): Room {
+  return {
+    name: roomName,
+    controller: {
+      id: controllerId,
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController,
+    find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
+  } as unknown as Room;
+}
+
+function makeVisibleReserveRoom(
+  roomName: string,
+  controllerId: Id<StructureController>
+): Room {
+  return {
+    name: roomName,
+    controller: { id: controllerId, my: false } as StructureController,
+    find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
+  } as unknown as Room;
+}
+
+function makeHostileEconomyRoom(hostileCreeps: Creep[]): Room {
+  const room = makeTerritoryReadyEconomyRoom();
+  return {
+    ...room,
+    find: jest.fn((type: number) => {
+      if (type === FIND_SOURCES) {
+        return [{ id: 'home-source' } as Source];
+      }
+
+      if (type === FIND_HOSTILE_CREEPS) {
+        return hostileCreeps;
+      }
+
+      return [];
+    })
+  } as unknown as Room;
+}
+
+function makeEconomyWorker(room: Room): Creep {
+  return {
+    memory: { role: 'worker', colony: room.name },
+    room,
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(0),
+      getFreeCapacity: jest.fn().mockReturnValue(50)
+    }
+  } as unknown as Creep;
 }

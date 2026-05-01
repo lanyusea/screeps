@@ -4,11 +4,18 @@ import {
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   LOW_LOAD_NEARBY_ENERGY_RANGE,
   LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
+  REFILL_DELIVERY_MIN_LOAD,
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   estimateNearTermSpawnExtensionRefillReserve,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
+import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import {
+  emitRuntimeSummary,
+  RUNTIME_SUMMARY_INTERVAL,
+  RUNTIME_SUMMARY_PREFIX
+} from '../src/telemetry/runtimeSummary';
 import {
   assessColonySurvival,
   clearColonySurvivalAssessmentCache,
@@ -72,6 +79,22 @@ function makeEnergySink(
     store: { getFreeCapacity: jest.fn().mockReturnValue(freeCapacity) },
     ...extra
   } as unknown as TestEnergySink;
+}
+
+function makeEnergySinkWithEnergy(
+  id: string,
+  structureType: StructureConstant,
+  energy: number,
+  freeCapacity: number,
+  extra: Record<string, unknown> = {}
+): TestEnergySink {
+  return makeEnergySink(id, structureType, freeCapacity, {
+    ...extra,
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(energy),
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity)
+    }
+  });
 }
 
 function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
@@ -315,6 +338,23 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('prefers a source that can fill the worker over a closer low-energy source', () => {
+    const lowEnergySource = makeSource('source-low', 8, 8, 10);
+    const loadReadySource = makeSource('source-ready', 20, 20, 300);
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source-low' ? 1 : 8))
+      },
+      room: makeWorkerTaskRoom({ sources: [lowEnergySource, loadReadySource] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
+  });
+
   it('selects the best range-aware dropped energy before harvesting when worker has free capacity', () => {
     const lowValueDroppedEnergy = { id: 'drop-low', resourceType: 'energy', amount: 24 } as Resource<ResourceConstant>;
     const farDroppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
@@ -493,6 +533,94 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
+  });
+
+  it('uses small dropped energy under spawn pressure when it beats harvesting', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const droppedEnergy = withRangeTo(
+      { id: 'drop-small', resourceType: 'energy', amount: 10 } as Resource<ResourceConstant>,
+      { spawn1: 1 }
+    );
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { spawn1: 5 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-small': 1,
+        source1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedEnergy];
+        }
+
+        if (type === FIND_STRUCTURES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-small' });
+  });
+
+  it('keeps trivial dropped energy ignored under spawn pressure', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const droppedEnergy = withRangeTo(
+      { id: 'drop-trivial', resourceType: 'energy', amount: 9 } as Resource<ResourceConstant>,
+      { spawn1: 1 }
+    );
+    const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { spawn1: 5 });
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-trivial': 1,
+        source1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn as AnyOwnedStructure];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_DROPPED_RESOURCES) {
+          return [droppedEnergy];
+        }
+
+        if (type === FIND_STRUCTURES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
   it('uses dropped energy when it ties harvest delivery under spawn pressure', () => {
@@ -1987,6 +2115,234 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it.each([
+    ['spawn', 'spawn1'],
+    ['extension', 'extension1']
+  ])('keeps urgent %s refill worker acquiring energy until the min delivery load during spawn recovery', (structureType, id) => {
+    const energySink = makeEnergySink(id, structureType as StructureConstant, 300);
+    const lowEnergySource = makeSource('source-low', 8, 8, 10);
+    const loadReadySource = makeSource('source-ready', 20, 20, 300);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        [id]: 2,
+        'source-low': 1,
+        'source-ready': LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      energyCapacityAvailable: 400,
+      myStructures: [energySink as AnyOwnedStructure],
+      sources: [lowEnergySource, loadReadySource]
+    });
+    const creep = {
+      name: 'RecoveryCarrier',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(2),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryCarrier: creep });
+    recordSurvivalMode('LOCAL_STABLE', 333);
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 333,
+      carriedEnergy: 2,
+      freeCapacity: 48,
+      selectedTask: 'harvest',
+      targetId: 'source-ready',
+      energy: 300,
+      range: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+    });
+  });
+
+  it('returns early for urgent refill when the only visible source is depleted', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const depletedSource = makeSource('source-empty', 8, 8, 0);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'source-empty': 1,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 400,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [depletedSource]
+    });
+    const creep = {
+      name: 'RecoveryCarrier',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(REFILL_DELIVERY_MIN_LOAD - 1),
+        getFreeCapacity: jest.fn().mockReturnValue(81)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryCarrier: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'lowLoadReturn',
+      tick: 0,
+      carriedEnergy: REFILL_DELIVERY_MIN_LOAD - 1,
+      freeCapacity: 81,
+      selectedTask: 'transfer',
+      targetId: 'spawn1',
+      reason: 'urgentSpawnExtensionRefill'
+    });
+  });
+
+  it('records refill delivery ticks and delivered energy in runtime summary telemetry', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300, {
+      name: 'Spawn1'
+    }) as StructureSpawn;
+    const room = makeWorkerTaskRoom({
+      energyAvailable: 100,
+      energyCapacityAvailable: 300,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [spawn]
+    });
+    const worker = {
+      id: 'worker1',
+      name: 'RefillWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> },
+        refillTelemetry: {
+          current: {
+            targetId: 'spawn1',
+            startedAt: RUNTIME_SUMMARY_INTERVAL - 2,
+            activeTicks: 2,
+            idleOrOtherTaskTicks: 1
+          },
+          refillActiveTicks: 2,
+          idleOrOtherTaskTicks: 1,
+          lastUpdatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+        }
+      },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(15) }
+    } as unknown as Creep;
+    const colony: ColonySnapshot = {
+      room,
+      spawns: [spawn],
+      energyAvailable: 100,
+      energyCapacityAvailable: 300
+    };
+    (room as unknown as { getEventLog: jest.Mock }).getEventLog = jest.fn(() => [
+      {
+        event: 10,
+        objectId: 'worker1',
+        data: { targetId: 'spawn1', amount: 15, resourceType: RESOURCE_ENERGY }
+      }
+    ]);
+    (globalThis as unknown as { EVENT_TRANSFER: number }).EVENT_TRANSFER = 10;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { RefillWorker: worker },
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      time: RUNTIME_SUMMARY_INTERVAL
+    };
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    try {
+      emitRuntimeSummary([colony], [worker], [], { persistOccupationRecommendations: false });
+
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const [message] = logSpy.mock.calls[0];
+      expect(typeof message).toBe('string');
+      const payload = JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length)) as {
+        rooms: Array<Record<string, unknown>>;
+      };
+      const [roomSummary] = payload.rooms;
+      expect((roomSummary.resources as Record<string, Record<string, number>>).events.refillEnergyDelivered).toBe(15);
+      expect(roomSummary.refillDeliveryTicks).toEqual({
+        completedCount: 1,
+        averageTicks: 3,
+        maxTicks: 3,
+        samples: [
+          {
+            creepName: 'RefillWorker',
+            tick: RUNTIME_SUMMARY_INTERVAL,
+            targetId: 'spawn1',
+            deliveryTicks: 3,
+            activeTicks: 3,
+            idleOrOtherTaskTicks: 1,
+            energyDelivered: 15
+          }
+        ]
+      });
+      expect(roomSummary.refillWorkerUtilization).toEqual({
+        assignedWorkerCount: 1,
+        refillActiveTicks: 3,
+        idleOrOtherTaskTicks: 1,
+        ratio: 0.75,
+        workers: [
+          {
+            creepName: 'RefillWorker',
+            refillActiveTicks: 3,
+            idleOrOtherTaskTicks: 1,
+            ratio: 0.75
+          }
+        ]
+      });
+    } finally {
+      logSpy.mockRestore();
+      delete (globalThis as unknown as { EVENT_TRANSFER?: number }).EVENT_TRANSFER;
+    }
+  });
+
+  it('keeps the load-ready harvest preference during spawn recovery when no refill target exists', () => {
+    const lowEnergySource = makeSource('source-low', 8, 8, 10);
+    const loadReadySource = makeSource('source-ready', 20, 20, 300);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'source-low': 1,
+        'source-ready': LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      energyCapacityAvailable: 400,
+      sources: [lowEnergySource, loadReadySource]
+    });
+    const creep = {
+      name: 'RecoveryCarrier',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(2),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryCarrier: creep });
+    recordSurvivalMode('LOCAL_STABLE', 334);
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 334,
+      carriedEnergy: 2,
+      freeCapacity: 48,
+      selectedTask: 'harvest',
+      targetId: 'source-ready',
+      energy: 300,
+      range: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+    });
+  });
+
   it('returns to refill instead of taking a far low-load harvest detour', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const source = { id: 'source1', energy: 300 } as Source;
@@ -2482,7 +2838,7 @@ describe('selectWorkerTask', () => {
     expect(findPathTo).not.toHaveBeenCalled();
   });
 
-  it('keeps urgent spawn refill before low-load nearby energy acquisition', () => {
+  it('keeps urgent spawn refill worker acquiring nearby energy while below the min delivery load', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
     const getRangeTo = jest.fn((target: { id: string }) => (target.id === 'drop-near' ? 1 : 99));
@@ -2524,15 +2880,16 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 322 };
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
     expect(creep.memory.workerEfficiency).toEqual({
-      type: 'lowLoadReturn',
+      type: 'nearbyEnergyChoice',
       tick: 322,
       carriedEnergy: 10,
       freeCapacity: 40,
-      selectedTask: 'transfer',
-      targetId: 'spawn1',
-      reason: 'urgentSpawnExtensionRefill'
+      selectedTask: 'pickup',
+      targetId: 'drop-near',
+      energy: 50,
+      range: 1
     });
   });
 
@@ -2642,8 +2999,8 @@ describe('selectWorkerTask', () => {
     });
   });
 
-  it('selects the closest spawn or extension before fillable towers', () => {
-    const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
+  it('selects a low-energy spawn before closer extension and tower refills', () => {
+    const farSpawn = makeEnergySinkWithEnergy('spawn-far', 'spawn' as StructureConstant, 0, 300);
     const fullExtension = makeEnergySink('extension-full', 'extension' as StructureConstant, 0);
     const nearExtension = makeEnergySink('extension-near', 'extension' as StructureConstant, 50);
     const nearTower = makeEnergySink('tower-near', 'tower' as StructureConstant, 500);
@@ -2673,14 +3030,14 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-near' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-far' });
     expect(getRangeTo).not.toHaveBeenCalledWith(fullExtension);
     expect(getRangeTo).not.toHaveBeenCalledWith(nearTower);
   });
 
-  it('selects the closest fillable spawn or extension', () => {
-    const farSpawn = makeEnergySink('spawn-far', 'spawn' as StructureConstant, 300);
-    const nearSpawn = makeEnergySink('spawn-near', 'spawn' as StructureConstant, 100);
+  it('selects the closest low-energy spawn before extensions', () => {
+    const farSpawn = makeEnergySinkWithEnergy('spawn-far', 'spawn' as StructureConstant, 0, 300);
+    const nearSpawn = makeEnergySinkWithEnergy('spawn-near', 'spawn' as StructureConstant, 200, 100);
     const closerExtension = makeEnergySink('extension-closer', 'extension' as StructureConstant, 50);
     const structures = [farSpawn, closerExtension, nearSpawn];
     const getRangeTo = jest.fn((target: TestEnergySink) => {
@@ -2707,7 +3064,37 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-closer' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-near' });
+  });
+
+  it('resumes extension refill once the spawn has full spawn energy stored', () => {
+    const fullSpawn = makeEnergySinkWithEnergy('spawn-full', 'spawn' as StructureConstant, 300, 0);
+    const extension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
+    const structures = [fullSpawn, extension];
+    const getRangeTo = jest.fn((target: TestEnergySink) => {
+      const ranges: Record<string, number> = {
+        'extension-open': 1,
+        'spawn-full': 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
   });
 
   it('prefers a recovery sink that can accept the full carried load over a closer partial top-off', () => {
@@ -2930,8 +3317,8 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
   });
 
-  it('prefers larger unreserved recovery capacity over an assigned primary sink', () => {
-    const spawn = makeEnergySink('spawn-assigned', 'spawn' as StructureConstant, 60);
+  it('keeps low-energy spawn refill ahead of larger extension refill capacity', () => {
+    const spawn = makeEnergySinkWithEnergy('spawn-assigned', 'spawn' as StructureConstant, 240, 60);
     const extension = makeEnergySink('extension-open', 'extension' as StructureConstant, 50);
     const structures = [spawn, extension];
     const room = {
@@ -2963,7 +3350,7 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     setGameCreeps({ Carrier: creep, OtherCarrier: otherCarrier });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-open' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-assigned' });
   });
 
   it('uses assignment only as a tie-breaker among unreserved primary sinks', () => {
@@ -3151,7 +3538,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
   });
 
-  it('keeps id order across primary energy sinks when position helpers are unavailable', () => {
+  it('keeps low-energy spawn priority before id order when position helpers are unavailable', () => {
     const extension = makeEnergySink('extension-first', 'extension' as StructureConstant, 50);
     const laterSpawn = makeEnergySink('spawn-z', 'spawn' as StructureConstant, 300);
     const firstSpawn = makeEnergySink('spawn-a', 'spawn' as StructureConstant, 300);
@@ -3171,7 +3558,7 @@ describe('selectWorkerTask', () => {
       }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'extension-first' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-a' });
   });
 
   it('preserves no-sink fallback behavior when all energy sinks are full', () => {
@@ -6650,6 +7037,33 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('uses a load-ready source over a closer low-energy source for spawn recovery harvest', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 50);
+    const lowEnergySource = withRangeTo(makeSource('source-low', 11, 10, 10), { spawn1: 1 }) as unknown as Source;
+    const loadReadySource = withRangeTo(makeSource('source-ready', 12, 10, 300), {
+      spawn1: 5
+    }) as unknown as Source;
+    const room = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [lowEnergySource, loadReadySource]
+    });
+    const creep = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source-low' ? 1 : 8))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
+  });
+
   it('prefers an underloaded spawn recovery harvest over a one-tick faster saturated source', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const saturatedSource = withRangeTo(makeSource('source-saturated', 11, 10), { spawn1: 1 }) as unknown as Source;
@@ -6687,6 +7101,49 @@ describe('selectWorkerTask', () => {
     });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-underloaded' });
+  });
+
+  it('balances spawn recovery harvest by assigned worker work parts', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const heavySource = withRangeTo(makeSource('source-heavy', 11, 10), { spawn1: 1 }) as unknown as Source;
+    const lightSource = withRangeTo(makeSource('source-light', 12, 10), { spawn1: 1 }) as unknown as Source;
+    const room = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [heavySource, lightSource]
+    });
+    const creep = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'source-heavy': 1,
+            'source-light': 2
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      HeavyHarvester: {
+        getActiveBodyparts: jest.fn().mockReturnValue(4),
+        memory: { role: 'worker', task: { type: 'harvest', targetId: heavySource.id } },
+        room
+      } as unknown as Creep,
+      LightHarvester: {
+        getActiveBodyparts: jest.fn().mockReturnValue(1),
+        memory: { role: 'worker', task: { type: 'harvest', targetId: lightSource.id } },
+        room
+      } as unknown as Creep,
+      RecoveryWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-light' });
   });
 
   it('keeps spawn recovery harvest selection deterministic by source id when load and eta tie', () => {

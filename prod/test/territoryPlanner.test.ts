@@ -2,6 +2,7 @@ import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   buildTerritoryCreepMemory,
   getActiveTerritoryFollowUpExecutionHints,
+  hasPendingTerritoryFollowUpIntent,
   planTerritoryIntent,
   recordTerritoryReserveFallbackIntent,
   recordRecoveredTerritoryFollowUpRetryCooldown,
@@ -9,6 +10,8 @@ import {
   shouldSpawnTerritoryControllerCreep,
   suppressTerritoryIntent,
   TERRITORY_DOWNGRADE_GUARD_TICKS,
+  TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS,
+  TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS,
   TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS,
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
   TERRITORY_RESERVATION_RENEWAL_TICKS,
@@ -720,6 +723,76 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('scores expansion candidates by road distance from the nearest owned room', () => {
+    const colony = makeSafeColony();
+    const secondaryOwnedRoom = {
+      name: 'W8N1',
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 }
+    } as Room;
+    const findRoute = jest.fn((fromRoom: string, toRoom: string) =>
+      Array.from(
+        {
+          length:
+            fromRoom === 'W8N1' && toRoom === 'W9N1'
+              ? 1
+              : fromRoom === 'W1N1' && toRoom === 'W3N1'
+                ? 2
+                : fromRoom === 'W1N1' && toRoom === 'W9N1'
+                  ? 6
+                  : 8
+        },
+        (_value, index) => ({
+          exit: 3,
+          room: `${toRoom}-${index}`
+        })
+      )
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W8N1: secondaryOwnedRoom,
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 1 }),
+        W9N1: makeRecommendationRoom('W9N1', { sourceCount: 1 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W9N1', action: 'reserve' }
+        ]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 566)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W9N1',
+      action: 'reserve'
+    });
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W3N1');
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W9N1');
+    expect(findRoute).toHaveBeenCalledWith('W8N1', 'W3N1');
+    expect(findRoute).toHaveBeenCalledWith('W8N1', 'W9N1');
+    expect(Memory.territory?.routeDistances).toEqual({
+      'W1N1>W3N1': 2,
+      'W8N1>W3N1': 8,
+      'W1N1>W9N1': 6,
+      'W8N1>W9N1': 1
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W9N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 566
+      }
+    ]);
+  });
+
   it('excludes a cached no-route recommendation before selecting the next visible reserve candidate', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = -2 as ScreepsReturnCode;
@@ -838,6 +911,147 @@ describe('planTerritoryIntent', () => {
         action: 'reserve'
       }
     ]);
+  });
+
+  it('does not select a territory target in a known dead zone as spawnable', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W3N1: { name: 'W3N1', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        unsafeRooms: {
+          W2N1: {
+            roomName: 'W2N1',
+            unsafe: true,
+            reason: 'enemyTower',
+            updatedAt: 517,
+            hostileCreepCount: 0,
+            hostileStructureCount: 1,
+            hostileTowerCount: 1
+          }
+        }
+      },
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 518);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W3N1', action: 'reserve' });
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        518
+      )
+    ).toBe(false);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 518,
+        reason: 'deadZoneTarget'
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 518
+      }
+    ]);
+  });
+
+  it('refreshes a visible dead-zone target before deciding suppression reason', () => {
+    const colony = makeSafeColony();
+    const hostileTower = { id: 'enemy-tower', structureType: 'tower' } as Structure;
+    (globalThis as unknown as { STRUCTURE_TOWER: string }).STRUCTURE_TOWER = 'tower';
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 520,
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false } as StructureController,
+          find: jest.fn((findType: number) => (findType === FIND_HOSTILE_STRUCTURES ? [hostileTower] : []))
+        } as unknown as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 520);
+
+    expect(plan).toBeNull();
+    expect(Memory.defense?.unsafeRooms?.W2N1).toEqual({
+      roomName: 'W2N1',
+      unsafe: true,
+      reason: 'enemyTower',
+      updatedAt: 520,
+      hostileCreepCount: 0,
+      hostileStructureCount: 1,
+      hostileTowerCount: 1
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'suppressed',
+        updatedAt: 520,
+        reason: 'deadZoneTarget'
+      }
+    ]);
+  });
+
+  it('clears a dead-zone flag when the room becomes safe', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { my: false } as StructureController,
+          find: jest.fn().mockReturnValue([])
+        } as unknown as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        unsafeRooms: {
+          W2N1: {
+            roomName: 'W2N1',
+            unsafe: true,
+            reason: 'enemyTower',
+            updatedAt: 517,
+            hostileCreepCount: 0,
+            hostileStructureCount: 1,
+            hostileTowerCount: 1
+          }
+        }
+      },
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 519);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve' });
+    expect(
+      shouldSpawnTerritoryControllerCreep(plan!, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 519)
+    ).toBe(true);
+    expect(Memory.defense?.unsafeRooms?.W2N1).toBeUndefined();
   });
 
   it('skips visible adjacent rooms without controllers', () => {
@@ -1207,6 +1421,345 @@ describe('planTerritoryIntent', () => {
       )
     ).toBe(false);
     expect(Memory.territory?.intents).toEqual([persistedIntent]);
+  });
+
+  it('suspends a persisted intent with visible hostile creeps instead of selecting it', () => {
+    const colony = makeSafeColony();
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const persistedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 570,
+      followUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', { hostileCreepCount: 2 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [persistedIntent]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 571)).toBeNull();
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        { colony: 'W1N1', targetRoom: 'W2N1', action: 'reserve', followUp },
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        571
+      )
+    ).toBe(false);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 570,
+        followUp: {
+          source: 'satisfiedReserveAdjacent',
+          originRoom: 'W1N2',
+          originAction: 'reserve'
+        },
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 2,
+          updatedAt: 571
+        }
+      }
+    ]);
+  });
+
+  it('retries a hostile-suspended intent after the cooldown when target visibility is unavailable', () => {
+    const colony = makeSafeColony();
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const suspendedAt = 572;
+    const retryTime = suspendedAt + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
+    const suspendedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 571,
+      followUp,
+      suspended: {
+        reason: 'hostile_presence',
+        hostileCount: 1,
+        updatedAt: suspendedAt
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {};
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [suspendedIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, suspendedAt + 1)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571,
+        followUp: {
+          source: 'satisfiedReserveAdjacent',
+          originRoom: 'W1N2',
+          originAction: 'reserve'
+        },
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 1,
+          updatedAt: suspendedAt
+        }
+      }
+    ]);
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      followUp: {
+        source: 'satisfiedReserveAdjacent',
+        originRoom: 'W1N2',
+        originAction: 'reserve'
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: retryTime,
+        followUp: {
+          source: 'satisfiedReserveAdjacent',
+          originRoom: 'W1N2',
+          originAction: 'reserve'
+        }
+      }
+    ]);
+  });
+
+  it('re-suspends a hostile-suspended intent after cooldown when visible hostiles persist', () => {
+    const colony = makeSafeColony();
+    const suspendedAt = 572;
+    const retryTime = suspendedAt + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
+    const secondRetryTime = retryTime + TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS + 1;
+    const suspendedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 571,
+      suspended: {
+        reason: 'hostile_presence',
+        hostileCount: 1,
+        updatedAt: suspendedAt
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', { hostileCreepCount: 3 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [suspendedIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, suspendedAt + 1)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 1,
+          updatedAt: suspendedAt
+        }
+      }
+    ]);
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 3,
+          updatedAt: retryTime
+        }
+      }
+    ]);
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {};
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, retryTime + 1)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 3,
+          updatedAt: retryTime
+        }
+      }
+    ]);
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, secondRetryTime)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 571
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: secondRetryTime
+      }
+    ]);
+  });
+
+  it('clears a hostile suspension immediately when visible hostile creeps leave', () => {
+    const colony = makeSafeColony();
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const suspendedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 573,
+      followUp,
+      suspended: {
+        reason: 'hostile_presence',
+        hostileCount: 1,
+        updatedAt: 574
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [suspendedIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 575)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      followUp
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 575,
+        followUp
+      }
+    ]);
+  });
+
+  it('selects an unsuspended persisted intent when another persisted intent sees hostiles', () => {
+    const colony = makeSafeColony();
+    const blockedFollowUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const readyFollowUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N3', 'reserve');
+    const blockedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 575,
+      followUp: blockedFollowUp
+    };
+    const readyIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 576,
+      followUp: readyFollowUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', { hostileCreepCount: 1, sourceCount: 2 }),
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 2 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [blockedIntent, readyIntent]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 577)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      followUp: readyFollowUp
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        ...blockedIntent,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 1,
+          updatedAt: 577
+        }
+      },
+      {
+        ...readyIntent,
+        updatedAt: 577
+      }
+    ]);
   });
 
   it('prioritizes lower reservation TTL among persisted occupation claim follow-up intents', () => {
@@ -2319,6 +2872,161 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('spawns a recovered claim intent even below the normal claim score', () => {
+    const colony = makeSafeColony();
+    const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'claim' };
+    const recoveredTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'claim' };
+    const followUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim');
+    const suppressionTime = 602;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', { sourceCount: 2 }),
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 0 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [genericTarget, recoveredTarget],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'claim',
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp
+          }
+        ]
+      }
+    };
+
+    const roleCounts = { worker: 3, claimer: 0, claimersByTargetRoom: {} };
+    const plan = planTerritoryIntent(colony, roleCounts, 3, retryTime);
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      followUp
+    });
+    expect(shouldSpawnTerritoryControllerCreep(plan!, roleCounts, retryTime)).toBe(true);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: retryTime,
+        followUp
+      }
+    ]);
+  });
+
+  it('keeps recovered intent priority below the home controller downgrade guard', () => {
+    const colony = makeSafeColony({
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 3,
+        ticksToDowngrade: TERRITORY_DOWNGRADE_GUARD_TICKS
+      } as StructureController
+    });
+    const followUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim');
+    const suppressionTime = 603;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    const roleCounts = { worker: 3, claimer: 0, claimersByTargetRoom: {} };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 0 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'claim',
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(hasPendingTerritoryFollowUpIntent('W1N1', roleCounts, retryTime)).toBe(true);
+    expect(planTerritoryIntent(colony, roleCounts, 3, retryTime)).toBeNull();
+  });
+
+  it('keeps multiple recovered intents bounded to one recommendation-scored spawn candidate', () => {
+    const colony = makeSafeColony();
+    const firstFollowUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N2', 'claim');
+    const secondFollowUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N3', 'claim');
+    const suppressionTime = 604;
+    const retryTime = suppressionTime + TERRITORY_SUPPRESSION_RETRY_TICKS + 1;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 1 }),
+        W4N1: makeRecommendationRoom('W4N1', { sourceCount: 2 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'claim',
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp: firstFollowUp
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W4N1',
+            action: 'claim',
+            status: 'suppressed',
+            updatedAt: suppressionTime,
+            followUp: secondFollowUp
+          }
+        ]
+      }
+    };
+
+    const roleCounts = { worker: 3, claimer: 0, claimersByTargetRoom: {} };
+    const plan = planTerritoryIntent(colony, roleCounts, 3, retryTime);
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W4N1',
+      action: 'claim',
+      followUp: secondFollowUp
+    });
+    expect(shouldSpawnTerritoryControllerCreep(plan!, roleCounts, retryTime)).toBe(true);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: suppressionTime,
+        followUp: firstFollowUp
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W4N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: retryTime,
+        followUp: secondFollowUp
+      }
+    ]);
+    expect(Memory.territory?.intents?.filter((intent) => intent.status === 'planned')).toHaveLength(1);
+  });
+
   it('cools down recovered follow-up attempts before retrying them again', () => {
     const colony = makeSafeColony();
     const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
@@ -2917,6 +3625,184 @@ describe('planTerritoryIntent', () => {
     ]);
     expect(Memory.territory?.demands).toBeUndefined();
     expect(Memory.territory?.executionHints).toBeUndefined();
+  });
+
+  it('suspends a stale follow-up controller intent after visible target hostiles appear', () => {
+    const colony = makeSafeColony();
+    const genericTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' };
+    const staleFollowUpTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' };
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    const staleFollowUpIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 591,
+      followUp
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1'),
+        W3N1: makeRecommendationRoom('W3N1', { hostileCreepCount: 1 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [genericTarget, staleFollowUpTarget],
+        intents: [staleFollowUpIntent],
+        demands: [
+          {
+            type: 'followUpPreparation',
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            workerCount: 1,
+            updatedAt: 591,
+            followUp
+          }
+        ],
+        executionHints: [
+          {
+            type: 'activeFollowUpExecution',
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            reason: 'visibleControlEvidenceStillActionable',
+            updatedAt: 591,
+            followUp
+          }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 592);
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        ...staleFollowUpIntent,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 1,
+          updatedAt: 592
+        }
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 592
+      }
+    ]);
+    expect(Memory.territory?.demands).toBeUndefined();
+    expect(Memory.territory?.executionHints).toBeUndefined();
+  });
+
+  it('does not report unsafe stale follow-up intent as pending demand', () => {
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W3N1: makeRecommendationRoom('W3N1', { hostileCreepCount: 1 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 592,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(
+      hasPendingTerritoryFollowUpIntent('W1N1', { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 593)
+    ).toBe(false);
+  });
+
+  it('keeps controller pressure ahead of stale follow-up fallback cleanup', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { hostileCreepCount: 1 }),
+        W3N1: makeRecommendationRoom('W3N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'reserve' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 592,
+            followUp
+          }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      593,
+      { controllerPressureOnly: true, followUpOnly: true }
+    );
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      requiresControllerPressure: true
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 592,
+        followUp,
+        suspended: {
+          reason: 'hostile_presence',
+          hostileCount: 1,
+          updatedAt: 593
+        }
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 593,
+        requiresControllerPressure: true
+      }
+    ]);
   });
 
   it('scouts an alternate adjacent room while a recovered follow-up target is cooling down', () => {
@@ -3750,6 +4636,139 @@ describe('planTerritoryIntent', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
+  it('defers unseen configured reserve scouting until observed reservation decay nears renewal', () => {
+    const colony = makeSafeColony();
+    const target: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W1N2', action: 'reserve' };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W1N2: {
+          name: 'W1N2',
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 500 }
+          } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [target]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 100)).toBeNull();
+    expect(Memory.territory?.reservations).toEqual({
+      'W1N1>W1N2': {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS + 500,
+        updatedAt: 100
+      }
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 200)).toBeNull();
+    expect(Memory.territory?.intents).toBeUndefined();
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 601)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 601
+      }
+    ]);
+  });
+
+  it('uses route distance lead when scheduling an unseen reservation renewal scout', () => {
+    const colony = makeSafeColony();
+    const routeDistance = 5;
+    const observedTicksToEnd =
+      TERRITORY_RESERVATION_RENEWAL_TICKS +
+      routeDistance * TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS * 2;
+    const findRoute = jest.fn(() =>
+      Array.from({ length: routeDistance }, (_value, index) => ({ exit: 3, room: `W1N2-${index}` }))
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W1N2', action: 'reserve' }],
+        reservations: {
+          'W1N1>W1N2': {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            ticksToEnd: observedTicksToEnd,
+            updatedAt: 100
+          }
+        }
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 101)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W1N2');
+    expect(Memory.territory?.routeDistances).toEqual({ 'W1N1>W1N2': routeDistance });
+  });
+
+  it('clears stale reservation memory when a configured reserve target becomes unreserved', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W1N2: { name: 'W1N2', controller: { my: false } as StructureController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W1N2', action: 'reserve' }],
+        reservations: {
+          'W1N1>W1N2': {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            ticksToEnd: 3_000,
+            updatedAt: 100
+          }
+        }
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 150)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.reservations).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 150
+      }
+    ]);
+  });
+
   it('keeps an unreserved target ahead of enemy-reserved controller pressure', () => {
     const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -3980,6 +4999,308 @@ describe('planTerritoryIntent', () => {
         status: 'planned',
         updatedAt: 542,
         requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('selects a lower-priority pressure target when controller pressure is the only allowed territory spawn', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1'),
+        W3N1: makeRecommendationRoom('W3N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'claim' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      543,
+      { controllerPressureOnly: true }
+    );
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      requiresControllerPressure: true
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 543,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('prioritizes controller pressure over follow-up fallback when both constrained territory lanes are allowed', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { sourceCount: 2 }),
+        W3N1: makeRecommendationRoom('W3N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 1
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'claim' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 543,
+            followUp
+          }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      544,
+      { controllerPressureOnly: true, followUpOnly: true }
+    );
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      requiresControllerPressure: true
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 543,
+        followUp
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 544,
+        requiresControllerPressure: true
+      }
+    ]);
+  });
+
+  it('uses follow-up fallback when both constrained territory lanes are allowed without pressure candidates', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    const followUp = makeFollowUp('satisfiedReserveAdjacent', 'W1N2', 'reserve');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { sourceCount: 2 }),
+        W3N1: makeRecommendationRoom('W3N1', { sourceCount: 2 })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'claim' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'claim' }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 544,
+            followUp
+          }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      545,
+      { controllerPressureOnly: true, followUpOnly: true }
+    );
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      followUp
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 545,
+        followUp
+      }
+    ]);
+  });
+
+  it('prioritizes controller pressure over follow-up candidates when both filtered spawn lanes are enabled', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    const followUp = makeFollowUp('activeReserveAdjacent', 'W1N2', 'reserve');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1'),
+        W3N1: makeRecommendationRoom('W3N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 544,
+            followUp
+          }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      545,
+      { controllerPressureOnly: true, followUpOnly: true }
+    );
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'reserve',
+      requiresControllerPressure: true
+    });
+  });
+
+  it('falls back to follow-up candidates when both filtered spawn lanes are enabled without pressure', () => {
+    const colony = makeSafeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
+    const followUp = makeFollowUp('activeReserveAdjacent', 'W1N2', 'reserve');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1'),
+        W3N1: makeRecommendationRoom('W3N1')
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W3N1', action: 'claim' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 545,
+            followUp
+          }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      546,
+      { controllerPressureOnly: true, followUpOnly: true }
+    );
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      followUp
+    });
+  });
+
+  it('keeps normal territory ranking ahead of pressure-only filtering when all territory spawns are allowed', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1'),
+        W3N1: makeRecommendationRoom('W3N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          sourceCount: 2
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'claim' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ]
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 543);
+
+    expect(plan).toEqual({ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim' });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 543
       }
     ]);
   });

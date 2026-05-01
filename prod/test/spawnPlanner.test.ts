@@ -217,6 +217,23 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 146)).toBeNull();
   });
 
+  it('adds one worker target while spawn-extension refill pressure remains after baseline workers', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N16',
+      energyAvailable: 400,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 146)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N16-146',
+      memory: { role: 'worker', colony: 'W1N16' }
+    });
+    expect(planSpawn(colony, { worker: 4 }, 147)).toBeNull();
+  });
+
   it('adds a second worker target for substantial construction backlog after the first bonus target is safe', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N14',
@@ -998,7 +1015,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-155',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1085,6 +1102,227 @@ describe('planSpawn', () => {
         workerCount: 1,
         updatedAt: 155,
         followUp
+      }
+    ]);
+  });
+
+  it('uses controller-pressure-only territory planning for a persisted follow-up pressure spawn', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const { colony, spawn } = makeColony({
+      energyAvailable: 3250,
+      energyCapacityAvailable: 3250,
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', { my: false } as StructureController, 2),
+        W3N1: makeTerritoryRoom(
+          'W3N1',
+          {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController,
+          2
+        )
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          { colony: 'W1N1', roomName: 'W2N1', action: 'claim' },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 154,
+            requiresControllerPressure: true,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        { worker: 4, claimer: 0, claimersByTargetRoom: {} },
+        155,
+        { workersOnly: true, allowTerritoryControllerPressure: true }
+      )
+    ).toEqual({
+      spawn,
+      body: ['claim', 'move', 'claim', 'move', 'claim', 'move', 'claim', 'move', 'claim', 'move'],
+      name: 'claimer-W1N1-W3N1-155',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W3N1', action: 'reserve', followUp }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 155,
+        requiresControllerPressure: true,
+        followUp
+      }
+    ]);
+    expect(Memory.territory?.demands).toEqual([
+      {
+        type: 'followUpPreparation',
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        workerCount: 1,
+        updatedAt: 155,
+        followUp
+      }
+    ]);
+  });
+
+  it('uses follow-up-only territory planning for a persisted non-pressure follow-up spawn', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeTerritoryRoom('W2N1', { my: false } as StructureController, 2),
+        W3N1: makeTerritoryRoom('W3N1', { my: false } as StructureController, 2)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 154,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        { worker: 4, claimer: 0, claimersByTargetRoom: {} },
+        155,
+        { workersOnly: true, allowTerritoryFollowUp: true }
+      )
+    ).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W3N1-155',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W3N1', action: 'reserve', followUp }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 155,
+        followUp
+      }
+    ]);
+  });
+
+  it('does not let first-pass follow-up allowance block normal territory planning', () => {
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    const ownedController = {
+      ...makeSafeOwnedController(),
+      owner: { username: 'player' }
+    } as StructureController;
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: ownedController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', { my: false } as StructureController, 2),
+        W3N1: makeTerritoryRoom(
+          'W3N1',
+          {
+            my: false,
+            reservation: { username: 'player', ticksToEnd: 2_000 }
+          } as StructureController,
+          2
+        )
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 154,
+            followUp
+          }
+        ]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        155,
+        { allowTerritoryFollowUp: true }
+      )
+    ).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-155',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve' }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 155
       }
     ]);
   });
@@ -1596,7 +1834,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 1, claimer: 0, claimersByTargetRoom: {} }, 140)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-140',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1617,7 +1855,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 141)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-141',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1827,7 +2065,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 161)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-161',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1864,7 +2102,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 152)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N15-152',
       memory: { role: 'worker', colony: 'W1N15' }
     });

@@ -60,6 +60,30 @@ def write_evidence(repo_root: Path, name: str, evidence: dict[str, Any] | str) -
         path.write_text(json.dumps(evidence), encoding="utf-8")
 
 
+def write_codex_session(path: Path, records: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+
+
+def token_count_record(timestamp: str, total_tokens: int) -> dict[str, Any]:
+    return {
+        "timestamp": timestamp,
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "info": {"total_token_usage": {"total_tokens": total_tokens}},
+        },
+    }
+
+
+def session_meta_record(timestamp: str, cwd: Path | str) -> dict[str, Any]:
+    return {
+        "timestamp": timestamp,
+        "type": "session_meta",
+        "payload": {"cwd": str(cwd), "originator": "codex_exec"},
+    }
+
+
 class GenerateRoadmapPageTest(unittest.TestCase):
     def test_screeps_room_target_falls_back_to_current_official_room(self) -> None:
         target = roadmap.build_screeps_room_target({})
@@ -132,14 +156,197 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                 patch.object(roadmap, "fetch_all_prs", return_value=([{"state": "MERGED"}], None)),
                 patch.object(roadmap, "fetch_all_issues", return_value=([{"state": "OPEN"}], None)),
                 patch.object(roadmap, "count_private_smoke_process_reports", return_value=1),
+                patch.object(roadmap, "CODEX_SESSION_ROOT", repo_root / "missing-codex-sessions"),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", repo_root / "missing-cron-output"),
             ):
                 cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
 
-        release_card = next(card for card in cards if card["label"] == "Official deploys")
+        release_card = next(card for card in cards if card["label"] == "Deploys")
         self.assertEqual(release_card["value"], 1)
         self.assertEqual(release_card["source"], "official deploy evidence JSON")
         self.assertIn("latest commit cccccccccccc", release_card["detail"])
         self.assertIn("run 123456", release_card["detail"])
+
+    def test_report_process_cards_compute_agent_metrics_from_local_fixtures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            codex_root = repo_root / "codex-sessions"
+            cron_root = repo_root / "hermes-cron-output"
+            write_evidence(
+                repo_root,
+                "official-screeps-deploy-20260501.json",
+                deploy_evidence(timestamp="2026-05-01T03:00:00Z", commit="d" * 40, run_id="555"),
+            )
+            process_doc = repo_root / "docs" / "process" / "2026-05-01-private-smoke.md"
+            process_doc.parent.mkdir(parents=True, exist_ok=True)
+            process_doc.write_text("private-smoke-report-20260501.json\n", encoding="utf-8")
+            write_codex_session(
+                codex_root / "2026" / "05" / "01" / "rollout-alpha.jsonl",
+                [
+                    session_meta_record("2026-05-01T00:00:00Z", repo_root),
+                    token_count_record("2026-05-01T00:05:00Z", 100),
+                    token_count_record("2026-05-01T00:10:00Z", 150),
+                ],
+            )
+            write_codex_session(
+                codex_root / "2026" / "05" / "01" / "rollout-beta.jsonl",
+                [
+                    session_meta_record("2026-05-01T01:00:00Z", "/root/screeps-worktrees/agent-metrics"),
+                    token_count_record("2026-05-01T01:30:00Z", 75),
+                ],
+            )
+            write_codex_session(
+                codex_root / "2026" / "05" / "01" / "rollout-unrelated.jsonl",
+                [
+                    session_meta_record("2026-05-01T02:00:00Z", "/tmp/other-repo"),
+                    token_count_record("2026-05-01T02:10:00Z", 999),
+                ],
+            )
+            for relative in ("job-a/one.md", "job-a/two.md", "job-b/three.md"):
+                output = cron_root / relative
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("screeps roadmap fanout for lanyusea/screeps\n", encoding="utf-8")
+            unrelated = cron_root / "job-c" / "unrelated.md"
+            unrelated.parent.mkdir(parents=True, exist_ok=True)
+            unrelated.write_text("other repository automation\n", encoding="utf-8")
+
+            with (
+                patch.object(roadmap, "CODEX_SESSION_ROOT", codex_root),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", cron_root),
+                patch.object(roadmap, "run_text", return_value="42\n"),
+                patch.object(
+                    roadmap,
+                    "fetch_all_prs",
+                    return_value=([{"state": "MERGED"}, {"state": "OPEN"}], None),
+                ),
+                patch.object(
+                    roadmap,
+                    "fetch_all_issues",
+                    return_value=([{"state": "OPEN"}, {"state": "CLOSED"}, {"state": "OPEN"}], None),
+                ),
+                patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
+            ):
+                cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
+
+        cards_by_label = {card["label"]: card for card in cards}
+        self.assertEqual([card["label"] for card in cards], [
+            "Commits",
+            "Issues",
+            "PRs",
+            "Deploys",
+            "Private smoke",
+            "Agent tokens",
+            "Codex runtime",
+            "Codex runs",
+            "Cron runs",
+            "Longest Codex run",
+        ])
+        self.assertEqual(cards_by_label["Commits"]["value"], 42)
+        self.assertEqual(cards_by_label["Commits"]["source"], "git rev-list --count HEAD")
+        self.assertEqual(cards_by_label["Issues"]["value"], 3)
+        self.assertIn("2 open", cards_by_label["Issues"]["detail"])
+        self.assertEqual(cards_by_label["PRs"]["value"], 2)
+        self.assertIn("1 merged", cards_by_label["PRs"]["detail"])
+        self.assertEqual(cards_by_label["Deploys"]["value"], 1)
+        self.assertEqual(cards_by_label["Private smoke"]["value"], 1)
+        self.assertEqual(cards_by_label["Agent tokens"]["value"], "225")
+        self.assertEqual(cards_by_label["Agent tokens"]["rawValue"], 225)
+        self.assertIn("latest token_count in 2/2 sessions", cards_by_label["Agent tokens"]["detail"])
+        self.assertEqual(cards_by_label["Agent tokens"]["source"], "repo-attributed .codex/sessions/**/rollout-*.jsonl")
+        self.assertEqual(cards_by_label["Codex runtime"]["value"], "40m")
+        self.assertEqual(cards_by_label["Codex runtime"]["rawValueSeconds"], 2400)
+        self.assertIn("first-to-last JSONL timestamps", cards_by_label["Codex runtime"]["detail"])
+        self.assertEqual(cards_by_label["Codex runs"]["value"], "2")
+        self.assertEqual(cards_by_label["Cron runs"]["value"], "3")
+        self.assertIn("3 cron outputs across 2 jobs", cards_by_label["Cron runs"]["detail"])
+        self.assertEqual(cards_by_label["Longest Codex run"]["value"], "30m")
+        self.assertEqual(cards_by_label["Longest Codex run"]["rawValueSeconds"], 1800)
+        self.assertIn("maximum first-to-last JSONL timestamp span", cards_by_label["Longest Codex run"]["detail"])
+
+    def test_report_process_cards_ignore_unattributed_host_global_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            codex_root = repo_root / "codex-sessions"
+            cron_root = repo_root / "hermes-cron-output"
+            write_codex_session(
+                codex_root / "2026" / "05" / "01" / "rollout-global.jsonl",
+                [
+                    {"timestamp": "2026-05-01T00:00:00Z", "type": "session_meta", "payload": {}},
+                    {
+                        "timestamp": "2026-05-01T00:01:00Z",
+                        "type": "turn_context",
+                        "payload": {
+                            "cwd": "/tmp/unrelated-repo",
+                            "user_instructions": "Discuss lanyusea/screeps but do not mutate it.",
+                        },
+                    },
+                    token_count_record("2026-05-01T00:10:00Z", 999),
+                ],
+            )
+            output = cron_root / "job-a" / "one.md"
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text("Screeps roadmap fanout completed without repository metadata\n", encoding="utf-8")
+
+            with (
+                patch.object(roadmap, "CODEX_SESSION_ROOT", codex_root),
+                patch.object(roadmap, "HERMES_CRON_OUTPUT_ROOT", cron_root),
+                patch.object(roadmap, "run_text", return_value=""),
+                patch.object(roadmap, "fetch_all_prs", return_value=([], {"message": "unavailable"})),
+                patch.object(roadmap, "fetch_all_issues", return_value=([], {"message": "unavailable"})),
+                patch.object(roadmap, "summarize_official_deploy_evidence", return_value=roadmap.OfficialDeployEvidenceSummary(0)),
+                patch.object(roadmap, "count_official_deploy_evidence", return_value=0),
+            ):
+                cards = roadmap.build_report_process_cards(repo_root, {"fullName": "lanyusea/screeps"}, {}, {})
+
+        cards_by_label = {card["label"]: card for card in cards}
+        self.assertEqual(cards_by_label["Agent tokens"]["value"], "unavailable")
+        self.assertEqual(cards_by_label["Codex runs"]["value"], "unavailable")
+        self.assertEqual(cards_by_label["Cron runs"]["value"], "unavailable")
+        self.assertEqual(cards_by_label["Longest Codex run"]["value"], "unavailable")
+
+    def test_agent_metrics_skip_bad_or_similarly_named_repo_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "screeps"
+            repo_root.mkdir()
+            codex_root = Path(tmp) / "codex-sessions"
+            cron_root = Path(tmp) / "hermes-cron-output"
+            write_codex_session(
+                codex_root / "2026" / "05" / "01" / "rollout-screeps-tools.jsonl",
+                [
+                    session_meta_record("2026-05-01T00:00:00Z", "/root/screeps-tools"),
+                    token_count_record("2026-05-01T00:01:00Z", 999),
+                ],
+            )
+            bad_path = codex_root / "2026" / "05" / "01" / "rollout-bad.jsonl"
+            bad_path.parent.mkdir(parents=True, exist_ok=True)
+            bad_path.write_bytes(
+                b'{"timestamp":"2026-05-01T00:00:00Z","type":"session_meta","payload":{"cwd":"/tmp/bad'
+                b'\x00'
+                b'path"}}\n\xff\xfe\n'
+            )
+            write_codex_session(
+                codex_root / "2026" / "05" / "01" / "rollout-good.jsonl",
+                [
+                    session_meta_record("2026-05-01T01:00:00Z", repo_root),
+                    token_count_record("2026-05-01T01:03:00Z", 42),
+                ],
+            )
+            unrelated = cron_root / "job-a" / "unrelated.md"
+            unrelated.parent.mkdir(parents=True, exist_ok=True)
+            unrelated.write_text("github.com/lanyusea/screeps-tools\n", encoding="utf-8")
+            related = cron_root / "job-b" / "related.md"
+            related.parent.mkdir(parents=True, exist_ok=True)
+            related.write_text("github.com/lanyusea/screeps\n", encoding="utf-8")
+
+            attribution = roadmap.build_repo_attribution(repo_root, {"fullName": "lanyusea/screeps"})
+            codex_metrics = roadmap.summarize_codex_sessions(codex_root, attribution)
+            automation_metrics = roadmap.summarize_automation_runs(cron_root, attribution)
+
+        self.assertEqual(codex_metrics.session_count, 1)
+        self.assertEqual(codex_metrics.total_tokens, 42)
+        self.assertEqual(codex_metrics.longest_elapsed_seconds, 180)
+        self.assertEqual(automation_metrics.run_count, 1)
+        self.assertEqual(automation_metrics.job_count, 1)
 
     def test_report_groups_visible_work_by_project_domain(self) -> None:
         repo = {
@@ -228,8 +435,10 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         roadmap_cards = roadmap.build_report_roadmap_cards(github_snapshot, repo)
         domain_board = roadmap.build_report_domain_kanban(github_snapshot)
 
-        self.assertEqual([card["title"] for card in roadmap_cards], list(roadmap.PROJECT_DOMAIN_ORDER))
+        self.assertEqual([card["title"] for card in roadmap_cards], list(roadmap.REPORT_ROADMAP_DOMAIN_ORDER))
+        self.assertNotIn("Docs/process", [card["title"] for card in roadmap_cards])
         self.assertEqual([column["title"] for column in domain_board], list(roadmap.PROJECT_DOMAIN_ORDER))
+        self.assertIn("Docs/process", [column["title"] for column in domain_board])
 
         runtime_column = next(column for column in domain_board if column["title"] == "Runtime monitor")
         gameplay_column = next(column for column in domain_board if column["title"] == "Gameplay Evolution")
@@ -298,7 +507,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
                         "status": "No Project Domain items observed",
                         "url": "",
                     }
-                    for domain in roadmap.PROJECT_DOMAIN_ORDER
+                    for domain in roadmap.REPORT_ROADMAP_DOMAIN_ORDER
                 ],
                 "domainKanban": [{"title": domain, "items": []} for domain in roadmap.PROJECT_DOMAIN_ORDER],
                 "processCards": [],
@@ -306,9 +515,13 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         }
 
         html = roadmap.render_html(data)
+        roadmap_section = html.split("03 Project Domain Board", 1)[0]
+        kanban_section = html.split("03 Project Domain Board", 1)[1]
 
         self.assertIn("02 Project Domains", html)
         self.assertIn("03 Project Domain Board", html)
+        self.assertNotIn("Docs/process", roadmap_section)
+        self.assertIn("Docs/process", kanban_section)
         self.assertIn(
             ".kanban-grid {\n  display: grid;\n  grid-template-columns: repeat(5, minmax(0, 1fr));",
             html,

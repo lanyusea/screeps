@@ -16,6 +16,7 @@ declare global {
     defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
+    refillTelemetry?: WorkerRefillTelemetryMemory;
   }
 
   type DefenseActionType =
@@ -26,10 +27,13 @@ declare global {
     | 'defenderAttack'
     | 'defenderMove'
     | 'workerFallback';
+  type DefenseUnsafeRoomReason = 'enemyTower' | 'hostilePresence';
+  type TerritoryIntentSuppressionReason = 'deadZoneTarget' | 'deadZoneRoute';
 
   interface DefenseMemory {
     actions?: DefenseActionMemory[];
     rooms?: Record<string, DefenseActionMemory>;
+    unsafeRooms?: Record<string, DefenseUnsafeRoomMemory>;
   }
 
   interface DefenseActionMemory {
@@ -45,6 +49,16 @@ declare global {
     result?: ScreepsReturnCode;
   }
 
+  interface DefenseUnsafeRoomMemory {
+    roomName: string;
+    unsafe: true;
+    reason: DefenseUnsafeRoomReason;
+    updatedAt: number;
+    hostileCreepCount: number;
+    hostileStructureCount: number;
+    hostileTowerCount: number;
+  }
+
   interface CreepDefenseMemory {
     homeRoom: string;
   }
@@ -53,6 +67,7 @@ declare global {
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
   type TerritoryDemandType = 'followUpPreparation';
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
+  type TerritoryIntentSuspensionReason = 'hostile_presence';
   type TerritoryExecutionHintReason =
     | 'controlEvidenceStillMissing'
     | 'followUpTargetStillUnseen'
@@ -63,6 +78,7 @@ declare global {
     intents?: TerritoryIntentMemory[];
     demands?: TerritoryFollowUpDemandMemory[];
     executionHints?: TerritoryExecutionHintMemory[];
+    reservations?: Record<string, TerritoryReservationMemory>;
     routeDistances?: Record<string, number | null>;
   }
 
@@ -81,10 +97,26 @@ declare global {
     action: TerritoryIntentAction;
     status: 'planned' | 'active' | 'suppressed';
     updatedAt: number;
+    reason?: TerritoryIntentSuppressionReason;
     lastAttemptAt?: number;
     controllerId?: Id<StructureController>;
     requiresControllerPressure?: boolean;
     followUp?: TerritoryFollowUpMemory;
+    suspended?: TerritoryIntentSuspensionMemory;
+  }
+
+  interface TerritoryIntentSuspensionMemory {
+    reason: TerritoryIntentSuspensionReason;
+    hostileCount: number;
+    updatedAt: number;
+  }
+
+  interface TerritoryReservationMemory {
+    colony: string;
+    roomName: string;
+    ticksToEnd: number;
+    updatedAt: number;
+    controllerId?: Id<StructureController>;
   }
 
   interface TerritoryFollowUpMemory {
@@ -134,6 +166,30 @@ declare global {
     energy?: number;
     range?: number;
     reason?: WorkerEfficiencyLowLoadReturnReason;
+  }
+
+  interface WorkerRefillTelemetryMemory {
+    current?: WorkerRefillDeliveryMemory;
+    recentDeliveries?: WorkerRefillDeliverySampleMemory[];
+    refillActiveTicks?: number;
+    idleOrOtherTaskTicks?: number;
+    lastUpdatedAt?: number;
+  }
+
+  interface WorkerRefillDeliveryMemory {
+    targetId: string;
+    startedAt: number;
+    activeTicks: number;
+    idleOrOtherTaskTicks: number;
+  }
+
+  interface WorkerRefillDeliverySampleMemory {
+    tick: number;
+    targetId: string;
+    deliveryTicks: number;
+    activeTicks: number;
+    idleOrOtherTaskTicks: number;
+    energyDelivered: number;
   }
 
   type CreepTaskMemory =
