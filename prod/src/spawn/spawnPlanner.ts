@@ -130,8 +130,24 @@ function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | n
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
 }
 
-function planControllerDowngradeGuardSpawn(_context: SpawnPlanningContext): SpawnRequest | null {
-  return null;
+function planControllerDowngradeGuardSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    !context.survival.controllerDowngradeGuard ||
+    context.workerCapacity > context.workerTarget ||
+    !hasControllerDowngradeGuardSpawnCapacity(context)
+  ) {
+    return null;
+  }
+
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function hasControllerDowngradeGuardSpawnCapacity(context: SpawnPlanningContext): boolean {
+  if (!context.survival.hostilePresence) {
+    return true;
+  }
+
+  return context.colony.spawns.filter((spawn) => !spawn.spawning).length > 1;
 }
 
 function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
