@@ -1,16 +1,16 @@
 name: Known problem
-description: Track every known problem against a roadmap item
-labels: [kind:bug]
+description: Track every known problem against GitHub Project screeps
+labels: [roadmap]
 body:
   - type: markdown
     attributes:
       value: |
-        所有已知问题都必须建 issue。标题格式必须为：`<优先级>:<roadmap>:<具体问题>`，例如 `P0:Phase D:私服 smoke harness clean rerun 未完成`。
+        所有已知问题都必须建 issue。标题应当方便人类阅读；机器分类以 labels、milestone 和 Project `Domain`/`Kind` 字段为准，不再依赖标题解析。
   - type: dropdown
     id: priority
     attributes:
-      label: 优先级
-      description: 选择 P0/P1/P2，并保持标题前缀一致。
+      label: Priority
+      description: 选择 P0/P1/P2；创建后 agent/automation 必须同步 `priority:*` label 和 Project Priority。
       options:
         - P0
         - P1
@@ -18,43 +18,62 @@ body:
     validations:
       required: true
   - type: dropdown
-    id: roadmap
+    id: domain
     attributes:
-      label: Roadmap 分类
-      description: 分类必须对应 docs/ops/roadmap.md 的 roadmap 条目。
+      label: Domain
+      description: Domain 是唯一主要分类字段；创建后必须同步到 Project `Domain`。
       options:
-        - P0 change-control
-        - P0 agent-ops
-        - Phase A docs-sync
-        - Phase B spawn-lifecycle
-        - Phase C telemetry
-        - Phase D private-smoke
-        - Phase E MMO-deploy
+        - Agent OS
+        - Change-control
+        - Runtime monitor
+        - Release/deploy
+        - Bot capability
+        - Combat
+        - Territory/Economy
+        - Gameplay Evolution
+        - RL flywheel
+        - Docs/process
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      description: Kind 只表示工作类型；创建后必须同步到 `kind:*` label 和 Project Kind。
+      options:
+        - bug
+        - ops
+        - docs
+        - test
+        - code
+        - review
+        - research
+        - qa
     validations:
       required: true
   - type: textarea
     id: description
     attributes:
       label: 问题描述
-      description: 说明现象、影响范围、为什么阻塞 roadmap。
-      placeholder: 当前发生了什么？对 territory/resources/kills 或交付链路有什么影响？
+      description: 说明现象、影响范围、为什么影响当前目标或交付链路。
+      placeholder: 当前发生了什么？对 territory/resources/kills、RL、部署或 agent 运维有什么影响？
     validations:
       required: true
   - type: textarea
-    id: logs
+    id: evidence
     attributes:
-      label: 问题日志
-      description: 粘贴 redacted 日志、命令输出、PR/commit/doc 链接；不得包含 secret。
+      label: Evidence / 问题日志
+      description: 粘贴 redacted 日志、命令输出、PR/commit/doc 链接、runtime artifact 或截图；不得包含 secret。
       placeholder: |
         - Redacted log/output:
-        - Related docs/PRs/commits:
+        - Related docs/PRs/commits/artifacts:
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: 问题复现方式说明
-      description: 写清楚从 clean checkout / runtime / scheduler 如何复现；如果暂不可复现，写明观测入口。
+      label: 复现或观测入口
+      description: 写清楚如何复现；如果暂不可复现，写明观测入口、实际/期望结果。
       placeholder: |
         1. ...
         2. ...
@@ -63,9 +82,23 @@ body:
     validations:
       required: true
   - type: textarea
+    id: project_sync
+    attributes:
+      label: Project sync requirement
+      description: 创建后必须由 agent/automation 同步 Project 字段。
+      value: |
+        Required after creation:
+        - Add/update labels: roadmap, priority:*, kind:* and compatibility roadmap:* where useful.
+        - Assign one milestone.
+        - Add to Project `screeps` #3.
+        - Set Project fields: Status, Priority, Domain, Kind, Evidence, Next action.
+        - If blocked: add `blocked` label and fill `Blocked by`.
+    validations:
+      required: true
+  - type: textarea
     id: fix_pr
     attributes:
-      label: 修复 PR 关联要求
+      label: Fix PR linkage
       description: 修复 PR 必须在 PR body 写 `Fixes #<issue>` / `Closes #<issue>` / `Resolves #<issue>`。
       value: |
         Fix PR must link this issue with a closing keyword before merge.
