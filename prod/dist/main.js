@@ -6928,10 +6928,16 @@ function planLocalSurvivalSpawn(context) {
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
 }
 function planControllerDowngradeGuardSpawn(context) {
-  if (!context.survival.controllerDowngradeGuard || context.workerCapacity > context.workerTarget) {
+  if (!context.survival.controllerDowngradeGuard || context.workerCapacity > context.workerTarget || !hasControllerDowngradeGuardSpawnCapacity(context)) {
     return null;
   }
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+function hasControllerDowngradeGuardSpawnCapacity(context) {
+  if (!context.survival.hostilePresence) {
+    return true;
+  }
+  return context.colony.spawns.filter((spawn) => !spawn.spawning).length > 1;
 }
 function planDefenseSpawn(context) {
   var _a;

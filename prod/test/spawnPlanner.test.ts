@@ -253,6 +253,40 @@ describe('planSpawn', () => {
     });
   });
 
+  it('does not spend the only spawn on a downgrade-guard worker under hostile pressure', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony } = makeColony({
+      roomName: 'W1N9',
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      hostileCreeps: [hostile],
+      controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3, defender: 1 }, 151)).toBeNull();
+  });
+
+  it('allows a downgrade-guard worker under hostile pressure when another idle spawn remains available', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N9',
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      hostileCreeps: [hostile],
+      controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
+    });
+    colony.spawns = [spawn, { name: 'Spawn2', room: colony.room, spawning: null } as StructureSpawn];
+
+    expect(planSpawn(colony, { worker: 3, defender: 1 }, 152)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N9-152',
+      memory: { role: 'worker', colony: 'W1N9' }
+    });
+  });
+
   it('does not spend construction backlog bonuses while the home controller needs downgrade recovery', () => {
     const { colony } = makeColony({
       roomName: 'W1N9',
