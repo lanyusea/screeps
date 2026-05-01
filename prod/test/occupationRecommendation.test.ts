@@ -716,6 +716,61 @@ describe('occupation recommendation scoring', () => {
     ]);
   });
 
+  it('revokes a stale recommendation-owned target when no follow-up exists', () => {
+    const staleTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    const manualMatchingTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve'
+    };
+    const disabledRecommendationTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation',
+      enabled: false
+    };
+    const otherColonyRecommendationTarget: TerritoryTargetMemory = {
+      colony: 'W9N9',
+      roomName: 'W2N1',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          staleTarget,
+          manualMatchingTarget,
+          disabledRecommendationTarget,
+          otherColonyRecommendationTarget
+        ]
+      }
+    };
+    const report = scoreOccupationRecommendations(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          controller: { ownerUsername: 'enemy' },
+          sourceCount: 2
+        })
+      ])
+    );
+
+    expect(report.next).toBeNull();
+    expect(report.followUpIntent).toBeNull();
+    expect(persistOccupationRecommendationFollowUpIntent(report, 708)).toBeNull();
+    expect(Memory.territory?.targets).toEqual([
+      manualMatchingTarget,
+      disabledRecommendationTarget,
+      otherColonyRecommendationTarget
+    ]);
+  });
+
   it('records visible controller ids on runtime recommendation targets', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};

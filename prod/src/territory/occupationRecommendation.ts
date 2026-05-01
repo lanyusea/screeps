@@ -5,6 +5,7 @@ export type OccupationRecommendationEvidenceStatus = 'sufficient' | 'insufficien
 export type OccupationRecommendationCandidateSource = 'configured' | 'adjacent';
 
 export interface OccupationRecommendationReport {
+  colonyName?: string;
   candidates: OccupationRecommendationScore[];
   next: OccupationRecommendationScore | null;
   followUpIntent: OccupationRecommendationFollowUpIntent | null;
@@ -103,7 +104,10 @@ export function scoreOccupationRecommendations(
     .sort(compareOccupationRecommendationScores);
   const next = candidates.find((candidate) => candidate.evidenceStatus !== 'unavailable') ?? null;
 
-  return { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) };
+  return attachOccupationRecommendationReportColony(
+    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) },
+    input.colonyName
+  );
 }
 
 export function persistOccupationRecommendationFollowUpIntent(
@@ -112,6 +116,7 @@ export function persistOccupationRecommendationFollowUpIntent(
 ): TerritoryIntentMemory | null {
   const followUpIntent = report.followUpIntent;
   if (!followUpIntent) {
+    revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report);
     return null;
   }
 
@@ -178,6 +183,22 @@ function persistOccupationRecommendationTarget(
 
   removeStaleOccupationRecommendationTargets(territoryMemory, target.colony, target);
   upsertTerritoryTarget(territoryMemory, target);
+}
+
+function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(
+  report: OccupationRecommendationReport
+): void {
+  const colony = report.colonyName;
+  if (!isNonEmptyString(colony)) {
+    return;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
 }
 
 function buildPersistableOccupationRecommendationTarget(
@@ -284,6 +305,17 @@ function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: Territo
   ) {
     existingTarget.controllerId = target.controllerId;
   }
+}
+
+function attachOccupationRecommendationReportColony(
+  report: OccupationRecommendationReport,
+  colonyName: string
+): OccupationRecommendationReport {
+  Object.defineProperty(report, 'colonyName', {
+    value: colonyName,
+    enumerable: false
+  });
+  return report;
 }
 
 function buildRuntimeOccupationRecommendationInput(

@@ -1279,12 +1279,16 @@ function scoreOccupationRecommendations(input) {
   var _a;
   const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreOccupationCandidate(input, candidate)).sort(compareOccupationRecommendationScores);
   const next = (_a = candidates.find((candidate) => candidate.evidenceStatus !== "unavailable")) != null ? _a : null;
-  return { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) };
+  return attachOccupationRecommendationReportColony(
+    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) },
+    input.colonyName
+  );
 }
 function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGameTime3()) {
   var _a, _b;
   const followUpIntent = report.followUpIntent;
   if (!followUpIntent) {
+    revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report);
     return null;
   }
   const territoryMemory = getWritableTerritoryMemoryRecord();
@@ -1332,6 +1336,17 @@ function persistOccupationRecommendationTarget(report, intent) {
   }
   removeStaleOccupationRecommendationTargets(territoryMemory, target.colony, target);
   upsertTerritoryTarget(territoryMemory, target);
+}
+function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report) {
+  const colony = report.colonyName;
+  if (!isNonEmptyString2(colony)) {
+    return;
+  }
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+  removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
 }
 function buildPersistableOccupationRecommendationTarget(report, intent) {
   const recommendation = report.next;
@@ -1390,6 +1405,13 @@ function upsertTerritoryTarget(territoryMemory, target) {
   if (isRecord(existingTarget) && existingTarget.enabled !== false && !existingTarget.controllerId && target.controllerId) {
     existingTarget.controllerId = target.controllerId;
   }
+}
+function attachOccupationRecommendationReportColony(report, colonyName) {
+  Object.defineProperty(report, "colonyName", {
+    value: colonyName,
+    enumerable: false
+  });
+  return report;
 }
 function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
   var _a, _b;
