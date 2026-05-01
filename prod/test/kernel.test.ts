@@ -62,6 +62,44 @@ describe('Kernel', () => {
     expect(runEconomy).toHaveBeenNthCalledWith(3, [defenseEvent]);
   });
 
+  it('prunes stale defense throttle entries while forwarding changed hostile pressure signals', () => {
+    const initialSignal = makeDefenseEvent({
+      targetId: 'hostile1',
+      hostileCreepCount: 1,
+      damagedCriticalStructureCount: 0
+    });
+    const escalatedSignal = makeDefenseEvent({
+      targetId: 'hostile1',
+      hostileCreepCount: 2,
+      damagedCriticalStructureCount: 1
+    });
+    let defenseEvents: RuntimeTelemetryEvent[] = [initialSignal];
+    const runEconomy = jest.fn();
+    const kernel = new Kernel({
+      initializeMemory: jest.fn(),
+      cleanupDeadCreepMemory: jest.fn(),
+      runDefense: jest.fn(() => defenseEvents),
+      runEconomy
+    });
+    const forwardedDefenseEventTicks = (
+      kernel as unknown as { lastForwardedDefenseEventTick: Map<string, number> }
+    ).lastForwardedDefenseEventTick;
+
+    setGameTime(401);
+    kernel.run();
+    defenseEvents = [escalatedSignal];
+    setGameTime(402);
+    kernel.run();
+    defenseEvents = [];
+    setGameTime(422);
+    kernel.run();
+
+    expect(runEconomy).toHaveBeenNthCalledWith(1, [initialSignal]);
+    expect(runEconomy).toHaveBeenNthCalledWith(2, [escalatedSignal]);
+    expect(runEconomy).toHaveBeenNthCalledWith(3, []);
+    expect(forwardedDefenseEventTicks.size).toBe(0);
+  });
+
   it('aggregates duplicate defense actions before forwarding runtime summary events', () => {
     const firstTowerAttack = makeDefenseEvent({
       action: 'towerAttack',

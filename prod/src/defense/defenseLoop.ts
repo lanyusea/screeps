@@ -83,7 +83,7 @@ function runTowerDefense(context: DefenseContext, telemetryEvents: RuntimeTeleme
     attackingTowerIds: new Set<string>()
   };
 
-  if (context.hostileCreeps.length === 0) {
+  if (context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
     return defenseResult;
   }
 
@@ -92,7 +92,7 @@ function runTowerDefense(context: DefenseContext, telemetryEvents: RuntimeTeleme
       continue;
     }
 
-    const target = selectClosestTarget(tower, context.hostileCreeps);
+    const target = selectTowerAttackTarget(tower, context);
     if (!target) {
       continue;
     }
@@ -366,6 +366,15 @@ function hasStoredEnergy(structure: {
 function selectWoundedFriendlyCreep(room: Room, tower: StructureTower): Creep | null {
   const woundedCreeps = findMyCreeps(room).filter(isWoundedCreep);
   return selectClosestTarget(tower, woundedCreeps);
+}
+
+function selectTowerAttackTarget(tower: StructureTower, context: DefenseContext): HostileTarget | null {
+  const hostileCreep = selectClosestTarget(tower, context.hostileCreeps);
+  if (hostileCreep) {
+    return hostileCreep;
+  }
+
+  return selectClosestTarget(tower, context.hostileStructures);
 }
 
 function selectDefenderTarget(creep: Creep): HostileTarget | null {

@@ -101,14 +101,14 @@ function runTowerDefense(context, telemetryEvents) {
     attackSucceeded: false,
     attackingTowerIds: /* @__PURE__ */ new Set()
   };
-  if (context.hostileCreeps.length === 0) {
+  if (context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
     return defenseResult;
   }
   for (const tower of getUsableTowers(context.towers)) {
     if (typeof tower.attack !== "function") {
       continue;
     }
-    const target = selectClosestTarget(tower, context.hostileCreeps);
+    const target = selectTowerAttackTarget(tower, context);
     if (!target) {
       continue;
     }
@@ -310,6 +310,13 @@ function hasStoredEnergy(structure) {
 function selectWoundedFriendlyCreep(room, tower) {
   const woundedCreeps = findMyCreeps(room).filter(isWoundedCreep);
   return selectClosestTarget(tower, woundedCreeps);
+}
+function selectTowerAttackTarget(tower, context) {
+  const hostileCreep = selectClosestTarget(tower, context.hostileCreeps);
+  if (hostileCreep) {
+    return hostileCreep;
+  }
+  return selectClosestTarget(tower, context.hostileStructures);
 }
 function selectDefenderTarget(creep) {
   const hostileCreep = selectClosestTarget(creep, findHostileCreeps(creep.room));
@@ -8554,6 +8561,7 @@ function attemptSpawn(spawnRequest, roomName, telemetryEvents) {
 
 // src/kernel/Kernel.ts
 var MAX_FORWARDED_DEFENSE_EVENTS_PER_TICK = 5;
+var DEFENSE_EVENT_FORWARDING_TTL_TICKS = RUNTIME_SUMMARY_INTERVAL;
 var Kernel = class {
   constructor(dependencies = {
     initializeMemory,
@@ -8575,6 +8583,7 @@ var Kernel = class {
 };
 function selectForwardedDefenseEvents(events, lastForwardedDefenseEventTick, tick) {
   const forwardedEvents = [];
+  pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick);
   const prioritizedEvents = events.map((event, index) => ({ event, index })).sort(
     (left, right) => getDefenseEventPriority(left.event) - getDefenseEventPriority(right.event) || left.index - right.index
   );
@@ -8601,6 +8610,13 @@ function shouldForwardDefenseEvent(event, lastForwardedDefenseEventTick, tick) {
   }
   lastForwardedDefenseEventTick.set(key, tick);
   return true;
+}
+function pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick) {
+  for (const [key, lastForwardedTick] of lastForwardedDefenseEventTick) {
+    if (lastForwardedTick > tick || tick - lastForwardedTick >= DEFENSE_EVENT_FORWARDING_TTL_TICKS) {
+      lastForwardedDefenseEventTick.delete(key);
+    }
+  }
 }
 function getDefenseEventForwardingKey(event) {
   var _a, _b;

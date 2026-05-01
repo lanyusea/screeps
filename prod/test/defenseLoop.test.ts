@@ -53,6 +53,53 @@ describe('runDefense', () => {
     });
   });
 
+  it('falls back to the nearest hostile structure when no hostile creep is visible', () => {
+    const farStructure = makeHostileStructure('structure-a', 34, 25);
+    const nearStructure = makeHostileStructure('structure-z', 26, 25);
+    const roomFixture = makeOwnedRoom({ hostileStructures: [farStructure, nearStructure] });
+    const tower = makeTower(roomFixture.room, {
+      id: 'tower1',
+      attack: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    roomFixture.setTowers([tower]);
+
+    const events = runDefense();
+
+    expect(tower.attack).toHaveBeenCalledWith(nearStructure);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'towerAttack',
+        roomName: 'W1N1',
+        structureId: 'tower1',
+        targetId: 'structure-z',
+        result: OK_CODE,
+        hostileCreepCount: 0,
+        hostileStructureCount: 2
+      }
+    ]);
+  });
+
+  it('prefers hostile creeps before falling back to closer hostile structures', () => {
+    const hostile = makeHostile('hostile1', 35, 25);
+    const hostileStructure = makeHostileStructure('structure1', 26, 25);
+    const roomFixture = makeOwnedRoom({
+      hostiles: [hostile],
+      hostileStructures: [hostileStructure]
+    });
+    const tower = makeTower(roomFixture.room, {
+      id: 'tower1',
+      attack: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    roomFixture.setTowers([tower]);
+
+    runDefense();
+
+    expect(tower.attack).toHaveBeenCalledWith(hostile);
+  });
+
   it('repairs a damaged spawn with a tower when no hostile target is visible', () => {
     const roomFixture = makeOwnedRoom({
       spawnHits: 2_000,
@@ -420,7 +467,7 @@ function makeTower(
   }: {
     id: string;
     energy: number;
-    attack?: jest.Mock<ScreepsReturnCode, [Creep]>;
+    attack?: jest.Mock<ScreepsReturnCode, [Creep | Structure]>;
     heal?: jest.Mock<ScreepsReturnCode, [Creep]>;
     repair?: jest.Mock<ScreepsReturnCode, [Structure]>;
   }

@@ -4,6 +4,7 @@ import { runEconomy } from '../economy/economyLoop';
 import { RUNTIME_SUMMARY_INTERVAL, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 
 const MAX_FORWARDED_DEFENSE_EVENTS_PER_TICK = 5;
+const DEFENSE_EVENT_FORWARDING_TTL_TICKS = RUNTIME_SUMMARY_INTERVAL;
 
 export interface KernelDependencies {
   initializeMemory: () => void;
@@ -40,6 +41,7 @@ function selectForwardedDefenseEvents(
   tick: number
 ): RuntimeTelemetryEvent[] {
   const forwardedEvents: RuntimeTelemetryEvent[] = [];
+  pruneStaleForwardedDefenseEvents(lastForwardedDefenseEventTick, tick);
   const prioritizedEvents = events
     .map((event, index) => ({ event, index }))
     .sort(
@@ -83,6 +85,17 @@ function shouldForwardDefenseEvent(
 
   lastForwardedDefenseEventTick.set(key, tick);
   return true;
+}
+
+function pruneStaleForwardedDefenseEvents(
+  lastForwardedDefenseEventTick: Map<string, number>,
+  tick: number
+): void {
+  for (const [key, lastForwardedTick] of lastForwardedDefenseEventTick) {
+    if (lastForwardedTick > tick || tick - lastForwardedTick >= DEFENSE_EVENT_FORWARDING_TTL_TICKS) {
+      lastForwardedDefenseEventTick.delete(key);
+    }
+  }
 }
 
 function getDefenseEventForwardingKey(event: Extract<RuntimeTelemetryEvent, { type: 'defense' }>): string {
