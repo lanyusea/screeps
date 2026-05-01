@@ -22,10 +22,10 @@ interface SpawnAttemptOutcome {
   result: ScreepsReturnCode;
 }
 
-export function runEconomy(): void {
+export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): void {
   const creeps = Object.values(Game.creeps);
   const colonies = getOwnedColonies();
-  const telemetryEvents: RuntimeTelemetryEvent[] = [];
+  const telemetryEvents: RuntimeTelemetryEvent[] = [...preludeTelemetryEvents];
   clearColonySurvivalAssessmentCache();
 
   for (const colony of colonies) {

@@ -3,6 +3,11 @@ import { countCreepsByRole, WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../src/cree
 describe('countCreepsByRole', () => {
   it('counts creeps by memory role and colony', () => {
     const worker = { memory: { role: 'worker', colony: 'W1N1' } } as Creep;
+    const defender = {
+      memory: { role: 'defender', colony: 'W1N1', defense: { homeRoom: 'W1N1' } },
+      room: { name: 'W1N1' },
+      body: [{ type: 'attack', hits: 100 }]
+    } as unknown as Creep;
     const claimer = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'reserve' } },
       body: [{ type: 'claim', hits: 100 }]
@@ -13,13 +18,70 @@ describe('countCreepsByRole', () => {
     const otherColonyWorker = { memory: { role: 'worker', colony: 'W2N2' } } as Creep;
     const unassigned = { memory: {} } as Creep;
 
-    expect(countCreepsByRole([worker, claimer, scout, otherColonyWorker, unassigned], 'W1N1')).toEqual({
+    expect(countCreepsByRole([worker, defender, claimer, scout, otherColonyWorker, unassigned], 'W1N1')).toEqual({
       worker: 1,
+      defender: 1,
       claimer: 1,
       claimersByTargetRoom: { W2N1: 1 },
       claimersByTargetRoomAction: { reserve: { W2N1: 1 } },
       scout: 1,
       scoutsByTargetRoom: { W1N2: 1 }
+    });
+  });
+
+  it('excludes defenders with no active ATTACK capacity from colony defense capacity', () => {
+    const damagedDefender = {
+      memory: { role: 'defender', colony: 'W1N1', defense: { homeRoom: 'W1N1' } },
+      room: { name: 'W1N1' },
+      body: [
+        { type: 'attack', hits: 0 },
+        { type: 'move', hits: 100 }
+      ]
+    } as unknown as Creep;
+    const noAttackDefender = {
+      memory: { role: 'defender', colony: 'W1N1', defense: { homeRoom: 'W1N1' } },
+      room: { name: 'W1N1' },
+      body: [{ type: 'move', hits: 100 }]
+    } as unknown as Creep;
+
+    expect(countCreepsByRole([damagedDefender, noAttackDefender], 'W1N1')).toEqual({
+      worker: 0,
+      claimer: 0,
+      claimersByTargetRoom: {}
+    });
+  });
+
+  it('excludes off-room and non-assigned defenders from colony defense capacity', () => {
+    const offRoomDefender = {
+      memory: { role: 'defender', colony: 'W1N1', defense: { homeRoom: 'W1N1' } },
+      room: { name: 'W2N1' },
+      body: [{ type: 'attack', hits: 100 }]
+    } as unknown as Creep;
+    const nonAssignedDefender = {
+      memory: { role: 'defender', colony: 'W1N1' },
+      room: { name: 'W1N1' },
+      body: [{ type: 'attack', hits: 100 }]
+    } as unknown as Creep;
+
+    expect(countCreepsByRole([offRoomDefender, nonAssignedDefender], 'W1N1')).toEqual({
+      worker: 0,
+      claimer: 0,
+      claimersByTargetRoom: {}
+    });
+  });
+
+  it('counts functional in-room home-assigned defenders for colony defense capacity', () => {
+    const defender = {
+      memory: { role: 'defender', colony: 'W1N1', defense: { homeRoom: 'W1N1' } },
+      room: { name: 'W1N1' },
+      body: [{ type: 'attack', hits: 100 }]
+    } as unknown as Creep;
+
+    expect(countCreepsByRole([defender], 'W1N1')).toEqual({
+      worker: 0,
+      defender: 1,
+      claimer: 0,
+      claimersByTargetRoom: {}
     });
   });
 

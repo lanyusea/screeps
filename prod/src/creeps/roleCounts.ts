@@ -1,6 +1,7 @@
 export interface RoleCounts {
   worker: number;
   workerCapacity?: number;
+  defender?: number;
   claimer?: number;
   claimersByTargetRoom?: Record<string, number>;
   claimersByTargetRoomAction?: Partial<Record<TerritoryControlAction, Record<string, number>>>;
@@ -21,6 +22,9 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
         if (canSatisfyRoleCapacity(creep)) {
           counts.workerCapacity = (counts.workerCapacity ?? 0) + 1;
         }
+      }
+      if (canSatisfyDefenderCapacity(creep, colonyName)) {
+        counts.defender = (counts.defender ?? 0) + 1;
       }
       if (isColonyClaimer(creep, colonyName) && canSatisfyTerritoryControllerCapacity(creep)) {
         counts.claimer = (counts.claimer ?? 0) + 1;
@@ -93,18 +97,42 @@ function canSatisfyTerritoryControllerCapacity(creep: Creep): boolean {
   return canSatisfyRoleCapacity(creep) && hasActiveClaimPart(creep);
 }
 
+function canSatisfyDefenderCapacity(creep: Creep, colonyName: string): boolean {
+  return (
+    isColonyDefender(creep, colonyName) &&
+    isDefenderInColonyRoom(creep, colonyName) &&
+    canSatisfyRoleCapacity(creep) &&
+    hasActiveAttackPart(creep)
+  );
+}
+
+function isColonyDefender(creep: Creep, colonyName: string): boolean {
+  return creep.memory.role === 'defender' && creep.memory.defense?.homeRoom === colonyName;
+}
+
+function isDefenderInColonyRoom(creep: Creep, colonyName: string): boolean {
+  return creep.room?.name === colonyName;
+}
+
+function hasActiveAttackPart(creep: Creep): boolean {
+  return hasActiveBodyPartType(creep, getBodyPartConstant('ATTACK', 'attack'));
+}
+
 function hasActiveClaimPart(creep: Creep): boolean {
-  const claimPart = getBodyPartConstant('CLAIM', 'claim');
-  const activeClaimParts = creep.getActiveBodyparts?.(claimPart);
-  if (typeof activeClaimParts === 'number') {
-    return activeClaimParts > 0;
+  return hasActiveBodyPartType(creep, getBodyPartConstant('CLAIM', 'claim'));
+}
+
+function hasActiveBodyPartType(creep: Creep, bodyPartType: BodyPartConstant): boolean {
+  const activeParts = creep.getActiveBodyparts?.(bodyPartType);
+  if (typeof activeParts === 'number') {
+    return activeParts > 0;
   }
 
   if (!Array.isArray(creep.body)) {
     return false;
   }
 
-  return creep.body.some((part) => isActiveBodyPart(part, claimPart));
+  return creep.body.some((part) => isActiveBodyPart(part, bodyPartType));
 }
 
 function isActiveBodyPart(part: unknown, bodyPartType: BodyPartConstant): boolean {
@@ -116,7 +144,7 @@ function isActiveBodyPart(part: unknown, bodyPartType: BodyPartConstant): boolea
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === 'number' && bodyPart.hits > 0;
 }
 
-function getBodyPartConstant(globalName: 'CLAIM', fallback: BodyPartConstant): BodyPartConstant {
-  const constants = globalThis as unknown as Partial<Record<'CLAIM', BodyPartConstant>>;
+function getBodyPartConstant(globalName: 'ATTACK' | 'CLAIM', fallback: BodyPartConstant): BodyPartConstant {
+  const constants = globalThis as unknown as Partial<Record<'ATTACK' | 'CLAIM', BodyPartConstant>>;
   return constants[globalName] ?? fallback;
 }
