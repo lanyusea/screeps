@@ -542,6 +542,13 @@ function executeTask(
     case 'repair':
       return creep.repair(target as Structure);
     case 'claim':
+      if (
+        typeof creep.attackController === 'function' &&
+        canCreepPressureTerritoryController(creep, target as StructureController, creep.memory.colony)
+      ) {
+        return creep.attackController(target as StructureController);
+      }
+
       return creep.claimController(target as StructureController);
     case 'reserve':
       if (

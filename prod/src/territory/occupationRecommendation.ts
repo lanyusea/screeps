@@ -128,6 +128,7 @@ export function persistOccupationRecommendationFollowUpIntent(
       isRecoveredTerritoryFollowUpAttemptCoolingDown(existingIntent, gameTime) ||
       isRecoveredTerritoryFollowUpRetryPending(existingIntent))
   ) {
+    refreshDeferredTerritoryIntentPressure(existingIntent, followUpIntent);
     return null;
   }
 
@@ -293,10 +294,10 @@ function scoreOccupationCandidate(
   } else {
     evidence.push('room visible', 'controller visible');
     const controllerPressureEvidence = getControllerPressureEvidence(input, candidate);
-    const unavailableReason = getControllerUnavailableReason(input, candidate.controller);
+    const unavailableReason = getControllerUnavailableReason(input, candidate);
     if (controllerPressureEvidence) {
       evidence.push(controllerPressureEvidence);
-      action = 'reserve';
+      action = candidate.actionHint === 'claim' ? 'occupy' : 'reserve';
       requiresControllerPressure = true;
       if (candidate.sourceCount === undefined) {
         risks.push('source count evidence missing');
@@ -418,7 +419,7 @@ function getControllerPressureEvidence(
 ): string | null {
   if (
     candidate.source !== 'configured' ||
-    candidate.actionHint !== 'reserve' ||
+    !isTerritoryControlAction(candidate.actionHint) ||
     !candidate.controller ||
     !isForeignReservation(input, candidate.controller)
   ) {
@@ -451,8 +452,13 @@ function getColonyReadinessPreconditions(input: OccupationRecommendationInput): 
 
 function getControllerUnavailableReason(
   input: OccupationRecommendationInput,
-  controller: OccupationControllerEvidence
+  candidate: OccupationRecommendationCandidateInput
 ): string | null {
+  const controller = candidate.controller;
+  if (!controller) {
+    return null;
+  }
+
   if (isControllerOwnedByColony(input, controller)) {
     return 'controller already owned by colony account';
   }
@@ -461,7 +467,11 @@ function getControllerUnavailableReason(
     return 'controller owned by another account';
   }
 
-  if (controller.reservationUsername && controller.reservationUsername !== input.colonyOwnerUsername) {
+  if (
+    candidate.actionHint !== 'claim' &&
+    controller.reservationUsername &&
+    controller.reservationUsername !== input.colonyOwnerUsername
+  ) {
     return 'controller reserved by another account';
   }
 
@@ -766,13 +776,28 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
   intents.push(nextIntent);
 }
 
+function refreshDeferredTerritoryIntentPressure(
+  existingIntent: TerritoryIntentMemory,
+  followUpIntent: OccupationRecommendationFollowUpIntent
+): void {
+  if (followUpIntent.requiresControllerPressure !== true) {
+    return;
+  }
+
+  existingIntent.requiresControllerPressure = true;
+  if (!existingIntent.controllerId && followUpIntent.controllerId) {
+    existingIntent.controllerId = followUpIntent.controllerId;
+  }
+}
+
 function shouldPreservePersistedTerritoryIntentPressureRequirement(
   intent: TerritoryIntentMemory,
   controllerId: Id<StructureController> | undefined = intent.controllerId
 ): boolean {
   return (
     intent.requiresControllerPressure === true &&
-    isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId)
+    (isTerritoryControllerPressureVisibilityMissing(intent.targetRoom, intent.action, controllerId) ||
+      isVisibleTerritoryControllerPressureAvailable(intent.targetRoom, intent.action, controllerId, intent.colony))
   );
 }
 
@@ -781,7 +806,25 @@ function isTerritoryControllerPressureVisibilityMissing(
   action: TerritoryIntentAction,
   controllerId?: Id<StructureController>
 ): boolean {
-  return action === 'reserve' && getVisibleController(targetRoom, controllerId) === null;
+  return isTerritoryControlAction(action) && getVisibleController(targetRoom, controllerId) === null;
+}
+
+function isVisibleTerritoryControllerPressureAvailable(
+  targetRoom: string,
+  action: TerritoryIntentAction,
+  controllerId: Id<StructureController> | undefined,
+  colonyName: string
+): boolean {
+  if (!isTerritoryControlAction(action)) {
+    return false;
+  }
+
+  const controller = getVisibleController(targetRoom, controllerId);
+  return controller !== null && isForeignVisibleReservation(controller, getVisibleColonyOwnerUsername(colonyName));
+}
+
+function isTerritoryControlAction(action: unknown): action is TerritoryControlAction {
+  return action === 'claim' || action === 'reserve';
 }
 
 function getVisibleController(targetRoom: string, controllerId?: Id<StructureController>): StructureController | null {
@@ -797,6 +840,24 @@ function getVisibleController(targetRoom: string, controllerId?: Id<StructureCon
   }
 
   return null;
+}
+
+function getVisibleColonyOwnerUsername(colonyName: string): string | undefined {
+  return getControllerOwnerUsername(getGameRooms()?.[colonyName]?.controller);
+}
+
+function isForeignVisibleReservation(
+  controller: StructureController,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  const reservationUsername = getReservationUsername(controller);
+  return (
+    colonyOwnerUsername !== undefined &&
+    controller.my !== true &&
+    getControllerOwnerUsername(controller) === undefined &&
+    reservationUsername !== undefined &&
+    reservationUsername !== colonyOwnerUsername
+  );
 }
 
 function isSameTerritoryIntent(

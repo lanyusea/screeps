@@ -10,6 +10,7 @@ describe('runTerritoryControllerCreep', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
+    (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
     (globalThis as unknown as { RoomPosition: typeof RoomPosition }).RoomPosition = jest.fn(
       (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
     ) as unknown as typeof RoomPosition;
@@ -299,6 +300,56 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim' });
     expect(Memory.territory).toBeUndefined();
+  });
+
+  it('suppresses a foreign-reserved claim assignment when the claimer lacks pressure parts', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 503,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W1N2',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 502
+          }
+        ]
+      }
+    };
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'enemy', ticksToEnd: 3_000 }
+    } as StructureController;
+    const creep = {
+      owner: { username: 'me' },
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N2', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      attackController: jest.fn(),
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.attackController).not.toHaveBeenCalled();
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 503
+      }
+    ]);
   });
 
   it('moves a claim-pressure creep into range before claiming a foreign-reserved controller', () => {
@@ -1059,7 +1110,7 @@ describe('runTerritoryControllerCreep', () => {
       owner: { username: 'me' },
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'reserve' } },
       room: { name: 'W1N2', controller },
-      getActiveBodyparts: jest.fn().mockReturnValue(5),
+      getActiveBodyparts: jest.fn((part: BodyPartConstant) => (part === CLAIM ? 5 : 0)),
       attackController: jest.fn().mockReturnValue(-12),
       reserveController: jest.fn(),
       moveTo: jest.fn()
@@ -1067,6 +1118,7 @@ describe('runTerritoryControllerCreep', () => {
 
     runTerritoryControllerCreep(creep);
 
+    expect(creep.getActiveBodyparts).toHaveBeenCalledWith(CLAIM);
     expect(creep.attackController).toHaveBeenCalledWith(controller);
     expect(creep.reserveController).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
