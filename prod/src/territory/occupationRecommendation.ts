@@ -81,6 +81,7 @@ const RESERVATION_RENEWAL_TICKS = 1_000;
 const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
 const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
+const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
 const ROAD_DISTANCE_BASE_SCORE = 100;
 const ROAD_DISTANCE_ROOM_COST_SCORE = 20;
@@ -834,10 +835,14 @@ function getCachedNearestOwnedRoomRouteDistance(fromRoom: string, targetRoom: st
   const ownedRoomNames = getVisibleOwnedRoomNames(fromRoom);
   let nearestDistance: number | undefined;
   for (const ownedRoomName of ownedRoomNames) {
-    const distance =
+    const cachedDistance =
       ownedRoomName === fromRoom
         ? getCachedRouteDistance(fromRoom, targetRoom)
         : getCachedRouteDistance(ownedRoomName, targetRoom);
+    const distance =
+      cachedDistance === undefined
+        ? findUncachedRouteDistance(ownedRoomName, targetRoom)
+        : cachedDistance;
     if (typeof distance !== 'number') {
       continue;
     }
@@ -846,6 +851,37 @@ function getCachedNearestOwnedRoomRouteDistance(fromRoom: string, targetRoom: st
   }
 
   return nearestDistance;
+}
+
+function findUncachedRouteDistance(fromRoom: string, targetRoom: string): number | undefined {
+  if (fromRoom === targetRoom) {
+    return 0;
+  }
+
+  const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map as
+    | (Partial<GameMap> & {
+        findRoute?: (fromRoom: string, toRoom: string) => unknown;
+      })
+    | undefined;
+  if (typeof gameMap?.findRoute !== 'function') {
+    return undefined;
+  }
+
+  try {
+    const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
+    if (route === getNoPathResultCode()) {
+      return undefined;
+    }
+
+    return Array.isArray(route) ? route.length : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getNoPathResultCode(): ScreepsReturnCode {
+  const noPathCode = (globalThis as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH;
+  return typeof noPathCode === 'number' ? noPathCode : ERR_NO_PATH_CODE;
 }
 
 function getVisibleOwnedRoomNames(fallbackRoomName: string): string[] {

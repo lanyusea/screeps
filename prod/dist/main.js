@@ -1288,6 +1288,7 @@ var RESERVATION_RENEWAL_TICKS = 1e3;
 var TERRITORY_SUPPRESSION_RETRY_TICKS = 1500;
 var TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR = ">";
+var ERR_NO_PATH_CODE = -2;
 var OCCUPATION_RECOMMENDATION_TARGET_CREATOR = "occupationRecommendation";
 var ROAD_DISTANCE_BASE_SCORE = 100;
 var ROAD_DISTANCE_ROOM_COST_SCORE = 20;
@@ -1786,13 +1787,37 @@ function getCachedNearestOwnedRoomRouteDistance(fromRoom, targetRoom) {
   const ownedRoomNames = getVisibleOwnedRoomNames(fromRoom);
   let nearestDistance;
   for (const ownedRoomName of ownedRoomNames) {
-    const distance = ownedRoomName === fromRoom ? getCachedRouteDistance(fromRoom, targetRoom) : getCachedRouteDistance(ownedRoomName, targetRoom);
+    const cachedDistance = ownedRoomName === fromRoom ? getCachedRouteDistance(fromRoom, targetRoom) : getCachedRouteDistance(ownedRoomName, targetRoom);
+    const distance = cachedDistance === void 0 ? findUncachedRouteDistance(ownedRoomName, targetRoom) : cachedDistance;
     if (typeof distance !== "number") {
       continue;
     }
     nearestDistance = nearestDistance === void 0 ? distance : Math.min(nearestDistance, distance);
   }
   return nearestDistance;
+}
+function findUncachedRouteDistance(fromRoom, targetRoom) {
+  var _a;
+  if (fromRoom === targetRoom) {
+    return 0;
+  }
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (typeof (gameMap == null ? void 0 : gameMap.findRoute) !== "function") {
+    return void 0;
+  }
+  try {
+    const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
+    if (route === getNoPathResultCode()) {
+      return void 0;
+    }
+    return Array.isArray(route) ? route.length : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getNoPathResultCode() {
+  const noPathCode = globalThis.ERR_NO_PATH;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE;
 }
 function getVisibleOwnedRoomNames(fallbackRoomName) {
   var _a;
@@ -2036,7 +2061,7 @@ var TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND = 1;
 var TERRITORY_ADJACENT_CONTROLLER_PROGRESS_WORKER_SURPLUS = 0;
 var EXIT_DIRECTION_ORDER2 = ["1", "3", "5", "7"];
 var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
-var ERR_NO_PATH_CODE = -2;
+var ERR_NO_PATH_CODE2 = -2;
 var TERRITORY_CANDIDATE_PRIORITY_URGENT_RENEWAL = 0;
 var TERRITORY_CANDIDATE_PRIORITY_VISIBLE_CLAIM = 1;
 var TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE = 2;
@@ -3478,7 +3503,7 @@ function getKnownRouteLength(fromRoom, targetRoom, routeDistanceLookupContext) {
     return void 0;
   }
   const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
-  if (route === getNoPathResultCode()) {
+  if (route === getNoPathResultCode2()) {
     if (cache) {
       cache[cacheKey] = null;
     }
@@ -3506,9 +3531,9 @@ function getTerritoryRouteDistanceCache() {
 function getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom) {
   return `${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR2}${targetRoom}`;
 }
-function getNoPathResultCode() {
+function getNoPathResultCode2() {
   const noPathCode = globalThis.ERR_NO_PATH;
-  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE2;
 }
 function getAdjacentReserveCandidateState(targetRoom, colonyOwnerUsername) {
   if (isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {

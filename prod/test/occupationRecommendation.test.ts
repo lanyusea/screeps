@@ -12,6 +12,7 @@ describe('occupation recommendation scoring', () => {
   afterEach(() => {
     delete (globalThis as { Game?: Partial<Game> }).Game;
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
+    delete (globalThis as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH;
   });
 
   it('keeps occupy recommendations ahead of richer reserve rooms', () => {
@@ -57,13 +58,13 @@ describe('occupation recommendation scoring', () => {
         makeCandidate({
           roomName: 'W2N1',
           sourceCount: 1,
-          routeDistance: 1,
+          routeDistance: 6,
           roadDistance: 1
         }),
         makeCandidate({
           roomName: 'W7N1',
           sourceCount: 2,
-          routeDistance: 6,
+          routeDistance: 1,
           roadDistance: 6
         })
       ])
@@ -77,11 +78,13 @@ describe('occupation recommendation scoring', () => {
       action: 'reserve',
       evidenceStatus: 'sufficient',
       sourceCount: 1,
+      routeDistance: 6,
       roadDistance: 1
     });
     expect(distantCandidate).toMatchObject({
       roomName: 'W7N1',
       sourceCount: 2,
+      routeDistance: 1,
       roadDistance: 6
     });
     expect(closeCandidate?.score).toBeGreaterThan(distantCandidate?.score ?? 0);
@@ -314,6 +317,79 @@ describe('occupation recommendation scoring', () => {
       routeDistance: 1
     });
     expect(report.next?.roomName).toBe('W2N1');
+  });
+
+  it('falls back to map route lookup for uncached nearest-owned road distance telemetry', () => {
+    const findRoute = jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 3, room: toRoom }]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W5N1: {
+          name: 'W5N1',
+          controller: { my: true, owner: { username: 'me' } } as StructureController
+        } as Room,
+        W7N1: {
+          name: 'W7N1',
+          controller: { my: false } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W7N1', action: 'reserve' }],
+        routeDistances: { 'W1N1>W7N1': 6 }
+      }
+    };
+
+    const report = buildRuntimeOccupationRecommendationReport(makeRuntimeColony(), [
+      {} as Creep,
+      {} as Creep,
+      {} as Creep
+    ]);
+
+    expect(report.candidates.find((candidate) => candidate.roomName === 'W7N1')).toMatchObject({
+      roomName: 'W7N1',
+      routeDistance: 6,
+      roadDistance: 1
+    });
+    expect(findRoute).toHaveBeenCalledWith('W5N1', 'W7N1');
+    expect(Memory.territory?.routeDistances).toEqual({ 'W1N1>W7N1': 6 });
+  });
+
+  it('leaves uncached nearest-owned road distance unavailable when route lookup has no path', () => {
+    (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = -2 as ScreepsReturnCode;
+    const findRoute = jest.fn(() => ERR_NO_PATH);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { findRoute } as unknown as GameMap,
+      rooms: {
+        W5N1: {
+          name: 'W5N1',
+          controller: { my: true, owner: { username: 'me' } } as StructureController
+        } as Room,
+        W7N1: {
+          name: 'W7N1',
+          controller: { my: false } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W7N1', action: 'reserve' }]
+      }
+    };
+
+    const report = buildRuntimeOccupationRecommendationReport(makeRuntimeColony(), [
+      {} as Creep,
+      {} as Creep,
+      {} as Creep
+    ]);
+
+    expect(report.candidates.find((candidate) => candidate.roomName === 'W7N1')).toMatchObject({
+      roomName: 'W7N1'
+    });
+    expect(report.candidates.find((candidate) => candidate.roomName === 'W7N1')).not.toHaveProperty('roadDistance');
+    expect(findRoute).toHaveBeenCalledWith('W5N1', 'W7N1');
+    expect(Memory.territory?.routeDistances).toBeUndefined();
   });
 
   it('persists the selected recommendation as a territory follow-up intent', () => {
