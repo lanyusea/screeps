@@ -751,36 +751,33 @@ function selectTerritoryTarget(
     roleCounts,
     routeDistanceLookupContext
   );
-  const configuredCandidates = filterTerritoryCandidatesForPlanningOptions(
-    applyOccupationRecommendationScores(
-      colony,
-      roleCounts,
-      workerTarget,
-      getConfiguredTerritoryCandidates(
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        roleCounts,
-        routeDistanceLookupContext
-      )
-    ),
-    options
-  );
-  const persistedIntentCandidates = filterTerritoryCandidatesForPlanningOptions(
-    getPersistedTerritoryIntentCandidates(
+  const configuredCandidates = applyOccupationRecommendationScores(
+    colony,
+    roleCounts,
+    workerTarget,
+    getConfiguredTerritoryCandidates(
       colonyName,
       colonyOwnerUsername,
       territoryMemory,
       intents,
       gameTime,
+      roleCounts,
       routeDistanceLookupContext
-    ),
-    options
+    )
+  );
+  const persistedIntentCandidates = getPersistedTerritoryIntentCandidates(
+    colonyName,
+    colonyOwnerUsername,
+    territoryMemory,
+    intents,
+    gameTime,
+    routeDistanceLookupContext
   );
   const primaryCandidates = getSpawnCapableTerritoryCandidates(
-    [...persistedIntentCandidates, ...configuredCandidates],
+    filterTerritoryCandidatesForPlanningOptions(
+      [...persistedIntentCandidates, ...configuredCandidates],
+      options
+    ),
     colony
   );
   const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
@@ -889,15 +886,18 @@ function filterTerritoryCandidatesForPlanningOptions(
   candidates: ScoredTerritoryTarget[],
   options: TerritoryTargetSelectionOptions
 ): ScoredTerritoryTarget[] {
-  if (options.controllerPressureOnly !== true && options.followUpOnly !== true) {
-    return candidates;
+  if (options.controllerPressureOnly === true) {
+    const pressureCandidates = candidates.filter(isControllerPressureCandidate);
+    if (pressureCandidates.length > 0 || options.followUpOnly !== true) {
+      return pressureCandidates;
+    }
   }
 
-  return candidates.filter(
-    (candidate) =>
-      (options.controllerPressureOnly === true && isControllerPressureCandidate(candidate)) ||
-      (options.followUpOnly === true && isTerritoryFollowUpControlCandidate(candidate))
-  );
+  if (options.followUpOnly === true) {
+    return candidates.filter(isTerritoryFollowUpControlCandidate);
+  }
+
+  return candidates;
 }
 
 function isControllerPressureCandidate(candidate: ScoredTerritoryTarget): boolean {
