@@ -243,13 +243,14 @@ export function emitRuntimeSummary(
   }
 
   const tick = getGameTime();
+  if (!shouldEmitRuntimeSummary(tick, events)) {
+    return;
+  }
+
   const creepsByColony = groupCreepsByColony(creeps);
   const refillTargetIdsByRoom = buildRefillTargetIdsByRoom(colonies);
   const eventMetricsByRoom = buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom);
   refreshRefillTelemetry(colonies, creepsByColony, refillTargetIdsByRoom, eventMetricsByRoom, tick);
-  if (!shouldEmitRuntimeSummary(tick, events)) {
-    return;
-  }
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
