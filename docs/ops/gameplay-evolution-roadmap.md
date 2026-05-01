@@ -1,6 +1,8 @@
 # Screeps Gameplay Evolution Roadmap
 
 > This is the专项 plan for turning the project vision into a recurring game-result → postmortem analysis → roadmap/task-update loop.
+>
+> RL strategy evolution is governed by [`rl-domain-roadmap.md`](./rl-domain-roadmap.md). Treat the RL flywheel as a standing P1 domain, not an ad-hoc research thread.
 
 Date: 2026-04-29
 
