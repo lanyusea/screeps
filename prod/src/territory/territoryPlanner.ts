@@ -238,7 +238,7 @@ export function shouldSpawnTerritoryControllerCreep(
 
 export function requiresTerritoryControllerPressure(plan: TerritoryIntentPlan): boolean {
   return (
-    plan.action === 'reserve' &&
+    isTerritoryControlAction(plan.action) &&
     (plan.requiresControllerPressure === true ||
       isVisibleTerritoryReservePressureAvailable(
         plan.targetRoom,
@@ -993,7 +993,7 @@ function getTerritoryIntentActionBodyCost(
   action: TerritoryIntentAction,
   requiresControllerPressure = false
 ): number {
-  if (action === 'reserve' && requiresControllerPressure) {
+  if (isTerritoryControlAction(action) && requiresControllerPressure) {
     return TERRITORY_CONTROLLER_PRESSURE_BODY_COST;
   }
 
@@ -1703,7 +1703,8 @@ function applyOccupationRecommendationScore(
   adjacentControllerProgressReady: boolean
 ): ScoredTerritoryTarget {
   const intentAction = getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
-  const requiresControllerPressure = intentAction === 'reserve' && candidate.requiresControllerPressure === true;
+  const requiresControllerPressure =
+    isTerritoryControlAction(intentAction) && candidate.requiresControllerPressure === true;
   const nextSelection: SelectedTerritoryTarget = {
     target: candidate.target,
     intentAction,
@@ -1757,7 +1758,7 @@ function getRecommendedTerritoryIntentAction(
   roleCounts: RoleCounts
 ): TerritoryIntentAction {
   if (recommendation.evidenceStatus === 'insufficient-evidence') {
-    if (candidate.intentAction === 'reserve' && candidate.requiresControllerPressure === true) {
+    if (isTerritoryControlAction(candidate.intentAction) && candidate.requiresControllerPressure === true) {
       return candidate.intentAction;
     }
 
@@ -2609,7 +2610,7 @@ function isTerritoryControllerPressureVisibilityMissing(
   action: TerritoryIntentAction,
   controllerId?: Id<StructureController>
 ): boolean {
-  return action === 'reserve' && getVisibleController(targetRoom, controllerId) === null;
+  return isTerritoryControlAction(action) && getVisibleController(targetRoom, controllerId) === null;
 }
 
 function getPersistedTerritoryIntentPressureRequirement(
@@ -3587,7 +3588,7 @@ function isVisibleTerritoryReservePressureAvailable(
   controllerId: Id<StructureController> | undefined,
   colonyOwnerUsername: string | null
 ): boolean {
-  if (action !== 'reserve' || isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
+  if (!isTerritoryControlAction(action) || isVisibleRoomUnsafeForTerritoryControllerWork(targetRoom)) {
     return false;
   }
 
