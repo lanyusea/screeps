@@ -1761,7 +1761,10 @@ function selectSpawnRecoveryHarvestCandidate(
     return null;
   }
 
-  const viableSources = selectViableHarvestSources(sources);
+  const viableSources = selectViableHarvestSources(
+    sources,
+    getSpawnRecoveryHarvestEnergyTarget(creep, energySink)
+  );
   const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
   const candidates = viableSources
     .map((source) =>
@@ -2026,13 +2029,17 @@ function estimateHarvestDeliveryEtaFromSource(
 }
 
 function estimateHarvestTicks(creep: Creep, energySink: FillableEnergySink): number {
-  const energyNeeded = Math.max(1, Math.min(getFreeEnergyCapacity(creep), getFreeStoredEnergyCapacity(energySink)));
+  const energyNeeded = getSpawnRecoveryHarvestEnergyTarget(creep, energySink);
   const workParts = getActiveWorkParts(creep);
   if (workParts === 0) {
     return Number.POSITIVE_INFINITY;
   }
 
   return Math.ceil(energyNeeded / Math.max(HARVEST_ENERGY_PER_WORK_PART, workParts * HARVEST_ENERGY_PER_WORK_PART));
+}
+
+function getSpawnRecoveryHarvestEnergyTarget(creep: Creep, energySink: FillableEnergySink): number {
+  return Math.max(1, Math.min(getFreeEnergyCapacity(creep), getFreeStoredEnergyCapacity(energySink)));
 }
 
 function estimateHarvestSourceAvailabilityDelay(source: Source): number | null {
@@ -3032,7 +3039,7 @@ function selectHarvestSource(creep: Creep): Source | null {
     return null;
   }
 
-  const viableSources = selectViableHarvestSources(sources);
+  const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
   const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
   const sourceLoads = viableSources.map((source) =>
     createHarvestSourceLoad(source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
@@ -3197,9 +3204,34 @@ function isCloserHarvestSource(creep: Creep, candidate: Source, selected: Source
   return candidateRange !== null && selectedRange !== null && candidateRange < selectedRange;
 }
 
-function selectViableHarvestSources(sources: Source[]): Source[] {
-  const sourcesWithEnergy = sources.filter((source) => typeof source.energy === 'number' && source.energy > 0);
-  return sourcesWithEnergy.length > 0 ? sourcesWithEnergy : sources;
+function selectViableHarvestSources(sources: Source[], harvestEnergyTarget: number): Source[] {
+  const sourcesWithEnergy = sources.filter(hasHarvestableEnergy);
+  if (sourcesWithEnergy.length === 0) {
+    return sources;
+  }
+
+  const targetEnergy = Math.max(1, Math.ceil(harvestEnergyTarget));
+  const loadReadySources = sourcesWithEnergy.filter(
+    (source) => getHarvestSourceAvailableEnergy(source) >= targetEnergy
+  );
+  return loadReadySources.length > 0 ? loadReadySources : sourcesWithEnergy;
+}
+
+function hasHarvestableEnergy(source: Source): boolean {
+  return getHarvestSourceAvailableEnergy(source) > 0;
+}
+
+function getHarvestSourceAvailableEnergy(source: Source): number {
+  const energy = source.energy;
+  if (typeof energy === 'number' && Number.isFinite(energy)) {
+    return Math.max(0, energy);
+  }
+
+  return getHarvestSourceEnergyCapacity(source);
+}
+
+function getHarvestEnergyTarget(creep: Creep): number {
+  return Math.max(1, getFreeEnergyCapacity(creep));
 }
 
 function getSameRoomWorkerHarvestLoads(

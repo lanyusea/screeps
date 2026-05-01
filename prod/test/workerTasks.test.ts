@@ -315,6 +315,23 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('prefers a source that can fill the worker over a closer low-energy source', () => {
+    const lowEnergySource = makeSource('source-low', 8, 8, 10);
+    const loadReadySource = makeSource('source-ready', 20, 20, 300);
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source-low' ? 1 : 8))
+      },
+      room: makeWorkerTaskRoom({ sources: [lowEnergySource, loadReadySource] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
+  });
+
   it('selects the best range-aware dropped energy before harvesting when worker has free capacity', () => {
     const lowValueDroppedEnergy = { id: 'drop-low', resourceType: 'energy', amount: 24 } as Resource<ResourceConstant>;
     const farDroppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
@@ -6736,6 +6753,33 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ RecoveryWorker: creep });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('uses a load-ready source over a closer low-energy source for spawn recovery harvest', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 50);
+    const lowEnergySource = withRangeTo(makeSource('source-low', 11, 10, 10), { spawn1: 1 }) as unknown as Source;
+    const loadReadySource = withRangeTo(makeSource('source-ready', 12, 10, 300), {
+      spawn1: 5
+    }) as unknown as Source;
+    const room = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [lowEnergySource, loadReadySource]
+    });
+    const creep = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source-low' ? 1 : 8))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
   });
 
   it('prefers an underloaded spawn recovery harvest over a one-tick faster saturated source', () => {
