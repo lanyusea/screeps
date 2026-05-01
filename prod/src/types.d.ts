@@ -67,6 +67,7 @@ declare global {
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
   type TerritoryDemandType = 'followUpPreparation';
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
+  type TerritoryAutomationSource = 'occupationRecommendation' | 'autonomousExpansionClaim';
   type TerritoryIntentSuspensionReason = 'hostile_presence';
   type TerritoryExecutionHintReason =
     | 'controlEvidenceStillMissing'
@@ -88,7 +89,7 @@ declare global {
     action: TerritoryControlAction;
     controllerId?: Id<StructureController>;
     enabled?: boolean;
-    createdBy?: 'occupationRecommendation';
+    createdBy?: TerritoryAutomationSource;
   }
 
   interface TerritoryIntentMemory {

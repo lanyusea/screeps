@@ -2882,10 +2882,12 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
       ? { controllerId: rawTarget.controllerId as Id<StructureController> }
       : {}),
     ...(rawTarget.enabled === false ? { enabled: false } : {}),
-    ...(rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
-      ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR }
-      : {})
+    ...(isTerritoryAutomationSource(rawTarget.createdBy) ? { createdBy: rawTarget.createdBy } : {})
   };
+}
+
+function isTerritoryAutomationSource(source: unknown): source is TerritoryAutomationSource {
+  return source === OCCUPATION_RECOMMENDATION_TARGET_CREATOR || source === 'autonomousExpansionClaim';
 }
 
 function recordTerritoryIntent(

@@ -5,6 +5,7 @@ import {
 } from '../src/territory/territoryPlanner';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { runTerritoryControllerCreep } from '../src/territory/territoryRunner';
+import type { RuntimeTelemetryEvent } from '../src/telemetry/runtimeSummary';
 
 describe('runTerritoryControllerCreep', () => {
   beforeEach(() => {
@@ -275,6 +276,40 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(controller);
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim' });
     expect(Memory.territory).toBeUndefined();
+  });
+
+  it('waits and records telemetry when a claim target controller is on cooldown', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      upgradeBlocked: 10
+    } as StructureController;
+    const telemetryEvents: RuntimeTelemetryEvent[] = [];
+    const creep = {
+      name: 'Claimer1',
+      memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim' } },
+      room: { name: 'W1N2', controller },
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep, telemetryEvents);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'claim' });
+    expect(telemetryEvents).toEqual([
+      {
+        type: 'territoryClaim',
+        roomName: 'W1N1',
+        colony: 'W1N1',
+        phase: 'skip',
+        targetRoom: 'W1N2',
+        controllerId: 'controller1',
+        creepName: 'Claimer1',
+        reason: 'controllerCooldown'
+      }
+    ]);
   });
 
   it('pressures a foreign reservation before trying to claim the controller', () => {
@@ -835,7 +870,9 @@ describe('runTerritoryControllerCreep', () => {
       }
     };
     const controller = { id: 'controller1', my: false } as StructureController;
+    const telemetryEvents: RuntimeTelemetryEvent[] = [];
     const creep = {
+      name: 'Claimer1',
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'claim', followUp } },
       room: { name: 'W1N2', controller },
       getActiveBodyparts: jest.fn().mockReturnValue(1),
@@ -844,12 +881,23 @@ describe('runTerritoryControllerCreep', () => {
       moveTo: jest.fn()
     } as unknown as Creep;
 
-    runTerritoryControllerCreep(creep);
+    runTerritoryControllerCreep(creep, telemetryEvents);
 
     expect(creep.claimController).toHaveBeenCalledWith(controller);
     expect(creep.reserveController).toHaveBeenCalledWith(controller);
     expect(creep.moveTo).not.toHaveBeenCalled();
     expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'reserve', followUp });
+    expect(telemetryEvents).toContainEqual({
+      type: 'territoryClaim',
+      roomName: 'W1N1',
+      colony: 'W1N1',
+      phase: 'claim',
+      targetRoom: 'W1N2',
+      controllerId: 'controller1',
+      creepName: 'Claimer1',
+      result: -15,
+      reason: 'gclUnavailable'
+    });
     expect(Memory.territory?.targets).toEqual([
       claimTarget,
       {
