@@ -33,9 +33,11 @@ describe('buildWorkerBody', () => {
     expect(buildWorkerBody(600)).toEqual(repeatWorkerPattern(3));
   });
 
-  it('uses mid-capacity remainders for carry and move throughput', () => {
+  it('uses mid-capacity remainders for movement and logistics throughput', () => {
+    expect(buildWorkerBody(450)).toEqual([...repeatWorkerPattern(2), 'move']);
     expect(buildWorkerBody(500)).toEqual([...repeatWorkerPattern(2), 'carry', 'move']);
     expect(buildWorkerBody(550)).toEqual([...repeatWorkerPattern(2), 'carry', 'move']);
+    expect(buildWorkerBody(650)).toEqual([...repeatWorkerPattern(3), 'move']);
     expect(buildWorkerBody(700)).toEqual([...repeatWorkerPattern(3), 'carry', 'move']);
   });
 

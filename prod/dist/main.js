@@ -580,6 +580,8 @@ var WORKER_PATTERN = ["work", "carry", "move"];
 var WORKER_PATTERN_COST = 200;
 var WORKER_LOGISTICS_PAIR = ["carry", "move"];
 var WORKER_LOGISTICS_PAIR_COST = 100;
+var WORKER_SURPLUS_MOVE = ["move"];
+var WORKER_SURPLUS_MOVE_COST = 50;
 var EMERGENCY_DEFENDER_BODY = ["tough", "attack", "move"];
 var EMERGENCY_DEFENDER_BODY_COST = 140;
 var TERRITORY_CONTROLLER_BODY = ["claim", "move"];
@@ -613,11 +615,18 @@ function buildWorkerBody(energyAvailable) {
   if (shouldAddWorkerLogisticsPair(energyAvailable, patternCount, body.length)) {
     return [...body, ...WORKER_LOGISTICS_PAIR];
   }
+  if (shouldAddWorkerSurplusMove(energyAvailable, patternCount, body.length)) {
+    return [...body, ...WORKER_SURPLUS_MOVE];
+  }
   return body;
 }
 function shouldAddWorkerLogisticsPair(energyAvailable, patternCount, bodyPartCount) {
   const remainingEnergy = energyAvailable - patternCount * WORKER_PATTERN_COST;
   return patternCount >= 2 && patternCount < MAX_WORKER_PATTERN_COUNT && remainingEnergy >= WORKER_LOGISTICS_PAIR_COST && bodyPartCount + WORKER_LOGISTICS_PAIR.length <= MAX_CREEP_PARTS;
+}
+function shouldAddWorkerSurplusMove(energyAvailable, patternCount, bodyPartCount) {
+  const remainingEnergy = energyAvailable - patternCount * WORKER_PATTERN_COST;
+  return patternCount >= 2 && patternCount < MAX_WORKER_PATTERN_COUNT && remainingEnergy >= WORKER_SURPLUS_MOVE_COST && bodyPartCount + WORKER_SURPLUS_MOVE.length <= MAX_CREEP_PARTS;
 }
 function buildEmergencyWorkerBody(energyAvailable) {
   if (energyAvailable < WORKER_PATTERN_COST) {
