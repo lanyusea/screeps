@@ -1235,9 +1235,10 @@ function getTerrainWallMask() {
 // src/construction/roadPlanner.ts
 var DEFAULT_MAX_ROAD_SITES_PER_TICK = 1;
 var DEFAULT_MAX_PENDING_ROAD_SITES = 3;
-var DEFAULT_MAX_ROAD_TARGETS_PER_TICK = 3;
+var DEFAULT_MAX_ROAD_TARGETS_PER_TICK = 4;
 var DEFAULT_MAX_PATH_OPS_PER_TARGET = 1e3;
 var MIN_CONTROLLER_LEVEL_FOR_ROADS = 2;
+var SOURCE_CONTROLLER_ROAD_MAX_RANGE = 6;
 var ROOM_EDGE_MIN2 = 1;
 var ROOM_EDGE_MAX2 = 48;
 var ROOM_COORDINATE_MIN = 0;
@@ -1262,15 +1263,15 @@ function planEarlyRoadConstruction(colony, options = {}) {
   if (remainingSiteBudget <= 0) {
     return [];
   }
-  const targets = selectRoadTargets(colony.room, limits.maxTargetsPerTick);
-  if (targets.length === 0) {
+  const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
+  if (routes.length === 0) {
     return [];
   }
   const lookups = createRoadPlannerLookups(colony.room);
   if (!lookups) {
     return [];
   }
-  const candidates = selectRoadCandidates(colony.room.name, anchor.pos, targets, lookups, limits);
+  const candidates = selectRoadCandidates(colony.room.name, routes, lookups, limits);
   const results = [];
   for (const candidate of candidates) {
     if (results.length >= remainingSiteBudget) {
@@ -1314,18 +1315,35 @@ function selectRoadAnchor(colony) {
   const [primarySpawn] = colony.spawns.filter((spawn) => spawn.pos).sort((left, right) => left.name.localeCompare(right.name));
   return primarySpawn != null ? primarySpawn : null;
 }
-function selectRoadTargets(room, maxTargets) {
-  var _a;
-  if (maxTargets <= 0) {
+function selectRoadRoutes(room, anchor, maxRoutes) {
+  if (maxRoutes <= 0) {
     return [];
   }
-  const targets = getSortedSources(room).map((source) => ({
-    pos: source.pos
-  }));
-  if (((_a = room.controller) == null ? void 0 : _a.pos) && isSameRoomPosition(room.controller.pos, room.name)) {
-    targets.push({ pos: room.controller.pos });
+  const routes = selectRoadTargets(room).map(
+    (target) => createRoadRoute(anchor, target, 1)
+  );
+  routes.push(...selectSourceControllerRoadRoutes(room));
+  return routes.slice(0, maxRoutes);
+}
+function selectRoadTargets(room) {
+  var _a;
+  const targets = getSortedSources(room).map((source) => ({ pos: source.pos }));
+  const controllerPosition = (_a = room.controller) == null ? void 0 : _a.pos;
+  if (controllerPosition && isSameRoomPosition(controllerPosition, room.name)) {
+    targets.push({ pos: controllerPosition });
   }
-  return targets.filter((target) => isSameRoomPosition(target.pos, room.name)).slice(0, maxTargets);
+  return targets.filter((target) => isSameRoomPosition(target.pos, room.name));
+}
+function selectSourceControllerRoadRoutes(room) {
+  var _a;
+  const controllerPosition = (_a = room.controller) == null ? void 0 : _a.pos;
+  if (!controllerPosition || !isSameRoomPosition(controllerPosition, room.name)) {
+    return [];
+  }
+  return getSortedSources(room).filter((source) => getRangeBetweenPositions(source.pos, controllerPosition) <= SOURCE_CONTROLLER_ROAD_MAX_RANGE).map((source) => createRoadRoute(source.pos, { pos: controllerPosition }, 0));
+}
+function createRoadRoute(origin, target, priority) {
+  return { origin, priority, target };
 }
 function getSortedSources(room) {
   if (typeof FIND_SOURCES !== "number") {
@@ -1409,10 +1427,10 @@ function cacheRoomConstructionSites(room, lookups) {
     blockPathPosition(lookups, position);
   }
 }
-function selectRoadCandidates(roomName, origin, targets, lookups, limits) {
+function selectRoadCandidates(roomName, routes, lookups, limits) {
   const candidates = /* @__PURE__ */ new Map();
-  targets.forEach((target, targetIndex) => {
-    const path = findRoadPath(roomName, origin, target, lookups, limits);
+  routes.forEach((route, targetIndex) => {
+    const path = findRoadPath(roomName, route.origin, route.target, lookups, limits);
     const seenInRoute = /* @__PURE__ */ new Set();
     path.forEach((position, pathIndex) => {
       if (!isSameRoomPosition(position, roomName) || !canPlaceRoad(lookups, position)) {
@@ -1426,6 +1444,7 @@ function selectRoadCandidates(roomName, origin, targets, lookups, limits) {
       const existingCandidate = candidates.get(key);
       if (existingCandidate) {
         existingCandidate.routeCount += 1;
+        existingCandidate.minRoutePriority = Math.min(existingCandidate.minRoutePriority, route.priority);
         existingCandidate.minPathIndex = Math.min(existingCandidate.minPathIndex, pathIndex);
         existingCandidate.minTargetIndex = Math.min(existingCandidate.minTargetIndex, targetIndex);
         return;
@@ -1434,6 +1453,7 @@ function selectRoadCandidates(roomName, origin, targets, lookups, limits) {
         x: position.x,
         y: position.y,
         key,
+        minRoutePriority: route.priority,
         routeCount: 1,
         minPathIndex: pathIndex,
         minTargetIndex: targetIndex
@@ -1453,7 +1473,7 @@ function findRoadPath(roomName, origin, target, lookups, limits) {
   return result.incomplete ? [] : result.path;
 }
 function compareRoadCandidates(left, right) {
-  return right.routeCount - left.routeCount || left.minPathIndex - right.minPathIndex || left.minTargetIndex - right.minTargetIndex || left.y - right.y || left.x - right.x;
+  return right.routeCount - left.routeCount || left.minRoutePriority - right.minRoutePriority || left.minPathIndex - right.minPathIndex || left.minTargetIndex - right.minTargetIndex || left.y - right.y || left.x - right.x;
 }
 function canPlaceRoad(lookups, position) {
   if (!isWithinBuildableRoomBounds(position) || isTerrainWall2(lookups.terrain, position)) {
@@ -1476,6 +1496,9 @@ function isWithinBuildableRoomBounds(position) {
 }
 function isSameRoomPosition(position, roomName) {
   return !position.roomName || position.roomName === roomName;
+}
+function getRangeBetweenPositions(left, right) {
+  return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
 }
 function isTerrainWall2(terrain, position) {
   return (terrain.get(position.x, position.y) & getTerrainWallMask2()) !== 0;
