@@ -287,6 +287,19 @@ describe('planSpawn', () => {
     });
   });
 
+  it('keeps bootstrap recovery ahead of defender spawning while hostiles are visible', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony, spawn } = makeColony({ hostileCreeps: [hostile] });
+
+    expect(planSpawn(colony, { worker: 0 }, 165)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-165',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('does not stack emergency defenders while one defender is already active', () => {
     installHostileFindGlobals();
     const hostile = { id: 'hostile1' } as Creep;
