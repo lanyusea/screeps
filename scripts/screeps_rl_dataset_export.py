@@ -159,8 +159,13 @@ def git_commit(repo_root: Path) -> str:
     return result.stdout.strip() or "unknown"
 
 
-def collect_artifact_records(paths: Sequence[str], max_file_bytes: int = DEFAULT_MAX_FILE_BYTES) -> ScanResult:
+def collect_artifact_records(
+    paths: Sequence[str],
+    max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
+    excluded_roots: Sequence[Path | str] = (),
+) -> ScanResult:
     input_paths = list(paths) if paths else list(DEFAULT_INPUT_PATHS)
+    resolved_excluded_roots = resolved_paths(excluded_roots)
     result = ScanResult(input_paths=input_paths)
 
     for path_text in input_paths:
@@ -168,11 +173,13 @@ def collect_artifact_records(paths: Sequence[str], max_file_bytes: int = DEFAULT
         if not path.exists():
             result.skip(path, "missing")
             continue
+        if is_excluded_path(path, resolved_excluded_roots):
+            continue
         if path.is_file():
             scan_file(path, result, max_file_bytes)
             continue
         if path.is_dir():
-            for file_path in iter_directory_files(path, result):
+            for file_path in iter_directory_files(path, result, resolved_excluded_roots):
                 scan_file(file_path, result, max_file_bytes)
             continue
         result.skip(path, "not_file_or_directory")
@@ -181,19 +188,50 @@ def collect_artifact_records(paths: Sequence[str], max_file_bytes: int = DEFAULT
     return result
 
 
-def iter_directory_files(root: Path, result: ScanResult) -> list[Path]:
+def iter_directory_files(root: Path, result: ScanResult, excluded_roots: Sequence[Path] = ()) -> list[Path]:
     files: list[Path] = []
 
     def record_error(error: OSError) -> None:
         result.skip(error.filename or root, "read_error")
 
     for dirpath, dirnames, filenames in os.walk(root, topdown=True, onerror=record_error, followlinks=False):
-        dirnames[:] = sorted(dirnames)
         directory = Path(dirpath)
+        if is_excluded_path(directory, excluded_roots):
+            dirnames[:] = []
+            continue
+        dirnames[:] = [name for name in sorted(dirnames) if not is_excluded_path(directory / name, excluded_roots)]
         for filename in sorted(filenames):
-            files.append(directory / filename)
+            file_path = directory / filename
+            if not is_excluded_path(file_path, excluded_roots):
+                files.append(file_path)
 
     return sorted(files, key=lambda path: str(path))
+
+
+def resolved_paths(paths: Sequence[Path | str]) -> list[Path]:
+    return [resolve_path(Path(path).expanduser()) for path in paths]
+
+
+def resolve_path(path: Path) -> Path:
+    try:
+        return path.resolve(strict=False)
+    except OSError:
+        return path.absolute()
+
+
+def is_excluded_path(path: Path, excluded_roots: Sequence[Path]) -> bool:
+    if not excluded_roots:
+        return False
+    resolved_path = resolve_path(path)
+    return any(is_relative_to(resolved_path, excluded_root) for excluded_root in excluded_roots)
+
+
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
 
 
 def scan_file(path: Path, result: ScanResult, max_file_bytes: int) -> None:
@@ -480,12 +518,13 @@ def build_dataset(
 ) -> JsonObject:
     repo = repo_root or Path.cwd()
     resolved_bot_commit = bot_commit or git_commit(repo)
-    scan = collect_artifact_records(paths, max_file_bytes=max_file_bytes)
+    resolved_out_dir = out_dir.expanduser()
+    scan = collect_artifact_records(paths, max_file_bytes=max_file_bytes, excluded_roots=[resolved_out_dir])
     rows = build_tick_rows(scan.records, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
     resolved_run_id = run_id or deterministic_run_id(scan, rows, resolved_bot_commit, sample_limit, eval_ratio_value, split_seed)
     validate_run_id(resolved_run_id)
 
-    run_dir = out_dir.expanduser() / resolved_run_id
+    run_dir = resolved_out_dir / resolved_run_id
     files = {
         "scenarioManifest": "scenario_manifest.json",
         "runManifest": "run_manifest.json",
@@ -514,15 +553,25 @@ def build_dataset(
     )
     dataset_card = render_dataset_card(resolved_run_id, run_manifest, episodes)
 
-    run_dir.mkdir(parents=True, exist_ok=True)
-    write_json(run_dir / files["scenarioManifest"], scenario_manifest)
-    write_json(run_dir / files["runManifest"], run_manifest)
-    write_json(run_dir / files["sourceIndex"], source_index)
-    write_ndjson(run_dir / files["ticks"], rows)
-    write_json(run_dir / files["kpiWindows"], kpi_windows)
-    write_json(run_dir / files["episodes"], episodes)
-    write_text(run_dir / files["datasetCard"], dataset_card)
-    assert_no_secret_leak(run_dir, configured_secret_values())
+    resolved_out_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(
+        tempfile.mkdtemp(prefix=f".{resolved_run_id}.", suffix=".staging", dir=str(resolved_out_dir))
+    )
+    try:
+        write_json(staging_dir / files["scenarioManifest"], scenario_manifest)
+        write_json(staging_dir / files["runManifest"], run_manifest)
+        write_json(staging_dir / files["sourceIndex"], source_index)
+        write_ndjson(staging_dir / files["ticks"], rows)
+        write_json(staging_dir / files["kpiWindows"], kpi_windows)
+        write_json(staging_dir / files["episodes"], episodes)
+        write_text(staging_dir / files["datasetCard"], dataset_card)
+        assert_no_secret_leak(staging_dir, configured_secret_values())
+
+        run_dir.mkdir(parents=True, exist_ok=True)
+        for file_name in files.values():
+            os.replace(staging_dir / file_name, run_dir / file_name)
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
     return {
         "ok": True,
@@ -1082,7 +1131,6 @@ def assert_no_secret_leak(run_dir: Path, secrets: Sequence[str]) -> None:
         text = path.read_text(encoding="utf-8")
         for secret in active_secrets:
             if secret in text:
-                shutil.rmtree(run_dir, ignore_errors=True)
                 raise RuntimeError(f"refusing to persist dataset file containing a configured secret: {path.name}")
 
 

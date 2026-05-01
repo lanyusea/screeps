@@ -159,6 +159,31 @@ class RlDatasetExportTest(unittest.TestCase):
             for name in file_names:
                 self.assertEqual((run_a / name).read_text(encoding="utf-8"), (run_b / name).read_text(encoding="utf-8"))
 
+    def test_default_export_reruns_exclude_prior_datasets_from_scan(self) -> None:
+        payload = {
+            "type": "runtime-summary",
+            "tick": 11,
+            "rooms": [{"roomName": "W1N1", "resources": {"storedEnergy": 2}}],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime-artifacts"
+            runtime_root.mkdir()
+            artifact = runtime_root / "runtime.log"
+            artifact.write_text(runtime_line(payload), encoding="utf-8")
+            out_dir = runtime_root / "rl-datasets"
+
+            with mock.patch.object(exporter, "DEFAULT_INPUT_PATHS", (str(runtime_root),)):
+                first = exporter.build_dataset([], out_dir, bot_commit="b" * 40)
+                second = exporter.build_dataset([], out_dir, bot_commit="b" * 40)
+
+        self.assertEqual(first["runId"], second["runId"])
+        self.assertEqual(first["sourceArtifactCount"], 1)
+        self.assertEqual(second["sourceArtifactCount"], 1)
+        self.assertEqual(first["runtimeSummaryArtifactCount"], 1)
+        self.assertEqual(second["runtimeSummaryArtifactCount"], 1)
+
     def test_monitor_summary_json_is_converted_to_sample(self) -> None:
         monitor_payload = {
             "ok": True,
@@ -277,7 +302,7 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertNotIn("#runtime-summary", output.getvalue())
         self.assertNotIn("#runtime-summary", exported_text)
 
-    def test_secret_leak_detection_removes_generated_run_directory(self) -> None:
+    def test_secret_leak_detection_preserves_existing_run_directory(self) -> None:
         secret = "leaked-secret-123456"
         payload = {
             "type": "runtime-summary",
@@ -291,6 +316,9 @@ class RlDatasetExportTest(unittest.TestCase):
             artifact.write_text(runtime_line(payload), encoding="utf-8")
             out_dir = root / "datasets"
             run_dir = out_dir / "leak-run"
+            run_dir.mkdir(parents=True)
+            sentinel = run_dir / "sentinel.txt"
+            sentinel.write_text("keep me\n", encoding="utf-8")
 
             with mock.patch.dict(os.environ, {"SCREEPS_AUTH_TOKEN": secret}):
                 with mock.patch.object(exporter, "render_dataset_card", return_value=f"leak: {secret}\n"):
@@ -302,7 +330,9 @@ class RlDatasetExportTest(unittest.TestCase):
                             bot_commit="f" * 40,
                         )
 
-            self.assertFalse(run_dir.exists())
+            self.assertTrue(run_dir.exists())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep me\n")
+            self.assertEqual(sorted(path.name for path in run_dir.iterdir()), ["sentinel.txt"])
 
 
 if __name__ == "__main__":
