@@ -1015,7 +1015,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-155',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1699,7 +1699,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 1, claimer: 0, claimersByTargetRoom: {} }, 140)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-140',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1720,7 +1720,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 141)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-141',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1930,7 +1930,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 161)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-161',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1967,7 +1967,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 152)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N15-152',
       memory: { role: 'worker', colony: 'W1N15' }
     });

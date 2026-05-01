@@ -712,7 +712,7 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       'worker-W1N1-321',
       {
         memory: { role: 'worker', colony: 'W1N1' }
