@@ -6650,6 +6650,68 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('prefers an underloaded spawn recovery harvest over a one-tick faster saturated source', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const saturatedSource = withRangeTo(makeSource('source-saturated', 11, 10), { spawn1: 1 }) as unknown as Source;
+    const underloadedSource = withRangeTo(makeSource('source-underloaded', 12, 10), {
+      spawn1: 1
+    }) as unknown as Source;
+    const room = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [saturatedSource, underloadedSource]
+    });
+    const creep = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'source-saturated': 1,
+            'source-underloaded': 2
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({
+      AssignedHarvester: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: saturatedSource.id } },
+        room
+      } as unknown as Creep,
+      RecoveryWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-underloaded' });
+  });
+
+  it('keeps spawn recovery harvest selection deterministic by source id when load and eta tie', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const laterSource = withRangeTo(makeSource('source-b', 11, 10), { spawn1: 1 }) as unknown as Source;
+    const firstSource = withRangeTo(makeSource('source-a', 12, 10), { spawn1: 1 }) as unknown as Source;
+    const room = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [laterSource, firstSource]
+    });
+    const creep = {
+      name: 'RecoveryWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ RecoveryWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-a' });
+  });
+
   it('routes a loaded source2/controller lane worker to upgrade before far generic construction', () => {
     const site = {
       id: 'tower-site1',

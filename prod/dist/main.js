@@ -5829,7 +5829,7 @@ function compareSpawnRecoveryEnergyAcquisitionCandidates(left, right) {
   return left.deliveryEta - right.deliveryEta || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
 }
 function compareSpawnRecoveryHarvestCandidates(left, right) {
-  return left.deliveryEta - right.deliveryEta || compareHarvestSourceLoadRatio(left.load, right.load) || left.load.assignmentCount - right.load.assignmentCount || String(left.source.id).localeCompare(String(right.source.id));
+  return compareHarvestSourceLoadRatio(left.load, right.load) || left.load.assignmentCount - right.load.assignmentCount || left.deliveryEta - right.deliveryEta || String(left.source.id).localeCompare(String(right.source.id));
 }
 function compareOptionalRanges(left, right) {
   if (left !== null && right !== null) {

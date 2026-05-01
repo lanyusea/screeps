@@ -2146,9 +2146,9 @@ function compareSpawnRecoveryHarvestCandidates(
   right: SpawnRecoveryHarvestCandidate
 ): number {
   return (
-    left.deliveryEta - right.deliveryEta ||
     compareHarvestSourceLoadRatio(left.load, right.load) ||
     left.load.assignmentCount - right.load.assignmentCount ||
+    left.deliveryEta - right.deliveryEta ||
     String(left.source.id).localeCompare(String(right.source.id))
   );
 }
