@@ -323,32 +323,32 @@ Overmind-RL repository and files:
 
 - Repository root: https://github.com/bencbartlett/Overmind-RL
 - Inspected commit: https://github.com/bencbartlett/Overmind-RL/commit/60c32ca1830b977c5286e47f248b36629581e8bd
-- `README.md`: https://github.com/bencbartlett/Overmind-RL/blob/master/README.md
-- `screeps-rl-backend/package.json`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps-rl-backend/package.json
-- `screeps-rl-backend/backend/server.js`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps-rl-backend/backend/server.js
-- `screeps-rl-backend/backend/environment.js`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps-rl-backend/backend/environment.js
-- `screeps-rl-backend/backend/serverMockup/src/main.js`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps-rl-backend/backend/serverMockup/src/main.js
-- `screeps-rl-backend/backend/serverMockup/src/screepsServer.js`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps-rl-backend/backend/serverMockup/src/screepsServer.js
-- `screeps-rl-backend/backend/serverMockup/src/world.js`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps-rl-backend/backend/serverMockup/src/world.js
-- `screeps-rl-backend/backend/serverMockup/examples/test.js`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps-rl-backend/backend/serverMockup/examples/test.js
-- `screeps-rl-backend/config.example.json`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps-rl-backend/config.example.json
-- `screeps_rl_env/setup.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/setup.py
-- `screeps_rl_env/screeps_rl_env/interface.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/interface.py
-- `screeps_rl_env/screeps_rl_env/env.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/env.py
-- `screeps_rl_env/screeps_rl_env/env_vectorized.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/env_vectorized.py
-- `screeps_rl_env/screeps_rl_env/env_multiagent.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/env_multiagent.py
-- `screeps_rl_env/screeps_rl_env/env_multiagent_vectorized.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/env_multiagent_vectorized.py
-- `screeps_rl_env/screeps_rl_env/creep_agent.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/creep_agent.py
-- `screeps_rl_env/screeps_rl_env/processors/processor.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/processors/processor.py
-- `screeps_rl_env/screeps_rl_env/processors/approach.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/processors/approach.py
-- `screeps_rl_env/screeps_rl_env/processors_multiagent/processor.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/processors_multiagent/processor.py
-- `screeps_rl_env/screeps_rl_env/processors_multiagent/approach.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/processors_multiagent/approach.py
-- `screeps_rl_env/screeps_rl_env/processors_multiagent/combat.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/screeps_rl_env/screeps_rl_env/processors_multiagent/combat.py
-- `models/train.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/models/train.py
-- `models/train_multiagent.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/models/train_multiagent.py
-- `models/train_multiagent_vectorized.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/models/train_multiagent_vectorized.py
-- `models/rollout_train.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/models/rollout_train.py
-- `models/logger.py`: https://github.com/bencbartlett/Overmind-RL/blob/master/models/logger.py
+- `README.md`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/README.md
+- `screeps-rl-backend/package.json`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps-rl-backend/package.json
+- `screeps-rl-backend/backend/server.js`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps-rl-backend/backend/server.js
+- `screeps-rl-backend/backend/environment.js`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps-rl-backend/backend/environment.js
+- `screeps-rl-backend/backend/serverMockup/src/main.js`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps-rl-backend/backend/serverMockup/src/main.js
+- `screeps-rl-backend/backend/serverMockup/src/screepsServer.js`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps-rl-backend/backend/serverMockup/src/screepsServer.js
+- `screeps-rl-backend/backend/serverMockup/src/world.js`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps-rl-backend/backend/serverMockup/src/world.js
+- `screeps-rl-backend/backend/serverMockup/examples/test.js`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps-rl-backend/backend/serverMockup/examples/test.js
+- `screeps-rl-backend/config.example.json`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps-rl-backend/config.example.json
+- `screeps_rl_env/setup.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/setup.py
+- `screeps_rl_env/screeps_rl_env/interface.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/interface.py
+- `screeps_rl_env/screeps_rl_env/env.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/env.py
+- `screeps_rl_env/screeps_rl_env/env_vectorized.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/env_vectorized.py
+- `screeps_rl_env/screeps_rl_env/env_multiagent.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/env_multiagent.py
+- `screeps_rl_env/screeps_rl_env/env_multiagent_vectorized.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/env_multiagent_vectorized.py
+- `screeps_rl_env/screeps_rl_env/creep_agent.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/creep_agent.py
+- `screeps_rl_env/screeps_rl_env/processors/processor.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/processors/processor.py
+- `screeps_rl_env/screeps_rl_env/processors/approach.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/processors/approach.py
+- `screeps_rl_env/screeps_rl_env/processors_multiagent/processor.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/processors_multiagent/processor.py
+- `screeps_rl_env/screeps_rl_env/processors_multiagent/approach.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/processors_multiagent/approach.py
+- `screeps_rl_env/screeps_rl_env/processors_multiagent/combat.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/screeps_rl_env/screeps_rl_env/processors_multiagent/combat.py
+- `models/train.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/models/train.py
+- `models/train_multiagent.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/models/train_multiagent.py
+- `models/train_multiagent_vectorized.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/models/train_multiagent_vectorized.py
+- `models/rollout_train.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/models/rollout_train.py
+- `models/logger.py`: https://github.com/bencbartlett/Overmind-RL/blob/60c32ca1830b977c5286e47f248b36629581e8bd/models/logger.py
 
 Current ecosystem references used for viability checks:
 
