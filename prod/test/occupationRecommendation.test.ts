@@ -326,6 +326,102 @@ describe('occupation recommendation scoring', () => {
         controllerId: 'controller3'
       }
     ]);
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        controllerId: 'controller3'
+      }
+    ]);
+  });
+
+  it('does not persist a durable target while recommendation preconditions are unmet', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const report = scoreOccupationRecommendations(
+      makeInput(
+        [
+          makeCandidate({
+            roomName: 'W2N1',
+            sourceCount: 2
+          })
+        ],
+        {
+          energyCapacityAvailable: 300,
+          workerCount: 1,
+          controllerLevel: 1,
+          ticksToDowngrade: 1_000
+        }
+      )
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      action: 'reserve',
+      evidenceStatus: 'sufficient',
+      preconditions: [
+        'raise worker count before dispatching territory creeps',
+        'reach 650 energy capacity for controller work',
+        'reach controller level 2 before expansion',
+        'stabilize home controller downgrade timer'
+      ]
+    });
+    expect(persistOccupationRecommendationFollowUpIntent(report, 701)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 701
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+  });
+
+  it('records visible controller ids on runtime recommendation targets', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' }))
+      } as unknown as GameMap,
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { id: 'controller2' as Id<StructureController>, my: false } as StructureController,
+          find: jest.fn((type: number) =>
+            type === FIND_SOURCES ? [{ id: 'source1' } as Source] : []
+          )
+        } as unknown as Room
+      }
+    };
+
+    const report = buildRuntimeOccupationRecommendationReport(makeRuntimeColony(), [
+      {} as Creep,
+      {} as Creep,
+      {} as Creep
+    ]);
+
+    expect(report.followUpIntent).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2'
+    });
+    expect(persistOccupationRecommendationFollowUpIntent(report, 702)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'planned',
+      updatedAt: 702,
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        controllerId: 'controller2'
+      }
+    ]);
   });
 
   it('preserves existing follow-up metadata while persisting a matching recommendation', () => {

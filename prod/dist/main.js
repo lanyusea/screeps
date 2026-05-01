@@ -1311,7 +1311,47 @@ function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGam
     ...followUp ? { followUp } : {}
   };
   upsertTerritoryIntent(intents, nextIntent);
+  persistOccupationRecommendationTarget(report, nextIntent);
   return nextIntent;
+}
+function persistOccupationRecommendationTarget(report, intent) {
+  const target = buildPersistableOccupationRecommendationTarget(report, intent);
+  if (!target) {
+    return;
+  }
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+  upsertTerritoryTarget(territoryMemory, target);
+}
+function buildPersistableOccupationRecommendationTarget(report, intent) {
+  const recommendation = report.next;
+  if (!recommendation || recommendation.roomName !== intent.targetRoom || getTerritoryIntentAction(recommendation.action) !== intent.action || recommendation.evidenceStatus !== "sufficient" || recommendation.preconditions.length > 0 || !isTerritoryControlAction(intent.action)) {
+    return null;
+  }
+  return {
+    colony: intent.colony,
+    roomName: intent.targetRoom,
+    action: intent.action,
+    ...intent.controllerId ? { controllerId: intent.controllerId } : {}
+  };
+}
+function upsertTerritoryTarget(territoryMemory, target) {
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+  const existingTarget = territoryMemory.targets.find((rawTarget) => {
+    const normalizedTarget = normalizeTerritoryTarget(rawTarget);
+    return (normalizedTarget == null ? void 0 : normalizedTarget.colony) === target.colony && normalizedTarget.roomName === target.roomName && normalizedTarget.action === target.action;
+  });
+  if (!existingTarget) {
+    territoryMemory.targets.push(target);
+    return;
+  }
+  if (isRecord(existingTarget) && existingTarget.enabled !== false && !existingTarget.controllerId && target.controllerId) {
+    existingTarget.controllerId = target.controllerId;
+  }
 }
 function buildRuntimeOccupationRecommendationInput(colony, colonyWorkers) {
   var _a, _b;
@@ -1386,7 +1426,7 @@ function upsertOccupationCandidate(candidatesByRoom, candidate) {
   }
 }
 function enrichVisibleOccupationCandidate(candidate) {
-  var _a;
+  var _a, _b;
   const room = (_a = getGameRooms()) == null ? void 0 : _a[candidate.roomName];
   if (!room) {
     return candidate;
@@ -1396,10 +1436,12 @@ function enrichVisibleOccupationCandidate(candidate) {
   const sources = findRoomObjects2(room, "FIND_SOURCES");
   const constructionSites = findRoomObjects2(room, "FIND_MY_CONSTRUCTION_SITES");
   const ownedStructures = findRoomObjects2(room, "FIND_MY_STRUCTURES");
+  const controllerId = (_b = room.controller) == null ? void 0 : _b.id;
   return {
     ...candidate,
     visible: true,
     ...room.controller ? { controller: summarizeController(room.controller) } : {},
+    ...typeof controllerId === "string" ? { controllerId } : {},
     ...sources ? { sourceCount: sources.length } : {},
     ...hostileCreeps ? { hostileCreepCount: hostileCreeps.length } : {},
     ...hostileStructures ? { hostileStructureCount: hostileStructures.length } : {},

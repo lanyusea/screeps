@@ -151,7 +151,77 @@ export function persistOccupationRecommendationFollowUpIntent(
   };
 
   upsertTerritoryIntent(intents, nextIntent);
+  persistOccupationRecommendationTarget(report, nextIntent);
   return nextIntent;
+}
+
+function persistOccupationRecommendationTarget(
+  report: OccupationRecommendationReport,
+  intent: TerritoryIntentMemory
+): void {
+  const target = buildPersistableOccupationRecommendationTarget(report, intent);
+  if (!target) {
+    return;
+  }
+
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  upsertTerritoryTarget(territoryMemory, target);
+}
+
+function buildPersistableOccupationRecommendationTarget(
+  report: OccupationRecommendationReport,
+  intent: TerritoryIntentMemory
+): TerritoryTargetMemory | null {
+  const recommendation = report.next;
+  if (
+    !recommendation ||
+    recommendation.roomName !== intent.targetRoom ||
+    getTerritoryIntentAction(recommendation.action) !== intent.action ||
+    recommendation.evidenceStatus !== 'sufficient' ||
+    recommendation.preconditions.length > 0 ||
+    !isTerritoryControlAction(intent.action)
+  ) {
+    return null;
+  }
+
+  return {
+    colony: intent.colony,
+    roomName: intent.targetRoom,
+    action: intent.action,
+    ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+  };
+}
+
+function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+
+  const existingTarget = territoryMemory.targets.find((rawTarget) => {
+    const normalizedTarget = normalizeTerritoryTarget(rawTarget);
+    return (
+      normalizedTarget?.colony === target.colony &&
+      normalizedTarget.roomName === target.roomName &&
+      normalizedTarget.action === target.action
+    );
+  });
+  if (!existingTarget) {
+    territoryMemory.targets.push(target);
+    return;
+  }
+
+  if (
+    isRecord(existingTarget) &&
+    existingTarget.enabled !== false &&
+    !existingTarget.controllerId &&
+    target.controllerId
+  ) {
+    existingTarget.controllerId = target.controllerId;
+  }
 }
 
 function buildRuntimeOccupationRecommendationInput(
@@ -255,11 +325,13 @@ function enrichVisibleOccupationCandidate(
   const sources = findRoomObjects(room, 'FIND_SOURCES');
   const constructionSites = findRoomObjects(room, 'FIND_MY_CONSTRUCTION_SITES');
   const ownedStructures = findRoomObjects(room, 'FIND_MY_STRUCTURES');
+  const controllerId = room.controller?.id;
 
   return {
     ...candidate,
     visible: true,
     ...(room.controller ? { controller: summarizeController(room.controller) } : {}),
+    ...(typeof controllerId === 'string' ? { controllerId: controllerId as Id<StructureController> } : {}),
     ...(sources ? { sourceCount: sources.length } : {}),
     ...(hostileCreeps ? { hostileCreepCount: hostileCreeps.length } : {}),
     ...(hostileStructures ? { hostileStructureCount: hostileStructures.length } : {}),
