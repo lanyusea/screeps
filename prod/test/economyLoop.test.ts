@@ -555,6 +555,95 @@ describe('runEconomy', () => {
     );
     expect(Memory.territory?.targets).toBeUndefined();
   });
+
+  it('clears stale recommendation-created territory targets on unsafe hostile ticks', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_HOSTILE_CREEPS: number;
+      FIND_HOSTILE_STRUCTURES: number;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 2;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 3;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'reserve',
+            createdBy: 'occupationRecommendation',
+            controllerId: 'controller2' as Id<StructureController>
+          },
+          { colony: 'W1N1', roomName: 'W3N1', action: 'claim' },
+          {
+            colony: 'W1N1',
+            roomName: 'W4N1',
+            action: 'reserve',
+            createdBy: 'occupationRecommendation',
+            enabled: false
+          },
+          {
+            colony: 'W9N9',
+            roomName: 'W9N8',
+            action: 'reserve',
+            createdBy: 'occupationRecommendation'
+          }
+        ],
+        routeDistances: { 'W1N1>W3N1': null }
+      }
+    };
+    const hostile = { id: 'hostile1' } as Creep;
+    const room = makeHostileEconomyRoom([hostile]);
+    const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 322,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: { Spawn1: spawn },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null),
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' }))
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['tough', 'attack', 'move'], 'defender-W1N1-322', {
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
+    });
+    expect(Memory.territory?.targets).toEqual([
+      { colony: 'W1N1', roomName: 'W3N1', action: 'claim' },
+      {
+        colony: 'W1N1',
+        roomName: 'W4N1',
+        action: 'reserve',
+        createdBy: 'occupationRecommendation',
+        enabled: false
+      },
+      {
+        colony: 'W9N9',
+        roomName: 'W9N8',
+        action: 'reserve',
+        createdBy: 'occupationRecommendation'
+      }
+    ]);
+  });
 });
 
 interface LifecycleSpawn extends StructureSpawn {
@@ -626,6 +715,24 @@ function makeVisibleReserveRoom(
     name: roomName,
     controller: { id: controllerId, my: false } as StructureController,
     find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
+  } as unknown as Room;
+}
+
+function makeHostileEconomyRoom(hostileCreeps: Creep[]): Room {
+  const room = makeTerritoryReadyEconomyRoom();
+  return {
+    ...room,
+    find: jest.fn((type: number) => {
+      if (type === FIND_SOURCES) {
+        return [{ id: 'home-source' } as Source];
+      }
+
+      if (type === FIND_HOSTILE_CREEPS) {
+        return hostileCreeps;
+      }
+
+      return [];
+    })
   } as unknown as Room;
 }
 

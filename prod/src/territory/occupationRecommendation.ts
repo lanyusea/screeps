@@ -96,6 +96,14 @@ export function buildRuntimeOccupationRecommendationReport(
   return scoreOccupationRecommendations(buildRuntimeOccupationRecommendationInput(colony, colonyWorkers));
 }
 
+export function clearOccupationRecommendationFollowUpIntent(
+  report: OccupationRecommendationReport
+): OccupationRecommendationReport {
+  // Mutate so the non-enumerable colonyName marker used by persistence is retained.
+  report.followUpIntent = null;
+  return report;
+}
+
 export function scoreOccupationRecommendations(
   input: OccupationRecommendationInput
 ): OccupationRecommendationReport {

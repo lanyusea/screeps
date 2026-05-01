@@ -13,6 +13,7 @@ import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spaw
 import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import {
   buildRuntimeOccupationRecommendationReport,
+  clearOccupationRecommendationFollowUpIntent,
   persistOccupationRecommendationFollowUpIntent
 } from '../territory/occupationRecommendation';
 import { TERRITORY_CLAIMER_ROLE, TERRITORY_SCOUT_ROLE } from '../territory/territoryPlanner';
@@ -92,7 +93,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     }
   }
 
-  emitRuntimeSummary(colonies, creeps, telemetryEvents);
+  emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
 }
 
 function refreshExecutableTerritoryRecommendation(
@@ -100,15 +101,12 @@ function refreshExecutableTerritoryRecommendation(
   creeps: Creep[],
   territoryReady: boolean
 ): void {
-  if (!territoryReady) {
-    return;
-  }
-
   const colonyWorkers = creeps.filter(
     (creep) => creep.memory.role === 'worker' && creep.memory.colony === colony.room.name
   );
+  const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   persistOccupationRecommendationFollowUpIntent(
-    buildRuntimeOccupationRecommendationReport(colony, colonyWorkers),
+    territoryReady ? report : clearOccupationRecommendationFollowUpIntent(report),
     Game.time
   );
 }
