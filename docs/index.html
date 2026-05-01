@@ -289,7 +289,7 @@ main {
 
 .kanban-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -426,7 +426,7 @@ main {
 
   .kanban-grid {
     overflow-x: auto;
-    grid-template-columns: repeat(7, minmax(230px, 1fr));
+    grid-template-columns: repeat(5, minmax(190px, 1fr));
     padding-bottom: 4px;
   }
 }
@@ -460,6 +460,12 @@ main {
     justify-self: start;
     width: 212px;
     height: 212px;
+  }
+
+  .kanban-grid {
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+    padding-bottom: 0;
   }
 }
 

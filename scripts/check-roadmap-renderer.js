@@ -12,12 +12,15 @@ const pngPath = path.join(tmpDir, 'roadmap.png');
 const htmlPath = pngPath.replace(/\.png$/, '.html');
 const failures = [];
 const EXPECTED_PROJECT_DOMAINS = [
-  'Change-control',
   'Agent OS',
-  'Bot capability',
+  'Change-control',
   'Runtime monitor',
-  'Private smoke',
-  'Official MMO',
+  'Release/deploy',
+  'Bot capability',
+  'Combat',
+  'Territory/Economy',
+  'Gameplay Evolution',
+  'RL flywheel',
   'Docs/process'
 ];
 
@@ -121,6 +124,18 @@ function assertRendererDoesNotRebuildReportData() {
   for (const marker of bannedSourceMarkers) {
     assert(!source.includes(marker), `renderer still contains image-only data path marker: ${marker}`);
   }
+}
+
+function assertDomainKanbanFiveColumnCss(html) {
+  const compact = String(html).replace(/\s+/g, '');
+  assert(
+    compact.includes('.kanban{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));'),
+    'domain board renderer CSS must use five kanban columns'
+  );
+  assert(
+    !/\.kanban\{[^}]*grid-template-columns:repeat\(7,/s.test(compact),
+    'domain board renderer CSS must not use the old seven-column layout'
+  );
 }
 
 function assertNoOldVisibleFallbacks(text) {
@@ -285,7 +300,6 @@ const roadmapData = readRoadmapData();
 const report = roadmapData.report || {};
 const run = spawnSync(process.execPath, [renderer, repo, pngPath], {
   cwd: repo,
-  env: { ...process.env, SCREEPS_ROADMAP_PREVIEW: '1' },
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'pipe'],
   timeout: 120000
@@ -320,6 +334,7 @@ if (fs.existsSync(htmlPath)) {
     'hero logo should be centered inside the circular logo mask'
   );
 
+  assertDomainKanbanFiveColumnCss(html);
   assertKpiCardsMatchPagesData(body, text, report.kpiCards || []);
   assertDomainClassification(report, text);
   assertRoadmapCardsMatchPagesData(body, report.roadmapCards || []);
