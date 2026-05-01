@@ -1275,6 +1275,10 @@ var ACTION_SCORE = {
 function buildRuntimeOccupationRecommendationReport(colony, colonyWorkers) {
   return scoreOccupationRecommendations(buildRuntimeOccupationRecommendationInput(colony, colonyWorkers));
 }
+function clearOccupationRecommendationFollowUpIntent(report) {
+  report.followUpIntent = null;
+  return report;
+}
 function scoreOccupationRecommendations(input) {
   var _a;
   const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreOccupationCandidate(input, candidate)).sort(compareOccupationRecommendationScores);
@@ -8105,7 +8109,7 @@ var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
-function emitRuntimeSummary(colonies, creeps, events = []) {
+function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   if (colonies.length === 0 && events.length === 0) {
     return;
   }
@@ -8115,13 +8119,16 @@ function emitRuntimeSummary(colonies, creeps, events = []) {
   }
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const creepsByColony = groupCreepsByColony(creeps);
+  const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const summary = {
     type: "runtime-summary",
     tick,
-    rooms: colonies.map((colony) => {
-      var _a;
-      return summarizeRoom(colony, (_a = creepsByColony.get(colony.room.name)) != null ? _a : []);
-    }),
+    rooms: colonies.map(
+      (colony) => {
+        var _a;
+        return summarizeRoom(colony, (_a = creepsByColony.get(colony.room.name)) != null ? _a : [], persistOccupationRecommendations);
+      }
+    ),
     ...reportedEvents.length > 0 ? { events: reportedEvents } : {},
     ...events.length > MAX_REPORTED_EVENTS ? { omittedEventCount: events.length - MAX_REPORTED_EVENTS } : {},
     ...buildCpuSummary()
@@ -8145,12 +8152,14 @@ function groupCreepsByColony(creeps) {
   }
   return creepsByColony;
 }
-function summarizeRoom(colony, colonyCreeps) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations) {
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
   const eventMetrics = summarizeRoomEventMetrics(colony.room);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
-  persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime5());
+  if (persistOccupationRecommendations) {
+    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime5());
+  }
   return {
     roomName: colony.room.name,
     energyAvailable: colony.energyAvailable,
@@ -8807,11 +8816,9 @@ function runEconomy(preludeTelemetryEvents = []) {
       planEarlyRoadConstruction(colony);
     }
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
-    recordColonySurvivalAssessment(
-      colony.room.name,
-      assessColonySnapshotSurvival(colony, roleCounts),
-      Game.time
-    );
+    const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
+    refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady);
     let availableEnergy = colony.energyAvailable;
     let successfulSpawnCount = 0;
     const usedSpawns = /* @__PURE__ */ new Set();
@@ -8854,7 +8861,17 @@ function runEconomy(preludeTelemetryEvents = []) {
       runTerritoryControllerCreep(creep);
     }
   }
-  emitRuntimeSummary(colonies, creeps, telemetryEvents);
+  emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady) {
+  const colonyWorkers = creeps.filter(
+    (creep) => creep.memory.role === "worker" && creep.memory.colony === colony.room.name
+  );
+  const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  persistOccupationRecommendationFollowUpIntent(
+    territoryReady ? report : clearOccupationRecommendationFollowUpIntent(report),
+    Game.time
+  );
 }
 function createSpawnPlanningColony(colony, energyAvailable, usedSpawns) {
   return {

@@ -184,7 +184,16 @@ interface RuntimeSummary {
   cpu?: RuntimeCpuSummary;
 }
 
-export function emitRuntimeSummary(colonies: ColonySnapshot[], creeps: Creep[], events: RuntimeTelemetryEvent[] = []): void {
+interface RuntimeSummaryOptions {
+  persistOccupationRecommendations?: boolean;
+}
+
+export function emitRuntimeSummary(
+  colonies: ColonySnapshot[],
+  creeps: Creep[],
+  events: RuntimeTelemetryEvent[] = [],
+  options: RuntimeSummaryOptions = {}
+): void {
   if (colonies.length === 0 && events.length === 0) {
     return;
   }
@@ -196,10 +205,13 @@ export function emitRuntimeSummary(colonies: ColonySnapshot[], creeps: Creep[], 
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
   const creepsByColony = groupCreepsByColony(creeps);
+  const persistOccupationRecommendations = options.persistOccupationRecommendations !== false;
   const summary: RuntimeSummary = {
     type: 'runtime-summary',
     tick,
-    rooms: colonies.map((colony) => summarizeRoom(colony, creepsByColony.get(colony.room.name) ?? [])),
+    rooms: colonies.map((colony) =>
+      summarizeRoom(colony, creepsByColony.get(colony.room.name) ?? [], persistOccupationRecommendations)
+    ),
     ...(reportedEvents.length > 0 ? { events: reportedEvents } : {}),
     ...(events.length > MAX_REPORTED_EVENTS ? { omittedEventCount: events.length - MAX_REPORTED_EVENTS } : {}),
     ...buildCpuSummary()
@@ -229,12 +241,18 @@ function groupCreepsByColony(creeps: Creep[]): Map<string, Creep[]> {
   return creepsByColony;
 }
 
-function summarizeRoom(colony: ColonySnapshot, colonyCreeps: Creep[]): RuntimeRoomSummary {
+function summarizeRoom(
+  colony: ColonySnapshot,
+  colonyCreeps: Creep[],
+  persistOccupationRecommendations: boolean
+): RuntimeRoomSummary {
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
   const eventMetrics = summarizeRoomEventMetrics(colony.room);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
-  persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
+  if (persistOccupationRecommendations) {
+    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
+  }
 
   return {
     roomName: colony.room.name,

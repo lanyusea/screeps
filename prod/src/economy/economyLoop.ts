@@ -11,6 +11,11 @@ import { runWorker } from '../creeps/workerRunner';
 import { getBodyCost } from '../spawn/bodyBuilder';
 import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
 import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import {
+  buildRuntimeOccupationRecommendationReport,
+  clearOccupationRecommendationFollowUpIntent,
+  persistOccupationRecommendationFollowUpIntent
+} from '../territory/occupationRecommendation';
 import { TERRITORY_CLAIMER_ROLE, TERRITORY_SCOUT_ROLE } from '../territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../territory/territoryRunner';
 
@@ -35,11 +40,9 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     }
 
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
-    recordColonySurvivalAssessment(
-      colony.room.name,
-      assessColonySnapshotSurvival(colony, roleCounts),
-      Game.time
-    );
+    const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
+    recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
+    refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady);
     let availableEnergy = colony.energyAvailable;
     let successfulSpawnCount = 0;
     const usedSpawns = new Set<StructureSpawn>();
@@ -90,7 +93,22 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     }
   }
 
-  emitRuntimeSummary(colonies, creeps, telemetryEvents);
+  emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+
+function refreshExecutableTerritoryRecommendation(
+  colony: ColonySnapshot,
+  creeps: Creep[],
+  territoryReady: boolean
+): void {
+  const colonyWorkers = creeps.filter(
+    (creep) => creep.memory.role === 'worker' && creep.memory.colony === colony.room.name
+  );
+  const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  persistOccupationRecommendationFollowUpIntent(
+    territoryReady ? report : clearOccupationRecommendationFollowUpIntent(report),
+    Game.time
+  );
 }
 
 function createSpawnPlanningColony(
