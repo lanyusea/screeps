@@ -2109,6 +2109,69 @@ describe('selectWorkerTask', () => {
     expect(findPathTo).toHaveBeenCalledWith(droppedEnergy, { ignoreCreeps: true });
   });
 
+  it('continues with close stored energy outside the nearby-only range before farther harvest', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const storedEnergy = makeStoredEnergyStructure('storage-mid', 'storage' as StructureConstant, 50, { my: true });
+    const source = { id: 'source1', energy: 300 } as Source;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'storage-mid': LOW_LOAD_NEARBY_ENERGY_RANGE + 1,
+        source1: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn(
+      (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [storedEnergy];
+        }
+
+        if (
+          type === FIND_DROPPED_RESOURCES ||
+          type === FIND_HOSTILE_CREEPS ||
+          type === FIND_HOSTILE_STRUCTURES ||
+          type === FIND_TOMBSTONES ||
+          type === FIND_RUINS
+        ) {
+          return [];
+        }
+
+        return type === FIND_SOURCES ? [source] : [];
+      }
+    );
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(2),
+        getFreeCapacity: jest.fn().mockReturnValue(48)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 331 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-mid' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 331,
+      carriedEnergy: 2,
+      freeCapacity: 48,
+      selectedTask: 'withdraw',
+      targetId: 'storage-mid',
+      energy: 50,
+      range: LOW_LOAD_NEARBY_ENERGY_RANGE + 1
+    });
+  });
+
   it('ignores unreachable nearby dropped energy for low-load workers', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const blockedDroppedEnergy = {
