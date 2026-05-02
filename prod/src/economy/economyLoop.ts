@@ -17,6 +17,10 @@ import {
   persistOccupationRecommendationFollowUpIntent
 } from '../territory/occupationRecommendation';
 import {
+  buildRuntimeExpansionCandidateReport,
+  refreshNextExpansionTargetSelection
+} from '../territory/expansionScoring';
+import {
   refreshAutonomousExpansionClaimIntent,
   shouldDeferOccupationRecommendationForExpansionClaim
 } from '../territory/claimExecutor';
@@ -125,6 +129,19 @@ function refreshExecutableTerritoryRecommendation(
   );
   const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   if (territoryReady) {
+    const expansionSelection = refreshNextExpansionTargetSelection(
+      colony,
+      buildRuntimeExpansionCandidateReport(colony),
+      Game.time
+    );
+    if (expansionSelection.status === 'planned') {
+      return;
+    }
+    if (expansionSelection.reason === 'unmetPreconditions') {
+      persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
+      return;
+    }
+
     const claimEvaluation = refreshAutonomousExpansionClaimIntent(colony, report, Game.time, telemetryEvents);
     if (shouldDeferOccupationRecommendationForExpansionClaim(claimEvaluation)) {
       return;

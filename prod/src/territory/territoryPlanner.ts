@@ -2887,7 +2887,11 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
 }
 
 function isTerritoryAutomationSource(source: unknown): source is TerritoryAutomationSource {
-  return source === OCCUPATION_RECOMMENDATION_TARGET_CREATOR || source === 'autonomousExpansionClaim';
+  return (
+    source === OCCUPATION_RECOMMENDATION_TARGET_CREATOR ||
+    source === 'autonomousExpansionClaim' ||
+    source === 'nextExpansionScoring'
+  );
 }
 
 function recordTerritoryIntent(

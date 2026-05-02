@@ -68,7 +68,10 @@ declare global {
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
   type TerritoryDemandType = 'followUpPreparation';
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
-  type TerritoryAutomationSource = 'occupationRecommendation' | 'autonomousExpansionClaim';
+  type TerritoryAutomationSource =
+    | 'occupationRecommendation'
+    | 'autonomousExpansionClaim'
+    | 'nextExpansionScoring';
   type TerritoryIntentSuspensionReason = 'hostile_presence';
   type TerritoryPostClaimBootstrapStatus =
     | 'detected'

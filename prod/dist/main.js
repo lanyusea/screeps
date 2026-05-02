@@ -4140,7 +4140,7 @@ function normalizeTerritoryTarget2(rawTarget) {
   };
 }
 function isTerritoryAutomationSource(source) {
-  return source === OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 || source === "autonomousExpansionClaim";
+  return source === OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 || source === "autonomousExpansionClaim" || source === "nextExpansionScoring";
 }
 function recordTerritoryIntent(plan, status, gameTime, seededTarget = null, routeDistanceLookupContext = createRouteDistanceLookupContext()) {
   const territoryMemory = getWritableTerritoryMemoryRecord2();
@@ -9215,16 +9215,693 @@ function matchesStructureType5(actual, globalName, fallback) {
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 
+// src/territory/expansionScoring.ts
+var NEXT_EXPANSION_TARGET_CREATOR = "nextExpansionScoring";
+var EXIT_DIRECTION_ORDER3 = ["1", "3", "5", "7"];
+var TERRITORY_ROUTE_DISTANCE_SEPARATOR3 = ">";
+var ERR_NO_PATH_CODE4 = -2;
+var MAX_NEARBY_EXPANSION_ROUTE_DISTANCE = 2;
+var TERRAIN_SCAN_MIN = 2;
+var TERRAIN_SCAN_MAX = 47;
+var DEFAULT_TERRAIN_WALL_MASK3 = 1;
+var DEFAULT_TERRAIN_SWAMP_MASK = 2;
+var DOWNGRADE_GUARD_TICKS2 = 5e3;
+var MIN_CONTROLLER_LEVEL = 2;
+function buildRuntimeExpansionCandidateReport(colony) {
+  return scoreExpansionCandidates(buildRuntimeExpansionScoringInput(colony));
+}
+function scoreExpansionCandidates(input) {
+  var _a;
+  const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreExpansionCandidate(input, candidate)).sort(compareExpansionCandidates);
+  const next = (_a = candidates.find((candidate) => candidate.evidenceStatus !== "unavailable")) != null ? _a : null;
+  return attachExpansionCandidateReportColony({ candidates, next }, input.colonyName);
+}
+function refreshNextExpansionTargetSelection(colony, report, gameTime) {
+  const colonyName = colony.room.name;
+  const candidate = selectPersistableExpansionCandidate(report);
+  if (!candidate) {
+    pruneNextExpansionTargets(colonyName);
+    return {
+      status: "skipped",
+      colony: colonyName,
+      reason: getSelectionSkipReason(report)
+    };
+  }
+  persistNextExpansionTarget(colonyName, candidate, gameTime);
+  return {
+    status: "planned",
+    colony: colonyName,
+    targetRoom: candidate.roomName,
+    score: candidate.score,
+    ...candidate.controllerId ? { controllerId: candidate.controllerId } : {}
+  };
+}
+function buildRuntimeExpansionScoringInput(colony) {
+  var _a, _b;
+  return {
+    colonyName: colony.room.name,
+    ...getControllerOwnerUsername4(colony.room.controller) ? { colonyOwnerUsername: getControllerOwnerUsername4(colony.room.controller) } : {},
+    energyCapacityAvailable: colony.energyCapacityAvailable,
+    ...typeof ((_a = colony.room.controller) == null ? void 0 : _a.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
+    ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
+    activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
+    candidates: buildRuntimeExpansionCandidates(colony)
+  };
+}
+function buildRuntimeExpansionCandidates(colony) {
+  const rooms = getGameRooms2();
+  if (!rooms) {
+    return [];
+  }
+  const colonyName = colony.room.name;
+  const ownerUsername = getControllerOwnerUsername4(colony.room.controller);
+  const ownedRoomNames = getVisibleOwnedRoomNames3(colonyName, ownerUsername);
+  const adjacentRoomNames = getAdjacentRoomNamesByOwnedRoom(ownedRoomNames);
+  const candidates = [];
+  let order = 0;
+  for (const room of Object.values(rooms)) {
+    if (!room || !isNonEmptyString6(room.name) || room.name === colonyName || ownedRoomNames.has(room.name)) {
+      continue;
+    }
+    const routeDistance = getKnownRouteLength2(colonyName, room.name);
+    const nearestOwnedDistance = getNearestOwnedRoomDistance(ownedRoomNames, room.name, adjacentRoomNames);
+    const adjacentToOwnedRoom = isAdjacentToOwnedRoom(room.name, adjacentRoomNames);
+    if (!isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom)) {
+      continue;
+    }
+    candidates.push({
+      roomName: room.name,
+      order,
+      adjacentToOwnedRoom,
+      ...routeDistance !== void 0 ? { routeDistance } : {},
+      ...nearestOwnedDistance.roomName ? { nearestOwnedRoom: nearestOwnedDistance.roomName } : {},
+      ...nearestOwnedDistance.distance !== void 0 ? { nearestOwnedRoomDistance: nearestOwnedDistance.distance } : {},
+      ...buildVisibleExpansionCandidateEvidence(room)
+    });
+    order += 1;
+  }
+  return candidates;
+}
+function buildVisibleExpansionCandidateEvidence(room) {
+  const controller = room.controller;
+  const sources = findRoomObjects6(room, getFindConstant2("FIND_SOURCES"));
+  const controllerSourceRange = calculateAverageControllerSourceRange(controller, sources);
+  const terrain = summarizeRoomTerrain(room);
+  const hostileCreepCount = findRoomObjects6(room, getFindConstant2("FIND_HOSTILE_CREEPS")).length;
+  const hostileStructureCount = findRoomObjects6(
+    room,
+    getFindConstant2("FIND_HOSTILE_STRUCTURES")
+  ).length;
+  return {
+    ...controller ? { controller: summarizeExpansionController(controller) } : {},
+    ...typeof (controller == null ? void 0 : controller.id) === "string" ? { controllerId: controller.id } : {},
+    sourceCount: sources.length,
+    ...typeof controllerSourceRange === "number" ? { controllerSourceRange } : {},
+    ...terrain ? { terrain } : {},
+    hostileCreepCount,
+    hostileStructureCount
+  };
+}
+function scoreExpansionCandidate(input, candidate) {
+  var _a, _b;
+  const rationale = [];
+  const risks = [];
+  const preconditions = getExpansionPreconditions(input);
+  let evidenceStatus = "sufficient";
+  const routeDistance = candidate.routeDistance === null ? void 0 : candidate.routeDistance;
+  const nearestOwnedRoomDistance = candidate.nearestOwnedRoomDistance === null ? void 0 : candidate.nearestOwnedRoomDistance;
+  if (candidate.routeDistance === null || candidate.nearestOwnedRoomDistance === null) {
+    risks.push("no known route from owned territory");
+    evidenceStatus = "unavailable";
+  }
+  if (!candidate.controller) {
+    risks.push("visible room has no controller");
+    evidenceStatus = "unavailable";
+  } else {
+    const controllerStatus = getControllerStatus(input, candidate.controller);
+    rationale.push(controllerStatus.rationale);
+    if (controllerStatus.risk) {
+      risks.push(controllerStatus.risk);
+    }
+    if (controllerStatus.unavailable) {
+      evidenceStatus = "unavailable";
+    }
+  }
+  if (typeof candidate.sourceCount === "number") {
+    rationale.push(`${candidate.sourceCount} sources visible`);
+  } else {
+    risks.push("source count evidence missing");
+    evidenceStatus = downgradeEvidenceStatus(evidenceStatus, "insufficient-evidence");
+  }
+  if (typeof candidate.controllerSourceRange === "number") {
+    rationale.push(`controller-source range ${candidate.controllerSourceRange}`);
+  } else {
+    risks.push("controller proximity evidence missing");
+    evidenceStatus = downgradeEvidenceStatus(evidenceStatus, "insufficient-evidence");
+  }
+  if (candidate.terrain) {
+    rationale.push(`terrain walkable ${toPercent(candidate.terrain.walkableRatio)}`);
+  } else {
+    risks.push("terrain quality evidence missing");
+    evidenceStatus = downgradeEvidenceStatus(evidenceStatus, "insufficient-evidence");
+  }
+  const hostileCreepCount = (_a = candidate.hostileCreepCount) != null ? _a : 0;
+  const hostileStructureCount = (_b = candidate.hostileStructureCount) != null ? _b : 0;
+  if (hostileCreepCount > 0 || hostileStructureCount > 0) {
+    risks.push("hostile presence visible");
+    evidenceStatus = "unavailable";
+  }
+  if (typeof routeDistance === "number") {
+    rationale.push(`home route distance ${routeDistance}`);
+  }
+  if (typeof nearestOwnedRoomDistance === "number") {
+    rationale.push(`nearest owned distance ${nearestOwnedRoomDistance}`);
+  }
+  if (candidate.adjacentToOwnedRoom) {
+    rationale.push("adjacent to owned territory");
+  }
+  const score = calculateExpansionScore(input, candidate, evidenceStatus);
+  const reservation = getReservationEvidence(input, candidate.controller);
+  return {
+    roomName: candidate.roomName,
+    score,
+    evidenceStatus,
+    rationale,
+    preconditions,
+    risks,
+    adjacentToOwnedRoom: candidate.adjacentToOwnedRoom,
+    ...routeDistance !== void 0 ? { routeDistance } : {},
+    ...candidate.nearestOwnedRoom ? { nearestOwnedRoom: candidate.nearestOwnedRoom } : {},
+    ...nearestOwnedRoomDistance !== void 0 ? { nearestOwnedRoomDistance } : {},
+    ...candidate.controllerId ? { controllerId: candidate.controllerId } : {},
+    ...candidate.sourceCount !== void 0 ? { sourceCount: candidate.sourceCount } : {},
+    ...candidate.controllerSourceRange !== void 0 ? { controllerSourceRange: candidate.controllerSourceRange } : {},
+    ...candidate.terrain ? { terrain: candidate.terrain } : {},
+    ...candidate.hostileCreepCount !== void 0 ? { hostileCreepCount: candidate.hostileCreepCount } : {},
+    ...candidate.hostileStructureCount !== void 0 ? { hostileStructureCount: candidate.hostileStructureCount } : {},
+    ...reservation ? { reservation } : {}
+  };
+}
+function calculateExpansionScore(input, candidate, evidenceStatus) {
+  var _a, _b;
+  const sourceScore = typeof candidate.sourceCount === "number" ? Math.min(candidate.sourceCount, 2) * 120 + Math.max(0, candidate.sourceCount - 2) * 20 : 0;
+  const proximityScore = typeof candidate.controllerSourceRange === "number" ? Math.max(-80, 100 - candidate.controllerSourceRange * 6) : 0;
+  const terrainScore = candidate.terrain ? Math.round(candidate.terrain.walkableRatio * 140 - candidate.terrain.swampRatio * 70) : 0;
+  const reservationScore = getReservationScore(input, candidate.controller);
+  const distanceScore = getDistanceScore(candidate);
+  const adjacencyScore = candidate.adjacentToOwnedRoom ? 40 : 0;
+  const hostilePenalty = ((_a = candidate.hostileCreepCount) != null ? _a : 0) * 240 + ((_b = candidate.hostileStructureCount) != null ? _b : 0) * 140;
+  const unavailablePenalty = evidenceStatus === "unavailable" ? 2e3 : 0;
+  const insufficientEvidencePenalty = evidenceStatus === "insufficient-evidence" ? 260 : 0;
+  const preconditionPenalty = getExpansionPreconditions(input).length * 120;
+  return Math.round(
+    500 + sourceScore + proximityScore + terrainScore + reservationScore + distanceScore + adjacencyScore - hostilePenalty - unavailablePenalty - insufficientEvidencePenalty - preconditionPenalty
+  );
+}
+function getDistanceScore(candidate) {
+  const nearestOwnedDistance = candidate.nearestOwnedRoomDistance;
+  const routeDistance = candidate.routeDistance;
+  if (nearestOwnedDistance === null || routeDistance === null) {
+    return -500;
+  }
+  const supportDistance = typeof nearestOwnedDistance === "number" ? nearestOwnedDistance : routeDistance;
+  const supportScore = typeof supportDistance === "number" ? 140 - supportDistance * 35 : 0;
+  const homePenalty = typeof routeDistance === "number" ? routeDistance * 10 : 0;
+  return Math.max(-160, supportScore - homePenalty);
+}
+function getReservationScore(input, controller) {
+  var _a;
+  if (!(controller == null ? void 0 : controller.reservationUsername)) {
+    return 45;
+  }
+  if (controller.reservationUsername === input.colonyOwnerUsername) {
+    return 90;
+  }
+  const ticksToEnd = (_a = controller.reservationTicksToEnd) != null ? _a : 5e3;
+  return ticksToEnd <= 1e3 ? -80 : -180;
+}
+function getControllerStatus(input, controller) {
+  if (controller.my === true || controller.ownerUsername !== void 0 && controller.ownerUsername === input.colonyOwnerUsername) {
+    return {
+      rationale: "controller already owned by colony account",
+      unavailable: true
+    };
+  }
+  if (controller.ownerUsername) {
+    return {
+      rationale: "controller owned by another account",
+      risk: "enemy-owned controller cannot be claimed safely",
+      unavailable: true
+    };
+  }
+  if (!controller.reservationUsername) {
+    return { rationale: "controller unreserved" };
+  }
+  if (controller.reservationUsername === input.colonyOwnerUsername) {
+    return {
+      rationale: "controller already reserved by colony account"
+    };
+  }
+  return {
+    rationale: "controller reserved by another account",
+    risk: "foreign reservation requires controller pressure"
+  };
+}
+function getReservationEvidence(input, controller) {
+  if (!(controller == null ? void 0 : controller.reservationUsername)) {
+    return null;
+  }
+  return {
+    username: controller.reservationUsername,
+    relation: controller.reservationUsername === input.colonyOwnerUsername ? "own" : "foreign",
+    ...typeof controller.reservationTicksToEnd === "number" ? { ticksToEnd: controller.reservationTicksToEnd } : {}
+  };
+}
+function getExpansionPreconditions(input) {
+  var _a, _b;
+  const preconditions = [];
+  if (input.energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST) {
+    preconditions.push("reach 650 energy capacity for claim body");
+  }
+  if (((_a = input.controllerLevel) != null ? _a : 0) < MIN_CONTROLLER_LEVEL) {
+    preconditions.push("reach controller level 2 before expansion");
+  }
+  if (typeof input.ticksToDowngrade === "number" && input.ticksToDowngrade <= DOWNGRADE_GUARD_TICKS2) {
+    preconditions.push("stabilize home controller downgrade timer");
+  }
+  if (((_b = input.activePostClaimBootstrapCount) != null ? _b : 0) > 0) {
+    preconditions.push("finish active post-claim bootstrap before next expansion");
+  }
+  return preconditions;
+}
+function selectPersistableExpansionCandidate(report) {
+  var _a;
+  return (_a = report.candidates.find(
+    (candidate) => candidate.evidenceStatus === "sufficient" && candidate.preconditions.length === 0
+  )) != null ? _a : null;
+}
+function getSelectionSkipReason(report) {
+  if (report.candidates.length === 0) {
+    return "noCandidate";
+  }
+  if (report.candidates.some((candidate) => candidate.preconditions.length > 0)) {
+    return "unmetPreconditions";
+  }
+  if (report.candidates.some((candidate) => candidate.evidenceStatus === "insufficient-evidence")) {
+    return "insufficientEvidence";
+  }
+  return "unavailable";
+}
+function persistNextExpansionTarget(colony, candidate, gameTime) {
+  const territoryMemory = getWritableTerritoryMemoryRecord3();
+  if (!territoryMemory) {
+    return;
+  }
+  const target = {
+    colony,
+    roomName: candidate.roomName,
+    action: "claim",
+    createdBy: NEXT_EXPANSION_TARGET_CREATOR,
+    ...candidate.controllerId ? { controllerId: candidate.controllerId } : {}
+  };
+  pruneNextExpansionTargets(colony, target, territoryMemory);
+  upsertNextExpansionTarget(territoryMemory, target);
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  const existingIntent = intents.find(
+    (intent) => intent.colony === colony && intent.targetRoom === target.roomName && intent.action === "claim"
+  );
+  upsertTerritoryIntent3(intents, {
+    colony,
+    targetRoom: target.roomName,
+    action: "claim",
+    status: (existingIntent == null ? void 0 : existingIntent.status) === "active" ? "active" : "planned",
+    updatedAt: gameTime,
+    ...target.controllerId ? { controllerId: target.controllerId } : {}
+  });
+}
+function upsertNextExpansionTarget(territoryMemory, target) {
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+  const existingTarget = territoryMemory.targets.find((rawTarget) => isSameTarget(rawTarget, target));
+  if (!existingTarget) {
+    territoryMemory.targets.push(target);
+    return;
+  }
+  if (isRecord6(existingTarget) && existingTarget.createdBy === NEXT_EXPANSION_TARGET_CREATOR) {
+    existingTarget.createdBy = NEXT_EXPANSION_TARGET_CREATOR;
+    existingTarget.enabled = target.enabled;
+    if (target.controllerId) {
+      existingTarget.controllerId = target.controllerId;
+    }
+  }
+}
+function upsertTerritoryIntent3(intents, nextIntent) {
+  const existingIndex = intents.findIndex(
+    (intent) => intent.colony === nextIntent.colony && intent.targetRoom === nextIntent.targetRoom && intent.action === nextIntent.action
+  );
+  if (existingIndex >= 0) {
+    intents[existingIndex] = nextIntent;
+    return;
+  }
+  intents.push(nextIntent);
+}
+function pruneNextExpansionTargets(colony, activeTarget, territoryMemory = getTerritoryMemoryRecord4()) {
+  if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+  const removedTargetKeys = /* @__PURE__ */ new Set();
+  territoryMemory.targets = territoryMemory.targets.filter((target) => {
+    if (!isNextExpansionTarget(target, colony)) {
+      return true;
+    }
+    if (activeTarget && isSameTarget(target, activeTarget)) {
+      return true;
+    }
+    if (isRecord6(target) && isNonEmptyString6(target.roomName) && target.action === "claim") {
+      removedTargetKeys.add(getTargetKey(target.roomName, "claim"));
+    }
+    return false;
+  });
+  if (removedTargetKeys.size === 0) {
+    return;
+  }
+  territoryMemory.intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
+    (intent) => intent.colony !== colony || !removedTargetKeys.has(getTargetKey(intent.targetRoom, intent.action))
+  );
+}
+function isNextExpansionTarget(target, colony) {
+  return isRecord6(target) && target.colony === colony && target.action === "claim" && target.createdBy === NEXT_EXPANSION_TARGET_CREATOR;
+}
+function isSameTarget(left, right) {
+  return isRecord6(left) && left.colony === right.colony && left.roomName === right.roomName && left.action === right.action;
+}
+function getTargetKey(roomName, action) {
+  return `${roomName}:${action}`;
+}
+function compareExpansionCandidates(left, right) {
+  return getEvidenceStatusPriority2(left.evidenceStatus) - getEvidenceStatusPriority2(right.evidenceStatus) || right.score - left.score || compareOptionalNumbers3(left.nearestOwnedRoomDistance, right.nearestOwnedRoomDistance) || compareOptionalNumbers3(left.routeDistance, right.routeDistance) || left.roomName.localeCompare(right.roomName);
+}
+function getEvidenceStatusPriority2(status) {
+  if (status === "sufficient") {
+    return 0;
+  }
+  return status === "insufficient-evidence" ? 1 : 2;
+}
+function compareOptionalNumbers3(left, right) {
+  return (left != null ? left : Number.POSITIVE_INFINITY) - (right != null ? right : Number.POSITIVE_INFINITY);
+}
+function downgradeEvidenceStatus(current, downgrade) {
+  if (current === "unavailable" || downgrade === "unavailable") {
+    return "unavailable";
+  }
+  return current === "insufficient-evidence" || downgrade === "insufficient-evidence" ? "insufficient-evidence" : "sufficient";
+}
+function attachExpansionCandidateReportColony(report, colonyName) {
+  Object.defineProperty(report, "colonyName", {
+    value: colonyName,
+    enumerable: false
+  });
+  return report;
+}
+function getVisibleOwnedRoomNames3(colonyName, ownerUsername) {
+  var _a;
+  const ownedRoomNames = /* @__PURE__ */ new Set([colonyName]);
+  const rooms = getGameRooms2();
+  if (!rooms) {
+    return ownedRoomNames;
+  }
+  for (const room of Object.values(rooms)) {
+    if (((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && isNonEmptyString6(room.name) && (!ownerUsername || getControllerOwnerUsername4(room.controller) === ownerUsername)) {
+      ownedRoomNames.add(room.name);
+    }
+  }
+  return ownedRoomNames;
+}
+function getAdjacentRoomNamesByOwnedRoom(ownedRoomNames) {
+  const adjacentRoomNames = /* @__PURE__ */ new Map();
+  for (const roomName of ownedRoomNames) {
+    adjacentRoomNames.set(roomName, new Set(getAdjacentRoomNames3(roomName)));
+  }
+  return adjacentRoomNames;
+}
+function isAdjacentToOwnedRoom(roomName, adjacentRoomNames) {
+  for (const exits of adjacentRoomNames.values()) {
+    if (exits.has(roomName)) {
+      return true;
+    }
+  }
+  return false;
+}
+function getNearestOwnedRoomDistance(ownedRoomNames, targetRoom, adjacentRoomNames) {
+  var _a;
+  let nearestRoomName;
+  let nearestDistance;
+  for (const ownedRoomName of ownedRoomNames) {
+    const adjacentDistance = ((_a = adjacentRoomNames.get(ownedRoomName)) == null ? void 0 : _a.has(targetRoom)) ? 1 : void 0;
+    const routeDistance = getKnownRouteLength2(ownedRoomName, targetRoom);
+    const distance = routeDistance != null ? routeDistance : adjacentDistance;
+    if (distance === void 0) {
+      continue;
+    }
+    if (distance === null) {
+      if (nearestDistance === void 0) {
+        nearestRoomName = ownedRoomName;
+        nearestDistance = null;
+      }
+      continue;
+    }
+    if (nearestDistance === void 0 || nearestDistance === null || distance < nearestDistance) {
+      nearestRoomName = ownedRoomName;
+      nearestDistance = distance;
+    }
+  }
+  return {
+    ...nearestRoomName ? { roomName: nearestRoomName } : {},
+    ...nearestDistance !== void 0 ? { distance: nearestDistance } : {}
+  };
+}
+function isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom) {
+  if (routeDistance === null || nearestOwnedDistance.distance === null) {
+    return true;
+  }
+  return adjacentToOwnedRoom || typeof routeDistance === "number" && routeDistance <= MAX_NEARBY_EXPANSION_ROUTE_DISTANCE || typeof nearestOwnedDistance.distance === "number" && nearestOwnedDistance.distance <= MAX_NEARBY_EXPANSION_ROUTE_DISTANCE;
+}
+function getAdjacentRoomNames3(roomName) {
+  var _a;
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (!gameMap || typeof gameMap.describeExits !== "function") {
+    return [];
+  }
+  const exits = gameMap.describeExits(roomName);
+  if (!isRecord6(exits)) {
+    return [];
+  }
+  return EXIT_DIRECTION_ORDER3.flatMap((direction) => {
+    const exitRoom = exits[direction];
+    return isNonEmptyString6(exitRoom) ? [exitRoom] : [];
+  });
+}
+function getKnownRouteLength2(fromRoom, targetRoom) {
+  var _a;
+  if (fromRoom === targetRoom) {
+    return 0;
+  }
+  const cache = getTerritoryRouteDistanceCache2();
+  const cacheKey = getTerritoryRouteDistanceCacheKey2(fromRoom, targetRoom);
+  const cachedRouteLength = cache == null ? void 0 : cache[cacheKey];
+  if (cachedRouteLength === null || typeof cachedRouteLength === "number") {
+    return cachedRouteLength;
+  }
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (typeof (gameMap == null ? void 0 : gameMap.findRoute) !== "function") {
+    return void 0;
+  }
+  const route = gameMap.findRoute(fromRoom, targetRoom);
+  if (route === getNoPathResultCode4()) {
+    if (cache) {
+      cache[cacheKey] = null;
+    }
+    return null;
+  }
+  if (!Array.isArray(route)) {
+    return void 0;
+  }
+  if (cache) {
+    cache[cacheKey] = route.length;
+  }
+  return route.length;
+}
+function getTerritoryRouteDistanceCache2() {
+  const territoryMemory = getWritableTerritoryMemoryRecord3();
+  if (!territoryMemory) {
+    return void 0;
+  }
+  if (!isRecord6(territoryMemory.routeDistances)) {
+    territoryMemory.routeDistances = {};
+  }
+  return territoryMemory.routeDistances;
+}
+function getTerritoryRouteDistanceCacheKey2(fromRoom, targetRoom) {
+  return `${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR3}${targetRoom}`;
+}
+function getNoPathResultCode4() {
+  const noPathCode = globalThis.ERR_NO_PATH;
+  return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE4;
+}
+function summarizeExpansionController(controller) {
+  const ownerUsername = getControllerOwnerUsername4(controller);
+  const reservationUsername = getControllerReservationUsername2(controller);
+  const reservationTicksToEnd = getControllerReservationTicksToEnd2(controller);
+  return {
+    ...controller.my === true ? { my: true } : {},
+    ...ownerUsername ? { ownerUsername } : {},
+    ...reservationUsername ? { reservationUsername } : {},
+    ...typeof reservationTicksToEnd === "number" ? { reservationTicksToEnd } : {}
+  };
+}
+function calculateAverageControllerSourceRange(controller, sources) {
+  if (!(controller == null ? void 0 : controller.pos) || sources.length === 0) {
+    return void 0;
+  }
+  const ranges = sources.flatMap(
+    (source) => source.pos ? [getRoomPositionRange(controller.pos, source.pos)] : []
+  );
+  if (ranges.length === 0) {
+    return void 0;
+  }
+  return Math.round(ranges.reduce((total, range) => total + range, 0) / ranges.length);
+}
+function getRoomPositionRange(left, right) {
+  return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
+}
+function summarizeRoomTerrain(room) {
+  const terrain = getRoomTerrain3(room);
+  if (!terrain || typeof terrain.get !== "function") {
+    return null;
+  }
+  let plainCount = 0;
+  let swampCount = 0;
+  let wallCount = 0;
+  const wallMask = getTerrainMask("TERRAIN_MASK_WALL", DEFAULT_TERRAIN_WALL_MASK3);
+  const swampMask = getTerrainMask("TERRAIN_MASK_SWAMP", DEFAULT_TERRAIN_SWAMP_MASK);
+  for (let x = TERRAIN_SCAN_MIN; x <= TERRAIN_SCAN_MAX; x += 1) {
+    for (let y = TERRAIN_SCAN_MIN; y <= TERRAIN_SCAN_MAX; y += 1) {
+      const mask = terrain.get(x, y);
+      if ((mask & wallMask) !== 0) {
+        wallCount += 1;
+      } else if ((mask & swampMask) !== 0) {
+        swampCount += 1;
+      } else {
+        plainCount += 1;
+      }
+    }
+  }
+  const total = plainCount + swampCount + wallCount;
+  if (total <= 0) {
+    return null;
+  }
+  return {
+    walkableRatio: roundRatio(plainCount + swampCount, total),
+    swampRatio: roundRatio(swampCount, total),
+    wallRatio: roundRatio(wallCount, total)
+  };
+}
+function getRoomTerrain3(room) {
+  var _a;
+  const roomWithTerrain = room;
+  if (typeof roomWithTerrain.getTerrain === "function") {
+    return roomWithTerrain.getTerrain();
+  }
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  return typeof (gameMap == null ? void 0 : gameMap.getRoomTerrain) === "function" ? gameMap.getRoomTerrain(room.name) : null;
+}
+function getTerrainMask(name, fallback) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : fallback;
+}
+function findRoomObjects6(room, findConstant) {
+  if (typeof findConstant !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  try {
+    const result = room.find(findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
+}
+function getFindConstant2(name) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : void 0;
+}
+function getControllerOwnerUsername4(controller) {
+  var _a;
+  const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
+  return isNonEmptyString6(username) ? username : void 0;
+}
+function getControllerReservationUsername2(controller) {
+  var _a;
+  const username = (_a = controller.reservation) == null ? void 0 : _a.username;
+  return isNonEmptyString6(username) ? username : void 0;
+}
+function getControllerReservationTicksToEnd2(controller) {
+  var _a;
+  const ticksToEnd = (_a = controller.reservation) == null ? void 0 : _a.ticksToEnd;
+  return typeof ticksToEnd === "number" ? ticksToEnd : void 0;
+}
+function countActivePostClaimBootstraps() {
+  var _a, _b;
+  const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
+  if (!isRecord6(records)) {
+    return 0;
+  }
+  return Object.values(records).filter(
+    (record) => isRecord6(record) && record.status !== "ready"
+  ).length;
+}
+function getGameRooms2() {
+  var _a;
+  return (_a = globalThis.Game) == null ? void 0 : _a.rooms;
+}
+function getTerritoryMemoryRecord4() {
+  var _a;
+  return (_a = globalThis.Memory) == null ? void 0 : _a.territory;
+}
+function getWritableTerritoryMemoryRecord3() {
+  const memory = globalThis.Memory;
+  if (!memory) {
+    return null;
+  }
+  if (!memory.territory) {
+    memory.territory = {};
+  }
+  return memory.territory;
+}
+function roundRatio(numerator, denominator) {
+  return denominator > 0 ? Math.round(numerator / denominator * 1e3) / 1e3 : 0;
+}
+function toPercent(value) {
+  return `${Math.round(value * 100)}%`;
+}
+function isRecord6(value) {
+  return typeof value === "object" && value !== null;
+}
+function isNonEmptyString6(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
 // src/territory/postClaimBootstrap.ts
 var POST_CLAIM_BOOTSTRAP_WORKER_TARGET = 2;
 var OK_CODE3 = 0;
 var ERR_INVALID_TARGET_CODE = -7;
 var ROOM_EDGE_MIN4 = 2;
 var ROOM_EDGE_MAX4 = 47;
-var DEFAULT_TERRAIN_WALL_MASK3 = 1;
+var DEFAULT_TERRAIN_WALL_MASK4 = 1;
 function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   var _a, _b;
-  if (!isNonEmptyString6(input.colony) || !isNonEmptyString6(input.roomName)) {
+  if (!isNonEmptyString7(input.colony) || !isNonEmptyString7(input.roomName)) {
     return;
   }
   const bootstraps = getWritablePostClaimBootstrapRecords();
@@ -9342,7 +10019,7 @@ function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents
   return { active: true, spawnConstructionPending: true };
 }
 function recordPostClaimBootstrapWorkerSpawn(roomName, spawnName, creepName, result, telemetryEvents = []) {
-  if (!isNonEmptyString6(roomName)) {
+  if (!isNonEmptyString7(roomName)) {
     return;
   }
   const record = getPostClaimBootstrapRecord(roomName);
@@ -9462,7 +10139,7 @@ function buildSpawnPlacementLookups(room, anchor, maximumScanRadius) {
   return {
     blockingPositions,
     mineralPositions,
-    terrain: getRoomTerrain3(room.name)
+    terrain: getRoomTerrain4(room.name)
   };
 }
 function lookForArea(room, lookConstantName, anchor, maximumScanRadius) {
@@ -9516,14 +10193,14 @@ function findSources(room) {
   return room.find(findConstant);
 }
 function getRoomObjectPosition2(object) {
-  if (!isRecord6(object)) {
+  if (!isRecord7(object)) {
     return null;
   }
   if (isFiniteNumber4(object.x) && isFiniteNumber4(object.y)) {
     return { x: object.x, y: object.y };
   }
   const pos = object.pos;
-  if (isRecord6(pos) && isFiniteNumber4(pos.x) && isFiniteNumber4(pos.y)) {
+  if (isRecord7(pos) && isFiniteNumber4(pos.x) && isFiniteNumber4(pos.y)) {
     return { x: pos.x, y: pos.y };
   }
   return null;
@@ -9570,7 +10247,7 @@ function getWritablePostClaimBootstrapRecords() {
   return memory.territory.postClaimBootstraps;
 }
 function isPostClaimBootstrapRecord(value, expectedRoomName) {
-  return isRecord6(value) && value.roomName === expectedRoomName && isNonEmptyString6(value.colony) && isPostClaimBootstrapStatus(value.status) && isFiniteNumber4(value.claimedAt) && isFiniteNumber4(value.updatedAt);
+  return isRecord7(value) && value.roomName === expectedRoomName && isNonEmptyString7(value.colony) && isPostClaimBootstrapStatus(value.status) && isFiniteNumber4(value.claimedAt) && isFiniteNumber4(value.updatedAt);
 }
 function isPostClaimBootstrapStatus(value) {
   return value === "detected" || value === "spawnSitePending" || value === "spawnSiteBlocked" || value === "spawningWorkers" || value === "ready";
@@ -9601,13 +10278,13 @@ function getRange(left, right) {
 function getPositionKey3(position) {
   return `${position.x},${position.y}`;
 }
-function getRoomTerrain3(roomName) {
+function getRoomTerrain4(roomName) {
   var _a;
   const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
   return typeof (gameMap == null ? void 0 : gameMap.getRoomTerrain) === "function" ? gameMap.getRoomTerrain(roomName) : null;
 }
 function getTerrainWallMask4() {
-  return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK3;
+  return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK4;
 }
 function matchesStructureType6(actual, globalName, fallback) {
   return actual === getStructureConstant(globalName, fallback);
@@ -9630,10 +10307,10 @@ function getGameTime6() {
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
 }
-function isRecord6(value) {
+function isRecord7(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString6(value) {
+function isNonEmptyString7(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isFiniteNumber4(value) {
@@ -9755,6 +10432,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
   if (persistOccupationRecommendations) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime7());
   }
@@ -9774,6 +10452,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
+    ...territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {},
     ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
     ...buildTerritoryExecutionHintSummary(colony.room.name),
     ...buildPostClaimBootstrapSummary(colony.room.name)
@@ -9928,7 +10607,7 @@ function summarizeRefillDeliveryTicks(workers, tick) {
   return {
     refillDeliveryTicks: {
       completedCount,
-      averageTicks: roundRatio(deliveryTicks.reduce((total, value) => total + value, 0), completedCount),
+      averageTicks: roundRatio2(deliveryTicks.reduce((total, value) => total + value, 0), completedCount),
       maxTicks: Math.max(...deliveryTicks),
       samples: reportedSamples,
       ...samples.length > MAX_REFILL_DELIVERY_SAMPLES ? { omittedSampleCount: samples.length - MAX_REFILL_DELIVERY_SAMPLES } : {}
@@ -9952,7 +10631,7 @@ function summarizeRefillWorkerUtilization(workers) {
       ...getCreepName2(worker) ? { creepName: getCreepName2(worker) } : {},
       refillActiveTicks: refillActiveTicks2,
       idleOrOtherTaskTicks: idleOrOtherTaskTicks2,
-      ratio: roundRatio(refillActiveTicks2, totalTicks2)
+      ratio: roundRatio2(refillActiveTicks2, totalTicks2)
     };
   }).filter((summary) => summary !== null).sort(compareRefillWorkerUtilizationSummaries);
   if (workerSummaries.length === 0) {
@@ -9966,7 +10645,7 @@ function summarizeRefillWorkerUtilization(workers) {
       assignedWorkerCount: workerSummaries.length,
       refillActiveTicks,
       idleOrOtherTaskTicks,
-      ratio: roundRatio(refillActiveTicks, totalTicks),
+      ratio: roundRatio2(refillActiveTicks, totalTicks),
       workers: workerSummaries
     }
   };
@@ -9989,9 +10668,9 @@ function isRecentRefillDeliverySample(sample, tick) {
   return isRefillDeliverySample(sample) && (tick <= 0 || sample.tick <= tick && sample.tick > tick - REFILL_DELIVERY_SAMPLE_TTL);
 }
 function isRefillDeliverySample(value) {
-  return isRecord7(value) && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.targetId === "string" && typeof value.deliveryTicks === "number" && Number.isFinite(value.deliveryTicks) && typeof value.activeTicks === "number" && Number.isFinite(value.activeTicks) && typeof value.idleOrOtherTaskTicks === "number" && Number.isFinite(value.idleOrOtherTaskTicks) && typeof value.energyDelivered === "number" && Number.isFinite(value.energyDelivered);
+  return isRecord8(value) && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.targetId === "string" && typeof value.deliveryTicks === "number" && Number.isFinite(value.deliveryTicks) && typeof value.activeTicks === "number" && Number.isFinite(value.activeTicks) && typeof value.idleOrOtherTaskTicks === "number" && Number.isFinite(value.idleOrOtherTaskTicks) && typeof value.energyDelivered === "number" && Number.isFinite(value.energyDelivered);
 }
-function roundRatio(numerator, denominator) {
+function roundRatio2(numerator, denominator) {
   if (denominator <= 0) {
     return 0;
   }
@@ -10004,7 +10683,7 @@ function isRecentWorkerEfficiencySample(sample, tick) {
   return sample.tick <= tick && sample.tick > tick - WORKER_EFFICIENCY_SAMPLE_TTL;
 }
 function isWorkerEfficiencySample(value) {
-  if (!isRecord7(value)) {
+  if (!isRecord8(value)) {
     return false;
   }
   return (value.type === "lowLoadReturn" || value.type === "nearbyEnergyChoice") && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.carriedEnergy === "number" && Number.isFinite(value.carriedEnergy) && typeof value.freeCapacity === "number" && Number.isFinite(value.freeCapacity) && isWorkerEfficiencyTaskType(value.selectedTask) && typeof value.targetId === "string";
@@ -10045,7 +10724,7 @@ function isRecentSpawnCriticalRefillSample(sample, tick) {
   return isSpawnCriticalRefillSample(sample) && (tick <= 0 || sample.tick <= tick && sample.tick > tick - SPAWN_CRITICAL_REFILL_SAMPLE_TTL);
 }
 function isSpawnCriticalRefillSample(value) {
-  return isRecord7(value) && value.type === "spawnCriticalRefill" && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.targetId === "string" && typeof value.carriedEnergy === "number" && Number.isFinite(value.carriedEnergy) && typeof value.spawnEnergy === "number" && Number.isFinite(value.spawnEnergy) && typeof value.freeCapacity === "number" && Number.isFinite(value.freeCapacity) && typeof value.threshold === "number" && Number.isFinite(value.threshold);
+  return isRecord8(value) && value.type === "spawnCriticalRefill" && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.targetId === "string" && typeof value.carriedEnergy === "number" && Number.isFinite(value.carriedEnergy) && typeof value.spawnEnergy === "number" && Number.isFinite(value.spawnEnergy) && typeof value.freeCapacity === "number" && Number.isFinite(value.freeCapacity) && typeof value.threshold === "number" && Number.isFinite(value.threshold);
 }
 function getCreepName2(creep) {
   const name = creep.name;
@@ -10072,10 +10751,10 @@ function buildControllerSummary(room) {
 }
 function summarizeResources(colony, colonyWorkers, events) {
   var _a, _b, _c, _d;
-  const roomStructures = (_a = findRoomObjects6(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
-  const constructionSites = (_b = findRoomObjects6(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
-  const droppedResources = (_c = findRoomObjects6(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _c : [];
-  const sources = (_d = findRoomObjects6(colony.room, "FIND_SOURCES")) != null ? _d : [];
+  const roomStructures = (_a = findRoomObjects7(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
+  const constructionSites = (_b = findRoomObjects7(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
+  const droppedResources = (_c = findRoomObjects7(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _c : [];
+  const sources = (_d = findRoomObjects7(colony.room, "FIND_SOURCES")) != null ? _d : [];
   return {
     storedEnergy: sumEnergyInStores(roomStructures),
     workerCarriedEnergy: sumEnergyInStores(colonyWorkers),
@@ -10128,7 +10807,7 @@ function sumPendingBuildProgress(constructionSites) {
   return constructionSites.reduce((total, constructionSite) => total + getPendingBuildProgress(constructionSite), 0);
 }
 function getPendingBuildProgress(constructionSite) {
-  if (!isRecord7(constructionSite)) {
+  if (!isRecord8(constructionSite)) {
     return 0;
   }
   const progress = getFiniteNumber(constructionSite.progress);
@@ -10142,7 +10821,7 @@ function sumRepairBacklogHits(roomStructures) {
   return roomStructures.reduce((total, structure) => total + getRepairBacklogHits(structure), 0);
 }
 function getRepairBacklogHits(structure) {
-  if (!isRecord7(structure) || !isObservableRepairBacklogStructure(structure)) {
+  if (!isRecord8(structure) || !isObservableRepairBacklogStructure(structure)) {
     return 0;
   }
   const hits = getFiniteNumber(structure.hits);
@@ -10173,8 +10852,8 @@ function buildControllerProgressRemaining(room) {
 }
 function summarizeCombat(room, events) {
   var _a, _b;
-  const hostileCreeps = (_a = findRoomObjects6(room, "FIND_HOSTILE_CREEPS")) != null ? _a : [];
-  const hostileStructures = (_b = findRoomObjects6(room, "FIND_HOSTILE_STRUCTURES")) != null ? _b : [];
+  const hostileCreeps = (_a = findRoomObjects7(room, "FIND_HOSTILE_CREEPS")) != null ? _a : [];
+  const hostileStructures = (_b = findRoomObjects7(room, "FIND_HOSTILE_STRUCTURES")) != null ? _b : [];
   return {
     hostileCreepCount: hostileCreeps.length,
     hostileStructureCount: hostileStructures.length,
@@ -10364,10 +11043,10 @@ function summarizeRoomEventMetrics(room, refillTargetIds = getSpawnExtensionEner
   let hasResourceEvents = false;
   let hasCombatEvents = false;
   for (const entry of eventLog) {
-    if (!isRecord7(entry) || typeof entry.event !== "number") {
+    if (!isRecord8(entry) || typeof entry.event !== "number") {
       continue;
     }
-    const data = isRecord7(entry.data) ? entry.data : {};
+    const data = isRecord8(entry.data) ? entry.data : {};
     if (entry.event === harvestEvent && isEnergyEventData(data)) {
       resourceEvents.harvestedEnergy += getNumericEventData(data, "amount");
       hasResourceEvents = true;
@@ -10419,7 +11098,7 @@ function summarizeRoomEventMetrics(room, refillTargetIds = getSpawnExtensionEner
 }
 function getSpawnExtensionEnergyStructureIds(room) {
   var _a, _b;
-  const structures = (_b = (_a = findRoomObjects6(room, "FIND_MY_STRUCTURES")) != null ? _a : findRoomObjects6(room, "FIND_STRUCTURES")) != null ? _b : [];
+  const structures = (_b = (_a = findRoomObjects7(room, "FIND_MY_STRUCTURES")) != null ? _a : findRoomObjects7(room, "FIND_STRUCTURES")) != null ? _b : [];
   const ids = /* @__PURE__ */ new Set();
   for (const structure of structures) {
     if (!isSpawnExtensionEnergyStructure2(structure)) {
@@ -10433,7 +11112,7 @@ function getSpawnExtensionEnergyStructureIds(room) {
   return ids;
 }
 function isSpawnExtensionEnergyStructure2(structure) {
-  return isRecord7(structure) && (matchesStructureType7(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType7(structure.structureType, "STRUCTURE_EXTENSION", "extension"));
+  return isRecord8(structure) && (matchesStructureType7(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType7(structure.structureType, "STRUCTURE_EXTENSION", "extension"));
 }
 function getEventTargetId(data) {
   return typeof data.targetId === "string" && data.targetId.length > 0 ? data.targetId : null;
@@ -10442,9 +11121,9 @@ function buildEventObjectId(entry) {
   return typeof entry.objectId === "string" && entry.objectId.length > 0 ? { objectId: entry.objectId } : {};
 }
 function getObjectId2(value) {
-  return isRecord7(value) && typeof value.id === "string" && value.id.length > 0 ? value.id : null;
+  return isRecord8(value) && typeof value.id === "string" && value.id.length > 0 ? value.id : null;
 }
-function findRoomObjects6(room, constantName) {
+function findRoomObjects7(room, constantName) {
   const findConstant = getGlobalNumber5(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
@@ -10473,7 +11152,7 @@ function sumEnergyInStores(objects) {
   return objects.reduce((total, object) => total + getEnergyInStore(object), 0);
 }
 function getEnergyInStore(object) {
-  if (!isRecord7(object) || !isRecord7(object.store)) {
+  if (!isRecord8(object) || !isRecord8(object.store)) {
     return 0;
   }
   const getUsedCapacity = object.store.getUsedCapacity;
@@ -10487,7 +11166,7 @@ function getEnergyInStore(object) {
 function sumDroppedEnergy(droppedResources) {
   const energyResource = getEnergyResource3();
   return droppedResources.reduce((total, droppedResource) => {
-    if (!isRecord7(droppedResource) || droppedResource.resourceType !== energyResource) {
+    if (!isRecord8(droppedResource) || droppedResource.resourceType !== energyResource) {
       return total;
     }
     return total + (typeof droppedResource.amount === "number" ? droppedResource.amount : 0);
@@ -10516,7 +11195,7 @@ function getEnergyResource3() {
   const value = globalThis.RESOURCE_ENERGY;
   return typeof value === "string" ? value : "energy";
 }
-function isRecord7(value) {
+function isRecord8(value) {
   return typeof value === "object" && value !== null;
 }
 function buildCpuSummary() {
@@ -10636,7 +11315,7 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime) {
   if (isControllerOwned2(controller)) {
     return { ...controllerEvaluation, reason: "controllerOwned" };
   }
-  if (isControllerReserved(controller, getControllerOwnerUsername4(colony.room.controller))) {
+  if (isControllerReserved(controller, getControllerOwnerUsername5(colony.room.controller))) {
     return { ...controllerEvaluation, reason: "controllerReserved" };
   }
   if (isExpansionClaimControllerOnCooldown(controller)) {
@@ -10663,7 +11342,7 @@ function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime) {
   if (!evaluation.targetRoom) {
     return;
   }
-  const territoryMemory = getWritableTerritoryMemoryRecord3();
+  const territoryMemory = getWritableTerritoryMemoryRecord4();
   if (!territoryMemory) {
     return;
   }
@@ -10682,7 +11361,7 @@ function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime) {
   const existingIntent = intents.find(
     (intent) => intent.colony === colony && intent.targetRoom === target.roomName && intent.action === "claim"
   );
-  upsertTerritoryIntent3(intents, {
+  upsertTerritoryIntent4(intents, {
     colony,
     targetRoom: target.roomName,
     action: "claim",
@@ -10695,12 +11374,12 @@ function upsertTerritoryTarget2(territoryMemory, target) {
   if (!Array.isArray(territoryMemory.targets)) {
     territoryMemory.targets = [];
   }
-  const existingTarget = territoryMemory.targets.find((rawTarget) => isSameTarget(rawTarget, target));
+  const existingTarget = territoryMemory.targets.find((rawTarget) => isSameTarget2(rawTarget, target));
   if (!existingTarget) {
     territoryMemory.targets.push(target);
     return;
   }
-  if (isRecord8(existingTarget)) {
+  if (isRecord9(existingTarget)) {
     existingTarget.action = target.action;
     existingTarget.createdBy = target.createdBy;
     existingTarget.enabled = target.enabled;
@@ -10709,7 +11388,7 @@ function upsertTerritoryTarget2(territoryMemory, target) {
     }
   }
 }
-function upsertTerritoryIntent3(intents, nextIntent) {
+function upsertTerritoryIntent4(intents, nextIntent) {
   const existingIndex = intents.findIndex(
     (intent) => intent.colony === nextIntent.colony && intent.targetRoom === nextIntent.targetRoom && intent.action === nextIntent.action
   );
@@ -10719,7 +11398,7 @@ function upsertTerritoryIntent3(intents, nextIntent) {
   }
   intents.push(nextIntent);
 }
-function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerritoryMemoryRecord4(), activeTarget) {
+function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerritoryMemoryRecord5(), activeTarget) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return;
   }
@@ -10728,11 +11407,11 @@ function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerri
     if (!isAutonomousExpansionClaimTarget(target, colony)) {
       return true;
     }
-    if (activeTarget && isSameTarget(target, activeTarget)) {
+    if (activeTarget && isSameTarget2(target, activeTarget)) {
       return true;
     }
-    if (isRecord8(target) && isNonEmptyString7(target.roomName) && target.action === "claim") {
-      removedTargetKeys.add(getTargetKey(target.roomName, "claim"));
+    if (isRecord9(target) && isNonEmptyString8(target.roomName) && target.action === "claim") {
+      removedTargetKeys.add(getTargetKey2(target.roomName, "claim"));
     }
     return false;
   });
@@ -10740,7 +11419,7 @@ function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerri
     return;
   }
   territoryMemory.intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
-    (intent) => intent.colony !== colony || !removedTargetKeys.has(getTargetKey(intent.targetRoom, intent.action))
+    (intent) => intent.colony !== colony || !removedTargetKeys.has(getTargetKey2(intent.targetRoom, intent.action))
   );
 }
 function pruneOccupationRecommendationTargets(territoryMemory, colony) {
@@ -10748,12 +11427,12 @@ function pruneOccupationRecommendationTargets(territoryMemory, colony) {
     return;
   }
   territoryMemory.targets = territoryMemory.targets.filter(
-    (target) => !(isRecord8(target) && target.colony === colony && target.createdBy === "occupationRecommendation")
+    (target) => !(isRecord9(target) && target.colony === colony && target.createdBy === "occupationRecommendation")
   );
 }
 function isAutonomousClaimSuppressed(colony, targetRoom, gameTime) {
   var _a;
-  const intents = normalizeTerritoryIntents((_a = getTerritoryMemoryRecord4()) == null ? void 0 : _a.intents);
+  const intents = normalizeTerritoryIntents((_a = getTerritoryMemoryRecord5()) == null ? void 0 : _a.intents);
   return intents.some(
     (intent) => intent.colony === colony && intent.targetRoom === targetRoom && intent.action === "claim" && intent.status === "suppressed" && gameTime >= intent.updatedAt && gameTime - intent.updatedAt < TERRITORY_SUPPRESSION_RETRY_TICKS2
   );
@@ -10793,30 +11472,30 @@ function getControllerClaimCooldown(controller) {
   return typeof upgradeBlocked === "number" && upgradeBlocked > 0 ? upgradeBlocked : 0;
 }
 function isAutonomousExpansionClaimTarget(target, colony) {
-  return isRecord8(target) && target.colony === colony && target.action === "claim" && target.createdBy === AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR;
+  return isRecord9(target) && target.colony === colony && target.action === "claim" && target.createdBy === AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR;
 }
 function isExistingAutonomousExpansionClaimTarget(colony, roomName) {
   var _a;
-  const targets = (_a = getTerritoryMemoryRecord4()) == null ? void 0 : _a.targets;
+  const targets = (_a = getTerritoryMemoryRecord5()) == null ? void 0 : _a.targets;
   return Array.isArray(targets) ? targets.some(
-    (target) => isAutonomousExpansionClaimTarget(target, colony) && isRecord8(target) && target.roomName === roomName
+    (target) => isAutonomousExpansionClaimTarget(target, colony) && isRecord9(target) && target.roomName === roomName
   ) : false;
 }
-function isSameTarget(left, right) {
-  return isRecord8(left) && left.colony === right.colony && left.roomName === right.roomName && left.action === right.action;
+function isSameTarget2(left, right) {
+  return isRecord9(left) && left.colony === right.colony && left.roomName === right.roomName && left.action === right.action;
 }
-function getTargetKey(roomName, action) {
+function getTargetKey2(roomName, action) {
   return `${roomName}:${action}`;
 }
 function getVisibleRoom2(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
-function getTerritoryMemoryRecord4() {
+function getTerritoryMemoryRecord5() {
   var _a;
   return (_a = globalThis.Memory) == null ? void 0 : _a.territory;
 }
-function getWritableTerritoryMemoryRecord3() {
+function getWritableTerritoryMemoryRecord4() {
   const memory = globalThis.Memory;
   if (!memory) {
     return null;
@@ -10841,17 +11520,17 @@ function isControllerOwned2(controller) {
 function isControllerReserved(controller, colonyOwnerUsername) {
   var _a;
   const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
-  return isNonEmptyString7(reservationUsername) && reservationUsername !== colonyOwnerUsername;
+  return isNonEmptyString8(reservationUsername) && reservationUsername !== colonyOwnerUsername;
 }
-function getControllerOwnerUsername4(controller) {
+function getControllerOwnerUsername5(controller) {
   var _a;
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString7(username) ? username : void 0;
+  return isNonEmptyString8(username) ? username : void 0;
 }
-function isRecord8(value) {
+function isRecord9(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString7(value) {
+function isNonEmptyString8(value) {
   return typeof value === "string" && value.length > 0;
 }
 
@@ -11166,6 +11845,18 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
   );
   const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   if (territoryReady) {
+    const expansionSelection = refreshNextExpansionTargetSelection(
+      colony,
+      buildRuntimeExpansionCandidateReport(colony),
+      Game.time
+    );
+    if (expansionSelection.status === "planned") {
+      return;
+    }
+    if (expansionSelection.reason === "unmetPreconditions") {
+      persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
+      return;
+    }
     const claimEvaluation = refreshAutonomousExpansionClaimIntent(colony, report, Game.time, telemetryEvents);
     if (shouldDeferOccupationRecommendationForExpansionClaim(claimEvaluation)) {
       return;
@@ -11680,7 +12371,7 @@ function parseStrategyEvaluationArtifacts(input) {
   });
 }
 function normalizeStrategyEvaluationArtifact(rawArtifact) {
-  if (!isRecord9(rawArtifact)) {
+  if (!isRecord10(rawArtifact)) {
     return null;
   }
   if (rawArtifact.type === "runtime-summary" || Array.isArray(rawArtifact.rooms)) {
@@ -11689,7 +12380,7 @@ function normalizeStrategyEvaluationArtifact(rawArtifact) {
   if (rawArtifact.artifactType === "runtime-summary") {
     return normalizeRuntimeSummaryArtifact(rawArtifact);
   }
-  if (rawArtifact.artifactType === "room-snapshot" || Array.isArray(rawArtifact.objects) || isRecord9(rawArtifact.objects)) {
+  if (rawArtifact.artifactType === "room-snapshot" || Array.isArray(rawArtifact.objects) || isRecord10(rawArtifact.objects)) {
     return normalizeRoomSnapshotArtifact(rawArtifact);
   }
   return null;
@@ -11773,12 +12464,12 @@ function normalizeRuntimeSummaryArtifact(rawArtifact) {
     artifactType: "runtime-summary",
     ...isFiniteNumber5(rawArtifact.tick) ? { tick: rawArtifact.tick } : {},
     rooms,
-    ...isRecord9(rawArtifact.cpu) ? { cpu: normalizeCpuSummary(rawArtifact.cpu) } : {},
-    ...isRecord9(rawArtifact.reliability) ? { reliability: normalizeReliabilitySignals(rawArtifact.reliability) } : {}
+    ...isRecord10(rawArtifact.cpu) ? { cpu: normalizeCpuSummary(rawArtifact.cpu) } : {},
+    ...isRecord10(rawArtifact.reliability) ? { reliability: normalizeReliabilitySignals(rawArtifact.reliability) } : {}
   };
 }
 function normalizeRuntimeSummaryRoom(rawRoom) {
-  if (!isRecord9(rawRoom) || !isNonEmptyString8(rawRoom.roomName)) {
+  if (!isRecord10(rawRoom) || !isNonEmptyString9(rawRoom.roomName)) {
     return null;
   }
   return {
@@ -11787,19 +12478,19 @@ function normalizeRuntimeSummaryRoom(rawRoom) {
     ...isFiniteNumber5(rawRoom.energyCapacity) ? { energyCapacity: rawRoom.energyCapacity } : {},
     ...isFiniteNumber5(rawRoom.workerCount) ? { workerCount: rawRoom.workerCount } : {},
     ...Array.isArray(rawRoom.spawnStatus) ? { spawnStatus: rawRoom.spawnStatus.map(normalizeSpawnStatus) } : {},
-    ...isRecord9(rawRoom.controller) ? { controller: normalizeControllerSummary(rawRoom.controller) } : {},
-    ...isRecord9(rawRoom.resources) ? { resources: normalizeResourceSummary(rawRoom.resources) } : {},
-    ...isRecord9(rawRoom.combat) ? { combat: normalizeCombatSummary(rawRoom.combat) } : {},
-    ...isRecord9(rawRoom.constructionPriority) ? { constructionPriority: normalizeConstructionPrioritySummary(rawRoom.constructionPriority) } : {},
-    ...isRecord9(rawRoom.territoryRecommendation) ? { territoryRecommendation: normalizeTerritoryRecommendationSummary(rawRoom.territoryRecommendation) } : {}
+    ...isRecord10(rawRoom.controller) ? { controller: normalizeControllerSummary(rawRoom.controller) } : {},
+    ...isRecord10(rawRoom.resources) ? { resources: normalizeResourceSummary(rawRoom.resources) } : {},
+    ...isRecord10(rawRoom.combat) ? { combat: normalizeCombatSummary(rawRoom.combat) } : {},
+    ...isRecord10(rawRoom.constructionPriority) ? { constructionPriority: normalizeConstructionPrioritySummary(rawRoom.constructionPriority) } : {},
+    ...isRecord10(rawRoom.territoryRecommendation) ? { territoryRecommendation: normalizeTerritoryRecommendationSummary(rawRoom.territoryRecommendation) } : {}
   };
 }
 function normalizeRoomSnapshotArtifact(rawArtifact) {
-  if (!Array.isArray(rawArtifact.objects) && !isRecord9(rawArtifact.objects)) {
+  if (!Array.isArray(rawArtifact.objects) && !isRecord10(rawArtifact.objects)) {
     return null;
   }
-  const objects = Array.isArray(rawArtifact.objects) ? rawArtifact.objects.flatMap((rawObject) => isRecord9(rawObject) ? [rawObject] : []) : Object.entries(rawArtifact.objects).flatMap(([id, rawObject]) => {
-    if (!isRecord9(rawObject)) {
+  const objects = Array.isArray(rawArtifact.objects) ? rawArtifact.objects.flatMap((rawObject) => isRecord10(rawObject) ? [rawObject] : []) : Object.entries(rawArtifact.objects).flatMap(([id, rawObject]) => {
+    if (!isRecord10(rawObject)) {
       return [];
     }
     return [{ ...rawObject, id }];
@@ -11807,9 +12498,9 @@ function normalizeRoomSnapshotArtifact(rawArtifact) {
   return {
     artifactType: "room-snapshot",
     ...isFiniteNumber5(rawArtifact.tick) ? { tick: rawArtifact.tick } : {},
-    ...isNonEmptyString8(rawArtifact.roomName) ? { roomName: rawArtifact.roomName } : {},
-    ...isNonEmptyString8(rawArtifact.room) ? { roomName: rawArtifact.room } : {},
-    ...isNonEmptyString8(rawArtifact.owner) ? { owner: rawArtifact.owner } : {},
+    ...isNonEmptyString9(rawArtifact.roomName) ? { roomName: rawArtifact.roomName } : {},
+    ...isNonEmptyString9(rawArtifact.room) ? { roomName: rawArtifact.room } : {},
+    ...isNonEmptyString9(rawArtifact.owner) ? { owner: rawArtifact.owner } : {},
     objects
   };
 }
@@ -11829,13 +12520,13 @@ function parseJson(text) {
   }
 }
 function normalizeSpawnStatus(rawStatus) {
-  if (!isRecord9(rawStatus)) {
+  if (!isRecord10(rawStatus)) {
     return {};
   }
   return {
-    ...isNonEmptyString8(rawStatus.name) ? { name: rawStatus.name } : {},
-    ...isNonEmptyString8(rawStatus.status) ? { status: rawStatus.status } : {},
-    ...isNonEmptyString8(rawStatus.creepName) ? { creepName: rawStatus.creepName } : {},
+    ...isNonEmptyString9(rawStatus.name) ? { name: rawStatus.name } : {},
+    ...isNonEmptyString9(rawStatus.status) ? { status: rawStatus.status } : {},
+    ...isNonEmptyString9(rawStatus.creepName) ? { creepName: rawStatus.creepName } : {},
     ...isFiniteNumber5(rawStatus.remainingTime) ? { remainingTime: rawStatus.remainingTime } : {}
   };
 }
@@ -11853,7 +12544,7 @@ function normalizeResourceSummary(rawResources) {
     ...isFiniteNumber5(rawResources.workerCarriedEnergy) ? { workerCarriedEnergy: rawResources.workerCarriedEnergy } : {},
     ...isFiniteNumber5(rawResources.droppedEnergy) ? { droppedEnergy: rawResources.droppedEnergy } : {},
     ...isFiniteNumber5(rawResources.sourceCount) ? { sourceCount: rawResources.sourceCount } : {},
-    ...isRecord9(rawResources.events) ? { events: normalizeResourceEvents(rawResources.events) } : {}
+    ...isRecord10(rawResources.events) ? { events: normalizeResourceEvents(rawResources.events) } : {}
   };
 }
 function normalizeResourceEvents(rawEvents) {
@@ -11866,7 +12557,7 @@ function normalizeCombatSummary(rawCombat) {
   return {
     ...isFiniteNumber5(rawCombat.hostileCreepCount) ? { hostileCreepCount: rawCombat.hostileCreepCount } : {},
     ...isFiniteNumber5(rawCombat.hostileStructureCount) ? { hostileStructureCount: rawCombat.hostileStructureCount } : {},
-    ...isRecord9(rawCombat.events) ? { events: normalizeCombatEvents(rawCombat.events) } : {}
+    ...isRecord10(rawCombat.events) ? { events: normalizeCombatEvents(rawCombat.events) } : {}
   };
 }
 function normalizeCombatEvents(rawEvents) {
@@ -11881,22 +12572,22 @@ function normalizeConstructionPrioritySummary(rawSummary) {
   var _a;
   return {
     ...Array.isArray(rawSummary.candidates) ? { candidates: rawSummary.candidates.flatMap(normalizeConstructionCandidate) } : {},
-    ...rawSummary.nextPrimary === null ? { nextPrimary: null } : isRecord9(rawSummary.nextPrimary) ? { nextPrimary: (_a = normalizeConstructionCandidate(rawSummary.nextPrimary)[0]) != null ? _a : null } : {}
+    ...rawSummary.nextPrimary === null ? { nextPrimary: null } : isRecord10(rawSummary.nextPrimary) ? { nextPrimary: (_a = normalizeConstructionCandidate(rawSummary.nextPrimary)[0]) != null ? _a : null } : {}
   };
 }
 function normalizeConstructionCandidate(rawCandidate) {
-  if (!isRecord9(rawCandidate) || !isNonEmptyString8(rawCandidate.buildItem)) {
+  if (!isRecord10(rawCandidate) || !isNonEmptyString9(rawCandidate.buildItem)) {
     return [];
   }
   return [
     {
       buildItem: rawCandidate.buildItem,
-      ...isNonEmptyString8(rawCandidate.room) ? { room: rawCandidate.room } : {},
+      ...isNonEmptyString9(rawCandidate.room) ? { room: rawCandidate.room } : {},
       ...isFiniteNumber5(rawCandidate.score) ? { score: rawCandidate.score } : {},
-      ...isNonEmptyString8(rawCandidate.urgency) ? { urgency: rawCandidate.urgency } : {},
-      ...Array.isArray(rawCandidate.preconditions) ? { preconditions: rawCandidate.preconditions.filter(isNonEmptyString8) } : {},
-      ...Array.isArray(rawCandidate.expectedKpiMovement) ? { expectedKpiMovement: rawCandidate.expectedKpiMovement.filter(isNonEmptyString8) } : {},
-      ...Array.isArray(rawCandidate.risk) ? { risk: rawCandidate.risk.filter(isNonEmptyString8) } : {}
+      ...isNonEmptyString9(rawCandidate.urgency) ? { urgency: rawCandidate.urgency } : {},
+      ...Array.isArray(rawCandidate.preconditions) ? { preconditions: rawCandidate.preconditions.filter(isNonEmptyString9) } : {},
+      ...Array.isArray(rawCandidate.expectedKpiMovement) ? { expectedKpiMovement: rawCandidate.expectedKpiMovement.filter(isNonEmptyString9) } : {},
+      ...Array.isArray(rawCandidate.risk) ? { risk: rawCandidate.risk.filter(isNonEmptyString9) } : {}
     }
   ];
 }
@@ -11904,24 +12595,24 @@ function normalizeTerritoryRecommendationSummary(rawSummary) {
   var _a;
   return {
     ...Array.isArray(rawSummary.candidates) ? { candidates: rawSummary.candidates.flatMap(normalizeTerritoryCandidate) } : {},
-    ...rawSummary.next === null ? { next: null } : isRecord9(rawSummary.next) ? { next: (_a = normalizeTerritoryCandidate(rawSummary.next)[0]) != null ? _a : null } : {},
+    ...rawSummary.next === null ? { next: null } : isRecord10(rawSummary.next) ? { next: (_a = normalizeTerritoryCandidate(rawSummary.next)[0]) != null ? _a : null } : {},
     ...rawSummary.followUpIntent !== void 0 ? { followUpIntent: rawSummary.followUpIntent } : {}
   };
 }
 function normalizeTerritoryCandidate(rawCandidate) {
-  if (!isRecord9(rawCandidate) || !isNonEmptyString8(rawCandidate.roomName)) {
+  if (!isRecord10(rawCandidate) || !isNonEmptyString9(rawCandidate.roomName)) {
     return [];
   }
   return [
     {
       roomName: rawCandidate.roomName,
-      ...isNonEmptyString8(rawCandidate.action) ? { action: rawCandidate.action } : {},
+      ...isNonEmptyString9(rawCandidate.action) ? { action: rawCandidate.action } : {},
       ...isFiniteNumber5(rawCandidate.score) ? { score: rawCandidate.score } : {},
-      ...isNonEmptyString8(rawCandidate.evidenceStatus) ? { evidenceStatus: rawCandidate.evidenceStatus } : {},
-      ...isNonEmptyString8(rawCandidate.source) ? { source: rawCandidate.source } : {},
-      ...Array.isArray(rawCandidate.evidence) ? { evidence: rawCandidate.evidence.filter(isNonEmptyString8) } : {},
-      ...Array.isArray(rawCandidate.preconditions) ? { preconditions: rawCandidate.preconditions.filter(isNonEmptyString8) } : {},
-      ...Array.isArray(rawCandidate.risks) ? { risks: rawCandidate.risks.filter(isNonEmptyString8) } : {},
+      ...isNonEmptyString9(rawCandidate.evidenceStatus) ? { evidenceStatus: rawCandidate.evidenceStatus } : {},
+      ...isNonEmptyString9(rawCandidate.source) ? { source: rawCandidate.source } : {},
+      ...Array.isArray(rawCandidate.evidence) ? { evidence: rawCandidate.evidence.filter(isNonEmptyString9) } : {},
+      ...Array.isArray(rawCandidate.preconditions) ? { preconditions: rawCandidate.preconditions.filter(isNonEmptyString9) } : {},
+      ...Array.isArray(rawCandidate.risks) ? { risks: rawCandidate.risks.filter(isNonEmptyString9) } : {},
       ...isFiniteNumber5(rawCandidate.routeDistance) ? { routeDistance: rawCandidate.routeDistance } : {},
       ...isFiniteNumber5(rawCandidate.roadDistance) ? { roadDistance: rawCandidate.roadDistance } : {},
       ...isFiniteNumber5(rawCandidate.sourceCount) ? { sourceCount: rawCandidate.sourceCount } : {},
@@ -12065,11 +12756,11 @@ function getSnapshotObjectEnergy(object) {
 function getSnapshotObjectOwner(object) {
   var _a;
   const objectUser = object == null ? void 0 : object.user;
-  if (isNonEmptyString8(objectUser)) {
+  if (isNonEmptyString9(objectUser)) {
     return objectUser;
   }
   const ownerUsername = (_a = object == null ? void 0 : object.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString8(ownerUsername) ? ownerUsername : void 0;
+  return isNonEmptyString9(ownerUsername) ? ownerUsername : void 0;
 }
 function isOwnedSnapshotObject(object, owner) {
   var _a;
@@ -12081,13 +12772,13 @@ function isOwnedSnapshotObject(object, owner) {
   }
   return object.user === owner || ((_a = object.owner) == null ? void 0 : _a.username) === owner;
 }
-function isRecord9(value) {
+function isRecord10(value) {
   return typeof value === "object" && value !== null;
 }
 function isFiniteNumber5(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
-function isNonEmptyString8(value) {
+function isNonEmptyString9(value) {
   return typeof value === "string" && value.length > 0;
 }
 
