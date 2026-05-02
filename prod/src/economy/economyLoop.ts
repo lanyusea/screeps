@@ -4,8 +4,7 @@ import {
   clearColonySurvivalAssessmentCache,
   recordColonySurvivalAssessment
 } from '../colony/survivalMode';
-import { planExtensionConstruction } from '../construction/extensionPlanner';
-import { planEarlyRoadConstruction } from '../construction/roadPlanner';
+import { planPriorityConstructionSites } from '../construction/constructionPriority';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
@@ -48,9 +47,8 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   for (const colony of colonies) {
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
     const bootstrapResult = refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
-    const extensionResult = bootstrapResult.spawnConstructionPending ? null : planExtensionConstruction(colony);
-    if (extensionResult === null && !bootstrapResult.spawnConstructionPending) {
-      planEarlyRoadConstruction(colony);
+    if (!bootstrapResult.spawnConstructionPending) {
+      planPriorityConstructionSites(colony);
     }
 
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
