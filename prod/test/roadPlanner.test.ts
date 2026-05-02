@@ -64,6 +64,33 @@ describe('early road planner', () => {
     expect(pathFinderSearch.mock.calls.map(([, goal]) => getGoalPositionKey(goal))).toEqual(['20,10', '20,11', '10,20']);
   });
 
+  it('prioritizes close source-to-controller road lanes for controller throughput', () => {
+    const { room, colony, pathFinderSearch } = makeColony({
+      sources: [
+        makeSource('source-a', { x: 20, y: 10 }),
+        makeSource('source-b', { x: 24, y: 23 })
+      ],
+      controllerPosition: { x: 25, y: 25 },
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }],
+        '24,23': [{ x: 11, y: 11 }],
+        '25,25': [{ x: 10, y: 11 }],
+        '24,23->25,25': [{ x: 24, y: 24 }]
+      }
+    });
+
+    expect(planEarlyRoadConstruction(colony)).toEqual([OK_CODE]);
+
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_ROAD);
+    expect(pathFinderSearch.mock.calls.map(([origin, goal]) => getRouteKey(origin, goal))).toEqual([
+      '10,10->20,10',
+      '10,10->24,23',
+      '10,10->25,25',
+      '24,23->25,25'
+    ]);
+  });
+
   it('skips walls, occupied structures, existing roads, and construction sites', () => {
     const { room, colony } = makeColony({
       sources: [makeSource('source-a', { x: 20, y: 10 })],
@@ -213,8 +240,12 @@ function makeColony(options: MakeColonyOptions): { room: MockRoom; colony: Colon
     room,
     pos: makeRoomPosition({ x: 10, y: 10 }, roomName)
   } as unknown as StructureSpawn;
-  const pathFinderSearch = jest.fn((_origin: RoomPosition, goal: { pos: RoomPosition }) => ({
-    path: (options.pathsByTarget[getPositionKey(goal.pos)] ?? []).map((position) => makeRoomPosition(position, roomName)),
+  const pathFinderSearch = jest.fn((origin: RoomPosition, goal: { pos: RoomPosition }) => ({
+    path: (
+      options.pathsByTarget[getRouteKey(origin, goal)] ??
+      options.pathsByTarget[getPositionKey(goal.pos)] ??
+      []
+    ).map((position) => makeRoomPosition(position, roomName)),
     ops: 1,
     cost: 1,
     incomplete: false
@@ -278,4 +309,8 @@ function getPositionKey(position: TestPosition): string {
 function getGoalPositionKey(goal: unknown): string {
   const pathGoal = goal as { pos: TestPosition };
   return getPositionKey(pathGoal.pos);
+}
+
+function getRouteKey(origin: unknown, goal: unknown): string {
+  return `${getPositionKey(origin as TestPosition)}->${getGoalPositionKey(goal)}`;
 }

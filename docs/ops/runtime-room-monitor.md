@@ -44,7 +44,7 @@ Optional:
 ```bash
 SCREEPS_API_URL=https://screeps.com
 SCREEPS_SHARD=shardX
-SCREEPS_ROOM=E48S28
+SCREEPS_ROOM=E26S49
 SCREEPS_OWNER=lanyusea
 SCREEPS_MONITOR_STATE_FILE=/root/.hermes/screeps-runtime-monitor/state.json
 SCREEPS_ALERT_DEBOUNCE_SECONDS=300
@@ -72,7 +72,7 @@ Behavior:
 For targeted smoke tests:
 
 ```bash
-python3 scripts/screeps-runtime-monitor.py summary --room shardX/E48S28
+python3 scripts/screeps-runtime-monitor.py summary --room shardX/E26S49
 ```
 
 ## Alert mode
@@ -108,7 +108,7 @@ Testing alert rendering without creating a real alert:
 
 ```bash
 SCREEPS_MONITOR_STATE_FILE=/tmp/screeps-monitor-alert-smoke-state.json \
-python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28 --force-alert-image
+python3 scripts/screeps-runtime-monitor.py alert --room shardX/E26S49 --force-alert-image
 ```
 
 `--force-alert-image` renders a red-emphasis image but keeps `alert: false` unless a real alert exists.
@@ -127,7 +127,7 @@ It also accepts redacted private-smoke report JSON from `scripts/screeps-private
 Pipe usage:
 
 ```bash
-python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28 \
+python3 scripts/screeps-runtime-monitor.py alert --room shardX/E26S49 \
   | python3 scripts/screeps-runtime-monitor.py tactical-response
 ```
 
@@ -141,7 +141,7 @@ python3 scripts/screeps-runtime-monitor.py tactical-response --input private-smo
 No-alert dry run:
 
 ```bash
-printf '%s\n' '{"ok":true,"mode":"alert","alert":false,"reasons":[],"rooms":["shardX/E48S28"],"warnings":[]}' \
+printf '%s\n' '{"ok":true,"mode":"alert","alert":false,"reasons":[],"rooms":["shardX/E26S49"],"warnings":[]}' \
   | python3 scripts/screeps-runtime-monitor.py tactical-response
 ```
 
@@ -163,7 +163,7 @@ Expected no-alert fields:
 High-priority dry run:
 
 ```bash
-printf '%s\n' '{"ok":true,"mode":"alert","alert":true,"reasons":[{"kind":"hostile_creep","room":"shardX/E48S28","object_id":"hostile-1","owner":"Invader","x":20,"y":21,"message":"hostile creep visible: Invader at 20,21"}],"rooms":["shardX/E48S28"]}' \
+printf '%s\n' '{"ok":true,"mode":"alert","alert":true,"reasons":[{"kind":"hostile_creep","room":"shardX/E26S49","object_id":"hostile-1","owner":"Invader","x":20,"y":21,"message":"hostile creep visible: Invader at 20,21"}],"rooms":["shardX/E26S49"]}' \
   | python3 scripts/screeps-runtime-monitor.py tactical-response
 ```
 
@@ -285,9 +285,9 @@ Live smoke:
 
 ```bash
 # Load SCREEPS_AUTH_TOKEN into the environment without printing it.
-python3 scripts/screeps-runtime-monitor.py summary --room shardX/E48S28 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-smoke
+python3 scripts/screeps-runtime-monitor.py summary --room shardX/E26S49 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-smoke
 SCREEPS_MONITOR_STATE_FILE=/tmp/screeps-monitor-alert-smoke-state.json \
-  python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-smoke
+  python3 scripts/screeps-runtime-monitor.py alert --room shardX/E26S49 --out-dir /root/screeps/runtime-artifacts/screeps-monitor-smoke
 ```
 
 ## Scheduled delivery design

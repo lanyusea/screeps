@@ -1,8 +1,10 @@
 # Screeps Gameplay Evolution Roadmap
 
 > This is the专项 plan for turning the project vision into a recurring game-result → postmortem analysis → roadmap/task-update loop.
+>
+> RL strategy evolution is governed by [`rl-domain-roadmap.md`](./rl-domain-roadmap.md). Treat the RL flywheel as a standing P1 domain, not an ad-hoc research thread.
 
-Date: 2026-04-27
+Date: 2026-04-29
 
 ## Problem statement
 
@@ -27,8 +29,10 @@ Without this loop, the bot can keep improving peripheral systems while not measu
 5. **Main Hermes agent remains the authority.** Gameplay-review agents provide evidence and recommendations; the main agent accepts/rejects and updates GitHub.
 6. **GitHub is the source of truth.** Any accepted work item must become or update a GitHub Issue, Milestone, and Project `screeps` item.
 7. **Codex owns production code.** Any `prod/` code change must be delegated to Codex and verified with typecheck/test/build.
-8. **Scheduled reviews and tactical emergencies are separate paths.** The 12-hour loop must not delay an urgent response to attacks or collapse.
+8. **Scheduled reviews and tactical emergencies are separate paths.** The 8-hour loop must not delay an urgent response to attacks or collapse.
 9. **Release is a gameplay decision, not just a build artifact.** A release candidate must have expected KPI movement and observation requirements.
+10. **The strategy model itself must evolve.** The review loop must judge whether the current scoring model, decision rules, and task-generation contract remain valid. If not, it should propose model changes, research tasks, or controlled experiments.
+11. **RL is the long-term self-evolution path, not an immediate production shortcut.** Reinforcement-learning-driven strategy iteration requires autoresearch, a formal paper, offline/private-server evaluation, and explicit safety gates before influencing official MMO behavior.
 
 ## Reporting weight contract
 
@@ -52,9 +56,9 @@ Responsibilities:
 - Fan out concise summaries to Discord typed channels.
 - Run or request QA/acceptance before accepting completion.
 
-### Gameplay Evolution Agent — 12-hour strategic reviewer
+### Gameplay Evolution Agent — 8-hour strategic reviewer
 
-Cadence: every 12 hours, plus manual invocation after major releases or major incidents.
+Cadence: every 8 hours, plus manual invocation after major releases or major incidents.
 
 Inputs:
 
@@ -190,6 +194,46 @@ Returns only `PASS` or `REQUEST_CHANGES` with evidence. It verifies:
 - Discord/reporting requirements are met;
 - release/incident gates are not skipped.
 
+## Strategy model self-evolution
+
+The 8-hour review must evaluate three levels of strategy state:
+
+1. **Parameter tuning** — numeric thresholds, weights, and urgency cutoffs inside an accepted model.
+2. **Model revision** — adding/removing features or changing the scoring formula when evidence shows the current model misses important Screeps outcomes.
+3. **Research-driven evolution** — opening formal research/paper tasks when the required model change is not obvious or may require reinforcement learning, offline evaluation, or private-server experimentation.
+
+A strategy-model change may be accepted only when it states:
+
+- the gameplay failure or opportunity it addresses;
+- the affected vision layer: territory, resources, kills, or reliability prerequisite;
+- the current model behavior and why it is insufficient;
+- the proposed model change or research question;
+- expected KPI movement and safety/rollback conditions;
+- whether it is a heuristic update, experiment, autoresearch task, or RL-roadmap item.
+
+### Expansion recommendation model
+
+Each review must score visible/current candidate rooms and name the next room to occupy, reserve, or scout when evidence is sufficient. A 0-100 score should include controller state, distance and route safety, source/mineral/economic value, owner/reservation/hostile risk, logistics and construction cost, current-room ability to support expansion, and contribution to territory before resources before kills. If evidence is insufficient, the review must name the next observation/scout task instead of guessing.
+
+### Construction priority model
+
+Construction scoring is intentionally broader than a fixed checklist. The review should combine good Screeps practice with current evidence and optimize for winning game outcomes. A 0-100 construction priority score should consider:
+
+- survival and recovery urgency: spawn availability, worker recovery, controller downgrade, tower/rampart/repair threats;
+- energy throughput: extensions, containers, links, roads, dropped-resource salvage, spawn refill latency, harvest/haul bottlenecks;
+- expansion enablement: roads to exits/remotes, remote containers, reserver/claimer logistics, forward defense, room-claim prerequisites;
+- RCL progression and unlock timing: when a build accelerates extensions, towers, storage, terminal, labs, observer, power spawn, or nuker readiness;
+- defense and loss avoidance: towers, ramparts, walls, safe-mode readiness, repair triage, hostile path exposure;
+- CPU/pathing efficiency: whether a build reduces repeated movement, search, repair churn, or creep body inefficiency;
+- opportunity cost: energy locked in construction vs upgrading/spawning/repairing, build time, worker travel, and risk of abandoned construction sites;
+- strategic layer served: territory first, resources second, kills third, with reliability as a prerequisite guardrail.
+
+The output must name the next primary construction item when evidence supports one. If not, it must name the missing instrumentation or scout/monitor task.
+
+### RL self-evolution research track
+
+Issue #232 tracks the formal autoresearch paper required before RL implementation. The first paper must define Screeps state/action/reward choices, offline/private-server evaluation, safety gates, and a staged roadmap from heuristic scoring to shadow evaluation to reinforcement-learning-assisted strategy iteration. RL reward functions must remain subordinate to the project vision: territory > resources > enemy kills.
+
 ## KPI and evidence schema
 
 ### North-star outcome KPIs
@@ -197,7 +241,7 @@ Returns only `PASS` or `REQUEST_CHANGES` with evidence. It verifies:
 | Vision layer | KPI | First implementation target |
 | --- | --- | --- |
 | Territory | owned rooms, reserved/remote rooms, room gain/loss, RCL progress | external monitor + in-game telemetry summary fields |
-| Resources | total stored energy/resources, harvest/collection deltas, GCL/RCL deltas, spawn utilization | in-game counters plus 12h window reducer |
+| Resources | total stored energy/resources, harvest/collection deltas, GCL/RCL deltas, spawn utilization | in-game counters plus 8h window reducer |
 | Enemy kills | hostile creeps/structures destroyed, own losses, net combat value | `Room.getEventLog()` where visible plus monitor hostiles/damage observations |
 
 ### Guardrails
@@ -223,7 +267,7 @@ A gameplay finding may become a development task only if it states:
 
 ### Track 1 — Vision KPI telemetry and reducer
 
-Goal: make the bot and monitor emit enough cumulative data for a 12-hour review.
+Goal: make the bot and monitor emit enough cumulative data for an 8-hour review.
 
 Initial tasks:
 
@@ -237,7 +281,7 @@ Acceptance:
 - Review report can list territory/resource/combat/reliability deltas without manual guessing.
 - Missing fields are explicitly marked `not instrumented`, not silently omitted.
 
-### Track 2 — 12-hour gameplay review worker
+### Track 2 — 8-hour gameplay review worker
 
 Goal: schedule a recurring analysis loop that recommends roadmap changes.
 
@@ -246,7 +290,7 @@ Initial tasks:
 1. Create a self-contained cron prompt for `Screeps Gameplay Evolution Review`.
 2. Run one manual dry run against current evidence.
 3. Main agent accepts/rejects the dry-run output.
-4. Enable every-12-hour cadence after dry-run success.
+4. Enable every-8-hour cadence after dry-run success.
 
 Acceptance:
 
@@ -274,7 +318,7 @@ Acceptance:
 
 ### Track 4 — Tactical emergency response
 
-Goal: avoid waiting 12 hours when an attack or collapse requires immediate action.
+Goal: avoid waiting 8 hours when an attack or collapse requires immediate action.
 
 Initial tasks:
 
@@ -294,9 +338,9 @@ Goal: ensure release decisions are based on gameplay risk and expected outcomes.
 
 Normal releases:
 
-- Prefer at most one meaningful gameplay release per 12-hour review cycle.
+- Prefer at most one meaningful gameplay release per 8-hour review cycle.
 - Require accepted roadmap issue, Codex implementation, typecheck/test/build, PR gate, QA `PASS`, and risk-appropriate runtime/private validation.
-- Require the next 12-hour review to evaluate expected KPI movement.
+- Require the next 8-hour review to evaluate expected KPI movement.
 
 Emergency hotfixes:
 
@@ -316,7 +360,7 @@ This专项 is tracked by GitHub issues instead of local-only TODOs:
    - Domain: Docs/process
    - Kind: ops
    - Status: In progress
-2. **#60 — P1: Phase C: 12h gameplay evolution review loop is not automated**
+2. **#60 — P1: Phase C: 8h gameplay evolution review loop is not automated**
    - Domain: Agent OS
    - Kind: ops
 3. **#61 — P1: Phase B: gameplay findings do not yet bridge into Codex task pipeline**
@@ -336,17 +380,20 @@ Existing issue **#29** remains the immediate KPI telemetry bridge; it is cross-l
 1. Land this docs/ops/research plan and GitHub issue setup.
 2. Update or create GitHub issues and Project fields.
 3. Run a manual gameplay-review dry run using current evidence.
-4. Enable a 12-hour review job only after dry-run output is useful.
+4. Enable an 8-hour review job only after dry-run output is useful.
 5. Dispatch Codex for KPI telemetry implementation under `prod/`.
-6. Add reducer/reporting automation.
-7. Wire tactical emergency response from runtime-alert outputs.
-8. Update release gate docs and enforce via Project status / release checklist.
+6. Complete #232 autoresearch and formal paper before any RL implementation task.
+7. Add reducer/reporting automation.
+8. Wire tactical emergency response from runtime-alert outputs.
+9. Update release gate docs and enforce via Project status / release checklist.
 
 ## Definition of done for the专项
 
 - [ ] KPI framework exists and is source-backed.
+- [ ] Strategy-model self-evolution requirements are in the 8-hour review contract.
+- [ ] RL-driven self-evolution has a formal autoresearch paper before implementation.
 - [ ] Runtime telemetry/monitor can provide territory/resource/combat/reliability deltas.
-- [ ] 12-hour gameplay review job runs and produces an accepted report.
+- [ ] 8-hour gameplay review job runs and produces an accepted report.
 - [ ] Accepted findings update GitHub Issues/Milestones/Project before implementation.
 - [ ] Codex receives concrete production-code tasks with acceptance criteria.
 - [ ] Tactical emergency path handles attacks/collapse without waiting for cadence.

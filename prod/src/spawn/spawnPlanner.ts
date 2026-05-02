@@ -1,17 +1,60 @@
 import { ColonySnapshot } from '../colony/colonyRegistry';
+import {
+  assessColonySnapshotSurvival,
+  getWorkerTarget,
+  type ColonySurvivalAssessment
+} from '../colony/survivalMode';
 import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import {
+  buildRemoteHarvesterBody,
+  REMOTE_HARVESTER_ROLE,
+  selectRemoteHarvesterAssignment
+} from '../creeps/remoteHarvester';
+import {
+  buildRemoteHaulerBody,
+  HAULER_ROLE,
+  selectRemoteHaulerAssignment
+} from '../creeps/hauler';
+import { DEFENDER_ROLE } from '../defense/defenseLoop';
+import {
+  buildEmergencyDefenderBody,
   buildEmergencyWorkerBody,
   buildTerritoryControllerBody,
+  buildTerritoryControllerPressureBody,
   buildWorkerBody,
   getBodyCost
 } from './bodyBuilder';
 import {
   buildTerritoryCreepMemory,
+  getTerritoryFollowUpPreparationWorkerDemand,
   planTerritoryIntent,
+  recordRecoveredTerritoryFollowUpRetryCooldown,
+  requiresTerritoryControllerPressure,
   shouldSpawnTerritoryControllerCreep,
-  TERRITORY_DOWNGRADE_GUARD_TICKS
+  TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND,
+  type TerritoryIntentPlan
 } from '../territory/territoryPlanner';
+
+type SpawnPriorityTier =
+  | 'emergencyBootstrap'
+  | 'defense'
+  | 'localRefillSurvival'
+  | 'controllerDowngradeGuard'
+  | 'postClaimControllerSustain'
+  | 'remoteEconomy'
+  | 'territoryRemote'
+  | 'controllerUpgradeSurplus';
+
+interface SpawnPlanningContext {
+  colony: ColonySnapshot;
+  gameTime: number;
+  options: SpawnPlanningOptions;
+  roleCounts: RoleCounts;
+  survival: ColonySurvivalAssessment;
+  territoryIntentPending: boolean;
+  workerCapacity: number;
+  workerTarget: number;
+}
 
 export interface SpawnRequest {
   spawn: StructureSpawn;
@@ -20,23 +63,675 @@ export interface SpawnRequest {
   memory: CreepMemory;
 }
 
-const MIN_WORKER_TARGET = 3;
-const WORKERS_PER_SOURCE = 2;
-const CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
+export interface SpawnPlanningOptions {
+  nameSuffix?: string;
+  workersOnly?: boolean;
+  allowTerritoryControllerPressure?: boolean;
+  allowTerritoryFollowUp?: boolean;
+}
+
 const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 const TERRITORY_SCOUT_BODY_COST = 50;
-// Keep source-aware scaling bounded so unusual source data cannot create runaway early-room spawn pressure.
-const MAX_WORKER_TARGET = 6;
-const sourceCountByRoomName = new Map<string, number>();
+const CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
+const CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
+const CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
+const MAX_CONTROLLER_LEVEL = 8;
+const POST_CLAIM_SUSTAIN_UPGRADER_TARGET = 1;
+const POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
+const POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
+const POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS = 100;
+const POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY = 200;
+const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
+  'emergencyBootstrap',
+  // Keep defense above local refill so hostiles cannot starve the first defender.
+  'defense',
+  'localRefillSurvival',
+  'controllerDowngradeGuard',
+  'postClaimControllerSustain',
+  'remoteEconomy',
+  'territoryRemote',
+  'controllerUpgradeSurplus'
+];
 
-export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
+export function planSpawn(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  gameTime: number,
+  options: SpawnPlanningOptions = {}
+): SpawnRequest | null {
   const workerTarget = getWorkerTarget(colony, roleCounts);
-  if (getWorkerCapacity(roleCounts) < workerTarget) {
-    return planWorkerSpawn(colony, roleCounts, gameTime);
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  const context: SpawnPlanningContext = {
+    colony,
+    gameTime,
+    options,
+    roleCounts,
+    survival: assessColonySnapshotSurvival(colony, roleCounts),
+    territoryIntentPending: false,
+    workerCapacity,
+    workerTarget
+  };
+
+  for (const tier of SPAWN_PRIORITY_TIERS) {
+    const request = planSpawnForPriorityTier(tier, context);
+    if (request) {
+      return request;
+    }
   }
 
-  const territoryIntent = planTerritoryIntent(colony, roleCounts, workerTarget, gameTime);
+  return null;
+}
+
+function planSpawnForPriorityTier(
+  tier: SpawnPriorityTier,
+  context: SpawnPlanningContext
+): SpawnRequest | null {
+  switch (tier) {
+    case 'emergencyBootstrap':
+      return planEmergencyBootstrapSpawn(context);
+    case 'localRefillSurvival':
+      return planLocalSurvivalSpawn(context);
+    case 'controllerDowngradeGuard':
+      return planControllerDowngradeGuardSpawn(context);
+    case 'postClaimControllerSustain':
+      return planPostClaimControllerSustainSpawn(context);
+    case 'remoteEconomy':
+      return planRemoteEconomySpawn(context);
+    case 'defense':
+      return planDefenseSpawn(context);
+    case 'territoryRemote':
+      return planTerritoryRemoteSpawn(context);
+    case 'controllerUpgradeSurplus':
+      return planControllerUpgradeSurplusSpawn(context);
+  }
+}
+
+function planEmergencyBootstrapSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.survival.mode !== 'BOOTSTRAP' ||
+    context.workerCapacity >= context.survival.survivalWorkerFloor
+  ) {
+    return null;
+  }
+
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (context.workerCapacity >= context.workerTarget) {
+    return null;
+  }
+
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function planControllerDowngradeGuardSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    !context.survival.controllerDowngradeGuard ||
+    context.workerCapacity > context.workerTarget ||
+    !hasControllerDowngradeGuardSpawnCapacity(context)
+  ) {
+    return null;
+  }
+
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function hasControllerDowngradeGuardSpawnCapacity(context: SpawnPlanningContext): boolean {
+  if (!context.survival.hostilePresence) {
+    return true;
+  }
+
+  return context.colony.spawns.filter((spawn) => !spawn.spawning).length > 1;
+}
+
+interface PostClaimControllerSustainPlan {
+  targetRoom: string;
+  role: CreepControllerSustainRole;
+  controllerId?: Id<StructureController>;
+}
+
+interface PostClaimControllerSustainCounts {
+  haulers: number;
+  upgraders: number;
+  workers: number;
+}
+
+function planPostClaimControllerSustainSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (context.survival.mode !== 'TERRITORY_READY' || !hasPostClaimSustainSpawnEnergy(context.colony)) {
+    return null;
+  }
+
+  const sustainPlan = selectPostClaimControllerSustainPlan(context.colony);
+  if (!sustainPlan) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const body = selectWorkerBody(context.colony, context.roleCounts);
+  if (body.length === 0) {
+    return null;
+  }
+
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(
+      `worker-${context.colony.room.name}-${sustainPlan.targetRoom}-${sustainPlan.role}-${context.gameTime}`,
+      context.options
+    ),
+    memory: {
+      role: 'worker',
+      colony: sustainPlan.targetRoom,
+      territory: {
+        targetRoom: sustainPlan.targetRoom,
+        action: 'claim',
+        ...(sustainPlan.controllerId ? { controllerId: sustainPlan.controllerId } : {})
+      },
+      controllerSustain: {
+        homeRoom: context.colony.room.name,
+        targetRoom: sustainPlan.targetRoom,
+        role: sustainPlan.role
+      }
+    }
+  };
+}
+
+function hasPostClaimSustainSpawnEnergy(colony: ColonySnapshot): boolean {
+  return (
+    colony.energyAvailable >= POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY &&
+    colony.energyAvailable >= colony.energyCapacityAvailable
+  );
+}
+
+function selectPostClaimControllerSustainPlan(
+  colony: ColonySnapshot
+): PostClaimControllerSustainPlan | null {
+  const records = getPostClaimControllerSustainRecords(colony.room.name);
+  for (const record of records) {
+    const targetRoom = getVisibleRoom(record.roomName);
+    if (targetRoom?.controller?.my !== true) {
+      continue;
+    }
+
+    const hasOperationalSpawn = hasOperationalSpawnInRoom(record.roomName);
+    const counts = countPostClaimControllerSustainCreeps(record.roomName);
+    const workerTarget = getPostClaimControllerSustainWorkerTarget(record);
+    const controllerId = getPostClaimControllerSustainControllerId(record, targetRoom);
+
+    if (!hasOperationalSpawn) {
+      if (counts.upgraders < POST_CLAIM_SUSTAIN_UPGRADER_TARGET) {
+        return { targetRoom: record.roomName, role: 'upgrader', ...(controllerId ? { controllerId } : {}) };
+      }
+
+      if (shouldSpawnPostClaimEnergyHauler(targetRoom, counts, workerTarget)) {
+        return { targetRoom: record.roomName, role: 'hauler', ...(controllerId ? { controllerId } : {}) };
+      }
+
+      if (counts.workers < workerTarget) {
+        return { targetRoom: record.roomName, role: 'upgrader', ...(controllerId ? { controllerId } : {}) };
+      }
+    } else if (
+      shouldSpawnPostClaimEnergyHauler(targetRoom, counts, workerTarget) &&
+      isClaimedRoomEnergyInsufficient(targetRoom)
+    ) {
+      return { targetRoom: record.roomName, role: 'hauler', ...(controllerId ? { controllerId } : {}) };
+    }
+  }
+
+  return null;
+}
+
+function getPostClaimControllerSustainRecords(colonyName: string): TerritoryPostClaimBootstrapMemory[] {
+  const records = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
+  if (!isRecord(records)) {
+    return [];
+  }
+
+  return Object.values(records)
+    .filter((record): record is TerritoryPostClaimBootstrapMemory =>
+      isPostClaimControllerSustainRecord(record, colonyName)
+    )
+    .sort(comparePostClaimControllerSustainRecords);
+}
+
+function isPostClaimControllerSustainRecord(
+  record: unknown,
+  colonyName: string
+): record is TerritoryPostClaimBootstrapMemory {
+  return (
+    isRecord(record) &&
+    record.colony === colonyName &&
+    record.roomName !== colonyName &&
+    isNonEmptyString(record.roomName) &&
+    (record.status === 'detected' ||
+      record.status === 'spawnSitePending' ||
+      record.status === 'spawnSiteBlocked' ||
+      record.status === 'spawningWorkers' ||
+      record.status === 'ready')
+  );
+}
+
+function comparePostClaimControllerSustainRecords(
+  left: TerritoryPostClaimBootstrapMemory,
+  right: TerritoryPostClaimBootstrapMemory
+): number {
+  const leftHasSpawn = hasOperationalSpawnInRoom(left.roomName);
+  const rightHasSpawn = hasOperationalSpawnInRoom(right.roomName);
+  if (leftHasSpawn !== rightHasSpawn) {
+    return leftHasSpawn ? 1 : -1;
+  }
+
+  return (
+    getVisibleControllerLevel(left.roomName) - getVisibleControllerLevel(right.roomName) ||
+    left.claimedAt - right.claimedAt ||
+    left.roomName.localeCompare(right.roomName)
+  );
+}
+
+function getVisibleControllerLevel(roomName: string): number {
+  const level = getVisibleRoom(roomName)?.controller?.level;
+  return typeof level === 'number' ? level : MAX_CONTROLLER_LEVEL + 1;
+}
+
+function hasOperationalSpawnInRoom(roomName: string): boolean {
+  const spawns = (globalThis as unknown as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns;
+  if (!spawns) {
+    return false;
+  }
+
+  return Object.values(spawns).some((spawn) => spawn.room?.name === roomName);
+}
+
+function countPostClaimControllerSustainCreeps(targetRoom: string): PostClaimControllerSustainCounts {
+  const creeps = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  const counts: PostClaimControllerSustainCounts = { haulers: 0, upgraders: 0, workers: 0 };
+  if (!creeps) {
+    return counts;
+  }
+
+  for (const creep of Object.values(creeps)) {
+    if (!canCountPostClaimSustainCreep(creep, targetRoom)) {
+      continue;
+    }
+
+    counts.workers += 1;
+    if (creep.memory.controllerSustain?.role === 'upgrader') {
+      counts.upgraders += 1;
+    } else if (creep.memory.controllerSustain?.role === 'hauler') {
+      counts.haulers += 1;
+    }
+  }
+
+  return counts;
+}
+
+function canCountPostClaimSustainCreep(creep: Creep, targetRoom: string): boolean {
+  if (creep.memory?.role !== 'worker' || creep.memory.colony !== targetRoom) {
+    return false;
+  }
+
+  return (
+    creep.ticksToLive === undefined ||
+    creep.ticksToLive > POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS
+  );
+}
+
+function getPostClaimControllerSustainWorkerTarget(record: TerritoryPostClaimBootstrapMemory): number {
+  return typeof record.workerTarget === 'number' && record.workerTarget > 0
+    ? record.workerTarget
+    : POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET;
+}
+
+function getPostClaimControllerSustainControllerId(
+  record: TerritoryPostClaimBootstrapMemory,
+  room: Room | undefined
+): Id<StructureController> | undefined {
+  const controllerId = record.controllerId ?? room?.controller?.id;
+  return typeof controllerId === 'string' && controllerId.length > 0
+    ? (controllerId as Id<StructureController>)
+    : undefined;
+}
+
+function shouldSpawnPostClaimEnergyHauler(
+  room: Room | undefined,
+  counts: PostClaimControllerSustainCounts,
+  workerTarget: number
+): boolean {
+  return (
+    counts.haulers < POST_CLAIM_SUSTAIN_HAULER_TARGET &&
+    counts.workers < workerTarget &&
+    (room === undefined || isClaimedRoomEnergyInsufficient(room))
+  );
+}
+
+function isClaimedRoomEnergyInsufficient(room: Room | undefined): boolean {
+  if (!room) {
+    return true;
+  }
+
+  const energyAvailable = room.energyAvailable;
+  return typeof energyAvailable !== 'number' || energyAvailable < POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY;
+}
+
+function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (!context.survival.hostilePresence || (context.roleCounts.defender ?? 0) > 0) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const body = buildEmergencyDefenderBody(context.colony.energyAvailable);
+  if (body.length === 0) {
+    return null;
+  }
+
+  const roomName = context.colony.room.name;
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(`${DEFENDER_ROLE}-${roomName}-${context.gameTime}`, context.options),
+    memory: {
+      role: DEFENDER_ROLE,
+      colony: roomName,
+      defense: { homeRoom: roomName }
+    }
+  };
+}
+
+function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.options.workersOnly ||
+    context.survival.mode !== 'TERRITORY_READY' ||
+    context.workerCapacity < context.workerTarget ||
+    context.colony.energyAvailable < context.colony.energyCapacityAvailable
+  ) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const remoteHarvesterAssignment = selectRemoteHarvesterAssignment(context.colony.room.name);
+  if (remoteHarvesterAssignment) {
+    const body = buildRemoteHarvesterBody(context.colony.energyAvailable);
+    if (body.length > 0) {
+      return {
+        spawn,
+        body,
+        name: appendSpawnNameSuffix(
+          `${REMOTE_HARVESTER_ROLE}-${context.colony.room.name}-${remoteHarvesterAssignment.targetRoom}-${remoteHarvesterAssignment.sourceId}-${context.gameTime}`,
+          context.options
+        ),
+        memory: {
+          role: REMOTE_HARVESTER_ROLE,
+          colony: context.colony.room.name,
+          remoteHarvester: {
+            homeRoom: remoteHarvesterAssignment.homeRoom,
+            targetRoom: remoteHarvesterAssignment.targetRoom,
+            sourceId: remoteHarvesterAssignment.sourceId,
+            containerId: remoteHarvesterAssignment.containerId
+          }
+        }
+      };
+    }
+  }
+
+  const remoteHaulerAssignment = selectRemoteHaulerAssignment(context.colony.room.name);
+  if (!remoteHaulerAssignment) {
+    return null;
+  }
+
+  const body = buildRemoteHaulerBody(context.colony.energyAvailable);
+  if (body.length === 0) {
+    return null;
+  }
+
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(
+      `${HAULER_ROLE}-${context.colony.room.name}-${remoteHaulerAssignment.targetRoom}-${remoteHaulerAssignment.containerId}-${context.gameTime}`,
+      context.options
+    ),
+    memory: {
+      role: HAULER_ROLE,
+      colony: context.colony.room.name,
+      remoteHauler: {
+        homeRoom: remoteHaulerAssignment.homeRoom,
+        targetRoom: remoteHaulerAssignment.targetRoom,
+        sourceId: remoteHaulerAssignment.sourceId,
+        containerId: remoteHaulerAssignment.containerId
+      }
+    }
+  };
+}
+
+function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.survival.mode !== 'TERRITORY_READY' ||
+    (context.options.workersOnly &&
+      context.options.allowTerritoryControllerPressure !== true &&
+      context.options.allowTerritoryFollowUp !== true)
+  ) {
+    return null;
+  }
+
+  const controllerPressureOnly =
+    context.options.workersOnly === true && context.options.allowTerritoryControllerPressure === true;
+  const followUpOnlyFallback =
+    context.options.workersOnly === true && context.options.allowTerritoryFollowUp === true;
+  const territoryIntent = planTerritoryIntent(
+    context.colony,
+    context.roleCounts,
+    context.workerTarget,
+    context.gameTime,
+    { controllerPressureOnly, followUpOnly: followUpOnlyFallback }
+  );
+  if (!territoryIntent) {
+    return null;
+  }
+  context.territoryIntentPending = true;
+
+  const demandedWorkerTarget = getWorkerTargetWithTerritoryDemand(
+    context.workerTarget,
+    territoryIntent,
+    context.gameTime
+  );
+  if (context.workerCapacity < demandedWorkerTarget) {
+    const workerSpawn = planWorkerSpawn(
+      context.colony,
+      context.roleCounts,
+      context.gameTime,
+      context.options
+    );
+    if (workerSpawn) {
+      return workerSpawn;
+    }
+
+    recordRecoveredFollowUpCooldownIfControllerCreepNeeded(
+      territoryIntent,
+      context.roleCounts,
+      context.gameTime
+    );
+    return null;
+  }
+
+  const territorySpawn = planTerritorySpawn(
+    context.colony,
+    context.roleCounts,
+    territoryIntent,
+    context.gameTime,
+    context.options
+  );
+  if (territorySpawn) {
+    return territorySpawn;
+  }
+
+  recordRecoveredFollowUpCooldownIfControllerCreepNeeded(
+    territoryIntent,
+    context.roleCounts,
+    context.gameTime
+  );
+
+  return null;
+}
+
+function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (!shouldSpawnControllerUpgradeSurplusWorker(context)) {
+    return null;
+  }
+
+  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function shouldSpawnControllerUpgradeSurplusWorker(context: SpawnPlanningContext): boolean {
+  if (
+    context.options.workersOnly ||
+    context.territoryIntentPending ||
+    context.survival.mode !== 'TERRITORY_READY' ||
+    hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
+    !hasControllerUpgradeSurplusEnergy(context.colony) ||
+    !isControllerUpgradeableForSurplus(context.colony.room.controller)
+  ) {
+    return false;
+  }
+
+  const surplusWorkerTarget = Math.min(
+    CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET,
+    context.workerTarget + CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS
+  );
+  return context.workerCapacity < surplusWorkerTarget;
+}
+
+function hasControllerUpgradeSurplusEnergy(colony: ColonySnapshot): boolean {
+  return (
+    colony.energyCapacityAvailable >= CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY &&
+    colony.energyAvailable >= colony.energyCapacityAvailable
+  );
+}
+
+function isControllerUpgradeableForSurplus(controller: StructureController | undefined): boolean {
+  return (
+    controller?.my === true &&
+    typeof controller.level === 'number' &&
+    controller.level >= 2 &&
+    controller.level < MAX_CONTROLLER_LEVEL
+  );
+}
+
+function hasControllerUpgradeBlockingTerritoryWork(colony: ColonySnapshot): boolean {
+  return (
+    hasActiveTerritoryIntentBacklog(colony.room.name) ||
+    hasVisibleForeignReservedTerritoryTarget(colony)
+  );
+}
+
+function hasActiveTerritoryIntentBacklog(colonyName: string): boolean {
+  const intents = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory?.intents;
+  if (!Array.isArray(intents)) {
+    return false;
+  }
+
+  return intents.some((intent) => {
+    if (typeof intent !== 'object' || intent === null) {
+      return false;
+    }
+
+    if (
+      intent.colony !== colonyName ||
+      intent.targetRoom === colonyName ||
+      (intent.action !== 'claim' && intent.action !== 'reserve' && intent.action !== 'scout')
+    ) {
+      return false;
+    }
+
+    return intent.status === 'planned' || intent.status === 'active' || intent.followUp !== undefined;
+  });
+}
+
+function hasVisibleForeignReservedTerritoryTarget(colony: ColonySnapshot): boolean {
+  const targets = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory?.targets;
+  if (!Array.isArray(targets)) {
+    return false;
+  }
+
+  const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
+  return targets.some((target) => {
+    if (typeof target !== 'object' || target === null) {
+      return false;
+    }
+
+    if (
+      target.colony !== colony.room.name ||
+      target.enabled === false ||
+      (target.action !== 'claim' && target.action !== 'reserve')
+    ) {
+      return false;
+    }
+
+    if (typeof target.roomName !== 'string' || target.roomName.length === 0) {
+      return false;
+    }
+
+    const controller = getVisibleRoomController(target.roomName);
+    return isForeignReservedController(controller, colonyOwnerUsername);
+  });
+}
+
+function getVisibleRoomController(roomName: string): StructureController | undefined {
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName]?.controller;
+}
+
+function isForeignReservedController(
+  controller: StructureController | undefined,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  const reservationUsername = (controller as (StructureController & { reservation?: { username?: string } }) | undefined)
+    ?.reservation?.username;
+  return (
+    controller?.my !== true &&
+    typeof reservationUsername === 'string' &&
+    reservationUsername.length > 0 &&
+    reservationUsername !== colonyOwnerUsername
+  );
+}
+
+function getControllerOwnerUsername(controller: StructureController | undefined): string | undefined {
+  const username = (controller as (StructureController & { owner?: { username?: string } }) | undefined)?.owner
+    ?.username;
+  return typeof username === 'string' && username.length > 0 ? username : undefined;
+}
+
+function recordRecoveredFollowUpCooldownIfControllerCreepNeeded(
+  territoryIntent: TerritoryIntentPlan | null,
+  roleCounts: RoleCounts,
+  gameTime: number
+): void {
   if (!territoryIntent || !shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
+    return;
+  }
+
+  recordRecoveredTerritoryFollowUpRetryCooldown(territoryIntent, gameTime);
+}
+
+function planTerritorySpawn(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  territoryIntent: TerritoryIntentPlan,
+  gameTime: number,
+  options: SpawnPlanningOptions
+): SpawnRequest | null {
+  if (!shouldSpawnTerritoryControllerCreep(territoryIntent, roleCounts, gameTime)) {
     return null;
   }
 
@@ -45,7 +740,7 @@ export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTi
     return null;
   }
 
-  const body = buildTerritorySpawnBody(colony.energyAvailable, territoryIntent.action);
+  const body = buildTerritorySpawnBody(colony.energyAvailable, territoryIntent);
   if (body.length === 0) {
     return null;
   }
@@ -54,12 +749,26 @@ export function planSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTi
   return {
     spawn,
     body,
-    name: `${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`,
+    name: appendSpawnNameSuffix(`${roleName}-${colony.room.name}-${territoryIntent.targetRoom}-${gameTime}`, options),
     memory: buildTerritoryCreepMemory(territoryIntent)
   };
 }
 
-function planWorkerSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTime: number): SpawnRequest | null {
+function getWorkerTargetWithTerritoryDemand(
+  workerTarget: number,
+  territoryIntent: TerritoryIntentPlan,
+  gameTime: number
+): number {
+  const demandWorkerCount = getTerritoryFollowUpPreparationWorkerDemand(territoryIntent, gameTime);
+  return workerTarget + Math.min(TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND, demandWorkerCount);
+}
+
+function planWorkerSpawn(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  gameTime: number,
+  options: SpawnPlanningOptions
+): SpawnRequest | null {
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
   if (!spawn) {
     return null;
@@ -73,9 +782,13 @@ function planWorkerSpawn(colony: ColonySnapshot, roleCounts: RoleCounts, gameTim
   return {
     spawn,
     body,
-    name: `worker-${colony.room.name}-${gameTime}`,
+    name: appendSpawnNameSuffix(`worker-${colony.room.name}-${gameTime}`, options),
     memory: { role: 'worker', colony: colony.room.name }
   };
+}
+
+function appendSpawnNameSuffix(baseName: string, options: SpawnPlanningOptions): string {
+  return options.nameSuffix ? `${baseName}-${options.nameSuffix}` : baseName;
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {
@@ -88,82 +801,33 @@ function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyP
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
 
-  return getWorkerCapacity(roleCounts) < MIN_WORKER_TARGET ? buildWorkerBody(colony.energyAvailable) : [];
+  return buildWorkerBody(colony.energyAvailable);
 }
 
 function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
 }
 
-function buildTerritorySpawnBody(energyAvailable: number, action: TerritoryIntentAction): BodyPartConstant[] {
-  if (action === 'scout') {
+function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryIntentPlan): BodyPartConstant[] {
+  if (intent.action === 'scout') {
     return energyAvailable >= TERRITORY_SCOUT_BODY_COST ? [...TERRITORY_SCOUT_BODY] : [];
+  }
+
+  if (requiresTerritoryControllerPressure(intent)) {
+    return buildTerritoryControllerPressureBody(energyAvailable);
   }
 
   return buildTerritoryControllerBody(energyAvailable);
 }
 
-function getWorkerTarget(colony: ColonySnapshot, roleCounts: RoleCounts): number {
-  const sourceCount = getSourceCount(colony.room);
-  const sourceAwareTarget = sourceCount * WORKERS_PER_SOURCE;
-  const baseTarget = Math.min(MAX_WORKER_TARGET, Math.max(MIN_WORKER_TARGET, sourceAwareTarget));
-
-  if (!shouldAddConstructionBacklogWorkerBonus(colony, roleCounts, baseTarget)) {
-    return baseTarget;
-  }
-
-  return Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
+function getVisibleRoom(roomName: string): Room | undefined {
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
 }
 
-function shouldAddConstructionBacklogWorkerBonus(
-  colony: ColonySnapshot,
-  roleCounts: RoleCounts,
-  baseWorkerTarget: number
-): boolean {
-  return (
-    getWorkerCapacity(roleCounts) >= baseWorkerTarget &&
-    isConstructionBonusHomeSafe(colony.room.controller) &&
-    hasActiveConstructionBacklog(colony.room)
-  );
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
-function isConstructionBonusHomeSafe(controller: StructureController | undefined): boolean {
-  return (
-    controller?.my === true &&
-    (typeof controller.ticksToDowngrade !== 'number' ||
-      controller.ticksToDowngrade > TERRITORY_DOWNGRADE_GUARD_TICKS)
-  );
-}
-
-function hasActiveConstructionBacklog(room: Room): boolean {
-  if (typeof room.find !== 'function' || typeof FIND_MY_CONSTRUCTION_SITES !== 'number') {
-    return false;
-  }
-
-  return room.find(FIND_MY_CONSTRUCTION_SITES).length > 0;
-}
-
-function getSourceCount(room: Room): number {
-  const roomName = typeof room.name === 'string' && room.name.length > 0 ? room.name : undefined;
-  if (roomName) {
-    const cachedSourceCount = sourceCountByRoomName.get(roomName);
-    if (cachedSourceCount !== undefined) {
-      return cachedSourceCount;
-    }
-  }
-
-  const sourceCount = findSourceCount(room);
-  if (roomName) {
-    sourceCountByRoomName.set(roomName, sourceCount);
-  }
-
-  return sourceCount;
-}
-
-function findSourceCount(room: Room): number {
-  if (typeof FIND_SOURCES === 'undefined' || typeof room.find !== 'function') {
-    return 1;
-  }
-
-  return room.find(FIND_SOURCES).length;
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }

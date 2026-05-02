@@ -10,7 +10,7 @@ This runbook is the safe release path for the current official target:
 
 - API: `https://screeps.com`
 - Code branch: `main`
-- World shard/room: `shardX/E48S28`
+- World shard/room: `shardX/E26S49`
 - Artifact: `prod/dist/main.js`
 
 The deploy path uploads only module `main`, verifies round-trip SHA-256 hashes, optionally sets `main` as `activeWorld`, and emits JSON evidence without auth tokens, request headers, local bundle contents, or remote module contents.
@@ -43,7 +43,7 @@ mkdir -p runtime-artifacts/official-screeps-deploy
 python3 scripts/screeps_official_deploy.py \
   --deploy \
   --activate-world \
-  --confirm "deploy main to shardX/E48S28" \
+  --confirm "deploy main to shardX/E26S49" \
   --evidence-path runtime-artifacts/official-screeps-deploy/official-screeps-deploy.json
 ```
 
@@ -67,7 +67,7 @@ Manual dispatch inputs:
 - `mode`: `dry-run` by default; `deploy` performs writes.
 - `environment`: `official-screeps`; configure this GitHub environment with required reviewers if desired.
 - `activate_world`: sets `main` as `activeWorld` after upload.
-- `confirmation`: required for deploy mode, exactly `deploy main to shardX/E48S28`.
+- `confirmation`: required for deploy mode, exactly `deploy main to shardX/E26S49`.
 
 Required secret:
 
@@ -99,11 +99,11 @@ Evidence JSON must not include:
 
 ## Post-Deploy Monitoring
 
-After a successful live deploy, capture runtime evidence for `shardX/E48S28`:
+After a successful live deploy, capture runtime evidence for `shardX/E26S49`:
 
 ```bash
-python3 scripts/screeps-runtime-monitor.py summary --room shardX/E48S28
-python3 scripts/screeps-runtime-monitor.py alert --room shardX/E48S28
+python3 scripts/screeps-runtime-monitor.py summary --room shardX/E26S49
+python3 scripts/screeps-runtime-monitor.py alert --room shardX/E26S49
 
 python3 scripts/screeps_runtime_summary_console_capture.py \
   --live-official-console \

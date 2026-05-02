@@ -24,7 +24,7 @@ on:
         type: boolean
         default: false
       confirmation:
-        description: "Required for deploy mode: deploy main to shardX/E48S28"
+        description: "Required for deploy mode: deploy main to shardX/E26S49"
         required: false
         type: string
 
@@ -32,7 +32,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: official-screeps-deploy-main-shardX-E48S28
+  group: official-screeps-deploy-main-shardX-E26S49
   cancel-in-progress: false
 
 jobs:
@@ -45,7 +45,7 @@ jobs:
       SCREEPS_API_URL: https://screeps.com
       SCREEPS_BRANCH: main
       SCREEPS_SHARD: shardX
-      SCREEPS_ROOM: E48S28
+      SCREEPS_ROOM: E26S49
       EVIDENCE_DIR: runtime-artifacts/official-screeps-deploy
 
     steps:
@@ -62,7 +62,9 @@ jobs:
           cache-dependency-path: prod/package-lock.json
 
       - name: Run deploy helper unit tests
-        run: python3 -m unittest scripts/test_screeps_official_deploy.py
+        run: |
+          python3 -m unittest scripts/test_screeps_official_deploy.py
+          python3 scripts/screeps-runtime-monitor.py self-test
 
       - name: Install production dependencies
         working-directory: prod
@@ -102,8 +104,8 @@ jobs:
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
         run: |
-          if [ "$CONFIRMATION" != "deploy main to shardX/E48S28" ]; then
-            echo "::error::Deploy mode requires exact confirmation: deploy main to shardX/E48S28"
+          if [ "$CONFIRMATION" != "deploy main to shardX/E26S49" ]; then
+            echo "::error::Deploy mode requires exact confirmation: deploy main to shardX/E26S49"
             exit 1
           fi
 
@@ -124,6 +126,28 @@ jobs:
             $activate_flag \
             --confirm "$CONFIRMATION" \
             --evidence-path "$EVIDENCE_DIR/official-screeps-deploy.json"
+
+      - name: Post-deploy live survival gate
+        if: ${{ inputs.mode == 'deploy' }}
+        env:
+          SCREEPS_AUTH_TOKEN: ${{ secrets.SCREEPS_AUTH_TOKEN }}
+          SCREEPS_ALERT_DEBOUNCE_SECONDS: "0"
+          SCREEPS_MONITOR_STATE_FILE: runtime-artifacts/official-screeps-deploy/postdeploy-monitor-state.json
+          SCREEPS_MONITOR_CACHE_DIR: runtime-artifacts/screeps-monitor/terrain-cache
+        run: |
+          python3 scripts/screeps-runtime-monitor.py summary \
+            --room "$SCREEPS_SHARD/$SCREEPS_ROOM" \
+            --out-dir runtime-artifacts/screeps-monitor \
+            > "$EVIDENCE_DIR/postdeploy-summary.json"
+          python3 scripts/screeps-runtime-monitor.py alert \
+            --room "$SCREEPS_SHARD/$SCREEPS_ROOM" \
+            --out-dir runtime-artifacts/screeps-monitor \
+            --force-alert-image \
+            > "$EVIDENCE_DIR/postdeploy-alert.json"
+          python3 scripts/screeps-runtime-monitor.py health-gate \
+            --summary "$EVIDENCE_DIR/postdeploy-summary.json" \
+            --alert "$EVIDENCE_DIR/postdeploy-alert.json" \
+            > "$EVIDENCE_DIR/postdeploy-health-gate.json"
 
       - name: Upload deploy evidence
         if: ${{ always() }}

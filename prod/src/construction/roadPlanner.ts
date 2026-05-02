@@ -2,9 +2,10 @@ import type { ColonySnapshot } from '../colony/colonyRegistry';
 
 const DEFAULT_MAX_ROAD_SITES_PER_TICK = 1;
 const DEFAULT_MAX_PENDING_ROAD_SITES = 3;
-const DEFAULT_MAX_ROAD_TARGETS_PER_TICK = 3;
+const DEFAULT_MAX_ROAD_TARGETS_PER_TICK = 4;
 const DEFAULT_MAX_PATH_OPS_PER_TARGET = 1_000;
 const MIN_CONTROLLER_LEVEL_FOR_ROADS = 2;
+const SOURCE_CONTROLLER_ROAD_MAX_RANGE = 6;
 const ROOM_EDGE_MIN = 1;
 const ROOM_EDGE_MAX = 48;
 const ROOM_COORDINATE_MIN = 0;
@@ -33,6 +34,12 @@ interface RoadTarget {
   pos: RoomPosition;
 }
 
+interface RoadRoute {
+  origin: RoomPosition;
+  priority: number;
+  target: RoadTarget;
+}
+
 interface RoadPlannerLookups {
   terrain: RoomTerrain;
   costMatrix: CostMatrix;
@@ -46,6 +53,7 @@ interface RoadCandidate {
   x: number;
   y: number;
   key: string;
+  minRoutePriority: number;
   routeCount: number;
   minPathIndex: number;
   minTargetIndex: number;
@@ -85,8 +93,8 @@ export function planEarlyRoadConstruction(
     return [];
   }
 
-  const targets = selectRoadTargets(colony.room, limits.maxTargetsPerTick);
-  if (targets.length === 0) {
+  const routes = selectRoadRoutes(colony.room, anchor.pos, limits.maxTargetsPerTick);
+  if (routes.length === 0) {
     return [];
   }
 
@@ -95,7 +103,7 @@ export function planEarlyRoadConstruction(
     return [];
   }
 
-  const candidates = selectRoadCandidates(colony.room.name, anchor.pos, targets, lookups, limits);
+  const candidates = selectRoadCandidates(colony.room.name, routes, lookups, limits);
   const results: ScreepsReturnCode[] = [];
   for (const candidate of candidates) {
     if (results.length >= remainingSiteBudget) {
@@ -157,20 +165,43 @@ function selectRoadAnchor(colony: ColonySnapshot): StructureSpawn | null {
   return primarySpawn ?? null;
 }
 
-function selectRoadTargets(room: Room, maxTargets: number): RoadTarget[] {
-  if (maxTargets <= 0) {
+function selectRoadRoutes(room: Room, anchor: RoomPosition, maxRoutes: number): RoadRoute[] {
+  if (maxRoutes <= 0) {
     return [];
   }
 
-  const targets: RoadTarget[] = getSortedSources(room).map((source) => ({
-    pos: source.pos
-  }));
+  const routes: RoadRoute[] = selectRoadTargets(room).map((target) =>
+    createRoadRoute(anchor, target, 1)
+  );
 
-  if (room.controller?.pos && isSameRoomPosition(room.controller.pos, room.name)) {
-    targets.push({ pos: room.controller.pos });
+  routes.push(...selectSourceControllerRoadRoutes(room));
+
+  return routes.slice(0, maxRoutes);
+}
+
+function selectRoadTargets(room: Room): RoadTarget[] {
+  const targets: RoadTarget[] = getSortedSources(room).map((source) => ({ pos: source.pos }));
+  const controllerPosition = room.controller?.pos;
+  if (controllerPosition && isSameRoomPosition(controllerPosition, room.name)) {
+    targets.push({ pos: controllerPosition });
   }
 
-  return targets.filter((target) => isSameRoomPosition(target.pos, room.name)).slice(0, maxTargets);
+  return targets.filter((target) => isSameRoomPosition(target.pos, room.name));
+}
+
+function selectSourceControllerRoadRoutes(room: Room): RoadRoute[] {
+  const controllerPosition = room.controller?.pos;
+  if (!controllerPosition || !isSameRoomPosition(controllerPosition, room.name)) {
+    return [];
+  }
+
+  return getSortedSources(room)
+    .filter((source) => getRangeBetweenPositions(source.pos, controllerPosition) <= SOURCE_CONTROLLER_ROAD_MAX_RANGE)
+    .map((source) => createRoadRoute(source.pos, { pos: controllerPosition }, 0));
+}
+
+function createRoadRoute(origin: RoomPosition, target: RoadTarget, priority: number): RoadRoute {
+  return { origin, priority, target };
 }
 
 function getSortedSources(room: Room): Source[] {
@@ -278,15 +309,14 @@ function cacheRoomConstructionSites(room: Room, lookups: RoadPlannerLookups): vo
 
 function selectRoadCandidates(
   roomName: string,
-  origin: RoomPosition,
-  targets: RoadTarget[],
+  routes: RoadRoute[],
   lookups: RoadPlannerLookups,
   limits: RoadPlannerLimits
 ): RoadCandidate[] {
   const candidates = new Map<string, RoadCandidate>();
 
-  targets.forEach((target, targetIndex) => {
-    const path = findRoadPath(roomName, origin, target, lookups, limits);
+  routes.forEach((route, targetIndex) => {
+    const path = findRoadPath(roomName, route.origin, route.target, lookups, limits);
     const seenInRoute = new Set<string>();
 
     path.forEach((position, pathIndex) => {
@@ -303,6 +333,7 @@ function selectRoadCandidates(
       const existingCandidate = candidates.get(key);
       if (existingCandidate) {
         existingCandidate.routeCount += 1;
+        existingCandidate.minRoutePriority = Math.min(existingCandidate.minRoutePriority, route.priority);
         existingCandidate.minPathIndex = Math.min(existingCandidate.minPathIndex, pathIndex);
         existingCandidate.minTargetIndex = Math.min(existingCandidate.minTargetIndex, targetIndex);
         return;
@@ -312,6 +343,7 @@ function selectRoadCandidates(
         x: position.x,
         y: position.y,
         key,
+        minRoutePriority: route.priority,
         routeCount: 1,
         minPathIndex: pathIndex,
         minTargetIndex: targetIndex
@@ -343,6 +375,7 @@ function findRoadPath(
 function compareRoadCandidates(left: RoadCandidate, right: RoadCandidate): number {
   return (
     right.routeCount - left.routeCount ||
+    left.minRoutePriority - right.minRoutePriority ||
     left.minPathIndex - right.minPathIndex ||
     left.minTargetIndex - right.minTargetIndex ||
     left.y - right.y ||
@@ -380,6 +413,10 @@ function isWithinBuildableRoomBounds(position: Positioned): boolean {
 
 function isSameRoomPosition(position: Positioned, roomName: string): boolean {
   return !position.roomName || position.roomName === roomName;
+}
+
+function getRangeBetweenPositions(left: Positioned, right: Positioned): number {
+  return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
 }
 
 function isTerrainWall(terrain: RoomTerrain, position: Positioned): boolean {
