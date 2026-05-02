@@ -14,6 +14,7 @@ declare global {
     role?: string;
     colony?: string;
     task?: CreepTaskMemory;
+    workerTaskSelectionNullLoop?: WorkerTaskSelectionNullLoopMemory;
     defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
     controllerSustain?: CreepControllerSustainMemory;
@@ -308,6 +309,12 @@ declare global {
     spawnEnergy: number;
     freeCapacity: number;
     threshold: number;
+  }
+
+  interface WorkerTaskSelectionNullLoopMemory {
+    lastNullSelectionTick: number;
+    nullSelectionCount: number;
+    fallbackAttempts: number;
   }
 
   interface CreepBehaviorPositionMemory {

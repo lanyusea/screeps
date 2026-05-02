@@ -2465,4 +2465,103 @@ describe('runWorker', () => {
     expect(creep.build).toHaveBeenCalledWith(site);
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
+
+  it('falls back to energy acquisition after repeated null task selection in a short window', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const siblingWorker = {
+      memory: { role: 'worker', task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: { name: 'W1N1' }
+    } as unknown as Creep;
+    const room = {
+      name: 'W1N1',
+      controller: { id: 'controller1', my: true, level: 3 } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    const siblingWorkerRoom = room as Room;
+    (siblingWorker as Creep).room = siblingWorkerRoom;
+
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      harvest: jest.fn().mockReturnValue(0)
+    } as unknown as Creep;
+    const getObjectById = jest.fn((id: string) => (id === 'source1' ? source : null));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1,
+      rooms: { W1N1: room },
+      creeps: { siblingWorker },
+      getObjectById
+    };
+
+    runWorker(creep);
+    expect(creep.memory.task).toBeUndefined();
+
+    (Game as Partial<Game>).time = 2;
+    runWorker(creep);
+    expect(creep.memory.task).toBeUndefined();
+
+    (Game as Partial<Game>).time = 3;
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+  });
+
+  it('limits fallback attempts when task selection remains null', () => {
+    const siblingWorker = {
+      memory: { role: 'worker', task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> } },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: { name: 'W1N1' }
+    } as unknown as Creep;
+    const room = {
+      name: 'W1N1',
+      controller: { id: 'controller1', my: true, level: 3 } as StructureController,
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+    (siblingWorker as Creep).room = room as Room;
+
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 10,
+      rooms: { W1N1: room },
+      creeps: { siblingWorker }
+    };
+
+    runWorker(creep);
+    (Game as Partial<Game>).time = 11;
+    runWorker(creep);
+    (Game as Partial<Game>).time = 12;
+    runWorker(creep);
+    (Game as Partial<Game>).time = 13;
+    runWorker(creep);
+    (Game as Partial<Game>).time = 14;
+    runWorker(creep);
+    (Game as Partial<Game>).time = 15;
+    runWorker(creep);
+
+    expect(creep.memory.task).toBeUndefined();
+    expect(creep.memory.workerTaskSelectionNullLoop).toEqual({
+      lastNullSelectionTick: 15,
+      nullSelectionCount: 6,
+      fallbackAttempts: 2
+    });
+  });
 });
