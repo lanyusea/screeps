@@ -1,7 +1,10 @@
 import {
+  DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
   buildRuntimeConstructionPriorityReport,
+  selectImpactWeightedConstructionSite,
   scoreConstructionPriorities,
   type ConstructionBuildCandidate,
+  type ConstructionSiteImpactPriorityContext,
   type ConstructionPriorityRoomState
 } from '../src/construction/constructionPriority';
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
@@ -19,7 +22,8 @@ const TEST_GLOBALS = {
   STRUCTURE_RAMPART: 'rampart',
   STRUCTURE_ROAD: 'road',
   STRUCTURE_CONTAINER: 'container',
-  STRUCTURE_STORAGE: 'storage'
+  STRUCTURE_STORAGE: 'storage',
+  STRUCTURE_WALL: 'constructedWall'
 } as const;
 
 describe('construction priority scoring', () => {
@@ -215,6 +219,58 @@ describe('construction priority scoring', () => {
   });
 });
 
+describe('impact-weighted construction site selection', () => {
+  it('prioritizes an extension over a rampart at the same distance', () => {
+    const extensionSite = makeConstructionSite('extension-site', 'extension', 20, 20);
+    const rampartSite = makeConstructionSite('rampart-site', 'rampart', 21, 20);
+    const origin = makeSelectionOrigin({
+      'extension-site': 5,
+      'rampart-site': 5
+    });
+
+    expect(selectImpactWeightedConstructionSite(origin, [rampartSite, extensionSite])?.id).toBe('extension-site');
+  });
+
+  it('prioritizes a source container over a generic road', () => {
+    const source = { id: 'source1', pos: makeRoomPosition(10, 10) } as Source;
+    const containerSite = makeConstructionSite('source-container-site', 'container', 11, 10);
+    const roadSite = makeConstructionSite('generic-road-site', 'road', 25, 25);
+    const origin = makeSelectionOrigin({
+      'source-container-site': 8,
+      'generic-road-site': 2
+    });
+    const context: ConstructionSiteImpactPriorityContext = { sources: [source] };
+
+    expect(selectImpactWeightedConstructionSite(origin, [roadSite, containerSite], context)?.id).toBe(
+      'source-container-site'
+    );
+  });
+
+  it('chooses the closest site when multiple sites have the same impact', () => {
+    const farExtensionSite = makeConstructionSite('extension-far', 'extension', 20, 20);
+    const nearExtensionSite = makeConstructionSite('extension-near', 'extension', 21, 20);
+    const origin = makeSelectionOrigin({
+      'extension-far': 9,
+      'extension-near': 2
+    });
+
+    expect(selectImpactWeightedConstructionSite(origin, [farExtensionSite, nearExtensionSite])?.id).toBe(
+      'extension-near'
+    );
+  });
+
+  it('selects a low-priority site when no high-priority site is in reasonable range', () => {
+    const farExtensionSite = makeConstructionSite('extension-far', 'extension', 20, 20);
+    const wallSite = makeConstructionSite('wall-near', 'constructedWall', 21, 20);
+    const origin = makeSelectionOrigin({
+      'extension-far': DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE + 5,
+      'wall-near': 3
+    });
+
+    expect(selectImpactWeightedConstructionSite(origin, [farExtensionSite, wallSite])?.id).toBe('wall-near');
+  });
+});
+
 describe('runtime construction priority report', () => {
   beforeEach(() => {
     const globals = globalThis as Record<string, unknown>;
@@ -369,6 +425,33 @@ function makeTerritoryIntent(
     status,
     updatedAt: 1
   };
+}
+
+function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
+  return { x, y, roomName } as RoomPosition;
+}
+
+function makeConstructionSite(
+  id: string,
+  structureType: string,
+  x: number,
+  y: number
+): ConstructionSite {
+  return {
+    id,
+    structureType,
+    pos: makeRoomPosition(x, y),
+    progress: 0,
+    progressTotal: 100
+  } as unknown as ConstructionSite;
+}
+
+function makeSelectionOrigin(rangesByTargetId: Record<string, number>): RoomObject {
+  return {
+    pos: {
+      getRangeTo: jest.fn((target: { id?: string }) => rangesByTargetId[String(target.id)] ?? 99)
+    }
+  } as unknown as RoomObject;
 }
 
 function scoreFor(candidates: { buildItem: string; score: number }[], buildItem: string): number {
