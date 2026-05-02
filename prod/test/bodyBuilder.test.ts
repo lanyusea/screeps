@@ -96,16 +96,24 @@ describe('buildTerritoryControllerBody', () => {
     expect(buildTerritoryControllerBody(650)).toEqual(['claim', 'move']);
   });
 
-  it('adds work/carry pairs when extra energy is available', () => {
-    expect(buildTerritoryControllerBody(800)).toEqual(['claim', 'move', 'work', 'carry']);
-    expect(buildTerritoryControllerBody(1000)).toEqual([
+  it('adds full work/carry/move triplets when enough energy is available', () => {
+    expect(buildTerritoryControllerBody(800)).toEqual(['claim', 'move']);
+    expect(buildTerritoryControllerBody(900)).toEqual(['claim', 'move', 'work', 'carry', 'move']);
+    expect(buildTerritoryControllerBody(2000)).toEqual([
       'claim',
       'move',
-      'work',
-      'carry',
-      'work',
-      'carry'
+      ...Array.from({ length: 5 }).flatMap(() => ['work', 'carry', 'move'] as const)
     ]);
+  });
+
+  it('keeps move parts in proportion to non-move parts as energy scales', () => {
+    const body = buildTerritoryControllerBody(2000);
+    const moveParts = body.filter((part) => part === 'move').length;
+    const nonMoveParts = body.filter((part) => part !== 'move').length;
+    const upgradePairs = body.filter((part) => part === 'work').length;
+
+    expect(nonMoveParts).toBeLessThanOrEqual(moveParts * 3);
+    expect(moveParts).toBe(1 + upgradePairs);
   });
 });
 

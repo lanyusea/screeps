@@ -1,7 +1,7 @@
 export const TERRITORY_CONTROLLER_BODY: BodyPartConstant[] = ['claim', 'move'];
 export const TERRITORY_CONTROLLER_BODY_COST = 650;
-const TERRITORY_CLAIMER_UPGRADE_PARTS: BodyPartConstant[] = ['work', 'carry'];
-const TERRITORY_CLAIMER_UPGRADE_PART_COST = 150;
+const TERRITORY_CLAIMER_UPGRADE_PARTS: BodyPartConstant[] = ['work', 'carry', 'move'];
+const TERRITORY_CLAIMER_UPGRADE_PART_COST = 250;
 const MAX_CREEP_PARTS = 50;
 
 export const TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS = 5;
