@@ -336,7 +336,6 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertEqual(report["triggers"][0]["structure_type"], "spawn")
 
 
-
 class RuntimeKpiArtifactTests(unittest.TestCase):
     def test_runtime_summary_payload_uses_live_room_snapshot_metrics(self) -> None:
         snapshot = monitor.RoomSnapshot(
@@ -487,6 +486,7 @@ class RuntimeKpiArtifactTests(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), "existing evidence\n")
             self.assertEqual(written.name, target.with_name(f"{target.stem}-2{target.suffix}").name)
             self.assertTrue(written.read_text(encoding="utf-8").startswith("#runtime-summary "))
+
 
 
 if __name__ == "__main__":
