@@ -8,6 +8,29 @@ declare global {
     defense?: DefenseMemory;
     economy?: EconomyMemory;
     territory?: TerritoryMemory;
+    strategyRollback?: Record<
+      string,
+      {
+        disabledId: string;
+        rollbackToId: string;
+        timestamp: number;
+        reason: string;
+      }
+    >;
+    strategyRollbackHistory?: Array<{
+      family: string;
+      disabledId: string;
+      rollbackToId: string;
+      timestamp: number;
+      reason: string;
+    }>;
+    kpiBaseline?: Record<
+      string,
+      {
+        timestamp: number;
+        metrics: Record<string, number>;
+      }
+    >;
   }
 
   interface CreepMemory {
