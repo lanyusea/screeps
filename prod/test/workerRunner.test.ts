@@ -57,6 +57,103 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('routes a post-claim controller sustain upgrader to the claimed room before local work', () => {
+    const targetController = { id: 'controller2', my: true } as StructureController;
+    const homeRoom = {
+      name: 'W1N1',
+      find: jest.fn().mockReturnValue([{ id: 'source1' } as Source])
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W2N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: homeRoom,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: homeRoom,
+        W2N1: { name: 'W2N1', controller: targetController } as Room
+      },
+      creeps: {}
+    };
+
+    runWorker(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(targetController);
+    expect(creep.memory.task).toBeUndefined();
+    expect(homeRoom.find).not.toHaveBeenCalled();
+  });
+
+  it('loads a post-claim energy hauler in the home room before sending it to the claimed room', () => {
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(500) }
+    } as unknown as StructureStorage;
+    const homeRoom = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => (type === FIND_STRUCTURES ? [storage] : []))
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W2N1',
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'hauler' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room: homeRoom,
+      withdraw: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(storage)
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'storage1' });
+    expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
+    expect(creep.moveTo).toHaveBeenCalledWith(storage);
+  });
+
+  it('sends a loaded post-claim energy hauler from home to the claimed room', () => {
+    const targetController = { id: 'controller2', my: true } as StructureController;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W2N1',
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'hauler' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: { name: 'W1N1', find: jest.fn() } as unknown as Room,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: { name: 'W2N1', controller: targetController } as Room },
+      creeps: {}
+    };
+
+    runWorker(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(targetController);
+  });
+
   it('executes a newly assigned task in the same tick when the target is available', () => {
     const source = { id: 'source1' } as Source;
     const creep = {

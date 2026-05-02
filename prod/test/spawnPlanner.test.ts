@@ -207,6 +207,177 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 128)).toBeNull();
   });
 
+  it('uses the home spawn for a dedicated post-claim controller upgrader when the claimed room has no spawn', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2',
+          my: true,
+          level: 1
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 170,
+            updatedAt: 171,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 172)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-W2N1-upgrader-172',
+      memory: {
+        role: 'worker',
+        colony: 'W2N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
+      }
+    });
+  });
+
+  it('keeps home worker recovery ahead of post-claim controller sustain', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', { id: 'controller2', my: true, level: 1 } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 173,
+            updatedAt: 173,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 2 }, 174)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-174',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
+  it('adds a post-claim energy hauler after the claimed room has an upgrader but still lacks spawn energy', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const remoteUpgrader = {
+      memory: {
+        role: 'worker',
+        colony: 'W2N1',
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
+      }
+    } as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: {
+          ...makeTerritoryRoom('W2N1', { id: 'controller2', my: true, level: 1 } as StructureController),
+          energyAvailable: 0
+        } as Room
+      },
+      spawns: { Spawn1: spawn },
+      creeps: { RemoteUpgrader: remoteUpgrader }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 175,
+            updatedAt: 175,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 176)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-W2N1-hauler-176',
+      memory: {
+        role: 'worker',
+        colony: 'W2N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'hauler' }
+      }
+    });
+  });
+
+  it('lets an operational claimed-room spawn handle its own workers when it has usable energy', () => {
+    const { colony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const claimedRoom = {
+      ...makeTerritoryRoom('W2N1', { id: 'controller2', my: true, level: 2 } as StructureController),
+      energyAvailable: 300
+    } as Room;
+    const claimedSpawn = { name: 'Spawn2', room: claimedRoom, spawning: null } as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W1N1: colony.room, W2N1: claimedRoom },
+      spawns: { Spawn2: claimedSpawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'ready',
+            claimedAt: 177,
+            updatedAt: 178,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 179)).toBeNull();
+  });
+
   it('keeps normal replacement body selection when only expiring workers remain', () => {
     const { colony, spawn } = makeColony({ energyAvailable: 600, energyCapacityAvailable: 800 });
 

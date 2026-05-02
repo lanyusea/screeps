@@ -16,6 +16,7 @@ declare global {
     task?: CreepTaskMemory;
     defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
+    controllerSustain?: CreepControllerSustainMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
     refillTelemetry?: WorkerRefillTelemetryMemory;
     spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
@@ -63,6 +64,14 @@ declare global {
 
   interface CreepDefenseMemory {
     homeRoom: string;
+  }
+
+  type CreepControllerSustainRole = 'upgrader' | 'hauler';
+
+  interface CreepControllerSustainMemory {
+    homeRoom: string;
+    targetRoom: string;
+    role: CreepControllerSustainRole;
   }
 
   interface EconomyMemory {

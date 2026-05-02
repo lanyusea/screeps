@@ -224,6 +224,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return null;
   }
 
+  const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
+  if (controllerSustainUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
+  }
+
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const constructionReservationContext =
     constructionSites.length > 0
@@ -429,6 +434,23 @@ function selectColonyRecallEnergySink(room: Room): FillableEnergySink | null {
     selectFirstEnergySinkByStableId(energySinks.filter(isSpawnOrExtensionEnergySink)) ??
     selectFirstEnergySinkByStableId(energySinks.filter(isTowerEnergySink))
   );
+}
+
+function selectControllerSustainUpgradeTask(
+  creep: Creep,
+  controller: StructureController | undefined
+): Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
+  const sustain = creep.memory?.controllerSustain;
+  if (
+    sustain?.role !== 'upgrader' ||
+    sustain.targetRoom !== creep.room?.name ||
+    controller?.my !== true ||
+    controller.level >= 8
+  ) {
+    return null;
+  }
+
+  return { type: 'upgrade', targetId: controller.id };
 }
 
 function selectFirstEnergySinkByStableId<T extends FillableEnergySink>(energySinks: T[]): T | null {

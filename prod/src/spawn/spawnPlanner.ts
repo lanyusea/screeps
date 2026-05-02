@@ -30,6 +30,7 @@ type SpawnPriorityTier =
   | 'defense'
   | 'localRefillSurvival'
   | 'controllerDowngradeGuard'
+  | 'postClaimControllerSustain'
   | 'territoryRemote'
   | 'controllerUpgradeSurplus';
 
@@ -64,12 +65,18 @@ const CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
 const CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
 const CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
 const MAX_CONTROLLER_LEVEL = 8;
+const POST_CLAIM_SUSTAIN_UPGRADER_TARGET = 1;
+const POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
+const POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
+const POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS = 100;
+const POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY = 200;
 const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'emergencyBootstrap',
   // Keep defense above local refill so hostiles cannot starve the first defender.
   'defense',
   'localRefillSurvival',
   'controllerDowngradeGuard',
+  'postClaimControllerSustain',
   'territoryRemote',
   'controllerUpgradeSurplus'
 ];
@@ -114,6 +121,8 @@ function planSpawnForPriorityTier(
       return planLocalSurvivalSpawn(context);
     case 'controllerDowngradeGuard':
       return planControllerDowngradeGuardSpawn(context);
+    case 'postClaimControllerSustain':
+      return planPostClaimControllerSustainSpawn(context);
     case 'defense':
       return planDefenseSpawn(context);
     case 'territoryRemote':
@@ -160,6 +169,239 @@ function hasControllerDowngradeGuardSpawnCapacity(context: SpawnPlanningContext)
   }
 
   return context.colony.spawns.filter((spawn) => !spawn.spawning).length > 1;
+}
+
+interface PostClaimControllerSustainPlan {
+  targetRoom: string;
+  role: CreepControllerSustainRole;
+  controllerId?: Id<StructureController>;
+}
+
+interface PostClaimControllerSustainCounts {
+  haulers: number;
+  upgraders: number;
+  workers: number;
+}
+
+function planPostClaimControllerSustainSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (context.survival.mode !== 'TERRITORY_READY' || !hasPostClaimSustainSpawnEnergy(context.colony)) {
+    return null;
+  }
+
+  const sustainPlan = selectPostClaimControllerSustainPlan(context.colony);
+  if (!sustainPlan) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const body = selectWorkerBody(context.colony, context.roleCounts);
+  if (body.length === 0) {
+    return null;
+  }
+
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(
+      `worker-${context.colony.room.name}-${sustainPlan.targetRoom}-${sustainPlan.role}-${context.gameTime}`,
+      context.options
+    ),
+    memory: {
+      role: 'worker',
+      colony: sustainPlan.targetRoom,
+      territory: {
+        targetRoom: sustainPlan.targetRoom,
+        action: 'claim',
+        ...(sustainPlan.controllerId ? { controllerId: sustainPlan.controllerId } : {})
+      },
+      controllerSustain: {
+        homeRoom: context.colony.room.name,
+        targetRoom: sustainPlan.targetRoom,
+        role: sustainPlan.role
+      }
+    }
+  };
+}
+
+function hasPostClaimSustainSpawnEnergy(colony: ColonySnapshot): boolean {
+  return (
+    colony.energyAvailable >= POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY &&
+    colony.energyAvailable >= colony.energyCapacityAvailable
+  );
+}
+
+function selectPostClaimControllerSustainPlan(
+  colony: ColonySnapshot
+): PostClaimControllerSustainPlan | null {
+  const records = getPostClaimControllerSustainRecords(colony.room.name);
+  for (const record of records) {
+    const targetRoom = getVisibleRoom(record.roomName);
+    if (targetRoom?.controller && targetRoom.controller.my !== true) {
+      continue;
+    }
+
+    const hasOperationalSpawn = hasOperationalSpawnInRoom(record.roomName);
+    const counts = countPostClaimControllerSustainCreeps(record.roomName);
+    const workerTarget = getPostClaimControllerSustainWorkerTarget(record);
+    const controllerId = getPostClaimControllerSustainControllerId(record, targetRoom);
+
+    if (!hasOperationalSpawn) {
+      if (counts.upgraders < POST_CLAIM_SUSTAIN_UPGRADER_TARGET) {
+        return { targetRoom: record.roomName, role: 'upgrader', ...(controllerId ? { controllerId } : {}) };
+      }
+
+      if (shouldSpawnPostClaimEnergyHauler(targetRoom, counts, workerTarget)) {
+        return { targetRoom: record.roomName, role: 'hauler', ...(controllerId ? { controllerId } : {}) };
+      }
+
+      if (counts.workers < workerTarget) {
+        return { targetRoom: record.roomName, role: 'upgrader', ...(controllerId ? { controllerId } : {}) };
+      }
+    } else if (
+      shouldSpawnPostClaimEnergyHauler(targetRoom, counts, workerTarget) &&
+      isClaimedRoomEnergyInsufficient(targetRoom)
+    ) {
+      return { targetRoom: record.roomName, role: 'hauler', ...(controllerId ? { controllerId } : {}) };
+    }
+  }
+
+  return null;
+}
+
+function getPostClaimControllerSustainRecords(colonyName: string): TerritoryPostClaimBootstrapMemory[] {
+  const records = (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
+  if (!isRecord(records)) {
+    return [];
+  }
+
+  return Object.values(records)
+    .filter((record): record is TerritoryPostClaimBootstrapMemory =>
+      isPostClaimControllerSustainRecord(record, colonyName)
+    )
+    .sort(comparePostClaimControllerSustainRecords);
+}
+
+function isPostClaimControllerSustainRecord(
+  record: unknown,
+  colonyName: string
+): record is TerritoryPostClaimBootstrapMemory {
+  return (
+    isRecord(record) &&
+    record.colony === colonyName &&
+    record.roomName !== colonyName &&
+    isNonEmptyString(record.roomName) &&
+    (record.status === 'detected' ||
+      record.status === 'spawnSitePending' ||
+      record.status === 'spawnSiteBlocked' ||
+      record.status === 'spawningWorkers' ||
+      record.status === 'ready')
+  );
+}
+
+function comparePostClaimControllerSustainRecords(
+  left: TerritoryPostClaimBootstrapMemory,
+  right: TerritoryPostClaimBootstrapMemory
+): number {
+  const leftHasSpawn = hasOperationalSpawnInRoom(left.roomName);
+  const rightHasSpawn = hasOperationalSpawnInRoom(right.roomName);
+  if (leftHasSpawn !== rightHasSpawn) {
+    return leftHasSpawn ? 1 : -1;
+  }
+
+  return (
+    getVisibleControllerLevel(left.roomName) - getVisibleControllerLevel(right.roomName) ||
+    left.claimedAt - right.claimedAt ||
+    left.roomName.localeCompare(right.roomName)
+  );
+}
+
+function getVisibleControllerLevel(roomName: string): number {
+  const level = getVisibleRoom(roomName)?.controller?.level;
+  return typeof level === 'number' ? level : MAX_CONTROLLER_LEVEL + 1;
+}
+
+function hasOperationalSpawnInRoom(roomName: string): boolean {
+  const spawns = (globalThis as unknown as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns;
+  if (!spawns) {
+    return false;
+  }
+
+  return Object.values(spawns).some((spawn) => spawn.room?.name === roomName);
+}
+
+function countPostClaimControllerSustainCreeps(targetRoom: string): PostClaimControllerSustainCounts {
+  const creeps = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  const counts: PostClaimControllerSustainCounts = { haulers: 0, upgraders: 0, workers: 0 };
+  if (!creeps) {
+    return counts;
+  }
+
+  for (const creep of Object.values(creeps)) {
+    if (!canCountPostClaimSustainCreep(creep, targetRoom)) {
+      continue;
+    }
+
+    counts.workers += 1;
+    if (creep.memory.controllerSustain?.role === 'upgrader') {
+      counts.upgraders += 1;
+    } else if (creep.memory.controllerSustain?.role === 'hauler') {
+      counts.haulers += 1;
+    }
+  }
+
+  return counts;
+}
+
+function canCountPostClaimSustainCreep(creep: Creep, targetRoom: string): boolean {
+  if (creep.memory?.role !== 'worker' || creep.memory.colony !== targetRoom) {
+    return false;
+  }
+
+  return (
+    creep.ticksToLive === undefined ||
+    creep.ticksToLive > POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS
+  );
+}
+
+function getPostClaimControllerSustainWorkerTarget(record: TerritoryPostClaimBootstrapMemory): number {
+  return typeof record.workerTarget === 'number' && record.workerTarget > 0
+    ? record.workerTarget
+    : POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET;
+}
+
+function getPostClaimControllerSustainControllerId(
+  record: TerritoryPostClaimBootstrapMemory,
+  room: Room | undefined
+): Id<StructureController> | undefined {
+  const controllerId = record.controllerId ?? room?.controller?.id;
+  return typeof controllerId === 'string' && controllerId.length > 0
+    ? (controllerId as Id<StructureController>)
+    : undefined;
+}
+
+function shouldSpawnPostClaimEnergyHauler(
+  room: Room | undefined,
+  counts: PostClaimControllerSustainCounts,
+  workerTarget: number
+): boolean {
+  return (
+    counts.haulers < POST_CLAIM_SUSTAIN_HAULER_TARGET &&
+    counts.workers < workerTarget &&
+    (room === undefined || isClaimedRoomEnergyInsufficient(room))
+  );
+}
+
+function isClaimedRoomEnergyInsufficient(room: Room | undefined): boolean {
+  if (!room) {
+    return true;
+  }
+
+  const energyAvailable = room.energyAvailable;
+  return typeof energyAvailable !== 'number' || energyAvailable < POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY;
 }
 
 function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
@@ -492,4 +734,16 @@ function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryInten
   }
 
   return buildTerritoryControllerBody(energyAvailable);
+}
+
+function getVisibleRoom(roomName: string): Room | undefined {
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }

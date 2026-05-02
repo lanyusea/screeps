@@ -1348,6 +1348,69 @@ describe('runEconomy', () => {
     });
   });
 
+  it('uses the home spawn to sustain a post-claim room before that room has an operational spawn', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 412,
+            updatedAt: 413,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+    const homeRoom = makeTerritoryReadyEconomyRoom();
+    const claimedRoom = {
+      name: 'W2N1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: { id: 'controller2', my: true, level: 1 } as StructureController,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: 'remote-source' } as Source] : []))
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room: homeRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(homeRoom),
+      Worker2: makeEconomyWorker(homeRoom),
+      Worker3: makeEconomyWorker(homeRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 414,
+      rooms: { W1N1: homeRoom, W2N1: claimedRoom },
+      spawns: { Spawn1: spawn },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      'worker-W1N1-W2N1-upgrader-414',
+      {
+        memory: {
+          role: 'worker',
+          colony: 'W2N1',
+          territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' },
+          controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
+        }
+      }
+    );
+  });
+
   it('keeps unsafe occupation recommendations on worker recovery before territory spawn pressure', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
