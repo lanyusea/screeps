@@ -259,9 +259,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
 
     storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
-    if (!storageRefillAcquisitionTask) {
-      return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
+    if (storageRefillAcquisitionTask) {
+      return storageRefillAcquisitionTask;
     }
+
+    return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
   }
 
   if (remoteProductiveSpendingSuppressed) {
@@ -378,7 +380,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
-  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) && storageRefillAcquisitionTask === null) {
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
 
@@ -433,9 +435,8 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
   }
 
-  if (storageRefillAcquisitionTask) {
-    const harvestSource = selectHarvestSource(creep);
-    return harvestSource ? { type: 'harvest', targetId: harvestSource.id } : storageRefillAcquisitionTask;
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+    return null;
   }
 
   return null;

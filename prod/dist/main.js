@@ -7682,9 +7682,10 @@ function selectHeuristicWorkerTask(creep) {
       return spawnOrExtensionRefillTask;
     }
     storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
-    if (!storageRefillAcquisitionTask) {
-      return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
+    if (storageRefillAcquisitionTask) {
+      return storageRefillAcquisitionTask;
     }
+    return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
   }
   if (remoteProductiveSpendingSuppressed) {
     const suppressedRemoteEnergyHandlingTask = selectSuppressedRemoteEnergyHandlingTask(creep);
@@ -7778,7 +7779,7 @@ function selectHeuristicWorkerTask(creep) {
       targetId: criticalRepairTarget.id
     });
   }
-  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) && storageRefillAcquisitionTask === null) {
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
@@ -7824,9 +7825,8 @@ function selectHeuristicWorkerTask(creep) {
   if ((controller == null ? void 0 : controller.my) && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
   }
-  if (storageRefillAcquisitionTask) {
-    const harvestSource = selectHarvestSource(creep);
-    return harvestSource ? { type: "harvest", targetId: harvestSource.id } : storageRefillAcquisitionTask;
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+    return null;
   }
   return null;
 }

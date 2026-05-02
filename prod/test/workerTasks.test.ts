@@ -2615,7 +2615,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
-  it('prioritizes direct harvest over storage withdrawal when a source is available', () => {
+  it('returns storage withdrawal before direct harvest when spawn recovery requires storage fill', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 2_000, { my: true });
     const source = makeSource('source1', 20, 20, 300);
@@ -2624,7 +2624,7 @@ describe('selectWorkerTask', () => {
         id: 'controller1' as Id<StructureController>,
         my: false
       } as StructureController,
-      energyAvailable: 250,
+      energyAvailable: 320,
       energyCapacityAvailable: 500,
       myStructures: [spawn as AnyOwnedStructure],
       structures: [storage],
@@ -2640,7 +2640,39 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
+  });
+
+  it('reserves carried energy for near-term spawn refill instead of harvesting when no free sink exists', () => {
+    const spawningSpawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      spawning: { remainingTime: 10 },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureSpawn;
+    const source = makeSource('source1', 20, 20, 300);
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD + 100,
+      energyCapacityAvailable: 500,
+      myStructures: [spawningSpawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const creep = {
+      name: 'TestStorageWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(20),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      body: [{ type: 'work', hits: 100 }],
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
   });
 
   it('returns to refill instead of taking a far low-load harvest detour', () => {
