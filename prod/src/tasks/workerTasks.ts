@@ -229,6 +229,10 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     controller,
     constructionReservationContext
   );
+  if (territoryControllerTask && capacityConstructionSite && isSpawnConstructionSite(capacityConstructionSite)) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: capacityConstructionSite.id });
+  }
+
   if (!territoryControllerTask) {
     const baselineLogisticsConstructionSite = selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
       creep,

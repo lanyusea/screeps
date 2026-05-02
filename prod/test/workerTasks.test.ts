@@ -4767,6 +4767,27 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller2' });
   });
 
+  it('builds claimed-room spawn construction before fallback territory upgrading', () => {
+    const controller = { id: 'controller2', my: true, level: 1 } as StructureController;
+    const site = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [{ colony: 'W1N1', targetRoom: 'W2N1', action: 'claim', status: 'active', updatedAt: 102 }]
+      }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
+  });
+
   it('does not prioritize a freshly suppressed urgent reservation renewal', () => {
     const controller = {
       id: 'controller2',

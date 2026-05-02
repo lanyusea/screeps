@@ -26,6 +26,10 @@ import {
   TERRITORY_SCOUT_ROLE
 } from '../territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../territory/territoryRunner';
+import {
+  recordPostClaimBootstrapWorkerSpawn,
+  refreshPostClaimBootstrap
+} from '../territory/postClaimBootstrap';
 
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
@@ -42,12 +46,13 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   clearColonySurvivalAssessmentCache();
 
   for (const colony of colonies) {
-    const extensionResult = planExtensionConstruction(colony);
-    if (extensionResult === null) {
+    let roleCounts = countCreepsByRole(creeps, colony.room.name);
+    const bootstrapResult = refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
+    const extensionResult = bootstrapResult.spawnConstructionPending ? null : planExtensionConstruction(colony);
+    if (extensionResult === null && !bootstrapResult.spawnConstructionPending) {
       planEarlyRoadConstruction(colony);
     }
 
-    let roleCounts = countCreepsByRole(creeps, colony.room.name);
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
@@ -241,6 +246,15 @@ function attemptSpawn(spawnRequest: SpawnRequest, roomName: string, telemetryEve
     role: spawnRequest.memory.role,
     result
   });
+  if (spawnRequest.memory.role === 'worker') {
+    recordPostClaimBootstrapWorkerSpawn(
+      spawnRequest.memory.colony,
+      spawnRequest.spawn.name,
+      spawnRequest.name,
+      result,
+      telemetryEvents
+    );
+  }
 
   return result;
 }

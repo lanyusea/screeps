@@ -261,6 +261,54 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('records post-claim bootstrap when a successful claim makes the target room owned', () => {
+    const controller = { id: 'controller1', my: false } as StructureController;
+    const targetRoom = { name: 'W1N2', controller } as Room;
+    const getObjectById = jest.fn().mockReturnValue(controller);
+    const telemetryEvents: RuntimeTelemetryEvent[] = [];
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 503,
+      rooms: { W1N2: targetRoom },
+      getObjectById
+    };
+    const creep = {
+      name: 'Claimer1',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W1N2', action: 'claim', controllerId: 'controller1' as Id<StructureController> }
+      },
+      room: { name: 'W1N2', controller },
+      claimController: jest.fn(() => {
+        (controller as StructureController & { my: boolean }).my = true;
+        return 0 as ScreepsReturnCode;
+      }),
+      signController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep, telemetryEvents);
+
+    expect(creep.claimController).toHaveBeenCalledWith(controller);
+    expect(Memory.territory?.postClaimBootstraps?.W1N2).toEqual({
+      colony: 'W1N1',
+      roomName: 'W1N2',
+      status: 'detected',
+      claimedAt: 503,
+      updatedAt: 503,
+      workerTarget: 2,
+      controllerId: 'controller1'
+    });
+    expect(telemetryEvents).toContainEqual({
+      type: 'postClaimBootstrap',
+      roomName: 'W1N2',
+      colony: 'W1N1',
+      phase: 'detected',
+      controllerId: 'controller1',
+      workerTarget: 2
+    });
+  });
+
   it('moves a claimer into range without suppressing the target', () => {
     const controller = { id: 'controller1', my: false } as StructureController;
     const creep = {

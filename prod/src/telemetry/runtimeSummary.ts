@@ -17,6 +17,7 @@ import {
   getTerritoryIntentProgressSummaries,
   type TerritoryIntentProgressSummary
 } from '../territory/territoryPlanner';
+import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
 
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
@@ -44,7 +45,8 @@ interface WorkerTaskCounts extends Record<WorkerTaskType, number> {
 export type RuntimeTelemetryEvent =
   | RuntimeSpawnTelemetryEvent
   | RuntimeDefenseTelemetryEvent
-  | RuntimeTerritoryClaimTelemetryEvent;
+  | RuntimeTerritoryClaimTelemetryEvent
+  | RuntimePostClaimBootstrapTelemetryEvent;
 
 export type RuntimeTerritoryClaimTelemetryReason =
   | 'noAdjacentCandidate'
@@ -90,6 +92,21 @@ export interface RuntimeTerritoryClaimTelemetryEvent {
   score?: number;
 }
 
+export interface RuntimePostClaimBootstrapTelemetryEvent {
+  type: 'postClaimBootstrap';
+  roomName: string;
+  colony: string;
+  phase: 'detected' | 'spawnSite' | 'workerSpawn' | 'ready';
+  controllerId?: Id<StructureController>;
+  spawnName?: string;
+  creepName?: string;
+  result?: ScreepsReturnCode;
+  workerCount?: number;
+  workerTarget?: number;
+  spawnCount?: number;
+  spawnSite?: TerritoryPostClaimBootstrapSpawnSiteMemory;
+}
+
 interface RuntimeSpawnStatus {
   name: string;
   status: 'idle' | 'spawning';
@@ -118,6 +135,7 @@ interface RuntimeRoomSummary {
   omittedTerritoryIntentCount?: number;
   suspendedTerritoryIntentCounts?: Record<string, number>;
   territoryExecutionHints?: TerritoryExecutionHintMemory[];
+  postClaimBootstrap?: PostClaimBootstrapSummary;
 }
 
 interface RuntimeControllerSummary {
@@ -445,8 +463,16 @@ function summarizeRoom(
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
     ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
-    ...buildTerritoryExecutionHintSummary(colony.room.name)
+    ...buildTerritoryExecutionHintSummary(colony.room.name),
+    ...buildPostClaimBootstrapSummary(colony.room.name)
   };
+}
+
+function buildPostClaimBootstrapSummary(
+  roomName: string
+): { postClaimBootstrap?: PostClaimBootstrapSummary } {
+  const postClaimBootstrap = getPostClaimBootstrapSummary(roomName);
+  return postClaimBootstrap ? { postClaimBootstrap } : {};
 }
 
 function buildTerritoryIntentSummary(
