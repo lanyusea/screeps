@@ -6,6 +6,7 @@ declare global {
       version: number;
     };
     defense?: DefenseMemory;
+    economy?: EconomyMemory;
     territory?: TerritoryMemory;
   }
 
@@ -62,6 +63,29 @@ declare global {
 
   interface CreepDefenseMemory {
     homeRoom: string;
+  }
+
+  interface EconomyMemory {
+    sourceWorkloads?: Record<string, EconomyRoomSourceWorkloadMemory>;
+  }
+
+  interface EconomyRoomSourceWorkloadMemory {
+    updatedAt: number;
+    sources: Record<string, EconomySourceWorkloadMemory>;
+  }
+
+  interface EconomySourceWorkloadMemory {
+    sourceId: string;
+    assignedHarvesters: number;
+    assignedWorkParts: number;
+    openPositions: number;
+    harvestWorkCapacity: number;
+    harvestEnergyPerTick: number;
+    regenEnergyPerTick: number;
+    sourceEnergyCapacity: number;
+    sourceEnergyRegenTicks: number;
+    hasContainer: boolean;
+    containerId?: string;
   }
 
   type TerritoryControlAction = 'claim' | 'reserve';

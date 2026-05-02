@@ -4,12 +4,15 @@ import {
   clearColonySurvivalAssessmentCache,
   recordColonySurvivalAssessment
 } from '../colony/survivalMode';
-import { planPriorityConstructionSites } from '../construction/constructionPriority';
+import { planExtensionConstruction } from '../construction/extensionPlanner';
+import { planEarlyRoadConstruction } from '../construction/roadPlanner';
+import { planSourceContainerConstruction } from '../construction/sourceContainerPlanner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
 import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
 import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import { recordSourceWorkloads } from './sourceWorkload';
 import {
   buildRuntimeOccupationRecommendationReport,
   clearOccupationRecommendationFollowUpIntent,
@@ -59,10 +62,15 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   clearColonySurvivalAssessmentCache();
 
   for (const colony of colonies) {
+    recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
     const bootstrapResult = refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
-    if (!bootstrapResult.spawnConstructionPending) {
-      planPriorityConstructionSites(colony);
+    const extensionResult = bootstrapResult.spawnConstructionPending ? null : planExtensionConstruction(colony);
+    if (extensionResult === null && !bootstrapResult.spawnConstructionPending) {
+      const sourceContainerResult = planSourceContainerConstruction(colony);
+      if (sourceContainerResult === null) {
+        planEarlyRoadConstruction(colony);
+      }
     }
 
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
