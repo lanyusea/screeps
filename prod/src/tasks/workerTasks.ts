@@ -48,6 +48,8 @@ const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
+const SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO = 0.2;
+const SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR = 1_000;
 const DEFAULT_BUILD_POWER = 5;
 const NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
 const NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
@@ -242,6 +244,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  let storageRefillAcquisitionTask: Extract<CreepTaskMemory, { type: 'withdraw' }> | null = null;
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask: Extract<CreepTaskMemory, { type: 'transfer' }> = {
       type: 'transfer',
@@ -255,7 +258,10 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       return spawnOrExtensionRefillTask;
     }
 
-    return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
+    storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
+    if (!storageRefillAcquisitionTask) {
+      return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
+    }
   }
 
   if (remoteProductiveSpendingSuppressed) {
@@ -372,7 +378,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
-  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) && storageRefillAcquisitionTask === null) {
     return null;
   }
 
@@ -425,6 +431,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (controller?.my && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
+  }
+
+  if (storageRefillAcquisitionTask) {
+    const harvestSource = selectHarvestSource(creep);
+    return harvestSource ? { type: 'harvest', targetId: harvestSource.id } : storageRefillAcquisitionTask;
   }
 
   return null;
@@ -740,6 +751,54 @@ function selectSpawnOrExtensionEnergySink(creep: Creep): StructureSpawn | Struct
     unreservedEnergySink ??
     selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries)
   );
+}
+
+function selectStorageToSpawnExtensionRefillAcquisitionTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'withdraw' }> | null {
+  if (!isSpawnExtensionThroughputBottlenecked(creep.room) || getFreeEnergyCapacity(creep) <= 0) {
+    return null;
+  }
+
+  const storage = selectStorageForSpawnExtensionRefill(creep);
+  return storage ? { type: 'withdraw', targetId: storage.id as Id<AnyStoreStructure> } : null;
+}
+
+function isSpawnExtensionThroughputBottlenecked(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (energyAvailable === null || energyCapacityAvailable === null || energyCapacityAvailable <= 0) {
+    return false;
+  }
+
+  const freeEnergyCapacity = Math.max(0, energyCapacityAvailable - energyAvailable);
+  return freeEnergyCapacity > energyCapacityAvailable * SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO;
+}
+
+function selectStorageForSpawnExtensionRefill(creep: Creep): StructureStorage | null {
+  const context: StoredEnergySourceContext = {
+    creepOwnerUsername: getCreepOwnerUsername(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const storageSources: StructureStorage[] = findVisibleRoomStructures(creep.room).filter(
+    (structure): structure is StructureStorage =>
+      isSafeStoredEnergySource(structure, context) &&
+      structure.structureType === 'storage' &&
+      getStoredEnergy(structure as StructureStorage) > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR
+  );
+
+  if (storageSources.length === 0) {
+    return null;
+  }
+
+  const scoredStorageSources = scoreStoredEnergySources(creep, storageSources);
+  if (scoredStorageSources.length > 0) {
+    return scoredStorageSources.sort(compareStoredEnergySourceScores)[0].source as StructureStorage;
+  }
+
+  const closestStorageEnergy = findClosestByRange(creep, storageSources);
+  return closestStorageEnergy ? (closestStorageEnergy as StructureStorage) : storageSources[0];
 }
 
 function selectSpawnExtensionRecoveryEnergySink<T extends StructureSpawn | StructureExtension>(

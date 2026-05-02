@@ -2539,6 +2539,110 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('withdraws energy from storage when spawn throughput is bottlenecked and storage is above reserve', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 1_500, { my: true });
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: 250,
+      energyCapacityAvailable: 500,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [storage]
+    });
+    const creep = {
+      name: 'TestStorageWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(20),
+        getFreeCapacity: jest.fn().mockReturnValue(30)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
+  });
+
+  it('skips storage withdrawal when storage is below reserve floor and transfers directly to spawn', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 1_000, { my: true });
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: 100,
+      energyCapacityAvailable: 500,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [storage]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(20),
+        getFreeCapacity: jest.fn().mockReturnValue(30)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('skips storage-to-spawn refill when spawn and extensions are full', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0);
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 2_000, { my: true });
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: 500,
+      energyCapacityAvailable: 500,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [storage]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(20),
+        getFreeCapacity: jest.fn().mockReturnValue(30)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('prioritizes direct harvest over storage withdrawal when a source is available', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 2_000, { my: true });
+    const source = makeSource('source1', 20, 20, 300);
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: 250,
+      energyCapacityAvailable: 500,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [storage],
+      sources: [source]
+    });
+    const creep = {
+      name: 'TestStorageWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(20),
+        getFreeCapacity: jest.fn().mockReturnValue(30)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
   it('returns to refill instead of taking a far low-load harvest detour', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const source = { id: 'source1', energy: 300 } as Source;

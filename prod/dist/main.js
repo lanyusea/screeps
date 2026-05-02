@@ -7568,6 +7568,8 @@ var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
+var SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO = 0.2;
+var SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR = 1e3;
 var DEFAULT_BUILD_POWER = 5;
 var NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
 var NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
@@ -7666,6 +7668,7 @@ function selectHeuristicWorkerTask(creep) {
     return downgradeGuardTask;
   }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
+  let storageRefillAcquisitionTask = null;
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask = {
       type: "transfer",
@@ -7678,7 +7681,10 @@ function selectHeuristicWorkerTask(creep) {
       recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "emergencySpawnExtensionRefill");
       return spawnOrExtensionRefillTask;
     }
-    return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
+    storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
+    if (!storageRefillAcquisitionTask) {
+      return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
+    }
   }
   if (remoteProductiveSpendingSuppressed) {
     const suppressedRemoteEnergyHandlingTask = selectSuppressedRemoteEnergyHandlingTask(creep);
@@ -7772,7 +7778,7 @@ function selectHeuristicWorkerTask(creep) {
       targetId: criticalRepairTarget.id
     });
   }
-  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep) && storageRefillAcquisitionTask === null) {
     return null;
   }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
@@ -7817,6 +7823,10 @@ function selectHeuristicWorkerTask(creep) {
   }
   if ((controller == null ? void 0 : controller.my) && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
+  }
+  if (storageRefillAcquisitionTask) {
+    const harvestSource = selectHarvestSource(creep);
+    return harvestSource ? { type: "harvest", targetId: harvestSource.id } : storageRefillAcquisitionTask;
   }
   return null;
 }
@@ -8032,6 +8042,41 @@ function selectSpawnOrExtensionEnergySink(creep) {
     assignedTransferTargetId
   );
   return unreservedEnergySink != null ? unreservedEnergySink : selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries);
+}
+function selectStorageToSpawnExtensionRefillAcquisitionTask(creep) {
+  if (!isSpawnExtensionThroughputBottlenecked(creep.room) || getFreeEnergyCapacity2(creep) <= 0) {
+    return null;
+  }
+  const storage = selectStorageForSpawnExtensionRefill(creep);
+  return storage ? { type: "withdraw", targetId: storage.id } : null;
+}
+function isSpawnExtensionThroughputBottlenecked(room) {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (energyAvailable === null || energyCapacityAvailable === null || energyCapacityAvailable <= 0) {
+    return false;
+  }
+  const freeEnergyCapacity = Math.max(0, energyCapacityAvailable - energyAvailable);
+  return freeEnergyCapacity > energyCapacityAvailable * SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO;
+}
+function selectStorageForSpawnExtensionRefill(creep) {
+  const context = {
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const storageSources = findVisibleRoomStructures(creep.room).filter(
+    (structure) => isSafeStoredEnergySource(structure, context) && structure.structureType === "storage" && getStoredEnergy2(structure) > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR
+  );
+  if (storageSources.length === 0) {
+    return null;
+  }
+  const scoredStorageSources = scoreStoredEnergySources(creep, storageSources);
+  if (scoredStorageSources.length > 0) {
+    return scoredStorageSources.sort(compareStoredEnergySourceScores)[0].source;
+  }
+  const closestStorageEnergy = findClosestByRange(creep, storageSources);
+  return closestStorageEnergy ? closestStorageEnergy : storageSources[0];
 }
 function selectSpawnExtensionRecoveryEnergySink(energySinks, creep, reservedEnergyDeliveries, assignedTransferTargetId) {
   if (energySinks.length === 0) {
@@ -8772,11 +8817,7 @@ function selectWorkerEnergyAcquisitionTask(creep) {
   }
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
-function selectWorkerEnergyFallbackTask(creep) {
-  const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
-  if (energyAcquisitionTask) {
-    return energyAcquisitionTask;
-  }
+function selectWorkerPreHarvestTask(creep) {
   const source = selectHarvestSource(creep);
   return source ? { type: "harvest", targetId: source.id } : null;
 }
@@ -10332,8 +10373,8 @@ function getGameTime7() {
 
 // src/creeps/workerRunner.ts
 var MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
-var WORKER_NULL_LOOP_TICK_WINDOW = 5;
-var WORKER_NULL_LOOP_TRIGGER_COUNT = 3;
+var WORKER_NULL_LOOP_TICK_WINDOW = 10;
+var WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 var OK_CODE3 = 0;
 var MIN_HAULER_DROPPED_ENERGY = 25;
@@ -10388,23 +10429,25 @@ function fallbackToEnergyOnNullSelectionLoop(creep, selectedTask) {
     return null;
   }
   const guardState = getWorkerTaskSelectionNullLoopState(creep, gameTime);
-  if (guardState.nullSelectionCount < WORKER_NULL_LOOP_TRIGGER_COUNT || guardState.fallbackAttempts >= WORKER_NULL_LOOP_FALLBACK_ATTEMPTS) {
+  const idleTicks = gameTime - guardState.idleStartTick + 1;
+  if (idleTicks <= WORKER_STANDBY_IDLE_TIMEOUT_TICKS || guardState.fallbackAttempts >= WORKER_NULL_LOOP_FALLBACK_ATTEMPTS) {
     return null;
   }
   guardState.fallbackAttempts += 1;
-  return selectWorkerEnergyFallbackTask(creep);
+  return selectWorkerPreHarvestTask(creep);
 }
 function getWorkerTaskSelectionNullLoopState(creep, gameTime) {
   const existing = creep.memory.workerTaskSelectionNullLoop;
   const isValidExistingState = Boolean(
-    existing && typeof existing.lastNullSelectionTick === "number" && Number.isFinite(existing.lastNullSelectionTick) && typeof existing.nullSelectionCount === "number" && Number.isFinite(existing.nullSelectionCount) && typeof existing.fallbackAttempts === "number" && Number.isFinite(existing.fallbackAttempts)
+    existing && typeof existing.lastNullSelectionTick === "number" && Number.isFinite(existing.lastNullSelectionTick) && typeof existing.nullSelectionCount === "number" && Number.isFinite(existing.nullSelectionCount) && typeof existing.fallbackAttempts === "number" && Number.isFinite(existing.fallbackAttempts) && typeof existing.idleStartTick === "number" && Number.isFinite(existing.idleStartTick)
   );
   const isInWindow = isValidExistingState && gameTime - existing.lastNullSelectionTick <= WORKER_NULL_LOOP_TICK_WINDOW;
   if (!isInWindow) {
     const state2 = {
       lastNullSelectionTick: gameTime,
       nullSelectionCount: 1,
-      fallbackAttempts: 0
+      fallbackAttempts: 0,
+      idleStartTick: gameTime
     };
     creep.memory.workerTaskSelectionNullLoop = state2;
     return state2;
