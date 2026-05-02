@@ -162,7 +162,7 @@ function evaluateAutonomousExpansionClaim(
     return { ...controllerEvaluation, reason: 'controllerOwned' };
   }
 
-  if (isControllerReserved(controller)) {
+  if (isControllerReserved(controller, getControllerOwnerUsername(colony.room.controller))) {
     return { ...controllerEvaluation, reason: 'controllerReserved' };
   }
 
@@ -463,8 +463,17 @@ function isControllerOwned(controller: StructureController): boolean {
   return controller.my === true || controller.owner != null;
 }
 
-function isControllerReserved(controller: StructureController): boolean {
-  return isNonEmptyString(controller.reservation?.username);
+function isControllerReserved(
+  controller: StructureController,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  const reservationUsername = controller.reservation?.username;
+  return isNonEmptyString(reservationUsername) && reservationUsername !== colonyOwnerUsername;
+}
+
+function getControllerOwnerUsername(controller: StructureController | undefined): string | undefined {
+  const username = controller?.owner?.username;
+  return isNonEmptyString(username) ? username : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

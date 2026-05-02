@@ -10082,7 +10082,7 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime) {
   if (isControllerOwned2(controller)) {
     return { ...controllerEvaluation, reason: "controllerOwned" };
   }
-  if (isControllerReserved(controller)) {
+  if (isControllerReserved(controller, getControllerOwnerUsername4(colony.room.controller))) {
     return { ...controllerEvaluation, reason: "controllerReserved" };
   }
   if (isExpansionClaimControllerOnCooldown(controller)) {
@@ -10284,9 +10284,15 @@ function findVisibleHostileStructures2(room) {
 function isControllerOwned2(controller) {
   return controller.my === true || controller.owner != null;
 }
-function isControllerReserved(controller) {
+function isControllerReserved(controller, colonyOwnerUsername) {
   var _a;
-  return isNonEmptyString6((_a = controller.reservation) == null ? void 0 : _a.username);
+  const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
+  return isNonEmptyString6(reservationUsername) && reservationUsername !== colonyOwnerUsername;
+}
+function getControllerOwnerUsername4(controller) {
+  var _a;
+  const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
+  return isNonEmptyString6(username) ? username : void 0;
 }
 function isRecord7(value) {
   return typeof value === "object" && value !== null;
