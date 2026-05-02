@@ -15011,11 +15011,11 @@ function isAutonomousExpansionClaimGclInsufficient() {
   if (!gcl || typeof gcl.level !== "number" || gcl.level <= 0) {
     return false;
   }
-  const maxClaimableRooms = gcl.level;
-  if (!Number.isFinite(maxClaimableRooms)) {
+  const gclOwnedRoomLimit = gcl.level;
+  if (!Number.isFinite(gclOwnedRoomLimit)) {
     return false;
   }
-  return getVisibleOwnedRoomCount() >= maxClaimableRooms;
+  return getVisibleOwnedRoomCount() >= gclOwnedRoomLimit;
 }
 function executeExpansionClaim(creep, controller, telemetryEvents = []) {
   var _a, _b, _c, _d, _e, _f, _g, _h;

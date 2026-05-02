@@ -199,21 +199,29 @@ describe('autonomous expansion claim executor', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
-  it('marks and emits a gclInsufficient skip when expansion capacity is exceeded', () => {
+  it('marks and emits a gclInsufficient skip when GCL room cap is reached', () => {
     const colony = makeColony();
-    const ownedRoom = makeTargetRoom('W3N1', {
+    const firstOwnedRoom = makeTargetRoom('W3N1', {
       controllerId: 'controller3' as Id<StructureController>
     });
-    (ownedRoom.controller as StructureController).my = true;
-    (ownedRoom.controller as StructureController).owner = { username: 'me' };
+    const secondOwnedRoom = makeTargetRoom('W4N1', {
+      controllerId: 'controller3' as Id<StructureController>
+    });
+    const ownedController = firstOwnedRoom.controller as StructureController;
+    ownedController.my = true;
+    ownedController.owner = { username: 'me' };
+    const secondOwnedController = secondOwnedRoom.controller as StructureController;
+    secondOwnedController.my = true;
+    secondOwnedController.owner = { username: 'me' };
     (Game.rooms as Record<string, Room>) = {
       W1N1: colony.room,
-      W3N1: ownedRoom,
+      W3N1: firstOwnedRoom,
+      W4N1: secondOwnedRoom,
       W2N1: makeTargetRoom('W2N1', {
         controllerId: 'controller2' as Id<StructureController>
       })
     };
-    (Game as { gcl: { level: number } }).gcl = { level: 2 };
+    (Game as { gcl: { level: number } }).gcl = { level: 3 };
 
     const evaluation = refreshAutonomousExpansionClaimIntent(
       colony,
