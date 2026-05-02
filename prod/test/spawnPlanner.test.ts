@@ -14,6 +14,9 @@ describe('planSpawn', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
     delete (globalThis as { Game?: Partial<Game> }).Game;
@@ -106,6 +109,101 @@ describe('planSpawn', () => {
         return [];
       })
     } as unknown as Room;
+  }
+
+  function makeRoomPosition(x: number, y: number, roomName: string): RoomPosition {
+    return { x, y, roomName } as RoomPosition;
+  }
+
+  function makeRemoteSource(id: string, x = 10, y = 10, roomName = 'W2N1'): Source {
+    return {
+      id,
+      energy: 300,
+      pos: makeRoomPosition(x, y, roomName)
+    } as unknown as Source;
+  }
+
+  function makeRemoteContainer(
+    id: string,
+    energy: number,
+    x = 10,
+    y = 11,
+    roomName = 'W2N1'
+  ): StructureContainer {
+    return {
+      id,
+      structureType: 'container',
+      pos: makeRoomPosition(x, y, roomName),
+      store: {
+        getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0))
+      }
+    } as unknown as StructureContainer;
+  }
+
+  function makeRemoteEconomyRoom({
+    roomName = 'W2N1',
+    source = makeRemoteSource(`${roomName}-source0`, 10, 10, roomName),
+    container = makeRemoteContainer(`${roomName}-container0`, 0, 10, 11, roomName),
+    controller = { id: `${roomName}-controller`, my: true, level: 1 } as StructureController
+  }: {
+    roomName?: string;
+    source?: Source;
+    container?: StructureContainer;
+    controller?: StructureController;
+  } = {}): Room {
+    return {
+      name: roomName,
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [container];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+  }
+
+  function makeSatisfiedPostClaimRemoteMemory(targetRoom = 'W2N1'): TerritoryPostClaimBootstrapMemory {
+    return {
+      colony: 'W1N1',
+      roomName: targetRoom,
+      status: 'spawnSitePending',
+      claimedAt: 500,
+      updatedAt: 501,
+      workerTarget: 1,
+      controllerId: `${targetRoom}-controller` as Id<StructureController>
+    };
+  }
+
+  function makePostClaimSustainUpgrader(targetRoom = 'W2N1'): Creep {
+    return {
+      memory: {
+        role: 'worker',
+        colony: targetRoom,
+        controllerSustain: { homeRoom: 'W1N1', targetRoom, role: 'upgrader' }
+      }
+    } as Creep;
+  }
+
+  function makeRemoteHarvester(sourceId = 'W2N1-source0', containerId = 'W2N1-container0'): Creep {
+    return {
+      memory: {
+        role: 'remoteHarvester',
+        colony: 'W1N1',
+        remoteHarvester: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: sourceId as Id<Source>,
+          containerId: containerId as Id<StructureContainer>
+        }
+      },
+      ticksToLive: 1_000
+    } as Creep;
   }
 
   it('plans a worker when the colony has no workers and an idle spawn', () => {
@@ -443,6 +541,167 @@ describe('planSpawn', () => {
     };
 
     expect(planSpawn(colony, { worker: 4 }, 179)).toBeNull();
+  });
+
+  it('plans a dedicated remote harvester for a claimed adjacent room source with an active container', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const source = makeRemoteSource('W2N1-source0');
+    const container = makeRemoteContainer('W2N1-container0', 0);
+    const remoteRoom = makeRemoteEconomyRoom({ source, container });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 502,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom },
+      spawns: { Spawn1: spawn },
+      creeps: { RemoteUpgrader: makePostClaimSustainUpgrader() },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 503)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'remoteHarvester-W1N1-W2N1-W2N1-source0-503',
+      memory: {
+        role: 'remoteHarvester',
+        colony: 'W1N1',
+        remoteHarvester: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: 'W2N1-source0',
+          containerId: 'W2N1-container0'
+        }
+      }
+    });
+  });
+
+  it('dispatches a remote hauler only when the assigned remote container is above threshold', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const source = makeRemoteSource('W2N1-source0');
+    const belowThresholdRoom = makeRemoteEconomyRoom({
+      source,
+      container: makeRemoteContainer('W2N1-container0', 500)
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 504,
+      rooms: { W1N1: colony.room, W2N1: belowThresholdRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteUpgrader: makePostClaimSustainUpgrader(),
+        RemoteHarvester: makeRemoteHarvester()
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 505)).toBeNull();
+
+    const aboveThresholdRoom = makeRemoteEconomyRoom({
+      source,
+      container: makeRemoteContainer('W2N1-container0', 501)
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 505,
+      rooms: { W1N1: colony.room, W2N1: aboveThresholdRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteUpgrader: makePostClaimSustainUpgrader(),
+        RemoteHarvester: makeRemoteHarvester()
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 506)).toEqual({
+      spawn,
+      body: ['carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move'],
+      name: 'hauler-W1N1-W2N1-W2N1-container0-506',
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        remoteHauler: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: 'W2N1-source0',
+          containerId: 'W2N1-container0'
+        }
+      }
+    });
+  });
+
+  it('does not spawn remote harvesters while the target has a hostile territory suspension', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const remoteRoom = makeRemoteEconomyRoom();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 507,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom },
+      spawns: { Spawn1: spawn },
+      creeps: { RemoteUpgrader: makePostClaimSustainUpgrader() },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() },
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 506,
+            suspended: { reason: 'hostile_presence', hostileCount: 1, updatedAt: 506 }
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 508)).toBeNull();
+  });
+
+  it('limits remote harvesters to one active creep per remote source', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const remoteRoom = makeRemoteEconomyRoom({
+      container: makeRemoteContainer('W2N1-container0', 0)
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 509,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteUpgrader: makePostClaimSustainUpgrader(),
+        RemoteHarvester: makeRemoteHarvester()
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 510)).toBeNull();
   });
 
   it('keeps normal replacement body selection when only expiring workers remain', () => {

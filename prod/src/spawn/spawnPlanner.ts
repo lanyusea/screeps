@@ -5,6 +5,16 @@ import {
   type ColonySurvivalAssessment
 } from '../colony/survivalMode';
 import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
+import {
+  buildRemoteHarvesterBody,
+  REMOTE_HARVESTER_ROLE,
+  selectRemoteHarvesterAssignment
+} from '../creeps/remoteHarvester';
+import {
+  buildRemoteHaulerBody,
+  HAULER_ROLE,
+  selectRemoteHaulerAssignment
+} from '../creeps/hauler';
 import { DEFENDER_ROLE } from '../defense/defenseLoop';
 import {
   buildEmergencyDefenderBody,
@@ -31,6 +41,7 @@ type SpawnPriorityTier =
   | 'localRefillSurvival'
   | 'controllerDowngradeGuard'
   | 'postClaimControllerSustain'
+  | 'remoteEconomy'
   | 'territoryRemote'
   | 'controllerUpgradeSurplus';
 
@@ -77,6 +88,7 @@ const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'localRefillSurvival',
   'controllerDowngradeGuard',
   'postClaimControllerSustain',
+  'remoteEconomy',
   'territoryRemote',
   'controllerUpgradeSurplus'
 ];
@@ -123,6 +135,8 @@ function planSpawnForPriorityTier(
       return planControllerDowngradeGuardSpawn(context);
     case 'postClaimControllerSustain':
       return planPostClaimControllerSustainSpawn(context);
+    case 'remoteEconomy':
+      return planRemoteEconomySpawn(context);
     case 'defense':
       return planDefenseSpawn(context);
     case 'territoryRemote':
@@ -428,6 +442,76 @@ function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
       role: DEFENDER_ROLE,
       colony: roomName,
       defense: { homeRoom: roomName }
+    }
+  };
+}
+
+function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.options.workersOnly ||
+    context.survival.mode !== 'TERRITORY_READY' ||
+    context.workerCapacity < context.workerTarget ||
+    context.colony.energyAvailable < context.colony.energyCapacityAvailable
+  ) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const remoteHarvesterAssignment = selectRemoteHarvesterAssignment(context.colony.room.name);
+  if (remoteHarvesterAssignment) {
+    const body = buildRemoteHarvesterBody(context.colony.energyAvailable);
+    if (body.length > 0) {
+      return {
+        spawn,
+        body,
+        name: appendSpawnNameSuffix(
+          `${REMOTE_HARVESTER_ROLE}-${context.colony.room.name}-${remoteHarvesterAssignment.targetRoom}-${remoteHarvesterAssignment.sourceId}-${context.gameTime}`,
+          context.options
+        ),
+        memory: {
+          role: REMOTE_HARVESTER_ROLE,
+          colony: context.colony.room.name,
+          remoteHarvester: {
+            homeRoom: remoteHarvesterAssignment.homeRoom,
+            targetRoom: remoteHarvesterAssignment.targetRoom,
+            sourceId: remoteHarvesterAssignment.sourceId,
+            containerId: remoteHarvesterAssignment.containerId
+          }
+        }
+      };
+    }
+  }
+
+  const remoteHaulerAssignment = selectRemoteHaulerAssignment(context.colony.room.name);
+  if (!remoteHaulerAssignment) {
+    return null;
+  }
+
+  const body = buildRemoteHaulerBody(context.colony.energyAvailable);
+  if (body.length === 0) {
+    return null;
+  }
+
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(
+      `${HAULER_ROLE}-${context.colony.room.name}-${remoteHaulerAssignment.targetRoom}-${remoteHaulerAssignment.containerId}-${context.gameTime}`,
+      context.options
+    ),
+    memory: {
+      role: HAULER_ROLE,
+      colony: context.colony.room.name,
+      remoteHauler: {
+        homeRoom: remoteHaulerAssignment.homeRoom,
+        targetRoom: remoteHaulerAssignment.targetRoom,
+        sourceId: remoteHaulerAssignment.sourceId,
+        containerId: remoteHaulerAssignment.containerId
+      }
     }
   };
 }
