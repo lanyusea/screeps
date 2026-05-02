@@ -72,6 +72,29 @@ function shouldPruneAutonomousExpansionClaimTargets(
   );
 }
 
+function getVisibleOwnedRoomCount(): number {
+  const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+  if (!rooms) {
+    return 0;
+  }
+
+  return Object.values(rooms).filter((room) => room?.controller?.my === true).length;
+}
+
+function isAutonomousExpansionClaimGclInsufficient(): boolean {
+  const gcl = (globalThis as { Game?: Partial<Game> & { gcl?: { level?: number } } }).Game?.gcl;
+  if (!gcl || typeof gcl.level !== 'number' || gcl.level <= 0) {
+    return false;
+  }
+
+  const maxClaimableRooms = gcl.level;
+  if (!Number.isFinite(maxClaimableRooms)) {
+    return false;
+  }
+
+  return getVisibleOwnedRoomCount() >= maxClaimableRooms;
+}
+
 export function executeExpansionClaim(
   creep: Creep,
   controller: StructureController,
@@ -164,6 +187,10 @@ function evaluateAutonomousExpansionClaim(
 
   if (isControllerReserved(controller, getControllerOwnerUsername(colony.room.controller))) {
     return { ...controllerEvaluation, reason: 'controllerReserved' };
+  }
+
+  if (isAutonomousExpansionClaimGclInsufficient()) {
+    return { ...controllerEvaluation, reason: 'gclInsufficient' };
   }
 
   if (isExpansionClaimControllerOnCooldown(controller)) {

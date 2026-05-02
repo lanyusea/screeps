@@ -3,6 +3,7 @@ import {
   buildTerritoryCreepMemory,
   getActiveTerritoryFollowUpExecutionHints,
   hasPendingTerritoryFollowUpIntent,
+  recordAutonomousExpansionClaimReserveFallbackIntent,
   planTerritoryIntent,
   recordTerritoryReserveFallbackIntent,
   recordRecoveredTerritoryFollowUpRetryCooldown,
@@ -17,6 +18,7 @@ import {
   TERRITORY_RESERVATION_RENEWAL_TICKS,
   TERRITORY_SUPPRESSION_RETRY_TICKS
 } from '../src/territory/territoryPlanner';
+import type { AutonomousExpansionClaimEvaluation } from '../src/territory/claimExecutor';
 
 describe('planTerritoryIntent', () => {
   beforeEach(() => {
@@ -5431,6 +5433,338 @@ describe('planTerritoryIntent', () => {
         updatedAt: 544
       }
     ]);
+  });
+
+  it('does not overwrite a fresh suppressed reserve fallback intent', () => {
+    const colony = makeSafeColony({ energyAvailable: 3250, energyCapacityAvailable: 3250 });
+    const suppressedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'suppressed',
+      updatedAt: 543
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { controller: { my: false } as StructureController })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
+        intents: [suppressedIntent]
+      }
+    };
+
+    expect(
+      recordTerritoryReserveFallbackIntent('W1N1', { targetRoom: 'W2N1', action: 'reserve' }, 544)
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual([suppressedIntent]);
+  });
+
+  it('records a reserve fallback intent when autonomous expansion is skipped due to gclInsufficient', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { controller: { my: false } as StructureController })
+      }
+    };
+
+    const evaluation: AutonomousExpansionClaimEvaluation = {
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2' as Id<StructureController>,
+      reason: 'gclInsufficient'
+    };
+
+    const assignment = recordAutonomousExpansionClaimReserveFallbackIntent('W1N1', evaluation, 544);
+
+    expect(assignment).toEqual({
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 544,
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('suppresses same-room claim intent when emitting an autonomous reserve fallback', () => {
+    const colony = makeSafeColony();
+    const claimTarget: TerritoryTargetMemory = { colony: 'W1N1', roomName: 'W2N1', action: 'claim' };
+    const claimIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'active',
+      updatedAt: 543
+    };
+    const followUp = makeFollowUp('satisfiedClaimAdjacent', 'W1N1', 'claim');
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { controller: { my: false } as StructureController })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [claimTarget],
+        intents: [claimIntent],
+        demands: [
+          {
+            type: 'followUpPreparation',
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            workerCount: 1,
+            updatedAt: 543,
+            followUp
+          }
+        ],
+        executionHints: [
+          {
+            type: 'activeFollowUpExecution',
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            reason: 'visibleControlEvidenceStillActionable',
+            updatedAt: 543,
+            followUp
+          }
+        ]
+      }
+    };
+
+    const evaluation: AutonomousExpansionClaimEvaluation = {
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2' as Id<StructureController>,
+      reason: 'gclInsufficient'
+    };
+
+    const assignment = recordAutonomousExpansionClaimReserveFallbackIntent('W1N1', evaluation, 544);
+
+    expect(assignment).toEqual({
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 544
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 544,
+        controllerId: 'controller2'
+      }
+    ]);
+    expect(Memory.territory?.demands).toBeUndefined();
+    expect(Memory.territory?.executionHints).toBeUndefined();
+  });
+
+  it('does not overwrite a fresh suppressed reserve fallback intent from autonomous expansion fallback', () => {
+    const colony = makeSafeColony();
+    const suppressedIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      status: 'suppressed',
+      updatedAt: 543
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { controller: { my: false } as StructureController })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
+        intents: [suppressedIntent]
+      }
+    };
+
+    const evaluation: AutonomousExpansionClaimEvaluation = {
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2' as Id<StructureController>,
+      reason: 'gclInsufficient'
+    };
+
+    expect(recordAutonomousExpansionClaimReserveFallbackIntent('W1N1', evaluation, 544)).toBeNull();
+    expect(Memory.territory?.intents).toEqual([suppressedIntent]);
+  });
+
+  it('records a reserve fallback intent when autonomous expansion is skipped due to controllerCooldown', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', { controller: { my: false } as StructureController })
+      }
+    };
+
+    const evaluation: AutonomousExpansionClaimEvaluation = {
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2' as Id<StructureController>,
+      reason: 'controllerCooldown'
+    };
+
+    const assignment = recordAutonomousExpansionClaimReserveFallbackIntent('W1N1', evaluation, 544);
+
+    expect(assignment).toEqual({
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 544,
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('does not record an autonomous reserve fallback when the claim target is already reserved by us', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: 5_000 }
+          } as StructureController
+        })
+      }
+    };
+
+    const evaluation: AutonomousExpansionClaimEvaluation = {
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2' as Id<StructureController>,
+      reason: 'gclInsufficient'
+    };
+
+    const assignment = recordAutonomousExpansionClaimReserveFallbackIntent('W1N1', evaluation, 544);
+
+    expect(assignment).toBeNull();
+    expect(Memory.territory).toEqual({});
+  });
+
+  it('does not record an autonomous reserve fallback when the claim target is reserved by another player', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 2_000 }
+          } as StructureController
+        })
+      }
+    };
+
+    const evaluation: AutonomousExpansionClaimEvaluation = {
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2' as Id<StructureController>,
+      reason: 'controllerCooldown'
+    };
+
+    const assignment = recordAutonomousExpansionClaimReserveFallbackIntent('W1N1', evaluation, 544);
+
+    expect(assignment).toBeNull();
+    expect(Memory.territory).toEqual({});
+  });
+
+  it('plans re-reservation when an owned reservation drops below 500 ticks', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeRecommendationRoom('W2N1', {
+          controller: {
+            my: false,
+            reservation: { username: 'me', ticksToEnd: 499 }
+          } as StructureController
+        })
+      }
+    };
+
+    const evaluation: AutonomousExpansionClaimEvaluation = {
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2' as Id<StructureController>,
+      reason: 'gclInsufficient'
+    };
+
+    const assignment = recordAutonomousExpansionClaimReserveFallbackIntent('W1N1', evaluation, 544);
+
+    expect(assignment).toEqual({
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.reservations).toEqual({
+      'W1N1>W2N1': {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        ticksToEnd: 499,
+        updatedAt: 544,
+        controllerId: 'controller2'
+      }
+    });
+    expect(
+      shouldSpawnTerritoryControllerCreep(
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'reserve',
+          controllerId: 'controller2' as Id<StructureController>
+        },
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoomAction: {
+            reserve: {
+              W2N1: 1
+            }
+          }
+        },
+        545
+      )
+    ).toBe(true);
   });
 
   it('keeps foreign reservation pressure body requirements after target vision is lost', () => {
