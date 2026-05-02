@@ -9157,7 +9157,6 @@ var OK_CODE3 = 0;
 var ERR_INVALID_TARGET_CODE = -7;
 var ROOM_EDGE_MIN4 = 2;
 var ROOM_EDGE_MAX4 = 47;
-var MAX_SPAWN_SITE_SCAN_RADIUS = 6;
 var DEFAULT_TERRAIN_WALL_MASK3 = 1;
 function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   var _a, _b;
@@ -9336,8 +9335,9 @@ function findInitialSpawnConstructionPosition(room) {
   if (!anchor) {
     return null;
   }
-  const lookups = buildSpawnPlacementLookups(room, anchor);
-  for (let radius = 0; radius <= MAX_SPAWN_SITE_SCAN_RADIUS; radius += 1) {
+  const maximumScanRadius = getMaximumSpawnSiteScanRadius(anchor);
+  const lookups = buildSpawnPlacementLookups(room, anchor, maximumScanRadius);
+  for (let radius = 0; radius <= maximumScanRadius; radius += 1) {
     for (let y = anchor.y - radius; y <= anchor.y + radius; y += 1) {
       for (let x = anchor.x - radius; x <= anchor.x + radius; x += 1) {
         if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) !== radius) {
@@ -9367,13 +9367,13 @@ function selectInitialSpawnAnchor(room) {
     y: Math.round((controllerPosition.y + nearestSourcePosition.y) / 2)
   });
 }
-function buildSpawnPlacementLookups(room, anchor) {
+function buildSpawnPlacementLookups(room, anchor, maximumScanRadius) {
   const blockingPositions = /* @__PURE__ */ new Set();
   for (const object of [
     room.controller,
     ...findSources(room),
-    ...lookForArea(room, "LOOK_STRUCTURES", anchor),
-    ...lookForArea(room, "LOOK_CONSTRUCTION_SITES", anchor)
+    ...lookForArea(room, "LOOK_STRUCTURES", anchor, maximumScanRadius),
+    ...lookForArea(room, "LOOK_CONSTRUCTION_SITES", anchor, maximumScanRadius)
   ]) {
     const position = getRoomObjectPosition2(object);
     if (position) {
@@ -9385,12 +9385,12 @@ function buildSpawnPlacementLookups(room, anchor) {
     terrain: getRoomTerrain3(room.name)
   };
 }
-function lookForArea(room, lookConstantName, anchor) {
+function lookForArea(room, lookConstantName, anchor, maximumScanRadius) {
   const lookConstant = getGlobalString(lookConstantName);
   if (!lookConstant || typeof room.lookForAtArea !== "function") {
     return [];
   }
-  const bounds = getScanBounds2(anchor);
+  const bounds = getScanBounds2(anchor, maximumScanRadius);
   return room.lookForAtArea(
     lookConstant,
     bounds.top,
@@ -9400,12 +9400,12 @@ function lookForArea(room, lookConstantName, anchor) {
     true
   );
 }
-function getScanBounds2(anchor) {
+function getScanBounds2(anchor, maximumScanRadius) {
   return {
-    top: Math.max(ROOM_EDGE_MIN4, anchor.y - MAX_SPAWN_SITE_SCAN_RADIUS),
-    left: Math.max(ROOM_EDGE_MIN4, anchor.x - MAX_SPAWN_SITE_SCAN_RADIUS),
-    bottom: Math.min(ROOM_EDGE_MAX4, anchor.y + MAX_SPAWN_SITE_SCAN_RADIUS),
-    right: Math.min(ROOM_EDGE_MAX4, anchor.x + MAX_SPAWN_SITE_SCAN_RADIUS)
+    top: Math.max(ROOM_EDGE_MIN4, anchor.y - maximumScanRadius),
+    left: Math.max(ROOM_EDGE_MIN4, anchor.x - maximumScanRadius),
+    bottom: Math.min(ROOM_EDGE_MAX4, anchor.y + maximumScanRadius),
+    right: Math.min(ROOM_EDGE_MAX4, anchor.x + maximumScanRadius)
   };
 }
 function canPlaceInitialSpawn(lookups, position) {
@@ -9506,6 +9506,14 @@ function clampPosition(position) {
 }
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+function getMaximumSpawnSiteScanRadius(anchor) {
+  return Math.max(
+    anchor.x - ROOM_EDGE_MIN4,
+    ROOM_EDGE_MAX4 - anchor.x,
+    anchor.y - ROOM_EDGE_MIN4,
+    ROOM_EDGE_MAX4 - anchor.y
+  );
 }
 function getRange(left, right) {
   return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));

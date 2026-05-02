@@ -971,6 +971,95 @@ describe('runEconomy', () => {
     });
   });
 
+  it('plans an initial spawn construction site beyond radius 6 when nearer tiles are blocked', () => {
+    (globalThis as unknown as {
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_SOURCES: number;
+      LOOK_STRUCTURES: LOOK_STRUCTURES;
+      LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
+      STRUCTURE_SPAWN: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      Memory: Partial<Memory>;
+    }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+    (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES =
+      'constructionSite';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'detected',
+            claimedAt: 402,
+            updatedAt: 402,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+    const constructionSites: ConstructionSite[] = [];
+    const room = {
+      name: 'W2N1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: {
+        id: 'controller2',
+        my: true,
+        level: 1,
+        pos: { x: 25, y: 25, roomName: 'W2N1' }
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'source1', pos: { x: 21, y: 21, roomName: 'W2N1' } } as Source];
+        }
+
+        if (type === FIND_MY_CONSTRUCTION_SITES) {
+          return constructionSites;
+        }
+
+        return [];
+      }),
+      lookForAtArea: jest.fn().mockReturnValue([]),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'W2N1' }
+        } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room;
+    const terrain = {
+      get: jest.fn((x: number, y: number) => (Math.max(Math.abs(x - 23), Math.abs(y - 23)) <= 6 ? 1 : 0))
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 403,
+      rooms: { W2N1: room },
+      spawns: {},
+      creeps: {},
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue(terrain)
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_STRUCTURES, 2, 2, 47, 47, true);
+    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_CONSTRUCTION_SITES, 2, 2, 47, 47, true);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(16, 16, STRUCTURE_SPAWN);
+    expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
+      status: 'spawnSitePending',
+      updatedAt: 403,
+      spawnSite: { roomName: 'W2N1', x: 16, y: 16 },
+      lastResult: OK_CODE
+    });
+  });
+
   it('spawns initial local workers for a post-claim room that already has a spawn', () => {
     (globalThis as unknown as {
       FIND_SOURCES: number;
