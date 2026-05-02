@@ -89,14 +89,15 @@ def build_strategy_shadow_report(
     candidate_strategy_ids: Sequence[str] = (),
     repo_root: Path | None = None,
 ) -> JsonObject:
-    repo = repo_root or Path.cwd()
-    resolved_out_dir = out_dir.expanduser()
+    repo = (repo_root or Path.cwd()).expanduser().resolve()
+    resolved_out_dir = resolve_path_against_repo(out_dir, repo)
+    resolved_paths = resolve_scan_paths(paths, repo)
     resolved_dist_path = resolve_dist_path(dist_path, repo)
     resolved_bot_commit = bot_commit or dataset_export.git_commit(repo)
     resolved_generated_at = generated_at or utc_now_iso()
 
     scan = dataset_export.collect_artifact_records(
-        paths,
+        resolved_paths,
         max_file_bytes=max_file_bytes,
         excluded_roots=[resolved_out_dir],
     )
@@ -117,7 +118,7 @@ def build_strategy_shadow_report(
         evaluator_report=evaluator_report,
         scan=scan,
         selected_artifacts=selected_artifacts,
-        input_paths=list(paths) if paths else list(dataset_export.DEFAULT_INPUT_PATHS),
+        input_paths=[str(path) for path in resolved_paths],
         generated_at=resolved_generated_at,
         bot_commit=resolved_bot_commit,
         max_file_bytes=max_file_bytes,
@@ -137,14 +138,23 @@ def build_strategy_shadow_report(
 
 
 def resolve_dist_path(dist_path: Path, repo_root: Path) -> Path:
-    expanded = dist_path.expanduser()
-    resolved = expanded if expanded.is_absolute() else repo_root / expanded
-    resolved = resolved.resolve(strict=False)
+    resolved = resolve_path_against_repo(dist_path, repo_root)
     if not resolved.exists():
         raise FileNotFoundError(
             f"{dataset_export.display_path(resolved)} not found; run `cd prod && npm run build` before generating reports"
         )
     return resolved
+
+
+def resolve_scan_paths(paths: Sequence[str], repo_root: Path) -> list[Path]:
+    input_paths = list(paths) if paths else list(dataset_export.DEFAULT_INPUT_PATHS)
+    return [resolve_path_against_repo(Path(path), repo_root) for path in input_paths]
+
+
+def resolve_path_against_repo(path: Path, repo_root: Path) -> Path:
+    expanded = path.expanduser()
+    resolved = expanded if expanded.is_absolute() else repo_root / expanded
+    return resolved.resolve()
 
 
 def run_shadow_evaluator(
@@ -602,12 +612,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
+def main(
+    argv: list[str] | None = None,
+    stdout: TextIO = sys.stdout,
+    repo_root: Path | None = None,
+) -> int:
     args = build_parser().parse_args(argv)
+    repo = (repo_root or Path.cwd()).expanduser().resolve()
     summary = build_strategy_shadow_report(
         args.paths,
         args.out_dir,
         dist_path=args.dist_path,
+        repo_root=repo,
         report_id=args.report_id,
         bot_commit=args.bot_commit,
         max_file_bytes=args.max_file_bytes,
@@ -623,4 +639,4 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(repo_root=Path(__file__).resolve().parent.parent))
