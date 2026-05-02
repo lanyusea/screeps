@@ -1,4 +1,5 @@
 import {
+  CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
@@ -583,14 +584,49 @@ function getTransferSinkPriority(target: unknown): number {
     return 0;
   }
 
-  if (
-    matchesTransferSinkStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') ||
-    matchesTransferSinkStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')
-  ) {
+  if (matchesTransferSinkStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn')) {
+    return isCriticalSpawnRefillTarget(target) ? 3 : 2;
+  }
+
+  if (matchesTransferSinkStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')) {
     return 2;
   }
 
   return matchesTransferSinkStructureType(structureType, 'STRUCTURE_TOWER', 'tower') ? 1 : 0;
+}
+
+function isCriticalSpawnRefillTarget(target: unknown): boolean {
+  const structureType = (target as { structureType?: unknown } | null)?.structureType;
+  const storedEnergy = getKnownStoredTransferEnergy(target);
+  return (
+    typeof structureType === 'string' &&
+    matchesTransferSinkStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn') &&
+    storedEnergy !== null &&
+    storedEnergy < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+  );
+}
+
+function getKnownStoredTransferEnergy(target: unknown): number | null {
+  const store = (
+    target as {
+      store?: {
+        getUsedCapacity?: (resource?: ResourceConstant) => number | null;
+        [resource: string]: unknown;
+      };
+    } | null
+  )?.store;
+  const usedCapacity = store?.getUsedCapacity?.(RESOURCE_ENERGY);
+  if (typeof usedCapacity === 'number' && Number.isFinite(usedCapacity)) {
+    return usedCapacity;
+  }
+
+  const storedEnergy = store?.[RESOURCE_ENERGY];
+  if (typeof storedEnergy === 'number' && Number.isFinite(storedEnergy)) {
+    return storedEnergy;
+  }
+
+  const legacyEnergy = (target as { energy?: unknown } | null)?.energy;
+  return typeof legacyEnergy === 'number' && Number.isFinite(legacyEnergy) ? legacyEnergy : null;
 }
 
 function matchesTransferSinkStructureType(

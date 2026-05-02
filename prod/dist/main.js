@@ -5358,7 +5358,8 @@ var CONTROLLER_DOWNGRADE_GUARD_TICKS2 = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var TOWER_REFILL_ENERGY_FLOOR = 500;
-var URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
+var CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
+var URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
 var NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
 var MINIMUM_USEFUL_LOAD_RATIO = 0.4;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
@@ -5456,6 +5457,9 @@ function selectWorkerTask(creep) {
       type: "transfer",
       targetId: spawnOrExtensionEnergySink.id
     };
+    if (isCriticalSpawnEnergySink(spawnOrExtensionEnergySink)) {
+      recordSpawnCriticalRefillTelemetry(creep, spawnOrExtensionEnergySink);
+    }
     if (hasEmergencySpawnExtensionRefillDemand(creep)) {
       recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "emergencySpawnExtensionRefill");
       return spawnOrExtensionRefillTask;
@@ -5729,6 +5733,22 @@ function clearWorkerEfficiencyTelemetry(creep) {
     delete memory.workerEfficiency;
   }
 }
+function recordSpawnCriticalRefillTelemetry(creep, spawn) {
+  var _a, _b;
+  const memory = creep.memory;
+  if (!memory) {
+    return;
+  }
+  memory.spawnCriticalRefill = {
+    type: "spawnCriticalRefill",
+    tick: (_a = getGameTick()) != null ? _a : 0,
+    targetId: String(spawn.id),
+    carriedEnergy: getUsedEnergy(creep),
+    spawnEnergy: (_b = getKnownStoredEnergy(spawn)) != null ? _b : 0,
+    freeCapacity: getFreeStoredEnergyCapacity(spawn),
+    threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+  };
+}
 function recordNearbyEnergyChoiceTelemetry(creep, candidate) {
   var _a;
   const context = getLowLoadWorkerEnergyContext(creep);
@@ -5805,7 +5825,18 @@ function compareSpawnExtensionRecoveryEnergySinks(left, right, creep, reservedEn
   const carriedEnergy = getUsedEnergy(creep);
   const leftDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(left, reservedEnergyDeliveries);
   const rightDeliveryCapacity = getUnreservedEnergySinkDeliveryCapacity(right, reservedEnergyDeliveries);
-  return compareLowEnergySpawnPriority(left, right) || compareAcceptedDeliveryEnergy(leftDeliveryCapacity, rightDeliveryCapacity, carriedEnergy) || compareAssignedTransferTarget(left, right, assignedTransferTargetId) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareEnergySinkId(left, right);
+  return compareCriticalSpawnPriority(left, right) || compareLowEnergySpawnPriority(left, right) || compareAcceptedDeliveryEnergy(leftDeliveryCapacity, rightDeliveryCapacity, carriedEnergy) || compareAssignedTransferTarget(left, right, assignedTransferTargetId) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareEnergySinkId(left, right);
+}
+function compareCriticalSpawnPriority(left, right) {
+  if (isSpawnEnergySink(left) && isSpawnEnergySink(right)) {
+    return 0;
+  }
+  const leftCriticalSpawn = isCriticalSpawnEnergySink(left);
+  const rightCriticalSpawn = isCriticalSpawnEnergySink(right);
+  if (leftCriticalSpawn === rightCriticalSpawn) {
+    return 0;
+  }
+  return leftCriticalSpawn ? -1 : 1;
 }
 function compareLowEnergySpawnPriority(left, right) {
   const leftLowEnergySpawn = isLowEnergySpawn(left);
@@ -5817,6 +5848,10 @@ function compareLowEnergySpawnPriority(left, right) {
 }
 function isLowEnergySpawn(structure) {
   return isSpawnEnergySink(structure) && getStoredEnergy2(structure) < getSpawnEnergyCapacity();
+}
+function isCriticalSpawnEnergySink(structure) {
+  const storedEnergy = getKnownStoredEnergy(structure);
+  return isSpawnEnergySink(structure) && storedEnergy !== null && storedEnergy < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
 }
 function getSpawnEnergyCapacity() {
   const spawnEnergyCapacity = globalThis.SPAWN_ENERGY_CAPACITY;
@@ -7345,16 +7380,23 @@ function getFreeEnergyCapacity(creep) {
 }
 function getStoredEnergy2(object) {
   var _a;
+  return (_a = getKnownStoredEnergy(object)) != null ? _a : 0;
+}
+function getKnownStoredEnergy(object) {
+  var _a;
   const store = getStore(object);
-  if (!store) {
-    return 0;
+  if (store) {
+    const usedCapacity = (_a = store.getUsedCapacity) == null ? void 0 : _a.call(store, getWorkerEnergyResource());
+    if (typeof usedCapacity === "number" && Number.isFinite(usedCapacity)) {
+      return usedCapacity;
+    }
+    const storedEnergy = store[getWorkerEnergyResource()];
+    if (typeof storedEnergy === "number" && Number.isFinite(storedEnergy)) {
+      return storedEnergy;
+    }
   }
-  const usedCapacity = (_a = store.getUsedCapacity) == null ? void 0 : _a.call(store, getWorkerEnergyResource());
-  if (typeof usedCapacity === "number") {
-    return usedCapacity;
-  }
-  const storedEnergy = store[getWorkerEnergyResource()];
-  return typeof storedEnergy === "number" ? storedEnergy : 0;
+  const legacyEnergy = object == null ? void 0 : object.energy;
+  return typeof legacyEnergy === "number" && Number.isFinite(legacyEnergy) ? legacyEnergy : null;
 }
 function getFreeStoredEnergyCapacity(object) {
   var _a;
@@ -7995,10 +8037,32 @@ function getTransferSinkPriority(target) {
   if (typeof structureType !== "string") {
     return 0;
   }
-  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_SPAWN", "spawn") || matchesTransferSinkStructureType(structureType, "STRUCTURE_EXTENSION", "extension")) {
+  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_SPAWN", "spawn")) {
+    return isCriticalSpawnRefillTarget(target) ? 3 : 2;
+  }
+  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_EXTENSION", "extension")) {
     return 2;
   }
   return matchesTransferSinkStructureType(structureType, "STRUCTURE_TOWER", "tower") ? 1 : 0;
+}
+function isCriticalSpawnRefillTarget(target) {
+  const structureType = target == null ? void 0 : target.structureType;
+  const storedEnergy = getKnownStoredTransferEnergy(target);
+  return typeof structureType === "string" && matchesTransferSinkStructureType(structureType, "STRUCTURE_SPAWN", "spawn") && storedEnergy !== null && storedEnergy < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
+}
+function getKnownStoredTransferEnergy(target) {
+  var _a;
+  const store = target == null ? void 0 : target.store;
+  const usedCapacity = (_a = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a.call(store, RESOURCE_ENERGY);
+  if (typeof usedCapacity === "number" && Number.isFinite(usedCapacity)) {
+    return usedCapacity;
+  }
+  const storedEnergy = store == null ? void 0 : store[RESOURCE_ENERGY];
+  if (typeof storedEnergy === "number" && Number.isFinite(storedEnergy)) {
+    return storedEnergy;
+  }
+  const legacyEnergy = target == null ? void 0 : target.energy;
+  return typeof legacyEnergy === "number" && Number.isFinite(legacyEnergy) ? legacyEnergy : null;
 }
 function matchesTransferSinkStructureType(actual, globalName, fallback) {
   var _a;
@@ -9155,9 +9219,11 @@ var MAX_REPORTED_EVENTS = 10;
 var MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 var MAX_WORKER_EFFICIENCY_REASON_SAMPLES = 5;
 var MAX_REFILL_DELIVERY_SAMPLES = 5;
+var MAX_SPAWN_CRITICAL_REFILL_SAMPLES = 5;
 var MAX_TERRITORY_INTENT_SUMMARIES = 5;
 var WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
+var SPAWN_CRITICAL_REFILL_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 var OBSERVED_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var WORKER_TASK_TYPES = ["harvest", "transfer", "build", "repair", "upgrade"];
 var PRODUCTIVE_WORKER_TASK_TYPES = ["build", "repair", "upgrade"];
@@ -9273,6 +9339,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     taskCounts: countWorkerTasks(colonyWorkers),
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime6()),
     ...summarizeRefillTelemetry(colonyWorkers, getGameTime6()),
+    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime6()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -9511,6 +9578,41 @@ function isWorkerEfficiencySample(value) {
 }
 function isWorkerEfficiencyTaskType(value) {
   return value === "harvest" || value === "pickup" || value === "withdraw" || value === "transfer" || value === "build" || value === "repair" || value === "claim" || value === "reserve" || value === "upgrade";
+}
+function summarizeSpawnCriticalRefill(workers, tick) {
+  const samples = workers.map((worker) => ({ creepName: getCreepName2(worker), sample: worker.memory.spawnCriticalRefill })).filter(
+    (entry) => isRecentSpawnCriticalRefillSample(entry.sample, tick)
+  ).sort(compareSpawnCriticalRefillSampleEntries);
+  if (samples.length === 0) {
+    return {};
+  }
+  const reportedSamples = samples.slice(0, MAX_SPAWN_CRITICAL_REFILL_SAMPLES).map(toRuntimeSpawnCriticalRefillSample);
+  const assignedCarriedEnergy = samples.reduce((total, entry) => total + Math.max(0, entry.sample.carriedEnergy), 0);
+  return {
+    spawnCriticalRefill: {
+      assignedWorkerCount: samples.length,
+      assignedCarriedEnergy,
+      threshold: samples[0].sample.threshold,
+      samples: reportedSamples,
+      ...samples.length > MAX_SPAWN_CRITICAL_REFILL_SAMPLES ? { omittedSampleCount: samples.length - MAX_SPAWN_CRITICAL_REFILL_SAMPLES } : {}
+    }
+  };
+}
+function compareSpawnCriticalRefillSampleEntries(left, right) {
+  var _a, _b;
+  return right.sample.tick - left.sample.tick || ((_a = left.creepName) != null ? _a : "").localeCompare((_b = right.creepName) != null ? _b : "") || left.sample.targetId.localeCompare(right.sample.targetId);
+}
+function toRuntimeSpawnCriticalRefillSample(entry) {
+  return {
+    ...entry.creepName ? { creepName: entry.creepName } : {},
+    ...entry.sample
+  };
+}
+function isRecentSpawnCriticalRefillSample(sample, tick) {
+  return isSpawnCriticalRefillSample(sample) && (tick <= 0 || sample.tick <= tick && sample.tick > tick - SPAWN_CRITICAL_REFILL_SAMPLE_TTL);
+}
+function isSpawnCriticalRefillSample(value) {
+  return isRecord6(value) && value.type === "spawnCriticalRefill" && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.targetId === "string" && typeof value.carriedEnergy === "number" && Number.isFinite(value.carriedEnergy) && typeof value.spawnEnergy === "number" && Number.isFinite(value.spawnEnergy) && typeof value.freeCapacity === "number" && Number.isFinite(value.freeCapacity) && typeof value.threshold === "number" && Number.isFinite(value.threshold);
 }
 function getCreepName2(creep) {
   const name = creep.name;
