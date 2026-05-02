@@ -25,9 +25,11 @@ const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
 const MAX_WORKER_EFFICIENCY_REASON_SAMPLES = 5;
 const MAX_REFILL_DELIVERY_SAMPLES = 5;
+const MAX_SPAWN_CRITICAL_REFILL_SAMPLES = 5;
 const MAX_TERRITORY_INTENT_SUMMARIES = 5;
 const WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
+const SPAWN_CRITICAL_REFILL_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const OBSERVED_RAMPART_REPAIR_HITS_CEILING = 100_000;
 
 const WORKER_TASK_TYPES = ['harvest', 'transfer', 'build', 'repair', 'upgrade'] as const;
@@ -122,6 +124,7 @@ interface RuntimeRoomSummary {
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
   refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary;
   refillWorkerUtilization?: RuntimeRefillWorkerUtilizationSummary;
+  spawnCriticalRefill?: RuntimeSpawnCriticalRefillSummary;
   controller?: RuntimeControllerSummary;
   resources: RuntimeResourceSummary;
   combat: RuntimeCombatSummary;
@@ -228,6 +231,23 @@ interface RuntimeRefillWorkerUtilizationWorkerSummary {
   refillActiveTicks: number;
   idleOrOtherTaskTicks: number;
   ratio: number;
+}
+
+interface RuntimeSpawnCriticalRefillSummary {
+  assignedWorkerCount: number;
+  assignedCarriedEnergy: number;
+  threshold: number;
+  samples: RuntimeSpawnCriticalRefillSampleSummary[];
+  omittedSampleCount?: number;
+}
+
+interface RuntimeSpawnCriticalRefillSampleSummary extends WorkerSpawnCriticalRefillMemory {
+  creepName?: string;
+}
+
+interface RuntimeSpawnCriticalRefillSampleEntry {
+  creepName: string | undefined;
+  sample: WorkerSpawnCriticalRefillMemory;
 }
 
 interface RuntimeCombatEventSummary {
@@ -435,6 +455,7 @@ function summarizeRoom(
     taskCounts: countWorkerTasks(colonyWorkers),
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime()),
     ...summarizeRefillTelemetry(colonyWorkers, getGameTime()),
+    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -840,6 +861,85 @@ function isWorkerEfficiencyTaskType(value: unknown): value is CreepTaskMemory['t
     value === 'claim' ||
     value === 'reserve' ||
     value === 'upgrade'
+  );
+}
+
+function summarizeSpawnCriticalRefill(
+  workers: Creep[],
+  tick: number
+): { spawnCriticalRefill?: RuntimeSpawnCriticalRefillSummary } {
+  const samples = workers
+    .map((worker) => ({ creepName: getCreepName(worker), sample: worker.memory.spawnCriticalRefill }))
+    .filter((entry): entry is RuntimeSpawnCriticalRefillSampleEntry =>
+      isRecentSpawnCriticalRefillSample(entry.sample, tick)
+    )
+    .sort(compareSpawnCriticalRefillSampleEntries);
+
+  if (samples.length === 0) {
+    return {};
+  }
+
+  const reportedSamples = samples.slice(0, MAX_SPAWN_CRITICAL_REFILL_SAMPLES).map(toRuntimeSpawnCriticalRefillSample);
+  const assignedCarriedEnergy = samples.reduce((total, entry) => total + Math.max(0, entry.sample.carriedEnergy), 0);
+
+  return {
+    spawnCriticalRefill: {
+      assignedWorkerCount: samples.length,
+      assignedCarriedEnergy,
+      threshold: samples[0].sample.threshold,
+      samples: reportedSamples,
+      ...(samples.length > MAX_SPAWN_CRITICAL_REFILL_SAMPLES
+        ? { omittedSampleCount: samples.length - MAX_SPAWN_CRITICAL_REFILL_SAMPLES }
+        : {})
+    }
+  };
+}
+
+function compareSpawnCriticalRefillSampleEntries(
+  left: RuntimeSpawnCriticalRefillSampleEntry,
+  right: RuntimeSpawnCriticalRefillSampleEntry
+): number {
+  return (
+    right.sample.tick - left.sample.tick ||
+    (left.creepName ?? '').localeCompare(right.creepName ?? '') ||
+    left.sample.targetId.localeCompare(right.sample.targetId)
+  );
+}
+
+function toRuntimeSpawnCriticalRefillSample(
+  entry: RuntimeSpawnCriticalRefillSampleEntry
+): RuntimeSpawnCriticalRefillSampleSummary {
+  return {
+    ...(entry.creepName ? { creepName: entry.creepName } : {}),
+    ...entry.sample
+  };
+}
+
+function isRecentSpawnCriticalRefillSample(
+  sample: unknown,
+  tick: number
+): sample is WorkerSpawnCriticalRefillMemory {
+  return (
+    isSpawnCriticalRefillSample(sample) &&
+    (tick <= 0 || (sample.tick <= tick && sample.tick > tick - SPAWN_CRITICAL_REFILL_SAMPLE_TTL))
+  );
+}
+
+function isSpawnCriticalRefillSample(value: unknown): value is WorkerSpawnCriticalRefillMemory {
+  return (
+    isRecord(value) &&
+    value.type === 'spawnCriticalRefill' &&
+    typeof value.tick === 'number' &&
+    Number.isFinite(value.tick) &&
+    typeof value.targetId === 'string' &&
+    typeof value.carriedEnergy === 'number' &&
+    Number.isFinite(value.carriedEnergy) &&
+    typeof value.spawnEnergy === 'number' &&
+    Number.isFinite(value.spawnEnergy) &&
+    typeof value.freeCapacity === 'number' &&
+    Number.isFinite(value.freeCapacity) &&
+    typeof value.threshold === 'number' &&
+    Number.isFinite(value.threshold)
   );
 }
 

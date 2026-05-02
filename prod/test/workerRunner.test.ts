@@ -1,6 +1,7 @@
 import { runWorker } from '../src/creeps/workerRunner';
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD
 } from '../src/tasks/workerTasks';
@@ -1956,6 +1957,75 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'extension-far' });
     expect(creep.transfer).toHaveBeenCalledWith(farExtension, 'energy');
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('preempts active extension refill for a critical spawn refill', () => {
+    const extension = {
+      id: 'extension-current',
+      structureType: 'extension',
+      store: {
+        getFreeCapacity: jest.fn().mockReturnValue(50),
+        getUsedCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as StructureExtension;
+    const criticalSpawn = {
+      id: 'spawn-critical',
+      structureType: 'spawn',
+      store: {
+        getFreeCapacity: jest.fn().mockReturnValue(101),
+        getUsedCapacity: jest.fn().mockReturnValue(CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1)
+      }
+    } as unknown as StructureSpawn;
+    const getRangeTo = jest.fn((target: StructureExtension | StructureSpawn) => {
+      const ranges: Record<string, number> = {
+        'extension-current': 1,
+        'spawn-critical': 8
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const transfer = jest.fn().mockReturnValue(0);
+    const creep = {
+      memory: { role: 'worker', task: { type: 'transfer', targetId: 'extension-current' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: StructureExtension | StructureSpawn) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            const structures = [extension, criticalSpawn];
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      },
+      transfer,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      time: 779,
+      getObjectById: jest.fn((id: string) => (id === 'spawn-critical' ? criticalSpawn : extension))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn-critical' });
+    expect(creep.memory.spawnCriticalRefill).toEqual({
+      type: 'spawnCriticalRefill',
+      tick: 779,
+      targetId: 'spawn-critical',
+      carriedEnergy: 50,
+      spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      freeCapacity: 101,
+      threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+    });
+    expect(transfer).toHaveBeenCalledWith(criticalSpawn, 'energy');
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 

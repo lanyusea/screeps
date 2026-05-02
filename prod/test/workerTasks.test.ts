@@ -1,5 +1,6 @@
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   LOW_LOAD_NEARBY_ENERGY_RANGE,
@@ -3168,6 +3169,84 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-far' });
     expect(getRangeTo).not.toHaveBeenCalledWith(fullExtension);
     expect(getRangeTo).not.toHaveBeenCalledWith(nearTower);
+  });
+
+  it('records critical spawn refill telemetry when a critical spawn beats a closer extension', () => {
+    const criticalSpawn = makeEnergySinkWithEnergy(
+      'spawn-critical',
+      'spawn' as StructureConstant,
+      CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      101
+    );
+    const closerExtension = makeEnergySink('extension-closer', 'extension' as StructureConstant, 200);
+    const structures = [closerExtension, criticalSpawn];
+    const getRangeTo = jest.fn((target: TestEnergySink) => {
+      const ranges: Record<string, number> = {
+        'extension-closer': 1,
+        'spawn-critical': 8
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { getRangeTo },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 346 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-critical' });
+    expect(creep.memory.spawnCriticalRefill).toEqual({
+      type: 'spawnCriticalRefill',
+      tick: 346,
+      targetId: 'spawn-critical',
+      carriedEnergy: 50,
+      spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      freeCapacity: 101,
+      threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+    });
+  });
+
+  it('preserves non-critical spawn refill behavior without critical telemetry', () => {
+    const nonCriticalSpawn = makeEnergySinkWithEnergy(
+      'spawn-non-critical',
+      'spawn' as StructureConstant,
+      CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+      100
+    );
+    const closerExtension = makeEnergySink('extension-closer', 'extension' as StructureConstant, 200);
+    const structures = [closerExtension, nonCriticalSpawn];
+    const creep = {
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: TestEnergySink) => (target.id === 'extension-closer' ? 1 : 8))
+      },
+      room: {
+        find: jest.fn(
+          (type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+            if (type !== FIND_MY_STRUCTURES) {
+              return [];
+            }
+
+            return options?.filter ? structures.filter(options.filter) : structures;
+          }
+        )
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn-non-critical' });
+    expect(creep.memory.spawnCriticalRefill).toBeUndefined();
   });
 
   it('selects the closest low-energy spawn before extensions', () => {

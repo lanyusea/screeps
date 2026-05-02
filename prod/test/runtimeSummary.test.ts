@@ -6,6 +6,7 @@ import {
   shouldEmitRuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../src/telemetry/runtimeSummary';
+import { CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 
 const TEST_GLOBALS = {
   FIND_STRUCTURES: 101,
@@ -545,6 +546,67 @@ describe('runtime telemetry summaries', () => {
         }
       ],
       omittedSampleCount: 2
+    });
+  });
+
+  it('reports spawn-critical refill assignment telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const carrier = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> },
+        spawnCriticalRefill: {
+          type: 'spawnCriticalRefill',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          targetId: 'spawn1',
+          carriedEnergy: 50,
+          spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+          freeCapacity: 101,
+          threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+        }
+      },
+      50,
+      'CriticalCarrier'
+    );
+    const staleCarrier = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        spawnCriticalRefill: {
+          type: 'spawnCriticalRefill',
+          tick: 0,
+          targetId: 'spawn-stale',
+          carriedEnergy: 50,
+          spawnEnergy: 0,
+          freeCapacity: 300,
+          threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+        }
+      },
+      50,
+      'StaleCarrier'
+    );
+
+    emitRuntimeSummary([colony], [carrier, staleCarrier]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.spawnCriticalRefill).toEqual({
+      assignedWorkerCount: 1,
+      assignedCarriedEnergy: 50,
+      threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+      samples: [
+        {
+          creepName: 'CriticalCarrier',
+          type: 'spawnCriticalRefill',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          targetId: 'spawn1',
+          carriedEnergy: 50,
+          spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+          freeCapacity: 101,
+          threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+        }
+      ]
     });
   });
 
