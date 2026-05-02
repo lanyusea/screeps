@@ -540,6 +540,99 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('reports worker behavior cloning traces with shadow-only policy metadata', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const recentWorker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        workerBehavior: makeWorkerBehaviorSample('transfer', 'spawn1', RUNTIME_SUMMARY_INTERVAL),
+        workerTaskPolicyShadow: {
+          type: 'workerTaskPolicyShadow',
+          schemaVersion: 1,
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          policyId: 'worker-task-bc.test.v1',
+          liveEffect: false,
+          predictedAction: 'transfer',
+          confidence: 1,
+          heuristicAction: 'transfer',
+          matched: true
+        }
+      },
+      50,
+      'Carrier'
+    );
+    const mismatchWorker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        workerBehavior: makeWorkerBehaviorSample('build', 'site1', RUNTIME_SUMMARY_INTERVAL - 1),
+        workerTaskPolicyShadow: {
+          type: 'workerTaskPolicyShadow',
+          schemaVersion: 1,
+          tick: RUNTIME_SUMMARY_INTERVAL - 1,
+          policyId: 'worker-task-bc.test.v1',
+          liveEffect: false,
+          predictedAction: 'upgrade',
+          confidence: 1,
+          heuristicAction: 'build',
+          matched: false,
+          fallbackReason: 'actionMismatch'
+        }
+      },
+      50,
+      'Builder'
+    );
+    const staleWorker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        workerBehavior: makeWorkerBehaviorSample('harvest', 'source1', 0)
+      },
+      0,
+      'Stale'
+    );
+
+    emitRuntimeSummary([colony], [recentWorker, mismatchWorker, staleWorker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.behavior).toEqual({
+      workerTaskPolicy: {
+        schemaVersion: 1,
+        sourcePolicyId: 'heuristic.worker-task.v1',
+        liveEffect: false,
+        sampleCount: 2,
+        actionCounts: {
+          harvest: 0,
+          transfer: 1,
+          build: 1,
+          repair: 0,
+          upgrade: 0
+        },
+        samples: [
+          {
+            creepName: 'Carrier',
+            ...makeWorkerBehaviorSample('transfer', 'spawn1', RUNTIME_SUMMARY_INTERVAL)
+          },
+          {
+            creepName: 'Builder',
+            ...makeWorkerBehaviorSample('build', 'site1', RUNTIME_SUMMARY_INTERVAL - 1)
+          }
+        ],
+        shadow: {
+          policyId: 'worker-task-bc.test.v1',
+          liveEffect: false,
+          sampleCount: 2,
+          matchedCount: 1,
+          mismatchCount: 1,
+          noPredictionCount: 0,
+          matchRate: 0.5
+        }
+      }
+    });
+  });
+
   it('reports spawn-critical refill assignment telemetry', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
     const carrier = makeWorker(
@@ -1039,6 +1132,43 @@ function makeWorker(memory: CreepMemory, energy = 0, name?: string): Creep {
     memory,
     store: makeEnergyStore(energy)
   } as unknown as Creep;
+}
+
+function makeWorkerBehaviorSample(
+  action: WorkerTaskBehaviorActionType,
+  targetId: string,
+  tick: number
+): WorkerTaskBehaviorSampleMemory {
+  return {
+    type: 'workerTaskBehavior',
+    schemaVersion: 1,
+    tick,
+    policyId: 'heuristic.worker-task.v1',
+    liveEffect: false,
+    state: {
+      roomName: 'W1N1',
+      carriedEnergy: action === 'harvest' ? 0 : 50,
+      freeCapacity: action === 'harvest' ? 50 : 0,
+      energyCapacity: 50,
+      energyLoadRatio: action === 'harvest' ? 0 : 1,
+      currentTask: 'none',
+      currentTaskCode: 0,
+      workerCount: 2,
+      spawnExtensionNeedCount: action === 'transfer' ? 1 : 0,
+      towerNeedCount: 0,
+      constructionSiteCount: action === 'build' ? 1 : 0,
+      repairTargetCount: 0,
+      sourceCount: 2,
+      hasContainerEnergy: false,
+      containerEnergyAvailable: 0,
+      droppedEnergyAvailable: 0,
+      nearbyRoadCount: 0,
+      nearbyContainerCount: 0,
+      roadCoverage: 0,
+      hostileCreepCount: 0
+    },
+    action: { type: action, targetId }
+  };
 }
 
 function makeTrackedWorker(
