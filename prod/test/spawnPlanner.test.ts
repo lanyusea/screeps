@@ -353,7 +353,7 @@ describe('planSpawn', () => {
       name: 'worker-W1N1-W2N1-multiroom-upgrader-129',
       memory: {
         role: 'worker',
-        colony: 'W2N1',
+        colony: 'W1N1',
         territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' },
         controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
       }
@@ -397,7 +397,7 @@ describe('planSpawn', () => {
       name: 'worker-W1N1-W3N1-multiroom-upgrader-130',
       memory: {
         role: 'worker',
-        colony: 'W3N1',
+        colony: 'W1N1',
         territory: { targetRoom: 'W3N1', action: 'claim', controllerId: 'ownedController' },
         controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W3N1', role: 'upgrader' }
       }

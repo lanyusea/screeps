@@ -15,7 +15,6 @@ const MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 const DEFAULT_RESERVED_CONTROLLER_LEVEL = 0;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
-const TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY = 'routeDistancesUpdatedAt';
 
 export type MultiRoomUpgradeControllerState = 'owned' | 'reserved';
 
@@ -41,6 +40,23 @@ interface MultiRoomUpgradeCandidate extends MultiRoomUpgradePlan {
 interface MultiRoomUpgraderConfig {
   storageEnergyThresholdRatio: number;
   perRoomUpgraderCap: number;
+}
+
+export function recordPlannedMultiRoomUpgraderSpawn(memory: CreepMemory): void {
+  const sustain = memory.controllerSustain;
+  if (
+    memory.role !== 'worker' ||
+    sustain?.role !== 'upgrader' ||
+    !isNonEmptyString(sustain.homeRoom) ||
+    !isNonEmptyString(sustain.targetRoom)
+  ) {
+    return;
+  }
+
+  const cache = getActiveMultiRoomUpgraderCountCache();
+  const pendingByHome = cache.plannedByHomeRoom[sustain.homeRoom] ?? {};
+  pendingByHome[sustain.targetRoom] = (pendingByHome[sustain.targetRoom] ?? 0) + 1;
+  cache.plannedByHomeRoom[sustain.homeRoom] = pendingByHome;
 }
 
 export function selectMultiRoomUpgradePlan(
@@ -105,7 +121,7 @@ export function buildMultiRoomUpgraderBody(
 export function buildMultiRoomUpgraderMemory(plan: MultiRoomUpgradePlan): CreepMemory {
   return {
     role: 'worker',
-    colony: plan.targetRoom,
+    colony: plan.homeRoom,
     territory: {
       targetRoom: plan.targetRoom,
       action: plan.controllerState === 'reserved' ? 'reserve' : 'claim',
@@ -174,12 +190,12 @@ function getVisibleMultiRoomUpgradeCandidate(
     return null;
   }
 
-  const routeDistance = getRouteDistance(homeRoom, room.name);
-  if (routeDistance === null) {
+  if (hasVisibleHostiles(room)) {
     return null;
   }
 
-  if (hasVisibleHostiles(room)) {
+  const routeDistance = getRouteDistance(homeRoom, room.name);
+  if (routeDistance === null) {
     return null;
   }
 
@@ -297,29 +313,16 @@ interface ActiveMultiRoomUpgraderCountCache {
   gameTime: number;
   creeps?: Game['creeps'];
   countsByHomeRoom: Record<string, Record<string, number>>;
+  plannedByHomeRoom: Record<string, Record<string, number>>;
 }
 
 let activeMultiRoomUpgraderCountCache: ActiveMultiRoomUpgraderCountCache | null = null;
 
 function getActiveMultiRoomUpgraderCountsByTarget(homeRoom: string): Record<string, number> {
-  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  if (!creeps) {
-    return {};
-  }
-
-  const gameTime = getGameTime();
-  if (
-    activeMultiRoomUpgraderCountCache?.gameTime !== gameTime ||
-    activeMultiRoomUpgraderCountCache.creeps !== creeps
-  ) {
-    activeMultiRoomUpgraderCountCache = {
-      gameTime,
-      creeps,
-      countsByHomeRoom: countActiveMultiRoomUpgradersByHomeRoom(creeps)
-    };
-  }
-
-  return activeMultiRoomUpgraderCountCache.countsByHomeRoom[homeRoom] ?? {};
+  const cache = getActiveMultiRoomUpgraderCountCache();
+  const activeByTarget = cache.countsByHomeRoom[homeRoom] ?? {};
+  const plannedByTarget = cache.plannedByHomeRoom[homeRoom] ?? {};
+  return combineCountMaps(activeByTarget, plannedByTarget);
 }
 
 function countActiveMultiRoomUpgradersByHomeRoom(
@@ -343,6 +346,36 @@ function countActiveMultiRoomUpgradersByHomeRoom(
   }
 
   return countsByHomeRoom;
+}
+
+function combineCountMaps(
+  baseCounts: Record<string, number>,
+  overlayCounts: Record<string, number>
+): Record<string, number> {
+  const combined = { ...baseCounts };
+  for (const [targetRoom, plannedCount] of Object.entries(overlayCounts)) {
+    combined[targetRoom] = (combined[targetRoom] ?? 0) + plannedCount;
+  }
+
+  return combined;
+}
+
+function getActiveMultiRoomUpgraderCountCache(): ActiveMultiRoomUpgraderCountCache {
+  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  const gameTime = getGameTime();
+  if (
+    activeMultiRoomUpgraderCountCache?.gameTime !== gameTime ||
+    activeMultiRoomUpgraderCountCache.creeps !== creeps
+  ) {
+    activeMultiRoomUpgraderCountCache = {
+      gameTime,
+      creeps,
+      countsByHomeRoom: creeps ? countActiveMultiRoomUpgradersByHomeRoom(creeps) : {},
+      plannedByHomeRoom: {}
+    };
+  }
+
+  return activeMultiRoomUpgraderCountCache;
 }
 
 function isActiveMultiRoomUpgrader(creep: Creep): boolean {
@@ -414,13 +447,6 @@ function getTerritoryRouteDistanceCache(): TerritoryMemory['routeDistances'] | u
 
   if (!isRecord(memory.territory)) {
     memory.territory = {};
-  }
-
-  const gameTime = getGameTime();
-  const territoryMemory = memory.territory as Record<string, unknown>;
-  if (territoryMemory[TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY] !== gameTime) {
-    territoryMemory[TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY] = gameTime;
-    territoryMemory.routeDistances = {};
   }
 
   if (!isRecord(memory.territory.routeDistances)) {

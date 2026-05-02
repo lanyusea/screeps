@@ -10406,7 +10406,17 @@ var MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 var DEFAULT_RESERVED_CONTROLLER_LEVEL = 0;
 var ERR_NO_PATH_CODE4 = -2;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR3 = ">";
-var TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY = "routeDistancesUpdatedAt";
+function recordPlannedMultiRoomUpgraderSpawn(memory) {
+  var _a, _b;
+  const sustain = memory.controllerSustain;
+  if (memory.role !== "worker" || (sustain == null ? void 0 : sustain.role) !== "upgrader" || !isNonEmptyString8(sustain.homeRoom) || !isNonEmptyString8(sustain.targetRoom)) {
+    return;
+  }
+  const cache = getActiveMultiRoomUpgraderCountCache();
+  const pendingByHome = (_a = cache.plannedByHomeRoom[sustain.homeRoom]) != null ? _a : {};
+  pendingByHome[sustain.targetRoom] = ((_b = pendingByHome[sustain.targetRoom]) != null ? _b : 0) + 1;
+  cache.plannedByHomeRoom[sustain.homeRoom] = pendingByHome;
+}
 function selectMultiRoomUpgradePlans(colony, options = {}) {
   const config = normalizeMultiRoomUpgraderOptions(options);
   if (config.perRoomUpgraderCap <= 0 || !hasPrimaryRoomStorageSurplus(colony, config.storageEnergyThresholdRatio)) {
@@ -10449,7 +10459,7 @@ function buildMultiRoomUpgraderBody(energyAvailable, plan) {
 function buildMultiRoomUpgraderMemory(plan) {
   return {
     role: "worker",
-    colony: plan.targetRoom,
+    colony: plan.homeRoom,
     territory: {
       targetRoom: plan.targetRoom,
       action: plan.controllerState === "reserved" ? "reserve" : "claim",
@@ -10502,11 +10512,11 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, ownerUsername, room, perR
   if (!controllerState) {
     return null;
   }
-  const routeDistance = getRouteDistance(homeRoom, room.name);
-  if (routeDistance === null) {
+  if (hasVisibleHostiles(room)) {
     return null;
   }
-  if (hasVisibleHostiles(room)) {
+  const routeDistance = getRouteDistance(homeRoom, room.name);
+  if (routeDistance === null) {
     return null;
   }
   const activeUpgraderCount = (_a = activeUpgraderCounts[room.name]) != null ? _a : 0;
@@ -10592,19 +10602,10 @@ function compareOptionalNumbers3(left, right) {
 var activeMultiRoomUpgraderCountCache = null;
 function getActiveMultiRoomUpgraderCountsByTarget(homeRoom) {
   var _a, _b;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  if (!creeps) {
-    return {};
-  }
-  const gameTime = getGameTime7();
-  if ((activeMultiRoomUpgraderCountCache == null ? void 0 : activeMultiRoomUpgraderCountCache.gameTime) !== gameTime || activeMultiRoomUpgraderCountCache.creeps !== creeps) {
-    activeMultiRoomUpgraderCountCache = {
-      gameTime,
-      creeps,
-      countsByHomeRoom: countActiveMultiRoomUpgradersByHomeRoom(creeps)
-    };
-  }
-  return (_b = activeMultiRoomUpgraderCountCache.countsByHomeRoom[homeRoom]) != null ? _b : {};
+  const cache = getActiveMultiRoomUpgraderCountCache();
+  const activeByTarget = (_a = cache.countsByHomeRoom[homeRoom]) != null ? _a : {};
+  const plannedByTarget = (_b = cache.plannedByHomeRoom[homeRoom]) != null ? _b : {};
+  return combineCountMaps(activeByTarget, plannedByTarget);
 }
 function countActiveMultiRoomUpgradersByHomeRoom(creeps) {
   var _a, _b, _c;
@@ -10619,6 +10620,28 @@ function countActiveMultiRoomUpgradersByHomeRoom(creeps) {
     countsByHomeRoom[sustain.homeRoom] = countsByTarget;
   }
   return countsByHomeRoom;
+}
+function combineCountMaps(baseCounts, overlayCounts) {
+  var _a;
+  const combined = { ...baseCounts };
+  for (const [targetRoom, plannedCount] of Object.entries(overlayCounts)) {
+    combined[targetRoom] = ((_a = combined[targetRoom]) != null ? _a : 0) + plannedCount;
+  }
+  return combined;
+}
+function getActiveMultiRoomUpgraderCountCache() {
+  var _a;
+  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
+  const gameTime = getGameTime7();
+  if ((activeMultiRoomUpgraderCountCache == null ? void 0 : activeMultiRoomUpgraderCountCache.gameTime) !== gameTime || activeMultiRoomUpgraderCountCache.creeps !== creeps) {
+    activeMultiRoomUpgraderCountCache = {
+      gameTime,
+      creeps,
+      countsByHomeRoom: creeps ? countActiveMultiRoomUpgradersByHomeRoom(creeps) : {},
+      plannedByHomeRoom: {}
+    };
+  }
+  return activeMultiRoomUpgraderCountCache;
 }
 function isActiveMultiRoomUpgrader(creep) {
   return creep.ticksToLive === void 0 || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
@@ -10675,12 +10698,6 @@ function getTerritoryRouteDistanceCache2() {
   }
   if (!isRecord8(memory.territory)) {
     memory.territory = {};
-  }
-  const gameTime = getGameTime7();
-  const territoryMemory = memory.territory;
-  if (territoryMemory[TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY] !== gameTime) {
-    territoryMemory[TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY] = gameTime;
-    territoryMemory.routeDistances = {};
   }
   if (!isRecord8(memory.territory.routeDistances)) {
     memory.territory.routeDistances = {};
@@ -14205,6 +14222,7 @@ function runEconomy(preludeTelemetryEvents = []) {
       usedSpawns.add(outcome.spawn);
       availableEnergy = Math.max(0, availableEnergy - getBodyCost(spawnRequest.body));
       successfulSpawnCount += 1;
+      recordPlannedMultiRoomUpgraderSpawn(spawnRequest.memory);
       if (spawnRequest.memory.role !== "worker") {
         break;
       }

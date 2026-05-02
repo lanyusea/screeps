@@ -176,7 +176,7 @@ describe('multi-room upgrader planner', () => {
     });
     expect(buildMultiRoomUpgraderMemory(plan!)).toEqual({
       role: 'worker',
-      colony: 'W2N1',
+      colony: 'W1N1',
       territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'W2N1-controller' },
       controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
     });
@@ -288,7 +288,7 @@ describe('multi-room upgrader planner', () => {
     });
     expect(buildMultiRoomUpgraderMemory(plan!)).toEqual({
       role: 'worker',
-      colony: 'W2N1',
+      colony: 'W1N1',
       territory: { targetRoom: 'W2N1', action: 'reserve', controllerId: 'W2N1-controller' },
       controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
     });
