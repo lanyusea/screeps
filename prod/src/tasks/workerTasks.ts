@@ -24,6 +24,8 @@ import {
   type ConstructionSiteImpactPriorityContext
 } from '../construction/constructionPriority';
 import { findSourceContainer } from '../economy/sourceContainers';
+import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
+import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -137,7 +139,12 @@ let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserv
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerEfficiencyTelemetry(creep);
+  const heuristicTask = selectHeuristicWorkerTask(creep);
+  recordWorkerTaskBehaviorTrace(creep, heuristicTask);
+  return selectWorkerTaskWithBcFallback(creep, heuristicTask);
+}
 
+function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   const survivalAssessment = getWorkerColonySurvivalAssessment(creep);
   const territoryWorkSuppressed = suppressesTerritoryWork(survivalAssessment);
   const bootstrapNonCriticalWorkSuppressed = suppressesBootstrapNonCriticalWork(survivalAssessment);
