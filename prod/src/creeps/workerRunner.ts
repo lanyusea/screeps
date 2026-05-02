@@ -677,6 +677,10 @@ function shouldReplaceTarget(
     return true;
   }
 
+  if (task.type === 'pickup' && 'amount' in target && typeof target.amount === 'number' && target.amount <= 0) {
+    return true;
+  }
+
   return task.type === 'repair' && 'hits' in target && isWorkerRepairTargetComplete(target);
 }
 
