@@ -30,6 +30,7 @@ export function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMem
     action: rawIntent.action,
     status: rawIntent.status,
     updatedAt: rawIntent.updatedAt,
+    ...(isTerritoryAutomationSource(rawIntent.createdBy) ? { createdBy: rawIntent.createdBy } : {}),
     ...(isTerritoryIntentSuppressionReason(rawIntent.reason) ? { reason: rawIntent.reason } : {}),
     ...(isFiniteNumber(rawIntent.lastAttemptAt) ? { lastAttemptAt: rawIntent.lastAttemptAt } : {}),
     ...(typeof rawIntent.controllerId === 'string'
@@ -102,6 +103,14 @@ function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUp
     source === 'satisfiedClaimAdjacent' ||
     source === 'satisfiedReserveAdjacent' ||
     source === 'activeReserveAdjacent'
+  );
+}
+
+function isTerritoryAutomationSource(source: unknown): source is TerritoryAutomationSource {
+  return (
+    source === 'occupationRecommendation' ||
+    source === 'autonomousExpansionClaim' ||
+    source === 'nextExpansionScoring'
   );
 }
 

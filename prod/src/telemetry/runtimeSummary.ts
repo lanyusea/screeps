@@ -12,6 +12,10 @@ import {
   type OccupationRecommendationReport
 } from '../territory/occupationRecommendation';
 import {
+  buildRuntimeExpansionCandidateReport,
+  type ExpansionCandidateReport
+} from '../territory/expansionScoring';
+import {
   getActiveTerritoryFollowUpExecutionHints,
   getSuspendedTerritoryIntentCountsByRoom,
   getTerritoryIntentProgressSummaries,
@@ -131,6 +135,7 @@ interface RuntimeRoomSummary {
   constructionPriority: RuntimeConstructionPrioritySummary;
   survival: RuntimeSurvivalSummary;
   territoryRecommendation: OccupationRecommendationReport;
+  territoryExpansion?: ExpansionCandidateReport;
   territoryIntents?: TerritoryIntentProgressSummary[];
   omittedTerritoryIntentCount?: number;
   suspendedTerritoryIntentCounts?: Record<string, number>;
@@ -442,6 +447,7 @@ function summarizeRoom(
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
   if (persistOccupationRecommendations) {
     persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime());
   }
@@ -462,6 +468,7 @@ function summarizeRoom(
     constructionPriority: summarizeConstructionPriority(colony, colonyWorkers),
     survival: summarizeSurvival(colony, roleCounts),
     territoryRecommendation,
+    ...(territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
     ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
     ...buildTerritoryExecutionHintSummary(colony.room.name),
     ...buildPostClaimBootstrapSummary(colony.room.name)

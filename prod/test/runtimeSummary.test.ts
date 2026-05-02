@@ -645,9 +645,17 @@ describe('runtime telemetry summaries', () => {
       }
     };
     (Game.rooms as Record<string, Room>).W2N1 = makeRemoteRoom('W2N1', {
-      controller: { my: false } as StructureController,
+      controller: {
+        id: 'controller2' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'W2N1' }
+      } as StructureController,
       sourceCount: 2
     });
+    (Game as Partial<Game>).map = {
+      describeExits: jest.fn(() => ({ '3': 'W2N1' })),
+      getRoomTerrain: jest.fn(() => ({ get: jest.fn(() => 0) }))
+    } as unknown as GameMap;
 
     emitRuntimeSummary([colony], [
       makeWorker({ role: 'worker', colony: 'W1N1' }),
@@ -670,7 +678,23 @@ describe('runtime telemetry summaries', () => {
     expect(recommendation.followUpIntent).toEqual({
       colony: 'W1N1',
       targetRoom: 'W2N1',
-      action: 'claim'
+      action: 'claim',
+      controllerId: 'controller2'
+    });
+    expect(room.territoryExpansion).toMatchObject({
+      next: {
+        roomName: 'W2N1',
+        score: expect.any(Number),
+        evidenceStatus: 'sufficient',
+        sourceCount: 2,
+        routeDistance: 2,
+        rationale: expect.arrayContaining([
+          'controller unreserved',
+          '2 sources visible',
+          'terrain walkable 100%',
+          'home route distance 2'
+        ])
+      }
     });
     expect(Memory.territory?.intents).toEqual([
       {
@@ -678,7 +702,8 @@ describe('runtime telemetry summaries', () => {
         targetRoom: 'W2N1',
         action: 'claim',
         status: 'planned',
-        updatedAt: RUNTIME_SUMMARY_INTERVAL
+        updatedAt: RUNTIME_SUMMARY_INTERVAL,
+        controllerId: 'controller2'
       }
     ]);
   });
@@ -1064,7 +1089,10 @@ function makeRemoteRoom(
     find: jest.fn((findType: number): unknown[] => {
       switch (findType) {
         case TEST_GLOBALS.FIND_SOURCES:
-          return Array.from({ length: options.sourceCount ?? 0 }, (_value, index) => ({ id: `source${index}` }));
+          return Array.from({ length: options.sourceCount ?? 0 }, (_value, index) => ({
+            id: `source${index}`,
+            pos: { x: 15 + index * 20, y: 25, roomName }
+          }));
         case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
           return Array.from({ length: options.hostileCreepCount ?? 0 }, (_value, index) => ({ id: `hostile${index}` }));
         case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:

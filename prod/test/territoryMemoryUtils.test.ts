@@ -36,4 +36,43 @@ describe('normalizeTerritoryIntents', () => {
       }
     ]);
   });
+
+  it('preserves valid automation source metadata on intents', () => {
+    expect(
+      normalizeTerritoryIntents([
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 702,
+          createdBy: 'nextExpansionScoring'
+        },
+        {
+          colony: 'W1N1',
+          targetRoom: 'W3N1',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 703,
+          createdBy: 'manual'
+        }
+      ])
+    ).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 702,
+        createdBy: 'nextExpansionScoring'
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 703
+      }
+    ]);
+  });
 });

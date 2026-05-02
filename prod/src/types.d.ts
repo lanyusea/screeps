@@ -92,7 +92,10 @@ declare global {
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
   type TerritoryDemandType = 'followUpPreparation';
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
-  type TerritoryAutomationSource = 'occupationRecommendation' | 'autonomousExpansionClaim';
+  type TerritoryAutomationSource =
+    | 'occupationRecommendation'
+    | 'autonomousExpansionClaim'
+    | 'nextExpansionScoring';
   type TerritoryIntentSuspensionReason = 'hostile_presence';
   type TerritoryPostClaimBootstrapStatus =
     | 'detected'
@@ -104,6 +107,27 @@ declare global {
     | 'controlEvidenceStillMissing'
     | 'followUpTargetStillUnseen'
     | 'visibleControlEvidenceStillActionable';
+  type RoomExpansionSelectionStatus = 'planned' | 'skipped';
+  type RoomExpansionSelectionReason =
+    | 'noCandidate'
+    | 'unmetPreconditions'
+    | 'insufficientEvidence'
+    | 'unavailable';
+
+  interface RoomMemory {
+    lastExpansionScoreTime?: number;
+    cachedExpansionSelection?: RoomExpansionSelectionMemory;
+  }
+
+  interface RoomExpansionSelectionMemory {
+    status: RoomExpansionSelectionStatus;
+    colony: string;
+    reason?: RoomExpansionSelectionReason;
+    targetRoom?: string;
+    controllerId?: Id<StructureController>;
+    score?: number;
+    stateKey?: string;
+  }
 
   interface TerritoryMemory {
     targets?: TerritoryTargetMemory[];
@@ -130,6 +154,7 @@ declare global {
     action: TerritoryIntentAction;
     status: 'planned' | 'active' | 'suppressed';
     updatedAt: number;
+    createdBy?: TerritoryAutomationSource;
     reason?: TerritoryIntentSuppressionReason;
     lastAttemptAt?: number;
     controllerId?: Id<StructureController>;
