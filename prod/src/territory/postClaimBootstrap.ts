@@ -12,7 +12,7 @@ const DEFAULT_TERRAIN_WALL_MASK = 1;
 
 type StructureConstantGlobal = 'STRUCTURE_SPAWN';
 type FindConstantGlobal = 'FIND_MY_CONSTRUCTION_SITES' | 'FIND_SOURCES';
-type LookConstantGlobal = 'LOOK_STRUCTURES' | 'LOOK_CONSTRUCTION_SITES';
+type LookConstantGlobal = 'LOOK_STRUCTURES' | 'LOOK_CONSTRUCTION_SITES' | 'LOOK_MINERALS';
 
 interface CandidatePosition {
   x: number;
@@ -26,6 +26,7 @@ interface SpawnSitePlanResult {
 
 interface SpawnPlacementLookups {
   blockingPositions: Set<string>;
+  mineralPositions: Set<string>;
   terrain: RoomTerrain | null;
 }
 
@@ -245,25 +246,34 @@ function planInitialSpawnConstructionSite(room: Room): SpawnSitePlanResult {
     return { result: ERR_INVALID_TARGET_CODE };
   }
 
-  const position = findInitialSpawnConstructionPosition(room);
-  if (!position) {
+  const positions = findInitialSpawnConstructionPositions(room);
+  if (positions.length === 0) {
     return { result: ERR_INVALID_TARGET_CODE };
   }
 
-  return {
-    result: room.createConstructionSite(position.x, position.y, getStructureConstant('STRUCTURE_SPAWN', 'spawn')),
-    position: { ...position, roomName: room.name }
-  };
+  let lastResult = ERR_INVALID_TARGET_CODE;
+  for (const position of positions) {
+    lastResult = room.createConstructionSite(position.x, position.y, getStructureConstant('STRUCTURE_SPAWN', 'spawn'));
+    if (lastResult === OK_CODE) {
+      return {
+        result: lastResult,
+        position: { ...position, roomName: room.name }
+      };
+    }
+  }
+
+  return { result: lastResult };
 }
 
-function findInitialSpawnConstructionPosition(room: Room): CandidatePosition | null {
+function findInitialSpawnConstructionPositions(room: Room): CandidatePosition[] {
   const anchor = selectInitialSpawnAnchor(room);
   if (!anchor) {
-    return null;
+    return [];
   }
 
   const maximumScanRadius = getMaximumSpawnSiteScanRadius(anchor);
   const lookups = buildSpawnPlacementLookups(room, anchor, maximumScanRadius);
+  const positions: CandidatePosition[] = [];
   for (let radius = 0; radius <= maximumScanRadius; radius += 1) {
     for (let y = anchor.y - radius; y <= anchor.y + radius; y += 1) {
       for (let x = anchor.x - radius; x <= anchor.x + radius; x += 1) {
@@ -273,13 +283,13 @@ function findInitialSpawnConstructionPosition(room: Room): CandidatePosition | n
 
         const position = { x, y };
         if (canPlaceInitialSpawn(lookups, position)) {
-          return position;
+          positions.push(position);
         }
       }
     }
   }
 
-  return null;
+  return positions;
 }
 
 function selectInitialSpawnAnchor(room: Room): CandidatePosition | null {
@@ -320,9 +330,17 @@ function buildSpawnPlacementLookups(
       blockingPositions.add(getPositionKey(position));
     }
   }
+  const mineralPositions = new Set<string>();
+  for (const object of lookForArea(room, 'LOOK_MINERALS', anchor, maximumScanRadius)) {
+    const position = getRoomObjectPosition(object);
+    if (position) {
+      mineralPositions.add(getPositionKey(position));
+    }
+  }
 
   return {
     blockingPositions,
+    mineralPositions,
     terrain: getRoomTerrain(room.name)
   };
 }
@@ -370,6 +388,7 @@ function canPlaceInitialSpawn(lookups: SpawnPlacementLookups, position: Candidat
   return (
     isWithinRoomBuildBounds(position) &&
     !lookups.blockingPositions.has(getPositionKey(position)) &&
+    !lookups.mineralPositions.has(getPositionKey(position)) &&
     !isTerrainWall(lookups.terrain, position)
   );
 }

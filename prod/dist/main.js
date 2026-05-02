@@ -9385,22 +9385,30 @@ function planInitialSpawnConstructionSite(room) {
   if (typeof room.createConstructionSite !== "function") {
     return { result: ERR_INVALID_TARGET_CODE };
   }
-  const position = findInitialSpawnConstructionPosition(room);
-  if (!position) {
+  const positions = findInitialSpawnConstructionPositions(room);
+  if (positions.length === 0) {
     return { result: ERR_INVALID_TARGET_CODE };
   }
-  return {
-    result: room.createConstructionSite(position.x, position.y, getStructureConstant("STRUCTURE_SPAWN", "spawn")),
-    position: { ...position, roomName: room.name }
-  };
+  let lastResult = ERR_INVALID_TARGET_CODE;
+  for (const position of positions) {
+    lastResult = room.createConstructionSite(position.x, position.y, getStructureConstant("STRUCTURE_SPAWN", "spawn"));
+    if (lastResult === OK_CODE3) {
+      return {
+        result: lastResult,
+        position: { ...position, roomName: room.name }
+      };
+    }
+  }
+  return { result: lastResult };
 }
-function findInitialSpawnConstructionPosition(room) {
+function findInitialSpawnConstructionPositions(room) {
   const anchor = selectInitialSpawnAnchor(room);
   if (!anchor) {
-    return null;
+    return [];
   }
   const maximumScanRadius = getMaximumSpawnSiteScanRadius(anchor);
   const lookups = buildSpawnPlacementLookups(room, anchor, maximumScanRadius);
+  const positions = [];
   for (let radius = 0; radius <= maximumScanRadius; radius += 1) {
     for (let y = anchor.y - radius; y <= anchor.y + radius; y += 1) {
       for (let x = anchor.x - radius; x <= anchor.x + radius; x += 1) {
@@ -9409,12 +9417,12 @@ function findInitialSpawnConstructionPosition(room) {
         }
         const position = { x, y };
         if (canPlaceInitialSpawn(lookups, position)) {
-          return position;
+          positions.push(position);
         }
       }
     }
   }
-  return null;
+  return positions;
 }
 function selectInitialSpawnAnchor(room) {
   const controllerPosition = getRoomObjectPosition2(room.controller);
@@ -9444,8 +9452,16 @@ function buildSpawnPlacementLookups(room, anchor, maximumScanRadius) {
       blockingPositions.add(getPositionKey3(position));
     }
   }
+  const mineralPositions = /* @__PURE__ */ new Set();
+  for (const object of lookForArea(room, "LOOK_MINERALS", anchor, maximumScanRadius)) {
+    const position = getRoomObjectPosition2(object);
+    if (position) {
+      mineralPositions.add(getPositionKey3(position));
+    }
+  }
   return {
     blockingPositions,
+    mineralPositions,
     terrain: getRoomTerrain3(room.name)
   };
 }
@@ -9473,7 +9489,7 @@ function getScanBounds2(anchor, maximumScanRadius) {
   };
 }
 function canPlaceInitialSpawn(lookups, position) {
-  return isWithinRoomBuildBounds(position) && !lookups.blockingPositions.has(getPositionKey3(position)) && !isTerrainWall3(lookups.terrain, position);
+  return isWithinRoomBuildBounds(position) && !lookups.blockingPositions.has(getPositionKey3(position)) && !lookups.mineralPositions.has(getPositionKey3(position)) && !isTerrainWall3(lookups.terrain, position);
 }
 function isWithinRoomBuildBounds(position) {
   return position.x >= ROOM_EDGE_MIN4 && position.x <= ROOM_EDGE_MAX4 && position.y >= ROOM_EDGE_MIN4 && position.y <= ROOM_EDGE_MAX4;
