@@ -8,6 +8,29 @@ declare global {
     defense?: DefenseMemory;
     economy?: EconomyMemory;
     territory?: TerritoryMemory;
+    strategyRollback?: Record<
+      string,
+      {
+        disabledId: string;
+        rollbackToId: string;
+        timestamp: number;
+        reason: string;
+      }
+    >;
+    strategyRollbackHistory?: Array<{
+      family: string;
+      disabledId: string;
+      rollbackToId: string;
+      timestamp: number;
+      reason: string;
+    }>;
+    kpiBaseline?: Record<
+      string,
+      {
+        timestamp: number;
+        metrics: Record<string, number>;
+      }
+    >;
   }
 
   interface CreepMemory {
@@ -22,6 +45,8 @@ declare global {
     workerEfficiency?: WorkerEfficiencySampleMemory;
     refillTelemetry?: WorkerRefillTelemetryMemory;
     spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
+    workerBehavior?: WorkerTaskBehaviorSampleMemory;
+    workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
   }
 
@@ -308,6 +333,69 @@ declare global {
     spawnEnergy: number;
     freeCapacity: number;
     threshold: number;
+  }
+
+  type WorkerTaskBehaviorActionType = 'harvest' | 'transfer' | 'build' | 'repair' | 'upgrade';
+  type WorkerTaskPolicyShadowFallbackReason =
+    | 'untrainedModel'
+    | 'lowConfidence'
+    | 'unsupportedHeuristicAction'
+    | 'actionMismatch';
+
+  interface WorkerTaskBehaviorStateMemory {
+    roomName: string;
+    x?: number;
+    y?: number;
+    carriedEnergy: number;
+    freeCapacity: number;
+    energyCapacity: number;
+    energyLoadRatio: number;
+    currentTask: string;
+    currentTaskCode: number;
+    roomEnergyAvailable?: number;
+    roomEnergyCapacity?: number;
+    workerCount: number;
+    spawnExtensionNeedCount: number;
+    towerNeedCount: number;
+    constructionSiteCount: number;
+    repairTargetCount: number;
+    sourceCount: number;
+    hasContainerEnergy: boolean;
+    containerEnergyAvailable: number;
+    droppedEnergyAvailable: number;
+    nearbyRoadCount: number;
+    nearbyContainerCount: number;
+    roadCoverage: number;
+    hostileCreepCount: number;
+    controllerLevel?: number;
+    controllerTicksToDowngrade?: number;
+    controllerProgressRatio?: number;
+  }
+
+  interface WorkerTaskBehaviorSampleMemory {
+    type: 'workerTaskBehavior';
+    schemaVersion: 1;
+    tick: number;
+    policyId: string;
+    liveEffect: false;
+    state: WorkerTaskBehaviorStateMemory;
+    action: {
+      type: WorkerTaskBehaviorActionType;
+      targetId: string;
+    };
+  }
+
+  interface WorkerTaskPolicyShadowMemory {
+    type: 'workerTaskPolicyShadow';
+    schemaVersion: 1;
+    tick: number;
+    policyId: string;
+    liveEffect: false;
+    predictedAction?: WorkerTaskBehaviorActionType;
+    heuristicAction?: WorkerTaskBehaviorActionType;
+    confidence?: number;
+    matched: boolean;
+    fallbackReason?: WorkerTaskPolicyShadowFallbackReason;
   }
 
   interface CreepBehaviorPositionMemory {
