@@ -1,6 +1,7 @@
 import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  selectWorkerEnergyFallbackTask,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
@@ -21,8 +22,17 @@ type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENS
 type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
 
 const MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
+const WORKER_NULL_LOOP_TICK_WINDOW = 5;
+const WORKER_NULL_LOOP_TRIGGER_COUNT = 3;
+const WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 const OK_CODE = 0 as ScreepsReturnCode;
 const MIN_HAULER_DROPPED_ENERGY = 25;
+
+interface WorkerTaskSelectionNullLoopState {
+  lastNullSelectionTick: number;
+  nullSelectionCount: number;
+  fallbackAttempts: number;
+}
 
 interface TaskExecutionResult {
   result: ScreepsReturnCode;
@@ -36,7 +46,7 @@ export function runWorker(creep: Creep): void {
   }
   observeCreepBehaviorTick(creep);
 
-  const selectedTask = selectWorkerTask(creep);
+  const selectedTask = selectWorkerTaskForRunner(creep);
   const currentTask = creep.memory.task;
 
   if (!currentTask) {
@@ -68,6 +78,73 @@ export function runWorker(creep: Creep): void {
   }
 
   executeAssignedTask(creep, selectedTask);
+}
+
+function selectWorkerTaskForRunner(creep: Creep): CreepTaskMemory | null {
+  const selectedTask = selectWorkerTask(creep);
+  return fallbackToEnergyOnNullSelectionLoop(creep, selectedTask);
+}
+
+function fallbackToEnergyOnNullSelectionLoop(
+  creep: Creep,
+  selectedTask: CreepTaskMemory | null
+): CreepTaskMemory | null {
+  if (selectedTask) {
+    delete creep.memory.workerTaskSelectionNullLoop;
+    return selectedTask;
+  }
+
+  const gameTime = (globalThis as unknown as { Game?: Partial<Game> }).Game?.time;
+  if (typeof gameTime !== 'number') {
+    return null;
+  }
+
+  const guardState = getWorkerTaskSelectionNullLoopState(creep, gameTime);
+  if (
+    guardState.nullSelectionCount < WORKER_NULL_LOOP_TRIGGER_COUNT ||
+    guardState.fallbackAttempts >= WORKER_NULL_LOOP_FALLBACK_ATTEMPTS
+  ) {
+    return null;
+  }
+
+  guardState.fallbackAttempts += 1;
+  return selectWorkerEnergyFallbackTask(creep);
+}
+
+function getWorkerTaskSelectionNullLoopState(
+  creep: Creep,
+  gameTime: number
+): WorkerTaskSelectionNullLoopState {
+  const existing = creep.memory.workerTaskSelectionNullLoop;
+  const isValidExistingState = Boolean(
+    existing &&
+      typeof existing.lastNullSelectionTick === 'number' &&
+      Number.isFinite(existing.lastNullSelectionTick) &&
+      typeof existing.nullSelectionCount === 'number' &&
+      Number.isFinite(existing.nullSelectionCount) &&
+      typeof existing.fallbackAttempts === 'number' &&
+      Number.isFinite(existing.fallbackAttempts)
+  );
+  const isInWindow =
+    isValidExistingState && gameTime - (existing as WorkerTaskSelectionNullLoopState).lastNullSelectionTick <= WORKER_NULL_LOOP_TICK_WINDOW;
+
+  if (!isInWindow) {
+    const state = {
+      lastNullSelectionTick: gameTime,
+      nullSelectionCount: 1,
+      fallbackAttempts: 0
+    };
+    creep.memory.workerTaskSelectionNullLoop = state;
+    return state;
+  }
+
+  const typedExisting = existing as WorkerTaskSelectionNullLoopState;
+  const state = {
+    ...typedExisting,
+    nullSelectionCount: typedExisting.nullSelectionCount + 1
+  };
+  creep.memory.workerTaskSelectionNullLoop = state;
+  return state;
 }
 
 function runControllerSustainMovement(creep: Creep): boolean {
@@ -370,7 +447,7 @@ function canExecuteTask(creep: Creep, task: CreepTaskMemory): boolean {
 }
 
 function assignNextTask(creep: Creep): CreepTaskMemory | null {
-  const task = selectWorkerTask(creep);
+  const task = selectWorkerTaskForRunner(creep);
   if (task) {
     creep.memory.task = task;
   }

@@ -8752,6 +8752,14 @@ function selectWorkerEnergyAcquisitionTask(creep) {
   }
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
+function selectWorkerEnergyFallbackTask(creep) {
+  const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
+  if (energyAcquisitionTask) {
+    return energyAcquisitionTask;
+  }
+  const source = selectHarvestSource(creep);
+  return source ? { type: "harvest", targetId: source.id } : null;
+}
 function selectNearbyContainerWorkerEnergyAcquisitionTask(creep) {
   const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
     maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE
@@ -10304,6 +10312,9 @@ function getGameTime7() {
 
 // src/creeps/workerRunner.ts
 var MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
+var WORKER_NULL_LOOP_TICK_WINDOW = 5;
+var WORKER_NULL_LOOP_TRIGGER_COUNT = 3;
+var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 var OK_CODE3 = 0;
 var MIN_HAULER_DROPPED_ENERGY = 25;
 function runWorker(creep) {
@@ -10311,7 +10322,7 @@ function runWorker(creep) {
     return;
   }
   observeCreepBehaviorTick(creep);
-  const selectedTask = selectWorkerTask(creep);
+  const selectedTask = selectWorkerTaskForRunner(creep);
   const currentTask = creep.memory.task;
   if (!currentTask) {
     assignSelectedTask(creep, selectedTask);
@@ -10341,6 +10352,50 @@ function runWorker(creep) {
     assignSelectedTask(creep, selectedTask, currentTask);
   }
   executeAssignedTask(creep, selectedTask);
+}
+function selectWorkerTaskForRunner(creep) {
+  const selectedTask = selectWorkerTask(creep);
+  return fallbackToEnergyOnNullSelectionLoop(creep, selectedTask);
+}
+function fallbackToEnergyOnNullSelectionLoop(creep, selectedTask) {
+  var _a;
+  if (selectedTask) {
+    delete creep.memory.workerTaskSelectionNullLoop;
+    return selectedTask;
+  }
+  const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
+  if (typeof gameTime !== "number") {
+    return null;
+  }
+  const guardState = getWorkerTaskSelectionNullLoopState(creep, gameTime);
+  if (guardState.nullSelectionCount < WORKER_NULL_LOOP_TRIGGER_COUNT || guardState.fallbackAttempts >= WORKER_NULL_LOOP_FALLBACK_ATTEMPTS) {
+    return null;
+  }
+  guardState.fallbackAttempts += 1;
+  return selectWorkerEnergyFallbackTask(creep);
+}
+function getWorkerTaskSelectionNullLoopState(creep, gameTime) {
+  const existing = creep.memory.workerTaskSelectionNullLoop;
+  const isValidExistingState = Boolean(
+    existing && typeof existing.lastNullSelectionTick === "number" && Number.isFinite(existing.lastNullSelectionTick) && typeof existing.nullSelectionCount === "number" && Number.isFinite(existing.nullSelectionCount) && typeof existing.fallbackAttempts === "number" && Number.isFinite(existing.fallbackAttempts)
+  );
+  const isInWindow = isValidExistingState && gameTime - existing.lastNullSelectionTick <= WORKER_NULL_LOOP_TICK_WINDOW;
+  if (!isInWindow) {
+    const state2 = {
+      lastNullSelectionTick: gameTime,
+      nullSelectionCount: 1,
+      fallbackAttempts: 0
+    };
+    creep.memory.workerTaskSelectionNullLoop = state2;
+    return state2;
+  }
+  const typedExisting = existing;
+  const state = {
+    ...typedExisting,
+    nullSelectionCount: typedExisting.nullSelectionCount + 1
+  };
+  creep.memory.workerTaskSelectionNullLoop = state;
+  return state;
 }
 function runControllerSustainMovement(creep) {
   var _a;
@@ -10553,7 +10608,7 @@ function canExecuteTask(creep, task) {
   }
 }
 function assignNextTask(creep) {
-  const task = selectWorkerTask(creep);
+  const task = selectWorkerTaskForRunner(creep);
   if (task) {
     creep.memory.task = task;
   }

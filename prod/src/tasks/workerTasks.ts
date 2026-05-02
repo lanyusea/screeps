@@ -1965,6 +1965,16 @@ function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitio
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
 
+export function selectWorkerEnergyFallbackTask(creep: Creep): CreepTaskMemory | null {
+  const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
+  if (energyAcquisitionTask) {
+    return energyAcquisitionTask;
+  }
+
+  const source = selectHarvestSource(creep);
+  return source ? { type: 'harvest', targetId: source.id } : null;
+}
+
 function selectNearbyContainerWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
   const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
     maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE
