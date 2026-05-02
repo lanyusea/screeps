@@ -700,6 +700,37 @@ export function suppressTerritoryIntent(
   removeTerritoryFollowUpExecutionHint(territoryMemory, colony, assignment.targetRoom, assignment.action);
 }
 
+function suppressSameRoomClaimTerritoryIntents(
+  territoryMemory: TerritoryMemory,
+  intents: TerritoryIntentMemory[],
+  colony: string,
+  targetRoom: string,
+  gameTime: number
+): void {
+  let hasSuppressedClaimIntent = false;
+  for (let i = 0; i < intents.length; i += 1) {
+    const intent = intents[i];
+    if (intent.colony !== colony || intent.targetRoom !== targetRoom || intent.action !== 'claim') {
+      continue;
+    }
+
+    intents[i] = {
+      ...intent,
+      status: 'suppressed',
+      updatedAt: gameTime
+    };
+    removeTerritoryFollowUpDemand(territoryMemory, colony, targetRoom, 'claim');
+    removeTerritoryFollowUpExecutionHint(territoryMemory, colony, targetRoom, 'claim');
+    hasSuppressedClaimIntent = true;
+  }
+
+  if (!hasSuppressedClaimIntent) {
+    return;
+  }
+
+  setTerritoryIntents(territoryMemory, intents);
+}
+
 export function recordTerritoryReserveFallbackIntent(
   colony: string | undefined,
   assignment: CreepTerritoryMemory,
@@ -721,6 +752,7 @@ export function recordTerritoryReserveFallbackIntent(
 
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
+  suppressSameRoomClaimTerritoryIntents(territoryMemory, intents, colony, assignment.targetRoom, gameTime);
   const followUp = getTerritoryReserveFallbackFollowUp(assignment, intents, colony, gameTime);
   const requiresControllerPressure = getPersistedTerritoryIntentPressureRequirement(
     intents,
