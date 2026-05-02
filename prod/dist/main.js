@@ -7681,6 +7681,9 @@ function selectHeuristicWorkerTask(creep) {
       recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "emergencySpawnExtensionRefill");
       return spawnOrExtensionRefillTask;
     }
+    if (getUsedEnergy2(creep) > 0) {
+      return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
+    }
     storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
     if (storageRefillAcquisitionTask) {
       return storageRefillAcquisitionTask;
@@ -8044,11 +8047,23 @@ function selectSpawnOrExtensionEnergySink(creep) {
   return unreservedEnergySink != null ? unreservedEnergySink : selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries);
 }
 function selectStorageToSpawnExtensionRefillAcquisitionTask(creep) {
+  var _a;
   if (!isSpawnExtensionThroughputBottlenecked(creep.room) || getFreeEnergyCapacity2(creep) <= 0) {
     return null;
   }
   const storage = selectStorageForSpawnExtensionRefill(creep);
-  return storage ? { type: "withdraw", targetId: storage.id } : null;
+  if (!storage) {
+    return null;
+  }
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const reservedStorageEnergy = (_a = reservationContext.reservedEnergyBySourceId.get(String(storage.id))) != null ? _a : 0;
+  const availableStorageEnergy = Math.max(0, getStoredEnergy2(storage) - reservedStorageEnergy);
+  const plannedWithdrawal = Math.min(getFreeEnergyCapacity2(creep), availableStorageEnergy);
+  if (plannedWithdrawal <= 0) {
+    return null;
+  }
+  const projectedStorageEnergy = getStoredEnergy2(storage) - reservedStorageEnergy - plannedWithdrawal;
+  return projectedStorageEnergy >= SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR ? { type: "withdraw", targetId: storage.id } : null;
 }
 function isSpawnExtensionThroughputBottlenecked(room) {
   const energyAvailable = getRoomEnergyAvailable(room);
