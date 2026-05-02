@@ -338,7 +338,7 @@ interface RuntimeCpuSummary {
   bucket?: number;
 }
 
-interface RuntimeSummary {
+export interface RuntimeSummary {
   type: 'runtime-summary';
   tick: number;
   rooms: RuntimeRoomSummary[];
@@ -360,9 +360,9 @@ export function emitRuntimeSummary(
   creeps: Creep[],
   events: RuntimeTelemetryEvent[] = [],
   options: RuntimeSummaryOptions = {}
-): void {
+): RuntimeSummary | undefined {
   if (colonies.length === 0 && events.length === 0) {
-    return;
+    return undefined;
   }
 
   const tick = getGameTime();
@@ -389,7 +389,7 @@ export function emitRuntimeSummary(
     cachedEventMetricsTick
   );
   if (!emitsSummary) {
-    return;
+    return undefined;
   }
 
   const reportedEvents = events.slice(0, MAX_REPORTED_EVENTS);
@@ -412,6 +412,7 @@ export function emitRuntimeSummary(
   };
 
   console.log(`${RUNTIME_SUMMARY_PREFIX}${JSON.stringify(summary)}`);
+  return summary;
 }
 
 export function shouldEmitRuntimeSummary(tick: number, events: RuntimeTelemetryEvent[]): boolean {
