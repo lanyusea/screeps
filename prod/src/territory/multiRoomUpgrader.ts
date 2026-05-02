@@ -15,6 +15,7 @@ const MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 const DEFAULT_RESERVED_CONTROLLER_LEVEL = 0;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
+const ROUTE_DISTANCE_CACHE_TTL_TICKS = 300;
 
 export type MultiRoomUpgradeControllerState = 'owned' | 'reserved';
 
@@ -317,6 +318,10 @@ interface ActiveMultiRoomUpgraderCountCache {
 }
 
 let activeMultiRoomUpgraderCountCache: ActiveMultiRoomUpgraderCountCache | null = null;
+interface RouteDistanceCacheState {
+  distances: Record<string, number | null>;
+  updatedAt: Record<string, number>;
+}
 
 function getActiveMultiRoomUpgraderCountsByTarget(homeRoom: string): Record<string, number> {
   const cache = getActiveMultiRoomUpgraderCountCache();
@@ -421,17 +426,25 @@ function getRouteDistance(fromRoom: string, targetRoom: string): number | null |
     return 0;
   }
 
-  const cache = getTerritoryRouteDistanceCache();
+  const gameTime = getGameTime();
+  const cache = getTerritoryRouteDistanceCache(gameTime);
   const cacheKey = getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom);
-  const cachedRouteDistance = cache?.[cacheKey];
-  if (cachedRouteDistance === null || typeof cachedRouteDistance === 'number') {
-    return cachedRouteDistance;
+  const cachedRouteDistance = cache?.distances?.[cacheKey];
+  const cacheUpdatedAt = cache?.updatedAt?.[cacheKey];
+  if (typeof cacheUpdatedAt === 'number' && !isRouteDistanceCacheStale(cacheUpdatedAt, gameTime)) {
+    if (cachedRouteDistance === null || typeof cachedRouteDistance === 'number') {
+      return cachedRouteDistance;
+    }
+  } else if (cacheUpdatedAt !== undefined && cache) {
+    delete cache.distances[cacheKey];
+    delete cache.updatedAt[cacheKey];
   }
 
   const routeDistance = getRouteDistanceFromGameMap(fromRoom, targetRoom);
   if (routeDistance !== undefined) {
     if (cache) {
-      cache[cacheKey] = routeDistance;
+      cache.distances[cacheKey] = routeDistance;
+      cache.updatedAt[cacheKey] = gameTime;
     }
     return routeDistance;
   }
@@ -439,7 +452,11 @@ function getRouteDistance(fromRoom: string, targetRoom: string): number | null |
   return isAdjacentRoom(fromRoom, targetRoom) ? 1 : undefined;
 }
 
-function getTerritoryRouteDistanceCache(): TerritoryMemory['routeDistances'] | undefined {
+function isRouteDistanceCacheStale(lastUpdatedAt: number, now: number): boolean {
+  return lastUpdatedAt + ROUTE_DISTANCE_CACHE_TTL_TICKS < now;
+}
+
+function getTerritoryRouteDistanceCache(gameTime: number): RouteDistanceCacheState | undefined {
   const memory = (globalThis as { Memory?: Partial<Memory> }).Memory;
   if (!memory) {
     return undefined;
@@ -453,7 +470,37 @@ function getTerritoryRouteDistanceCache(): TerritoryMemory['routeDistances'] | u
     memory.territory.routeDistances = {};
   }
 
-  return memory.territory.routeDistances as TerritoryMemory['routeDistances'];
+  if (!isRecord(memory.territory.routeDistancesUpdatedAt)) {
+    memory.territory.routeDistancesUpdatedAt = {};
+  }
+
+  const distances = memory.territory.routeDistances as Record<string, number | null>;
+  const updatedAt = memory.territory.routeDistancesUpdatedAt as Record<string, number>;
+  pruneStaleRouteDistanceEntries(updatedAt, distances, gameTime);
+
+  return {
+    distances,
+    updatedAt
+  };
+}
+
+function pruneStaleRouteDistanceEntries(
+  updatedAt: Record<string, unknown>,
+  distances: Record<string, number | null>,
+  gameTime: number
+): void {
+  for (const [cacheKey, lastUpdatedAt] of Object.entries(updatedAt)) {
+    if (typeof lastUpdatedAt !== 'number') {
+      delete updatedAt[cacheKey];
+      delete distances[cacheKey];
+      continue;
+    }
+
+    if (isRouteDistanceCacheStale(lastUpdatedAt, gameTime)) {
+      delete updatedAt[cacheKey];
+      delete distances[cacheKey];
+    }
+  }
 }
 
 function getTerritoryRouteDistanceCacheKey(fromRoom: string, targetRoom: string): string {

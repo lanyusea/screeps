@@ -1,6 +1,7 @@
 import { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   buildMultiRoomUpgraderBody,
+  recordPlannedMultiRoomUpgraderSpawn,
   buildMultiRoomUpgraderMemory,
   selectMultiRoomUpgradePlan,
   selectMultiRoomUpgradePlans
@@ -118,12 +119,14 @@ describe('multi-room upgrader planner', () => {
     colony,
     rooms,
     creeps = {},
-    routeLengths = {}
+    routeLengths = {},
+    time = 0
   }: {
     colony: ColonySnapshot;
     rooms: Room[];
     creeps?: Record<string, Creep>;
     routeLengths?: Record<string, number | null>;
+    time?: number;
   }): jest.Mock {
     const findRoute = jest.fn((_fromRoom: string, toRoom: string) => {
       const configuredDistance = Object.prototype.hasOwnProperty.call(routeLengths, toRoom)
@@ -139,6 +142,7 @@ describe('multi-room upgrader planner', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: Object.fromEntries([[colony.room.name, colony.room], ...rooms.map((room) => [room.name, room])]),
       creeps,
+      time,
       map: { findRoute } as unknown as GameMap
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
@@ -222,6 +226,44 @@ describe('multi-room upgrader planner', () => {
     expect(selectMultiRoomUpgradePlan(colony)?.routeDistance).toBe(3);
     expect(findRoute).toHaveBeenCalledTimes(1);
     expect(Memory.territory?.routeDistances).toEqual({ 'W1N1>W3N1': 3 });
+    expect(Memory.territory?.routeDistancesUpdatedAt).toEqual({ 'W1N1>W3N1': 0 });
+  });
+
+  it('reuses cached route distances within the cache TTL', () => {
+    const colony = makeColony();
+    const findRoute = installGame({
+      colony,
+      rooms: [makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2) })],
+      routeLengths: { W3N1: 3 },
+      time: 1_000
+    });
+
+    expect(selectMultiRoomUpgradePlan(colony)?.routeDistance).toBe(3);
+    expect(selectMultiRoomUpgradePlan(colony)?.routeDistance).toBe(3);
+    expect(findRoute).toHaveBeenCalledTimes(1);
+    expect(selectMultiRoomUpgradePlan(colony)?.routeDistance).toBe(3);
+    expect(findRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('recomputes stale cached routes when the cache TTL expires', () => {
+    const colony = makeColony();
+    const findRoute = installGame({
+      colony,
+      rooms: [makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2) })],
+      routeLengths: { W3N1: 3 },
+      time: 1
+    });
+
+    expect(selectMultiRoomUpgradePlan(colony)?.routeDistance).toBe(3);
+    expect(findRoute).toHaveBeenCalledTimes(1);
+
+    if (Memory.territory) {
+      Memory.territory.routeDistancesUpdatedAt = { 'W1N1>W3N1': 0 };
+    }
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 1_000;
+
+    expect(selectMultiRoomUpgradePlan(colony)?.routeDistance).toBe(3);
+    expect(findRoute).toHaveBeenCalledTimes(2);
   });
 
   it('uses extra move parts for longer remote upgrade routes', () => {
@@ -265,6 +307,35 @@ describe('multi-room upgrader planner', () => {
 
     expect(selectMultiRoomUpgradePlan(colony)?.targetRoom).toBe('W3N1');
     expect(selectMultiRoomUpgradePlan(colony, { perRoomUpgraderCap: 2 })?.targetRoom).toBe('W2N1');
+  });
+
+  it('counts planned and active multi-room upgrader creeps toward the per-room cap', () => {
+    const colony = makeColony();
+    const cacheTick = 1;
+    installGame({
+      colony,
+      rooms: [
+        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 1) }),
+        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2) })
+      ],
+      creeps: { Existing: makeRemoteUpgrader('W2N1') },
+      routeLengths: { W2N1: 1, W3N1: 1 },
+      time: cacheTick
+    });
+
+    recordPlannedMultiRoomUpgraderSpawn({
+      role: 'worker',
+      controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' },
+      colony: 'W1N1'
+    } as CreepMemory);
+
+    const planWithCap1 = selectMultiRoomUpgradePlan(colony, { perRoomUpgraderCap: 1 });
+    const planWithCap2 = selectMultiRoomUpgradePlan(colony, { perRoomUpgraderCap: 2 });
+    const planWithCap3 = selectMultiRoomUpgradePlan(colony, { perRoomUpgraderCap: 3 });
+
+    expect(planWithCap1?.targetRoom).toBe('W3N1');
+    expect(planWithCap2?.targetRoom).toBe('W3N1');
+    expect(planWithCap3?.targetRoom).toBe('W2N1');
   });
 
   it('selects own reserved rooms and builds a reserve-capable sustain body', () => {
