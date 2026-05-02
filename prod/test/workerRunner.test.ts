@@ -2516,6 +2516,7 @@ describe('runWorker', () => {
 
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
     expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.memory.workerTaskSelectionNullLoop).toBeUndefined();
   });
 
   it('does not move the null-loop start tick on consecutive null selections inside the same window', () => {
