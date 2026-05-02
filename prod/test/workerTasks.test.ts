@@ -1865,6 +1865,144 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-open' });
   });
 
+  it('assigns a dedicated harvester to the nearest available source container despite a closer open source', () => {
+    const openSource = makeSource('source-open', 5, 5);
+    const nearSource = makeSource('source-near', 10, 10);
+    const farSource = makeSource('source-far', 30, 30);
+    const nearContainer = makeStoredEnergyStructure('container-near', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const farContainer = makeStoredEnergyStructure('container-far', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(30, 31)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [openSource, nearSource, farSource],
+      structures: [nearContainer, farContainer]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) =>
+          target.id === 'source-open' ? 1 : target.id === 'source-near' ? 5 : 12
+        )
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-near' });
+  });
+
+  it('skips depleted source containers when assigning dedicated harvesters', () => {
+    const emptyContainerSource = makeSource('source-empty-container', 10, 10);
+    const chargedContainerSource = makeSource('source-charged-container', 30, 30);
+    const openSource = makeSource('source-open', 20, 20);
+    const emptyContainer = makeStoredEnergyStructure('container-empty', 'container' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const chargedContainer = makeStoredEnergyStructure('container-charged', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(30, 31)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [emptyContainerSource, chargedContainerSource, openSource],
+      structures: [emptyContainer, chargedContainer]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) =>
+          target.id === 'source-empty-container' ? 1 : target.id === 'source-open' ? 2 : 12
+        )
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-charged-container' });
+  });
+
+  it('does not assign a second harvester to a source container with a dedicated worker', () => {
+    const assignedContainerSource = makeSource('source-assigned-container', 10, 10);
+    const availableContainerSource = makeSource('source-available-container', 30, 30);
+    const openSource = makeSource('source-open', 20, 20);
+    const assignedContainer = makeStoredEnergyStructure('container-assigned', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const availableContainer = makeStoredEnergyStructure('container-available', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(30, 31)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [assignedContainerSource, availableContainerSource, openSource],
+      structures: [assignedContainer, availableContainer]
+    });
+    setGameCreeps({
+      DedicatedHarvester: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source-assigned-container' as Id<Source> } },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) =>
+          target.id === 'source-assigned-container' ? 1 : target.id === 'source-open' ? 2 : 12
+        )
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-available-container' });
+  });
+
+  it('waits for source-container hauling when every source already has a dedicated harvester', () => {
+    const source1 = makeSource('source1', 10, 10);
+    const source2 = makeSource('source2', 30, 30);
+    const container1 = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const container2 = makeStoredEnergyStructure('container2', 'container' as StructureConstant, 0, {
+      pos: makeRoomPosition(30, 31)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [source1, source2],
+      structures: [container1, container2]
+    });
+    setGameCreeps({
+      Harvester1: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+        room
+      } as unknown as Creep,
+      Harvester2: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source2' as Id<Source> } },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
   it('avoids depleted harvest sources when another source has energy', () => {
     const depletedSource = { id: 'source-empty', energy: 0 } as Source;
     const viableSource = { id: 'source-full', energy: 300 } as Source;

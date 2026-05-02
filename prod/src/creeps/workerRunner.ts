@@ -7,11 +7,13 @@ import {
 } from '../tasks/workerTasks';
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
+import { findSourceContainer } from '../economy/sourceContainers';
 
 type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
 type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
 
 const MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
+const OK_CODE = 0 as ScreepsReturnCode;
 
 export function runWorker(creep: Creep): void {
   const selectedTask = selectWorkerTask(creep);
@@ -75,14 +77,14 @@ function executeAssignedTask(
     }
   }
 
-  if (shouldReplaceTarget(task, target)) {
+  if (shouldReplaceTarget(creep, task, target)) {
     task = assignSelectedTask(creep, selectedTask, task);
     if (!task || !canExecuteTask(creep, task)) {
       return;
     }
 
     target = Game.getObjectById(task.targetId);
-    if (!target || shouldReplaceTarget(task, target)) {
+    if (!target || shouldReplaceTarget(creep, task, target)) {
       return;
     }
   }
@@ -177,6 +179,13 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
 
   if (task.type === 'harvest' || task.type === 'pickup' || task.type === 'withdraw') {
+    if (task.type === 'harvest') {
+      const sourceContainer = findHarvestTaskSourceContainer(creep, task);
+      if (sourceContainer) {
+        return freeEnergyCapacity === 0 || getFreeTransferEnergyCapacity(sourceContainer) <= 0;
+      }
+    }
+
     return freeEnergyCapacity === 0;
   }
 
@@ -249,6 +258,10 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
   selectedTask: CreepTaskMemory | null
 ): boolean {
   if (!isEnergyAcquisitionTask(task)) {
+    return false;
+  }
+
+  if (isDedicatedSourceContainerHarvestTask(creep, task)) {
     return false;
   }
 
@@ -648,11 +661,12 @@ function matchesCapacityConstructionStructureType(
 }
 
 function shouldReplaceTarget(
+  creep: Creep,
   task: CreepTaskMemory,
   target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
 ): boolean {
   if (task.type === 'harvest' && isDepletedHarvestSource(target)) {
-    return true;
+    return !findSourceContainer(creep.room, target);
   }
 
   if (task.type === 'transfer' && 'store' in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
@@ -678,7 +692,7 @@ function executeTask(
 ): ScreepsReturnCode {
   switch (task.type) {
     case 'harvest':
-      return creep.harvest(target as Source);
+      return executeHarvestTask(creep, target as Source);
     case 'pickup':
       return creep.pickup(target as Resource<ResourceConstant>);
     case 'withdraw':
@@ -711,4 +725,89 @@ function executeTask(
       signOccupiedControllerIfNeeded(creep, target as StructureController);
       return creep.upgradeController(target as StructureController);
   }
+}
+
+function executeHarvestTask(creep: Creep, source: Source): ScreepsReturnCode {
+  const sourceContainer = findSourceContainer(creep.room, source);
+  if (!sourceContainer) {
+    return creep.harvest(source);
+  }
+
+  if (!isInRangeToRoomObject(creep, source, 1)) {
+    creep.moveTo(sourceContainer);
+    return OK_CODE;
+  }
+
+  if (isDepletedHarvestSource(source)) {
+    return getUsedTransferEnergy(creep) > 0
+      ? transferDedicatedHarvestEnergy(creep, sourceContainer)
+      : OK_CODE;
+  }
+
+  if (getFreeTransferEnergyCapacity(creep) <= 0 && getUsedTransferEnergy(creep) > 0) {
+    return transferDedicatedHarvestEnergy(creep, sourceContainer);
+  }
+
+  const result = creep.harvest(source);
+  if (((result as ScreepsReturnCode) === ERR_FULL || result === ERR_NOT_ENOUGH_RESOURCES) && getUsedTransferEnergy(creep) > 0) {
+    return transferDedicatedHarvestEnergy(creep, sourceContainer);
+  }
+
+  return result === ERR_NOT_ENOUGH_RESOURCES ? OK_CODE : result;
+}
+
+function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: StructureContainer): ScreepsReturnCode {
+  if (typeof creep.transfer !== 'function') {
+    return OK_CODE;
+  }
+
+  const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
+  if (result === ERR_NOT_IN_RANGE) {
+    creep.moveTo(sourceContainer);
+    return OK_CODE;
+  }
+
+  return result;
+}
+
+function isDedicatedSourceContainerHarvestTask(
+  creep: Creep,
+  task: CreepTaskMemory
+): task is Extract<CreepTaskMemory, { type: 'harvest' }> {
+  return task.type === 'harvest' && findHarvestTaskSourceContainer(creep, task) !== null;
+}
+
+function findHarvestTaskSourceContainer(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'harvest' }>
+): StructureContainer | null {
+  const source = findHarvestTaskSource(creep, task);
+  return source === null ? null : findSourceContainer(creep.room, source);
+}
+
+function findHarvestTaskSource(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'harvest' }>
+): Source | null {
+  if (typeof FIND_SOURCES === 'number' && typeof creep.room?.find === 'function') {
+    const visibleSource = creep.room
+      .find(FIND_SOURCES)
+      .find((source) => String(source.id) === String(task.targetId));
+    if (visibleSource) {
+      return visibleSource;
+    }
+  }
+
+  const target = getTaskTarget(task) as Source | null;
+  return target && String((target as { id?: unknown }).id) === String(task.targetId) ? target : null;
+}
+
+function isInRangeToRoomObject(creep: Creep, target: RoomObject, range: number): boolean {
+  const position = (creep as Creep & { pos?: { getRangeTo?: (target: RoomObject) => number } }).pos;
+  if (typeof position?.getRangeTo !== 'function') {
+    return true;
+  }
+
+  const actualRange = position.getRangeTo(target);
+  return Number.isFinite(actualRange) && actualRange <= range;
 }
