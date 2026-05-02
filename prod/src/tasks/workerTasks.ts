@@ -66,6 +66,7 @@ type WorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'pickup' | '
 type LowLoadWorkerEnergyAcquisitionSource = WorkerEnergyAcquisitionSource | Source;
 type LowLoadWorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>;
 type ProductiveEnergySinkTask = Extract<CreepTaskMemory, { type: 'build' | 'repair' }>;
+type WorkerEnergyAcquisitionPriority = 0 | 1 | 2;
 type WorkerEnergySpendingTask =
   | Extract<CreepTaskMemory, { type: 'transfer' }>
   | Extract<CreepTaskMemory, { type: 'build' }>
@@ -156,6 +157,15 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
         if (spawnRecoveryHarvestCandidate) {
           return { type: 'harvest', targetId: spawnRecoveryHarvestCandidate.source.id };
         }
+      }
+
+      if (shouldStandbySurplusWorkerInsteadOfAcquiring(creep, creep.room.controller)) {
+        return null;
+      }
+
+      const nearbyContainerEnergyAcquisitionTask = selectNearbyContainerWorkerEnergyAcquisitionTask(creep);
+      if (nearbyContainerEnergyAcquisitionTask) {
+        return nearbyContainerEnergyAcquisitionTask;
       }
 
       const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
@@ -383,7 +393,7 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'repair', targetId: repairTarget.id as Id<Structure> });
   }
 
-  if (controller?.my) {
+  if (controller?.my && !isControllerUpgradeSaturated(creep, controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
   }
 
@@ -1613,6 +1623,7 @@ function isRoomSafeForUnownedContainerWithdrawal(context: StoredEnergySourceCont
 
 interface WorkerEnergyAcquisitionCandidate {
   energy: number;
+  priority: WorkerEnergyAcquisitionPriority;
   range: number | null;
   score: number;
   source: WorkerEnergyAcquisitionSource;
@@ -1621,6 +1632,7 @@ interface WorkerEnergyAcquisitionCandidate {
 
 interface LowLoadWorkerEnergyAcquisitionCandidate {
   energy: number;
+  priority: WorkerEnergyAcquisitionPriority;
   range: number | null;
   score: number;
   source: LowLoadWorkerEnergyAcquisitionSource;
@@ -1655,6 +1667,17 @@ interface WorkerEnergyAcquisitionSearchOptions {
 
 function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
   const candidates = findWorkerEnergyAcquisitionCandidates(creep);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+}
+
+function selectNearbyContainerWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
+    maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE
+  }).filter((candidate) => isContainerEnergySource(candidate.source));
   if (candidates.length === 0) {
     return null;
   }
@@ -1867,6 +1890,7 @@ function createLowLoadWorkerEnergyAcquisitionCandidate(
 
   return {
     energy,
+    priority: getWorkerEnergyAcquisitionPriority(creep, source, energy, range),
     range,
     score: range === null ? energy : energy - range * ENERGY_ACQUISITION_RANGE_COST,
     source,
@@ -1879,6 +1903,7 @@ function compareLowLoadWorkerEnergyAcquisitionCandidates(
   right: LowLoadWorkerEnergyAcquisitionCandidate
 ): number {
   return (
+    left.priority - right.priority ||
     compareOptionalRanges(left.range, right.range) ||
     right.score - left.score ||
     right.energy - left.energy ||
@@ -2071,11 +2096,52 @@ function createWorkerEnergyAcquisitionCandidate(
 
   return {
     energy,
+    priority: getWorkerEnergyAcquisitionPriority(creep, source, energy, range),
     range,
     score: range === null ? energyScore : energyScore - range * ENERGY_ACQUISITION_RANGE_COST,
     source,
     task
   };
+}
+
+function getWorkerEnergyAcquisitionPriority(
+  creep: Creep,
+  source: LowLoadWorkerEnergyAcquisitionSource,
+  energy: number,
+  range: number | null
+): WorkerEnergyAcquisitionPriority {
+  if (
+    isContainerEnergySource(source) &&
+    range !== null &&
+    range <= LOW_LOAD_NEARBY_ENERGY_RANGE &&
+    energy >= Math.max(1, getFreeEnergyCapacity(creep))
+  ) {
+    return 0;
+  }
+
+  return isDurableStoredEnergySource(source) ? 2 : 1;
+}
+
+function isContainerEnergySource(source: LowLoadWorkerEnergyAcquisitionSource): source is StructureContainer {
+  return isStructureEnergySourceType(source, 'STRUCTURE_CONTAINER', 'container');
+}
+
+function isDurableStoredEnergySource(
+  source: LowLoadWorkerEnergyAcquisitionSource
+): source is StructureStorage | StructureTerminal {
+  return (
+    isStructureEnergySourceType(source, 'STRUCTURE_STORAGE', 'storage') ||
+    isStructureEnergySourceType(source, 'STRUCTURE_TERMINAL', 'terminal')
+  );
+}
+
+function isStructureEnergySourceType(
+  source: LowLoadWorkerEnergyAcquisitionSource,
+  globalName: StructureConstantGlobal,
+  fallback: string
+): boolean {
+  const structureType = (source as Partial<Structure>).structureType;
+  return matchesStructureType(typeof structureType === 'string' ? structureType : undefined, globalName, fallback);
 }
 
 function scoreWorkerEnergyAcquisitionAmount(energy: number, freeCapacity: number): number {
@@ -2304,6 +2370,30 @@ function compareWorkerEnergyAcquisitionCandidates(
   left: WorkerEnergyAcquisitionCandidate,
   right: WorkerEnergyAcquisitionCandidate
 ): number {
+  const priorityComparison = left.priority - right.priority;
+  if (priorityComparison !== 0) {
+    return priorityComparison;
+  }
+
+  if (left.priority === 0) {
+    return (
+      compareOptionalRanges(left.range, right.range) ||
+      right.energy - left.energy ||
+      String(left.source.id).localeCompare(String(right.source.id)) ||
+      left.task.type.localeCompare(right.task.type)
+    );
+  }
+
+  if (left.priority === 1) {
+    return (
+      right.energy - left.energy ||
+      compareOptionalRanges(left.range, right.range) ||
+      right.score - left.score ||
+      String(left.source.id).localeCompare(String(right.source.id)) ||
+      left.task.type.localeCompare(right.task.type)
+    );
+  }
+
   return (
     right.score - left.score ||
     compareOptionalRanges(left.range, right.range) ||
@@ -2823,6 +2913,10 @@ function getControllerProgressWorkerLimit(
 }
 
 function shouldUseSurplusForControllerProgress(creep: Creep, controller: StructureController): boolean {
+  if (isControllerUpgradeSaturated(creep, controller)) {
+    return false;
+  }
+
   if (shouldApplyControllerPressureLane(creep, controller)) {
     return true;
   }
@@ -2832,6 +2926,58 @@ function shouldUseSurplusForControllerProgress(creep: Creep, controller: Structu
   }
 
   return false;
+}
+
+function shouldStandbySurplusWorkerInsteadOfAcquiring(
+  creep: Creep,
+  controller: StructureController | undefined
+): boolean {
+  return (
+    controller?.my === true &&
+    isControllerUpgradeSaturated(creep, controller) &&
+    !hasNonControllerWorkerEnergyDemand(creep)
+  );
+}
+
+function hasNonControllerWorkerEnergyDemand(creep: Creep): boolean {
+  if (selectFillableEnergySink(creep)) {
+    return true;
+  }
+
+  const constructionSites =
+    typeof FIND_CONSTRUCTION_SITES === 'number' && typeof creep.room?.find === 'function'
+      ? creep.room.find(FIND_CONSTRUCTION_SITES)
+      : [];
+  if (constructionSites.length > 0) {
+    return true;
+  }
+
+  return selectCriticalInfrastructureRepairTarget(creep) !== null || selectRepairTarget(creep) !== null;
+}
+
+function isControllerUpgradeSaturated(creep: Creep, controller: StructureController): boolean {
+  if (controller.my !== true || shouldGuardControllerDowngrade(controller)) {
+    return false;
+  }
+
+  const loadedWorkers = getSameRoomLoadedWorkers(creep);
+  const otherControllerUpgraders = loadedWorkers.filter(
+    (worker) => !isSameCreep(worker, creep) && isUpgradingController(worker, controller)
+  ).length;
+  if (otherControllerUpgraders === 0) {
+    return false;
+  }
+
+  const controllerProgressWorkerLimit = Math.max(
+    1,
+    getControllerProgressWorkerLimit(
+      creep,
+      loadedWorkers.length,
+      hasActiveTerritoryExpansionPressure(creep)
+    )
+  );
+
+  return otherControllerUpgraders >= controllerProgressWorkerLimit;
 }
 
 function shouldApplySource2ControllerLane(creep: Creep, controller: StructureController): boolean {
@@ -3518,7 +3664,7 @@ function isCloserHarvestSource(creep: Creep, candidate: Source, selected: Source
 function selectViableHarvestSources(sources: Source[], harvestEnergyTarget: number): Source[] {
   const sourcesWithEnergy = sources.filter(hasHarvestableEnergy);
   if (sourcesWithEnergy.length === 0) {
-    return sources;
+    return [];
   }
 
   const targetEnergy = Math.max(1, Math.ceil(harvestEnergyTarget));
