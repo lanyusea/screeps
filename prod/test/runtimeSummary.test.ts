@@ -89,6 +89,15 @@ describe('runtime telemetry summaries', () => {
             repair: 0,
             upgrade: 0
           },
+          structures: {
+            towerCount: 0,
+            rampartCount: 0,
+            containers: [],
+            repairTargets: [],
+            roadCount: 0,
+            pendingRoadSiteCount: 0,
+            roadCoverageRatio: 0
+          },
           controller: {
             level: 2,
             progress: 1234,
@@ -198,6 +207,147 @@ describe('runtime telemetry summaries', () => {
     emitRuntimeSummary([colony], []);
 
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('reports per-creep behavior counters and resets emitted counters', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road-damaged' as Id<Structure> },
+        behaviorTelemetry: {
+          idleTicks: 1,
+          moveTicks: 3,
+          workTicks: 2,
+          stuckTicks: 1,
+          containerTransfers: 1,
+          pathLength: 2,
+          repairTargetId: 'road-damaged',
+          lastPosition: { x: 10, y: 12, roomName: 'W1N1' },
+          lastMoveTick: RUNTIME_SUMMARY_INTERVAL,
+          lastObservedTick: RUNTIME_SUMMARY_INTERVAL
+        }
+      },
+      20,
+      'RepairWorker'
+    );
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.behavior).toEqual({
+      creeps: [
+        {
+          creepName: 'RepairWorker',
+          idleTicks: 1,
+          moveTicks: 3,
+          workTicks: 2,
+          stuckTicks: 1,
+          containerTransfers: 1,
+          pathLength: 2,
+          repairTargetId: 'road-damaged'
+        }
+      ],
+      totals: {
+        idleTicks: 1,
+        moveTicks: 3,
+        workTicks: 2,
+        stuckTicks: 1,
+        containerTransfers: 1,
+        pathLength: 2
+      }
+    });
+    expect(worker.memory.behaviorTelemetry).toEqual({
+      lastPosition: { x: 10, y: 12, roomName: 'W1N1' },
+      lastMoveTick: RUNTIME_SUMMARY_INTERVAL,
+      lastObservedTick: RUNTIME_SUMMARY_INTERVAL
+    });
+  });
+
+  it('reports cadence structure snapshots with defenses, containers, repairs, and road coverage', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      structures: [
+        { id: 'tower1', structureType: TEST_GLOBALS.STRUCTURE_TOWER },
+        { id: 'rampart1', structureType: TEST_GLOBALS.STRUCTURE_RAMPART, my: true },
+        { id: 'enemy-rampart', structureType: TEST_GLOBALS.STRUCTURE_RAMPART, my: false },
+        { id: 'container-b', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, store: makeEnergyStore(400, 2000) },
+        { id: 'container-a', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, store: makeEnergyStore(50, 2000) },
+        { id: 'road-damaged', structureType: TEST_GLOBALS.STRUCTURE_ROAD, hits: 1000, hitsMax: 5000 },
+        { id: 'road-full', structureType: TEST_GLOBALS.STRUCTURE_ROAD, hits: 5000, hitsMax: 5000 }
+      ],
+      constructionSites: [
+        { id: 'road-site', structureType: TEST_GLOBALS.STRUCTURE_ROAD },
+        { id: 'extension-site', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION }
+      ]
+    });
+    const workers = [
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'repair', targetId: 'road-damaged' as Id<Structure> } },
+        10,
+        'RepairerA'
+      ),
+      makeWorker(
+        { role: 'worker', colony: 'W1N1', task: { type: 'repair', targetId: 'road-damaged' as Id<Structure> } },
+        10,
+        'RepairerB'
+      )
+    ];
+
+    emitRuntimeSummary([colony], workers, [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.structures).toEqual({
+      towerCount: 1,
+      rampartCount: 1,
+      containers: [
+        { id: 'container-a', energy: 50, capacity: 2000 },
+        { id: 'container-b', energy: 400, capacity: 2000 }
+      ],
+      repairTargets: [
+        {
+          targetId: 'road-damaged',
+          repairCount: 2,
+          structureType: TEST_GLOBALS.STRUCTURE_ROAD,
+          hits: 1000,
+          hitsMax: 5000
+        }
+      ],
+      roadCount: 2,
+      pendingRoadSiteCount: 1,
+      roadCoverageRatio: 0.667
+    });
+  });
+
+  it('omits structure snapshots from event-only non-cadence summaries', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL + 1,
+      structures: [{ id: 'tower1', structureType: TEST_GLOBALS.STRUCTURE_TOWER }]
+    });
+
+    emitRuntimeSummary(
+      [colony],
+      [],
+      [
+        {
+          type: 'spawn',
+          roomName: 'W1N1',
+          spawnName: 'Spawn1',
+          creepName: 'worker-W1N1-event',
+          role: 'worker',
+          result: 0 as ScreepsReturnCode
+        }
+      ],
+      { persistOccupationRecommendations: false }
+    );
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.structures).toBeUndefined();
   });
 
   it('refreshes refill telemetry on non-cadence ticks from cached room data without rescanning', () => {
@@ -1239,8 +1389,18 @@ function makeRemoteRoom(
   } as unknown as Room;
 }
 
-function makeEnergyStore(energy: number): { getUsedCapacity: (resource?: ResourceConstant) => number } {
+function makeEnergyStore(
+  energy: number,
+  capacity = energy
+): {
+  getUsedCapacity: (resource?: ResourceConstant) => number;
+  getCapacity: (resource?: ResourceConstant) => number;
+  getFreeCapacity: (resource?: ResourceConstant) => number;
+} {
   return {
-    getUsedCapacity: (resource?: ResourceConstant) => (resource === TEST_GLOBALS.RESOURCE_ENERGY ? energy : 0)
+    getUsedCapacity: (resource?: ResourceConstant) => (resource === TEST_GLOBALS.RESOURCE_ENERGY ? energy : 0),
+    getCapacity: (resource?: ResourceConstant) => (resource === TEST_GLOBALS.RESOURCE_ENERGY ? capacity : 0),
+    getFreeCapacity: (resource?: ResourceConstant) =>
+      resource === TEST_GLOBALS.RESOURCE_ENERGY ? Math.max(0, capacity - energy) : 0
   };
 }

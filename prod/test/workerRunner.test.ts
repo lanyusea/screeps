@@ -246,6 +246,49 @@ describe('runWorker', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(source);
   });
 
+  it('records worker behavior telemetry while moving and working across ticks', () => {
+    const source = { id: 'source1' } as Source;
+    const creep = {
+      name: 'Worker1',
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      pos: { x: 10, y: 10, roomName: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: { find: jest.fn().mockReturnValue([source]) },
+      harvest: jest.fn().mockReturnValueOnce(ERR_NOT_IN_RANGE).mockReturnValueOnce(ERR_NOT_IN_RANGE).mockReturnValueOnce(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 10,
+      getObjectById: jest.fn().mockReturnValue(source)
+    };
+
+    runWorker(creep);
+
+    (Game as Partial<Game>).time = 11;
+    runWorker(creep);
+
+    (creep as unknown as { pos: { x: number; y: number; roomName: string } }).pos = {
+      x: 11,
+      y: 10,
+      roomName: 'W1N1'
+    };
+    (Game as Partial<Game>).time = 12;
+    runWorker(creep);
+
+    expect(creep.memory.behaviorTelemetry).toMatchObject({
+      moveTicks: 2,
+      workTicks: 1,
+      stuckTicks: 1,
+      pathLength: 1,
+      lastPosition: { x: 11, y: 10, roomName: 'W1N1' },
+      lastMoveTick: 11,
+      lastObservedTick: 12
+    });
+  });
+
   it('switches a full source-container harvester to controller work', () => {
     const source = {
       id: 'source1',

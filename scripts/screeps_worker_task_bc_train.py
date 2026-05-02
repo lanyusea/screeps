@@ -531,6 +531,8 @@ def train_policy(
     ts_out: Path | None = None,
 ) -> JsonObject:
     samples = extract_behavior_samples(paths, sample_limit=sample_limit)
+    if len(samples) == 0:
+        raise ValueError("No valid worker task behavior samples found.")
     resolved_run_id = run_id or build_run_id(samples, max_depth, eval_ratio_value, split_seed)
     validate_run_id(resolved_run_id)
     train_samples, eval_samples = split_samples(samples, split_seed, eval_ratio_value)

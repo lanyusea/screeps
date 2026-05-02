@@ -49,6 +49,9 @@ const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
 const DEFAULT_BUILD_POWER = 5;
+const NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
+const NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
+const FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER = 2;
 const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 const DEFAULT_SOURCE_ENERGY_CAPACITY = 3_000;
 const DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
@@ -107,6 +110,11 @@ interface ConstructionReservationContext {
 interface ConstructionSiteSelectionOptions {
   priorityContext?: ConstructionSiteImpactPriorityContext | undefined;
   requireReasonableRange?: boolean;
+}
+
+interface ConstructionSiteFinishPriorityScore {
+  remainingProgress: number;
+  score: number;
 }
 
 interface Source2ControllerLaneTopology {
@@ -1129,13 +1137,13 @@ function selectConstructionSite(
   }
 
   const topImpactCandidates = selectTopImpactConstructionSiteCandidates(candidates, priorityContext);
-  const completableConstructionSite = selectNearTermCompletableConstructionSite(
+  const finishPriorityConstructionSite = selectFinishPriorityConstructionSite(
     creep,
     topImpactCandidates,
     constructionReservationContext
   );
-  if (completableConstructionSite) {
-    return completableConstructionSite;
+  if (finishPriorityConstructionSite) {
+    return finishPriorityConstructionSite;
   }
 
   if (typeof position?.findClosestByRange === 'function') {
@@ -1298,19 +1306,23 @@ function isWorkerAssignedToConstructionSite(worker: Creep, site: ConstructionSit
   return task?.type === 'build' && String(task.targetId) === String(site.id);
 }
 
-function selectNearTermCompletableConstructionSite(
+function selectFinishPriorityConstructionSite(
   creep: Creep,
   constructionSites: ConstructionSite[],
   constructionReservationContext: ConstructionReservationContext
 ): ConstructionSite | null {
-  const candidates = constructionSites.filter((site) =>
-    canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext)
+  const candidates = constructionSites.filter(
+    (site) => getConstructionSiteFinishPriorityScore(creep, site, constructionReservationContext) !== null
   );
   if (candidates.length === 0) {
     return null;
   }
 
-  return candidates.sort(compareNearTermCompletableConstructionSites)[0];
+  return candidates.sort(
+    (left, right) =>
+      compareConstructionSiteFinishPriority(creep, left, right, constructionReservationContext) ||
+      compareConstructionSiteId(left, right)
+  )[0];
 }
 
 function compareConstructionSiteCandidates(
@@ -1323,8 +1335,8 @@ function compareConstructionSiteCandidates(
   return (
     getConstructionSiteImpactPriority(right, priorityContext) -
       getConstructionSiteImpactPriority(left, priorityContext) ||
+    compareConstructionSiteFinishPriority(creep, left, right, constructionReservationContext) ||
     compareConstructionSiteReasonableRange(creep, left, right) ||
-    compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) ||
     compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
     compareConstructionSiteId(left, right)
   );
@@ -1371,35 +1383,78 @@ function selectTopImpactConstructionSiteCandidates(
   return candidates.filter((site) => getConstructionSiteImpactPriority(site, priorityContext) === highestPriority);
 }
 
-function compareConstructionSiteCompletion(
+function compareConstructionSiteFinishPriority(
   creep: Creep,
   left: ConstructionSite,
   right: ConstructionSite,
   constructionReservationContext: ConstructionReservationContext
 ): number {
-  const leftCompletable = canCompleteConstructionSiteWithCarriedEnergy(
+  const leftFinishPriority = getConstructionSiteFinishPriorityScore(
     creep,
     left,
     constructionReservationContext
   );
-  const rightCompletable = canCompleteConstructionSiteWithCarriedEnergy(
+  const rightFinishPriority = getConstructionSiteFinishPriorityScore(
     creep,
     right,
     constructionReservationContext
   );
-  if (leftCompletable !== rightCompletable) {
-    return leftCompletable ? -1 : 1;
+  if (leftFinishPriority === null && rightFinishPriority === null) {
+    return 0;
   }
 
-  return leftCompletable && rightCompletable ? compareNearTermCompletableConstructionSites(left, right) : 0;
+  if (leftFinishPriority === null) {
+    return 1;
+  }
+
+  if (rightFinishPriority === null) {
+    return -1;
+  }
+
+  return (
+    rightFinishPriority.score - leftFinishPriority.score ||
+    leftFinishPriority.remainingProgress - rightFinishPriority.remainingProgress
+  );
 }
 
-function compareNearTermCompletableConstructionSites(left: ConstructionSite, right: ConstructionSite): number {
-  return (
-    getConstructionSiteRemainingProgress(left) -
-      getConstructionSiteRemainingProgress(right) ||
-    compareConstructionSiteId(left, right)
+function getConstructionSiteFinishPriorityScore(
+  creep: Creep,
+  site: ConstructionSite,
+  constructionReservationContext: ConstructionReservationContext
+): ConstructionSiteFinishPriorityScore | null {
+  const remainingProgress = getUnreservedConstructionProgressForWorker(
+    creep,
+    site,
+    constructionReservationContext
   );
+  const progressTotal = getConstructionSiteProgressTotal(site);
+  if (
+    remainingProgress <= 0 ||
+    !Number.isFinite(remainingProgress) ||
+    progressTotal <= 0 ||
+    !Number.isFinite(progressTotal)
+  ) {
+    return null;
+  }
+
+  const canComplete = remainingProgress <= getUsedEnergy(creep) * getBuildPower();
+  const nearlyComplete =
+    remainingProgress / progressTotal < NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO;
+  if (!canComplete && !nearlyComplete) {
+    return null;
+  }
+
+  const finishableMultiplier = canComplete ? FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER : 1;
+  const nearlyCompleteMultiplier = nearlyComplete
+    ? NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER
+    : 1;
+
+  return {
+    remainingProgress,
+    score:
+      (finishableMultiplier * nearlyCompleteMultiplier) /
+      Math.max(1, remainingProgress)
+  };
 }
 
 function canCompleteConstructionSiteWithCarriedEnergy(
@@ -1446,6 +1501,13 @@ function getConstructionSiteRemainingProgress(site: ConstructionSite): number {
   }
 
   return Math.max(0, Math.ceil(progressTotal - progress));
+}
+
+function getConstructionSiteProgressTotal(site: ConstructionSite): number {
+  const progressTotal = (site as ConstructionSite & { progressTotal?: number }).progressTotal;
+  return typeof progressTotal === 'number' && Number.isFinite(progressTotal)
+    ? Math.max(0, progressTotal)
+    : Number.POSITIVE_INFINITY;
 }
 
 function getBuildPower(): number {
