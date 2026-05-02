@@ -16,6 +16,12 @@ import {
   type ExpansionCandidateReport
 } from '../territory/expansionScoring';
 import {
+  HEURISTIC_WORKER_TASK_POLICY_ID,
+  WORKER_TASK_BC_ACTION_TYPES,
+  isWorkerTaskBehaviorActionType,
+  type WorkerTaskBehaviorActionType
+} from '../rl/workerTaskBehavior';
+import {
   getActiveTerritoryFollowUpExecutionHints,
   getSuspendedTerritoryIntentCountsByRoom,
   getTerritoryIntentProgressSummaries,
@@ -24,18 +30,22 @@ import {
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
 import {
   summarizeAndResetCreepBehaviorTelemetry,
-  type RuntimeBehaviorSummary
+  type RuntimeBehaviorSummary as LegacyRuntimeBehaviorSummary
 } from './behaviorTelemetry';
+
+type BehaviorTelemetrySummary = { behavior?: LegacyRuntimeBehaviorSummary };
 
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
 const MAX_REPORTED_EVENTS = 10;
 const MAX_WORKER_EFFICIENCY_SAMPLES = 5;
+const MAX_WORKER_BEHAVIOR_SAMPLES = 10;
 const MAX_WORKER_EFFICIENCY_REASON_SAMPLES = 5;
 const MAX_REFILL_DELIVERY_SAMPLES = 5;
 const MAX_SPAWN_CRITICAL_REFILL_SAMPLES = 5;
 const MAX_TERRITORY_INTENT_SUMMARIES = 5;
 const WORKER_EFFICIENCY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
+const WORKER_BEHAVIOR_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const REFILL_DELIVERY_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const SPAWN_CRITICAL_REFILL_SAMPLE_TTL = RUNTIME_SUMMARY_INTERVAL;
 const OBSERVED_RAMPART_REPAIR_HITS_CEILING = 100_000;
@@ -217,6 +227,62 @@ interface RuntimeWorkerEfficiencySummary {
   lowLoadReturnReasons?: RuntimeWorkerEfficiencyLowLoadReturnReasonSummary[];
   samples: RuntimeWorkerEfficiencySampleSummary[];
   omittedSampleCount?: number;
+}
+
+interface RuntimeBehaviorSummary {
+  workerTaskPolicy?: RuntimeWorkerTaskBehaviorSummary;
+  creeps?: RuntimeCreepBehaviorSummary[];
+  totals?: RuntimeBehaviorTotals;
+}
+
+interface RuntimeCreepBehaviorSummary {
+  creepName?: string;
+  idleTicks: number;
+  moveTicks: number;
+  workTicks: number;
+  stuckTicks: number;
+  containerTransfers: number;
+  pathLength: number;
+  repairTargetId?: string;
+}
+
+interface RuntimeBehaviorTotals {
+  idleTicks: number;
+  moveTicks: number;
+  workTicks: number;
+  stuckTicks: number;
+  containerTransfers: number;
+  pathLength: number;
+}
+
+interface RuntimeWorkerTaskBehaviorSummary {
+  schemaVersion: 1;
+  sourcePolicyId: string;
+  liveEffect: false;
+  sampleCount: number;
+  actionCounts: Record<WorkerTaskBehaviorActionType, number>;
+  samples: RuntimeWorkerTaskBehaviorSampleSummary[];
+  omittedSampleCount?: number;
+  shadow?: RuntimeWorkerTaskPolicyShadowSummary;
+}
+
+interface RuntimeWorkerTaskBehaviorSampleSummary extends WorkerTaskBehaviorSampleMemory {
+  creepName?: string;
+}
+
+interface RuntimeWorkerTaskBehaviorSampleEntry {
+  creepName: string | undefined;
+  sample: WorkerTaskBehaviorSampleMemory;
+}
+
+interface RuntimeWorkerTaskPolicyShadowSummary {
+  policyId: string;
+  liveEffect: false;
+  sampleCount: number;
+  matchedCount: number;
+  mismatchCount: number;
+  noPredictionCount: number;
+  matchRate: number;
 }
 
 interface RuntimeWorkerEfficiencySampleSummary extends WorkerEfficiencySampleMemory {
@@ -491,7 +557,7 @@ function summarizeRoom(
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
-    ...summarizeAndResetCreepBehaviorTelemetry(colonyWorkers),
+    ...summarizeRuntimeBehavior(colonyWorkers, getGameTime()),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime()),
     ...summarizeRefillTelemetry(colonyWorkers, getGameTime()),
@@ -588,6 +654,166 @@ function countWorkerTasks(workers: Creep[]): WorkerTaskCounts {
 
 function isWorkerTaskType(taskType: string | undefined): taskType is WorkerTaskType {
   return WORKER_TASK_TYPES.includes(taskType as WorkerTaskType);
+}
+
+function summarizeBehavior(workers: Creep[], tick: number): { behavior?: RuntimeBehaviorSummary } {
+  const samples = workers
+    .map((worker) => ({ creepName: getCreepName(worker), sample: worker.memory.workerBehavior }))
+    .filter(
+      (entry): entry is RuntimeWorkerTaskBehaviorSampleEntry =>
+        isWorkerTaskBehaviorSample(entry.sample) && isRecentWorkerTaskBehaviorSample(entry.sample, tick)
+    )
+    .sort(compareWorkerTaskBehaviorSampleEntries);
+
+  if (samples.length === 0) {
+    return {};
+  }
+
+  const reportedSamples = samples.slice(0, MAX_WORKER_BEHAVIOR_SAMPLES).map(toRuntimeWorkerTaskBehaviorSample);
+
+  return {
+    behavior: {
+      workerTaskPolicy: {
+        schemaVersion: 1,
+        sourcePolicyId: HEURISTIC_WORKER_TASK_POLICY_ID,
+        liveEffect: false,
+        sampleCount: samples.length,
+        actionCounts: countWorkerBehaviorActions(samples),
+        samples: reportedSamples,
+        ...(samples.length > MAX_WORKER_BEHAVIOR_SAMPLES
+          ? { omittedSampleCount: samples.length - MAX_WORKER_BEHAVIOR_SAMPLES }
+          : {}),
+        ...summarizeWorkerTaskPolicyShadow(workers, tick)
+      }
+    }
+  };
+}
+
+function summarizeRuntimeBehavior(workers: Creep[], tick: number): { behavior?: RuntimeBehaviorSummary } {
+  const workerTaskPolicySummary = summarizeBehavior(workers, tick);
+  const legacySummary: BehaviorTelemetrySummary = summarizeAndResetCreepBehaviorTelemetry(workers);
+
+  if (!workerTaskPolicySummary.behavior && !legacySummary.behavior) {
+    return {};
+  }
+
+  return {
+    behavior: {
+      ...legacySummary.behavior,
+      ...workerTaskPolicySummary.behavior
+    }
+  };
+}
+
+function countWorkerBehaviorActions(
+  samples: RuntimeWorkerTaskBehaviorSampleEntry[]
+): Record<WorkerTaskBehaviorActionType, number> {
+  const counts = Object.fromEntries(WORKER_TASK_BC_ACTION_TYPES.map((action) => [action, 0])) as Record<
+    WorkerTaskBehaviorActionType,
+    number
+  >;
+  for (const entry of samples) {
+    counts[entry.sample.action.type] += 1;
+  }
+
+  return counts;
+}
+
+function summarizeWorkerTaskPolicyShadow(
+  workers: Creep[],
+  tick: number
+): { shadow?: RuntimeWorkerTaskPolicyShadowSummary } {
+  const shadows = workers
+    .map((worker) => worker.memory.workerTaskPolicyShadow)
+    .filter((shadow): shadow is WorkerTaskPolicyShadowMemory => isRecentWorkerTaskPolicyShadow(shadow, tick));
+
+  if (shadows.length === 0) {
+    return {};
+  }
+
+  const matchedCount = shadows.filter((shadow) => shadow.matched).length;
+  const mismatchCount = shadows.filter((shadow) => shadow.fallbackReason === 'actionMismatch').length;
+  const noPredictionCount = shadows.filter(
+    (shadow) => shadow.fallbackReason === 'untrainedModel' || shadow.fallbackReason === 'lowConfidence'
+  ).length;
+
+  return {
+    shadow: {
+      policyId: shadows[0].policyId,
+      liveEffect: false,
+      sampleCount: shadows.length,
+      matchedCount,
+      mismatchCount,
+      noPredictionCount,
+      matchRate: roundRatio(matchedCount, shadows.length)
+    }
+  };
+}
+
+function compareWorkerTaskBehaviorSampleEntries(
+  left: RuntimeWorkerTaskBehaviorSampleEntry,
+  right: RuntimeWorkerTaskBehaviorSampleEntry
+): number {
+  return (
+    right.sample.tick - left.sample.tick ||
+    (left.creepName ?? '').localeCompare(right.creepName ?? '') ||
+    left.sample.action.type.localeCompare(right.sample.action.type) ||
+    left.sample.action.targetId.localeCompare(right.sample.action.targetId)
+  );
+}
+
+function toRuntimeWorkerTaskBehaviorSample(
+  entry: RuntimeWorkerTaskBehaviorSampleEntry
+): RuntimeWorkerTaskBehaviorSampleSummary {
+  return {
+    ...(entry.creepName ? { creepName: entry.creepName } : {}),
+    ...entry.sample
+  };
+}
+
+function isRecentWorkerTaskBehaviorSample(sample: WorkerTaskBehaviorSampleMemory, tick: number): boolean {
+  if (tick <= 0) {
+    return true;
+  }
+
+  return sample.tick <= tick && sample.tick > tick - WORKER_BEHAVIOR_SAMPLE_TTL;
+}
+
+function isWorkerTaskBehaviorSample(value: unknown): value is WorkerTaskBehaviorSampleMemory {
+  return (
+    isRecord(value) &&
+    value.type === 'workerTaskBehavior' &&
+    value.schemaVersion === 1 &&
+    typeof value.tick === 'number' &&
+    Number.isFinite(value.tick) &&
+    typeof value.policyId === 'string' &&
+    value.liveEffect === false &&
+    isRecord(value.state) &&
+    isRecord(value.action) &&
+    isWorkerTaskBehaviorActionType(value.action.type) &&
+    typeof value.action.targetId === 'string'
+  );
+}
+
+function isRecentWorkerTaskPolicyShadow(value: unknown, tick: number): value is WorkerTaskPolicyShadowMemory {
+  if (!isWorkerTaskPolicyShadow(value)) {
+    return false;
+  }
+
+  return tick <= 0 || (value.tick <= tick && value.tick > tick - WORKER_BEHAVIOR_SAMPLE_TTL);
+}
+
+function isWorkerTaskPolicyShadow(value: unknown): value is WorkerTaskPolicyShadowMemory {
+  return (
+    isRecord(value) &&
+    value.type === 'workerTaskPolicyShadow' &&
+    value.schemaVersion === 1 &&
+    typeof value.tick === 'number' &&
+    Number.isFinite(value.tick) &&
+    typeof value.policyId === 'string' &&
+    value.liveEffect === false &&
+    typeof value.matched === 'boolean'
+  );
 }
 
 function shouldBuildStructureSnapshot(tick: number): boolean {
