@@ -240,7 +240,7 @@ function selectPostClaimControllerSustainPlan(
   const records = getPostClaimControllerSustainRecords(colony.room.name);
   for (const record of records) {
     const targetRoom = getVisibleRoom(record.roomName);
-    if (targetRoom?.controller && targetRoom.controller.my !== true) {
+    if (targetRoom?.controller?.my !== true) {
       continue;
     }
 

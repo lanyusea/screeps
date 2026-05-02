@@ -254,6 +254,73 @@ describe('planSpawn', () => {
     });
   });
 
+  it('does not sustain a stale post-claim record after target room vision is lost', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 172,
+            updatedAt: 172,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 173)).toBeNull();
+  });
+
+  it('does not sustain a stale post-claim record after target room ownership is lost', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2',
+          my: false,
+          level: 1
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'spawnSitePending',
+            claimedAt: 173,
+            updatedAt: 173,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 174)).toBeNull();
+  });
+
   it('keeps home worker recovery ahead of post-claim controller sustain', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
