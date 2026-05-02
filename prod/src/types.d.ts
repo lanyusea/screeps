@@ -17,6 +17,7 @@ declare global {
     territory?: CreepTerritoryMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
     refillTelemetry?: WorkerRefillTelemetryMemory;
+    spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
   }
 
   type DefenseActionType =
@@ -197,6 +198,16 @@ declare global {
     activeTicks: number;
     idleOrOtherTaskTicks: number;
     energyDelivered: number;
+  }
+
+  interface WorkerSpawnCriticalRefillMemory {
+    type: 'spawnCriticalRefill';
+    tick: number;
+    targetId: string;
+    carriedEnergy: number;
+    spawnEnergy: number;
+    freeCapacity: number;
+    threshold: number;
   }
 
   type CreepTaskMemory =
