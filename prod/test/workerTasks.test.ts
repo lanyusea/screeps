@@ -7547,7 +7547,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
-  it('stands down a loaded surplus worker when controller upgrading is saturated', () => {
+  it('upgrades a loaded surplus worker when controller upgrading is saturated', () => {
     const controller = {
       id: 'controller1',
       my: true,
@@ -7563,6 +7563,28 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
     setGameCreeps({
       Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }),
+      SurplusWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('does not fallback to controller upgrade when controller is already max level', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 8,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ controller });
+    const creep = {
+      name: 'SurplusWorker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    setGameCreeps({
       SurplusWorker: creep
     });
 

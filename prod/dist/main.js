@@ -6491,6 +6491,7 @@ var FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER = 2;
 var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 var DEFAULT_SOURCE_ENERGY_CAPACITY = 3e3;
 var DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
+var MAX_CONTROLLER_LEVEL = 8;
 var SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 var SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 var MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
@@ -6567,7 +6568,7 @@ function selectWorkerTask(creep) {
     return territoryControllerTask;
   }
   const controller = creep.room.controller;
-  if (controller && shouldGuardControllerDowngrade(controller) && !remoteProductiveSpendingSuppressed) {
+  if (controller && shouldGuardControllerDowngrade(controller) && canUpgradeController(controller) && !remoteProductiveSpendingSuppressed) {
     const downgradeGuardTask = {
       type: "upgrade",
       targetId: controller.id
@@ -6673,7 +6674,7 @@ function selectWorkerTask(creep) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: capacityConstructionSite.id });
   }
   if (controller && shouldRushRcl1Controller(controller)) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
+    return canUpgradeController(controller) ? applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id }) : null;
   }
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
   if (criticalRepairTarget) {
@@ -6709,7 +6710,7 @@ function selectWorkerTask(creep) {
     if (productiveEnergySinkTask) {
       return applyMinimumUsefulLoadPolicy(creep, productiveEnergySinkTask);
     }
-    return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
+    return canUpgradeController(controller) ? applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id }) : null;
   }
   const constructionSite = selectUnreservedConstructionSite(
     creep,
@@ -6725,7 +6726,7 @@ function selectWorkerTask(creep) {
   if (repairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "repair", targetId: repairTarget.id });
   }
-  if ((controller == null ? void 0 : controller.my) && !isControllerUpgradeSaturated(creep, controller)) {
+  if ((controller == null ? void 0 : controller.my) && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
   }
   return null;
@@ -6754,7 +6755,10 @@ function selectColonyRecallEnergySpendingTask(creep) {
     return { type: "transfer", targetId: energySink.id };
   }
   const controller = colonyRoom.controller;
-  return (controller == null ? void 0 : controller.my) === true ? { type: "upgrade", targetId: controller.id } : null;
+  if (!controller) {
+    return null;
+  }
+  return canUpgradeController(controller) ? { type: "upgrade", targetId: controller.id } : null;
 }
 function selectColonyRecallEnergySink(room) {
   var _a;
@@ -6764,7 +6768,7 @@ function selectColonyRecallEnergySink(room) {
 function selectControllerSustainUpgradeTask(creep, controller) {
   var _a, _b;
   const sustain = (_a = creep.memory) == null ? void 0 : _a.controllerSustain;
-  if ((sustain == null ? void 0 : sustain.role) !== "upgrader" || sustain.targetRoom !== ((_b = creep.room) == null ? void 0 : _b.name) || (controller == null ? void 0 : controller.my) !== true || controller.level >= 8) {
+  if ((sustain == null ? void 0 : sustain.role) !== "upgrader" || sustain.targetRoom !== ((_b = creep.room) == null ? void 0 : _b.name) || (controller == null ? void 0 : controller.my) !== true || !canUpgradeController(controller)) {
     return null;
   }
   return { type: "upgrade", targetId: controller.id };
@@ -6774,7 +6778,7 @@ function selectFirstEnergySinkByStableId(energySinks) {
   return (_a = [...energySinks].sort(compareEnergySinkId)[0]) != null ? _a : null;
 }
 function selectBootstrapSurvivalSpendingTask(creep, controller, constructionSites, constructionReservationContext, recoveryOnlyWorkSuppressed) {
-  if (controller && shouldRushRcl1Controller(controller) && !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)) {
+  if (controller && shouldRushRcl1Controller(controller) && canUpgradeController(controller) && !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
   }
   if (recoveryOnlyWorkSuppressed && !isWorkerInColonyRoom(creep)) {
@@ -8527,7 +8531,10 @@ function selectSource2ControllerLaneLoadedTask(creep, controller, constructionSi
     controller,
     constructionReservationContext
   );
-  return productiveEnergySinkTask != null ? productiveEnergySinkTask : { type: "upgrade", targetId: controller.id };
+  return productiveEnergySinkTask != null ? productiveEnergySinkTask : canUpgradeController(controller) ? { type: "upgrade", targetId: controller.id } : null;
+}
+function canUpgradeController(controller) {
+  return (controller == null ? void 0 : controller.my) === true && (typeof controller.level !== "number" || !Number.isFinite(controller.level) || controller.level < MAX_CONTROLLER_LEVEL);
 }
 function selectSource2ControllerLaneHarvestTask(creep) {
   const controller = creep.room.controller;
@@ -10399,7 +10406,7 @@ var TERRITORY_SCOUT_BODY_COST2 = 50;
 var CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
 var CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
 var CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
-var MAX_CONTROLLER_LEVEL = 8;
+var MAX_CONTROLLER_LEVEL2 = 8;
 var POST_CLAIM_SUSTAIN_UPGRADER_TARGET = 1;
 var POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
 var POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
@@ -10575,7 +10582,7 @@ function comparePostClaimControllerSustainRecords(left, right) {
 function getVisibleControllerLevel(roomName) {
   var _a, _b;
   const level = (_b = (_a = getVisibleRoom3(roomName)) == null ? void 0 : _a.controller) == null ? void 0 : _b.level;
-  return typeof level === "number" ? level : MAX_CONTROLLER_LEVEL + 1;
+  return typeof level === "number" ? level : MAX_CONTROLLER_LEVEL2 + 1;
 }
 function hasOperationalSpawnInRoom(roomName) {
   var _a;
@@ -10793,7 +10800,7 @@ function hasControllerUpgradeSurplusEnergy(colony) {
   return colony.energyCapacityAvailable >= CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY && colony.energyAvailable >= colony.energyCapacityAvailable;
 }
 function isControllerUpgradeableForSurplus(controller) {
-  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= 2 && controller.level < MAX_CONTROLLER_LEVEL;
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= 2 && controller.level < MAX_CONTROLLER_LEVEL2;
 }
 function hasControllerUpgradeBlockingTerritoryWork(colony) {
   return hasActiveTerritoryIntentBacklog(colony.room.name) || hasVisibleForeignReservedTerritoryTarget(colony);
