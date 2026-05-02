@@ -8,6 +8,14 @@ import {
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 import { findSourceContainer } from '../economy/sourceContainers';
+import {
+  observeCreepBehaviorTick,
+  recordCreepBehaviorContainerTransfer,
+  recordCreepBehaviorIdle,
+  recordCreepBehaviorMove,
+  recordCreepBehaviorRepairTarget,
+  recordCreepBehaviorWork
+} from '../telemetry/behaviorTelemetry';
 
 type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
 type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
@@ -16,10 +24,17 @@ const MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
 const OK_CODE = 0 as ScreepsReturnCode;
 const MIN_HAULER_DROPPED_ENERGY = 25;
 
+interface TaskExecutionResult {
+  result: ScreepsReturnCode;
+  action?: 'move' | 'work';
+  containerTransfer?: boolean;
+}
+
 export function runWorker(creep: Creep): void {
   if (runControllerSustainMovement(creep)) {
     return;
   }
+  observeCreepBehaviorTick(creep);
 
   const selectedTask = selectWorkerTask(creep);
   const currentTask = creep.memory.task;
@@ -246,22 +261,26 @@ function executeAssignedTask(
 ): void {
   let task: CreepTaskMemory | null | undefined = creep.memory.task;
   if (!task || !canExecuteTask(creep, task)) {
+    recordCreepBehaviorIdle(creep);
     return;
   }
 
   let target = Game.getObjectById(task.targetId);
   if (!target) {
     if (selectedTask && isSameTask(task, selectedTask)) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
 
     task = assignSelectedTask(creep, selectedTask, task);
     if (!task || !canExecuteTask(creep, task)) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
 
     target = Game.getObjectById(task.targetId);
     if (!target) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
   }
@@ -269,17 +288,20 @@ function executeAssignedTask(
   if (shouldReplaceTarget(creep, task, target)) {
     task = assignSelectedTask(creep, selectedTask, task);
     if (!task || !canExecuteTask(creep, task)) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
 
     target = Game.getObjectById(task.targetId);
     if (!target || shouldReplaceTarget(creep, task, target)) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
   }
 
-  const result = executeTask(creep, task, target);
-  if (shouldImmediatelyReselectAfterTaskResult(task, result)) {
+  const execution = executeTask(creep, task, target);
+  recordTaskBehavior(creep, task, execution);
+  if (shouldImmediatelyReselectAfterTaskResult(task, execution.result)) {
     delete creep.memory.task;
     const nextTask = assignNextTask(creep);
     if (
@@ -292,8 +314,9 @@ function executeAssignedTask(
     return;
   }
 
-  if (result === ERR_NOT_IN_RANGE) {
+  if (execution.result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target as RoomObject);
+    recordCreepBehaviorMove(creep);
   }
 }
 
@@ -882,59 +905,61 @@ function executeTask(
   creep: Creep,
   task: CreepTaskMemory,
   target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
-): ScreepsReturnCode {
+): TaskExecutionResult {
   switch (task.type) {
     case 'harvest':
       return executeHarvestTask(creep, target as Source);
     case 'pickup':
-      return creep.pickup(target as Resource<ResourceConstant>);
+      return toTaskExecutionResult(creep.pickup(target as Resource<ResourceConstant>), 'work');
     case 'withdraw':
-      return creep.withdraw(target as AnyStoreStructure, RESOURCE_ENERGY);
+      return toTaskExecutionResult(creep.withdraw(target as AnyStoreStructure, RESOURCE_ENERGY), 'work');
     case 'transfer':
-      return creep.transfer(target as AnyStoreStructure, RESOURCE_ENERGY);
+      return toTaskExecutionResult(creep.transfer(target as AnyStoreStructure, RESOURCE_ENERGY), 'work', {
+        containerTransfer: isContainerStructure(target)
+      });
     case 'build':
-      return creep.build(target as ConstructionSite);
+      return toTaskExecutionResult(creep.build(target as ConstructionSite), 'work');
     case 'repair':
-      return creep.repair(target as Structure);
+      return toTaskExecutionResult(creep.repair(target as Structure), 'work');
     case 'claim':
       if (
         typeof creep.attackController === 'function' &&
         canCreepPressureTerritoryController(creep, target as StructureController, creep.memory.colony)
       ) {
-        return creep.attackController(target as StructureController);
+        return toTaskExecutionResult(creep.attackController(target as StructureController), 'work');
       }
 
-      return creep.claimController(target as StructureController);
+      return toTaskExecutionResult(creep.claimController(target as StructureController), 'work');
     case 'reserve':
       if (
         typeof creep.attackController === 'function' &&
         canCreepPressureTerritoryController(creep, target as StructureController, creep.memory.colony)
       ) {
-        return creep.attackController(target as StructureController);
+        return toTaskExecutionResult(creep.attackController(target as StructureController), 'work');
       }
 
-      return creep.reserveController(target as StructureController);
+      return toTaskExecutionResult(creep.reserveController(target as StructureController), 'work');
     case 'upgrade':
       signOccupiedControllerIfNeeded(creep, target as StructureController);
-      return creep.upgradeController(target as StructureController);
+      return toTaskExecutionResult(creep.upgradeController(target as StructureController), 'work');
   }
 }
 
-function executeHarvestTask(creep: Creep, source: Source): ScreepsReturnCode {
+function executeHarvestTask(creep: Creep, source: Source): TaskExecutionResult {
   const sourceContainer = findSourceContainer(creep.room, source);
   if (!sourceContainer) {
-    return creep.harvest(source);
+    return toTaskExecutionResult(creep.harvest(source), 'work');
   }
 
   if (!isInRangeToRoomObject(creep, source, 1)) {
     creep.moveTo(sourceContainer);
-    return OK_CODE;
+    return { result: OK_CODE, action: 'move' };
   }
 
   if (isDepletedHarvestSource(source)) {
     return getUsedTransferEnergy(creep) > 0
       ? transferDedicatedHarvestEnergy(creep, sourceContainer)
-      : OK_CODE;
+      : { result: OK_CODE };
   }
 
   if (getFreeTransferEnergyCapacity(creep) <= 0 && getUsedTransferEnergy(creep) > 0) {
@@ -946,21 +971,65 @@ function executeHarvestTask(creep: Creep, source: Source): ScreepsReturnCode {
     return transferDedicatedHarvestEnergy(creep, sourceContainer);
   }
 
-  return result === ERR_NOT_ENOUGH_RESOURCES ? OK_CODE : result;
+  return toTaskExecutionResult(result === ERR_NOT_ENOUGH_RESOURCES ? OK_CODE : result, 'work');
 }
 
-function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: StructureContainer): ScreepsReturnCode {
+function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: StructureContainer): TaskExecutionResult {
   if (typeof creep.transfer !== 'function') {
-    return OK_CODE;
+    return { result: OK_CODE };
   }
 
   const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(sourceContainer);
-    return OK_CODE;
+    return { result: OK_CODE, action: 'move' };
   }
 
-  return result;
+  return toTaskExecutionResult(result, 'work', { containerTransfer: true });
+}
+
+function toTaskExecutionResult(
+  result: ScreepsReturnCode,
+  successAction: 'move' | 'work',
+  options: { containerTransfer?: boolean } = {}
+): TaskExecutionResult {
+  return {
+    result,
+    ...(result === OK_CODE ? { action: successAction } : {}),
+    ...(result === OK_CODE && options.containerTransfer ? { containerTransfer: true } : {})
+  };
+}
+
+function recordTaskBehavior(
+  creep: Creep,
+  task: CreepTaskMemory,
+  execution: TaskExecutionResult
+): void {
+  if (task.type === 'repair') {
+    recordCreepBehaviorRepairTarget(creep, String(task.targetId));
+  }
+
+  if (execution.action === 'move') {
+    recordCreepBehaviorMove(creep);
+  } else if (execution.action === 'work') {
+    recordCreepBehaviorWork(creep);
+  } else if (execution.result !== ERR_NOT_IN_RANGE) {
+    recordCreepBehaviorIdle(creep);
+  }
+
+  if (execution.containerTransfer) {
+    recordCreepBehaviorContainerTransfer(creep);
+  }
+}
+
+function isContainerStructure(target: unknown): boolean {
+  const structureType = (target as { structureType?: unknown } | null)?.structureType;
+  return typeof structureType === 'string' && matchesContainerStructureType(structureType);
+}
+
+function matchesContainerStructureType(actual: string): boolean {
+  const containerType = (globalThis as unknown as { STRUCTURE_CONTAINER?: string }).STRUCTURE_CONTAINER ?? 'container';
+  return actual === containerType;
 }
 
 function isDedicatedSourceContainerHarvestTask(

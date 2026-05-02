@@ -22,6 +22,7 @@ declare global {
     workerEfficiency?: WorkerEfficiencySampleMemory;
     refillTelemetry?: WorkerRefillTelemetryMemory;
     spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
+    behaviorTelemetry?: CreepBehaviorTelemetryMemory;
   }
 
   type DefenseActionType =
@@ -307,6 +308,26 @@ declare global {
     spawnEnergy: number;
     freeCapacity: number;
     threshold: number;
+  }
+
+  interface CreepBehaviorPositionMemory {
+    x: number;
+    y: number;
+    roomName: string;
+  }
+
+  interface CreepBehaviorTelemetryMemory {
+    idleTicks?: number;
+    moveTicks?: number;
+    workTicks?: number;
+    stuckTicks?: number;
+    repairTargetId?: string;
+    containerTransfers?: number;
+    pathLength?: number;
+    lastPosition?: CreepBehaviorPositionMemory;
+    lastMoveTick?: number;
+    lastObservedTick?: number;
+    lastIdleTick?: number;
   }
 
   type CreepTaskMemory =
