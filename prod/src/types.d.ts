@@ -162,6 +162,7 @@ declare global {
     executionHints?: TerritoryExecutionHintMemory[];
     postClaimBootstraps?: Record<string, TerritoryPostClaimBootstrapMemory>;
     reservations?: Record<string, TerritoryReservationMemory>;
+    routeDistancesUpdatedAt?: number;
     routeDistances?: Record<string, number | null>;
   }
 

@@ -15,6 +15,7 @@ const MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 const DEFAULT_RESERVED_CONTROLLER_LEVEL = 0;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
+const TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY = 'routeDistancesUpdatedAt';
 
 export type MultiRoomUpgradeControllerState = 'owned' | 'reserved';
 
@@ -173,12 +174,12 @@ function getVisibleMultiRoomUpgradeCandidate(
     return null;
   }
 
-  if (hasVisibleHostiles(room)) {
+  const routeDistance = getRouteDistance(homeRoom, room.name);
+  if (routeDistance === null) {
     return null;
   }
 
-  const routeDistance = getRouteDistance(homeRoom, room.name);
-  if (routeDistance === null) {
+  if (hasVisibleHostiles(room)) {
     return null;
   }
 
@@ -413,6 +414,13 @@ function getTerritoryRouteDistanceCache(): TerritoryMemory['routeDistances'] | u
 
   if (!isRecord(memory.territory)) {
     memory.territory = {};
+  }
+
+  const gameTime = getGameTime();
+  const territoryMemory = memory.territory as Record<string, unknown>;
+  if (territoryMemory[TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY] !== gameTime) {
+    territoryMemory[TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY] = gameTime;
+    territoryMemory.routeDistances = {};
   }
 
   if (!isRecord(memory.territory.routeDistances)) {

@@ -6485,6 +6485,9 @@ var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
 var DEFAULT_BUILD_POWER = 5;
+var NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
+var NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
+var FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER = 2;
 var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 var DEFAULT_SOURCE_ENERGY_CAPACITY = 3e3;
 var DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
@@ -7193,13 +7196,13 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
     )[0];
   }
   const topImpactCandidates = selectTopImpactConstructionSiteCandidates(candidates, priorityContext);
-  const completableConstructionSite = selectNearTermCompletableConstructionSite(
+  const finishPriorityConstructionSite = selectFinishPriorityConstructionSite(
     creep,
     topImpactCandidates,
     constructionReservationContext
   );
-  if (completableConstructionSite) {
-    return completableConstructionSite;
+  if (finishPriorityConstructionSite) {
+    return finishPriorityConstructionSite;
   }
   if (typeof (position == null ? void 0 : position.findClosestByRange) === "function") {
     const candidatesByStableId = [...topImpactCandidates].sort(compareConstructionSiteId);
@@ -7319,17 +7322,19 @@ function isWorkerAssignedToConstructionSite(worker, site) {
   const task = (_a = worker.memory) == null ? void 0 : _a.task;
   return (task == null ? void 0 : task.type) === "build" && String(task.targetId) === String(site.id);
 }
-function selectNearTermCompletableConstructionSite(creep, constructionSites, constructionReservationContext) {
+function selectFinishPriorityConstructionSite(creep, constructionSites, constructionReservationContext) {
   const candidates = constructionSites.filter(
-    (site) => canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext)
+    (site) => getConstructionSiteFinishPriorityScore(creep, site, constructionReservationContext) !== null
   );
   if (candidates.length === 0) {
     return null;
   }
-  return candidates.sort(compareNearTermCompletableConstructionSites)[0];
+  return candidates.sort(
+    (left, right) => compareConstructionSiteFinishPriority(creep, left, right, constructionReservationContext) || compareConstructionSiteId(left, right)
+  )[0];
 }
 function compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext) {
-  return getConstructionSiteImpactPriority(right, priorityContext) - getConstructionSiteImpactPriority(left, priorityContext) || compareConstructionSiteReasonableRange(creep, left, right) || compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareConstructionSiteId(left, right);
+  return getConstructionSiteImpactPriority(right, priorityContext) - getConstructionSiteImpactPriority(left, priorityContext) || compareConstructionSiteFinishPriority(creep, left, right, constructionReservationContext) || compareConstructionSiteReasonableRange(creep, left, right) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareConstructionSiteId(left, right);
 }
 function compareConstructionSiteReasonableRange(creep, left, right) {
   const leftInRange = isConstructionSiteWithinReasonableRange(
@@ -7357,24 +7362,49 @@ function selectTopImpactConstructionSiteCandidates(candidates, priorityContext) 
   );
   return candidates.filter((site) => getConstructionSiteImpactPriority(site, priorityContext) === highestPriority);
 }
-function compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) {
-  const leftCompletable = canCompleteConstructionSiteWithCarriedEnergy(
+function compareConstructionSiteFinishPriority(creep, left, right, constructionReservationContext) {
+  const leftFinishPriority = getConstructionSiteFinishPriorityScore(
     creep,
     left,
     constructionReservationContext
   );
-  const rightCompletable = canCompleteConstructionSiteWithCarriedEnergy(
+  const rightFinishPriority = getConstructionSiteFinishPriorityScore(
     creep,
     right,
     constructionReservationContext
   );
-  if (leftCompletable !== rightCompletable) {
-    return leftCompletable ? -1 : 1;
+  if (leftFinishPriority === null && rightFinishPriority === null) {
+    return 0;
   }
-  return leftCompletable && rightCompletable ? compareNearTermCompletableConstructionSites(left, right) : 0;
+  if (leftFinishPriority === null) {
+    return 1;
+  }
+  if (rightFinishPriority === null) {
+    return -1;
+  }
+  return rightFinishPriority.score - leftFinishPriority.score || leftFinishPriority.remainingProgress - rightFinishPriority.remainingProgress;
 }
-function compareNearTermCompletableConstructionSites(left, right) {
-  return getConstructionSiteRemainingProgress2(left) - getConstructionSiteRemainingProgress2(right) || compareConstructionSiteId(left, right);
+function getConstructionSiteFinishPriorityScore(creep, site, constructionReservationContext) {
+  const remainingProgress = getUnreservedConstructionProgressForWorker(
+    creep,
+    site,
+    constructionReservationContext
+  );
+  const progressTotal = getConstructionSiteProgressTotal(site);
+  if (remainingProgress <= 0 || !Number.isFinite(remainingProgress) || progressTotal <= 0 || !Number.isFinite(progressTotal)) {
+    return null;
+  }
+  const canComplete = remainingProgress <= getUsedEnergy(creep) * getBuildPower();
+  const nearlyComplete = remainingProgress / progressTotal < NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO;
+  if (!canComplete && !nearlyComplete) {
+    return null;
+  }
+  const finishableMultiplier = canComplete ? FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER : 1;
+  const nearlyCompleteMultiplier = nearlyComplete ? NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER : 1;
+  return {
+    remainingProgress,
+    score: finishableMultiplier * nearlyCompleteMultiplier / Math.max(1, remainingProgress)
+  };
 }
 function canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext = createEmptyConstructionReservationContext()) {
   const remainingProgress = getUnreservedConstructionProgressForWorker(
@@ -7400,6 +7430,10 @@ function getConstructionSiteRemainingProgress2(site) {
     return Number.POSITIVE_INFINITY;
   }
   return Math.max(0, Math.ceil(progressTotal - progress));
+}
+function getConstructionSiteProgressTotal(site) {
+  const progressTotal = site.progressTotal;
+  return typeof progressTotal === "number" && Number.isFinite(progressTotal) ? Math.max(0, progressTotal) : Number.POSITIVE_INFINITY;
 }
 function getBuildPower() {
   return typeof BUILD_POWER === "number" && Number.isFinite(BUILD_POWER) && BUILD_POWER > 0 ? BUILD_POWER : DEFAULT_BUILD_POWER;
@@ -10372,6 +10406,7 @@ var MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 var DEFAULT_RESERVED_CONTROLLER_LEVEL = 0;
 var ERR_NO_PATH_CODE4 = -2;
 var TERRITORY_ROUTE_DISTANCE_SEPARATOR3 = ">";
+var TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY = "routeDistancesUpdatedAt";
 function selectMultiRoomUpgradePlans(colony, options = {}) {
   const config = normalizeMultiRoomUpgraderOptions(options);
   if (config.perRoomUpgraderCap <= 0 || !hasPrimaryRoomStorageSurplus(colony, config.storageEnergyThresholdRatio)) {
@@ -10467,11 +10502,11 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, ownerUsername, room, perR
   if (!controllerState) {
     return null;
   }
-  if (hasVisibleHostiles(room)) {
-    return null;
-  }
   const routeDistance = getRouteDistance(homeRoom, room.name);
   if (routeDistance === null) {
+    return null;
+  }
+  if (hasVisibleHostiles(room)) {
     return null;
   }
   const activeUpgraderCount = (_a = activeUpgraderCounts[room.name]) != null ? _a : 0;
@@ -10640,6 +10675,12 @@ function getTerritoryRouteDistanceCache2() {
   }
   if (!isRecord8(memory.territory)) {
     memory.territory = {};
+  }
+  const gameTime = getGameTime7();
+  const territoryMemory = memory.territory;
+  if (territoryMemory[TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY] !== gameTime) {
+    territoryMemory[TERRITORY_ROUTE_DISTANCE_MEMORY_TTL_TICK_KEY] = gameTime;
+    territoryMemory.routeDistances = {};
   }
   if (!isRecord8(memory.territory.routeDistances)) {
     memory.territory.routeDistances = {};

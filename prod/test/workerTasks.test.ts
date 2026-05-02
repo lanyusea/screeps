@@ -6069,6 +6069,150 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-finishable' });
   });
 
+  it('prioritizes a nearly complete same-tier site before a 10% complete site', () => {
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
+    const earlyTowerSite = {
+      id: 'tower-early',
+      structureType: 'tower',
+      progress: 1_000,
+      progressTotal: 10_000
+    } as ConstructionSite;
+    const nearlyCompleteTowerSite = {
+      id: 'tower-nearly-complete',
+      structureType: 'tower',
+      progress: 9_500,
+      progressTotal: 10_000
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: ConstructionSite) =>
+          target.id === 'tower-nearly-complete' ? 8 : 1
+        )
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [earlyTowerSite, nearlyCompleteTowerSite],
+        controller
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-nearly-complete' });
+  });
+
+  it('treats 50 carried energy as enough to finish 200 construction progress', () => {
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
+    const nearTowerSite = {
+      id: 'tower-near',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 1_000
+    } as ConstructionSite;
+    const finishableTowerSite = {
+      id: 'tower-finishable-200',
+      structureType: 'tower',
+      progress: 800,
+      progressTotal: 1_000
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: ConstructionSite) =>
+          target.id === 'tower-finishable-200' ? 8 : 1
+        )
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [nearTowerSite, finishableTowerSite],
+        controller
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-finishable-200' });
+  });
+
+  it('does not treat 50 carried energy as enough to finish 300 construction progress', () => {
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
+    const nearTowerSite = {
+      id: 'tower-near',
+      structureType: 'tower',
+      progress: 0,
+      progressTotal: 1_000
+    } as ConstructionSite;
+    const notFinishableTowerSite = {
+      id: 'tower-not-finishable-300',
+      structureType: 'tower',
+      progress: 700,
+      progressTotal: 1_000
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: ConstructionSite) =>
+          target.id === 'tower-not-finishable-300' ? 8 : 1
+        )
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [nearTowerSite, notFinishableTowerSite],
+        controller
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-near' });
+  });
+
+  it('chooses the smallest remaining progress among multiple nearly complete same-tier sites', () => {
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
+    const lessRemainingTowerSite = {
+      id: 'tower-remaining-500',
+      structureType: 'tower',
+      progress: 9_500,
+      progressTotal: 10_000
+    } as ConstructionSite;
+    const moreRemainingTowerSite = {
+      id: 'tower-remaining-700',
+      structureType: 'tower',
+      progress: 9_300,
+      progressTotal: 10_000
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: ConstructionSite) =>
+          target.id === 'tower-remaining-500' ? 8 : 1
+        )
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [moreRemainingTowerSite, lessRemainingTowerSite],
+        controller
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-remaining-500' });
+  });
+
   it('keeps closest extension construction when no extension can be completed with carried energy', () => {
     const nearExtensionSite = {
       id: 'extension-near',
@@ -6103,18 +6247,18 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'extension-near' });
   });
 
-  it('keeps bootstrap spawn construction before a finishable extension', () => {
+  it('keeps bootstrap spawn construction before a nearly complete extension', () => {
     const spawnSite = {
       id: 'spawn-site1',
       structureType: 'spawn',
       progress: 0,
       progressTotal: 15_000
     } as ConstructionSite;
-    const finishableExtensionSite = {
-      id: 'extension-finishable',
+    const nearlyCompleteExtensionSite = {
+      id: 'extension-nearly-complete',
       structureType: 'extension',
-      progress: 175,
-      progressTotal: 200
+      progress: 9_500,
+      progressTotal: 10_000
     } as ConstructionSite;
     const controller = {
       id: 'controller1',
@@ -6126,11 +6270,11 @@ describe('selectWorkerTask', () => {
       store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
       pos: {
         getRangeTo: jest.fn((target: ConstructionSite) =>
-          target.id === 'extension-finishable' ? 1 : 8
+          target.id === 'extension-nearly-complete' ? 1 : 8
         )
       },
       room: makeWorkerTaskRoom({
-        constructionSites: [finishableExtensionSite, spawnSite],
+        constructionSites: [nearlyCompleteExtensionSite, spawnSite],
         controller
       })
     } as unknown as Creep;
