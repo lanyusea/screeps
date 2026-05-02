@@ -531,7 +531,7 @@ describe('runEconomy', () => {
     expect(creep.reserveController).toHaveBeenCalledWith(controller);
   });
 
-  it('turns a safe occupation recommendation into same-tick territory spawn pressure', () => {
+  it('turns a safe occupation recommendation into same-tick expansion claim pressure', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     const room = makeTerritoryReadyEconomyRoom();
@@ -566,7 +566,7 @@ describe('runEconomy', () => {
         colony: 'W1N1',
         territory: {
           targetRoom: 'W2N1',
-          action: 'reserve',
+          action: 'claim',
           controllerId: 'controller2'
         }
       }
@@ -575,8 +575,8 @@ describe('runEconomy', () => {
       {
         colony: 'W1N1',
         roomName: 'W2N1',
-        action: 'reserve',
-        createdBy: 'occupationRecommendation',
+        action: 'claim',
+        createdBy: 'autonomousExpansionClaim',
         controllerId: 'controller2'
       }
     ]);

@@ -17,6 +17,10 @@ import {
   persistOccupationRecommendationFollowUpIntent
 } from '../territory/occupationRecommendation';
 import {
+  refreshAutonomousExpansionClaimIntent,
+  shouldDeferOccupationRecommendationForExpansionClaim
+} from '../territory/claimExecutor';
+import {
   hasPendingTerritoryFollowUpIntent,
   TERRITORY_CLAIMER_ROLE,
   TERRITORY_SCOUT_ROLE
@@ -46,7 +50,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
-    refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady);
+    refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
     const hasPendingTerritoryFollowUp = hasPendingTerritoryFollowUpIntent(
       colony.room.name,
       roleCounts,
@@ -98,7 +102,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     if (creep.memory.role === 'worker') {
       runWorker(creep);
     } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE || creep.memory.role === TERRITORY_SCOUT_ROLE) {
-      runTerritoryControllerCreep(creep);
+      runTerritoryControllerCreep(creep, telemetryEvents);
     }
   }
 
@@ -108,12 +112,20 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
 function refreshExecutableTerritoryRecommendation(
   colony: ColonySnapshot,
   creeps: Creep[],
-  territoryReady: boolean
+  territoryReady: boolean,
+  telemetryEvents: RuntimeTelemetryEvent[]
 ): void {
   const colonyWorkers = creeps.filter(
     (creep) => creep.memory.role === 'worker' && creep.memory.colony === colony.room.name
   );
   const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  if (territoryReady) {
+    const claimEvaluation = refreshAutonomousExpansionClaimIntent(colony, report, Game.time, telemetryEvents);
+    if (shouldDeferOccupationRecommendationForExpansionClaim(claimEvaluation)) {
+      return;
+    }
+  }
+
   persistOccupationRecommendationFollowUpIntent(
     territoryReady ? report : clearOccupationRecommendationFollowUpIntent(report),
     Game.time

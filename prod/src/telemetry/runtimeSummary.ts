@@ -39,7 +39,26 @@ interface WorkerTaskCounts extends Record<WorkerTaskType, number> {
   none: number;
 }
 
-export type RuntimeTelemetryEvent = RuntimeSpawnTelemetryEvent | RuntimeDefenseTelemetryEvent;
+export type RuntimeTelemetryEvent =
+  | RuntimeSpawnTelemetryEvent
+  | RuntimeDefenseTelemetryEvent
+  | RuntimeTerritoryClaimTelemetryEvent;
+
+export type RuntimeTerritoryClaimTelemetryReason =
+  | 'noAdjacentCandidate'
+  | 'energyCapacityLow'
+  | 'roomNotVisible'
+  | 'hostilePresence'
+  | 'controllerMissing'
+  | 'controllerOwned'
+  | 'controllerReserved'
+  | 'controllerCooldown'
+  | 'suppressed'
+  | 'notInRange'
+  | 'invalidTarget'
+  | 'missingClaimPart'
+  | 'gclUnavailable'
+  | 'claimFailed';
 
 export interface RuntimeSpawnTelemetryEvent {
   type: 'spawn';
@@ -54,6 +73,19 @@ export interface RuntimeDefenseTelemetryEvent extends Omit<DefenseActionMemory, 
   type: 'defense';
   action: DefenseActionType;
   tick?: number;
+}
+
+export interface RuntimeTerritoryClaimTelemetryEvent {
+  type: 'territoryClaim';
+  roomName: string;
+  colony: string;
+  phase: 'intent' | 'skip' | 'claim';
+  targetRoom?: string;
+  controllerId?: Id<StructureController>;
+  creepName?: string;
+  result?: ScreepsReturnCode;
+  reason?: RuntimeTerritoryClaimTelemetryReason;
+  score?: number;
 }
 
 interface RuntimeSpawnStatus {

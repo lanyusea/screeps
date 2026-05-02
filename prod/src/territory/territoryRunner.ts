@@ -8,6 +8,12 @@ import {
   suppressTerritoryIntent
 } from './territoryPlanner';
 import { signOccupiedControllerIfNeeded } from './controllerSigning';
+import {
+  executeExpansionClaim,
+  isExpansionClaimControllerOnCooldown,
+  recordExpansionClaimSkipTelemetry
+} from './claimExecutor';
+import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -24,7 +30,10 @@ const PRESSURE_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([ERR_NO_BODYPART_
 
 type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
 
-export function runTerritoryControllerCreep(creep: Creep): void {
+export function runTerritoryControllerCreep(
+  creep: Creep,
+  telemetryEvents: RuntimeTelemetryEvent[] = []
+): void {
   const assignment = creep.memory.territory;
   if (!isTerritoryAssignment(assignment)) {
     return;
@@ -106,9 +115,17 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     return;
   }
 
+  if (assignment.action === 'claim' && isExpansionClaimControllerOnCooldown(controller)) {
+    recordExpansionClaimSkipTelemetry(creep, controller, 'controllerCooldown', telemetryEvents);
+    if (typeof creep.moveTo === 'function') {
+      creep.moveTo(controller);
+    }
+    return;
+  }
+
   const result =
     assignment.action === 'claim'
-      ? executeControllerAction(creep, controller, 'claimController')
+      ? executeExpansionClaim(creep, controller, telemetryEvents)
       : executeControllerAction(creep, controller, 'reserveController');
 
   if (result === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
