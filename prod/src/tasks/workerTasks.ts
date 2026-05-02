@@ -17,6 +17,7 @@ import {
   isSelfReservedRoom,
   type CriticalRoadLogisticsContext
 } from '../construction/criticalRoads';
+import { findSourceContainer } from '../economy/sourceContainers';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -160,6 +161,11 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
       const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
       if (source2ControllerLaneHarvestTask) {
         return source2ControllerLaneHarvestTask;
+      }
+
+      const sourceContainerHarvestTask = selectSourceContainerHarvestTask(creep);
+      if (sourceContainerHarvestTask) {
+        return sourceContainerHarvestTask;
       }
 
       if (!hasPriorityEnergySink) {
@@ -1914,7 +1920,8 @@ function selectSpawnRecoveryHarvestCandidate(
     getSpawnRecoveryHarvestEnergyTarget(creep, energySink)
   );
   const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
-  const candidates = viableSources
+  const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
+  const candidates = assignableSources
     .map((source) =>
       createSpawnRecoveryHarvestCandidate(
         creep,
@@ -3258,15 +3265,58 @@ function findClosestByRange<T extends RoomObject>(creep: Creep, objects: T[]): T
   return typeof position?.findClosestByRange === 'function' ? position.findClosestByRange(objects) : null;
 }
 
+function selectSourceContainerHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
+  if (
+    getActiveWorkParts(creep) <= 0 ||
+    typeof FIND_SOURCES !== 'number' ||
+    !hasVisiblePositionedContainer(creep.room)
+  ) {
+    return null;
+  }
+
+  const source = selectBestHarvestSource(
+    creep,
+    creep.room.find(FIND_SOURCES).filter((candidate) => findSourceContainer(creep.room, candidate) !== null)
+  );
+  return source ? { type: 'harvest', targetId: source.id } : null;
+}
+
+function hasVisiblePositionedContainer(room: Room): boolean {
+  if (typeof FIND_STRUCTURES !== 'number' || typeof room.find !== 'function') {
+    return false;
+  }
+
+  return room.find(FIND_STRUCTURES).some((structure) => {
+    const position = getRoomObjectPosition(structure);
+    return (
+      position !== null &&
+      matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')
+    );
+  });
+}
+
 function selectHarvestSource(creep: Creep): Source | null {
   const sources = creep.room.find(FIND_SOURCES);
   if (sources.length === 0) {
     return null;
   }
 
+  return selectBestHarvestSource(creep, sources);
+}
+
+function selectBestHarvestSource(creep: Creep, sources: Source[]): Source | null {
+  if (sources.length === 0) {
+    return null;
+  }
+
   const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
   const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
-  const sourceLoads = viableSources.map((source) =>
+  const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
+  if (assignableSources.length === 0) {
+    return null;
+  }
+
+  const sourceLoads = assignableSources.map((source) =>
     createHarvestSourceLoad(source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
   );
   let selectedLoad = sourceLoads[0];
@@ -3278,6 +3328,37 @@ function selectHarvestSource(creep: Creep): Source | null {
   }
 
   return selectedLoad.source;
+}
+
+function selectAssignableHarvestSources(
+  creep: Creep,
+  sources: Source[],
+  assignmentLoads: Map<Id<Source>, HarvestSourceAssignmentLoad>
+): Source[] {
+  return sources.filter((source) =>
+    isAssignableHarvestSource(creep, source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
+  );
+}
+
+function isAssignableHarvestSource(
+  creep: Creep,
+  source: Source,
+  assignmentLoad: HarvestSourceAssignmentLoad
+): boolean {
+  if (!findSourceContainer(creep.room, source)) {
+    return true;
+  }
+
+  if (isWorkerAssignedToHarvestSource(creep, source)) {
+    return true;
+  }
+
+  return assignmentLoad.assignmentCount === 0;
+}
+
+function isWorkerAssignedToHarvestSource(creep: Creep, source: Source): boolean {
+  const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
+  return task?.type === 'harvest' && String(task.targetId) === String(source.id);
 }
 
 function compareHarvestSourceLoads(creep: Creep, left: HarvestSourceLoad, right: HarvestSourceLoad): number {
