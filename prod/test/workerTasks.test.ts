@@ -4450,7 +4450,7 @@ describe('selectWorkerTask', () => {
   it('routes carried energy to controller progress when survival gates are territory-ready', () => {
     recordSurvivalMode('TERRITORY_READY');
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -4472,7 +4472,7 @@ describe('selectWorkerTask', () => {
 
   it('suppresses non-critical construction and routine upgrading during bootstrap', () => {
     recordSurvivalMode('BOOTSTRAP');
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -6478,7 +6478,7 @@ describe('selectWorkerTask', () => {
 
   it('routes carried energy to controller upgrade before non-critical construction once spawn recovery is safe', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -6505,7 +6505,7 @@ describe('selectWorkerTask', () => {
 
   it('reserves urgent spawn refill for active follow-up demand before non-critical construction', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -6827,7 +6827,7 @@ describe('selectWorkerTask', () => {
 
   it('uses active follow-up demand as territory pressure once refill capacity is full', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -6860,7 +6860,7 @@ describe('selectWorkerTask', () => {
 
   it('ignores stale follow-up demand when choosing non-critical construction', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -6886,12 +6886,12 @@ describe('selectWorkerTask', () => {
       time: 503
     };
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('uses nearby non-critical construction before controller pressure upgrade after urgent refill', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -6900,7 +6900,7 @@ describe('selectWorkerTask', () => {
     } as StructureController;
     const getRangeTo = jest.fn((target: RoomObject) => {
       const ranges: Record<string, number> = {
-        'tower-site1': 2,
+        'wall-site1': 2,
         controller1: 7
       };
       return ranges[String((target as { id?: string }).id)] ?? 99;
@@ -6921,12 +6921,12 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('keeps controller pressure upgrade when non-critical construction is farther than the controller', () => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -6935,7 +6935,7 @@ describe('selectWorkerTask', () => {
     } as StructureController;
     const getRangeTo = jest.fn((target: RoomObject) => {
       const ranges: Record<string, number> = {
-        'tower-site1': 9,
+        'wall-site1': 9,
         controller1: 3
       };
       return ranges[String((target as { id?: string }).id)] ?? 99;
@@ -6964,7 +6964,7 @@ describe('selectWorkerTask', () => {
     ['empty', { role: 'worker', colony: '' }]
   ])('ignores territory pressure when worker colony memory is %s', (_caseName, memory) => {
     const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -6986,11 +6986,11 @@ describe('selectWorkerTask', () => {
       })
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('routes carried energy to controller upgrade before non-critical construction when stored surplus exists', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const storage = makeStoredEnergyStructure('storage-surplus', 'storage' as StructureConstant, 1_000, {
       my: true
     });
@@ -7009,7 +7009,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('routes carried energy to controller upgrade before non-critical construction when salvage surplus exists', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const tombstone = makeSalvageEnergySource('tombstone-surplus', 100);
     const controller = {
       id: 'controller1',
@@ -7048,7 +7048,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('routes carried energy to controller upgrade before non-critical construction when dropped energy surplus exists', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const droppedEnergy = { id: 'drop-surplus', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
     const controller = {
       id: 'controller1',
@@ -7077,7 +7077,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('routes carried energy to controller upgrade on visible dropped energy surplus without pathfinding', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const droppedEnergy = { id: 'drop-surplus', resourceType: 'energy', amount: 100 } as Resource<ResourceConstant>;
     const controller = {
       id: 'controller1',
@@ -7103,7 +7103,7 @@ describe('selectWorkerTask', () => {
         getRangeTo: jest.fn((target: RoomObject) => {
           const ranges: Record<string, number> = {
             controller1: 5,
-            'tower-site1': 8,
+            'wall-site1': 8,
             'drop-surplus': 5
           };
           return ranges[String((target as { id?: string }).id)] ?? 99;
@@ -7306,7 +7306,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('selects RCL3 controller upgrade before non-critical construction when another loaded worker can build', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -7328,7 +7328,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('keeps non-critical build priority when another loaded worker is already upgrading the controller', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -7348,11 +7348,11 @@ describe('selectWorkerTask', () => {
       Upgrader: makeLoadedWorker(room, { type: 'upgrade', targetId: 'controller1' as Id<StructureController> })
     });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('allows a second RCL3 controller pressure upgrader when several loaded workers can cover construction', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -7378,7 +7378,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('bounds RCL3 controller pressure once two loaded workers are already upgrading', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -7400,7 +7400,7 @@ describe('selectWorkerTask', () => {
       Builder: makeLoadedWorker(room)
     });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('stands down a loaded surplus worker when controller upgrading is saturated', () => {
@@ -7495,7 +7495,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('allows a third stable-room controller upgrader when spawn energy is full', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -7525,7 +7525,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('bounds stable-room surplus controller pressure once three workers are upgrading', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -7551,11 +7551,11 @@ describe('selectWorkerTask', () => {
       Builder: makeLoadedWorker(room)
     });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('keeps active territory pressure capped at one controller upgrader', () => {
-    const site = { id: 'tower-site1', structureType: 'tower' } as ConstructionSite;
+    const site = { id: 'wall-site1', structureType: 'constructedWall' } as ConstructionSite;
     const controller = {
       id: 'controller1',
       my: true,
@@ -7586,7 +7586,7 @@ describe('selectWorkerTask', () => {
       BuilderC: makeLoadedWorker(room)
     });
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'tower-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
   it('steers an empty worker to source2 when source2 is near the owned controller', () => {

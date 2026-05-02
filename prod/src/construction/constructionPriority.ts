@@ -684,8 +684,8 @@ function compareImpactWeightedConstructionSites(
   options: ImpactWeightedConstructionSiteSelectionOptions
 ): number {
   return (
-    compareConstructionSiteReasonableRange(origin, left, right, options.reasonableRange) ||
     getConstructionSiteImpactPriority(right, context) - getConstructionSiteImpactPriority(left, context) ||
+    compareConstructionSiteReasonableRange(origin, left, right, options.reasonableRange) ||
     compareOptionalNumber(getRangeToRoomObject(origin, left), getRangeToRoomObject(origin, right)) ||
     compareConstructionSiteStableId(left, right)
   );
