@@ -55,6 +55,7 @@ const FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER = 2;
 const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 const DEFAULT_SOURCE_ENERGY_CAPACITY = 3_000;
 const DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
+const MAX_CONTROLLER_LEVEL = 8;
 const SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 const SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 const MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
@@ -226,7 +227,12 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   const controller = creep.room.controller;
-  if (controller && shouldGuardControllerDowngrade(controller) && !remoteProductiveSpendingSuppressed) {
+  if (
+    controller &&
+    shouldGuardControllerDowngrade(controller) &&
+    canUpgradeController(controller) &&
+    !remoteProductiveSpendingSuppressed
+  ) {
     const downgradeGuardTask: Extract<CreepTaskMemory, { type: 'upgrade' }> = {
       type: 'upgrade',
       targetId: controller.id
@@ -353,7 +359,9 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   if (controller && shouldRushRcl1Controller(controller)) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
+    return canLevelUpController(controller)
+      ? applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id })
+      : null;
   }
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
@@ -394,7 +402,9 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       return applyMinimumUsefulLoadPolicy(creep, productiveEnergySinkTask);
     }
 
-    return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
+    return canLevelUpController(controller)
+      ? applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id })
+      : null;
   }
 
   const constructionSite = selectUnreservedConstructionSite(
@@ -413,7 +423,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'repair', targetId: repairTarget.id as Id<Structure> });
   }
 
-  if (controller?.my && !isControllerUpgradeSaturated(creep, controller)) {
+  if (controller?.my && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
   }
 
@@ -450,7 +460,11 @@ function selectColonyRecallEnergySpendingTask(creep: Creep): CreepTaskMemory | n
   }
 
   const controller = colonyRoom.controller;
-  return controller?.my === true ? { type: 'upgrade', targetId: controller.id } : null;
+  if (!controller) {
+    return null;
+  }
+
+  return canUpgradeController(controller) ? { type: 'upgrade', targetId: controller.id } : null;
 }
 
 function selectColonyRecallEnergySink(room: Room): FillableEnergySink | null {
@@ -470,7 +484,7 @@ function selectControllerSustainUpgradeTask(
     sustain?.role !== 'upgrader' ||
     sustain.targetRoom !== creep.room?.name ||
     controller?.my !== true ||
-    controller.level >= 8
+    !canUpgradeController(controller)
   ) {
     return null;
   }
@@ -492,6 +506,7 @@ function selectBootstrapSurvivalSpendingTask(
   if (
     controller &&
     shouldRushRcl1Controller(controller) &&
+    canLevelUpController(controller) &&
     !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)
   ) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
@@ -3281,7 +3296,20 @@ function selectSource2ControllerLaneLoadedTask(
     controller,
     constructionReservationContext
   );
-  return productiveEnergySinkTask ?? { type: 'upgrade', targetId: controller.id };
+  return productiveEnergySinkTask ?? (canUpgradeController(controller) ? { type: 'upgrade', targetId: controller.id } : null);
+}
+
+export function canUpgradeController(controller: StructureController | undefined): boolean {
+  return controller?.my === true;
+}
+
+export function canLevelUpController(controller: StructureController | undefined): boolean {
+  return (
+    controller?.my === true &&
+    typeof controller.level === 'number' &&
+    Number.isFinite(controller.level) &&
+    controller.level < MAX_CONTROLLER_LEVEL
+  );
 }
 
 function selectSource2ControllerLaneHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {

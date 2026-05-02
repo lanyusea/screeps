@@ -9,6 +9,8 @@ import {
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
   estimateNearTermSpawnExtensionRefillReserve,
+  canLevelUpController,
+  canUpgradeController,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
@@ -3090,6 +3092,7 @@ describe('selectWorkerTask', () => {
     const controller = {
       id: 'controller1',
       my: true,
+      level: 8,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS
     } as StructureController;
     const source = { id: 'source1', energy: 300 } as Source;
@@ -7547,7 +7550,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'wall-site1' });
   });
 
-  it('stands down a loaded surplus worker when controller upgrading is saturated', () => {
+  it('upgrades a loaded surplus worker when controller upgrading is saturated', () => {
     const controller = {
       id: 'controller1',
       my: true,
@@ -7566,7 +7569,55 @@ describe('selectWorkerTask', () => {
       SurplusWorker: creep
     });
 
-    expect(selectWorkerTask(creep)).toBeNull();
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('still allows controller upgrade fallback at max RCL level', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 8,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ controller });
+    const creep = {
+      name: 'SurplusWorker',
+      memory: { role: 'worker' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room
+    } as unknown as Creep;
+
+    setGameCreeps({
+      SurplusWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('allows downgrade-prevention upgrades on max RCL controllers', () => {
+    expect(
+      canUpgradeController({
+        my: true,
+        level: 8
+      } as StructureController)
+    ).toBe(true);
+  });
+
+  it('blocks leveling at max RCL level', () => {
+    expect(
+      canLevelUpController({
+        my: true,
+        level: 8
+      } as StructureController)
+    ).toBe(false);
+  });
+
+  it('blocks leveling when controller level is invalid', () => {
+    expect(canLevelUpController({ my: true, level: null as unknown as number } as StructureController)).toBe(false);
+    expect(canLevelUpController({ my: true } as StructureController)).toBe(false);
+    expect(canLevelUpController({ my: true, level: Number.NaN } as StructureController)).toBe(false);
+    expect(canLevelUpController({ my: true, level: Infinity } as StructureController)).toBe(false);
+    expect(canLevelUpController({ my: true, level: '8' as unknown as number } as StructureController)).toBe(false);
   });
 
   it('does not send an empty surplus worker harvesting when controller upgrading is saturated', () => {
@@ -7739,7 +7790,7 @@ describe('selectWorkerTask', () => {
     const controller = {
       id: 'controller1',
       my: true,
-      level: 3,
+      level: 8,
       ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
       pos: makeRoomPosition(25, 25)
     } as StructureController;
