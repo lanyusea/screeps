@@ -22,6 +22,10 @@ import {
   type TerritoryIntentProgressSummary
 } from '../territory/territoryPlanner';
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
+import {
+  summarizeAndResetCreepBehaviorTelemetry,
+  type RuntimeBehaviorSummary
+} from './behaviorTelemetry';
 
 export const RUNTIME_SUMMARY_PREFIX = '#runtime-summary ';
 export const RUNTIME_SUMMARY_INTERVAL = 20;
@@ -125,6 +129,8 @@ interface RuntimeRoomSummary {
   workerCount: number;
   spawnStatus: RuntimeSpawnStatus[];
   taskCounts: WorkerTaskCounts;
+  behavior?: RuntimeBehaviorSummary;
+  structures?: RuntimeStructureSnapshotSummary;
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
   refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary;
   refillWorkerUtilization?: RuntimeRefillWorkerUtilizationSummary;
@@ -148,6 +154,30 @@ interface RuntimeControllerSummary {
   progress?: number;
   progressTotal?: number;
   ticksToDowngrade?: number;
+}
+
+interface RuntimeStructureSnapshotSummary {
+  towerCount: number;
+  rampartCount: number;
+  containers: RuntimeContainerSnapshotSummary[];
+  repairTargets: RuntimeRepairTargetSnapshotSummary[];
+  roadCount: number;
+  pendingRoadSiteCount: number;
+  roadCoverageRatio: number;
+}
+
+interface RuntimeContainerSnapshotSummary {
+  id: string;
+  energy: number;
+  capacity: number;
+}
+
+interface RuntimeRepairTargetSnapshotSummary {
+  targetId: string;
+  repairCount: number;
+  structureType?: string;
+  hits?: number;
+  hitsMax?: number;
 }
 
 interface RuntimeResourceEventSummary {
@@ -372,7 +402,8 @@ export function emitRuntimeSummary(
         colony,
         creepsByColony.get(colony.room.name) ?? [],
         persistOccupationRecommendations,
-        eventMetricsByRoom.get(colony.room.name) ?? {}
+        eventMetricsByRoom.get(colony.room.name) ?? {},
+        shouldBuildStructureSnapshot(tick)
       )
     ),
     ...(reportedEvents.length > 0 ? { events: reportedEvents } : {}),
@@ -442,7 +473,8 @@ function summarizeRoom(
   colony: ColonySnapshot,
   colonyCreeps: Creep[],
   persistOccupationRecommendations: boolean,
-  eventMetrics: RuntimeRoomEventMetrics
+  eventMetrics: RuntimeRoomEventMetrics,
+  includeStructureSnapshot: boolean
 ): RuntimeRoomSummary {
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === 'worker');
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
@@ -459,6 +491,8 @@ function summarizeRoom(
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
+    ...summarizeAndResetCreepBehaviorTelemetry(colonyWorkers),
+    ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime()),
     ...summarizeRefillTelemetry(colonyWorkers, getGameTime()),
     ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime()),
@@ -554,6 +588,128 @@ function countWorkerTasks(workers: Creep[]): WorkerTaskCounts {
 
 function isWorkerTaskType(taskType: string | undefined): taskType is WorkerTaskType {
   return WORKER_TASK_TYPES.includes(taskType as WorkerTaskType);
+}
+
+function shouldBuildStructureSnapshot(tick: number): boolean {
+  return tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
+}
+
+function summarizeStructures(colony: ColonySnapshot, colonyWorkers: Creep[]): RuntimeStructureSnapshotSummary {
+  const roomStructures = findRoomObjects(colony.room, 'FIND_STRUCTURES') ?? colony.spawns;
+  const constructionSites = findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? [];
+  const roadCount = countStructuresByType(roomStructures, 'STRUCTURE_ROAD', 'road');
+  const pendingRoadSiteCount = countConstructionSitesByType(constructionSites, 'STRUCTURE_ROAD', 'road');
+
+  return {
+    towerCount: countStructuresByType(roomStructures, 'STRUCTURE_TOWER', 'tower'),
+    rampartCount: countOwnedRamparts(roomStructures),
+    containers: summarizeContainers(roomStructures),
+    repairTargets: summarizeRepairTargetDistribution(colonyWorkers, roomStructures),
+    roadCount,
+    pendingRoadSiteCount,
+    roadCoverageRatio: calculateRoadCoverageRatio(roadCount, pendingRoadSiteCount)
+  };
+}
+
+function countStructuresByType(
+  structures: unknown[],
+  globalName: StructureConstantGlobal,
+  fallback: string
+): number {
+  return structures.filter((structure) => isStructureOfType(structure, globalName, fallback)).length;
+}
+
+function countConstructionSitesByType(
+  constructionSites: unknown[],
+  globalName: StructureConstantGlobal,
+  fallback: string
+): number {
+  return constructionSites.filter((site) => isStructureOfType(site, globalName, fallback)).length;
+}
+
+function countOwnedRamparts(structures: unknown[]): number {
+  return structures.filter((structure) => isRecord(structure) && isObservedOwnedRampart(structure)).length;
+}
+
+function summarizeContainers(structures: unknown[]): RuntimeContainerSnapshotSummary[] {
+  return structures
+    .filter((structure) => isStructureOfType(structure, 'STRUCTURE_CONTAINER', 'container'))
+    .map(toRuntimeContainerSnapshot)
+    .filter((summary): summary is RuntimeContainerSnapshotSummary => summary !== null)
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function toRuntimeContainerSnapshot(structure: unknown): RuntimeContainerSnapshotSummary | null {
+  const id = getObjectId(structure);
+  if (!id) {
+    return null;
+  }
+
+  return {
+    id,
+    energy: getEnergyInStore(structure),
+    capacity: getEnergyCapacityInStore(structure)
+  };
+}
+
+function summarizeRepairTargetDistribution(
+  colonyWorkers: Creep[],
+  roomStructures: unknown[]
+): RuntimeRepairTargetSnapshotSummary[] {
+  const repairCounts = new Map<string, number>();
+  for (const worker of colonyWorkers) {
+    const task = worker.memory.task;
+    if (task?.type !== 'repair') {
+      continue;
+    }
+
+    const targetId = String(task.targetId);
+    repairCounts.set(targetId, (repairCounts.get(targetId) ?? 0) + 1);
+  }
+
+  const structuresById = new Map<string, unknown>();
+  for (const structure of roomStructures) {
+    const id = getObjectId(structure);
+    if (id) {
+      structuresById.set(id, structure);
+    }
+  }
+
+  return [...repairCounts.entries()]
+    .sort(([leftTargetId], [rightTargetId]) => leftTargetId.localeCompare(rightTargetId))
+    .map(([targetId, repairCount]) => toRuntimeRepairTargetSnapshot(targetId, repairCount, structuresById.get(targetId)));
+}
+
+function toRuntimeRepairTargetSnapshot(
+  targetId: string,
+  repairCount: number,
+  structure: unknown
+): RuntimeRepairTargetSnapshotSummary {
+  const structureRecord = isRecord(structure) ? structure : {};
+  const structureType = typeof structureRecord.structureType === 'string' ? structureRecord.structureType : undefined;
+  const hits = getFiniteNumber(structureRecord.hits);
+  const hitsMax = getFiniteNumber(structureRecord.hitsMax);
+
+  return {
+    targetId,
+    repairCount,
+    ...(structureType ? { structureType } : {}),
+    ...(hits !== null ? { hits } : {}),
+    ...(hitsMax !== null ? { hitsMax } : {})
+  };
+}
+
+function isStructureOfType(structure: unknown, globalName: StructureConstantGlobal, fallback: string): boolean {
+  return isRecord(structure) && matchesStructureType(structure.structureType, globalName, fallback);
+}
+
+function calculateRoadCoverageRatio(roadCount: number, pendingRoadSiteCount: number): number {
+  const totalKnownRoadWork = roadCount + pendingRoadSiteCount;
+  if (totalKnownRoadWork <= 0) {
+    return 0;
+  }
+
+  return roundRatio(roadCount, totalKnownRoadWork);
 }
 
 function summarizeWorkerEfficiency(
@@ -1524,6 +1680,29 @@ function getEnergyInStore(object: unknown): number {
   return typeof storedEnergy === 'number' ? storedEnergy : 0;
 }
 
+function getEnergyCapacityInStore(object: unknown): number {
+  if (!isRecord(object) || !isRecord(object.store)) {
+    return 0;
+  }
+
+  const getCapacity = object.store.getCapacity;
+  if (typeof getCapacity === 'function') {
+    const capacity = getCapacity.call(object.store, getEnergyResource());
+    return typeof capacity === 'number' && Number.isFinite(capacity) ? Math.max(0, capacity) : 0;
+  }
+
+  const getFreeCapacity = object.store.getFreeCapacity;
+  if (typeof getFreeCapacity === 'function') {
+    const freeCapacity = getFreeCapacity.call(object.store, getEnergyResource());
+    if (typeof freeCapacity === 'number' && Number.isFinite(freeCapacity)) {
+      return Math.max(0, getEnergyInStore(object) + freeCapacity);
+    }
+  }
+
+  const capacity = object.store.capacity;
+  return typeof capacity === 'number' && Number.isFinite(capacity) ? Math.max(0, capacity) : 0;
+}
+
 function sumDroppedEnergy(droppedResources: unknown[]): number {
   const energyResource = getEnergyResource();
 
@@ -1554,6 +1733,7 @@ type StructureConstantGlobal =
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_RAMPART'
+  | 'STRUCTURE_TOWER'
   | 'STRUCTURE_SPAWN'
   | 'STRUCTURE_EXTENSION';
 
