@@ -23,6 +23,18 @@ export interface StrategyShadowEvaluatorConfig {
   candidateStrategyIds: string[];
 }
 
+export interface VarianceConfig {
+  enabled: boolean;
+  defaultNoiseScale: number;
+  strategyOverrides?: Record<string, Partial<VarianceConfig>>;
+  evaluationTimestamp?: number;
+}
+
+export const DEFAULT_VARIANCE_CONFIG: VarianceConfig = {
+  enabled: true,
+  defaultNoiseScale: 0.1
+};
+
 export interface StrategyShadowReplayInput {
   artifacts?: string | unknown | unknown[] | StrategyEvaluationArtifact[];
   registry?: StrategyRegistryEntry[];
@@ -108,11 +120,16 @@ export const DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG: StrategyShadowEvaluatorCo
   candidateStrategyIds: []
 };
 
-export function evaluateStrategyShadowReplay(input: StrategyShadowReplayInput = {}): StrategyShadowReplayReport {
+export function evaluateStrategyShadowReplay(
+  input: StrategyShadowReplayInput = {},
+  varianceConfig: Partial<VarianceConfig> = {}
+): StrategyShadowReplayReport {
   const registry = input.registry ?? DEFAULT_STRATEGY_REGISTRY;
   const artifacts = parseStrategyEvaluationArtifacts(input.artifacts ?? []);
   const kpi = reduceStrategyKpis(artifacts);
   const config = normalizeShadowConfig(input.config);
+  const resolvedVarianceConfig = normalizeVarianceConfig(varianceConfig);
+  const evaluationTimestamp = resolvedVarianceConfig.evaluationTimestamp ?? Date.now();
 
   if (!config.enabled) {
     return {
@@ -152,7 +169,11 @@ export function evaluateStrategyShadowReplay(input: StrategyShadowReplayInput = 
       continue;
     }
 
-    modelReports.push(evaluateModelPair(artifacts, incumbent, candidate));
+    const evaluatedCandidate =
+      candidate.rolloutStatus === 'incumbent'
+        ? candidate
+        : injectStrategyVariance(candidate, { ...resolvedVarianceConfig, strategyOverrides: undefined }, evaluationTimestamp);
+    modelReports.push(evaluateModelPair(artifacts, incumbent, evaluatedCandidate));
   }
 
   return {
@@ -161,6 +182,56 @@ export function evaluateStrategyShadowReplay(input: StrategyShadowReplayInput = 
     kpi,
     modelReports,
     warnings
+  };
+}
+
+export function injectStrategyVariance(
+  entry: StrategyRegistryEntry,
+  varianceConfig: Partial<VarianceConfig> = {},
+  evaluationTimestamp?: number
+): StrategyRegistryEntry {
+  const resolvedConfig = normalizeVarianceConfig(varianceConfig);
+  const strategyConfig = resolveStrategyVarianceConfig(resolvedConfig, entry.id);
+
+  if (entry.rolloutStatus === 'incumbent' || !strategyConfig.enabled) {
+    return {
+      ...entry,
+      defaultValues: { ...entry.defaultValues }
+    };
+  }
+
+  const seedTimestamp =
+    evaluationTimestamp ??
+    resolvedConfig.evaluationTimestamp ??
+    Date.now();
+  const rng = createSeededRandom(`${entry.id}:${seedTimestamp}`);
+  const defaultValues = { ...entry.defaultValues };
+  const resolvedNoiseScale = clamp(strategyConfig.defaultNoiseScale, 0, 1);
+
+  for (const knob of entry.knobBounds) {
+    if (knob.bounds.kind !== 'number' && knob.bounds.kind !== 'integer') {
+      continue;
+    }
+
+    const defaultValue = entry.defaultValues[knob.name];
+    if (typeof defaultValue !== 'number' || !Number.isFinite(defaultValue)) {
+      continue;
+    }
+
+    const range = knob.bounds.max - knob.bounds.min;
+    const noise = (rng() * 2 - 1) * resolvedNoiseScale * range;
+    let perturbed = defaultValue + noise;
+
+    if (knob.bounds.kind === 'integer') {
+      perturbed = Math.round(perturbed);
+    }
+
+    defaultValues[knob.name] = clamp(perturbed, knob.bounds.min, knob.bounds.max);
+  }
+
+  return {
+    ...entry,
+    defaultValues
   };
 }
 
@@ -173,6 +244,42 @@ function normalizeShadowConfig(config: Partial<StrategyShadowEvaluatorConfig> | 
     },
     candidateStrategyIds: config?.candidateStrategyIds ?? DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG.candidateStrategyIds
   };
+}
+
+function normalizeVarianceConfig(config: Partial<VarianceConfig> | undefined): VarianceConfig {
+  return {
+    enabled: config?.enabled ?? DEFAULT_VARIANCE_CONFIG.enabled,
+    defaultNoiseScale: config?.defaultNoiseScale ?? DEFAULT_VARIANCE_CONFIG.defaultNoiseScale,
+    strategyOverrides: config?.strategyOverrides,
+    evaluationTimestamp: config?.evaluationTimestamp
+  };
+}
+
+function resolveStrategyVarianceConfig(config: VarianceConfig, strategyId: string): Pick<VarianceConfig, 'enabled' | 'defaultNoiseScale'> {
+  const override = config.strategyOverrides?.[strategyId];
+  return {
+    enabled: override?.enabled ?? config.enabled,
+    defaultNoiseScale: clamp(override?.defaultNoiseScale ?? config.defaultNoiseScale, 0, 1)
+  };
+}
+
+function createSeededRandom(seed: string): () => number {
+  const seedHash = hashString(seed);
+  let state = seedHash;
+  return () => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return state / 0x1_0000_0000;
+  };
+}
+
+function hashString(value: string): number {
+  let hash = 2_166_136_261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16_777_619);
+  }
+
+  return hash >>> 0;
 }
 
 function evaluateModelPair(
@@ -553,6 +660,10 @@ function urgencyReliabilitySignal(urgency: string | undefined): number {
     default:
       return 0;
   }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function countSignalWords(text: string, words: string[]): number {
