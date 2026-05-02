@@ -2590,6 +2590,46 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
   });
 
+  it('skips storage withdrawal when another worker reservation causes reserve floor violation', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 1_200, { my: true });
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        my: false
+      } as StructureController,
+      energyAvailable: 250,
+      energyCapacityAvailable: 500,
+      myStructures: [spawn as AnyOwnedStructure],
+      structures: [storage]
+    });
+    const reservedWorker = {
+      name: 'ReservedWorker',
+      memory: { role: 'worker', task: { type: 'withdraw', targetId: 'storage1' } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(30),
+        getFreeCapacity: jest.fn().mockReturnValue(300)
+      },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'TestStorageWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(20),
+        getFreeCapacity: jest.fn().mockReturnValue(30)
+      },
+      room
+    } as unknown as Creep;
+
+    setGameCreeps({
+      ReservedWorker: reservedWorker,
+      TestStorageWorker: creep
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
   it('skips storage-to-spawn refill when spawn and extensions are full', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0);
     const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 0);

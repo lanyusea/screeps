@@ -8043,7 +8043,6 @@ function selectSpawnOrExtensionEnergySink(creep) {
   return unreservedEnergySink != null ? unreservedEnergySink : selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries);
 }
 function selectStorageToSpawnExtensionRefillAcquisitionTask(creep) {
-  var _a;
   if (!isSpawnExtensionThroughputBottlenecked(creep.room) || getFreeEnergyCapacity2(creep) <= 0) {
     return null;
   }
@@ -8052,17 +8051,17 @@ function selectStorageToSpawnExtensionRefillAcquisitionTask(creep) {
     return null;
   }
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
-  const reservedStorageEnergy = (_a = reservationContext.reservedEnergyBySourceId.get(String(storage.id))) != null ? _a : 0;
-  const availableStorageEnergy = Math.max(0, getStoredEnergy2(storage) - reservedStorageEnergy);
+  const storageEnergy = getStoredEnergy2(storage);
+  const availableStorageEnergy = getUnreservedWorkerEnergyAcquisitionAmount(storage, storageEnergy, reservationContext);
   const plannedWithdrawal = Math.min(
-    getStoredEnergy2(storage),
+    storageEnergy,
     creep.store.getFreeCapacity(RESOURCE_ENERGY),
     availableStorageEnergy
   );
   if (plannedWithdrawal <= 0) {
     return null;
   }
-  const projectedStorageEnergy = getStoredEnergy2(storage) - plannedWithdrawal;
+  const projectedStorageEnergy = availableStorageEnergy - plannedWithdrawal;
   return projectedStorageEnergy > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR ? { type: "withdraw", targetId: storage.id } : null;
 }
 function isSpawnExtensionThroughputBottlenecked(room) {

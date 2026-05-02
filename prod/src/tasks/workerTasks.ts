@@ -767,10 +767,10 @@ function selectStorageToSpawnExtensionRefillAcquisitionTask(
   }
 
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
-  const reservedStorageEnergy = reservationContext.reservedEnergyBySourceId.get(String(storage.id)) ?? 0;
-  const availableStorageEnergy = Math.max(0, getStoredEnergy(storage) - reservedStorageEnergy);
+  const storageEnergy = getStoredEnergy(storage);
+  const availableStorageEnergy = getUnreservedWorkerEnergyAcquisitionAmount(storage, storageEnergy, reservationContext);
   const plannedWithdrawal = Math.min(
-    getStoredEnergy(storage),
+    storageEnergy,
     creep.store.getFreeCapacity(RESOURCE_ENERGY),
     availableStorageEnergy
   );
@@ -778,7 +778,7 @@ function selectStorageToSpawnExtensionRefillAcquisitionTask(
     return null;
   }
 
-  const projectedStorageEnergy = getStoredEnergy(storage) - plannedWithdrawal;
+  const projectedStorageEnergy = availableStorageEnergy - plannedWithdrawal;
   return projectedStorageEnergy > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR
     ? { type: 'withdraw', targetId: storage.id as Id<AnyStoreStructure> }
     : null;
