@@ -147,6 +147,7 @@ function refreshExecutableTerritoryRecommendation(
   if (territoryReady) {
     const expansionSelection = refreshNextExpansionTargetSelectionIfDue(colony, Game.time);
     if (expansionSelection.status === 'planned') {
+      persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
     }
     if (expansionSelection.reason === 'unmetPreconditions') {

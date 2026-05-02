@@ -14,6 +14,7 @@ const DEFAULT_TERRAIN_WALL_MASK = 1;
 const DEFAULT_TERRAIN_SWAMP_MASK = 2;
 const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
+const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
 
 export type ExpansionCandidateEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
 
@@ -425,7 +426,7 @@ function getControllerStatus(
 
   return {
     rationale: 'controller reserved by another account',
-    risk: 'foreign reservation requires controller pressure'
+    risk: FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK
   };
 }
 
@@ -517,6 +518,7 @@ function persistNextExpansionTarget(
     (intent) => intent.colony === colony && intent.targetRoom === target.roomName && intent.action === 'claim'
   );
   const createdBy = existingIntent ? existingIntent.createdBy : NEXT_EXPANSION_TARGET_CREATOR;
+  const requiresControllerPressure = shouldPersistExpansionCandidateControllerPressure(candidate);
   upsertTerritoryIntent(intents, {
     colony,
     targetRoom: target.roomName,
@@ -525,8 +527,15 @@ function persistNextExpansionTarget(
     updatedAt: gameTime,
     ...(createdBy ? { createdBy } : {}),
     ...(target.controllerId ? { controllerId: target.controllerId } : {}),
-    ...(candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {})
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {})
   });
+}
+
+function shouldPersistExpansionCandidateControllerPressure(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.requiresControllerPressure === true ||
+    candidate.risks.includes(FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK)
+  );
 }
 
 function upsertNextExpansionTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
