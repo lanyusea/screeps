@@ -14,8 +14,13 @@ type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTUR
 
 const MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
 const OK_CODE = 0 as ScreepsReturnCode;
+const MIN_HAULER_DROPPED_ENERGY = 25;
 
 export function runWorker(creep: Creep): void {
+  if (runControllerSustainMovement(creep)) {
+    return;
+  }
+
   const selectedTask = selectWorkerTask(creep);
   const currentTask = creep.memory.task;
 
@@ -48,6 +53,190 @@ export function runWorker(creep: Creep): void {
   }
 
   executeAssignedTask(creep, selectedTask);
+}
+
+function runControllerSustainMovement(creep: Creep): boolean {
+  const sustain = creep.memory.controllerSustain;
+  if (!isControllerSustainMemory(sustain)) {
+    return false;
+  }
+
+  const roomName = creep.room?.name;
+  if (roomName === sustain.targetRoom) {
+    if (sustain.role === 'hauler' && getCarriedEnergy(creep) <= 0) {
+      clearAssignedTask(creep);
+      moveTowardRoom(creep, sustain.homeRoom);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (sustain.role === 'hauler' && shouldControllerSustainHaulerLoadAtHome(creep, sustain, roomName)) {
+    const energyTask = selectControllerSustainHaulerEnergyTask(creep);
+    if (energyTask) {
+      creep.memory.task = energyTask;
+      executeAssignedTask(creep, energyTask);
+      return true;
+    }
+  }
+
+  clearAssignedTask(creep);
+  moveTowardRoom(creep, selectControllerSustainDestinationRoom(creep, sustain, roomName));
+  return true;
+}
+
+function shouldControllerSustainHaulerLoadAtHome(
+  creep: Creep,
+  sustain: CreepControllerSustainMemory,
+  roomName: string | undefined
+): boolean {
+  return roomName === sustain.homeRoom && getFreeTransferEnergyCapacity(creep) > 0;
+}
+
+function selectControllerSustainDestinationRoom(
+  creep: Creep,
+  sustain: CreepControllerSustainMemory,
+  roomName: string | undefined
+): string {
+  if (sustain.role !== 'hauler') {
+    return sustain.targetRoom;
+  }
+
+  if (getCarriedEnergy(creep) > 0) {
+    return sustain.targetRoom;
+  }
+
+  return roomName === sustain.homeRoom ? sustain.targetRoom : sustain.homeRoom;
+}
+
+function clearAssignedTask(creep: Creep): void {
+  delete creep.memory.task;
+}
+
+function moveTowardRoom(creep: Creep, roomName: string): void {
+  if (typeof creep.moveTo !== 'function') {
+    return;
+  }
+
+  const visibleController = getVisibleRoomController(roomName);
+  if (visibleController) {
+    creep.moveTo(visibleController);
+    return;
+  }
+
+  const RoomPositionCtor = (globalThis as { RoomPosition?: new (x: number, y: number, roomName: string) => RoomPosition })
+    .RoomPosition;
+  if (typeof RoomPositionCtor === 'function') {
+    creep.moveTo(new RoomPositionCtor(25, 25, roomName));
+  }
+}
+
+function getVisibleRoomController(roomName: string): StructureController | null {
+  return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName]?.controller ?? null;
+}
+
+function selectControllerSustainHaulerEnergyTask(creep: Creep): CreepTaskMemory | null {
+  return (
+    selectControllerSustainStoredEnergyTask(creep) ??
+    selectControllerSustainDroppedEnergyTask(creep) ??
+    selectControllerSustainHarvestTask(creep)
+  );
+}
+
+function selectControllerSustainStoredEnergyTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'withdraw' }> | null {
+  if (typeof creep.room?.find !== 'function') {
+    return null;
+  }
+
+  const structures = creep.room.find(FIND_STRUCTURES) as Structure[];
+  const source = structures
+    .filter(isControllerSustainStoredEnergySource)
+    .sort((left, right) => compareRoomObjectsByRangeAndId(creep, left, right))[0];
+
+  return source ? { type: 'withdraw', targetId: source.id as Id<AnyStoreStructure> } : null;
+}
+
+function selectControllerSustainDroppedEnergyTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'pickup' }> | null {
+  if (typeof creep.room?.find !== 'function') {
+    return null;
+  }
+
+  const droppedEnergy = (creep.room.find(FIND_DROPPED_RESOURCES) as Resource<ResourceConstant>[])
+    .filter((resource) => resource.resourceType === RESOURCE_ENERGY && resource.amount >= MIN_HAULER_DROPPED_ENERGY)
+    .sort((left, right) => compareRoomObjectsByRangeAndId(creep, left, right))[0];
+
+  return droppedEnergy ? { type: 'pickup', targetId: droppedEnergy.id } : null;
+}
+
+function selectControllerSustainHarvestTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
+  if (typeof creep.room?.find !== 'function') {
+    return null;
+  }
+
+  const source = (creep.room.find(FIND_SOURCES) as Source[])
+    .filter((candidate) => candidate.energy === undefined || candidate.energy > 0)
+    .sort((left, right) => compareRoomObjectsByRangeAndId(creep, left, right))[0];
+
+  return source ? { type: 'harvest', targetId: source.id } : null;
+}
+
+function isControllerSustainStoredEnergySource(structure: Structure): structure is AnyStoreStructure {
+  const structureType = (structure as { structureType?: unknown }).structureType;
+  const ownedState = (structure as { my?: unknown }).my;
+  return (
+    (structureType === STRUCTURE_CONTAINER || ownedState !== false) &&
+    (structureType === STRUCTURE_CONTAINER || structureType === STRUCTURE_STORAGE || structureType === STRUCTURE_TERMINAL) &&
+    getStoredEnergy(structure) > 0
+  );
+}
+
+function compareRoomObjectsByRangeAndId(creep: Creep, left: RoomObject, right: RoomObject): number {
+  return (
+    getRangeToRoomObject(creep, left) - getRangeToRoomObject(creep, right) ||
+    getStableId(left).localeCompare(getStableId(right))
+  );
+}
+
+function getRangeToRoomObject(creep: Creep, target: RoomObject): number {
+  const range = creep.pos?.getRangeTo?.(target);
+  return typeof range === 'number' ? range : Number.MAX_SAFE_INTEGER;
+}
+
+function getStableId(object: RoomObject): string {
+  const id = (object as { id?: unknown }).id;
+  return typeof id === 'string' ? id : '';
+}
+
+function getStoredEnergy(target: unknown): number {
+  const storedEnergy = (target as { store?: { getUsedCapacity?: (resource?: ResourceConstant) => number | null } })
+    .store?.getUsedCapacity?.(RESOURCE_ENERGY);
+  return typeof storedEnergy === 'number' && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+}
+
+function getCarriedEnergy(creep: Creep): number {
+  return getStoredEnergy(creep);
+}
+
+function isControllerSustainMemory(value: unknown): value is CreepControllerSustainMemory {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const memory = value as Partial<CreepControllerSustainMemory>;
+  return (
+    typeof memory.homeRoom === 'string' &&
+    memory.homeRoom.length > 0 &&
+    typeof memory.targetRoom === 'string' &&
+    memory.targetRoom.length > 0 &&
+    (memory.role === 'upgrader' || memory.role === 'hauler')
+  );
 }
 
 function executeAssignedTask(

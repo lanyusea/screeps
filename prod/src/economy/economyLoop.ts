@@ -119,6 +119,10 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         break;
       }
 
+      if (spawnRequest.memory.colony !== colony.room.name) {
+        continue;
+      }
+
       roleCounts = addPlannedWorker(roleCounts);
     }
   }
