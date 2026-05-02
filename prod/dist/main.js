@@ -7658,6 +7658,8 @@ var ENERGY_ACQUISITION_RANGE_COST = 50;
 var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
+var SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO = 0.2;
+var SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR = 1e3;
 var DEFAULT_BUILD_POWER = 5;
 var NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
 var NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
@@ -7721,6 +7723,10 @@ function selectHeuristicWorkerTask(creep) {
       const nearbyContainerEnergyAcquisitionTask = selectNearbyContainerWorkerEnergyAcquisitionTask(creep);
       if (nearbyContainerEnergyAcquisitionTask) {
         return nearbyContainerEnergyAcquisitionTask;
+      }
+      const storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
+      if (storageRefillAcquisitionTask) {
+        return storageRefillAcquisitionTask;
       }
       const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
       if (source2ControllerLaneHarvestTask) {
@@ -7907,6 +7913,9 @@ function selectHeuristicWorkerTask(creep) {
   }
   if ((controller == null ? void 0 : controller.my) && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
+  }
+  if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
+    return null;
   }
   return null;
 }
@@ -8122,6 +8131,56 @@ function selectSpawnOrExtensionEnergySink(creep) {
     assignedTransferTargetId
   );
   return unreservedEnergySink != null ? unreservedEnergySink : selectCloserReservedEnergySinkFallback(energySinks, creep, loadedWorkers, reservedEnergyDeliveries);
+}
+function selectStorageToSpawnExtensionRefillAcquisitionTask(creep) {
+  if (!isSpawnExtensionThroughputBottlenecked(creep.room) || getFreeEnergyCapacity2(creep) <= 0) {
+    return null;
+  }
+  const storage = selectStorageForSpawnExtensionRefill(creep);
+  if (!storage) {
+    return null;
+  }
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const storageEnergy = getStoredEnergy2(storage);
+  const availableStorageEnergy = getUnreservedWorkerEnergyAcquisitionAmount(storage, storageEnergy, reservationContext);
+  const plannedWithdrawal = Math.min(
+    storageEnergy,
+    creep.store.getFreeCapacity(RESOURCE_ENERGY),
+    availableStorageEnergy
+  );
+  if (plannedWithdrawal <= 0) {
+    return null;
+  }
+  const projectedStorageEnergy = availableStorageEnergy - plannedWithdrawal;
+  return projectedStorageEnergy > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR ? { type: "withdraw", targetId: storage.id } : null;
+}
+function isSpawnExtensionThroughputBottlenecked(room) {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  if (energyAvailable === null || energyCapacityAvailable === null || energyCapacityAvailable <= 0) {
+    return false;
+  }
+  const freeEnergyCapacity = Math.max(0, energyCapacityAvailable - energyAvailable);
+  return freeEnergyCapacity > energyCapacityAvailable * SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO;
+}
+function selectStorageForSpawnExtensionRefill(creep) {
+  const context = {
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const storageSources = findVisibleRoomStructures(creep.room).filter(
+    (structure) => isSafeStoredEnergySource(structure, context) && structure.structureType === "storage" && getStoredEnergy2(structure) > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR
+  );
+  if (storageSources.length === 0) {
+    return null;
+  }
+  const scoredStorageSources = scoreStoredEnergySources(creep, storageSources);
+  if (scoredStorageSources.length > 0) {
+    return scoredStorageSources.sort(compareStoredEnergySourceScores)[0].source;
+  }
+  const closestStorageEnergy = findClosestByRange(creep, storageSources);
+  return closestStorageEnergy ? closestStorageEnergy : storageSources[0];
 }
 function selectSpawnExtensionRecoveryEnergySink(energySinks, creep, reservedEnergyDeliveries, assignedTransferTargetId) {
   if (energySinks.length === 0) {
