@@ -1606,6 +1606,89 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('does not queue duplicate claimers for the same claim target while one is already active', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2' as Id<StructureController>,
+          my: false
+        } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 151,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(
+      planSpawn(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { W2N1: 1 },
+          claimersByTargetRoomAction: { claim: { W2N1: 1 } }
+        },
+        152
+      )
+    ).toBeNull();
+    expect(Memory.territory?.intents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'claim',
+          status: 'active',
+          controllerId: 'controller2'
+        })
+      ])
+    );
+  });
+
+  it('uses worker recovery before spawning claimers for an active claim target', () => {
+    const { colony, spawn } = makeColony({
+      sourceCount: 1,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2' as Id<StructureController>,
+          my: false
+        } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'claim' }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 153)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-153',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
   it('uses a selected follow-up demand to plan one support worker before a reserver', () => {
     const followUp: TerritoryFollowUpMemory = {
       source: 'activeReserveAdjacent',

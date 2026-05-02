@@ -95,6 +95,18 @@ describe('buildTerritoryControllerBody', () => {
   it('builds one claim and move part when affordable', () => {
     expect(buildTerritoryControllerBody(650)).toEqual(['claim', 'move']);
   });
+
+  it('adds work/carry pairs when extra energy is available', () => {
+    expect(buildTerritoryControllerBody(800)).toEqual(['claim', 'move', 'work', 'carry']);
+    expect(buildTerritoryControllerBody(1000)).toEqual([
+      'claim',
+      'move',
+      'work',
+      'carry',
+      'work',
+      'carry'
+    ]);
+  });
 });
 
 describe('buildTerritoryControllerPressureBody', () => {

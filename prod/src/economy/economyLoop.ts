@@ -30,6 +30,7 @@ import {
   refreshAutonomousExpansionClaimIntent,
   shouldDeferOccupationRecommendationForExpansionClaim
 } from '../territory/claimExecutor';
+import { runClaimer } from '../creeps/claimerRunner';
 import {
   hasPendingTerritoryFollowUpIntent,
   TERRITORY_CLAIMER_ROLE,
@@ -138,7 +139,9 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       runRemoteHarvester(creep);
     } else if (creep.memory.role === HAULER_ROLE) {
       runHauler(creep);
-    } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE || creep.memory.role === TERRITORY_SCOUT_ROLE) {
+    } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE) {
+      runClaimer(creep, telemetryEvents);
+    } else if (creep.memory.role === TERRITORY_SCOUT_ROLE) {
       runTerritoryControllerCreep(creep, telemetryEvents);
     }
   }

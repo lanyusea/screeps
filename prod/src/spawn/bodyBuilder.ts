@@ -6,15 +6,18 @@ const WORKER_SURPLUS_MOVE: BodyPartConstant[] = ['move'];
 const WORKER_SURPLUS_MOVE_COST = 50;
 const EMERGENCY_DEFENDER_BODY: BodyPartConstant[] = ['tough', 'attack', 'move'];
 const EMERGENCY_DEFENDER_BODY_COST = 140;
-const TERRITORY_CONTROLLER_BODY: BodyPartConstant[] = ['claim', 'move'];
-export const TERRITORY_CONTROLLER_BODY_COST = 650;
-export const TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS = 5;
-const TERRITORY_CONTROLLER_PRESSURE_BODY: BodyPartConstant[] = Array.from(
-  { length: TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS },
-  () => TERRITORY_CONTROLLER_BODY
-).flat();
-export const TERRITORY_CONTROLLER_PRESSURE_BODY_COST =
-  TERRITORY_CONTROLLER_BODY_COST * TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
+import {
+  buildTerritoryClaimerBody,
+  TERRITORY_CONTROLLER_PRESSURE_BODY,
+  TERRITORY_CONTROLLER_PRESSURE_BODY_COST
+} from './bodyTemplates';
+export {
+  TERRITORY_CONTROLLER_BODY,
+  TERRITORY_CONTROLLER_BODY_COST,
+  TERRITORY_CONTROLLER_PRESSURE_BODY,
+  TERRITORY_CONTROLLER_PRESSURE_BODY_COST,
+  TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
+} from './bodyTemplates';
 const MAX_CREEP_PARTS = 50;
 // General workers cover harvest, haul, build, and upgrade duties. Cap them at
 // four 200-energy patterns (800 energy) so early rooms do not sink capacity into
@@ -99,11 +102,7 @@ export function buildEmergencyDefenderBody(energyAvailable: number): BodyPartCon
 }
 
 export function buildTerritoryControllerBody(energyAvailable: number): BodyPartConstant[] {
-  if (energyAvailable < TERRITORY_CONTROLLER_BODY_COST) {
-    return [];
-  }
-
-  return [...TERRITORY_CONTROLLER_BODY];
+  return buildTerritoryClaimerBody(energyAvailable);
 }
 
 export function buildTerritoryControllerPressureBody(energyAvailable: number): BodyPartConstant[] {
