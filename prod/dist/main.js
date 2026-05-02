@@ -3708,7 +3708,7 @@ function suppressTerritoryIntent(colony, assignment, gameTime) {
   removeTerritoryFollowUpExecutionHint(territoryMemory, colony, assignment.targetRoom, assignment.action);
 }
 function recordTerritoryReserveFallbackIntent(colony, assignment, gameTime) {
-  if (!isNonEmptyString5(colony) || !isNonEmptyString5(assignment.targetRoom) || assignment.action !== "reserve") {
+  if (!isNonEmptyString5(colony) || !isNonEmptyString5(assignment.targetRoom) || assignment.action !== "reserve" || isTerritoryIntentSuppressed(colony, assignment.targetRoom, "reserve", gameTime)) {
     return null;
   }
   const territoryMemory = getWritableTerritoryMemoryRecord2();
@@ -3761,7 +3761,7 @@ function recordTerritoryReserveFallbackIntent(colony, assignment, gameTime) {
   return reserveAssignment;
 }
 function recordAutonomousExpansionClaimReserveFallbackIntent(colony, evaluation, gameTime) {
-  if (evaluation.status !== "skipped" || evaluation.reason !== "gclInsufficient" && evaluation.reason !== "controllerCooldown" || !isNonEmptyString5(colony)) {
+  if (evaluation.status !== "skipped" || evaluation.reason !== "gclInsufficient" && evaluation.reason !== "controllerCooldown" || !isNonEmptyString5(colony) || !isNonEmptyString5(evaluation.targetRoom) || isTerritoryIntentSuppressed(colony, evaluation.targetRoom, "reserve", gameTime)) {
     return null;
   }
   const targetRoom = evaluation.targetRoom;

@@ -705,7 +705,12 @@ export function recordTerritoryReserveFallbackIntent(
   assignment: CreepTerritoryMemory,
   gameTime: number
 ): CreepTerritoryMemory | null {
-  if (!isNonEmptyString(colony) || !isNonEmptyString(assignment.targetRoom) || assignment.action !== 'reserve') {
+  if (
+    !isNonEmptyString(colony) ||
+    !isNonEmptyString(assignment.targetRoom) ||
+    assignment.action !== 'reserve' ||
+    isTerritoryIntentSuppressed(colony, assignment.targetRoom, 'reserve', gameTime)
+  ) {
     return null;
   }
 
@@ -769,7 +774,9 @@ export function recordAutonomousExpansionClaimReserveFallbackIntent(
   if (
     evaluation.status !== 'skipped' ||
     (evaluation.reason !== 'gclInsufficient' && evaluation.reason !== 'controllerCooldown') ||
-    !isNonEmptyString(colony)
+    !isNonEmptyString(colony) ||
+    !isNonEmptyString(evaluation.targetRoom) ||
+    isTerritoryIntentSuppressed(colony, evaluation.targetRoom, 'reserve', gameTime)
   ) {
     return null;
   }
