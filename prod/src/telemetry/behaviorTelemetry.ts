@@ -73,13 +73,22 @@ export function recordCreepBehaviorIdle(creep: Creep, tick: number = getGameTime
 
 export function recordCreepBehaviorMove(creep: Creep, tick: number = getGameTime()): void {
   const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (telemetry.lastMoveTick === tick) {
+    return;
+  }
+
   telemetry.moveTicks = (telemetry.moveTicks ?? 0) + 1;
   telemetry.lastMoveTick = tick;
 }
 
-export function recordCreepBehaviorWork(creep: Creep): void {
+export function recordCreepBehaviorWork(creep: Creep, tick: number = getGameTime()): void {
   const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (telemetry.lastWorkTick === tick) {
+    return;
+  }
+
   telemetry.workTicks = (telemetry.workTicks ?? 0) + 1;
+  telemetry.lastWorkTick = tick;
 }
 
 export function recordCreepBehaviorRepairTarget(creep: Creep, targetId: string): void {
@@ -159,6 +168,7 @@ function resetCreepBehaviorCounters(creep: Creep): void {
   }
   delete telemetry.repairTargetId;
   delete telemetry.lastIdleTick;
+  delete telemetry.lastWorkTick;
 
   if (!telemetry.lastPosition && telemetry.lastMoveTick === undefined && telemetry.lastObservedTick === undefined) {
     delete creep.memory.behaviorTelemetry;

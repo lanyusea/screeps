@@ -326,6 +326,7 @@ declare global {
     pathLength?: number;
     lastPosition?: CreepBehaviorPositionMemory;
     lastMoveTick?: number;
+    lastWorkTick?: number;
     lastObservedTick?: number;
     lastIdleTick?: number;
   }
