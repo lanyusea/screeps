@@ -366,13 +366,31 @@ export function evaluateWorkerEfficiencyPolicy(
   evalSamples: WorkerEfficiencySample[] = []
 ): WorkerEfficiencyEvaluationReport {
   const heldOutSamples = evalSamples.filter((sample) => sample.split === 'eval');
+  const scenarioIds =
+    heldOutSamples.length > 0
+      ? HELD_OUT_SCENARIOS.filter((scenarioId) => heldOutSamples.some((sample) => sample.scenarioId === scenarioId))
+      : HELD_OUT_SCENARIOS;
   const scenarioMetrics = new Map<
     WorkerEfficiencyScenarioId,
-    { sampleCount: number; heuristicWorkTicks: number; policyWorkTicks: number; totalTicks: number; energyDeliveredDelta: number }
+    {
+      sampleCount: number;
+      heuristicWorkTicks: number;
+      policyWorkTicks: number;
+      heuristicTotalTicks: number;
+      policyTotalTicks: number;
+      energyDeliveredDelta: number;
+    }
   >(
-    HELD_OUT_SCENARIOS.map((scenarioId) => [
+    scenarioIds.map((scenarioId) => [
       scenarioId,
-      { scenarioId, sampleCount: 0, heuristicWorkTicks: 0, policyWorkTicks: 0, totalTicks: 0, energyDeliveredDelta: 0 }
+      {
+        sampleCount: 0,
+        heuristicWorkTicks: 0,
+        policyWorkTicks: 0,
+        heuristicTotalTicks: 0,
+        policyTotalTicks: 0,
+        energyDeliveredDelta: 0
+      }
     ] as const)
   );
 
@@ -382,39 +400,47 @@ export function evaluateWorkerEfficiencyPolicy(
       continue;
     }
     const heuristic = selectHeuristicWorkerEfficiencyCandidate(sample.observation, sample.candidates);
-    const selected = selectWorkerEfficiencyAction(sample.observation, sample.candidates, policy).selectedCandidate ?? heuristic;
+    const decision = selectWorkerEfficiencyAction(sample.observation, sample.candidates, policy);
+    const selected = decision.selectedCandidate ?? heuristic;
     if (!heuristic || !selected) {
       continue;
     }
+    const policyCandidate = decision.source === 'rl-policy' ? selected : heuristic;
     metrics.sampleCount += 1;
     metrics.heuristicWorkTicks += heuristic.workTicks;
-    metrics.policyWorkTicks += selected.workTicks;
-    metrics.totalTicks += heuristic.totalTicks;
-    metrics.energyDeliveredDelta += selected.energyDelivered - heuristic.energyDelivered;
+    metrics.policyWorkTicks += policyCandidate.workTicks;
+    metrics.heuristicTotalTicks += heuristic.totalTicks;
+    metrics.policyTotalTicks += policyCandidate.totalTicks;
+    metrics.energyDeliveredDelta += policyCandidate.energyDelivered - heuristic.energyDelivered;
   }
 
-  const scenarios = HELD_OUT_SCENARIOS.map((scenarioId) => {
+  const scenarios = scenarioIds.map((scenarioId) => {
     const metrics = scenarioMetrics.get(scenarioId)!;
-    const heuristicRatio = metrics.totalTicks > 0 ? metrics.heuristicWorkTicks / metrics.totalTicks : 0;
-    const policyRatio = metrics.totalTicks > 0 ? metrics.policyWorkTicks / metrics.totalTicks : 0;
+    const heuristicRatio =
+      metrics.heuristicTotalTicks > 0 ? metrics.heuristicWorkTicks / metrics.heuristicTotalTicks : 0;
+    const policyRatio = metrics.policyTotalTicks > 0 ? metrics.policyWorkTicks / metrics.policyTotalTicks : 0;
     return {
       scenarioId,
       sampleCount: metrics.sampleCount,
       heuristicWorkTicks: metrics.heuristicWorkTicks,
       policyWorkTicks: metrics.policyWorkTicks,
-      totalTicks: metrics.totalTicks,
+      totalTicks: metrics.heuristicTotalTicks,
       heuristicWorkTicksRatio: round(heuristicRatio),
       policyWorkTicksRatio: round(policyRatio),
-      improvementRatio: round(metrics.totalTicks > 0 ? (policyRatio - heuristicRatio) / heuristicRatio : 0),
+      improvementRatio: round(metrics.heuristicTotalTicks > 0 ? (policyRatio - heuristicRatio) / heuristicRatio : 0),
       energyDeliveredDelta: round(metrics.energyDeliveredDelta)
     };
   });
   const heuristicWorkTicks = scenarios.reduce((total, scenario) => total + scenario.heuristicWorkTicks, 0);
   const policyWorkTicks = scenarios.reduce((total, scenario) => total + scenario.policyWorkTicks, 0);
-  const totalTicks = scenarios.reduce((total, scenario) => total + scenario.totalTicks, 0);
+  const heuristicTotalTicks = scenarios.reduce((total, scenario) => total + scenario.totalTicks, 0);
+  const policyTotalTicks = scenarios.reduce(
+    (total, scenario) => total + scenarioMetrics.get(scenario.scenarioId)!.policyTotalTicks,
+    0
+  );
   const sampleCount = scenarios.reduce((total, scenario) => total + scenario.sampleCount, 0);
-  const heuristicRatio = totalTicks > 0 ? heuristicWorkTicks / totalTicks : 0;
-  const policyRatio = totalTicks > 0 ? policyWorkTicks / totalTicks : 0;
+  const heuristicRatio = heuristicTotalTicks > 0 ? heuristicWorkTicks / heuristicTotalTicks : 0;
+  const policyRatio = policyTotalTicks > 0 ? policyWorkTicks / policyTotalTicks : 0;
   const minimumScenarioImprovementRatio = Math.min(...scenarios.map((scenario) => scenario.improvementRatio));
   return {
     type: 'screeps-worker-efficiency-rl-evaluation',
@@ -426,7 +452,7 @@ export function evaluateWorkerEfficiencyPolicy(
     sampleCount,
     heuristicWorkTicksRatio: round(heuristicRatio),
     policyWorkTicksRatio: round(policyRatio),
-    improvementRatio: round(totalTicks > 0 ? (policyRatio - heuristicRatio) / heuristicRatio : 0),
+    improvementRatio: round(heuristicTotalTicks > 0 ? (policyRatio - heuristicRatio) / heuristicRatio : 0),
     minimumScenarioImprovementRatio,
     pass: scenarios.every((scenario) => scenario.improvementRatio >= 0.1),
     scenarios
