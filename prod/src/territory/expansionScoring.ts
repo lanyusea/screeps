@@ -41,6 +41,7 @@ export interface ExpansionCandidateScore {
   hostileCreepCount?: number;
   hostileStructureCount?: number;
   reservation?: ExpansionReservationEvidence;
+  requiresControllerPressure?: boolean;
 }
 
 export interface ExpansionScoringInput {
@@ -297,6 +298,7 @@ function scoreExpansionCandidate(
 
   const score = calculateExpansionScore(input, candidate, evidenceStatus);
   const reservation = getReservationEvidence(input, candidate.controller);
+  const requiresControllerPressure = reservation?.relation === 'foreign';
   return {
     roomName: candidate.roomName,
     score,
@@ -318,7 +320,8 @@ function scoreExpansionCandidate(
     ...(candidate.hostileStructureCount !== undefined
       ? { hostileStructureCount: candidate.hostileStructureCount }
       : {}),
-    ...(reservation ? { reservation } : {})
+    ...(reservation ? { reservation } : {}),
+    ...(requiresControllerPressure ? { requiresControllerPressure: true } : {})
   };
 }
 
@@ -513,13 +516,16 @@ function persistNextExpansionTarget(
   const existingIntent = intents.find(
     (intent) => intent.colony === colony && intent.targetRoom === target.roomName && intent.action === 'claim'
   );
+  const createdBy = existingIntent ? existingIntent.createdBy : NEXT_EXPANSION_TARGET_CREATOR;
   upsertTerritoryIntent(intents, {
     colony,
     targetRoom: target.roomName,
     action: 'claim',
     status: existingIntent?.status === 'active' ? 'active' : 'planned',
     updatedAt: gameTime,
-    ...(target.controllerId ? { controllerId: target.controllerId } : {})
+    ...(createdBy ? { createdBy } : {}),
+    ...(target.controllerId ? { controllerId: target.controllerId } : {}),
+    ...(candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {})
   });
 }
 
@@ -548,7 +554,8 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
     (intent) =>
       intent.colony === nextIntent.colony &&
       intent.targetRoom === nextIntent.targetRoom &&
-      intent.action === nextIntent.action
+      intent.action === nextIntent.action &&
+      intent.createdBy === nextIntent.createdBy
   );
   if (existingIndex >= 0) {
     intents[existingIndex] = nextIntent;
@@ -588,7 +595,10 @@ function pruneNextExpansionTargets(
   }
 
   territoryMemory.intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
-    (intent) => intent.colony !== colony || !removedTargetKeys.has(getTargetKey(intent.targetRoom, intent.action))
+    (intent) =>
+      intent.colony !== colony ||
+      intent.createdBy !== NEXT_EXPANSION_TARGET_CREATOR ||
+      !removedTargetKeys.has(getTargetKey(intent.targetRoom, intent.action))
   );
 }
 

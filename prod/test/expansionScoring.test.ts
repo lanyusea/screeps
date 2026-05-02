@@ -227,6 +227,7 @@ describe('next expansion scoring', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 100,
+        createdBy: 'nextExpansionScoring',
         controllerId: 'controller3'
       }
     ]);
@@ -235,8 +236,144 @@ describe('next expansion scoring', () => {
       colony: 'W1N1',
       targetRoom: 'W3N1',
       action: 'claim',
+      createdBy: 'nextExpansionScoring',
       controllerId: 'controller3'
     });
+  });
+
+  it('preserves unrelated claim intents while pruning stale next expansion intents', () => {
+    const colony = makeSafeColony();
+    const manualIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'active',
+      updatedAt: 90
+    };
+    const staleNextIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'planned',
+      updatedAt: 91,
+      createdBy: 'nextExpansionScoring'
+    };
+    const unrelatedClaimIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W4N1',
+      action: 'claim',
+      status: 'active',
+      updatedAt: 92,
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'claim',
+            createdBy: 'nextExpansionScoring'
+          }
+        ],
+        intents: [manualIntent, staleNextIntent, unrelatedClaimIntent]
+      }
+    };
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ])
+    );
+
+    refreshNextExpansionTargetSelection(colony, report, 100);
+
+    expect(Memory.territory?.intents).toEqual([
+      manualIntent,
+      unrelatedClaimIntent,
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 100,
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller3'
+      }
+    ]);
+  });
+
+  it('preserves an existing claim intent creator when refreshing the same expansion room', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 92,
+            createdBy: 'occupationRecommendation'
+          }
+        ]
+      }
+    };
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ])
+    );
+
+    refreshNextExpansionTargetSelection(colony, report, 100);
+
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'active',
+        updatedAt: 100,
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller3'
+      }
+    ]);
+  });
+
+  it('persists controller pressure on next expansion claim intents for foreign reservations', () => {
+    const colony = makeSafeColony();
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 2,
+          controller: { reservationUsername: 'enemy', reservationTicksToEnd: 3_000 }
+        })
+      ])
+    );
+
+    refreshNextExpansionTargetSelection(colony, report, 101);
+
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 101,
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller3',
+        requiresControllerPressure: true
+      }
+    ]);
   });
 
   it('does not persist a next expansion target while post-claim bootstrap is active', () => {

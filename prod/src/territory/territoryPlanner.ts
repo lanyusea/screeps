@@ -56,6 +56,7 @@ export interface TerritoryIntentPlan {
   targetRoom: string;
   action: TerritoryIntentAction;
   controllerId?: Id<StructureController>;
+  createdBy?: TerritoryAutomationSource;
   requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
 }
@@ -166,6 +167,7 @@ export function planTerritoryIntent(
     targetRoom: target.roomName,
     action: selection.intentAction,
     ...(target.controllerId ? { controllerId: target.controllerId } : {}),
+    ...(target.createdBy ? { createdBy: target.createdBy } : {}),
     ...(selection.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(selection.followUp ? { followUp: selection.followUp } : {})
   };
@@ -742,6 +744,7 @@ export function recordTerritoryReserveFallbackIntent(
     status: 'active',
     updatedAt: gameTime,
     ...(plan.controllerId ? { controllerId: plan.controllerId } : {}),
+    ...(plan.createdBy ? { createdBy: plan.createdBy } : {}),
     ...(plan.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(plan.followUp ? { followUp: plan.followUp } : {})
   });
@@ -2918,6 +2921,7 @@ function recordTerritoryIntent(
     action: plan.action,
     status,
     updatedAt: gameTime,
+    ...(plan.createdBy ? { createdBy: plan.createdBy } : {}),
     ...(plan.controllerId ? { controllerId: plan.controllerId } : {}),
     ...(plan.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(plan.followUp ? { followUp: plan.followUp } : {})
@@ -2929,16 +2933,12 @@ function recordTerritoryIntent(
 }
 
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
-  const existingIndex = intents.findIndex(
-    (intent) =>
-      intent.colony === nextIntent.colony &&
-      intent.targetRoom === nextIntent.targetRoom &&
-      intent.action === nextIntent.action
-  );
+  const existingIndex = findTerritoryIntentIndex(intents, nextIntent);
 
   if (existingIndex >= 0) {
     const existingIntent = intents[existingIndex];
     const controllerId = nextIntent.controllerId ?? existingIntent.controllerId;
+    const createdBy = nextIntent.createdBy ?? existingIntent.createdBy;
     const requiresControllerPressure = shouldRecordTerritoryIntentControllerPressure(
       nextIntent,
       controllerId,
@@ -2946,6 +2946,7 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
     );
     intents[existingIndex] = {
       ...nextIntent,
+      ...(createdBy ? { createdBy } : {}),
       ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
       ...(!nextIntent.followUp && existingIntent.followUp ? { followUp: existingIntent.followUp } : {})
     };
@@ -2960,6 +2961,37 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
     ...nextIntent,
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {})
   });
+}
+
+function findTerritoryIntentIndex(
+  intents: TerritoryIntentMemory[],
+  nextIntent: TerritoryIntentMemory
+): number {
+  if (nextIntent.createdBy) {
+    return intents.findIndex(
+      (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === nextIntent.createdBy
+    );
+  }
+
+  const unownedIntentIndex = intents.findIndex(
+    (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === undefined
+  );
+  if (unownedIntentIndex >= 0) {
+    return unownedIntentIndex;
+  }
+
+  return intents.findIndex((intent) => isSameTerritoryIntentRecord(intent, nextIntent));
+}
+
+function isSameTerritoryIntentRecord(
+  intent: TerritoryIntentMemory,
+  nextIntent: TerritoryIntentMemory
+): boolean {
+  return (
+    intent.colony === nextIntent.colony &&
+    intent.targetRoom === nextIntent.targetRoom &&
+    intent.action === nextIntent.action
+  );
 }
 
 function shouldRecordTerritoryIntentControllerPressure(
