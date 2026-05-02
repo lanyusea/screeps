@@ -155,7 +155,13 @@ declare global {
   }
 
   type WorkerEfficiencySampleType = 'lowLoadReturn' | 'nearbyEnergyChoice';
-  type WorkerEfficiencyLowLoadReturnReason = 'urgentSpawnExtensionRefill' | 'noNearbyEnergy';
+  type WorkerEfficiencyLowLoadReturnReason =
+    | 'emergencySpawnExtensionRefill'
+    | 'controllerDowngradeGuard'
+    | 'hostileSafety'
+    | 'noReachableEnergy'
+    | 'urgentSpawnExtensionRefill'
+    | 'noNearbyEnergy';
 
   interface WorkerEfficiencySampleMemory {
     type: WorkerEfficiencySampleType;
