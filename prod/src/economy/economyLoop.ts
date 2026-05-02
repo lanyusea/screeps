@@ -9,6 +9,8 @@ import { planEarlyRoadConstruction } from '../construction/roadPlanner';
 import { planSourceContainerConstruction } from '../construction/sourceContainerPlanner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
+import { HAULER_ROLE, runHauler } from '../creeps/hauler';
+import { REMOTE_HARVESTER_ROLE, runRemoteHarvester } from '../creeps/remoteHarvester';
 import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
 import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
 import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
@@ -130,6 +132,10 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   for (const creep of creeps) {
     if (creep.memory.role === 'worker') {
       runWorker(creep);
+    } else if (creep.memory.role === REMOTE_HARVESTER_ROLE) {
+      runRemoteHarvester(creep);
+    } else if (creep.memory.role === HAULER_ROLE) {
+      runHauler(creep);
     } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE || creep.memory.role === TERRITORY_SCOUT_ROLE) {
       runTerritoryControllerCreep(creep, telemetryEvents);
     }

@@ -17,6 +17,8 @@ declare global {
     defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
     controllerSustain?: CreepControllerSustainMemory;
+    remoteHarvester?: CreepRemoteHarvesterMemory;
+    remoteHauler?: CreepRemoteHaulerMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
     refillTelemetry?: WorkerRefillTelemetryMemory;
     spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
@@ -72,6 +74,20 @@ declare global {
     homeRoom: string;
     targetRoom: string;
     role: CreepControllerSustainRole;
+  }
+
+  interface CreepRemoteHarvesterMemory {
+    homeRoom: string;
+    targetRoom: string;
+    sourceId: Id<Source>;
+    containerId: Id<StructureContainer>;
+  }
+
+  interface CreepRemoteHaulerMemory {
+    homeRoom: string;
+    targetRoom: string;
+    sourceId: Id<Source>;
+    containerId: Id<StructureContainer>;
   }
 
   interface EconomyMemory {
