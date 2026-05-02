@@ -141,7 +141,6 @@ function getWorkerTaskSelectionNullLoopState(
   const typedExisting = existing as WorkerTaskSelectionNullLoopState;
   const state = {
     ...typedExisting,
-    lastNullSelectionTick: gameTime,
     nullSelectionCount: typedExisting.nullSelectionCount + 1
   };
   creep.memory.workerTaskSelectionNullLoop = state;

@@ -10382,7 +10382,6 @@ function getWorkerTaskSelectionNullLoopState(creep, gameTime) {
   const typedExisting = existing;
   const state = {
     ...typedExisting,
-    lastNullSelectionTick: gameTime,
     nullSelectionCount: typedExisting.nullSelectionCount + 1
   };
   creep.memory.workerTaskSelectionNullLoop = state;
@@ -13298,7 +13297,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
-    ...summarizeRuntimeBehavior(colonyWorkers, getGameTime8()),
+    ...summarizeRuntimeBehavior(colonyWorkers, getGameTime9()),
     ...includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {},
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime9()),
     ...summarizeRefillTelemetry(colonyWorkers, getGameTime9()),
@@ -13456,7 +13455,7 @@ function isRecentWorkerTaskBehaviorSample(sample, tick) {
   return sample.tick <= tick && sample.tick > tick - WORKER_BEHAVIOR_SAMPLE_TTL;
 }
 function isWorkerTaskBehaviorSample(value) {
-  return isRecord11(value) && value.type === "workerTaskBehavior" && value.schemaVersion === 1 && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.policyId === "string" && value.liveEffect === false && isRecord11(value.state) && isRecord11(value.action) && isWorkerTaskBehaviorActionType(value.action.type) && typeof value.action.targetId === "string";
+  return isRecord12(value) && value.type === "workerTaskBehavior" && value.schemaVersion === 1 && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.policyId === "string" && value.liveEffect === false && isRecord12(value.state) && isRecord12(value.action) && isWorkerTaskBehaviorActionType(value.action.type) && typeof value.action.targetId === "string";
 }
 function isRecentWorkerTaskPolicyShadow(value, tick) {
   if (!isWorkerTaskPolicyShadow(value)) {
@@ -13465,7 +13464,7 @@ function isRecentWorkerTaskPolicyShadow(value, tick) {
   return tick <= 0 || value.tick <= tick && value.tick > tick - WORKER_BEHAVIOR_SAMPLE_TTL;
 }
 function isWorkerTaskPolicyShadow(value) {
-  return isRecord11(value) && value.type === "workerTaskPolicyShadow" && value.schemaVersion === 1 && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.policyId === "string" && value.liveEffect === false && typeof value.matched === "boolean";
+  return isRecord12(value) && value.type === "workerTaskPolicyShadow" && value.schemaVersion === 1 && typeof value.tick === "number" && Number.isFinite(value.tick) && typeof value.policyId === "string" && value.liveEffect === false && typeof value.matched === "boolean";
 }
 function shouldBuildStructureSnapshot(tick) {
   return tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
@@ -16223,7 +16222,7 @@ function normalizeHistoricalReplay(rawReplay) {
   if (!isRecord15(rawReplay)) {
     return null;
   }
-  if (!isNonEmptyString14(rawReplay.replayId) || !isNonEmptyString14(rawReplay.room) || !isFiniteNumber7(rawReplay.startTick) || !isFiniteNumber7(rawReplay.endTick) || !isFiniteNumber7(rawReplay.finalScore) || !isRecord15(rawReplay.kpiHistory)) {
+  if (!isNonEmptyString14(rawReplay.replayId) || !isNonEmptyString14(rawReplay.room) || !isFiniteNumber8(rawReplay.startTick) || !isFiniteNumber8(rawReplay.endTick) || !isFiniteNumber8(rawReplay.finalScore) || !isRecord15(rawReplay.kpiHistory)) {
     return null;
   }
   const kpiHistory = Object.entries(rawReplay.kpiHistory).reduce(
@@ -16254,7 +16253,7 @@ function isRecord15(value) {
 function isNonEmptyString14(value) {
   return typeof value === "string" && value.length > 0;
 }
-function isFiniteNumber7(value) {
+function isFiniteNumber8(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
