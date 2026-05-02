@@ -89,15 +89,14 @@ def build_strategy_shadow_report(
     candidate_strategy_ids: Sequence[str] = (),
     repo_root: Path | None = None,
 ) -> JsonObject:
-    repo = resolve_repo_root(repo_root)
-    resolved_out_dir = resolve_repo_relative_path(out_dir, repo)
+    repo = repo_root or Path.cwd()
+    resolved_out_dir = out_dir.expanduser()
     resolved_dist_path = resolve_dist_path(dist_path, repo)
     resolved_bot_commit = bot_commit or dataset_export.git_commit(repo)
     resolved_generated_at = generated_at or utc_now_iso()
-    resolved_input_paths = resolve_input_paths(paths, repo)
 
     scan = dataset_export.collect_artifact_records(
-        resolved_input_paths,
+        paths,
         max_file_bytes=max_file_bytes,
         excluded_roots=[resolved_out_dir],
     )
@@ -118,7 +117,7 @@ def build_strategy_shadow_report(
         evaluator_report=evaluator_report,
         scan=scan,
         selected_artifacts=selected_artifacts,
-        input_paths=resolved_input_paths,
+        input_paths=list(paths) if paths else list(dataset_export.DEFAULT_INPUT_PATHS),
         generated_at=resolved_generated_at,
         bot_commit=resolved_bot_commit,
         max_file_bytes=max_file_bytes,
@@ -137,31 +136,13 @@ def build_strategy_shadow_report(
     return build_generation_summary(report, report_path, scan)
 
 
-def default_repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
-
-
-def resolve_repo_root(repo_root: Path | None) -> Path:
-    root = repo_root if repo_root is not None else default_repo_root()
-    return dataset_export.resolve_path(root.expanduser())
-
-
-def resolve_repo_relative_path(path: Path, repo_root: Path) -> Path:
-    expanded = path.expanduser()
-    resolved = expanded if expanded.is_absolute() else repo_root / expanded
-    return dataset_export.resolve_path(resolved)
-
-
-def resolve_input_paths(paths: Sequence[str], repo_root: Path) -> list[str]:
-    input_paths = list(paths) if paths else list(dataset_export.DEFAULT_INPUT_PATHS)
-    return [str(resolve_repo_relative_path(Path(path), repo_root)) for path in input_paths]
-
-
 def resolve_dist_path(dist_path: Path, repo_root: Path) -> Path:
-    resolved = resolve_repo_relative_path(dist_path, repo_root)
+    expanded = dist_path.expanduser()
+    resolved = expanded if expanded.is_absolute() else repo_root / expanded
+    resolved = resolved.resolve(strict=False)
     if not resolved.exists():
         raise FileNotFoundError(
-            f"{dataset_export.display_path(resolved)} not found; run `npm --prefix prod run build` before generating reports"
+            f"{dataset_export.display_path(resolved)} not found; run `cd prod && npm run build` before generating reports"
         )
     return resolved
 
@@ -189,7 +170,7 @@ def run_shadow_evaluator(
             timeout=timeout_seconds,
         )
     except FileNotFoundError as error:
-        raise RuntimeError("node executable not found; install Node and run `npm --prefix prod run build`") from error
+        raise RuntimeError("node executable not found; install Node and run `cd prod && npm run build`") from error
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(f"strategy shadow evaluator timed out after {timeout_seconds}s") from error
     except subprocess.CalledProcessError as error:
