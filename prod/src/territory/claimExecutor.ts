@@ -87,12 +87,12 @@ function isAutonomousExpansionClaimGclInsufficient(): boolean {
     return false;
   }
 
-  const gclOwnedRoomLimit = gcl.level;
-  if (!Number.isFinite(gclOwnedRoomLimit)) {
+  const maxClaimableRooms = gcl.level;
+  if (!Number.isFinite(maxClaimableRooms)) {
     return false;
   }
 
-  return getVisibleOwnedRoomCount() >= gclOwnedRoomLimit;
+  return getVisibleOwnedRoomCount() >= maxClaimableRooms;
 }
 
 export function executeExpansionClaim(
