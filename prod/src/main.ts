@@ -6,6 +6,13 @@ export {
   validateStrategyRegistryEntry
 } from './strategy/strategyRegistry';
 export { DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG, evaluateStrategyShadowReplay } from './strategy/shadowEvaluator';
+export {
+  HistoricalReplayValidator,
+  loadHistoricalReplays,
+  type HistoricalReplay,
+  type ValidationResult
+} from './strategy/historicalReplayValidator';
+export { RlRolloutGate, validateRlStrategyRollout } from './strategy/rlRolloutGate';
 
 const kernel = new Kernel();
 
