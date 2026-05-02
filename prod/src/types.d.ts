@@ -69,6 +69,12 @@ declare global {
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
   type TerritoryAutomationSource = 'occupationRecommendation' | 'autonomousExpansionClaim';
   type TerritoryIntentSuspensionReason = 'hostile_presence';
+  type TerritoryPostClaimBootstrapStatus =
+    | 'detected'
+    | 'spawnSitePending'
+    | 'spawnSiteBlocked'
+    | 'spawningWorkers'
+    | 'ready';
   type TerritoryExecutionHintReason =
     | 'controlEvidenceStillMissing'
     | 'followUpTargetStillUnseen'
@@ -79,6 +85,7 @@ declare global {
     intents?: TerritoryIntentMemory[];
     demands?: TerritoryFollowUpDemandMemory[];
     executionHints?: TerritoryExecutionHintMemory[];
+    postClaimBootstraps?: Record<string, TerritoryPostClaimBootstrapMemory>;
     reservations?: Record<string, TerritoryReservationMemory>;
     routeDistances?: Record<string, number | null>;
   }
@@ -145,6 +152,24 @@ declare global {
     updatedAt: number;
     controllerId?: Id<StructureController>;
     followUp: TerritoryFollowUpMemory;
+  }
+
+  interface TerritoryPostClaimBootstrapSpawnSiteMemory {
+    roomName: string;
+    x: number;
+    y: number;
+  }
+
+  interface TerritoryPostClaimBootstrapMemory {
+    colony: string;
+    roomName: string;
+    status: TerritoryPostClaimBootstrapStatus;
+    claimedAt: number;
+    updatedAt: number;
+    workerTarget: number;
+    controllerId?: Id<StructureController>;
+    spawnSite?: TerritoryPostClaimBootstrapSpawnSiteMemory;
+    lastResult?: ScreepsReturnCode;
   }
 
   interface CreepTerritoryMemory {

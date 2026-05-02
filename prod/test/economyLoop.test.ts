@@ -860,6 +860,191 @@ describe('runEconomy', () => {
     });
   });
 
+  it('plans an initial spawn construction site for a post-claim room without a spawn', () => {
+    (globalThis as unknown as {
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_SOURCES: number;
+      LOOK_STRUCTURES: LOOK_STRUCTURES;
+      LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
+      STRUCTURE_SPAWN: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      Memory: Partial<Memory>;
+    }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+    (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES = 'constructionSite';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'detected',
+            claimedAt: 400,
+            updatedAt: 400,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+    const constructionSites: ConstructionSite[] = [];
+    const room = {
+      name: 'W2N1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: {
+        id: 'controller2',
+        my: true,
+        level: 1,
+        pos: { x: 25, y: 25, roomName: 'W2N1' }
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'source1', pos: { x: 21, y: 21, roomName: 'W2N1' } } as Source];
+        }
+
+        if (type === FIND_MY_CONSTRUCTION_SITES) {
+          return constructionSites;
+        }
+
+        return [];
+      }),
+      lookForAtArea: jest.fn().mockReturnValue([]),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'W2N1' }
+        } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 401,
+      rooms: { W2N1: room },
+      spawns: {},
+      creeps: {},
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
+    expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
+      status: 'spawnSitePending',
+      updatedAt: 401,
+      spawnSite: { roomName: 'W2N1', x: 23, y: 23 },
+      lastResult: OK_CODE
+    });
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const [message] = logSpy.mock.calls[0];
+    expect(JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length))).toMatchObject({
+      events: [
+        {
+          type: 'postClaimBootstrap',
+          roomName: 'W2N1',
+          colony: 'W1N1',
+          phase: 'spawnSite',
+          result: OK_CODE,
+          spawnSite: { roomName: 'W2N1', x: 23, y: 23 },
+          workerCount: 0,
+          workerTarget: 2,
+          spawnCount: 0
+        }
+      ],
+      rooms: [
+        {
+          roomName: 'W2N1',
+          postClaimBootstrap: {
+            colony: 'W1N1',
+            status: 'spawnSitePending',
+            spawnSite: { roomName: 'W2N1', x: 23, y: 23 },
+            lastResult: OK_CODE
+          }
+        }
+      ]
+    });
+  });
+
+  it('spawns initial local workers for a post-claim room that already has a spawn', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'detected',
+            claimedAt: 410,
+            updatedAt: 410,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+    const room = {
+      name: 'W2N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { id: 'controller2', my: true, level: 1 } as StructureController,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: 'source1' } as Source] : []))
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn2',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 411,
+      rooms: { W2N1: room },
+      spawns: { Spawn2: spawn },
+      creeps: {}
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W2N1-411', {
+      memory: { role: 'worker', colony: 'W2N1' }
+    });
+    expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
+      status: 'spawningWorkers',
+      updatedAt: 411
+    });
+    const [message] = logSpy.mock.calls[0];
+    expect(JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length))).toMatchObject({
+      events: [
+        {
+          type: 'spawn',
+          roomName: 'W2N1',
+          spawnName: 'Spawn2',
+          creepName: 'worker-W2N1-411',
+          role: 'worker',
+          result: OK_CODE
+        },
+        {
+          type: 'postClaimBootstrap',
+          roomName: 'W2N1',
+          colony: 'W1N1',
+          phase: 'workerSpawn',
+          spawnName: 'Spawn2',
+          creepName: 'worker-W2N1-411',
+          result: OK_CODE,
+          workerTarget: 2
+        }
+      ]
+    });
+  });
+
   it('keeps unsafe occupation recommendations on worker recovery before territory spawn pressure', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};

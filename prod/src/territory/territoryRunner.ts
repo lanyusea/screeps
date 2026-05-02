@@ -13,6 +13,7 @@ import {
   isExpansionClaimControllerOnCooldown,
   recordExpansionClaimSkipTelemetry
 } from './claimExecutor';
+import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
@@ -128,6 +129,10 @@ export function runTerritoryControllerCreep(
       ? executeExpansionClaim(creep, controller, telemetryEvents)
       : executeControllerAction(creep, controller, 'reserveController');
 
+  if (assignment.action === 'claim' && result === OK_CODE) {
+    recordPostClaimBootstrapIfOwned(creep, assignment, controller, telemetryEvents);
+  }
+
   if (result === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
     creep.moveTo(controller);
     return;
@@ -193,6 +198,40 @@ function suppressTerritoryAssignment(creep: Creep, assignment: CreepTerritoryMem
 
 function completeTerritoryAssignment(creep: Creep): void {
   delete creep.memory.territory;
+}
+
+function recordPostClaimBootstrapIfOwned(
+  creep: Creep,
+  assignment: CreepTerritoryMemory,
+  controller: StructureController,
+  telemetryEvents: RuntimeTelemetryEvent[]
+): void {
+  const room = getVisibleClaimedRoom(assignment.targetRoom, controller);
+  if (!room?.controller?.my) {
+    return;
+  }
+
+  recordPostClaimBootstrapClaimSuccess(
+    {
+      colony: creep.memory.colony ?? room.name,
+      roomName: room.name,
+      controllerId: controller.id
+    },
+    telemetryEvents
+  );
+}
+
+function getVisibleClaimedRoom(
+  targetRoom: string,
+  controller: StructureController
+): Room | null {
+  const controllerRoom = controller.room;
+  if (controllerRoom?.controller?.my === true) {
+    return controllerRoom;
+  }
+
+  const gameRoom = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
+  return gameRoom?.controller?.my === true ? gameRoom : null;
 }
 
 function selectTargetController(creep: Creep, assignment: CreepTerritoryMemory): StructureController | null {
