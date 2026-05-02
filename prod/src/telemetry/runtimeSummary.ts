@@ -75,6 +75,7 @@ export type RuntimeTerritoryClaimTelemetryReason =
   | 'controllerOwned'
   | 'controllerReserved'
   | 'controllerCooldown'
+  | 'gclInsufficient'
   | 'suppressed'
   | 'notInRange'
   | 'invalidTarget'

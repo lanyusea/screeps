@@ -3311,8 +3311,10 @@ function signOccupiedControllerIfNeeded(creep, controller) {
 var TERRITORY_CLAIMER_ROLE = "claimer";
 var TERRITORY_SCOUT_ROLE = "scout";
 var TERRITORY_DOWNGRADE_GUARD_TICKS = 5e3;
-var TERRITORY_RESERVATION_RENEWAL_TICKS = 1e3;
-var TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
+var GLOBAL_TERRITORY_RESERVATION_TICKS = globalThis.CONTROLLER_RESERVE_MAX;
+var TERRITORY_RESERVATION_TICKS = typeof GLOBAL_TERRITORY_RESERVATION_TICKS === "number" && GLOBAL_TERRITORY_RESERVATION_TICKS > 0 && Number.isFinite(GLOBAL_TERRITORY_RESERVATION_TICKS) ? Math.floor(GLOBAL_TERRITORY_RESERVATION_TICKS) : 5e3;
+var TERRITORY_RESERVATION_RENEWAL_TICKS = TERRITORY_RESERVATION_TICKS / 5;
+var TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = Math.min(500, TERRITORY_RESERVATION_RENEWAL_TICKS);
 var TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 2;
 var TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS = 50;
 var TERRITORY_SUPPRESSION_RETRY_TICKS2 = 1500;
@@ -3757,6 +3759,50 @@ function recordTerritoryReserveFallbackIntent(colony, assignment, gameTime) {
   recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
   recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
   return reserveAssignment;
+}
+function recordAutonomousExpansionClaimReserveFallbackIntent(colony, evaluation, gameTime) {
+  if (evaluation.status !== "skipped" || evaluation.reason !== "gclInsufficient" && evaluation.reason !== "controllerCooldown" || !isNonEmptyString5(colony)) {
+    return null;
+  }
+  const targetRoom = evaluation.targetRoom;
+  if (!isNonEmptyString5(targetRoom)) {
+    return null;
+  }
+  const territoryMemory = getWritableTerritoryMemoryRecord2();
+  if (!territoryMemory) {
+    return null;
+  }
+  const colonyOwnerUsername = getVisibleColonyOwnerUsername2(colony);
+  if (!isNonEmptyString5(colonyOwnerUsername)) {
+    return null;
+  }
+  const controller = getVisibleController2(targetRoom, evaluation.controllerId);
+  if (!controller || isControllerOwned(controller) || isForeignReservedController(controller, colonyOwnerUsername)) {
+    return null;
+  }
+  if (isOwnReservedController(controller, colonyOwnerUsername)) {
+    const reservationTicksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+    if (reservationTicksToEnd === null || reservationTicksToEnd >= TERRITORY_RESERVATION_TICKS) {
+      return null;
+    }
+  }
+  updateTerritoryReservationMemory(
+    territoryMemory,
+    colony,
+    targetRoom,
+    evaluation.controllerId,
+    gameTime,
+    getOwnReservationTicksToEnd(controller, colonyOwnerUsername)
+  );
+  return recordTerritoryReserveFallbackIntent(
+    colony,
+    {
+      targetRoom,
+      action: "reserve",
+      ...evaluation.controllerId ? { controllerId: evaluation.controllerId } : {}
+    },
+    gameTime
+  );
 }
 function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
@@ -6019,6 +6065,28 @@ function isForeignReservedController(controller, actorUsername) {
   }
   const reservation = controller.reservation;
   return isNonEmptyString5(reservation == null ? void 0 : reservation.username) && reservation.username !== actorUsername;
+}
+function isOwnReservedController(controller, actorUsername) {
+  const reservation = controller.reservation;
+  return isNonEmptyString5(actorUsername) && isNonEmptyString5(reservation == null ? void 0 : reservation.username) && reservation.username === actorUsername;
+}
+function updateTerritoryReservationMemory(territoryMemory, colony, roomName, controllerId, gameTime, reservationTicksToEnd) {
+  if (reservationTicksToEnd === null) {
+    return;
+  }
+  const reservations = normalizeTerritoryReservations(territoryMemory.reservations);
+  const reservationKey = getTerritoryReservationMemoryKey(colony, roomName);
+  const nextReservation = {
+    colony,
+    roomName,
+    ticksToEnd: reservationTicksToEnd,
+    updatedAt: gameTime,
+    ...controllerId ? { controllerId } : {}
+  };
+  if (!isSameTerritoryReservation(reservations[reservationKey], nextReservation)) {
+    reservations[reservationKey] = nextReservation;
+    setTerritoryReservations(territoryMemory, reservations);
+  }
 }
 function getConfiguredReserveRenewalTicksToEnd(target, colonyOwnerUsername) {
   if (target.action !== "reserve" || colonyOwnerUsername === null) {
@@ -8772,11 +8840,7 @@ function selectWorkerEnergyAcquisitionTask(creep) {
   }
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
-function selectWorkerEnergyFallbackTask(creep) {
-  const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
-  if (energyAcquisitionTask) {
-    return energyAcquisitionTask;
-  }
+function selectWorkerPreHarvestTask(creep) {
   const source = selectHarvestSource(creep);
   return source ? { type: "harvest", targetId: source.id } : null;
 }
@@ -10332,8 +10396,8 @@ function getGameTime7() {
 
 // src/creeps/workerRunner.ts
 var MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
-var WORKER_NULL_LOOP_TICK_WINDOW = 5;
-var WORKER_NULL_LOOP_TRIGGER_COUNT = 3;
+var WORKER_NULL_LOOP_TICK_WINDOW = 10;
+var WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 var OK_CODE3 = 0;
 var MIN_HAULER_DROPPED_ENERGY = 25;
@@ -10388,23 +10452,25 @@ function fallbackToEnergyOnNullSelectionLoop(creep, selectedTask) {
     return null;
   }
   const guardState = getWorkerTaskSelectionNullLoopState(creep, gameTime);
-  if (guardState.nullSelectionCount < WORKER_NULL_LOOP_TRIGGER_COUNT || guardState.fallbackAttempts >= WORKER_NULL_LOOP_FALLBACK_ATTEMPTS) {
+  const idleTicks = gameTime - guardState.idleStartTick + 1;
+  if (idleTicks <= WORKER_STANDBY_IDLE_TIMEOUT_TICKS || guardState.fallbackAttempts >= WORKER_NULL_LOOP_FALLBACK_ATTEMPTS) {
     return null;
   }
   guardState.fallbackAttempts += 1;
-  return selectWorkerEnergyFallbackTask(creep);
+  return selectWorkerPreHarvestTask(creep);
 }
 function getWorkerTaskSelectionNullLoopState(creep, gameTime) {
   const existing = creep.memory.workerTaskSelectionNullLoop;
   const isValidExistingState = Boolean(
-    existing && typeof existing.lastNullSelectionTick === "number" && Number.isFinite(existing.lastNullSelectionTick) && typeof existing.nullSelectionCount === "number" && Number.isFinite(existing.nullSelectionCount) && typeof existing.fallbackAttempts === "number" && Number.isFinite(existing.fallbackAttempts)
+    existing && typeof existing.lastNullSelectionTick === "number" && Number.isFinite(existing.lastNullSelectionTick) && typeof existing.nullSelectionCount === "number" && Number.isFinite(existing.nullSelectionCount) && typeof existing.fallbackAttempts === "number" && Number.isFinite(existing.fallbackAttempts) && typeof existing.idleStartTick === "number" && Number.isFinite(existing.idleStartTick)
   );
   const isInWindow = isValidExistingState && gameTime - existing.lastNullSelectionTick <= WORKER_NULL_LOOP_TICK_WINDOW;
   if (!isInWindow) {
     const state2 = {
       lastNullSelectionTick: gameTime,
       nullSelectionCount: 1,
-      fallbackAttempts: 0
+      fallbackAttempts: 0,
+      idleStartTick: gameTime
     };
     creep.memory.workerTaskSelectionNullLoop = state2;
     return state2;
@@ -14928,6 +14994,29 @@ function shouldDeferOccupationRecommendationForExpansionClaim(evaluation) {
 function shouldPruneAutonomousExpansionClaimTargets(reason) {
   return reason === "noAdjacentCandidate" || reason === "hostilePresence" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved";
 }
+function getVisibleOwnedRoomCount() {
+  var _a;
+  const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
+  if (!rooms) {
+    return 0;
+  }
+  return Object.values(rooms).filter((room) => {
+    var _a2;
+    return ((_a2 = room == null ? void 0 : room.controller) == null ? void 0 : _a2.my) === true;
+  }).length;
+}
+function isAutonomousExpansionClaimGclInsufficient() {
+  var _a;
+  const gcl = (_a = globalThis.Game) == null ? void 0 : _a.gcl;
+  if (!gcl || typeof gcl.level !== "number" || gcl.level <= 0) {
+    return false;
+  }
+  const maxClaimableRooms = gcl.level * gcl.level;
+  if (!Number.isFinite(maxClaimableRooms)) {
+    return false;
+  }
+  return getVisibleOwnedRoomCount() >= maxClaimableRooms;
+}
 function executeExpansionClaim(creep, controller, telemetryEvents = []) {
   var _a, _b, _c, _d, _e, _f, _g, _h;
   const result = typeof creep.claimController === "function" ? creep.claimController(controller) : OK_CODE5;
@@ -14994,6 +15083,9 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime) {
   }
   if (isControllerReserved(controller, getControllerOwnerUsername6(colony.room.controller))) {
     return { ...controllerEvaluation, reason: "controllerReserved" };
+  }
+  if (isAutonomousExpansionClaimGclInsufficient()) {
+    return { ...controllerEvaluation, reason: "gclInsufficient" };
   }
   if (isExpansionClaimControllerOnCooldown(controller)) {
     return { ...controllerEvaluation, reason: "controllerCooldown" };
@@ -15553,6 +15645,7 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
       return;
     }
     const claimEvaluation = refreshAutonomousExpansionClaimIntent(colony, report, Game.time, telemetryEvents);
+    recordAutonomousExpansionClaimReserveFallbackIntent(colony.room.name, claimEvaluation, Game.time);
     if (shouldDeferOccupationRecommendationForExpansionClaim(claimEvaluation)) {
       return;
     }

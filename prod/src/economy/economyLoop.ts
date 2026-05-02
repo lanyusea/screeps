@@ -34,7 +34,8 @@ import { runClaimer } from '../creeps/claimerRunner';
 import {
   hasPendingTerritoryFollowUpIntent,
   TERRITORY_CLAIMER_ROLE,
-  TERRITORY_SCOUT_ROLE
+  TERRITORY_SCOUT_ROLE,
+  recordAutonomousExpansionClaimReserveFallbackIntent
 } from '../territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../territory/territoryRunner';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
@@ -171,6 +172,7 @@ function refreshExecutableTerritoryRecommendation(
     }
 
     const claimEvaluation = refreshAutonomousExpansionClaimIntent(colony, report, Game.time, telemetryEvents);
+    recordAutonomousExpansionClaimReserveFallbackIntent(colony.room.name, claimEvaluation, Game.time);
     if (shouldDeferOccupationRecommendationForExpansionClaim(claimEvaluation)) {
       return;
     }

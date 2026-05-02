@@ -5,6 +5,7 @@ import {
   TERRITORY_CONTROLLER_PRESSURE_BODY_COST,
   TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
 } from '../spawn/bodyBuilder';
+import type { AutonomousExpansionClaimEvaluation } from './claimExecutor';
 import {
   scoreOccupationRecommendations,
   type OccupationControllerEvidence,
@@ -24,8 +25,15 @@ import {
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
 export const TERRITORY_DOWNGRADE_GUARD_TICKS = 5_000;
-export const TERRITORY_RESERVATION_RENEWAL_TICKS = 1_000;
-export const TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS / 4;
+const GLOBAL_TERRITORY_RESERVATION_TICKS = (globalThis as { CONTROLLER_RESERVE_MAX?: number }).CONTROLLER_RESERVE_MAX;
+export const TERRITORY_RESERVATION_TICKS =
+  typeof GLOBAL_TERRITORY_RESERVATION_TICKS === 'number' &&
+  GLOBAL_TERRITORY_RESERVATION_TICKS > 0 &&
+  Number.isFinite(GLOBAL_TERRITORY_RESERVATION_TICKS)
+    ? Math.floor(GLOBAL_TERRITORY_RESERVATION_TICKS)
+    : 5_000;
+export const TERRITORY_RESERVATION_RENEWAL_TICKS = TERRITORY_RESERVATION_TICKS / 5;
+export const TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS = Math.min(500, TERRITORY_RESERVATION_RENEWAL_TICKS);
 export const TERRITORY_RESERVATION_COMFORT_TICKS = TERRITORY_RESERVATION_RENEWAL_TICKS * 2;
 export const TERRITORY_RESERVATION_PRE_RENEW_SCOUT_ROUTE_TICKS = 50;
 export const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
@@ -751,6 +759,65 @@ export function recordTerritoryReserveFallbackIntent(
   recordTerritoryFollowUpDemand(territoryMemory, plan, gameTime);
   recordTerritoryFollowUpExecutionHint(territoryMemory, plan, gameTime);
   return reserveAssignment;
+}
+
+export function recordAutonomousExpansionClaimReserveFallbackIntent(
+  colony: string | undefined,
+  evaluation: AutonomousExpansionClaimEvaluation,
+  gameTime: number
+): CreepTerritoryMemory | null {
+  if (
+    evaluation.status !== 'skipped' ||
+    (evaluation.reason !== 'gclInsufficient' && evaluation.reason !== 'controllerCooldown') ||
+    !isNonEmptyString(colony)
+  ) {
+    return null;
+  }
+
+  const targetRoom = evaluation.targetRoom;
+  if (!isNonEmptyString(targetRoom)) {
+    return null;
+  }
+
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return null;
+  }
+
+  const colonyOwnerUsername = getVisibleColonyOwnerUsername(colony);
+  if (!isNonEmptyString(colonyOwnerUsername)) {
+    return null;
+  }
+
+  const controller = getVisibleController(targetRoom, evaluation.controllerId);
+  if (!controller || isControllerOwned(controller) || isForeignReservedController(controller, colonyOwnerUsername)) {
+    return null;
+  }
+
+  if (isOwnReservedController(controller, colonyOwnerUsername)) {
+    const reservationTicksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
+    if (reservationTicksToEnd === null || reservationTicksToEnd >= TERRITORY_RESERVATION_TICKS) {
+      return null;
+    }
+  }
+
+  updateTerritoryReservationMemory(
+    territoryMemory,
+    colony,
+    targetRoom,
+    evaluation.controllerId,
+    gameTime,
+    getOwnReservationTicksToEnd(controller, colonyOwnerUsername)
+  );
+  return recordTerritoryReserveFallbackIntent(
+    colony,
+    {
+      targetRoom,
+      action: 'reserve',
+      ...(evaluation.controllerId ? { controllerId: evaluation.controllerId } : {})
+    },
+    gameTime
+  );
 }
 
 export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
@@ -4365,6 +4432,41 @@ function isForeignReservedController(
 
   const reservation = controller.reservation;
   return isNonEmptyString(reservation?.username) && reservation.username !== actorUsername;
+}
+
+function isOwnReservedController(
+  controller: StructureController,
+  actorUsername: string | null
+): boolean {
+  const reservation = controller.reservation;
+  return isNonEmptyString(actorUsername) && isNonEmptyString(reservation?.username) && reservation.username === actorUsername;
+}
+
+function updateTerritoryReservationMemory(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  roomName: string,
+  controllerId: Id<StructureController> | undefined,
+  gameTime: number,
+  reservationTicksToEnd: number | null
+): void {
+  if (reservationTicksToEnd === null) {
+    return;
+  }
+
+  const reservations = normalizeTerritoryReservations(territoryMemory.reservations);
+  const reservationKey = getTerritoryReservationMemoryKey(colony, roomName);
+  const nextReservation: TerritoryReservationMemory = {
+    colony,
+    roomName,
+    ticksToEnd: reservationTicksToEnd,
+    updatedAt: gameTime,
+    ...(controllerId ? { controllerId } : {})
+  };
+  if (!isSameTerritoryReservation(reservations[reservationKey], nextReservation)) {
+    reservations[reservationKey] = nextReservation;
+    setTerritoryReservations(territoryMemory, reservations);
+  }
 }
 
 function getConfiguredReserveRenewalTicksToEnd(
