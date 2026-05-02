@@ -154,6 +154,7 @@ Target issue: #414.
 Deliverables:
 
 - documented adapter design from Overmind-RL audit to current repo;
+- dry-run manifest generator and contract: `scripts/screeps_rl_simulator_harness.py` and `docs/ops/rl-simulator-harness.md`;
 - local/private Screeps server scenario definition;
 - reset/seed contract;
 - tick-throughput measurement;
@@ -175,10 +176,13 @@ Deliverables:
 - define initial reward as lexicographic components, not an unsafe scalar shortcut;
 - specify OOD/conservative rejection;
 - produce one offline high-level recommendation baseline.
+- durable workflow: `docs/ops/rl-training-reward-workflow.md`;
+- executable offline experiment-card helper: `scripts/screeps_rl_experiment_card.py`.
 
 Verification:
 
 - experiment card links dataset run ID and code commit;
+- generated/validated cards preserve `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`;
 - candidate cannot advance without #417 historical validation.
 
 ## Reporting format

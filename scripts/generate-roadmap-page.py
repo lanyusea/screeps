@@ -119,6 +119,30 @@ class OfficialDeployEvidenceSummary:
     latest: OfficialDeployEvidenceRecord | None = None
 
 
+@dataclass(frozen=True)
+class CodexSessionMetrics:
+    session_count: int
+    token_session_count: int
+    timed_session_count: int
+    total_tokens: int | None
+    elapsed_seconds: int | None
+    longest_elapsed_seconds: int | None
+    unreadable_count: int
+
+
+@dataclass(frozen=True)
+class AutomationRunMetrics:
+    run_count: int
+    job_count: int
+    available: bool
+
+
+@dataclass(frozen=True)
+class RepoAttribution:
+    path_roots: tuple[Path, ...]
+    text_terms: tuple[str, ...]
+
+
 METRIC_SPECS: tuple[MetricSpec, ...] = (
     MetricSpec(
         "owned_rooms",
@@ -487,6 +511,10 @@ PROJECT_DOMAIN_ORDER: tuple[str, ...] = (
     "Docs/process",
 )
 
+REPORT_ROADMAP_DOMAIN_ORDER: tuple[str, ...] = tuple(
+    domain for domain in PROJECT_DOMAIN_ORDER if domain != "Docs/process"
+)
+
 PROJECT_DOMAIN_FIELD_KEYS: tuple[str, ...] = (
     "Project Domain",
     "projectDomain",
@@ -516,6 +544,9 @@ OFFICIAL_DEPLOY_EVIDENCE_PATTERNS: tuple[str, ...] = (
     "official-screeps-deploy.json",
     "official-screeps-deploy-*.json",
 )
+CODEX_SESSION_ROOT = Path("/root/.codex/sessions")
+CODEX_SESSION_PATTERN = "rollout-*.jsonl"
+HERMES_CRON_OUTPUT_ROOT = Path("/root/.hermes/cron/output")
 
 KPI_DATES: tuple[str, ...] = ("4/21", "4/22", "4/23", "4/24", "4/25", "4/26", "4/27")
 
@@ -574,8 +605,6 @@ REPORT_KPI_SERIES_METRICS: dict[str, tuple[str, ...]] = {
     "resources": ("stored_energy", "harvested_energy", "worker_carried_energy"),
     "combat": ("enemy_kills", "hostile_creeps", "own_losses"),
 }
-
-APPROVED_PRIVATE_SMOKE_PROCESS_COUNT = 1
 
 REPORT_ISSUE_DISPLAY_OVERRIDES: dict[int, JsonObject] = {
     26: {
@@ -2105,11 +2134,11 @@ def build_report_roadmap_cards(github_snapshot: JsonObject, repo: JsonObject) ->
             [item for item in items if project_domain(item) == domain],
             key=domain_item_sort_key,
         )
-        for domain in PROJECT_DOMAIN_ORDER
+        for domain in REPORT_ROADMAP_DOMAIN_ORDER
     }
     return [
         build_report_domain_card(domain, items_by_domain[domain], repo, github_snapshot)
-        for domain in PROJECT_DOMAIN_ORDER
+        for domain in REPORT_ROADMAP_DOMAIN_ORDER
     ]
 
 
@@ -2431,28 +2460,68 @@ def build_report_process_cards(
     github_snapshot: JsonObject,
     cached_page_data: JsonObject,
 ) -> list[JsonObject]:
-    commit_count = parse_count(run_text(["git", "rev-list", "--count", "HEAD"], repo_root))
-    prs, pr_error = fetch_all_prs(repo_root, str(repo["fullName"]))
-    issues, issue_error = fetch_all_issues(repo_root, str(repo["fullName"]))
     cached_process_cards = cached_report_process_cards(cached_page_data)
-    cached_pr_card = cached_process_card(cached_process_cards, "Total PRs", "\u603b PR \u6570")
-    cached_issue_card = cached_process_card(cached_process_cards, "Total issues", "\u603b issue \u6570")
-    total_prs: int | str = len(prs) if pr_error is None else INSUFFICIENT_EVIDENCE
-    merged_prs: int | str = (
-        sum(1 for item in prs if str(item.get("state") or "").upper() == "MERGED")
-        if pr_error is None
-        else INSUFFICIENT_EVIDENCE
-    )
-    if pr_error is not None and cached_pr_card:
-        total_prs = cached_pr_card.get("value", INSUFFICIENT_EVIDENCE)
-    total_issues: int | str = len(issues) if issue_error is None else INSUFFICIENT_EVIDENCE
-    open_issues: int | str = (
-        sum(1 for item in issues if str(item.get("state") or "").upper() == "OPEN")
-        if issue_error is None
-        else INSUFFICIENT_EVIDENCE
-    )
-    if issue_error is not None and cached_issue_card:
-        total_issues = cached_issue_card.get("value", INSUFFICIENT_EVIDENCE)
+    commit_count = git_commit_count(repo_root)
+    if commit_count is None:
+        commit_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Commits",
+            "git rev-list --count HEAD unavailable",
+            "unavailable",
+            "Total commits",
+        )
+    else:
+        commit_card = {
+            "value": commit_count,
+            "rawValue": commit_count,
+            "label": "Commits",
+            "detail": "git rev-list --count HEAD",
+            "delta": "+0",
+            "source": "git rev-list --count HEAD",
+        }
+
+    prs, pr_error = fetch_all_prs(repo_root, str(repo["fullName"]))
+    cached_pr_card = cached_process_card(cached_process_cards, "PRs", "Total PRs")
+    if pr_error is None:
+        merged_prs = sum(1 for item in prs if str(item.get("state") or "").upper() == "MERGED")
+        pr_card = {
+            "value": len(prs),
+            "rawValue": len(prs),
+            "label": "PRs",
+            "detail": f"{merged_prs} merged",
+            "delta": "+0",
+            "source": "github",
+        }
+    else:
+        pr_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "PRs",
+            process_detail(pr_error, "gh pr list", "unavailable", cached_pr_card),
+            "unavailable",
+            "Total PRs",
+        )
+
+    issues, issue_error = fetch_all_issues(repo_root, str(repo["fullName"]))
+    cached_issue_card = cached_process_card(cached_process_cards, "Issues", "Total issues")
+    if issue_error is None:
+        open_issues = sum(1 for item in issues if str(item.get("state") or "").upper() == "OPEN")
+        issue_card = {
+            "value": len(issues),
+            "rawValue": len(issues),
+            "label": "Issues",
+            "detail": f"{open_issues} open",
+            "delta": "+0",
+            "source": "github",
+        }
+    else:
+        issue_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Issues",
+            process_detail(issue_error, "gh issue list", "unavailable", cached_issue_card),
+            "unavailable",
+            "Total issues",
+        )
+
     official_deploy_summary = summarize_official_deploy_evidence(repo_root)
     official_deploy_project_count = count_official_deploy_evidence(repo_root, github_snapshot)
     official_deploy_count = max(official_deploy_summary.count, official_deploy_project_count)
@@ -2466,49 +2535,455 @@ def build_report_process_cards(
     else:
         official_deploy_detail = "evidence unavailable"
         official_deploy_source = "unavailable"
+
+    deploy_card = {
+        "value": official_deploy_value,
+        "label": "Deploys",
+        "detail": official_deploy_detail,
+        "delta": "+0",
+        "source": official_deploy_source,
+    }
     private_smoke_count = count_private_smoke_process_reports(repo_root)
+    private_smoke_card = {
+        "value": private_smoke_count if private_smoke_count > 0 else INSUFFICIENT_EVIDENCE,
+        "label": "Private smoke",
+        "detail": "smoke/report evidence" if private_smoke_count > 0 else "no accepted private smoke report",
+        "delta": "+0",
+        "source": "approved process report count" if private_smoke_count > 0 else "unavailable",
+    }
 
     return [
-        {"value": commit_count, "label": "Total commits", "detail": "repository history", "delta": "+1"},
-        {
-            "value": total_prs,
-            "label": "Total PRs",
-            "detail": process_detail(
-                pr_error,
-                "gh pr list",
-                f"{merged_prs} merged",
-                cached_pr_card,
-            ),
-            "delta": "+1" if pr_error is None else cached_pr_card.get("delta", "cached") if cached_pr_card else "n/a",
-            "source": "github" if pr_error is None else "cached" if cached_pr_card else "unavailable",
-        },
-        {
-            "value": total_issues,
-            "label": "Total issues",
-            "detail": process_detail(
-                issue_error,
-                "gh issue list",
-                f"{open_issues} open",
-                cached_issue_card,
-            ),
-            "delta": "+0" if issue_error is None else cached_issue_card.get("delta", "cached") if cached_issue_card else "n/a",
-            "source": "github" if issue_error is None else "cached" if cached_issue_card else "unavailable",
-        },
-        {
-            "value": official_deploy_value,
-            "label": "Official deploys",
-            "detail": official_deploy_detail,
-            "delta": "+0",
-            "source": official_deploy_source,
-        },
-        {
-            "value": private_smoke_count,
-            "label": "Private smoke tests",
-            "detail": "smoke/report evidence",
-            "delta": "+0",
-            "source": "approved process report count",
-        },
+        commit_card,
+        issue_card,
+        pr_card,
+        deploy_card,
+        private_smoke_card,
+        *build_agent_process_cards(repo_root, repo, cached_process_cards),
     ]
+
+
+def build_agent_process_cards(
+    repo_root: Path,
+    repo: JsonObject,
+    cached_process_cards: Sequence[JsonObject],
+) -> list[JsonObject]:
+    attribution = build_repo_attribution(repo_root, repo)
+    codex_metrics = summarize_codex_sessions(CODEX_SESSION_ROOT, attribution)
+    automation_metrics = summarize_automation_runs(HERMES_CRON_OUTPUT_ROOT, attribution)
+
+    if codex_metrics.session_count == 0:
+        token_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Agent tokens",
+            "no repo-attributed local Codex rollout JSONL files found",
+            "unavailable",
+        )
+        runtime_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Codex runtime",
+            "no repo-attributed local Codex rollout JSONL files found",
+            "unavailable",
+        )
+        runs_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Codex runs",
+            "no repo-attributed local Codex rollout JSONL files found",
+            "unavailable",
+        )
+        longest_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Longest Codex run",
+            "no repo-attributed local Codex rollout JSONL files found",
+            "unavailable",
+        )
+    else:
+        token_value: str = "unavailable"
+        token_detail = f"0/{codex_metrics.session_count:,} sessions exposed token_count totals"
+        if codex_metrics.total_tokens is not None:
+            token_value = format_compact_count(codex_metrics.total_tokens)
+            token_detail = (
+                f"{format_integer(codex_metrics.total_tokens)} total; "
+                f"latest token_count in {codex_metrics.token_session_count:,}/{codex_metrics.session_count:,} sessions"
+            )
+        if codex_metrics.unreadable_count:
+            token_detail = f"{token_detail}; {codex_metrics.unreadable_count:,} unreadable"
+
+        runtime_value: str = "unavailable"
+        runtime_detail = f"0/{codex_metrics.session_count:,} sessions exposed timestamps"
+        if codex_metrics.elapsed_seconds is not None:
+            runtime_value = format_duration(codex_metrics.elapsed_seconds)
+            runtime_detail = (
+                "summed first-to-last JSONL timestamps across "
+                f"{codex_metrics.timed_session_count:,}/{codex_metrics.session_count:,} sessions"
+            )
+
+        if codex_metrics.longest_elapsed_seconds is None:
+            longest_card = cached_or_unavailable_process_card(
+                cached_process_cards,
+                "Longest Codex run",
+                f"0/{codex_metrics.session_count:,} sessions exposed timestamps",
+                "unavailable",
+            )
+        else:
+            longest_card = {
+                "value": format_duration(codex_metrics.longest_elapsed_seconds),
+                "rawValueSeconds": codex_metrics.longest_elapsed_seconds,
+                "label": "Longest Codex run",
+                "detail": (
+                    "maximum first-to-last JSONL timestamp span across "
+                    f"{codex_metrics.timed_session_count:,}/{codex_metrics.session_count:,} sessions"
+                ),
+                "delta": "+0",
+                "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
+            }
+
+        token_card = {
+            "value": token_value,
+            "rawValue": codex_metrics.total_tokens,
+            "label": "Agent tokens",
+            "detail": token_detail,
+            "delta": "+0",
+            "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
+        }
+        runtime_card = {
+            "value": runtime_value,
+            "rawValueSeconds": codex_metrics.elapsed_seconds,
+            "label": "Codex runtime",
+            "detail": runtime_detail,
+            "delta": "+0",
+            "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl timestamps",
+        }
+        runs_card = {
+            "value": format_compact_count(codex_metrics.session_count),
+            "rawValue": codex_metrics.session_count,
+            "label": "Codex runs",
+            "detail": "rollout JSONL files counted as Codex runs",
+            "delta": "+0",
+            "source": "repo-attributed .codex/sessions/**/rollout-*.jsonl",
+        }
+
+    if automation_metrics.available:
+        automation_card = {
+            "value": format_compact_count(automation_metrics.run_count),
+            "rawValue": automation_metrics.run_count,
+            "label": "Cron runs",
+            "detail": (
+                f"{automation_metrics.run_count:,} cron outputs across "
+                f"{automation_metrics.job_count:,} jobs"
+            ),
+            "delta": "+0",
+            "source": "repo-attributed .hermes/cron/output/*/*.md",
+        }
+    else:
+        automation_card = cached_or_unavailable_process_card(
+            cached_process_cards,
+            "Cron runs",
+            "no repo-attributed local Hermes cron markdown outputs found",
+            "unavailable",
+            "Automation runs",
+        )
+
+    return [token_card, runtime_card, runs_card, automation_card, longest_card]
+
+
+def cached_or_unavailable_process_card(
+    cached_process_cards: Sequence[JsonObject],
+    label: str,
+    detail: str,
+    source: str,
+    *cached_labels: str,
+) -> JsonObject:
+    cached_card = cached_process_card(cached_process_cards, label, *cached_labels)
+    if cached_card:
+        return {
+            **cached_card,
+            "label": label,
+            "detail": process_cached_detail(cached_card, detail),
+            "source": "cached",
+            "delta": cached_card.get("delta", "cached"),
+        }
+    return {
+        "value": "unavailable",
+        "label": label,
+        "detail": detail,
+        "delta": "n/a",
+        "source": source,
+    }
+
+
+def process_cached_detail(cached_card: JsonObject, fallback: str) -> str:
+    cached_detail = str(cached_card.get("detail") or "").strip()
+    if not cached_detail:
+        cached_detail = fallback
+    cached_detail = CACHED_SUFFIX_RE.sub("", cached_detail).strip()
+    return f"{cached_detail} · cached"
+
+
+def summarize_codex_sessions(
+    session_root: Path,
+    attribution: RepoAttribution | None = None,
+) -> CodexSessionMetrics:
+    if not session_root.exists():
+        return CodexSessionMetrics(0, 0, 0, None, None, None, 0)
+
+    attribution = attribution or build_repo_attribution(None, None)
+    session_count = 0
+    token_session_count = 0
+    timed_session_count = 0
+    unreadable_count = 0
+    total_tokens = 0
+    elapsed_seconds = 0
+    longest_elapsed_seconds = 0
+    for path in sorted(session_root.glob(f"**/{CODEX_SESSION_PATTERN}")):
+        if not path.is_file():
+            continue
+        if not codex_session_is_repo_attributed(path, attribution):
+            continue
+        session_count += 1
+        session = summarize_codex_session_file(path)
+        if session is None:
+            unreadable_count += 1
+            continue
+        latest_tokens, elapsed = session
+        if latest_tokens is not None:
+            token_session_count += 1
+            total_tokens += latest_tokens
+        if elapsed is not None:
+            timed_session_count += 1
+            elapsed_seconds += elapsed
+            longest_elapsed_seconds = max(longest_elapsed_seconds, elapsed)
+
+    return CodexSessionMetrics(
+        session_count=session_count,
+        token_session_count=token_session_count,
+        timed_session_count=timed_session_count,
+        total_tokens=total_tokens if token_session_count else None,
+        elapsed_seconds=elapsed_seconds if timed_session_count else None,
+        longest_elapsed_seconds=longest_elapsed_seconds if timed_session_count else None,
+        unreadable_count=unreadable_count,
+    )
+
+
+def summarize_codex_session_file(path: Path) -> tuple[int | None, int | None] | None:
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
+    latest_tokens: int | None = None
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                timestamp = parse_timestamp(str(record.get("timestamp") or ""))
+                if timestamp is not None:
+                    first_seen = timestamp if first_seen is None else min(first_seen, timestamp)
+                    last_seen = timestamp if last_seen is None else max(last_seen, timestamp)
+                token_count = codex_token_count_from_record(record)
+                if token_count is not None:
+                    latest_tokens = token_count
+    except OSError:
+        return None
+
+    elapsed: int | None = None
+    if first_seen is not None and last_seen is not None:
+        elapsed = max(0, int((last_seen - first_seen).total_seconds()))
+    return latest_tokens, elapsed
+
+
+def codex_token_count_from_record(record: Mapping[str, Any]) -> int | None:
+    if record.get("type") != "event_msg":
+        return None
+    payload = record.get("payload")
+    if not isinstance(payload, Mapping) or payload.get("type") != "token_count":
+        return None
+    total = get_path(payload, ("info", "total_token_usage", "total_tokens"))
+    number = as_number(total)
+    if number is None:
+        return None
+    return int(number)
+
+
+def summarize_automation_runs(
+    output_root: Path,
+    attribution: RepoAttribution | None = None,
+) -> AutomationRunMetrics:
+    if not output_root.exists():
+        return AutomationRunMetrics(0, 0, False)
+    attribution = attribution or build_repo_attribution(None, None)
+    paths = []
+    for path in output_root.glob("*/*.md"):
+        if not path.is_file():
+            continue
+        if not text_file_mentions_any(path, attribution.text_terms):
+            continue
+        paths.append(path)
+    job_count = len({path.parent for path in paths})
+    return AutomationRunMetrics(len(paths), job_count, bool(paths))
+
+
+def build_repo_attribution(repo_root: Path | None, repo: Mapping[str, Any] | None) -> RepoAttribution:
+    path_roots: list[Path] = []
+    text_terms: list[str] = []
+    repo_name = ""
+
+    if repo_root is not None:
+        append_attribution_path(path_roots, text_terms, repo_root)
+    if repo is not None:
+        full_name = str(repo.get("fullName") or "").strip().lower()
+        if full_name:
+            text_terms.extend([full_name, f"github.com/{full_name}"])
+            repo_name = full_name.rsplit("/", 1)[-1]
+        url = str(repo.get("url") or "").strip().lower()
+        if url:
+            text_terms.append(url.removesuffix(".git"))
+
+    if repo_name:
+        append_attribution_path(path_roots, text_terms, Path("/root") / repo_name)
+        append_attribution_path(path_roots, text_terms, Path("/root") / f"{repo_name}-worktrees")
+        append_attribution_path(path_roots, text_terms, Path("/root/worktrees") / repo_name)
+
+    return RepoAttribution(
+        path_roots=tuple(dedupe_paths(path_roots)),
+        text_terms=tuple(dedupe_strings(text_terms)),
+    )
+
+
+def append_attribution_path(path_roots: list[Path], text_terms: list[str], path: Path) -> None:
+    resolved = resolve_path_for_attribution(path)
+    path_roots.append(resolved)
+    text_terms.append(str(resolved).lower())
+
+
+def dedupe_paths(paths: Sequence[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    for path in paths:
+        if path not in deduped:
+            deduped.append(path)
+    return deduped
+
+
+def dedupe_strings(terms: Sequence[str]) -> list[str]:
+    deduped: list[str] = []
+    for term in terms:
+        normalized = term.strip().lower()
+        if normalized and normalized not in deduped:
+            deduped.append(normalized)
+    return deduped
+
+
+def codex_session_is_repo_attributed(path: Path, attribution: RepoAttribution) -> bool:
+    if not attribution.path_roots and not attribution.text_terms:
+        return False
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(record, Mapping):
+                    continue
+                if codex_record_is_repo_attributed(record, attribution):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def codex_record_is_repo_attributed(record: Mapping[str, Any], attribution: RepoAttribution) -> bool:
+    payload = record.get("payload")
+    payload_mapping = payload if isinstance(payload, Mapping) else {}
+    for container in (record, payload_mapping):
+        for key in ("cwd", "workdir", "repoRoot", "repo_root"):
+            value = container.get(key)
+            if isinstance(value, str) and path_text_matches_attribution(value, attribution.path_roots):
+                return True
+        git = container.get("git")
+        if isinstance(git, Mapping):
+            for key in ("repository_url", "repositoryUrl", "remote", "url"):
+                value = git.get(key)
+                if isinstance(value, str) and text_matches_attribution(value, attribution.text_terms):
+                    return True
+    return False
+
+
+def path_text_matches_attribution(value: str, roots: Sequence[Path]) -> bool:
+    if not value.strip():
+        return False
+    try:
+        candidate = resolve_path_for_attribution(Path(value).expanduser())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return any(path_is_relative_to(candidate, root) for root in roots)
+
+
+def resolve_path_for_attribution(path: Path) -> Path:
+    try:
+        return path.expanduser().resolve()
+    except OSError:
+        return path.expanduser().absolute()
+
+
+def path_is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def text_matches_attribution(value: str, terms: Sequence[str]) -> bool:
+    text = value.strip().lower().removesuffix(".git")
+    for term in terms:
+        candidate = term.strip().lower().removesuffix(".git")
+        if not candidate:
+            continue
+        pattern = rf"(?<![a-z0-9_.-]){re.escape(candidate)}(?![a-z0-9_.-])"
+        if re.search(pattern, text):
+            return True
+    return False
+
+
+def text_file_mentions_any(path: Path, terms: Sequence[str], *, max_bytes: int = 2_000_000) -> bool:
+    if not terms:
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")[:max_bytes].lower()
+    except OSError:
+        return False
+    return text_matches_attribution(text, terms)
+
+
+def format_compact_count(value: int | float) -> str:
+    number = float(value)
+    abs_value = abs(number)
+    for threshold, suffix in ((1_000_000_000, "B"), (1_000_000, "M")):
+        if abs_value >= threshold:
+            compact = number / threshold
+            decimals = 0 if abs(compact) >= 100 or compact.is_integer() else 1
+            return f"{compact:.{decimals}f}{suffix}"
+    return format_integer(int(number))
+
+
+def format_integer(value: int | float) -> str:
+    return f"{int(value):,}"
+
+
+def format_duration(seconds: int | float) -> str:
+    remaining = max(0, int(seconds))
+    days, remaining = divmod(remaining, 86_400)
+    hours, remaining = divmod(remaining, 3_600)
+    minutes, _ = divmod(remaining, 60)
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m"
+    return f"{remaining}s"
 
 
 def cached_report_process_cards(cached_page_data: JsonObject) -> list[JsonObject]:
@@ -2579,6 +3054,20 @@ def parse_count(value: str) -> int:
         return int(value.strip())
     except ValueError:
         return 0
+
+
+def git_commit_count(repo_root: Path) -> int | None:
+    try:
+        return parse_optional_count(run_text(["git", "rev-list", "--count", "HEAD"], repo_root))
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def parse_optional_count(value: str) -> int | None:
+    try:
+        return int(value.strip())
+    except ValueError:
+        return None
 
 
 def summarize_official_deploy_evidence(repo_root: Path) -> OfficialDeployEvidenceSummary:
@@ -2830,7 +3319,7 @@ def count_official_deploy_evidence(repo_root: Path, github_snapshot: JsonObject)
 def count_private_smoke_process_reports(repo_root: Path) -> int:
     process_dir = repo_root / "docs" / "process"
     if not process_dir.exists():
-        return APPROVED_PRIVATE_SMOKE_PROCESS_COUNT
+        return 0
 
     accepted_reports = 0
     for path in process_dir.glob("*private-smoke*.md"):
@@ -2841,7 +3330,7 @@ def count_private_smoke_process_reports(repo_root: Path) -> int:
         if "private-smoke-report-" in text:
             accepted_reports += 1
 
-    return accepted_reports or APPROVED_PRIVATE_SMOKE_PROCESS_COUNT
+    return accepted_reports
 
 
 def render_html(data: JsonObject) -> str:
@@ -3241,7 +3730,7 @@ main {
 
 .process-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -3845,7 +4334,7 @@ main {
 
 .kanban-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -3982,7 +4471,7 @@ main {
 
   .kanban-grid {
     overflow-x: auto;
-    grid-template-columns: repeat(7, minmax(230px, 1fr));
+    grid-template-columns: repeat(5, minmax(190px, 1fr));
     padding-bottom: 4px;
   }
 }
@@ -4016,6 +4505,12 @@ main {
     justify-self: start;
     width: 212px;
     height: 212px;
+  }
+
+  .kanban-grid {
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+    padding-bottom: 0;
   }
 }
 """
@@ -4274,7 +4769,7 @@ def render_report_process(data: JsonObject) -> str:
     cards = "\n".join(render_process_card(card) for card in data["report"]["processCards"])
     return f"""
       <section class="section" id="process">
-        <h2 class="section-title">04 Development Process Data</h2>
+        <h2 class="section-title">04 Delivery Metrics</h2>
         <div class="process-grid">
           {cards}
         </div>

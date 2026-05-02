@@ -8,6 +8,13 @@ import {
   suppressTerritoryIntent
 } from './territoryPlanner';
 import { signOccupiedControllerIfNeeded } from './controllerSigning';
+import {
+  executeExpansionClaim,
+  isExpansionClaimControllerOnCooldown,
+  recordExpansionClaimSkipTelemetry
+} from './claimExecutor';
+import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
+import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -24,7 +31,10 @@ const PRESSURE_FATAL_RESULT_CODES = new Set<ScreepsReturnCode>([ERR_NO_BODYPART_
 
 type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
 
-export function runTerritoryControllerCreep(creep: Creep): void {
+export function runTerritoryControllerCreep(
+  creep: Creep,
+  telemetryEvents: RuntimeTelemetryEvent[] = []
+): void {
   const assignment = creep.memory.territory;
   if (!isTerritoryAssignment(assignment)) {
     return;
@@ -106,10 +116,22 @@ export function runTerritoryControllerCreep(creep: Creep): void {
     return;
   }
 
+  if (assignment.action === 'claim' && isExpansionClaimControllerOnCooldown(controller)) {
+    recordExpansionClaimSkipTelemetry(creep, controller, 'controllerCooldown', telemetryEvents);
+    if (typeof creep.moveTo === 'function') {
+      creep.moveTo(controller);
+    }
+    return;
+  }
+
   const result =
     assignment.action === 'claim'
-      ? executeControllerAction(creep, controller, 'claimController')
+      ? executeExpansionClaim(creep, controller, telemetryEvents)
       : executeControllerAction(creep, controller, 'reserveController');
+
+  if (assignment.action === 'claim' && result === OK_CODE) {
+    recordPostClaimBootstrapIfOwned(creep, assignment, controller, telemetryEvents);
+  }
 
   if (result === ERR_NOT_IN_RANGE_CODE && typeof creep.moveTo === 'function') {
     creep.moveTo(controller);
@@ -176,6 +198,40 @@ function suppressTerritoryAssignment(creep: Creep, assignment: CreepTerritoryMem
 
 function completeTerritoryAssignment(creep: Creep): void {
   delete creep.memory.territory;
+}
+
+function recordPostClaimBootstrapIfOwned(
+  creep: Creep,
+  assignment: CreepTerritoryMemory,
+  controller: StructureController,
+  telemetryEvents: RuntimeTelemetryEvent[]
+): void {
+  const room = getVisibleClaimedRoom(assignment.targetRoom, controller);
+  if (!room?.controller?.my) {
+    return;
+  }
+
+  recordPostClaimBootstrapClaimSuccess(
+    {
+      colony: creep.memory.colony ?? room.name,
+      roomName: room.name,
+      controllerId: controller.id
+    },
+    telemetryEvents
+  );
+}
+
+function getVisibleClaimedRoom(
+  targetRoom: string,
+  controller: StructureController
+): Room | null {
+  const controllerRoom = controller.room;
+  if (controllerRoom?.controller?.my === true) {
+    return controllerRoom;
+  }
+
+  const gameRoom = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[targetRoom];
+  return gameRoom?.controller?.my === true ? gameRoom : null;
 }
 
 function selectTargetController(creep: Creep, assignment: CreepTerritoryMemory): StructureController | null {

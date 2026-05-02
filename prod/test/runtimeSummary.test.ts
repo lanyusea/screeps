@@ -6,6 +6,7 @@ import {
   shouldEmitRuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../src/telemetry/runtimeSummary';
+import { CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 
 const TEST_GLOBALS = {
   FIND_STRUCTURES: 101,
@@ -158,15 +159,6 @@ describe('runtime telemetry summaries', () => {
                 preconditions: [],
                 expectedKpiMovement: ['raises harvest throughput', 'reduces dropped-energy waste'],
                 risk: ['large early build cost and decay upkeep']
-              },
-              {
-                buildItem: 'build source/controller roads',
-                room: 'W1N1',
-                score: 21,
-                urgency: 'low',
-                preconditions: [],
-                expectedKpiMovement: ['reduces worker travel time', 'improves harvest-to-spawn throughput'],
-                risk: ['road decay creates recurring repair load']
               }
             ],
             nextPrimary: {
@@ -206,6 +198,107 @@ describe('runtime telemetry summaries', () => {
     emitRuntimeSummary([colony], []);
 
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('refreshes refill telemetry on non-cadence ticks from cached room data without rescanning', () => {
+    const refillTarget = {
+      id: 'extension1',
+      structureType: TEST_GLOBALS.STRUCTURE_EXTENSION,
+      store: makeEnergyStore(0)
+    };
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      structures: [refillTarget]
+    });
+    const roomFind = (colony.room as unknown as { find: jest.Mock }).find;
+    const getEventLog = jest.fn(() =>
+      Game.time === RUNTIME_SUMMARY_INTERVAL * 2
+        ? [
+            {
+              event: TEST_GLOBALS.EVENT_TRANSFER,
+              objectId: 'worker1',
+              data: {
+                targetId: 'extension1',
+                amount: 25,
+                resourceType: TEST_GLOBALS.RESOURCE_ENERGY
+              }
+            }
+          ]
+        : []
+    );
+    (colony.room as unknown as { getEventLog: jest.Mock }).getEventLog = getEventLog;
+    const worker = {
+      id: 'worker1',
+      name: 'RefillWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'extension1' as Id<AnyStoreStructure> }
+      },
+      store: makeEnergyStore(25)
+    } as unknown as Creep;
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+    logSpy.mockClear();
+    roomFind.mockClear();
+    getEventLog.mockClear();
+
+    for (let tick = RUNTIME_SUMMARY_INTERVAL + 1; tick < RUNTIME_SUMMARY_INTERVAL * 2; tick += 1) {
+      (globalThis as unknown as { Game: Partial<Game> }).Game.time = tick;
+      emitRuntimeSummary([colony], [worker], [], { persistOccupationRecommendations: false });
+    }
+
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(roomFind).not.toHaveBeenCalled();
+    expect(getEventLog).not.toHaveBeenCalled();
+    expect(worker.memory.refillTelemetry).toMatchObject({
+      current: {
+        targetId: 'extension1',
+        startedAt: RUNTIME_SUMMARY_INTERVAL + 1,
+        activeTicks: RUNTIME_SUMMARY_INTERVAL - 1,
+        idleOrOtherTaskTicks: 0
+      },
+      refillActiveTicks: RUNTIME_SUMMARY_INTERVAL - 1,
+      lastUpdatedAt: RUNTIME_SUMMARY_INTERVAL * 2 - 1
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = RUNTIME_SUMMARY_INTERVAL * 2;
+    emitRuntimeSummary([colony], [worker], [], { persistOccupationRecommendations: false });
+
+    expect(roomFind).toHaveBeenCalled();
+    expect(getEventLog).toHaveBeenCalledTimes(1);
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.refillDeliveryTicks).toEqual({
+      completedCount: 1,
+      averageTicks: RUNTIME_SUMMARY_INTERVAL,
+      maxTicks: RUNTIME_SUMMARY_INTERVAL,
+      samples: [
+        {
+          creepName: 'RefillWorker',
+          tick: RUNTIME_SUMMARY_INTERVAL * 2,
+          targetId: 'extension1',
+          deliveryTicks: RUNTIME_SUMMARY_INTERVAL,
+          activeTicks: RUNTIME_SUMMARY_INTERVAL,
+          idleOrOtherTaskTicks: 0,
+          energyDelivered: 25
+        }
+      ]
+    });
+    expect(room.refillWorkerUtilization).toEqual({
+      assignedWorkerCount: 1,
+      refillActiveTicks: RUNTIME_SUMMARY_INTERVAL,
+      idleOrOtherTaskTicks: 0,
+      ratio: 1,
+      workers: [
+        {
+          creepName: 'RefillWorker',
+          refillActiveTicks: RUNTIME_SUMMARY_INTERVAL,
+          idleOrOtherTaskTicks: 0,
+          ratio: 1
+        }
+      ]
+    });
   });
 
   it('emits non-cadence summaries for spawn events and bounds event payload size', () => {
@@ -308,6 +401,11 @@ describe('runtime telemetry summaries', () => {
 
   it('reports bounded room-level worker efficiency samples', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const lowLoadReturnReasons: WorkerEfficiencyLowLoadReturnReason[] = [
+      'noReachableEnergy',
+      'emergencySpawnExtensionRefill',
+      'hostileSafety'
+    ];
     const recentWorkers = Array.from({ length: 7 }, (_, index) =>
       makeWorker(
         {
@@ -332,7 +430,7 @@ describe('runtime telemetry summaries', () => {
                   freeCapacity: 45,
                   selectedTask: 'transfer',
                   targetId: `spawn-${index}`,
-                  reason: 'noNearbyEnergy'
+                  reason: lowLoadReturnReasons[Math.floor(index / 2)]
                 }
         },
         5,
@@ -350,7 +448,7 @@ describe('runtime telemetry summaries', () => {
           freeCapacity: 45,
           selectedTask: 'transfer',
           targetId: 'spawn-stale',
-          reason: 'urgentSpawnExtensionRefill'
+          reason: 'emergencySpawnExtensionRefill'
         }
       },
       5,
@@ -363,7 +461,26 @@ describe('runtime telemetry summaries', () => {
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect(room.workerEfficiency).toEqual({
       lowLoadReturnCount: 3,
+      emergencyLowLoadReturnCount: 2,
+      avoidableLowLoadReturnCount: 1,
       nearbyEnergyChoiceCount: 4,
+      lowLoadReturnReasons: [
+        {
+          reason: 'emergencySpawnExtensionRefill',
+          category: 'emergency',
+          count: 1
+        },
+        {
+          reason: 'hostileSafety',
+          category: 'emergency',
+          count: 1
+        },
+        {
+          reason: 'noReachableEnergy',
+          category: 'avoidable',
+          count: 1
+        }
+      ],
       samples: [
         {
           creepName: 'Worker0',
@@ -384,7 +501,7 @@ describe('runtime telemetry summaries', () => {
           freeCapacity: 45,
           selectedTask: 'transfer',
           targetId: 'spawn-1',
-          reason: 'noNearbyEnergy'
+          reason: 'noReachableEnergy'
         },
         {
           creepName: 'Worker2',
@@ -405,7 +522,7 @@ describe('runtime telemetry summaries', () => {
           freeCapacity: 45,
           selectedTask: 'transfer',
           targetId: 'spawn-3',
-          reason: 'noNearbyEnergy'
+          reason: 'emergencySpawnExtensionRefill'
         },
         {
           creepName: 'Worker4',
@@ -420,6 +537,67 @@ describe('runtime telemetry summaries', () => {
         }
       ],
       omittedSampleCount: 2
+    });
+  });
+
+  it('reports spawn-critical refill assignment telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const carrier = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> },
+        spawnCriticalRefill: {
+          type: 'spawnCriticalRefill',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          targetId: 'spawn1',
+          carriedEnergy: 50,
+          spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+          freeCapacity: 101,
+          threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+        }
+      },
+      50,
+      'CriticalCarrier'
+    );
+    const staleCarrier = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        spawnCriticalRefill: {
+          type: 'spawnCriticalRefill',
+          tick: 0,
+          targetId: 'spawn-stale',
+          carriedEnergy: 50,
+          spawnEnergy: 0,
+          freeCapacity: 300,
+          threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+        }
+      },
+      50,
+      'StaleCarrier'
+    );
+
+    emitRuntimeSummary([colony], [carrier, staleCarrier]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.spawnCriticalRefill).toEqual({
+      assignedWorkerCount: 1,
+      assignedCarriedEnergy: 50,
+      threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+      samples: [
+        {
+          creepName: 'CriticalCarrier',
+          type: 'spawnCriticalRefill',
+          tick: RUNTIME_SUMMARY_INTERVAL,
+          targetId: 'spawn1',
+          carriedEnergy: 50,
+          spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+          freeCapacity: 101,
+          threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
+        }
+      ]
     });
   });
 
@@ -467,9 +645,17 @@ describe('runtime telemetry summaries', () => {
       }
     };
     (Game.rooms as Record<string, Room>).W2N1 = makeRemoteRoom('W2N1', {
-      controller: { my: false } as StructureController,
+      controller: {
+        id: 'controller2' as Id<StructureController>,
+        my: false,
+        pos: { x: 25, y: 25, roomName: 'W2N1' }
+      } as StructureController,
       sourceCount: 2
     });
+    (Game as Partial<Game>).map = {
+      describeExits: jest.fn(() => ({ '3': 'W2N1' })),
+      getRoomTerrain: jest.fn(() => ({ get: jest.fn(() => 0) }))
+    } as unknown as GameMap;
 
     emitRuntimeSummary([colony], [
       makeWorker({ role: 'worker', colony: 'W1N1' }),
@@ -492,7 +678,23 @@ describe('runtime telemetry summaries', () => {
     expect(recommendation.followUpIntent).toEqual({
       colony: 'W1N1',
       targetRoom: 'W2N1',
-      action: 'claim'
+      action: 'claim',
+      controllerId: 'controller2'
+    });
+    expect(room.territoryExpansion).toMatchObject({
+      next: {
+        roomName: 'W2N1',
+        score: expect.any(Number),
+        evidenceStatus: 'sufficient',
+        sourceCount: 2,
+        routeDistance: 2,
+        rationale: expect.arrayContaining([
+          'controller unreserved',
+          '2 sources visible',
+          'terrain walkable 100%',
+          'home route distance 2'
+        ])
+      }
     });
     expect(Memory.territory?.intents).toEqual([
       {
@@ -500,7 +702,8 @@ describe('runtime telemetry summaries', () => {
         targetRoom: 'W2N1',
         action: 'claim',
         status: 'planned',
-        updatedAt: RUNTIME_SUMMARY_INTERVAL
+        updatedAt: RUNTIME_SUMMARY_INTERVAL,
+        controllerId: 'controller2'
       }
     ]);
   });
@@ -629,6 +832,62 @@ describe('runtime telemetry summaries', () => {
       }
     ]);
     expect(describeExits).toHaveBeenCalledWith('W1N1');
+  });
+
+  it('emits suspended territory intent counts by target room in room telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 2,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 1,
+              updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+            }
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 2,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 2,
+              updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+            }
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 2,
+            suspended: {
+              reason: 'hostile_presence',
+              hostileCount: 1,
+              updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+            }
+          }
+        ]
+      }
+    };
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.suspendedTerritoryIntentCounts).toEqual({
+      W2N1: 2,
+      W3N1: 1
+    });
+    expect(room.territoryIntents).toBeUndefined();
   });
 
   it('keeps emission gating deterministic', () => {
@@ -830,7 +1089,10 @@ function makeRemoteRoom(
     find: jest.fn((findType: number): unknown[] => {
       switch (findType) {
         case TEST_GLOBALS.FIND_SOURCES:
-          return Array.from({ length: options.sourceCount ?? 0 }, (_value, index) => ({ id: `source${index}` }));
+          return Array.from({ length: options.sourceCount ?? 0 }, (_value, index) => ({
+            id: `source${index}`,
+            pos: { x: 15 + index * 20, y: 25, roomName }
+          }));
         case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
           return Array.from({ length: options.hostileCreepCount ?? 0 }, (_value, index) => ({ id: `hostile${index}` }));
         case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:

@@ -1,10 +1,12 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { normalizeTerritoryFollowUp, normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export type OccupationRecommendationAction = 'occupy' | 'reserve' | 'scout';
 export type OccupationRecommendationEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
 export type OccupationRecommendationCandidateSource = 'configured' | 'adjacent';
 
 export interface OccupationRecommendationReport {
+  colonyName?: string;
   candidates: OccupationRecommendationScore[];
   next: OccupationRecommendationScore | null;
   followUpIntent: OccupationRecommendationFollowUpIntent | null;
@@ -20,6 +22,7 @@ export interface OccupationRecommendationScore {
   preconditions: string[];
   risks: string[];
   routeDistance?: number;
+  roadDistance?: number;
   controllerId?: Id<StructureController>;
   requiresControllerPressure?: boolean;
   sourceCount?: number;
@@ -55,6 +58,7 @@ export interface OccupationRecommendationCandidateInput {
   actionHint?: TerritoryControlAction;
   controllerId?: Id<StructureController>;
   routeDistance?: number | null;
+  roadDistance?: number;
   controller?: OccupationControllerEvidence;
   sourceCount?: number;
   hostileCreepCount?: number;
@@ -78,6 +82,11 @@ const RESERVATION_RENEWAL_TICKS = 1_000;
 const TERRITORY_SUPPRESSION_RETRY_TICKS = 1_500;
 const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
+const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
+const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
+const ROAD_DISTANCE_BASE_SCORE = 100;
+const ROAD_DISTANCE_ROOM_COST_SCORE = 20;
+type OccupationRecommendationControlTargetKey = Pick<TerritoryTargetMemory, 'roomName' | 'action'>;
 
 // Project vision ordering: territory action dominates resource value; combat/risk only gates or deprioritizes.
 const ACTION_SCORE: Record<OccupationRecommendationAction, number> = {
@@ -93,6 +102,14 @@ export function buildRuntimeOccupationRecommendationReport(
   return scoreOccupationRecommendations(buildRuntimeOccupationRecommendationInput(colony, colonyWorkers));
 }
 
+export function clearOccupationRecommendationFollowUpIntent(
+  report: OccupationRecommendationReport
+): OccupationRecommendationReport {
+  // Mutate so the non-enumerable colonyName marker used by persistence is retained.
+  report.followUpIntent = null;
+  return report;
+}
+
 export function scoreOccupationRecommendations(
   input: OccupationRecommendationInput
 ): OccupationRecommendationReport {
@@ -102,7 +119,10 @@ export function scoreOccupationRecommendations(
     .sort(compareOccupationRecommendationScores);
   const next = candidates.find((candidate) => candidate.evidenceStatus !== 'unavailable') ?? null;
 
-  return { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) };
+  return attachOccupationRecommendationReportColony(
+    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) },
+    input.colonyName
+  );
 }
 
 export function persistOccupationRecommendationFollowUpIntent(
@@ -111,6 +131,7 @@ export function persistOccupationRecommendationFollowUpIntent(
 ): TerritoryIntentMemory | null {
   const followUpIntent = report.followUpIntent;
   if (!followUpIntent) {
+    revokeStaleOccupationRecommendationTargetsWithoutFollowUp(report);
     return null;
   }
 
@@ -147,11 +168,170 @@ export function persistOccupationRecommendationFollowUpIntent(
     updatedAt: gameTime,
     ...(controllerId ? { controllerId } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
-    ...(followUp ? { followUp } : {})
+    ...(followUp ? { followUp } : {}),
+    ...(existingIntent?.suspended ? { suspended: existingIntent.suspended } : {})
   };
 
   upsertTerritoryIntent(intents, nextIntent);
+  persistOccupationRecommendationTarget(report, nextIntent);
   return nextIntent;
+}
+
+function persistOccupationRecommendationTarget(
+  report: OccupationRecommendationReport,
+  intent: TerritoryIntentMemory
+): void {
+  const target = buildPersistableOccupationRecommendationTarget(report, intent);
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  if (!target) {
+    revokeOccupationRecommendationTarget(territoryMemory, intent);
+    removeStaleOccupationRecommendationTargets(
+      territoryMemory,
+      intent.colony,
+      buildActiveOccupationRecommendationControlTarget(report)
+    );
+    return;
+  }
+
+  removeStaleOccupationRecommendationTargets(territoryMemory, target.colony, target);
+  upsertTerritoryTarget(territoryMemory, target);
+}
+
+function revokeStaleOccupationRecommendationTargetsWithoutFollowUp(
+  report: OccupationRecommendationReport
+): void {
+  const colony = report.colonyName;
+  if (!isNonEmptyString(colony)) {
+    return;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  removeStaleOccupationRecommendationTargets(territoryMemory, colony, null);
+}
+
+function buildPersistableOccupationRecommendationTarget(
+  report: OccupationRecommendationReport,
+  intent: TerritoryIntentMemory
+): TerritoryTargetMemory | null {
+  const recommendation = report.next;
+  if (
+    !recommendation ||
+    recommendation.roomName !== intent.targetRoom ||
+    getTerritoryIntentAction(recommendation.action) !== intent.action ||
+    recommendation.evidenceStatus !== 'sufficient' ||
+    recommendation.preconditions.length > 0 ||
+    !isTerritoryControlAction(intent.action)
+  ) {
+    return null;
+  }
+
+  return {
+    colony: intent.colony,
+    roomName: intent.targetRoom,
+    action: intent.action,
+    createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
+    ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+  };
+}
+
+function removeStaleOccupationRecommendationTargets(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  activeTarget: OccupationRecommendationControlTargetKey | null
+): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !(
+      target?.colony === colony &&
+      target.enabled !== false &&
+      target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR &&
+      (!activeTarget || target.roomName !== activeTarget.roomName || target.action !== activeTarget.action)
+    );
+  });
+}
+
+function buildActiveOccupationRecommendationControlTarget(
+  report: OccupationRecommendationReport
+): OccupationRecommendationControlTargetKey | null {
+  const recommendation = report.next;
+  if (!recommendation) {
+    return null;
+  }
+
+  const action = getTerritoryIntentAction(recommendation.action);
+  if (!isTerritoryControlAction(action)) {
+    return null;
+  }
+
+  return { roomName: recommendation.roomName, action };
+}
+
+function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, intent: TerritoryIntentMemory): void {
+  if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
+    return;
+  }
+
+  territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+    const target = normalizeTerritoryTarget(rawTarget);
+    return !(
+      target?.colony === intent.colony &&
+      target.roomName === intent.targetRoom &&
+      target.action === intent.action &&
+      target.enabled !== false &&
+      target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
+    );
+  });
+}
+
+function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+
+  const existingTarget = territoryMemory.targets.find((rawTarget) => {
+    const normalizedTarget = normalizeTerritoryTarget(rawTarget);
+    return (
+      normalizedTarget?.colony === target.colony &&
+      normalizedTarget.roomName === target.roomName &&
+      normalizedTarget.action === target.action
+    );
+  });
+  if (!existingTarget) {
+    territoryMemory.targets.push(target);
+    return;
+  }
+
+  if (
+    isRecord(existingTarget) &&
+    existingTarget.enabled !== false &&
+    !existingTarget.controllerId &&
+    target.controllerId
+  ) {
+    existingTarget.controllerId = target.controllerId;
+  }
+}
+
+function attachOccupationRecommendationReportColony(
+  report: OccupationRecommendationReport,
+  colonyName: string
+): OccupationRecommendationReport {
+  Object.defineProperty(report, 'colonyName', {
+    value: colonyName,
+    enumerable: false
+  });
+  return report;
 }
 
 function buildRuntimeOccupationRecommendationInput(
@@ -192,7 +372,8 @@ function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecomme
         visible: false,
         actionHint: target.action,
         ...(target.controllerId ? { controllerId: target.controllerId } : {}),
-        routeDistance: getCachedRouteDistance(colonyName, target.roomName)
+        routeDistance: getCachedRouteDistance(colonyName, target.roomName),
+        roadDistance: getCachedNearestOwnedRoomRouteDistance(colonyName, target.roomName)
       });
       order += 1;
     }
@@ -200,13 +381,15 @@ function buildRuntimeOccupationCandidates(colonyName: string): OccupationRecomme
 
   for (const roomName of getAdjacentRoomNames(colonyName)) {
     const cachedRouteDistance = getCachedRouteDistance(colonyName, roomName);
+    const routeDistance = cachedRouteDistance === undefined ? 1 : cachedRouteDistance;
     upsertOccupationCandidate(candidatesByRoom, {
       roomName,
       source: 'adjacent',
       order,
       adjacent: true,
       visible: false,
-      routeDistance: cachedRouteDistance === undefined ? 1 : cachedRouteDistance
+      routeDistance,
+      ...(typeof routeDistance === 'number' ? { roadDistance: routeDistance } : {})
     });
     order += 1;
   }
@@ -240,6 +423,9 @@ function upsertOccupationCandidate(
   if (existing.routeDistance === undefined && candidate.routeDistance !== undefined) {
     existing.routeDistance = candidate.routeDistance;
   }
+  if (existing.roadDistance === undefined && candidate.roadDistance !== undefined) {
+    existing.roadDistance = candidate.roadDistance;
+  }
 }
 
 function enrichVisibleOccupationCandidate(
@@ -255,11 +441,13 @@ function enrichVisibleOccupationCandidate(
   const sources = findRoomObjects(room, 'FIND_SOURCES');
   const constructionSites = findRoomObjects(room, 'FIND_MY_CONSTRUCTION_SITES');
   const ownedStructures = findRoomObjects(room, 'FIND_MY_STRUCTURES');
+  const controllerId = room.controller?.id;
 
   return {
     ...candidate,
     visible: true,
     ...(room.controller ? { controller: summarizeController(room.controller) } : {}),
+    ...(typeof controllerId === 'string' ? { controllerId: controllerId as Id<StructureController> } : {}),
     ...(sources ? { sourceCount: sources.length } : {}),
     ...(hostileCreeps ? { hostileCreepCount: hostileCreeps.length } : {}),
     ...(hostileStructures ? { hostileStructureCount: hostileStructures.length } : {}),
@@ -344,6 +532,7 @@ function scoreOccupationCandidate(
     preconditions,
     risks,
     ...(routeDistance !== undefined ? { routeDistance } : {}),
+    ...(candidate.roadDistance !== undefined ? { roadDistance: candidate.roadDistance } : {}),
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.sourceCount !== undefined ? { sourceCount: candidate.sourceCount } : {}),
@@ -379,8 +568,11 @@ function calculateOccupationScore(
   action: OccupationRecommendationAction,
   evidenceStatus: OccupationRecommendationEvidenceStatus
 ): number {
-  const distanceScore =
-    typeof candidate.routeDistance === 'number' ? Math.max(0, 80 - candidate.routeDistance * 15) : 0;
+  const roadDistance = getCandidateRoadDistance(candidate);
+  const roadDistanceScore =
+    typeof roadDistance === 'number'
+      ? ROAD_DISTANCE_BASE_SCORE - roadDistance * ROAD_DISTANCE_ROOM_COST_SCORE
+      : 0;
   const sourceScore = typeof candidate.sourceCount === 'number' ? Math.min(candidate.sourceCount, 2) * 70 : 0;
   const supportScore =
     Math.min(candidate.ownedStructureCount ?? 0, 3) * 8 +
@@ -402,7 +594,7 @@ function calculateOccupationScore(
     ACTION_SCORE[action] +
     sourcePriorityScore +
     adjacencyScore +
-    distanceScore +
+    roadDistanceScore +
     sourceScore +
     supportScore +
     readinessScore -
@@ -411,6 +603,10 @@ function calculateOccupationScore(
     evidencePenalty -
     unavailablePenalty
   );
+}
+
+function getCandidateRoadDistance(candidate: OccupationRecommendationCandidateInput): number | undefined {
+  return candidate.roadDistance ?? (typeof candidate.routeDistance === 'number' ? candidate.routeDistance : undefined);
 }
 
 function getControllerPressureEvidence(
@@ -620,7 +816,10 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
     ...(typeof rawTarget.controllerId === 'string'
       ? { controllerId: rawTarget.controllerId as Id<StructureController> }
       : {}),
-    ...(rawTarget.enabled === false ? { enabled: false } : {})
+    ...(rawTarget.enabled === false ? { enabled: false } : {}),
+    ...(rawTarget.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR
+      ? { createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR }
+      : {})
   };
 }
 
@@ -632,6 +831,75 @@ function getCachedRouteDistance(fromRoom: string, targetRoom: string): number | 
 
   const distance = routeDistances[`${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}`];
   return typeof distance === 'number' || distance === null ? distance : undefined;
+}
+
+function getCachedNearestOwnedRoomRouteDistance(fromRoom: string, targetRoom: string): number | undefined {
+  const ownedRoomNames = getVisibleOwnedRoomNames(fromRoom);
+  let nearestDistance: number | undefined;
+  for (const ownedRoomName of ownedRoomNames) {
+    const cachedDistance =
+      ownedRoomName === fromRoom
+        ? getCachedRouteDistance(fromRoom, targetRoom)
+        : getCachedRouteDistance(ownedRoomName, targetRoom);
+    const distance =
+      cachedDistance === undefined
+        ? findUncachedRouteDistance(ownedRoomName, targetRoom)
+        : cachedDistance;
+    if (typeof distance !== 'number') {
+      continue;
+    }
+
+    nearestDistance = nearestDistance === undefined ? distance : Math.min(nearestDistance, distance);
+  }
+
+  return nearestDistance;
+}
+
+function findUncachedRouteDistance(fromRoom: string, targetRoom: string): number | undefined {
+  if (fromRoom === targetRoom) {
+    return 0;
+  }
+
+  const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map as
+    | (Partial<GameMap> & {
+        findRoute?: (fromRoom: string, toRoom: string) => unknown;
+      })
+    | undefined;
+  if (typeof gameMap?.findRoute !== 'function') {
+    return undefined;
+  }
+
+  try {
+    const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom);
+    if (route === getNoPathResultCode()) {
+      return undefined;
+    }
+
+    return Array.isArray(route) ? route.length : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getNoPathResultCode(): ScreepsReturnCode {
+  const noPathCode = (globalThis as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH;
+  return typeof noPathCode === 'number' ? noPathCode : ERR_NO_PATH_CODE;
+}
+
+function getVisibleOwnedRoomNames(fallbackRoomName: string): string[] {
+  const roomNames = new Set<string>([fallbackRoomName]);
+  const rooms = getGameRooms();
+  if (!rooms) {
+    return Array.from(roomNames);
+  }
+
+  for (const room of Object.values(rooms)) {
+    if (room?.controller?.my === true && typeof room.name === 'string' && room.name.length > 0) {
+      roomNames.add(room.name);
+    }
+  }
+
+  return Array.from(roomNames);
 }
 
 function findRoomObjects(room: Room, constantName: string): unknown[] | undefined {
@@ -695,67 +963,6 @@ function getWritableTerritoryMemoryRecord(): TerritoryMemory | null {
   }
 
   return memory.territory as TerritoryMemory;
-}
-
-function normalizeTerritoryIntents(rawIntents: TerritoryMemory['intents'] | unknown): TerritoryIntentMemory[] {
-  return Array.isArray(rawIntents)
-    ? rawIntents.flatMap((intent) => {
-        const normalizedIntent = normalizeTerritoryIntent(intent);
-        return normalizedIntent ? [normalizedIntent] : [];
-      })
-    : [];
-}
-
-function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMemory | null {
-  if (!isRecord(rawIntent)) {
-    return null;
-  }
-
-  if (
-    !isNonEmptyString(rawIntent.colony) ||
-    !isNonEmptyString(rawIntent.targetRoom) ||
-    !isTerritoryIntentAction(rawIntent.action) ||
-    !isTerritoryIntentStatus(rawIntent.status) ||
-    typeof rawIntent.updatedAt !== 'number'
-  ) {
-    return null;
-  }
-
-  const followUp = normalizeTerritoryFollowUp(rawIntent.followUp);
-  return {
-    colony: rawIntent.colony,
-    targetRoom: rawIntent.targetRoom,
-    action: rawIntent.action,
-    status: rawIntent.status,
-    updatedAt: rawIntent.updatedAt,
-    ...(followUp && isFiniteNumber(rawIntent.lastAttemptAt) ? { lastAttemptAt: rawIntent.lastAttemptAt } : {}),
-    ...(typeof rawIntent.controllerId === 'string'
-      ? { controllerId: rawIntent.controllerId as Id<StructureController> }
-      : {}),
-    ...(rawIntent.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
-    ...(followUp ? { followUp } : {})
-  };
-}
-
-function normalizeTerritoryFollowUp(rawFollowUp: unknown): TerritoryFollowUpMemory | null {
-  if (!isRecord(rawFollowUp) || !isTerritoryFollowUpSource(rawFollowUp.source)) {
-    return null;
-  }
-
-  const originAction = getTerritoryFollowUpOriginAction(rawFollowUp.source);
-  if (!isNonEmptyString(rawFollowUp.originRoom) || rawFollowUp.originAction !== originAction) {
-    return null;
-  }
-
-  return {
-    source: rawFollowUp.source,
-    originRoom: rawFollowUp.originRoom,
-    originAction
-  };
-}
-
-function getTerritoryFollowUpOriginAction(source: TerritoryFollowUpSource): TerritoryControlAction {
-  return source === 'satisfiedClaimAdjacent' ? 'claim' : 'reserve';
 }
 
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
@@ -886,22 +1093,6 @@ function isRecoveredTerritoryFollowUpAttemptCoolingDown(intent: TerritoryIntentM
 
 function isRecoveredTerritoryFollowUpRetryPending(intent: TerritoryIntentMemory): boolean {
   return intent.followUp !== undefined && intent.status === 'suppressed' && isFiniteNumber(intent.lastAttemptAt);
-}
-
-function isTerritoryIntentAction(action: unknown): action is TerritoryIntentAction {
-  return action === 'claim' || action === 'reserve' || action === 'scout';
-}
-
-function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
-  return status === 'planned' || status === 'active' || status === 'suppressed';
-}
-
-function isTerritoryFollowUpSource(source: unknown): source is TerritoryFollowUpSource {
-  return (
-    source === 'satisfiedClaimAdjacent' ||
-    source === 'satisfiedReserveAdjacent' ||
-    source === 'activeReserveAdjacent'
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

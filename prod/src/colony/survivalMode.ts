@@ -53,6 +53,9 @@ const MIN_WORKER_TARGET = 3;
 const WORKERS_PER_SOURCE = 2;
 const CONSTRUCTION_BACKLOG_WORKER_BONUS = 1;
 const SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT = 5;
+const SPAWN_EXTENSION_REFILL_WORKER_BONUS = 1;
+const MIN_PRODUCTIVE_WORKER_BODY_ENERGY = 200;
+const SPAWN_EXTENSION_REFILL_PRESSURE_RATIO = 0.75;
 const MAX_WORKER_TARGET = 6;
 const BOOTSTRAP_WORKER_FLOOR = 3;
 const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
@@ -121,12 +124,22 @@ export function getWorkerTarget(colony: ColonySnapshot, roleCounts: RoleCounts):
     return baseTarget;
   }
 
-  const constructionBacklogSiteCount = getConstructionBacklogSiteCount(colony.room);
-  if (constructionBacklogSiteCount === 0) {
-    return baseTarget;
+  const refillPressureTarget = shouldAddSpawnExtensionRefillWorker(colony)
+    ? Math.min(MAX_WORKER_TARGET, baseTarget + SPAWN_EXTENSION_REFILL_WORKER_BONUS)
+    : baseTarget;
+  if (workerCapacity < refillPressureTarget) {
+    return refillPressureTarget;
   }
 
-  const firstBonusTarget = Math.min(MAX_WORKER_TARGET, baseTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
+  const constructionBacklogSiteCount = getConstructionBacklogSiteCount(colony.room);
+  if (constructionBacklogSiteCount === 0) {
+    return refillPressureTarget;
+  }
+
+  const firstBonusTarget = Math.min(
+    MAX_WORKER_TARGET,
+    refillPressureTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS
+  );
   if (
     workerCapacity < firstBonusTarget ||
     constructionBacklogSiteCount < SUBSTANTIAL_CONSTRUCTION_BACKLOG_SITE_COUNT
@@ -260,6 +273,16 @@ function isConstructionBonusHomeSafe(controller: StructureController | undefined
     controller?.my === true &&
     (typeof controller.ticksToDowngrade !== 'number' ||
       controller.ticksToDowngrade > CONTROLLER_DOWNGRADE_GUARD_TICKS)
+  );
+}
+
+function shouldAddSpawnExtensionRefillWorker(colony: ColonySnapshot): boolean {
+  return (
+    colony.spawns.length > 0 &&
+    colony.energyAvailable >= MIN_PRODUCTIVE_WORKER_BODY_ENERGY &&
+    colony.energyAvailable < TERRITORY_CONTROLLER_BODY_COST &&
+    colony.energyCapacityAvailable > 0 &&
+    colony.energyAvailable < colony.energyCapacityAvailable * SPAWN_EXTENSION_REFILL_PRESSURE_RATIO
   );
 }
 

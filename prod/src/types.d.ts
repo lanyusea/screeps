@@ -6,6 +6,7 @@ declare global {
       version: number;
     };
     defense?: DefenseMemory;
+    economy?: EconomyMemory;
     territory?: TerritoryMemory;
   }
 
@@ -15,7 +16,12 @@ declare global {
     task?: CreepTaskMemory;
     defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
+    controllerSustain?: CreepControllerSustainMemory;
+    remoteHarvester?: CreepRemoteHarvesterMemory;
+    remoteHauler?: CreepRemoteHaulerMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
+    refillTelemetry?: WorkerRefillTelemetryMemory;
+    spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
   }
 
   type DefenseActionType =
@@ -26,10 +32,13 @@ declare global {
     | 'defenderAttack'
     | 'defenderMove'
     | 'workerFallback';
+  type DefenseUnsafeRoomReason = 'enemyTower' | 'hostilePresence';
+  type TerritoryIntentSuppressionReason = 'deadZoneTarget' | 'deadZoneRoute';
 
   interface DefenseMemory {
     actions?: DefenseActionMemory[];
     rooms?: Record<string, DefenseActionMemory>;
+    unsafeRooms?: Record<string, DefenseUnsafeRoomMemory>;
   }
 
   interface DefenseActionMemory {
@@ -45,24 +54,113 @@ declare global {
     result?: ScreepsReturnCode;
   }
 
+  interface DefenseUnsafeRoomMemory {
+    roomName: string;
+    unsafe: true;
+    reason: DefenseUnsafeRoomReason;
+    updatedAt: number;
+    hostileCreepCount: number;
+    hostileStructureCount: number;
+    hostileTowerCount: number;
+  }
+
   interface CreepDefenseMemory {
     homeRoom: string;
+  }
+
+  type CreepControllerSustainRole = 'upgrader' | 'hauler';
+
+  interface CreepControllerSustainMemory {
+    homeRoom: string;
+    targetRoom: string;
+    role: CreepControllerSustainRole;
+  }
+
+  interface CreepRemoteHarvesterMemory {
+    homeRoom: string;
+    targetRoom: string;
+    sourceId: Id<Source>;
+    containerId: Id<StructureContainer>;
+  }
+
+  interface CreepRemoteHaulerMemory {
+    homeRoom: string;
+    targetRoom: string;
+    sourceId: Id<Source>;
+    containerId: Id<StructureContainer>;
+  }
+
+  interface EconomyMemory {
+    sourceWorkloads?: Record<string, EconomyRoomSourceWorkloadMemory>;
+  }
+
+  interface EconomyRoomSourceWorkloadMemory {
+    updatedAt: number;
+    sources: Record<string, EconomySourceWorkloadMemory>;
+  }
+
+  interface EconomySourceWorkloadMemory {
+    sourceId: string;
+    assignedHarvesters: number;
+    assignedWorkParts: number;
+    openPositions: number;
+    harvestWorkCapacity: number;
+    harvestEnergyPerTick: number;
+    regenEnergyPerTick: number;
+    sourceEnergyCapacity: number;
+    sourceEnergyRegenTicks: number;
+    hasContainer: boolean;
+    containerId?: string;
   }
 
   type TerritoryControlAction = 'claim' | 'reserve';
   type TerritoryIntentAction = TerritoryControlAction | 'scout';
   type TerritoryDemandType = 'followUpPreparation';
   type TerritoryFollowUpSource = 'satisfiedClaimAdjacent' | 'satisfiedReserveAdjacent' | 'activeReserveAdjacent';
+  type TerritoryAutomationSource =
+    | 'occupationRecommendation'
+    | 'autonomousExpansionClaim'
+    | 'nextExpansionScoring';
+  type TerritoryIntentSuspensionReason = 'hostile_presence';
+  type TerritoryPostClaimBootstrapStatus =
+    | 'detected'
+    | 'spawnSitePending'
+    | 'spawnSiteBlocked'
+    | 'spawningWorkers'
+    | 'ready';
   type TerritoryExecutionHintReason =
     | 'controlEvidenceStillMissing'
     | 'followUpTargetStillUnseen'
     | 'visibleControlEvidenceStillActionable';
+  type RoomExpansionSelectionStatus = 'planned' | 'skipped';
+  type RoomExpansionSelectionReason =
+    | 'noCandidate'
+    | 'unmetPreconditions'
+    | 'insufficientEvidence'
+    | 'unavailable';
+
+  interface RoomMemory {
+    lastExpansionScoreTime?: number;
+    cachedExpansionSelection?: RoomExpansionSelectionMemory;
+  }
+
+  interface RoomExpansionSelectionMemory {
+    status: RoomExpansionSelectionStatus;
+    colony: string;
+    reason?: RoomExpansionSelectionReason;
+    targetRoom?: string;
+    controllerId?: Id<StructureController>;
+    score?: number;
+    stateKey?: string;
+  }
 
   interface TerritoryMemory {
     targets?: TerritoryTargetMemory[];
     intents?: TerritoryIntentMemory[];
     demands?: TerritoryFollowUpDemandMemory[];
     executionHints?: TerritoryExecutionHintMemory[];
+    postClaimBootstraps?: Record<string, TerritoryPostClaimBootstrapMemory>;
+    reservations?: Record<string, TerritoryReservationMemory>;
     routeDistances?: Record<string, number | null>;
   }
 
@@ -72,6 +170,7 @@ declare global {
     action: TerritoryControlAction;
     controllerId?: Id<StructureController>;
     enabled?: boolean;
+    createdBy?: TerritoryAutomationSource;
   }
 
   interface TerritoryIntentMemory {
@@ -80,10 +179,27 @@ declare global {
     action: TerritoryIntentAction;
     status: 'planned' | 'active' | 'suppressed';
     updatedAt: number;
+    createdBy?: TerritoryAutomationSource;
+    reason?: TerritoryIntentSuppressionReason;
     lastAttemptAt?: number;
     controllerId?: Id<StructureController>;
     requiresControllerPressure?: boolean;
     followUp?: TerritoryFollowUpMemory;
+    suspended?: TerritoryIntentSuspensionMemory;
+  }
+
+  interface TerritoryIntentSuspensionMemory {
+    reason: TerritoryIntentSuspensionReason;
+    hostileCount: number;
+    updatedAt: number;
+  }
+
+  interface TerritoryReservationMemory {
+    colony: string;
+    roomName: string;
+    ticksToEnd: number;
+    updatedAt: number;
+    controllerId?: Id<StructureController>;
   }
 
   interface TerritoryFollowUpMemory {
@@ -113,6 +229,24 @@ declare global {
     followUp: TerritoryFollowUpMemory;
   }
 
+  interface TerritoryPostClaimBootstrapSpawnSiteMemory {
+    roomName: string;
+    x: number;
+    y: number;
+  }
+
+  interface TerritoryPostClaimBootstrapMemory {
+    colony: string;
+    roomName: string;
+    status: TerritoryPostClaimBootstrapStatus;
+    claimedAt: number;
+    updatedAt: number;
+    workerTarget: number;
+    controllerId?: Id<StructureController>;
+    spawnSite?: TerritoryPostClaimBootstrapSpawnSiteMemory;
+    lastResult?: ScreepsReturnCode;
+  }
+
   interface CreepTerritoryMemory {
     targetRoom: string;
     action: TerritoryIntentAction;
@@ -121,7 +255,13 @@ declare global {
   }
 
   type WorkerEfficiencySampleType = 'lowLoadReturn' | 'nearbyEnergyChoice';
-  type WorkerEfficiencyLowLoadReturnReason = 'urgentSpawnExtensionRefill' | 'noNearbyEnergy';
+  type WorkerEfficiencyLowLoadReturnReason =
+    | 'emergencySpawnExtensionRefill'
+    | 'controllerDowngradeGuard'
+    | 'hostileSafety'
+    | 'noReachableEnergy'
+    | 'urgentSpawnExtensionRefill'
+    | 'noNearbyEnergy';
 
   interface WorkerEfficiencySampleMemory {
     type: WorkerEfficiencySampleType;
@@ -133,6 +273,40 @@ declare global {
     energy?: number;
     range?: number;
     reason?: WorkerEfficiencyLowLoadReturnReason;
+  }
+
+  interface WorkerRefillTelemetryMemory {
+    current?: WorkerRefillDeliveryMemory;
+    recentDeliveries?: WorkerRefillDeliverySampleMemory[];
+    refillActiveTicks?: number;
+    idleOrOtherTaskTicks?: number;
+    lastUpdatedAt?: number;
+  }
+
+  interface WorkerRefillDeliveryMemory {
+    targetId: string;
+    startedAt: number;
+    activeTicks: number;
+    idleOrOtherTaskTicks: number;
+  }
+
+  interface WorkerRefillDeliverySampleMemory {
+    tick: number;
+    targetId: string;
+    deliveryTicks: number;
+    activeTicks: number;
+    idleOrOtherTaskTicks: number;
+    energyDelivered: number;
+  }
+
+  interface WorkerSpawnCriticalRefillMemory {
+    type: 'spawnCriticalRefill';
+    tick: number;
+    targetId: string;
+    carriedEnergy: number;
+    spawnEnergy: number;
+    freeCapacity: number;
+    threshold: number;
   }
 
   type CreepTaskMemory =

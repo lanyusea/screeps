@@ -12,13 +12,29 @@ const pngPath = path.join(tmpDir, 'roadmap.png');
 const htmlPath = pngPath.replace(/\.png$/, '.html');
 const failures = [];
 const EXPECTED_PROJECT_DOMAINS = [
-  'Change-control',
   'Agent OS',
-  'Bot capability',
+  'Change-control',
   'Runtime monitor',
-  'Private smoke',
-  'Official MMO',
+  'Release/deploy',
+  'Bot capability',
+  'Combat',
+  'Territory/Economy',
+  'Gameplay Evolution',
+  'RL flywheel',
   'Docs/process'
+];
+const EXPECTED_ROADMAP_DOMAINS = EXPECTED_PROJECT_DOMAINS.filter(domain => domain !== 'Docs/process');
+const EXPECTED_PROCESS_LABELS = [
+  'Commits',
+  'Issues',
+  'PRs',
+  'Deploys',
+  'Private smoke',
+  'Agent tokens',
+  'Codex runtime',
+  'Codex runs',
+  'Cron runs',
+  'Longest Codex run'
 ];
 
 function fail(message) {
@@ -123,6 +139,30 @@ function assertRendererDoesNotRebuildReportData() {
   }
 }
 
+function assertDomainKanbanFiveColumnCss(html) {
+  const compact = String(html).replace(/\s+/g, '');
+  assert(
+    compact.includes('.kanban{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));'),
+    'domain board renderer CSS must use five kanban columns'
+  );
+  assert(
+    !/\.kanban\{[^}]*grid-template-columns:repeat\(7,/s.test(compact),
+    'domain board renderer CSS must not use the old seven-column layout'
+  );
+}
+
+function assertDeliveryMetricsFiveColumnCss(html) {
+  const compact = String(html).replace(/\s+/g, '');
+  assert(
+    compact.includes('.process-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));'),
+    'delivery metrics renderer CSS must use five metric columns'
+  );
+  assert(
+    !/\.process-grid\{[^}]*grid-template-columns:repeat\((?:3|7),/s.test(compact),
+    'delivery metrics renderer CSS must not use a three- or seven-column layout'
+  );
+}
+
 function assertNoOldVisibleFallbacks(text) {
   const oldMarkers = [
     { name: 'old Chinese KPI summary', value: '\u7528\u771f\u5b9e\u6e38\u620f KPI' },
@@ -162,7 +202,7 @@ function assertNoOldVisibleFallbacks(text) {
 function assertDomainClassification(report, text) {
   const roadmapTitles = (report.roadmapCards || []).map(card => String(card.title || ''));
   assert(
-    JSON.stringify(roadmapTitles) === JSON.stringify(EXPECTED_PROJECT_DOMAINS),
+    JSON.stringify(roadmapTitles) === JSON.stringify(EXPECTED_ROADMAP_DOMAINS),
     `roadmap cards should be current Project Domain categories; saw ${JSON.stringify(roadmapTitles)}`
   );
 
@@ -177,6 +217,15 @@ function assertDomainClassification(report, text) {
   for (const domain of EXPECTED_PROJECT_DOMAINS) {
     assert(text.includes(domain), `visible report is missing Project Domain category: ${domain}`);
   }
+}
+
+function assertProjectDomainSectionSplit(body) {
+  const roadmapSection = findSectionByHeading(body, '02 Project Domains');
+  const kanbanSection = findSectionByHeading(body, '03 Project Domain Board');
+  assert(Boolean(roadmapSection), 'Project Domains section is missing');
+  assert(Boolean(kanbanSection), 'Project Domain Board section is missing');
+  assert(!tagText(roadmapSection).includes('Docs/process'), 'Project Domains section should exclude Docs/process');
+  assert(tagText(kanbanSection).includes('Docs/process'), 'Project Domain Board should include Docs/process');
 }
 
 function assertKpiCardsMatchPagesData(body, text, cards) {
@@ -264,6 +313,11 @@ function assertKanbanMatchesPagesData(body, columns, sectionTitle) {
 }
 
 function assertProcessCardsMatchPagesData(body, cards) {
+  const labels = cards.map(card => String(card.label || ''));
+  assert(
+    JSON.stringify(labels) === JSON.stringify(EXPECTED_PROCESS_LABELS),
+    `delivery metric cards should be the approved 10-card order; saw ${JSON.stringify(labels)}`
+  );
   for (const card of cards) {
     const value = displayValue(card.value);
     const token = `data-process-label="${esc(card.label)}" data-process-value="${esc(value)}"`;
@@ -285,7 +339,6 @@ const roadmapData = readRoadmapData();
 const report = roadmapData.report || {};
 const run = spawnSync(process.execPath, [renderer, repo, pngPath], {
   cwd: repo,
-  env: { ...process.env, SCREEPS_ROADMAP_PREVIEW: '1' },
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'pipe'],
   timeout: 120000
@@ -320,8 +373,11 @@ if (fs.existsSync(htmlPath)) {
     'hero logo should be centered inside the circular logo mask'
   );
 
+  assertDomainKanbanFiveColumnCss(html);
+  assertDeliveryMetricsFiveColumnCss(html);
   assertKpiCardsMatchPagesData(body, text, report.kpiCards || []);
   assertDomainClassification(report, text);
+  assertProjectDomainSectionSplit(body);
   assertRoadmapCardsMatchPagesData(body, report.roadmapCards || []);
   assertKanbanMatchesPagesData(body, report.domainKanban || [], '03 Project Domain Board');
   assertProcessCardsMatchPagesData(body, report.processCards || []);
