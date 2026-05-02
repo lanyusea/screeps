@@ -120,7 +120,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       }
 
       if (spawnRequest.memory.colony !== colony.room.name) {
-        break;
+        continue;
       }
 
       roleCounts = addPlannedWorker(roleCounts);
