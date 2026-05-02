@@ -6485,6 +6485,9 @@ var ENERGY_ACQUISITION_ACTION_TICKS = 1;
 var WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 var HARVEST_ENERGY_PER_WORK_PART = 2;
 var DEFAULT_BUILD_POWER = 5;
+var NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
+var NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
+var FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER = 2;
 var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 var DEFAULT_SOURCE_ENERGY_CAPACITY = 3e3;
 var DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
@@ -7193,13 +7196,13 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
     )[0];
   }
   const topImpactCandidates = selectTopImpactConstructionSiteCandidates(candidates, priorityContext);
-  const completableConstructionSite = selectNearTermCompletableConstructionSite(
+  const finishPriorityConstructionSite = selectFinishPriorityConstructionSite(
     creep,
     topImpactCandidates,
     constructionReservationContext
   );
-  if (completableConstructionSite) {
-    return completableConstructionSite;
+  if (finishPriorityConstructionSite) {
+    return finishPriorityConstructionSite;
   }
   if (typeof (position == null ? void 0 : position.findClosestByRange) === "function") {
     const candidatesByStableId = [...topImpactCandidates].sort(compareConstructionSiteId);
@@ -7319,17 +7322,19 @@ function isWorkerAssignedToConstructionSite(worker, site) {
   const task = (_a = worker.memory) == null ? void 0 : _a.task;
   return (task == null ? void 0 : task.type) === "build" && String(task.targetId) === String(site.id);
 }
-function selectNearTermCompletableConstructionSite(creep, constructionSites, constructionReservationContext) {
+function selectFinishPriorityConstructionSite(creep, constructionSites, constructionReservationContext) {
   const candidates = constructionSites.filter(
-    (site) => canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext)
+    (site) => getConstructionSiteFinishPriorityScore(creep, site, constructionReservationContext) !== null
   );
   if (candidates.length === 0) {
     return null;
   }
-  return candidates.sort(compareNearTermCompletableConstructionSites)[0];
+  return candidates.sort(
+    (left, right) => compareConstructionSiteFinishPriority(creep, left, right, constructionReservationContext) || compareConstructionSiteId(left, right)
+  )[0];
 }
 function compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext) {
-  return getConstructionSiteImpactPriority(right, priorityContext) - getConstructionSiteImpactPriority(left, priorityContext) || compareConstructionSiteReasonableRange(creep, left, right) || compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareConstructionSiteId(left, right);
+  return getConstructionSiteImpactPriority(right, priorityContext) - getConstructionSiteImpactPriority(left, priorityContext) || compareConstructionSiteFinishPriority(creep, left, right, constructionReservationContext) || compareConstructionSiteReasonableRange(creep, left, right) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareConstructionSiteId(left, right);
 }
 function compareConstructionSiteReasonableRange(creep, left, right) {
   const leftInRange = isConstructionSiteWithinReasonableRange(
@@ -7357,24 +7362,49 @@ function selectTopImpactConstructionSiteCandidates(candidates, priorityContext) 
   );
   return candidates.filter((site) => getConstructionSiteImpactPriority(site, priorityContext) === highestPriority);
 }
-function compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) {
-  const leftCompletable = canCompleteConstructionSiteWithCarriedEnergy(
+function compareConstructionSiteFinishPriority(creep, left, right, constructionReservationContext) {
+  const leftFinishPriority = getConstructionSiteFinishPriorityScore(
     creep,
     left,
     constructionReservationContext
   );
-  const rightCompletable = canCompleteConstructionSiteWithCarriedEnergy(
+  const rightFinishPriority = getConstructionSiteFinishPriorityScore(
     creep,
     right,
     constructionReservationContext
   );
-  if (leftCompletable !== rightCompletable) {
-    return leftCompletable ? -1 : 1;
+  if (leftFinishPriority === null && rightFinishPriority === null) {
+    return 0;
   }
-  return leftCompletable && rightCompletable ? compareNearTermCompletableConstructionSites(left, right) : 0;
+  if (leftFinishPriority === null) {
+    return 1;
+  }
+  if (rightFinishPriority === null) {
+    return -1;
+  }
+  return rightFinishPriority.score - leftFinishPriority.score || leftFinishPriority.remainingProgress - rightFinishPriority.remainingProgress;
 }
-function compareNearTermCompletableConstructionSites(left, right) {
-  return getConstructionSiteRemainingProgress2(left) - getConstructionSiteRemainingProgress2(right) || compareConstructionSiteId(left, right);
+function getConstructionSiteFinishPriorityScore(creep, site, constructionReservationContext) {
+  const remainingProgress = getUnreservedConstructionProgressForWorker(
+    creep,
+    site,
+    constructionReservationContext
+  );
+  const progressTotal = getConstructionSiteProgressTotal(site);
+  if (remainingProgress <= 0 || !Number.isFinite(remainingProgress) || progressTotal <= 0 || !Number.isFinite(progressTotal)) {
+    return null;
+  }
+  const canComplete = remainingProgress <= getUsedEnergy(creep) * getBuildPower();
+  const nearlyComplete = remainingProgress / progressTotal < NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO;
+  if (!canComplete && !nearlyComplete) {
+    return null;
+  }
+  const finishableMultiplier = canComplete ? FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER : 1;
+  const nearlyCompleteMultiplier = nearlyComplete ? NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER : 1;
+  return {
+    remainingProgress,
+    score: finishableMultiplier * nearlyCompleteMultiplier / Math.max(1, remainingProgress)
+  };
 }
 function canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext = createEmptyConstructionReservationContext()) {
   const remainingProgress = getUnreservedConstructionProgressForWorker(
@@ -7400,6 +7430,10 @@ function getConstructionSiteRemainingProgress2(site) {
     return Number.POSITIVE_INFINITY;
   }
   return Math.max(0, Math.ceil(progressTotal - progress));
+}
+function getConstructionSiteProgressTotal(site) {
+  const progressTotal = site.progressTotal;
+  return typeof progressTotal === "number" && Number.isFinite(progressTotal) ? Math.max(0, progressTotal) : Number.POSITIVE_INFINITY;
 }
 function getBuildPower() {
   return typeof BUILD_POWER === "number" && Number.isFinite(BUILD_POWER) && BUILD_POWER > 0 ? BUILD_POWER : DEFAULT_BUILD_POWER;
@@ -9017,6 +9051,178 @@ function getGameCreeps() {
   return creeps ? Object.values(creeps) : [];
 }
 
+// src/telemetry/behaviorTelemetry.ts
+var BEHAVIOR_COUNTER_KEYS = [
+  { key: "idleTicks" },
+  { key: "moveTicks" },
+  { key: "workTicks" },
+  { key: "stuckTicks" },
+  { key: "containerTransfers" },
+  { key: "pathLength" }
+];
+function observeCreepBehaviorTick(creep, tick = getGameTime6()) {
+  var _a, _b;
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (telemetry.lastObservedTick === tick) {
+    return;
+  }
+  const currentPosition = getCreepPositionMemory(creep);
+  if (currentPosition && telemetry.lastPosition && telemetry.lastMoveTick === tick - 1) {
+    const stepDistance = getStepDistance(telemetry.lastPosition, currentPosition);
+    if (stepDistance > 0) {
+      telemetry.pathLength = ((_a = telemetry.pathLength) != null ? _a : 0) + stepDistance;
+    } else {
+      telemetry.stuckTicks = ((_b = telemetry.stuckTicks) != null ? _b : 0) + 1;
+    }
+  }
+  if (currentPosition) {
+    telemetry.lastPosition = currentPosition;
+  }
+  telemetry.lastObservedTick = tick;
+}
+function recordCreepBehaviorIdle(creep, tick = getGameTime6()) {
+  var _a;
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (telemetry.lastIdleTick === tick) {
+    return;
+  }
+  telemetry.idleTicks = ((_a = telemetry.idleTicks) != null ? _a : 0) + 1;
+  telemetry.lastIdleTick = tick;
+}
+function recordCreepBehaviorMove(creep, tick = getGameTime6()) {
+  var _a;
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (telemetry.lastMoveTick === tick) {
+    return;
+  }
+  telemetry.moveTicks = ((_a = telemetry.moveTicks) != null ? _a : 0) + 1;
+  telemetry.lastMoveTick = tick;
+}
+function recordCreepBehaviorWork(creep, tick = getGameTime6()) {
+  var _a;
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (telemetry.lastWorkTick === tick) {
+    return;
+  }
+  telemetry.workTicks = ((_a = telemetry.workTicks) != null ? _a : 0) + 1;
+  telemetry.lastWorkTick = tick;
+}
+function recordCreepBehaviorRepairTarget(creep, targetId) {
+  ensureCreepBehaviorTelemetry(creep).repairTargetId = targetId;
+}
+function recordCreepBehaviorContainerTransfer(creep) {
+  var _a;
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  telemetry.containerTransfers = ((_a = telemetry.containerTransfers) != null ? _a : 0) + 1;
+}
+function summarizeAndResetCreepBehaviorTelemetry(workers) {
+  const creepSummaries = workers.map(toRuntimeCreepBehaviorSummary).filter((summary) => summary !== null).sort(compareRuntimeCreepBehaviorSummaries);
+  if (creepSummaries.length === 0) {
+    return {};
+  }
+  for (const worker of workers) {
+    resetCreepBehaviorCounters(worker);
+  }
+  return {
+    behavior: {
+      creeps: creepSummaries,
+      totals: summarizeBehaviorTotals(creepSummaries)
+    }
+  };
+}
+function ensureCreepBehaviorTelemetry(creep) {
+  if (!creep.memory.behaviorTelemetry) {
+    creep.memory.behaviorTelemetry = {};
+  }
+  return creep.memory.behaviorTelemetry;
+}
+function toRuntimeCreepBehaviorSummary(creep) {
+  const telemetry = creep.memory.behaviorTelemetry;
+  if (!telemetry || !hasReportableBehaviorTelemetry(telemetry)) {
+    return null;
+  }
+  return {
+    ...buildCreepNameSummary(creep),
+    idleTicks: getNonNegativeCounter(telemetry.idleTicks),
+    moveTicks: getNonNegativeCounter(telemetry.moveTicks),
+    workTicks: getNonNegativeCounter(telemetry.workTicks),
+    stuckTicks: getNonNegativeCounter(telemetry.stuckTicks),
+    containerTransfers: getNonNegativeCounter(telemetry.containerTransfers),
+    pathLength: getNonNegativeCounter(telemetry.pathLength),
+    ...typeof telemetry.repairTargetId === "string" && telemetry.repairTargetId.length > 0 ? { repairTargetId: telemetry.repairTargetId } : {}
+  };
+}
+function hasReportableBehaviorTelemetry(telemetry) {
+  return BEHAVIOR_COUNTER_KEYS.some(({ key }) => getNonNegativeCounter(telemetry[key]) > 0) || typeof telemetry.repairTargetId === "string" && telemetry.repairTargetId.length > 0;
+}
+function resetCreepBehaviorCounters(creep) {
+  const telemetry = creep.memory.behaviorTelemetry;
+  if (!telemetry) {
+    return;
+  }
+  for (const { key } of BEHAVIOR_COUNTER_KEYS) {
+    delete telemetry[key];
+  }
+  delete telemetry.repairTargetId;
+  delete telemetry.lastIdleTick;
+  delete telemetry.lastWorkTick;
+  if (!telemetry.lastPosition && telemetry.lastMoveTick === void 0 && telemetry.lastObservedTick === void 0) {
+    delete creep.memory.behaviorTelemetry;
+  }
+}
+function summarizeBehaviorTotals(creeps) {
+  return creeps.reduce(
+    (totals, creep) => ({
+      idleTicks: totals.idleTicks + creep.idleTicks,
+      moveTicks: totals.moveTicks + creep.moveTicks,
+      workTicks: totals.workTicks + creep.workTicks,
+      stuckTicks: totals.stuckTicks + creep.stuckTicks,
+      containerTransfers: totals.containerTransfers + creep.containerTransfers,
+      pathLength: totals.pathLength + creep.pathLength
+    }),
+    {
+      idleTicks: 0,
+      moveTicks: 0,
+      workTicks: 0,
+      stuckTicks: 0,
+      containerTransfers: 0,
+      pathLength: 0
+    }
+  );
+}
+function compareRuntimeCreepBehaviorSummaries(left, right) {
+  var _a, _b;
+  return ((_a = left.creepName) != null ? _a : "").localeCompare((_b = right.creepName) != null ? _b : "");
+}
+function buildCreepNameSummary(creep) {
+  const name = creep.name;
+  return typeof name === "string" && name.length > 0 ? { creepName: name } : {};
+}
+function getNonNegativeCounter(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+function getCreepPositionMemory(creep) {
+  const pos = creep.pos;
+  if (!pos || typeof pos.x !== "number" || typeof pos.y !== "number" || typeof pos.roomName !== "string") {
+    return null;
+  }
+  return {
+    x: pos.x,
+    y: pos.y,
+    roomName: pos.roomName
+  };
+}
+function getStepDistance(previous, current) {
+  if (previous.roomName !== current.roomName) {
+    return 1;
+  }
+  return Math.max(Math.abs(current.x - previous.x), Math.abs(current.y - previous.y));
+}
+function getGameTime6() {
+  const game = globalThis.Game;
+  return typeof (game == null ? void 0 : game.time) === "number" ? game.time : 0;
+}
+
 // src/creeps/workerRunner.ts
 var MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
 var OK_CODE3 = 0;
@@ -9025,6 +9231,7 @@ function runWorker(creep) {
   if (runControllerSustainMovement(creep)) {
     return;
   }
+  observeCreepBehaviorTick(creep);
   const selectedTask = selectWorkerTask(creep);
   const currentTask = creep.memory.task;
   if (!currentTask) {
@@ -9180,34 +9387,41 @@ function isControllerSustainMemory(value) {
 function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 0) {
   let task = creep.memory.task;
   if (!task || !canExecuteTask(creep, task)) {
+    recordCreepBehaviorIdle(creep);
     return;
   }
   let target = Game.getObjectById(task.targetId);
   if (!target) {
     if (selectedTask && isSameTask(task, selectedTask)) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
     task = assignSelectedTask(creep, selectedTask, task);
     if (!task || !canExecuteTask(creep, task)) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
     target = Game.getObjectById(task.targetId);
     if (!target) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
   }
   if (shouldReplaceTarget(creep, task, target)) {
     task = assignSelectedTask(creep, selectedTask, task);
     if (!task || !canExecuteTask(creep, task)) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
     target = Game.getObjectById(task.targetId);
     if (!target || shouldReplaceTarget(creep, task, target)) {
+      recordCreepBehaviorIdle(creep);
       return;
     }
   }
-  const result = executeTask(creep, task, target);
-  if (shouldImmediatelyReselectAfterTaskResult(task, result)) {
+  const execution = executeTask(creep, task, target);
+  recordTaskBehavior(creep, task, execution);
+  if (shouldImmediatelyReselectAfterTaskResult(task, execution.result)) {
     delete creep.memory.task;
     const nextTask = assignNextTask(creep);
     if (nextTask && !isSameTask(task, nextTask) && immediateReselectExecutions < MAX_IMMEDIATE_RESELECT_EXECUTIONS) {
@@ -9215,8 +9429,9 @@ function executeAssignedTask(creep, selectedTask, immediateReselectExecutions = 
     }
     return;
   }
-  if (result === ERR_NOT_IN_RANGE) {
+  if (execution.result === ERR_NOT_IN_RANGE) {
     creep.moveTo(target);
+    recordCreepBehaviorMove(creep);
   }
 }
 function shouldImmediatelyReselectAfterTaskResult(task, result) {
@@ -9606,41 +9821,43 @@ function executeTask(creep, task, target) {
     case "harvest":
       return executeHarvestTask(creep, target);
     case "pickup":
-      return creep.pickup(target);
+      return toTaskExecutionResult(creep.pickup(target), "work");
     case "withdraw":
-      return creep.withdraw(target, RESOURCE_ENERGY);
+      return toTaskExecutionResult(creep.withdraw(target, RESOURCE_ENERGY), "work");
     case "transfer":
-      return creep.transfer(target, RESOURCE_ENERGY);
+      return toTaskExecutionResult(creep.transfer(target, RESOURCE_ENERGY), "work", {
+        containerTransfer: isContainerStructure2(target)
+      });
     case "build":
-      return creep.build(target);
+      return toTaskExecutionResult(creep.build(target), "work");
     case "repair":
-      return creep.repair(target);
+      return toTaskExecutionResult(creep.repair(target), "work");
     case "claim":
       if (typeof creep.attackController === "function" && canCreepPressureTerritoryController(creep, target, creep.memory.colony)) {
-        return creep.attackController(target);
+        return toTaskExecutionResult(creep.attackController(target), "work");
       }
-      return creep.claimController(target);
+      return toTaskExecutionResult(creep.claimController(target), "work");
     case "reserve":
       if (typeof creep.attackController === "function" && canCreepPressureTerritoryController(creep, target, creep.memory.colony)) {
-        return creep.attackController(target);
+        return toTaskExecutionResult(creep.attackController(target), "work");
       }
-      return creep.reserveController(target);
+      return toTaskExecutionResult(creep.reserveController(target), "work");
     case "upgrade":
       signOccupiedControllerIfNeeded(creep, target);
-      return creep.upgradeController(target);
+      return toTaskExecutionResult(creep.upgradeController(target), "work");
   }
 }
 function executeHarvestTask(creep, source) {
   const sourceContainer = findSourceContainer(creep.room, source);
   if (!sourceContainer) {
-    return creep.harvest(source);
+    return toTaskExecutionResult(creep.harvest(source), "work");
   }
   if (!isInRangeToRoomObject(creep, source, 1)) {
     creep.moveTo(sourceContainer);
-    return OK_CODE3;
+    return { result: OK_CODE3, action: "move" };
   }
   if (isDepletedHarvestSource(source)) {
-    return getUsedTransferEnergy(creep) > 0 ? transferDedicatedHarvestEnergy(creep, sourceContainer) : OK_CODE3;
+    return getUsedTransferEnergy(creep) > 0 ? transferDedicatedHarvestEnergy(creep, sourceContainer) : { result: OK_CODE3 };
   }
   if (getFreeTransferEnergyCapacity(creep) <= 0 && getUsedTransferEnergy(creep) > 0) {
     return transferDedicatedHarvestEnergy(creep, sourceContainer);
@@ -9649,18 +9866,49 @@ function executeHarvestTask(creep, source) {
   if ((result === ERR_FULL || result === ERR_NOT_ENOUGH_RESOURCES) && getUsedTransferEnergy(creep) > 0) {
     return transferDedicatedHarvestEnergy(creep, sourceContainer);
   }
-  return result === ERR_NOT_ENOUGH_RESOURCES ? OK_CODE3 : result;
+  return toTaskExecutionResult(result === ERR_NOT_ENOUGH_RESOURCES ? OK_CODE3 : result, "work");
 }
 function transferDedicatedHarvestEnergy(creep, sourceContainer) {
   if (typeof creep.transfer !== "function") {
-    return OK_CODE3;
+    return { result: OK_CODE3 };
   }
   const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
   if (result === ERR_NOT_IN_RANGE) {
     creep.moveTo(sourceContainer);
-    return OK_CODE3;
+    return { result: OK_CODE3, action: "move" };
   }
-  return result;
+  return toTaskExecutionResult(result, "work", { containerTransfer: true });
+}
+function toTaskExecutionResult(result, successAction, options = {}) {
+  return {
+    result,
+    ...result === OK_CODE3 ? { action: successAction } : {},
+    ...result === OK_CODE3 && options.containerTransfer ? { containerTransfer: true } : {}
+  };
+}
+function recordTaskBehavior(creep, task, execution) {
+  if (task.type === "repair") {
+    recordCreepBehaviorRepairTarget(creep, String(task.targetId));
+  }
+  if (execution.action === "move") {
+    recordCreepBehaviorMove(creep);
+  } else if (execution.action === "work") {
+    recordCreepBehaviorWork(creep);
+  } else if (execution.result !== ERR_NOT_IN_RANGE) {
+    recordCreepBehaviorIdle(creep);
+  }
+  if (execution.containerTransfer) {
+    recordCreepBehaviorContainerTransfer(creep);
+  }
+}
+function isContainerStructure2(target) {
+  const structureType = target == null ? void 0 : target.structureType;
+  return typeof structureType === "string" && matchesContainerStructureType(structureType);
+}
+function matchesContainerStructureType(actual) {
+  var _a;
+  const containerType = (_a = globalThis.STRUCTURE_CONTAINER) != null ? _a : "container";
+  return actual === containerType;
 }
 function isDedicatedSourceContainerHarvestTask(creep, task) {
   return task.type === "harvest" && findHarvestTaskSourceContainer(creep, task) !== null;
@@ -11386,7 +11634,7 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   if (!bootstraps) {
     return;
   }
-  const gameTime = getGameTime6();
+  const gameTime = getGameTime7();
   const existing = getPostClaimBootstrapRecord(input.roomName);
   const claimedAt = (existing == null ? void 0 : existing.status) === "ready" ? gameTime : (_a = existing == null ? void 0 : existing.claimedAt) != null ? _a : gameTime;
   bootstraps[input.roomName] = {
@@ -11506,7 +11754,7 @@ function recordPostClaimBootstrapWorkerSpawn(roomName, spawnName, creepName, res
   }
   updatePostClaimBootstrapRecord(roomName, {
     status: "spawningWorkers",
-    updatedAt: getGameTime6()
+    updatedAt: getGameTime7()
   });
   telemetryEvents.push({
     type: "postClaimBootstrap",
@@ -11780,7 +12028,7 @@ function getGlobalString(name) {
   const value = globalThis[name];
   return typeof value === "string" ? value : null;
 }
-function getGameTime6() {
+function getGameTime7() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
@@ -11817,7 +12065,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   if (colonies.length === 0 && events.length === 0) {
     return;
   }
-  const tick = getGameTime7();
+  const tick = getGameTime8();
   resetCachedRefillTelemetryIfTickRewound(tick);
   const emitsSummary = shouldEmitRuntimeSummary(tick, events);
   const creepsByColony = groupCreepsByColony(creeps);
@@ -11853,7 +12101,8 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
           colony,
           (_a = creepsByColony.get(colony.room.name)) != null ? _a : [],
           persistOccupationRecommendations,
-          (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {}
+          (_b = eventMetricsByRoom.get(colony.room.name)) != null ? _b : {},
+          shouldBuildStructureSnapshot(tick)
         );
       }
     ),
@@ -11906,13 +12155,13 @@ function buildRoomEventMetricsByRoom(colonies, refillTargetIdsByRoom) {
   }
   return eventMetricsByRoom;
 }
-function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics) {
+function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, eventMetrics, includeStructureSnapshot) {
   const colonyWorkers = colonyCreeps.filter((creep) => creep.memory.role === "worker");
   const roleCounts = countCreepsByRole(colonyCreeps, colony.room.name);
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
   if (persistOccupationRecommendations) {
-    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime7());
+    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime8());
   }
   return {
     roomName: colony.room.name,
@@ -11921,9 +12170,11 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
-    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime7()),
-    ...summarizeRefillTelemetry(colonyWorkers, getGameTime7()),
-    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime7()),
+    ...summarizeAndResetCreepBehaviorTelemetry(colonyWorkers),
+    ...includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {},
+    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime8()),
+    ...summarizeRefillTelemetry(colonyWorkers, getGameTime8()),
+    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime8()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -11942,7 +12193,7 @@ function buildPostClaimBootstrapSummary(roomName) {
 }
 function buildTerritoryIntentSummary(colonyName, roleCounts) {
   const territoryIntents = getTerritoryIntentProgressSummaries(colonyName, roleCounts);
-  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime7());
+  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime8());
   const hasSuspendedTerritoryIntents = Object.keys(suspendedTerritoryIntentCounts).length > 0;
   if (territoryIntents.length === 0 && !hasSuspendedTerritoryIntents) {
     return {};
@@ -11994,6 +12245,91 @@ function countWorkerTasks(workers) {
 }
 function isWorkerTaskType(taskType) {
   return WORKER_TASK_TYPES.includes(taskType);
+}
+function shouldBuildStructureSnapshot(tick) {
+  return tick > 0 && tick % RUNTIME_SUMMARY_INTERVAL === 0;
+}
+function summarizeStructures(colony, colonyWorkers) {
+  var _a, _b;
+  const roomStructures = (_a = findRoomObjects7(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
+  const constructionSites = (_b = findRoomObjects7(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
+  const roadCount = countStructuresByType2(roomStructures, "STRUCTURE_ROAD", "road");
+  const pendingRoadSiteCount = countConstructionSitesByType(constructionSites, "STRUCTURE_ROAD", "road");
+  return {
+    towerCount: countStructuresByType2(roomStructures, "STRUCTURE_TOWER", "tower"),
+    rampartCount: countOwnedRamparts(roomStructures),
+    containers: summarizeContainers(roomStructures),
+    repairTargets: summarizeRepairTargetDistribution(colonyWorkers, roomStructures),
+    roadCount,
+    pendingRoadSiteCount,
+    roadCoverageRatio: calculateRoadCoverageRatio(roadCount, pendingRoadSiteCount)
+  };
+}
+function countStructuresByType2(structures, globalName, fallback) {
+  return structures.filter((structure) => isStructureOfType(structure, globalName, fallback)).length;
+}
+function countConstructionSitesByType(constructionSites, globalName, fallback) {
+  return constructionSites.filter((site) => isStructureOfType(site, globalName, fallback)).length;
+}
+function countOwnedRamparts(structures) {
+  return structures.filter((structure) => isRecord11(structure) && isObservedOwnedRampart(structure)).length;
+}
+function summarizeContainers(structures) {
+  return structures.filter((structure) => isStructureOfType(structure, "STRUCTURE_CONTAINER", "container")).map(toRuntimeContainerSnapshot).filter((summary) => summary !== null).sort((left, right) => left.id.localeCompare(right.id));
+}
+function toRuntimeContainerSnapshot(structure) {
+  const id = getObjectId2(structure);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    energy: getEnergyInStore(structure),
+    capacity: getEnergyCapacityInStore(structure)
+  };
+}
+function summarizeRepairTargetDistribution(colonyWorkers, roomStructures) {
+  var _a;
+  const repairCounts = /* @__PURE__ */ new Map();
+  for (const worker of colonyWorkers) {
+    const task = worker.memory.task;
+    if ((task == null ? void 0 : task.type) !== "repair") {
+      continue;
+    }
+    const targetId = String(task.targetId);
+    repairCounts.set(targetId, ((_a = repairCounts.get(targetId)) != null ? _a : 0) + 1);
+  }
+  const structuresById = /* @__PURE__ */ new Map();
+  for (const structure of roomStructures) {
+    const id = getObjectId2(structure);
+    if (id) {
+      structuresById.set(id, structure);
+    }
+  }
+  return [...repairCounts.entries()].sort(([leftTargetId], [rightTargetId]) => leftTargetId.localeCompare(rightTargetId)).map(([targetId, repairCount]) => toRuntimeRepairTargetSnapshot(targetId, repairCount, structuresById.get(targetId)));
+}
+function toRuntimeRepairTargetSnapshot(targetId, repairCount, structure) {
+  const structureRecord = isRecord11(structure) ? structure : {};
+  const structureType = typeof structureRecord.structureType === "string" ? structureRecord.structureType : void 0;
+  const hits = getFiniteNumber(structureRecord.hits);
+  const hitsMax = getFiniteNumber(structureRecord.hitsMax);
+  return {
+    targetId,
+    repairCount,
+    ...structureType ? { structureType } : {},
+    ...hits !== null ? { hits } : {},
+    ...hitsMax !== null ? { hitsMax } : {}
+  };
+}
+function isStructureOfType(structure, globalName, fallback) {
+  return isRecord11(structure) && matchesStructureType8(structure.structureType, globalName, fallback);
+}
+function calculateRoadCoverageRatio(roadCount, pendingRoadSiteCount) {
+  const totalKnownRoadWork = roadCount + pendingRoadSiteCount;
+  if (totalKnownRoadWork <= 0) {
+    return 0;
+  }
+  return roundRatio2(roadCount, totalKnownRoadWork);
 }
 function summarizeWorkerEfficiency(workers, tick) {
   const samples = workers.map((worker) => ({ creepName: getCreepName2(worker), sample: worker.memory.workerEfficiency })).filter(
@@ -12641,6 +12977,25 @@ function getEnergyInStore(object) {
   const storedEnergy = object.store[getEnergyResource5()];
   return typeof storedEnergy === "number" ? storedEnergy : 0;
 }
+function getEnergyCapacityInStore(object) {
+  if (!isRecord11(object) || !isRecord11(object.store)) {
+    return 0;
+  }
+  const getCapacity = object.store.getCapacity;
+  if (typeof getCapacity === "function") {
+    const capacity2 = getCapacity.call(object.store, getEnergyResource5());
+    return typeof capacity2 === "number" && Number.isFinite(capacity2) ? Math.max(0, capacity2) : 0;
+  }
+  const getFreeCapacity = object.store.getFreeCapacity;
+  if (typeof getFreeCapacity === "function") {
+    const freeCapacity = getFreeCapacity.call(object.store, getEnergyResource5());
+    if (typeof freeCapacity === "number" && Number.isFinite(freeCapacity)) {
+      return Math.max(0, getEnergyInStore(object) + freeCapacity);
+    }
+  }
+  const capacity = object.store.capacity;
+  return typeof capacity === "number" && Number.isFinite(capacity) ? Math.max(0, capacity) : 0;
+}
 function sumDroppedEnergy(droppedResources) {
   const energyResource = getEnergyResource5();
   return droppedResources.reduce((total, droppedResource) => {
@@ -12691,7 +13046,7 @@ function buildCpuSummary() {
   }
   return Object.keys(summary).length > 0 ? { cpu: summary } : {};
 }
-function getGameTime7() {
+function getGameTime8() {
   return typeof Game.time === "number" ? Game.time : 0;
 }
 
@@ -13285,7 +13640,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   if (typeof creep.reserveController !== "function" || !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
     return false;
   }
-  const gameTime = getGameTime8();
+  const gameTime = getGameTime9();
   const reserveAssignment = {
     targetRoom: assignment.targetRoom,
     action: "reserve",
@@ -13305,7 +13660,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   return true;
 }
 function suppressTerritoryAssignment(creep, assignment) {
-  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime8());
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime9());
   completeTerritoryAssignment(creep);
 }
 function completeTerritoryAssignment(creep) {
@@ -13385,7 +13740,7 @@ function selectVisibleTargetRoomController(assignment) {
   }
   return (_c = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[assignment.targetRoom]) == null ? void 0 : _b.controller) != null ? _c : null;
 }
-function getGameTime8() {
+function getGameTime9() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -13742,7 +14097,7 @@ var Kernel = class {
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
     this.dependencies.runEconomy(
-      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime9())
+      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime10())
     );
   }
 };
@@ -13814,7 +14169,7 @@ function getDefenseEventPriority(event) {
       return 3;
   }
 }
-function getGameTime9() {
+function getGameTime10() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
 
