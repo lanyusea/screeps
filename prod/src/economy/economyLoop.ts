@@ -36,6 +36,7 @@ import {
   TERRITORY_SCOUT_ROLE
 } from '../territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../territory/territoryRunner';
+import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import {
   recordPostClaimBootstrapWorkerSpawn,
   refreshPostClaimBootstrap
@@ -116,6 +117,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       usedSpawns.add(outcome.spawn);
       availableEnergy = Math.max(0, availableEnergy - getBodyCost(spawnRequest.body));
       successfulSpawnCount += 1;
+      recordPlannedMultiRoomUpgraderSpawn(spawnRequest.memory);
 
       if (spawnRequest.memory.role !== 'worker') {
         break;

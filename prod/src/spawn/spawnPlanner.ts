@@ -34,6 +34,11 @@ import {
   TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND,
   type TerritoryIntentPlan
 } from '../territory/territoryPlanner';
+import {
+  buildMultiRoomUpgraderBody,
+  buildMultiRoomUpgraderMemory,
+  selectMultiRoomUpgradePlans
+} from '../territory/multiRoomUpgrader';
 
 type SpawnPriorityTier =
   | 'emergencyBootstrap'
@@ -43,6 +48,7 @@ type SpawnPriorityTier =
   | 'postClaimControllerSustain'
   | 'remoteEconomy'
   | 'territoryRemote'
+  | 'multiRoomControllerUpgrade'
   | 'controllerUpgradeSurplus';
 
 interface SpawnPlanningContext {
@@ -90,6 +96,7 @@ const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'postClaimControllerSustain',
   'remoteEconomy',
   'territoryRemote',
+  'multiRoomControllerUpgrade',
   'controllerUpgradeSurplus'
 ];
 
@@ -141,6 +148,8 @@ function planSpawnForPriorityTier(
       return planDefenseSpawn(context);
     case 'territoryRemote':
       return planTerritoryRemoteSpawn(context);
+    case 'multiRoomControllerUpgrade':
+      return planMultiRoomControllerUpgradeSpawn(context);
     case 'controllerUpgradeSurplus':
       return planControllerUpgradeSurplusSpawn(context);
   }
@@ -592,6 +601,48 @@ function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): Spawn
   }
 
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.options.workersOnly ||
+    context.territoryIntentPending ||
+    context.survival.mode !== 'TERRITORY_READY' ||
+    hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
+    context.workerCapacity < context.workerTarget ||
+    context.colony.energyAvailable < context.colony.energyCapacityAvailable
+  ) {
+    return null;
+  }
+
+  const upgradePlans = selectMultiRoomUpgradePlans(context.colony);
+  if (upgradePlans.length === 0) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  for (const upgradePlan of upgradePlans) {
+    const body = buildMultiRoomUpgraderBody(context.colony.energyAvailable, upgradePlan);
+    if (body.length === 0) {
+      continue;
+    }
+
+    return {
+      spawn,
+      body,
+      name: appendSpawnNameSuffix(
+        `worker-${context.colony.room.name}-${upgradePlan.targetRoom}-multiroom-upgrader-${context.gameTime}`,
+        context.options
+      ),
+      memory: buildMultiRoomUpgraderMemory(upgradePlan)
+    };
+  }
+
+  return null;
 }
 
 function shouldSpawnControllerUpgradeSurplusWorker(context: SpawnPlanningContext): boolean {
