@@ -2,6 +2,7 @@ import { cleanupDeadCreepMemory, initializeMemory } from '../memory/schema';
 import { runDefense } from '../defense/defenseLoop';
 import { runEconomy } from '../economy/economyLoop';
 import { RUNTIME_SUMMARY_INTERVAL, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import type { RuntimeSummary } from '../telemetry/runtimeSummary';
 
 const MAX_FORWARDED_DEFENSE_EVENTS_PER_TICK = 5;
 const DEFENSE_EVENT_FORWARDING_TTL_TICKS = RUNTIME_SUMMARY_INTERVAL;
@@ -10,7 +11,7 @@ export interface KernelDependencies {
   initializeMemory: () => void;
   cleanupDeadCreepMemory: () => void;
   runDefense: () => RuntimeTelemetryEvent[];
-  runEconomy: (telemetryEvents?: RuntimeTelemetryEvent[]) => void;
+  runEconomy: (telemetryEvents?: RuntimeTelemetryEvent[]) => RuntimeSummary | undefined;
 }
 
 export class Kernel {
@@ -25,11 +26,11 @@ export class Kernel {
     }
   ) {}
 
-  public run(): void {
+  public run(): RuntimeSummary | undefined {
     this.dependencies.initializeMemory();
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
-    this.dependencies.runEconomy(
+    return this.dependencies.runEconomy(
       selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime())
     );
   }

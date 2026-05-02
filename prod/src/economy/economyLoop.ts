@@ -13,7 +13,7 @@ import { HAULER_ROLE, runHauler } from '../creeps/hauler';
 import { REMOTE_HARVESTER_ROLE, runRemoteHarvester } from '../creeps/remoteHarvester';
 import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
 import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
-import { emitRuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import { emitRuntimeSummary, type RuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import { recordSourceWorkloads } from './sourceWorkload';
 import {
   buildRuntimeOccupationRecommendationReport,
@@ -58,7 +58,7 @@ interface SpawnAttemptOutcome {
   result: ScreepsReturnCode;
 }
 
-export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): void {
+export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): RuntimeSummary | undefined {
   const creeps = Object.values(Game.creeps);
   const colonies = getOwnedColonies();
   const telemetryEvents: RuntimeTelemetryEvent[] = [...preludeTelemetryEvents];
@@ -143,7 +143,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     }
   }
 
-  emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+  return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
 }
 
 function refreshExecutableTerritoryRecommendation(
