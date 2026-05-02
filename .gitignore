@@ -18,4 +18,5 @@ yarn-error.log*
 
 # Runtime monitor artifacts
 runtime-artifacts/
+rl_data/
 .codex

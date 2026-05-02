@@ -1,5 +1,10 @@
 import { STRATEGY_SHADOW_REPLAY_FIXTURE } from './fixtures/strategyShadowReplayFixture';
-import { evaluateStrategyShadowReplay } from '../src/strategy/shadowEvaluator';
+import {
+  DEFAULT_VARIANCE_CONFIG,
+  evaluateStrategyShadowReplay,
+  injectStrategyVariance
+} from '../src/strategy/shadowEvaluator';
+import { DEFAULT_STRATEGY_REGISTRY } from '../src/strategy/strategyRegistry';
 
 describe('strategy shadow evaluator', () => {
   it('is passive and disabled by default', () => {
@@ -23,7 +28,7 @@ describe('strategy shadow evaluator', () => {
           'expansion-remote.territory-shadow.v1'
         ]
       }
-    });
+    }, { enabled: false });
 
     expect(report.enabled).toBe(true);
     expect(report.warnings).toEqual([]);
@@ -78,4 +83,128 @@ describe('strategy shadow evaluator', () => {
       }
     });
   });
+
+  it('injects candidate variance that varies by seed', () => {
+    const candidate = DEFAULT_STRATEGY_REGISTRY.find(
+      (entry) => entry.id === 'construction-priority.territory-shadow.v1'
+    );
+    if (!candidate) {
+      throw new Error('construction-priority shadow candidate missing from registry');
+    }
+
+    const first = injectStrategyVariance(candidate, { ...DEFAULT_VARIANCE_CONFIG, defaultNoiseScale: 0.5, evaluationTimestamp: 1700000100 });
+    const second = injectStrategyVariance(candidate, {
+      ...DEFAULT_VARIANCE_CONFIG,
+      defaultNoiseScale: 0.5,
+      evaluationTimestamp: 1700000200
+    });
+
+    expect(first.defaultValues).not.toEqual(second.defaultValues);
+  });
+
+  it('keeps incumbent default values even when variance is enabled', () => {
+    const incumbent = DEFAULT_STRATEGY_REGISTRY.find((entry) => entry.id === 'construction-priority.incumbent.v1');
+    if (!incumbent) {
+      throw new Error('incumbent strategy missing from registry');
+    }
+
+    const perturbed = injectStrategyVariance(incumbent, {
+      ...DEFAULT_VARIANCE_CONFIG,
+      defaultNoiseScale: 0.5,
+      evaluationTimestamp: 1700000100
+    });
+
+    expect(perturbed.defaultValues).toEqual(incumbent.defaultValues);
+  });
+
+  it('keeps perturbed values within knob bounds', () => {
+    const candidate = DEFAULT_STRATEGY_REGISTRY.find(
+      (entry) => entry.id === 'expansion-remote.territory-shadow.v1'
+    );
+    if (!candidate) {
+      throw new Error('expansion-remote shadow candidate missing from registry');
+    }
+
+    const perturbed = injectStrategyVariance(candidate, { ...DEFAULT_VARIANCE_CONFIG, defaultNoiseScale: 1, evaluationTimestamp: 1700000300 });
+
+    for (const knob of candidate.knobBounds) {
+      const value = perturbed.defaultValues[knob.name];
+      if (knob.bounds.kind === 'number' || knob.bounds.kind === 'integer') {
+        expect(typeof value).toBe('number');
+        expect(value).toBeGreaterThanOrEqual(knob.bounds.min);
+        expect(value).toBeLessThanOrEqual(knob.bounds.max);
+      }
+    }
+  });
+
+  it('returns exact defaults when variance is disabled', () => {
+    const candidate = DEFAULT_STRATEGY_REGISTRY.find((entry) => entry.id === 'construction-priority.territory-shadow.v1');
+    if (!candidate) {
+      throw new Error('construction-priority shadow candidate missing from registry');
+    }
+
+    const perturbed = injectStrategyVariance(candidate, {
+      enabled: false,
+      defaultNoiseScale: 0.5,
+      evaluationTimestamp: 1700000100
+    });
+
+    expect(perturbed.defaultValues).toEqual(candidate.defaultValues);
+  });
+
+  it('uses different noise scales to produce different perturbation magnitudes', () => {
+    const candidate = DEFAULT_STRATEGY_REGISTRY.find((entry) => entry.id === 'construction-priority.territory-shadow.v1');
+    if (!candidate) {
+      throw new Error('construction-priority shadow candidate missing from registry');
+    }
+
+    const lowNoiseCandidate = injectStrategyVariance(candidate, {
+      ...DEFAULT_VARIANCE_CONFIG,
+      defaultNoiseScale: 0.01,
+      evaluationTimestamp: 1700000400
+    });
+    const highNoiseCandidate = injectStrategyVariance(candidate, {
+      ...DEFAULT_VARIANCE_CONFIG,
+      defaultNoiseScale: 0.5,
+      evaluationTimestamp: 1700000400
+    });
+
+    const lowNoiseMagnitude = calculatePerturbationMagnitude(candidate, lowNoiseCandidate);
+    const highNoiseMagnitude = calculatePerturbationMagnitude(candidate, highNoiseCandidate);
+
+    expect(highNoiseMagnitude).toBeGreaterThan(lowNoiseMagnitude);
+  });
+
+  it('is deterministic with the same seed', () => {
+    const candidate = DEFAULT_STRATEGY_REGISTRY.find(
+      (entry) => entry.id === 'expansion-remote.territory-shadow.v1'
+    );
+    if (!candidate) {
+      throw new Error('expansion-remote shadow candidate missing from registry');
+    }
+
+    const first = injectStrategyVariance(candidate, {
+      ...DEFAULT_VARIANCE_CONFIG,
+      defaultNoiseScale: 0.3,
+      evaluationTimestamp: 1700000500
+    });
+    const second = injectStrategyVariance(candidate, {
+      ...DEFAULT_VARIANCE_CONFIG,
+      defaultNoiseScale: 0.3,
+      evaluationTimestamp: 1700000500
+    });
+
+    expect(first.defaultValues).toEqual(second.defaultValues);
+  });
 });
+
+function calculatePerturbationMagnitude(seedCandidate: (typeof DEFAULT_STRATEGY_REGISTRY)[number], perturbedCandidate: typeof DEFAULT_STRATEGY_REGISTRY[number]): number {
+  return seedCandidate.knobBounds.reduce((total, knob) => {
+    const defaultValue = seedCandidate.defaultValues[knob.name];
+    const perturbedValue = perturbedCandidate.defaultValues[knob.name];
+    if (typeof defaultValue !== 'number' || typeof perturbedValue !== 'number') {
+      return total;
+    }
+    return total + Math.abs(perturbedValue - defaultValue);
+  }, 0);
+}
