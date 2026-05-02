@@ -87,7 +87,7 @@ function isAutonomousExpansionClaimGclInsufficient(): boolean {
     return false;
   }
 
-  const maxClaimableRooms = gcl.level * gcl.level;
+  const maxClaimableRooms = gcl.level;
   if (!Number.isFinite(maxClaimableRooms)) {
     return false;
   }

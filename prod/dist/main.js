@@ -15011,7 +15011,7 @@ function isAutonomousExpansionClaimGclInsufficient() {
   if (!gcl || typeof gcl.level !== "number" || gcl.level <= 0) {
     return false;
   }
-  const maxClaimableRooms = gcl.level * gcl.level;
+  const maxClaimableRooms = gcl.level;
   if (!Number.isFinite(maxClaimableRooms)) {
     return false;
   }

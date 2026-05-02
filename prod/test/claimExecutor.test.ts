@@ -201,13 +201,19 @@ describe('autonomous expansion claim executor', () => {
 
   it('marks and emits a gclInsufficient skip when expansion capacity is exceeded', () => {
     const colony = makeColony();
+    const ownedRoom = makeTargetRoom('W3N1', {
+      controllerId: 'controller3' as Id<StructureController>
+    });
+    (ownedRoom.controller as StructureController).my = true;
+    (ownedRoom.controller as StructureController).owner = { username: 'me' };
     (Game.rooms as Record<string, Room>) = {
       W1N1: colony.room,
+      W3N1: ownedRoom,
       W2N1: makeTargetRoom('W2N1', {
         controllerId: 'controller2' as Id<StructureController>
       })
     };
-    (Game as { gcl: { level: number } }).gcl = { level: 1 };
+    (Game as { gcl: { level: number } }).gcl = { level: 2 };
 
     const evaluation = refreshAutonomousExpansionClaimIntent(
       colony,
