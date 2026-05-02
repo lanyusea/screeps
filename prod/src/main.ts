@@ -13,6 +13,7 @@ export {
   type ValidationResult
 } from './strategy/historicalReplayValidator';
 export { RlRolloutGate, validateRlStrategyRollout } from './strategy/rlRolloutGate';
+export { DEFAULT_VARIANCE_CONFIG, VarianceConfig, injectStrategyVariance } from './strategy/shadowEvaluator';
 
 const kernel = new Kernel();
 

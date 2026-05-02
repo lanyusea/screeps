@@ -22,10 +22,12 @@ var main_exports = {};
 __export(main_exports, {
   DEFAULT_STRATEGY_REGISTRY: () => DEFAULT_STRATEGY_REGISTRY,
   DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG: () => DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG,
+  DEFAULT_VARIANCE_CONFIG: () => DEFAULT_VARIANCE_CONFIG,
   HistoricalReplayValidator: () => HistoricalReplayValidator,
   RlRolloutGate: () => RlRolloutGate,
   STRATEGY_REGISTRY_SCHEMA_VERSION: () => STRATEGY_REGISTRY_SCHEMA_VERSION,
   evaluateStrategyShadowReplay: () => evaluateStrategyShadowReplay,
+  injectStrategyVariance: () => injectStrategyVariance,
   loadHistoricalReplays: () => loadHistoricalReplays,
   loop: () => loop,
   validateRlStrategyRollout: () => validateRlStrategyRollout,
@@ -15335,6 +15337,10 @@ function isNonEmptyString13(value) {
 }
 
 // src/strategy/shadowEvaluator.ts
+var DEFAULT_VARIANCE_CONFIG = {
+  enabled: true,
+  defaultNoiseScale: 0.1
+};
 var DEFAULT_INCUMBENT_STRATEGY_IDS = {
   "construction-priority": "construction-priority.incumbent.v1",
   "expansion-remote-candidate": "expansion-remote.incumbent.v1",
@@ -15345,12 +15351,14 @@ var DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG = {
   incumbentStrategyIds: DEFAULT_INCUMBENT_STRATEGY_IDS,
   candidateStrategyIds: []
 };
-function evaluateStrategyShadowReplay(input = {}) {
-  var _a, _b;
+function evaluateStrategyShadowReplay(input = {}, varianceConfig = {}) {
+  var _a, _b, _c;
   const registry = (_a = input.registry) != null ? _a : DEFAULT_STRATEGY_REGISTRY;
   const artifacts = parseStrategyEvaluationArtifacts((_b = input.artifacts) != null ? _b : []);
   const kpi = reduceStrategyKpis(artifacts);
   const config = normalizeShadowConfig(input.config);
+  const resolvedVarianceConfig = normalizeVarianceConfig(varianceConfig);
+  const evaluationTimestamp = (_c = resolvedVarianceConfig.evaluationTimestamp) != null ? _c : Date.now();
   if (!config.enabled) {
     return {
       enabled: false,
@@ -15381,7 +15389,8 @@ function evaluateStrategyShadowReplay(input = {}) {
       warnings.push(`incumbent ${incumbent.id} does not match candidate family ${candidate.family}`);
       continue;
     }
-    modelReports.push(evaluateModelPair(artifacts, incumbent, candidate));
+    const evaluatedCandidate = candidate.rolloutStatus === "incumbent" ? candidate : injectStrategyVariance(candidate, { ...resolvedVarianceConfig, strategyOverrides: void 0 }, evaluationTimestamp);
+    modelReports.push(evaluateModelPair(artifacts, incumbent, evaluatedCandidate));
   }
   return {
     enabled: true,
@@ -15389,6 +15398,41 @@ function evaluateStrategyShadowReplay(input = {}) {
     kpi,
     modelReports,
     warnings
+  };
+}
+function injectStrategyVariance(entry, varianceConfig = {}, evaluationTimestamp) {
+  var _a;
+  const resolvedConfig = normalizeVarianceConfig(varianceConfig);
+  const strategyConfig = resolveStrategyVarianceConfig(resolvedConfig, entry.id);
+  if (entry.rolloutStatus === "incumbent" || !strategyConfig.enabled) {
+    return {
+      ...entry,
+      defaultValues: { ...entry.defaultValues }
+    };
+  }
+  const seedTimestamp = (_a = evaluationTimestamp != null ? evaluationTimestamp : resolvedConfig.evaluationTimestamp) != null ? _a : Date.now();
+  const rng = createSeededRandom(`${entry.id}:${seedTimestamp}`);
+  const defaultValues = { ...entry.defaultValues };
+  const resolvedNoiseScale = clamp2(strategyConfig.defaultNoiseScale, 0, 1);
+  for (const knob of entry.knobBounds) {
+    if (knob.bounds.kind !== "number" && knob.bounds.kind !== "integer") {
+      continue;
+    }
+    const defaultValue = entry.defaultValues[knob.name];
+    if (typeof defaultValue !== "number" || !Number.isFinite(defaultValue)) {
+      continue;
+    }
+    const range = knob.bounds.max - knob.bounds.min;
+    const noise = (rng() * 2 - 1) * resolvedNoiseScale * range;
+    let perturbed = defaultValue + noise;
+    if (knob.bounds.kind === "integer") {
+      perturbed = Math.round(perturbed);
+    }
+    defaultValues[knob.name] = clamp2(perturbed, knob.bounds.min, knob.bounds.max);
+  }
+  return {
+    ...entry,
+    defaultValues
   };
 }
 function normalizeShadowConfig(config) {
@@ -15401,6 +15445,39 @@ function normalizeShadowConfig(config) {
     },
     candidateStrategyIds: (_c = config == null ? void 0 : config.candidateStrategyIds) != null ? _c : DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG.candidateStrategyIds
   };
+}
+function normalizeVarianceConfig(config) {
+  var _a, _b;
+  return {
+    enabled: (_a = config == null ? void 0 : config.enabled) != null ? _a : DEFAULT_VARIANCE_CONFIG.enabled,
+    defaultNoiseScale: (_b = config == null ? void 0 : config.defaultNoiseScale) != null ? _b : DEFAULT_VARIANCE_CONFIG.defaultNoiseScale,
+    strategyOverrides: config == null ? void 0 : config.strategyOverrides,
+    evaluationTimestamp: config == null ? void 0 : config.evaluationTimestamp
+  };
+}
+function resolveStrategyVarianceConfig(config, strategyId) {
+  var _a, _b, _c;
+  const override = (_a = config.strategyOverrides) == null ? void 0 : _a[strategyId];
+  return {
+    enabled: (_b = override == null ? void 0 : override.enabled) != null ? _b : config.enabled,
+    defaultNoiseScale: clamp2((_c = override == null ? void 0 : override.defaultNoiseScale) != null ? _c : config.defaultNoiseScale, 0, 1)
+  };
+}
+function createSeededRandom(seed) {
+  const seedHash = hashString(seed);
+  let state = seedHash;
+  return () => {
+    state = Math.imul(state, 1664525) + 1013904223 >>> 0;
+    return state / 4294967296;
+  };
+}
+function hashString(value) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 function evaluateModelPair(artifacts, incumbent, candidate) {
   const rankingDiffs = [];
@@ -15688,6 +15765,9 @@ function urgencyReliabilitySignal(urgency) {
       return 0;
   }
 }
+function clamp2(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 function countSignalWords(text, words) {
   return words.reduce((count, word) => count + (text.includes(word) ? 1 : 0), 0);
 }
@@ -15870,10 +15950,12 @@ function loop() {
 0 && (module.exports = {
   DEFAULT_STRATEGY_REGISTRY,
   DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG,
+  DEFAULT_VARIANCE_CONFIG,
   HistoricalReplayValidator,
   RlRolloutGate,
   STRATEGY_REGISTRY_SCHEMA_VERSION,
   evaluateStrategyShadowReplay,
+  injectStrategyVariance,
   loadHistoricalReplays,
   loop,
   validateRlStrategyRollout,
