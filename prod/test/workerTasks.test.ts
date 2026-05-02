@@ -2593,7 +2593,7 @@ describe('selectWorkerTask', () => {
   it('skips storage-to-spawn refill when spawn and extensions are full', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 0);
     const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 0);
-    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 2_000, { my: true });
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 2_000, { my: false });
     const room = makeWorkerTaskRoom({
       controller: {
         id: 'controller1' as Id<StructureController>,
@@ -2607,7 +2607,7 @@ describe('selectWorkerTask', () => {
     const creep = {
       memory: { role: 'worker', colony: 'W1N1' },
       store: {
-        getUsedCapacity: jest.fn().mockReturnValue(20),
+        getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(30)
       },
       room

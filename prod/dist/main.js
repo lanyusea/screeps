@@ -7634,6 +7634,10 @@ function selectHeuristicWorkerTask(creep) {
       if (nearbyContainerEnergyAcquisitionTask) {
         return nearbyContainerEnergyAcquisitionTask;
       }
+      const storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
+      if (storageRefillAcquisitionTask) {
+        return storageRefillAcquisitionTask;
+      }
       const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
       if (source2ControllerLaneHarvestTask) {
         return source2ControllerLaneHarvestTask;
@@ -7668,7 +7672,6 @@ function selectHeuristicWorkerTask(creep) {
     return downgradeGuardTask;
   }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
-  let storageRefillAcquisitionTask = null;
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask = {
       type: "transfer",
@@ -7680,13 +7683,6 @@ function selectHeuristicWorkerTask(creep) {
     if (hasEmergencySpawnExtensionRefillDemand(creep)) {
       recordLowLoadReturnTelemetry(creep, spawnOrExtensionRefillTask, "emergencySpawnExtensionRefill");
       return spawnOrExtensionRefillTask;
-    }
-    if (getUsedEnergy2(creep) > 0) {
-      return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
-    }
-    storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
-    if (storageRefillAcquisitionTask) {
-      return storageRefillAcquisitionTask;
     }
     return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
   }
@@ -8058,12 +8054,16 @@ function selectStorageToSpawnExtensionRefillAcquisitionTask(creep) {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
   const reservedStorageEnergy = (_a = reservationContext.reservedEnergyBySourceId.get(String(storage.id))) != null ? _a : 0;
   const availableStorageEnergy = Math.max(0, getStoredEnergy2(storage) - reservedStorageEnergy);
-  const plannedWithdrawal = Math.min(getFreeEnergyCapacity2(creep), availableStorageEnergy);
+  const plannedWithdrawal = Math.min(
+    getStoredEnergy2(storage),
+    creep.store.getFreeCapacity(RESOURCE_ENERGY),
+    availableStorageEnergy
+  );
   if (plannedWithdrawal <= 0) {
     return null;
   }
-  const projectedStorageEnergy = getStoredEnergy2(storage) - reservedStorageEnergy - plannedWithdrawal;
-  return projectedStorageEnergy >= SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR ? { type: "withdraw", targetId: storage.id } : null;
+  const projectedStorageEnergy = getStoredEnergy2(storage) - plannedWithdrawal;
+  return projectedStorageEnergy > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR ? { type: "withdraw", targetId: storage.id } : null;
 }
 function isSpawnExtensionThroughputBottlenecked(room) {
   const energyAvailable = getRoomEnergyAvailable(room);
