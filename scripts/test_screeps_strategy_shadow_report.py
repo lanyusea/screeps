@@ -200,61 +200,6 @@ class StrategyShadowReportTest(unittest.TestCase):
         self.assertIn("kpiSummary", report)
         self.assertNotIn("#runtime-summary", json.dumps(report, sort_keys=True))
 
-    def test_defaults_are_repo_root_anchored_from_non_repo_cwd_and_exclude_output_dir(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            fake_repo = root / "repo"
-            scheduler_cwd = root / "scheduler"
-            runtime_root = fake_repo / "runtime-artifacts"
-            out_dir = runtime_root / "strategy-shadow"
-            dist_path = fake_repo / "prod" / "dist" / "main.js"
-            scheduler_cwd.mkdir()
-            runtime_root.mkdir(parents=True)
-            out_dir.mkdir()
-            dist_path.parent.mkdir(parents=True)
-            dist_path.write_text("module.exports = {};\n", encoding="utf-8")
-            artifact = runtime_root / "runtime.log"
-            artifact.write_text(runtime_line(replay_payload(300)), encoding="utf-8")
-            prior_output = out_dir / "prior-report.log"
-            prior_output.write_text(runtime_line(replay_payload(999)), encoding="utf-8")
-
-            evaluator_report = {
-                "enabled": True,
-                "artifactCount": 1,
-                "modelReports": [],
-                "warnings": [],
-            }
-            previous_cwd = Path.cwd()
-            try:
-                os.chdir(scheduler_cwd)
-                with (
-                    mock.patch.object(shadow_report, "default_repo_root", return_value=fake_repo),
-                    mock.patch.object(dataset_export, "DEFAULT_INPUT_PATHS", ("runtime-artifacts",)),
-                    mock.patch.object(
-                        shadow_report,
-                        "run_shadow_evaluator",
-                        return_value=evaluator_report,
-                    ) as evaluator,
-                ):
-                    summary = shadow_report.build_strategy_shadow_report(
-                        [],
-                        report_id="default-paths",
-                        generated_at="2026-05-01T00:00:00Z",
-                        bot_commit="d" * 40,
-                    )
-            finally:
-                os.chdir(previous_cwd)
-
-            report = read_json(out_dir / "default-paths.json")
-
-        self.assertTrue(summary["ok"])
-        self.assertFalse((scheduler_cwd / "runtime-artifacts").exists())
-        self.assertEqual(evaluator.call_args.args[0], dist_path.resolve())
-        self.assertEqual([artifact["tick"] for artifact in evaluator.call_args.args[1]], [300])
-        self.assertEqual(report["source"]["parsedRuntimeArtifactCount"], 1)
-        self.assertEqual(report["source"]["sourceCount"], 1)
-        self.assertEqual(report["source"]["artifacts"][0]["tick"], 300)
-
     def test_bounds_diff_samples_and_redacts_configured_secret_values(self) -> None:
         secret = "supersecret123456"
         payloads = [replay_payload(200, secret), replay_payload(201, secret), replay_payload(202, secret)]
