@@ -98,6 +98,14 @@ export function runRemoteHarvester(creep: Creep): void {
 
   const source = getAssignedSource(assignment);
   const container = getAssignedContainer(assignment);
+  if (!container) {
+    delete creep.memory.task;
+    if (getCarriedEnergy(creep) > 0) {
+      creep.drop?.(getEnergyResource());
+      return;
+    }
+  }
+
   if (!source) {
     if (container) {
       moveTo(creep, container);
@@ -313,8 +321,7 @@ function getFreeEnergyCapacity(creep: Creep): number {
 }
 
 function getStoredEnergy(target: unknown): number {
-  const store = (target as { store?: { getUsedCapacity?: (resource?: ResourceConstant) => number | null; [resource: string]: unknown } })
-    .store;
+  const store = (target as any)?.store;
   const usedCapacity = store?.getUsedCapacity?.(getEnergyResource());
   if (typeof usedCapacity === 'number' && Number.isFinite(usedCapacity)) {
     return Math.max(0, usedCapacity);

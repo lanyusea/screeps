@@ -165,8 +165,7 @@ function getCarriedEnergy(creep: Creep): number {
 }
 
 function getStoredEnergy(target: unknown): number {
-  const store = (target as { store?: { getUsedCapacity?: (resource?: ResourceConstant) => number | null; [resource: string]: unknown } })
-    .store;
+  const store = (target as any)?.store;
   const usedCapacity = store?.getUsedCapacity?.(getEnergyResource());
   if (typeof usedCapacity === 'number' && Number.isFinite(usedCapacity)) {
     return Math.max(0, usedCapacity);
