@@ -341,6 +341,7 @@ declare global {
     lastNullSelectionTick: number;
     nullSelectionCount: number;
     fallbackAttempts: number;
+    idleStartTick: number;
   }
 
   type WorkerTaskBehaviorActionType = 'harvest' | 'transfer' | 'build' | 'repair' | 'upgrade';

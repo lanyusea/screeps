@@ -1,7 +1,7 @@
 import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
-  selectWorkerEnergyFallbackTask,
+  selectWorkerPreHarvestTask,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
@@ -22,8 +22,8 @@ type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENS
 type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
 
 const MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
-const WORKER_NULL_LOOP_TICK_WINDOW = 5;
-const WORKER_NULL_LOOP_TRIGGER_COUNT = 3;
+const WORKER_NULL_LOOP_TICK_WINDOW = 10;
+const WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 const WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 const OK_CODE = 0 as ScreepsReturnCode;
 const MIN_HAULER_DROPPED_ENERGY = 25;
@@ -32,6 +32,7 @@ interface WorkerTaskSelectionNullLoopState {
   lastNullSelectionTick: number;
   nullSelectionCount: number;
   fallbackAttempts: number;
+  idleStartTick: number;
 }
 
 interface TaskExecutionResult {
@@ -100,15 +101,13 @@ function fallbackToEnergyOnNullSelectionLoop(
   }
 
   const guardState = getWorkerTaskSelectionNullLoopState(creep, gameTime);
-  if (
-    guardState.nullSelectionCount < WORKER_NULL_LOOP_TRIGGER_COUNT ||
-    guardState.fallbackAttempts >= WORKER_NULL_LOOP_FALLBACK_ATTEMPTS
-  ) {
+  const idleTicks = gameTime - guardState.idleStartTick + 1;
+  if (idleTicks <= WORKER_STANDBY_IDLE_TIMEOUT_TICKS || guardState.fallbackAttempts >= WORKER_NULL_LOOP_FALLBACK_ATTEMPTS) {
     return null;
   }
 
   guardState.fallbackAttempts += 1;
-  return selectWorkerEnergyFallbackTask(creep);
+  return selectWorkerPreHarvestTask(creep);
 }
 
 function getWorkerTaskSelectionNullLoopState(
@@ -123,7 +122,9 @@ function getWorkerTaskSelectionNullLoopState(
       typeof existing.nullSelectionCount === 'number' &&
       Number.isFinite(existing.nullSelectionCount) &&
       typeof existing.fallbackAttempts === 'number' &&
-      Number.isFinite(existing.fallbackAttempts)
+      Number.isFinite(existing.fallbackAttempts) &&
+      typeof existing.idleStartTick === 'number' &&
+      Number.isFinite(existing.idleStartTick)
   );
   const isInWindow =
     isValidExistingState && gameTime - (existing as WorkerTaskSelectionNullLoopState).lastNullSelectionTick <= WORKER_NULL_LOOP_TICK_WINDOW;
@@ -132,7 +133,8 @@ function getWorkerTaskSelectionNullLoopState(
     const state = {
       lastNullSelectionTick: gameTime,
       nullSelectionCount: 1,
-      fallbackAttempts: 0
+      fallbackAttempts: 0,
+      idleStartTick: gameTime
     };
     creep.memory.workerTaskSelectionNullLoop = state;
     return state;

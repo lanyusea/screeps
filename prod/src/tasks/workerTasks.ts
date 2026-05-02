@@ -1975,6 +1975,11 @@ export function selectWorkerEnergyFallbackTask(creep: Creep): CreepTaskMemory | 
   return source ? { type: 'harvest', targetId: source.id } : null;
 }
 
+export function selectWorkerPreHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
+  const source = selectHarvestSource(creep);
+  return source ? { type: 'harvest', targetId: source.id } : null;
+}
+
 function selectNearbyContainerWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
   const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
     maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE
