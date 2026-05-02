@@ -359,7 +359,9 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   }
 
   if (controller && shouldRushRcl1Controller(controller)) {
-    return canUpgradeController(controller) ? applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id }) : null;
+    return canLevelUpController(controller)
+      ? applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id })
+      : null;
   }
 
   const criticalRepairTarget = selectCriticalInfrastructureRepairTarget(creep);
@@ -400,7 +402,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       return applyMinimumUsefulLoadPolicy(creep, productiveEnergySinkTask);
     }
 
-    return canUpgradeController(controller)
+    return canLevelUpController(controller)
       ? applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id })
       : null;
   }
@@ -504,7 +506,7 @@ function selectBootstrapSurvivalSpendingTask(
   if (
     controller &&
     shouldRushRcl1Controller(controller) &&
-    canUpgradeController(controller) &&
+    canLevelUpController(controller) &&
     !shouldSuppressBootstrapControllerSpending(creep, recoveryOnlyWorkSuppressed)
   ) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
@@ -3297,10 +3299,16 @@ function selectSource2ControllerLaneLoadedTask(
   return productiveEnergySinkTask ?? (canUpgradeController(controller) ? { type: 'upgrade', targetId: controller.id } : null);
 }
 
-function canUpgradeController(controller: StructureController | undefined): boolean {
+export function canUpgradeController(controller: StructureController | undefined): boolean {
+  return controller?.my === true;
+}
+
+export function canLevelUpController(controller: StructureController | undefined): boolean {
   return (
     controller?.my === true &&
-    (typeof controller.level !== 'number' || !Number.isFinite(controller.level) || controller.level < MAX_CONTROLLER_LEVEL)
+    typeof controller.level === 'number' &&
+    Number.isFinite(controller.level) &&
+    controller.level < MAX_CONTROLLER_LEVEL
   );
 }
 
