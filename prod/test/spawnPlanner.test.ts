@@ -360,6 +360,50 @@ describe('planSpawn', () => {
     });
   });
 
+  it('tries the next ranked multi-room upgrade plan when the first body is unaffordable', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController(),
+      storageEnergy: 850,
+      storageCapacity: 1_000
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'reservedController',
+          my: false,
+          level: 0,
+          reservation: { username: 'player', ticksToEnd: 4_000 }
+        } as StructureController),
+        W3N1: makeTerritoryRoom('W3N1', {
+          id: 'ownedController',
+          my: true,
+          level: 1
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {},
+      map: {
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 3, room: toRoom }])
+      } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    expect(planSpawn(colony, { worker: 3 }, 130)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-W3N1-multiroom-upgrader-130',
+      memory: {
+        role: 'worker',
+        colony: 'W3N1',
+        territory: { targetRoom: 'W3N1', action: 'claim', controllerId: 'ownedController' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W3N1', role: 'upgrader' }
+      }
+    });
+  });
+
   it('uses the home spawn for a dedicated post-claim controller upgrader when the claimed room has no spawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,

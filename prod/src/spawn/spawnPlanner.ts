@@ -37,7 +37,7 @@ import {
 import {
   buildMultiRoomUpgraderBody,
   buildMultiRoomUpgraderMemory,
-  selectMultiRoomUpgradePlan
+  selectMultiRoomUpgradePlans
 } from '../territory/multiRoomUpgrader';
 
 type SpawnPriorityTier =
@@ -615,8 +615,8 @@ function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): Spa
     return null;
   }
 
-  const upgradePlan = selectMultiRoomUpgradePlan(context.colony);
-  if (!upgradePlan) {
+  const upgradePlans = selectMultiRoomUpgradePlans(context.colony);
+  if (upgradePlans.length === 0) {
     return null;
   }
 
@@ -625,20 +625,24 @@ function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): Spa
     return null;
   }
 
-  const body = buildMultiRoomUpgraderBody(context.colony.energyAvailable, upgradePlan);
-  if (body.length === 0) {
-    return null;
+  for (const upgradePlan of upgradePlans) {
+    const body = buildMultiRoomUpgraderBody(context.colony.energyAvailable, upgradePlan);
+    if (body.length === 0) {
+      continue;
+    }
+
+    return {
+      spawn,
+      body,
+      name: appendSpawnNameSuffix(
+        `worker-${context.colony.room.name}-${upgradePlan.targetRoom}-multiroom-upgrader-${context.gameTime}`,
+        context.options
+      ),
+      memory: buildMultiRoomUpgraderMemory(upgradePlan)
+    };
   }
 
-  return {
-    spawn,
-    body,
-    name: appendSpawnNameSuffix(
-      `worker-${context.colony.room.name}-${upgradePlan.targetRoom}-multiroom-upgrader-${context.gameTime}`,
-      context.options
-    ),
-    memory: buildMultiRoomUpgraderMemory(upgradePlan)
-  };
+  return null;
 }
 
 function shouldSpawnControllerUpgradeSurplusWorker(context: SpawnPlanningContext): boolean {

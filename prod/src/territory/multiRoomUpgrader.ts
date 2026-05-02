@@ -46,18 +46,24 @@ export function selectMultiRoomUpgradePlan(
   colony: ColonySnapshot,
   options: MultiRoomUpgraderOptions = {}
 ): MultiRoomUpgradePlan | null {
+  return selectMultiRoomUpgradePlans(colony, options)[0] ?? null;
+}
+
+export function selectMultiRoomUpgradePlans(
+  colony: ColonySnapshot,
+  options: MultiRoomUpgraderOptions = {}
+): MultiRoomUpgradePlan[] {
   const config = normalizeMultiRoomUpgraderOptions(options);
   if (config.perRoomUpgraderCap <= 0 || !hasPrimaryRoomStorageSurplus(colony, config.storageEnergyThresholdRatio)) {
-    return null;
+    return [];
   }
 
   const candidates = getVisibleMultiRoomUpgradeCandidates(colony, config);
   if (candidates.length === 0) {
-    return null;
+    return [];
   }
 
-  const { order: _order, ...plan } = candidates.sort(compareMultiRoomUpgradeCandidates)[0];
-  return plan;
+  return candidates.sort(compareMultiRoomUpgradeCandidates).map(({ order: _order, ...plan }) => plan);
 }
 
 export function buildMultiRoomUpgraderBody(
@@ -123,6 +129,7 @@ function getVisibleMultiRoomUpgradeCandidates(
 
   const homeRoom = colony.room.name;
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
+  const activeUpgraderCounts = getActiveMultiRoomUpgraderCountsByTarget(homeRoom);
   const candidates: MultiRoomUpgradeCandidate[] = [];
   let order = 0;
 
@@ -132,6 +139,7 @@ function getVisibleMultiRoomUpgradeCandidates(
       ownerUsername,
       room,
       config.perRoomUpgraderCap,
+      activeUpgraderCounts,
       order
     );
     order += 1;
@@ -148,6 +156,7 @@ function getVisibleMultiRoomUpgradeCandidate(
   ownerUsername: string | null,
   room: Room,
   perRoomUpgraderCap: number,
+  activeUpgraderCounts: Record<string, number>,
   order: number
 ): MultiRoomUpgradeCandidate | null {
   if (!isNonEmptyString(room.name) || room.name === homeRoom || isKnownDeadZoneRoom(room.name)) {
@@ -164,12 +173,16 @@ function getVisibleMultiRoomUpgradeCandidate(
     return null;
   }
 
+  if (hasVisibleHostiles(room)) {
+    return null;
+  }
+
   const routeDistance = getRouteDistance(homeRoom, room.name);
   if (routeDistance === null) {
     return null;
   }
 
-  const activeUpgraderCount = countActiveMultiRoomUpgraders(homeRoom, room.name);
+  const activeUpgraderCount = activeUpgraderCounts[room.name] ?? 0;
   if (activeUpgraderCount >= perRoomUpgraderCap) {
     return null;
   }
@@ -279,23 +292,60 @@ function compareOptionalNumbers(left: number | undefined, right: number | undefi
   return (left ?? Number.POSITIVE_INFINITY) - (right ?? Number.POSITIVE_INFINITY);
 }
 
-function countActiveMultiRoomUpgraders(homeRoom: string, targetRoom: string): number {
-  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  if (!creeps) {
-    return 0;
-  }
-
-  return Object.values(creeps).filter((creep) => isActiveMultiRoomUpgrader(creep, homeRoom, targetRoom)).length;
+interface ActiveMultiRoomUpgraderCountCache {
+  gameTime: number;
+  creeps?: Game['creeps'];
+  countsByHomeRoom: Record<string, Record<string, number>>;
 }
 
-function isActiveMultiRoomUpgrader(creep: Creep, homeRoom: string, targetRoom: string): boolean {
-  const sustain = creep.memory?.controllerSustain;
-  return (
-    sustain?.role === 'upgrader' &&
-    sustain.homeRoom === homeRoom &&
-    sustain.targetRoom === targetRoom &&
-    (creep.ticksToLive === undefined || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE)
-  );
+let activeMultiRoomUpgraderCountCache: ActiveMultiRoomUpgraderCountCache | null = null;
+
+function getActiveMultiRoomUpgraderCountsByTarget(homeRoom: string): Record<string, number> {
+  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  if (!creeps) {
+    return {};
+  }
+
+  const gameTime = getGameTime();
+  if (
+    activeMultiRoomUpgraderCountCache?.gameTime !== gameTime ||
+    activeMultiRoomUpgraderCountCache.creeps !== creeps
+  ) {
+    activeMultiRoomUpgraderCountCache = {
+      gameTime,
+      creeps,
+      countsByHomeRoom: countActiveMultiRoomUpgradersByHomeRoom(creeps)
+    };
+  }
+
+  return activeMultiRoomUpgraderCountCache.countsByHomeRoom[homeRoom] ?? {};
+}
+
+function countActiveMultiRoomUpgradersByHomeRoom(
+  creeps: Game['creeps']
+): Record<string, Record<string, number>> {
+  const countsByHomeRoom: Record<string, Record<string, number>> = {};
+  for (const creep of Object.values(creeps)) {
+    const sustain = creep.memory?.controllerSustain;
+    if (
+      sustain?.role !== 'upgrader' ||
+      !isNonEmptyString(sustain.homeRoom) ||
+      !isNonEmptyString(sustain.targetRoom) ||
+      !isActiveMultiRoomUpgrader(creep)
+    ) {
+      continue;
+    }
+
+    const countsByTarget = countsByHomeRoom[sustain.homeRoom] ?? {};
+    countsByTarget[sustain.targetRoom] = (countsByTarget[sustain.targetRoom] ?? 0) + 1;
+    countsByHomeRoom[sustain.homeRoom] = countsByTarget;
+  }
+
+  return countsByHomeRoom;
+}
+
+function isActiveMultiRoomUpgrader(creep: Creep): boolean {
+  return creep.ticksToLive === undefined || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
 }
 
 function getControllerLevel(controller: StructureController): number {
@@ -323,32 +373,57 @@ function getStorageEnergyCapacity(storage: StructureStorage): number {
   return typeof capacity === 'number' && Number.isFinite(capacity) ? Math.max(0, capacity) : 0;
 }
 
+function hasVisibleHostiles(room: Room): boolean {
+  const hostileCreepsFind = (globalThis as { FIND_HOSTILE_CREEPS?: FindConstant }).FIND_HOSTILE_CREEPS;
+  const hostileStructuresFind = (globalThis as { FIND_HOSTILE_STRUCTURES?: FindConstant }).FIND_HOSTILE_STRUCTURES;
+  return (
+    (typeof hostileCreepsFind === 'number' && room.find(hostileCreepsFind).length > 0) ||
+    (typeof hostileStructuresFind === 'number' && room.find(hostileStructuresFind).length > 0)
+  );
+}
+
 function getRouteDistance(fromRoom: string, targetRoom: string): number | null | undefined {
   if (fromRoom === targetRoom) {
     return 0;
   }
 
-  const cachedRouteDistance = getCachedRouteDistance(fromRoom, targetRoom);
-  if (cachedRouteDistance !== undefined) {
+  const cache = getTerritoryRouteDistanceCache();
+  const cacheKey = getTerritoryRouteDistanceCacheKey(fromRoom, targetRoom);
+  const cachedRouteDistance = cache?.[cacheKey];
+  if (cachedRouteDistance === null || typeof cachedRouteDistance === 'number') {
     return cachedRouteDistance;
   }
 
   const routeDistance = getRouteDistanceFromGameMap(fromRoom, targetRoom);
   if (routeDistance !== undefined) {
+    if (cache) {
+      cache[cacheKey] = routeDistance;
+    }
     return routeDistance;
   }
 
   return isAdjacentRoom(fromRoom, targetRoom) ? 1 : undefined;
 }
 
-function getCachedRouteDistance(fromRoom: string, targetRoom: string): number | null | undefined {
-  const routeDistances = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.routeDistances;
-  if (!isRecord(routeDistances)) {
+function getTerritoryRouteDistanceCache(): TerritoryMemory['routeDistances'] | undefined {
+  const memory = (globalThis as { Memory?: Partial<Memory> }).Memory;
+  if (!memory) {
     return undefined;
   }
 
-  const value = routeDistances[`${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}`];
-  return typeof value === 'number' || value === null ? value : undefined;
+  if (!isRecord(memory.territory)) {
+    memory.territory = {};
+  }
+
+  if (!isRecord(memory.territory.routeDistances)) {
+    memory.territory.routeDistances = {};
+  }
+
+  return memory.territory.routeDistances as TerritoryMemory['routeDistances'];
+}
+
+function getTerritoryRouteDistanceCacheKey(fromRoom: string, targetRoom: string): string {
+  return `${fromRoom}${TERRITORY_ROUTE_DISTANCE_SEPARATOR}${targetRoom}`;
 }
 
 function getRouteDistanceFromGameMap(fromRoom: string, targetRoom: string): number | null | undefined {
@@ -393,6 +468,11 @@ function isAdjacentRoom(fromRoom: string, targetRoom: string): boolean {
 function getNoPathResultCode(): ScreepsReturnCode {
   const noPathCode = (globalThis as { ERR_NO_PATH?: ScreepsReturnCode }).ERR_NO_PATH;
   return typeof noPathCode === 'number' ? noPathCode : ERR_NO_PATH_CODE;
+}
+
+function getGameTime(): number {
+  const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
+  return typeof gameTime === 'number' ? gameTime : 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

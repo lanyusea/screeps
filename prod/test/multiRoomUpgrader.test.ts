@@ -2,7 +2,8 @@ import { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   buildMultiRoomUpgraderBody,
   buildMultiRoomUpgraderMemory,
-  selectMultiRoomUpgradePlan
+  selectMultiRoomUpgradePlan,
+  selectMultiRoomUpgradePlans
 } from '../src/territory/multiRoomUpgrader';
 
 describe('multi-room upgrader planner', () => {
@@ -193,6 +194,34 @@ describe('multi-room upgrader planner', () => {
     });
 
     expect(selectMultiRoomUpgradePlan(colony)?.targetRoom).toBe('W3N1');
+  });
+
+  it('returns all eligible plans in ranked order', () => {
+    const colony = makeColony();
+    installGame({
+      colony,
+      rooms: [
+        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 3) }),
+        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2) })
+      ],
+      routeLengths: { W2N1: 1, W3N1: 3 }
+    });
+
+    expect(selectMultiRoomUpgradePlans(colony).map((plan) => plan.targetRoom)).toEqual(['W3N1', 'W2N1']);
+  });
+
+  it('caches computed route distances in memory', () => {
+    const colony = makeColony();
+    const findRoute = installGame({
+      colony,
+      rooms: [makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2) })],
+      routeLengths: { W3N1: 3 }
+    });
+
+    expect(selectMultiRoomUpgradePlan(colony)?.routeDistance).toBe(3);
+    expect(selectMultiRoomUpgradePlan(colony)?.routeDistance).toBe(3);
+    expect(findRoute).toHaveBeenCalledTimes(1);
+    expect(Memory.territory?.routeDistances).toEqual({ 'W1N1>W3N1': 3 });
   });
 
   it('uses extra move parts for longer remote upgrade routes', () => {
