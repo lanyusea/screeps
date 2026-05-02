@@ -32,7 +32,9 @@ describe('planSpawn', () => {
     hostileCreeps = [],
     hostileStructures = [],
     spawning = null,
-    controller
+    controller,
+    storageEnergy,
+    storageCapacity
   }: {
     sourceCount?: number;
     energyAvailable?: number;
@@ -43,6 +45,8 @@ describe('planSpawn', () => {
     hostileStructures?: Structure[];
     spawning?: Spawning | null;
     controller?: StructureController;
+    storageEnergy?: number;
+    storageCapacity?: number;
   } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
     const sources = Array.from({ length: sourceCount }, (_, index) => ({ id: `source${index}` }) as Source);
     const constructionSites = Array.from(
@@ -75,7 +79,10 @@ describe('planSpawn', () => {
       energyAvailable,
       energyCapacityAvailable,
       find,
-      ...(controller ? { controller } : {})
+      ...(controller ? { controller } : {}),
+      ...(typeof storageEnergy === 'number' && typeof storageCapacity === 'number'
+        ? { storage: makeStorage(storageEnergy, storageCapacity) }
+        : {})
     } as unknown as Room;
     const spawn = { name: 'Spawn1', room, spawning } as StructureSpawn;
     const colony: ColonySnapshot = {
@@ -89,7 +96,16 @@ describe('planSpawn', () => {
   }
 
   function makeSafeOwnedController(): StructureController {
-    return { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController;
+    return { my: true, level: 3, ticksToDowngrade: 10_000, owner: { username: 'player' } } as StructureController;
+  }
+
+  function makeStorage(energy: number, capacity: number): StructureStorage {
+    return {
+      store: {
+        getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
+        getCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? capacity : 0))
+      }
+    } as unknown as StructureStorage;
   }
 
   function installHostileFindGlobals(): void {
@@ -303,6 +319,45 @@ describe('planSpawn', () => {
     });
 
     expect(planSpawn(colony, { worker: 3 }, 128)).toBeNull();
+  });
+
+  it('dispatches a multi-room upgrader to an adjacent owned controller when storage has surplus energy', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController(),
+      storageEnergy: 850,
+      storageCapacity: 1_000
+    });
+    const targetController = {
+      id: 'controller2',
+      my: true,
+      level: 1
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', targetController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {},
+      map: {
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }])
+      } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    expect(planSpawn(colony, { worker: 3 }, 129)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-W2N1-multiroom-upgrader-129',
+      memory: {
+        role: 'worker',
+        colony: 'W2N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
+      }
+    });
   });
 
   it('uses the home spawn for a dedicated post-claim controller upgrader when the claimed room has no spawn', () => {
