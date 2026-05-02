@@ -5588,10 +5588,885 @@ function matchesStructureType4(actual, globalName, fallback) {
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 
+// src/construction/constructionPriority.ts
+var CONTROLLER_DOWNGRADE_CRITICAL_TICKS = 5e3;
+var CONTROLLER_DOWNGRADE_WARNING_TICKS = 1e4;
+var EARLY_ENERGY_CAPACITY_TARGET = 550;
+var MIN_SAFE_WORKERS_FOR_EXPANSION = 3;
+var MIN_RCL_FOR_AUTOMATED_ROADS = 4;
+var DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE = 20;
+var MAX_SCORE = 100;
+var MAX_URGENCY_POINTS = 35;
+var MAX_ROOM_STATE_POINTS = 20;
+var MAX_EXPANSION_POINTS = 20;
+var MAX_ECONOMIC_POINTS = 20;
+var MAX_VISION_POINTS = 15;
+var MAX_RISK_COST = 25;
+var CRITICAL_REPAIR_HITS_RATIO = 0.5;
+var DECAYING_REPAIR_HITS_RATIO = 0.8;
+var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
+var CONSTRUCTION_SITE_IMPACT_PRIORITY = {
+  extension: 100,
+  spawn: 95,
+  sourceContainer: 85,
+  criticalRoad: 75,
+  tower: 60,
+  container: 55,
+  protectedRampart: 50,
+  road: 45,
+  other: 35,
+  rampart: 20,
+  wall: 5
+};
+var STRUCTURE_BUILD_COSTS = {
+  spawn: 15e3,
+  extension: 3e3,
+  tower: 5e3,
+  rampart: 1,
+  road: 300,
+  container: 5e3,
+  storage: 3e4,
+  "remote-logistics": 5e3,
+  observation: 0
+};
+var EXPOSURE_COST = {
+  none: 0,
+  low: 2,
+  medium: 5,
+  high: 9
+};
+var OBSERVATION_LABELS = {
+  "room-controller": "missing observation: room controller/RCL",
+  "energy-capacity": "missing observation: room energy capacity",
+  "worker-count": "missing observation: available worker count",
+  "spawn-count": "missing observation: spawn count",
+  "construction-sites": "missing observation: construction site backlog",
+  "repair-decay": "missing observation: repair/decay signals",
+  "hostile-presence": "missing observation: hostile pressure",
+  sources: "missing observation: source count",
+  "territory-intents": "missing observation: territory intent state",
+  "remote-paths": "missing observation: remote path/logistics exposure"
+};
+function scoreConstructionPriorities(roomState, candidates) {
+  const scoredCandidates = candidates.map((candidate) => scoreConstructionCandidate(roomState, candidate)).sort(compareConstructionPriorityScores);
+  return {
+    candidates: scoredCandidates,
+    nextPrimary: selectNextPrimaryConstruction(scoredCandidates)
+  };
+}
+function scoreConstructionCandidate(roomState, candidate) {
+  var _a, _b, _c, _d, _e;
+  const missingObservations = getMissingObservations(roomState, candidate);
+  const blockingPreconditions = getBlockingPreconditions(roomState, candidate, missingObservations);
+  const preconditions = [
+    ...(_a = candidate.preconditions) != null ? _a : [],
+    ...missingObservations.map((observation) => OBSERVATION_LABELS[observation]),
+    ...blockingPreconditions
+  ];
+  const blocked = missingObservations.length > 0 || blockingPreconditions.length > 0;
+  if (blocked) {
+    return {
+      buildItem: candidate.buildItem,
+      room: (_b = candidate.roomName) != null ? _b : roomState.roomName,
+      score: 0,
+      urgency: "blocked",
+      preconditions,
+      expectedKpiMovement: candidate.expectedKpiMovement,
+      risk: (_c = candidate.risk) != null ? _c : [],
+      factors: {
+        urgency: 0,
+        roomState: 0,
+        expansionPrerequisites: 0,
+        economicBenefit: 0,
+        visionWeight: 0,
+        riskCost: 0
+      },
+      missingObservations,
+      blocked
+    };
+  }
+  const urgencyMagnitude = getUrgencyMagnitude(roomState, candidate);
+  const factors = {
+    urgency: Math.round(urgencyMagnitude * MAX_URGENCY_POINTS),
+    roomState: scoreRoomState(roomState, candidate),
+    expansionPrerequisites: scoreExpansionPrerequisites(roomState, candidate),
+    economicBenefit: scoreEconomicBenefit(roomState, candidate),
+    visionWeight: scoreVisionWeight(candidate),
+    riskCost: scoreRiskCost(roomState, candidate)
+  };
+  const rawScore = factors.urgency + factors.roomState + factors.expansionPrerequisites + factors.economicBenefit + factors.visionWeight - factors.riskCost;
+  const gatedScore = applySurvivalGate(roomState, candidate, rawScore);
+  const score = clampScore(Math.round(gatedScore));
+  return {
+    buildItem: candidate.buildItem,
+    room: (_d = candidate.roomName) != null ? _d : roomState.roomName,
+    score,
+    urgency: classifyUrgency(score, urgencyMagnitude),
+    preconditions,
+    expectedKpiMovement: candidate.expectedKpiMovement,
+    risk: (_e = candidate.risk) != null ? _e : [],
+    factors,
+    missingObservations,
+    blocked
+  };
+}
+function selectNextPrimaryConstruction(candidates) {
+  var _a;
+  if (candidates.length === 0) {
+    return null;
+  }
+  return (_a = candidates.find((candidate) => !candidate.blocked)) != null ? _a : candidates[0];
+}
+function getConstructionSiteImpactPriority(site, context = {}) {
+  if (matchesStructureType5(site.structureType, "STRUCTURE_EXTENSION", "extension")) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.extension;
+  }
+  if (matchesStructureType5(site.structureType, "STRUCTURE_SPAWN", "spawn")) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.spawn;
+  }
+  if (matchesStructureType5(site.structureType, "STRUCTURE_CONTAINER", "container")) {
+    return isSourceContainerConstructionSite(site, context) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer : CONSTRUCTION_SITE_IMPACT_PRIORITY.container;
+  }
+  if (matchesStructureType5(site.structureType, "STRUCTURE_ROAD", "road")) {
+    return context.criticalRoadContext && isCriticalRoadLogisticsWork(site, context.criticalRoadContext) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad : CONSTRUCTION_SITE_IMPACT_PRIORITY.road;
+  }
+  if (matchesStructureType5(site.structureType, "STRUCTURE_TOWER", "tower")) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.tower;
+  }
+  if (matchesStructureType5(site.structureType, "STRUCTURE_RAMPART", "rampart")) {
+    return isProtectedRampartConstructionSite(site, context) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.protectedRampart : CONSTRUCTION_SITE_IMPACT_PRIORITY.rampart;
+  }
+  if (isWallConstructionSite(site)) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.wall;
+  }
+  return CONSTRUCTION_SITE_IMPACT_PRIORITY.other;
+}
+function buildRuntimeConstructionPriorityReport(colony, creeps) {
+  const state = buildRuntimeConstructionPriorityState(colony, creeps);
+  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state));
+}
+function isNearRoomObject(object, position) {
+  const objectPosition = getRoomObjectPosition2(object);
+  const range = getRangeBetweenPositions3(objectPosition, position);
+  return isSameRoomPosition4(objectPosition, position.roomName) && range !== null && range <= 1;
+}
+function isSourceContainerConstructionSite(site, context) {
+  const sitePosition = getRoomObjectPosition2(site);
+  if (!sitePosition || !context.sources || context.sources.length === 0) {
+    return false;
+  }
+  return context.sources.some((source) => isNearRoomObject(source, sitePosition));
+}
+function isProtectedRampartConstructionSite(site, context) {
+  const sitePosition = getRoomObjectPosition2(site);
+  if (!sitePosition || !context.protectedRampartAnchors || context.protectedRampartAnchors.length === 0) {
+    return false;
+  }
+  return context.protectedRampartAnchors.some((anchor) => {
+    const range = getRangeBetweenPositions3(sitePosition, anchor);
+    return range !== null && range <= 2;
+  });
+}
+function isWallConstructionSite(site) {
+  return matchesStructureType5(site.structureType, "STRUCTURE_WALL", "constructedWall") || String(site.structureType) === "wall";
+}
+function getRoomObjectPosition2(object) {
+  const position = object == null ? void 0 : object.pos;
+  if (!position || typeof position.x !== "number" || typeof position.y !== "number" || !Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+    return null;
+  }
+  return {
+    x: position.x,
+    y: position.y,
+    ...typeof position.roomName === "string" ? { roomName: position.roomName } : {}
+  };
+}
+function isSameRoomPosition4(position, roomName) {
+  return position !== null && (!position.roomName || !roomName || position.roomName === roomName);
+}
+function getRangeBetweenPositions3(left, right) {
+  if (!left || !right) {
+    return null;
+  }
+  return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
+}
+function getMissingObservations(roomState, candidate) {
+  var _a;
+  return ((_a = candidate.requiredObservations) != null ? _a : []).filter((observation) => !hasObservation(roomState, observation));
+}
+function hasObservation(roomState, observation) {
+  var _a;
+  const explicitObservation = (_a = roomState.observations) == null ? void 0 : _a[observation];
+  if (typeof explicitObservation === "boolean") {
+    return explicitObservation;
+  }
+  switch (observation) {
+    case "room-controller":
+      return typeof roomState.rcl === "number";
+    case "energy-capacity":
+      return typeof roomState.energyCapacity === "number";
+    case "worker-count":
+      return typeof roomState.workerCount === "number";
+    case "spawn-count":
+      return typeof roomState.spawnCount === "number";
+    case "construction-sites":
+      return typeof roomState.constructionSiteCount === "number";
+    case "repair-decay":
+      return typeof roomState.criticalRepairCount === "number" && typeof roomState.decayingStructureCount === "number";
+    case "hostile-presence":
+      return typeof roomState.hostileCreepCount === "number" && typeof roomState.hostileStructureCount === "number";
+    case "sources":
+      return typeof roomState.sourceCount === "number";
+    case "territory-intents":
+      return typeof roomState.activeTerritoryIntentCount === "number" && typeof roomState.plannedTerritoryIntentCount === "number";
+    case "remote-paths":
+      return roomState.remoteLogisticsReady === true;
+    default:
+      return false;
+  }
+}
+function getBlockingPreconditions(roomState, candidate, missingObservations) {
+  var _a, _b, _c, _d, _e, _f;
+  if (missingObservations.length > 0) {
+    return [];
+  }
+  const preconditions = [];
+  if (typeof candidate.minimumRcl === "number" && ((_a = roomState.rcl) != null ? _a : 0) < candidate.minimumRcl) {
+    preconditions.push(`requires RCL ${candidate.minimumRcl} (current RCL ${(_b = roomState.rcl) != null ? _b : "unknown"})`);
+  }
+  if (typeof candidate.minimumWorkers === "number" && ((_c = roomState.workerCount) != null ? _c : 0) < candidate.minimumWorkers) {
+    preconditions.push(`needs ${candidate.minimumWorkers} available workers (current ${(_d = roomState.workerCount) != null ? _d : "unknown"})`);
+  }
+  if (typeof candidate.minimumEnergyCapacity === "number" && ((_e = roomState.energyCapacity) != null ? _e : 0) < candidate.minimumEnergyCapacity) {
+    preconditions.push(
+      `needs ${candidate.minimumEnergyCapacity} energy capacity (current ${(_f = roomState.energyCapacity) != null ? _f : "unknown"})`
+    );
+  }
+  if (candidate.requiresSafeHome && hasSurvivalPressure(roomState)) {
+    preconditions.push("resolve survival/recovery pressure before expansion construction");
+  }
+  return preconditions;
+}
+function getUrgencyMagnitude(roomState, candidate) {
+  var _a;
+  const signals = (_a = candidate.signals) != null ? _a : {};
+  const recoveryUrgency = Math.max(
+    normalizeSignal(signals.survivalRecovery),
+    isRecoveryCandidate(candidate) ? getWorkerRecoveryPressure(roomState) : 0
+  );
+  const downgradeUrgency = Math.max(
+    normalizeSignal(signals.controllerDowngrade),
+    isControllerProtectionCandidate(candidate) ? getControllerDowngradePressure(roomState) : 0
+  );
+  const defenseUrgency = Math.max(
+    normalizeSignal(signals.defense),
+    isDefenseCandidate(candidate) ? getDefensePressure(roomState) : 0
+  );
+  const energyUrgency = Math.max(
+    normalizeSignal(signals.energyBottleneck),
+    isEnergyCapacityCandidate(candidate) ? getEnergyBottleneckPressure(roomState) : 0
+  );
+  const repairUrgency = Math.max(
+    normalizeSignal(signals.repairDecay),
+    isRepairSupportCandidate(candidate) ? getRepairDecayPressure(roomState) : 0
+  );
+  return Math.max(recoveryUrgency, downgradeUrgency, defenseUrgency, energyUrgency, repairUrgency);
+}
+function scoreRoomState(roomState, candidate) {
+  var _a, _b, _c, _d, _e;
+  let score = 0;
+  if (candidate.status === "existing-site") {
+    score += 4;
+  }
+  if (typeof roomState.rcl === "number" && (!candidate.minimumRcl || roomState.rcl >= candidate.minimumRcl)) {
+    score += Math.min(5, Math.max(1, roomState.rcl));
+  }
+  if (isRecoveryCandidate(candidate)) {
+    score += Math.round(getWorkerRecoveryPressure(roomState) * 7);
+  } else if (((_a = roomState.workerCount) != null ? _a : 0) >= MIN_SAFE_WORKERS_FOR_EXPANSION) {
+    score += 4;
+  }
+  if (isEnergyCapacityCandidate(candidate) && ((_b = roomState.energyCapacity) != null ? _b : EARLY_ENERGY_CAPACITY_TARGET) < EARLY_ENERGY_CAPACITY_TARGET) {
+    score += 4;
+  }
+  if (isRepairSupportCandidate(candidate)) {
+    score += Math.min(4, ((_c = roomState.criticalRepairCount) != null ? _c : 0) * 2 + ((_d = roomState.decayingStructureCount) != null ? _d : 0));
+  }
+  if (isDefenseCandidate(candidate)) {
+    score += Math.round(getDefensePressure(roomState) * 5);
+  }
+  if (((_e = roomState.constructionSiteCount) != null ? _e : 0) > 0 && candidate.status === "existing-site") {
+    score += 2;
+  }
+  return Math.min(MAX_ROOM_STATE_POINTS, score);
+}
+function scoreExpansionPrerequisites(roomState, candidate) {
+  var _a, _b, _c;
+  const signal = normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.expansionPrerequisite);
+  const territoryIntentPressure = Math.min(
+    1,
+    ((_b = roomState.activeTerritoryIntentCount) != null ? _b : 0) * 0.7 + ((_c = roomState.plannedTerritoryIntentCount) != null ? _c : 0) * 0.45
+  );
+  const structureMultiplier = candidate.buildType === "remote-logistics" || candidate.buildType === "road" || candidate.buildType === "container" || candidate.buildType === "tower" || candidate.buildType === "rampart" ? 1 : 0.35;
+  return Math.min(
+    MAX_EXPANSION_POINTS,
+    Math.round(signal * 14 + territoryIntentPressure * structureMultiplier * 6)
+  );
+}
+function scoreEconomicBenefit(roomState, candidate) {
+  var _a;
+  const signals = (_a = candidate.signals) != null ? _a : {};
+  const score = normalizeSignal(signals.harvestThroughput) * 8 + normalizeSignal(signals.spawnUtilization) * 5 + normalizeSignal(signals.rclAcceleration) * 5 + normalizeSignal(signals.storageLogistics) * 4 + normalizeSignal(signals.energyBottleneck) * 4 + getSourceBenefit(roomState, candidate);
+  return Math.min(MAX_ECONOMIC_POINTS, Math.round(score));
+}
+function scoreVisionWeight(candidate) {
+  var _a;
+  const vision = (_a = candidate.vision) != null ? _a : {};
+  const score = normalizeSignal(vision.survival) * 15 + normalizeSignal(vision.territory) * 13 + normalizeSignal(vision.resources) * 9 + normalizeSignal(vision.enemyKills) * 5;
+  return Math.min(MAX_VISION_POINTS, Math.round(score));
+}
+function scoreRiskCost(roomState, candidate) {
+  var _a, _b, _c, _d, _e, _f, _g, _h;
+  const energyCost = (_b = (_a = candidate.estimatedEnergyCost) != null ? _a : STRUCTURE_BUILD_COSTS[candidate.buildType]) != null ? _b : 0;
+  const buildTicks = (_c = candidate.estimatedBuildTicks) != null ? _c : 0;
+  const energyRisk = Math.min(8, energyCost / 4e3);
+  const buildTimeRisk = Math.min(5, buildTicks / 1500);
+  const exposureRisk = EXPOSURE_COST[(_d = candidate.pathExposure) != null ? _d : "none"] + EXPOSURE_COST[(_e = candidate.hostileExposure) != null ? _e : "none"];
+  const backlogRisk = Math.max(0, (((_f = roomState.constructionSiteCount) != null ? _f : 0) - 3) * 1.5);
+  const hostilePressureRisk = ((_g = roomState.hostileCreepCount) != null ? _g : 0) > 0 && !isDefenseCandidate(candidate) ? 4 : 0;
+  const lowWorkerRisk = ((_h = roomState.workerCount) != null ? _h : MIN_SAFE_WORKERS_FOR_EXPANSION) < MIN_SAFE_WORKERS_FOR_EXPANSION && !isSurvivalCandidate(candidate) ? 4 : 0;
+  return Math.min(
+    MAX_RISK_COST,
+    Math.round(energyRisk + buildTimeRisk + exposureRisk + backlogRisk + hostilePressureRisk + lowWorkerRisk)
+  );
+}
+function applySurvivalGate(roomState, candidate, rawScore) {
+  var _a, _b;
+  if (!hasSurvivalPressure(roomState) || isSurvivalCandidate(candidate)) {
+    return rawScore;
+  }
+  const hardRecoveryPressure = ((_a = roomState.workerCount) != null ? _a : MIN_SAFE_WORKERS_FOR_EXPANSION) === 0 || ((_b = roomState.spawnCount) != null ? _b : 1) === 0 || getControllerDowngradePressure(roomState) >= 0.85 || getDefensePressure(roomState) >= 0.9;
+  return Math.min(rawScore, hardRecoveryPressure ? 45 : 60);
+}
+function classifyUrgency(score, urgencyMagnitude) {
+  if (score >= 85 || urgencyMagnitude >= 0.9) {
+    return "critical";
+  }
+  if (score >= 70 || urgencyMagnitude >= 0.7) {
+    return "high";
+  }
+  if (score >= 45 || urgencyMagnitude >= 0.4) {
+    return "medium";
+  }
+  return "low";
+}
+function compareConstructionPriorityScores(left, right) {
+  if (left.blocked !== right.blocked) {
+    return left.blocked ? 1 : -1;
+  }
+  return right.score - left.score || urgencyRank(right.urgency) - urgencyRank(left.urgency) || right.factors.visionWeight - left.factors.visionWeight || left.buildItem.localeCompare(right.buildItem) || left.room.localeCompare(right.room);
+}
+function urgencyRank(urgency) {
+  switch (urgency) {
+    case "critical":
+      return 4;
+    case "high":
+      return 3;
+    case "medium":
+      return 2;
+    case "low":
+      return 1;
+    case "blocked":
+      return 0;
+    default:
+      return 0;
+  }
+}
+function hasSurvivalPressure(roomState) {
+  var _a, _b;
+  return ((_a = roomState.workerCount) != null ? _a : MIN_SAFE_WORKERS_FOR_EXPANSION) === 0 || ((_b = roomState.spawnCount) != null ? _b : 1) === 0 || getControllerDowngradePressure(roomState) >= 0.7 || getDefensePressure(roomState) >= 0.7;
+}
+function isSurvivalCandidate(candidate) {
+  return isRecoveryCandidate(candidate) || isDefenseCandidate(candidate) || isControllerProtectionCandidate(candidate);
+}
+function isRecoveryCandidate(candidate) {
+  var _a;
+  return candidate.buildType === "spawn" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.survivalRecovery) > 0;
+}
+function isControllerProtectionCandidate(candidate) {
+  var _a;
+  return candidate.buildType === "container" || candidate.buildType === "road" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.controllerDowngrade) > 0;
+}
+function isDefenseCandidate(candidate) {
+  var _a;
+  return candidate.buildType === "tower" || candidate.buildType === "rampart" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.defense) > 0;
+}
+function isEnergyCapacityCandidate(candidate) {
+  var _a;
+  return candidate.buildType === "extension" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.energyBottleneck) > 0;
+}
+function isRepairSupportCandidate(candidate) {
+  var _a;
+  return candidate.buildType === "road" || candidate.buildType === "container" || candidate.buildType === "rampart" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.repairDecay) > 0;
+}
+function getWorkerRecoveryPressure(roomState) {
+  if (roomState.spawnCount === 0) {
+    return 1;
+  }
+  const workerCount = roomState.workerCount;
+  if (typeof workerCount !== "number") {
+    return 0;
+  }
+  if (workerCount <= 0) {
+    return 1;
+  }
+  if (workerCount === 1) {
+    return 0.65;
+  }
+  if (workerCount === 2) {
+    return 0.35;
+  }
+  return 0;
+}
+function getControllerDowngradePressure(roomState) {
+  const ticksToDowngrade = roomState.controllerTicksToDowngrade;
+  if (typeof ticksToDowngrade !== "number") {
+    return 0;
+  }
+  if (ticksToDowngrade <= 1e3) {
+    return 1;
+  }
+  if (ticksToDowngrade <= CONTROLLER_DOWNGRADE_CRITICAL_TICKS) {
+    return 0.85;
+  }
+  if (ticksToDowngrade <= CONTROLLER_DOWNGRADE_WARNING_TICKS) {
+    return 0.35;
+  }
+  return 0;
+}
+function getDefensePressure(roomState) {
+  var _a, _b;
+  if (((_a = roomState.hostileCreepCount) != null ? _a : 0) > 0) {
+    return 0.9;
+  }
+  if (((_b = roomState.hostileStructureCount) != null ? _b : 0) > 0) {
+    return 0.55;
+  }
+  return 0;
+}
+function getEnergyBottleneckPressure(roomState) {
+  const energyCapacity = roomState.energyCapacity;
+  if (typeof energyCapacity !== "number") {
+    return 0;
+  }
+  if (energyCapacity < 350) {
+    return 0.85;
+  }
+  if (energyCapacity < EARLY_ENERGY_CAPACITY_TARGET) {
+    return 0.65;
+  }
+  return 0;
+}
+function getRepairDecayPressure(roomState) {
+  var _a, _b;
+  if (((_a = roomState.criticalRepairCount) != null ? _a : 0) > 0) {
+    return 0.7;
+  }
+  if (((_b = roomState.decayingStructureCount) != null ? _b : 0) > 0) {
+    return 0.35;
+  }
+  return 0;
+}
+function getSourceBenefit(roomState, candidate) {
+  var _a;
+  if (candidate.buildType !== "container" && candidate.buildType !== "road" && candidate.buildType !== "remote-logistics") {
+    return 0;
+  }
+  return Math.min(3, (_a = roomState.sourceCount) != null ? _a : 0);
+}
+function normalizeSignal(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+function clampScore(score) {
+  return Math.max(0, Math.min(MAX_SCORE, score));
+}
+function buildRuntimeConstructionPriorityState(colony, creeps) {
+  var _a, _b, _c;
+  const room = colony.room;
+  const ownedConstructionSites = findRoomObjects5(room, "FIND_MY_CONSTRUCTION_SITES");
+  const ownedStructures = findRoomObjects5(room, "FIND_MY_STRUCTURES");
+  const visibleStructures = findRoomObjects5(room, "FIND_STRUCTURES");
+  const hostileCreeps = findRoomObjects5(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects5(room, "FIND_HOSTILE_STRUCTURES");
+  const sources = findRoomObjects5(room, "FIND_SOURCES");
+  const colonyWorkers = creeps.filter((creep) => {
+    var _a2, _b2;
+    return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && ((_b2 = creep.memory) == null ? void 0 : _b2.colony) === room.name;
+  });
+  const repairSignals = summarizeRepairSignals(visibleStructures, buildCriticalRoadLogisticsContext(room));
+  const territoryIntentCounts = countTerritoryIntents(room.name);
+  return {
+    roomName: room.name,
+    rcl: ((_a = room.controller) == null ? void 0 : _a.my) === true ? room.controller.level : void 0,
+    energyAvailable: colony.energyAvailable,
+    energyCapacity: colony.energyCapacityAvailable,
+    workerCount: colonyWorkers.length,
+    spawnCount: colony.spawns.length,
+    sourceCount: sources == null ? void 0 : sources.length,
+    extensionCount: countStructuresByType(ownedStructures, "STRUCTURE_EXTENSION", "extension"),
+    towerCount: countStructuresByType(ownedStructures, "STRUCTURE_TOWER", "tower"),
+    constructionSiteCount: ownedConstructionSites == null ? void 0 : ownedConstructionSites.length,
+    criticalRepairCount: repairSignals == null ? void 0 : repairSignals.criticalRepairCount,
+    decayingStructureCount: repairSignals == null ? void 0 : repairSignals.decayingStructureCount,
+    controllerTicksToDowngrade: ((_b = room.controller) == null ? void 0 : _b.my) === true ? room.controller.ticksToDowngrade : void 0,
+    hostileCreepCount: hostileCreeps == null ? void 0 : hostileCreeps.length,
+    hostileStructureCount: hostileStructures == null ? void 0 : hostileStructures.length,
+    activeTerritoryIntentCount: territoryIntentCounts.active,
+    plannedTerritoryIntentCount: territoryIntentCounts.planned,
+    remoteLogisticsReady: false,
+    observations: {
+      "room-controller": ((_c = room.controller) == null ? void 0 : _c.my) === true && typeof room.controller.level === "number",
+      "energy-capacity": typeof colony.energyCapacityAvailable === "number",
+      "worker-count": true,
+      "spawn-count": true,
+      "construction-sites": ownedConstructionSites !== null,
+      "repair-decay": visibleStructures !== null,
+      "hostile-presence": hostileCreeps !== null && hostileStructures !== null,
+      sources: sources !== null,
+      "territory-intents": true,
+      "remote-paths": false
+    },
+    ownedConstructionSites,
+    ownedStructures,
+    visibleStructures
+  };
+}
+function buildRuntimeConstructionCandidates(state) {
+  const candidates = [
+    ...buildExistingSiteCandidates(state),
+    ...buildPlannedLocalCandidates(state),
+    ...buildRemoteLogisticsCandidates(state)
+  ];
+  if (candidates.length > 0) {
+    return candidates;
+  }
+  return [
+    {
+      buildItem: "observe construction backlog",
+      buildType: "observation",
+      requiredObservations: ["construction-sites"],
+      expectedKpiMovement: ["construction priority table becomes evidence-backed"],
+      risk: ["no build action should be selected until construction-site observations exist"],
+      vision: { resources: 0.2 }
+    }
+  ];
+}
+function buildExistingSiteCandidates(state) {
+  var _a;
+  return ((_a = state.ownedConstructionSites) != null ? _a : []).map((site) => {
+    const buildType = mapStructureTypeToBuildType(String(site.structureType));
+    return {
+      ...createCandidateForBuildType(buildType, state),
+      buildItem: `finish ${site.structureType} site`,
+      status: "existing-site",
+      estimatedEnergyCost: getConstructionSiteRemainingProgress(site)
+    };
+  });
+}
+function buildPlannedLocalCandidates(state) {
+  var _a, _b, _c, _d, _e, _f;
+  const candidates = [];
+  const rcl = (_a = state.rcl) != null ? _a : 0;
+  const extensionLimit = getExtensionLimitForRcl(state.rcl);
+  if (extensionLimit > 0 && ((_b = state.extensionCount) != null ? _b : 0) < extensionLimit) {
+    candidates.push(createCandidateForBuildType("extension", state));
+  }
+  if (rcl >= 2 && ((_c = state.sourceCount) != null ? _c : 0) > 0) {
+    candidates.push(createCandidateForBuildType("container", state));
+  }
+  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && ((_d = state.sourceCount) != null ? _d : 0) > 0) {
+    candidates.push(createCandidateForBuildType("road", state));
+  }
+  if (rcl >= 2 && getDefensePressure(state) > 0) {
+    candidates.push(createCandidateForBuildType("rampart", state));
+  }
+  if (rcl >= 3 && ((_e = state.towerCount) != null ? _e : 0) === 0) {
+    candidates.push(createCandidateForBuildType("tower", state));
+  }
+  if (((_f = state.spawnCount) != null ? _f : 1) === 0) {
+    candidates.push(createCandidateForBuildType("spawn", state));
+  }
+  return candidates;
+}
+function buildRemoteLogisticsCandidates(state) {
+  var _a, _b;
+  const territoryIntentCount = ((_a = state.activeTerritoryIntentCount) != null ? _a : 0) + ((_b = state.plannedTerritoryIntentCount) != null ? _b : 0);
+  if (territoryIntentCount === 0) {
+    return [];
+  }
+  return [createCandidateForBuildType("remote-logistics", state)];
+}
+function createCandidateForBuildType(buildType, state) {
+  var _a, _b;
+  switch (buildType) {
+    case "spawn":
+      return {
+        buildItem: "build spawn recovery",
+        buildType,
+        minimumRcl: 1,
+        requiredObservations: ["spawn-count", "worker-count", "room-controller"],
+        expectedKpiMovement: ["restores worker production and prevents room loss"],
+        risk: ["high energy commitment before economy is recovered"],
+        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.spawn,
+        signals: { survivalRecovery: 1, spawnUtilization: 0.8 },
+        vision: { survival: 1, territory: 0.6 }
+      };
+    case "extension":
+      return {
+        buildItem: "build extension capacity",
+        buildType,
+        minimumRcl: 2,
+        requiredObservations: ["room-controller", "energy-capacity", "worker-count", "construction-sites"],
+        expectedKpiMovement: ["raises spawn energy capacity", "unlocks larger workers and faster RCL progress"],
+        risk: ["adds build backlog before roads/containers if worker capacity is low"],
+        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.extension,
+        signals: {
+          energyBottleneck: getEnergyBottleneckPressure(state),
+          spawnUtilization: 0.8,
+          rclAcceleration: 0.65
+        },
+        vision: { resources: 1, territory: 0.35 }
+      };
+    case "tower":
+      return {
+        buildItem: "build tower defense",
+        buildType,
+        minimumRcl: 3,
+        requiredObservations: ["room-controller", "hostile-presence", "energy-capacity", "worker-count"],
+        expectedKpiMovement: ["improves room hold safety", "adds hostile damage and repair response capacity"],
+        risk: ["requires steady energy income to keep tower effective"],
+        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.tower,
+        hostileExposure: "medium",
+        signals: { defense: Math.max(0.75, getDefensePressure(state)), enemyKillPotential: 0.7 },
+        vision: { survival: getDefensePressure(state), territory: 0.9, enemyKills: 0.5 }
+      };
+    case "rampart":
+      return {
+        buildItem: "build rampart defense",
+        buildType,
+        minimumRcl: 2,
+        requiredObservations: ["room-controller", "hostile-presence", "repair-decay", "worker-count"],
+        expectedKpiMovement: ["improves spawn/controller survivability under pressure"],
+        risk: ["decays without sustained repair budget"],
+        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.rampart,
+        hostileExposure: "medium",
+        signals: { defense: getDefensePressure(state), repairDecay: getRepairDecayPressure(state) },
+        vision: { survival: getDefensePressure(state), territory: 0.8, enemyKills: 0.15 }
+      };
+    case "road":
+      return {
+        buildItem: "build source/controller roads",
+        buildType,
+        minimumRcl: 2,
+        requiredObservations: ["room-controller", "sources", "repair-decay", "worker-count"],
+        expectedKpiMovement: ["reduces worker travel time", "improves harvest-to-spawn throughput"],
+        risk: ["road decay creates recurring repair load"],
+        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.road,
+        pathExposure: "low",
+        signals: {
+          harvestThroughput: 0.55,
+          rclAcceleration: 0.45,
+          expansionPrerequisite: ((_a = state.activeTerritoryIntentCount) != null ? _a : 0) > 0 ? 0.45 : 0.2,
+          controllerDowngrade: getControllerDowngradePressure(state) >= 0.7 ? 0.55 : 0
+        },
+        vision: { resources: 0.8, territory: 0.45 }
+      };
+    case "container":
+      return {
+        buildItem: "build source containers",
+        buildType,
+        minimumRcl: 2,
+        requiredObservations: ["room-controller", "sources", "worker-count"],
+        expectedKpiMovement: ["raises harvest throughput", "reduces dropped-energy waste"],
+        risk: ["large early build cost and decay upkeep"],
+        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.container,
+        pathExposure: "low",
+        signals: {
+          harvestThroughput: 0.9,
+          storageLogistics: 0.65,
+          rclAcceleration: 0.35,
+          expansionPrerequisite: ((_b = state.activeTerritoryIntentCount) != null ? _b : 0) > 0 ? 0.4 : 0.15,
+          controllerDowngrade: getControllerDowngradePressure(state) >= 0.7 ? 0.5 : 0
+        },
+        vision: { resources: 1, territory: 0.35 }
+      };
+    case "storage":
+      return {
+        buildItem: "build storage logistics",
+        buildType,
+        minimumRcl: 4,
+        minimumWorkers: MIN_SAFE_WORKERS_FOR_EXPANSION,
+        requiredObservations: ["room-controller", "energy-capacity", "worker-count"],
+        expectedKpiMovement: ["improves durable resource buffering and logistics"],
+        risk: ["very high energy commitment"],
+        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.storage,
+        signals: { storageLogistics: 0.95 },
+        vision: { resources: 1, territory: 0.25 }
+      };
+    case "remote-logistics":
+      return {
+        buildItem: "build remote road/container logistics",
+        buildType,
+        minimumRcl: 2,
+        minimumWorkers: MIN_SAFE_WORKERS_FOR_EXPANSION,
+        requiresSafeHome: true,
+        requiredObservations: ["territory-intents", "remote-paths", "worker-count", "hostile-presence"],
+        expectedKpiMovement: ["turns reserved/scouted territory into sustainable income", "improves remote room hold viability"],
+        risk: ["path exposure and hostile pressure can waste builder time"],
+        estimatedEnergyCost: STRUCTURE_BUILD_COSTS["remote-logistics"],
+        pathExposure: "high",
+        hostileExposure: "medium",
+        signals: {
+          expansionPrerequisite: 1,
+          harvestThroughput: 0.75,
+          storageLogistics: 0.5
+        },
+        vision: { territory: 1, resources: 0.6 }
+      };
+    case "observation":
+    default:
+      return {
+        buildItem: "observe construction backlog",
+        buildType: "observation",
+        requiredObservations: ["construction-sites"],
+        expectedKpiMovement: ["construction priority table becomes evidence-backed"],
+        risk: ["no build action should be selected until construction-site observations exist"],
+        signals: {},
+        vision: { resources: 0.2 }
+      };
+  }
+}
+function mapStructureTypeToBuildType(structureType) {
+  if (matchesStructureType5(structureType, "STRUCTURE_SPAWN", "spawn")) {
+    return "spawn";
+  }
+  if (matchesStructureType5(structureType, "STRUCTURE_EXTENSION", "extension")) {
+    return "extension";
+  }
+  if (matchesStructureType5(structureType, "STRUCTURE_TOWER", "tower")) {
+    return "tower";
+  }
+  if (matchesStructureType5(structureType, "STRUCTURE_RAMPART", "rampart")) {
+    return "rampart";
+  }
+  if (matchesStructureType5(structureType, "STRUCTURE_ROAD", "road")) {
+    return "road";
+  }
+  if (matchesStructureType5(structureType, "STRUCTURE_CONTAINER", "container")) {
+    return "container";
+  }
+  if (matchesStructureType5(structureType, "STRUCTURE_STORAGE", "storage")) {
+    return "storage";
+  }
+  return "observation";
+}
+function getConstructionSiteRemainingProgress(site) {
+  var _a;
+  const progressTotal = typeof site.progressTotal === "number" ? site.progressTotal : (_a = STRUCTURE_BUILD_COSTS.observation) != null ? _a : 0;
+  const progress = typeof site.progress === "number" ? site.progress : 0;
+  return Math.max(0, progressTotal - progress);
+}
+function findRoomObjects5(room, constantName) {
+  const findConstant = getFindConstant2(constantName);
+  if (findConstant === null || typeof room.find !== "function") {
+    return null;
+  }
+  try {
+    const result = room.find(findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return null;
+  }
+}
+function getFindConstant2(constantName) {
+  const findConstant = globalThis[constantName];
+  return typeof findConstant === "number" ? findConstant : null;
+}
+function countStructuresByType(structures, globalName, fallback) {
+  return structures == null ? void 0 : structures.filter((structure) => matchesStructureType5(structure.structureType, globalName, fallback)).length;
+}
+function summarizeRepairSignals(structures, criticalRoadContext) {
+  if (structures === null) {
+    return null;
+  }
+  return structures.reduce(
+    (summary, structure) => {
+      if (!isRepairSignalStructure(structure) || !hasHits(structure)) {
+        return summary;
+      }
+      if (matchesStructureType5(structure.structureType, "STRUCTURE_ROAD", "road") && !isCriticalRoadLogisticsWork(structure, criticalRoadContext)) {
+        return summary;
+      }
+      const hitsRatio = structure.hitsMax > 0 ? structure.hits / structure.hitsMax : 1;
+      if (hitsRatio <= CRITICAL_REPAIR_HITS_RATIO) {
+        summary.criticalRepairCount += 1;
+      } else if (hitsRatio <= DECAYING_REPAIR_HITS_RATIO) {
+        summary.decayingStructureCount += 1;
+      }
+      return summary;
+    },
+    { criticalRepairCount: 0, decayingStructureCount: 0 }
+  );
+}
+function isRepairSignalStructure(structure) {
+  if (matchesStructureType5(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+    return true;
+  }
+  return matchesStructureType5(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true && structure.hits <= IDLE_RAMPART_REPAIR_HITS_CEILING;
+}
+function hasHits(structure) {
+  return typeof structure.hits === "number" && typeof structure.hitsMax === "number";
+}
+function countTerritoryIntents(roomName) {
+  var _a, _b;
+  const intents = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.intents;
+  if (!Array.isArray(intents)) {
+    return { active: 0, planned: 0 };
+  }
+  return intents.reduce(
+    (counts, intent) => {
+      if (!isRecord5(intent)) {
+        return counts;
+      }
+      if (intent.colony !== roomName) {
+        return counts;
+      }
+      if (intent.status === "active") {
+        counts.active += 1;
+      } else if (intent.status === "planned") {
+        counts.planned += 1;
+      }
+      return counts;
+    },
+    { active: 0, planned: 0 }
+  );
+}
+function isRecord5(value) {
+  return typeof value === "object" && value !== null;
+}
+function matchesStructureType5(actual, globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return actual === ((_a = constants[globalName]) != null ? _a : fallback);
+}
+
 // src/tasks/workerTasks.ts
 var CONTROLLER_DOWNGRADE_GUARD_TICKS2 = 5e3;
 var CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
-var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
+var IDLE_RAMPART_REPAIR_HITS_CEILING2 = 1e5;
 var TOWER_REFILL_ENERGY_FLOOR = 500;
 var CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 var URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
@@ -5807,22 +6682,19 @@ function selectWorkerTask(creep) {
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
-  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
-    creep,
-    constructionSites,
-    constructionReservationContext
-  );
-  if (criticalRoadConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: criticalRoadConstructionSite.id });
-  }
-  const containerConstructionSite = selectUnreservedConstructionSite(
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const highImpactConstructionSite = selectUnreservedConstructionSite(
     creep,
     constructionSites,
     constructionReservationContext,
-    isContainerConstructionSite2
+    (site) => isHighImpactConstructionSite(site, constructionPriorityContext),
+    {
+      priorityContext: constructionPriorityContext,
+      requireReasonableRange: true
+    }
   );
-  if (containerConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: containerConstructionSite.id });
+  if (highImpactConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: highImpactConstructionSite.id });
   }
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
     const productiveEnergySinkTask = selectNearbyProductiveEnergySinkTask(
@@ -5836,19 +6708,12 @@ function selectWorkerTask(creep) {
     }
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
   }
-  const roadConstructionSite = selectUnreservedConstructionSite(
-    creep,
-    constructionSites,
-    constructionReservationContext,
-    isRoadConstructionSite2
-  );
-  if (roadConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: roadConstructionSite.id });
-  }
   const constructionSite = selectUnreservedConstructionSite(
     creep,
     constructionSites,
-    constructionReservationContext
+    constructionReservationContext,
+    () => true,
+    { priorityContext: constructionPriorityContext }
   );
   if (constructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "build", targetId: constructionSite.id });
@@ -6046,7 +6911,7 @@ function recordLowLoadReturnTelemetry(creep, task, reason) {
   };
 }
 function isFillableEnergySink(structure) {
-  return (matchesStructureType5(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType5(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType5(structure.structureType, "STRUCTURE_TOWER", "tower")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
+  return (matchesStructureType6(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType6(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType6(structure.structureType, "STRUCTURE_TOWER", "tower")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
 function selectFillableEnergySink(creep) {
   var _a;
@@ -6240,14 +7105,14 @@ function findSpawnExtensionEnergyStructures(room) {
   return room.find(FIND_MY_STRUCTURES).filter((structure) => isSpawnExtensionEnergyStructure(structure));
 }
 function isSpawnExtensionEnergyStructure(structure) {
-  return (matchesStructureType5(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType5(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure;
+  return (matchesStructureType6(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType6(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure;
 }
 function isSpawnEnergySink(structure) {
-  return matchesStructureType5(structure.structureType, "STRUCTURE_SPAWN", "spawn");
+  return matchesStructureType6(structure.structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function isNearTermSpawningSpawn(structure) {
   var _a;
-  if (!matchesStructureType5(structure.structureType, "STRUCTURE_SPAWN", "spawn")) {
+  if (!matchesStructureType6(structure.structureType, "STRUCTURE_SPAWN", "spawn")) {
     return false;
   }
   const remainingTime = (_a = structure.spawning) == null ? void 0 : _a.remainingTime;
@@ -6257,10 +7122,10 @@ function isSpawnOrExtensionEnergySink(structure) {
   return isSpawnEnergySink(structure) || isExtensionEnergySink(structure);
 }
 function isExtensionEnergySink(structure) {
-  return matchesStructureType5(structure.structureType, "STRUCTURE_EXTENSION", "extension");
+  return matchesStructureType6(structure.structureType, "STRUCTURE_EXTENSION", "extension");
 }
 function isTowerEnergySink(structure) {
-  return matchesStructureType5(structure.structureType, "STRUCTURE_TOWER", "tower");
+  return matchesStructureType6(structure.structureType, "STRUCTURE_TOWER", "tower");
 }
 function isPriorityTowerEnergySink(structure) {
   return isTowerEnergySink(structure) && getStoredEnergy2(structure) < TOWER_REFILL_ENERGY_FLOOR;
@@ -6288,45 +7153,101 @@ function selectClosestEnergySink(energySinks, creep) {
 function compareEnergySinkId(left, right) {
   return String(left.id).localeCompare(String(right.id));
 }
-function selectConstructionSite(creep, constructionSites, predicate = () => true, constructionReservationContext = createEmptyConstructionReservationContext()) {
-  var _a;
-  const candidates = constructionSites.filter(predicate);
+function selectConstructionSite(creep, constructionSites, predicate = () => true, constructionReservationContext = createEmptyConstructionReservationContext(), options = {}) {
+  var _a, _b;
+  const candidates = constructionSites.filter(
+    (site) => predicate(site) && (!options.requireReasonableRange || isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
+  );
   if (candidates.length === 0) {
     return null;
   }
+  const priorityContext = (_a = options.priorityContext) != null ? _a : buildWorkerConstructionSiteImpactPriorityContext(creep, candidates);
   const position = creep.pos;
   if (typeof (position == null ? void 0 : position.getRangeTo) === "function") {
     return [...candidates].sort(
-      (left, right) => compareConstructionSiteCandidates(creep, left, right, constructionReservationContext)
+      (left, right) => compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext)
     )[0];
   }
+  const topImpactCandidates = selectTopImpactConstructionSiteCandidates(candidates, priorityContext);
   const completableConstructionSite = selectNearTermCompletableConstructionSite(
     creep,
-    candidates,
+    topImpactCandidates,
     constructionReservationContext
   );
   if (completableConstructionSite) {
     return completableConstructionSite;
   }
   if (typeof (position == null ? void 0 : position.findClosestByRange) === "function") {
-    const candidatesByStableId = [...candidates].sort(compareConstructionSiteId);
-    return (_a = position.findClosestByRange(candidatesByStableId)) != null ? _a : candidatesByStableId[0];
+    const candidatesByStableId = [...topImpactCandidates].sort(compareConstructionSiteId);
+    return (_b = position.findClosestByRange(candidatesByStableId)) != null ? _b : candidatesByStableId[0];
   }
-  return candidates[0];
+  return topImpactCandidates.sort(compareConstructionSiteId)[0];
 }
-function selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, predicate = () => true) {
+function selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, predicate = () => true, options = {}) {
   return selectConstructionSite(
     creep,
     constructionSites,
     (site) => predicate(site) && hasUnreservedConstructionProgress(creep, site, constructionReservationContext),
-    constructionReservationContext
+    constructionReservationContext,
+    options
   );
+}
+function buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites) {
+  const context = {};
+  if (constructionSites.some(isRoadConstructionSite2)) {
+    context.criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
+  }
+  if (constructionSites.some(isContainerConstructionSite2)) {
+    context.sources = findConstructionPrioritySources(creep.room);
+  }
+  if (constructionSites.some(isRampartConstructionSite)) {
+    context.protectedRampartAnchors = findConstructionPriorityProtectedRampartAnchors(creep.room);
+  }
+  return context;
+}
+function findConstructionPrioritySources(room) {
+  if (typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  try {
+    const sources = room.find(FIND_SOURCES);
+    return Array.isArray(sources) ? sources : [];
+  } catch {
+    return [];
+  }
+}
+function findConstructionPriorityProtectedRampartAnchors(room) {
+  var _a;
+  const anchors = [];
+  if (((_a = room.controller) == null ? void 0 : _a.pos) && isPositionInRoom(room.controller.pos, room.name)) {
+    anchors.push(room.controller.pos);
+  }
+  for (const structure of findConstructionPriorityOwnedStructures(room)) {
+    if (matchesStructureType6(structure.structureType, "STRUCTURE_SPAWN", "spawn") && structure.pos && isPositionInRoom(structure.pos, room.name)) {
+      anchors.push(structure.pos);
+    }
+  }
+  return anchors;
+}
+function findConstructionPriorityOwnedStructures(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  try {
+    const structures = room.find(FIND_MY_STRUCTURES);
+    return Array.isArray(structures) ? structures : [];
+  } catch {
+    return [];
+  }
+}
+function isPositionInRoom(position, roomName) {
+  return typeof position.roomName !== "string" || position.roomName === roomName;
 }
 function hasUnreservedConstructionProgress(creep, site, constructionReservationContext) {
   if (isWorkerAssignedToConstructionSite(creep, site)) {
     return true;
   }
-  const remainingProgress = getConstructionSiteRemainingProgress(site);
+  const remainingProgress = getConstructionSiteRemainingProgress2(site);
   if (!Number.isFinite(remainingProgress)) {
     return true;
   }
@@ -6383,8 +7304,34 @@ function selectNearTermCompletableConstructionSite(creep, constructionSites, con
   }
   return candidates.sort(compareNearTermCompletableConstructionSites)[0];
 }
-function compareConstructionSiteCandidates(creep, left, right, constructionReservationContext) {
-  return compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareConstructionSiteId(left, right);
+function compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext) {
+  return getConstructionSiteImpactPriority(right, priorityContext) - getConstructionSiteImpactPriority(left, priorityContext) || compareConstructionSiteReasonableRange(creep, left, right) || compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) || compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) || compareConstructionSiteId(left, right);
+}
+function compareConstructionSiteReasonableRange(creep, left, right) {
+  const leftInRange = isConstructionSiteWithinReasonableRange(
+    creep,
+    left,
+    DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE
+  );
+  const rightInRange = isConstructionSiteWithinReasonableRange(
+    creep,
+    right,
+    DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE
+  );
+  if (leftInRange === rightInRange) {
+    return 0;
+  }
+  return leftInRange ? -1 : 1;
+}
+function isConstructionSiteWithinReasonableRange(creep, site, rangeLimit) {
+  const range = getRangeBetweenRoomObjects(creep, site);
+  return range === null || range <= rangeLimit;
+}
+function selectTopImpactConstructionSiteCandidates(candidates, priorityContext) {
+  const highestPriority = Math.max(
+    ...candidates.map((site) => getConstructionSiteImpactPriority(site, priorityContext))
+  );
+  return candidates.filter((site) => getConstructionSiteImpactPriority(site, priorityContext) === highestPriority);
 }
 function compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) {
   const leftCompletable = canCompleteConstructionSiteWithCarriedEnergy(
@@ -6403,7 +7350,7 @@ function compareConstructionSiteCompletion(creep, left, right, constructionReser
   return leftCompletable && rightCompletable ? compareNearTermCompletableConstructionSites(left, right) : 0;
 }
 function compareNearTermCompletableConstructionSites(left, right) {
-  return getConstructionSiteRemainingProgress(left) - getConstructionSiteRemainingProgress(right) || compareConstructionSiteId(left, right);
+  return getConstructionSiteRemainingProgress2(left) - getConstructionSiteRemainingProgress2(right) || compareConstructionSiteId(left, right);
 }
 function canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionReservationContext = createEmptyConstructionReservationContext()) {
   const remainingProgress = getUnreservedConstructionProgressForWorker(
@@ -6414,7 +7361,7 @@ function canCompleteConstructionSiteWithCarriedEnergy(creep, site, constructionR
   return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep) * getBuildPower();
 }
 function getUnreservedConstructionProgressForWorker(creep, site, constructionReservationContext) {
-  const remainingProgress = getConstructionSiteRemainingProgress(site);
+  const remainingProgress = getConstructionSiteRemainingProgress2(site);
   if (!Number.isFinite(remainingProgress)) {
     return remainingProgress;
   }
@@ -6422,7 +7369,7 @@ function getUnreservedConstructionProgressForWorker(creep, site, constructionRes
   const workerReservedProgress = isWorkerAssignedToConstructionSite(creep, site) ? getUsedEnergy(creep) * getBuildPower() : 0;
   return Math.max(0, remainingProgress - Math.max(0, reservedProgress - workerReservedProgress));
 }
-function getConstructionSiteRemainingProgress(site) {
+function getConstructionSiteRemainingProgress2(site) {
   const progress = site.progress;
   const progressTotal = site.progressTotal;
   if (typeof progress !== "number" || typeof progressTotal !== "number" || !Number.isFinite(progress) || !Number.isFinite(progressTotal)) {
@@ -6436,7 +7383,7 @@ function getBuildPower() {
 function compareConstructionSiteId(left, right) {
   return String(left.id).localeCompare(String(right.id));
 }
-function selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext = createEmptyConstructionReservationContext()) {
+function selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext = createEmptyConstructionReservationContext(), priorityContext) {
   if (!constructionSites.some(isRoadConstructionSite2)) {
     return null;
   }
@@ -6445,7 +7392,8 @@ function selectCriticalRoadConstructionSite(creep, constructionSites, constructi
     creep,
     constructionSites,
     constructionReservationContext,
-    (site) => isCriticalRoadLogisticsWork(site, criticalRoadContext)
+    (site) => isCriticalRoadLogisticsWork(site, criticalRoadContext),
+    { priorityContext: priorityContext != null ? priorityContext : { criticalRoadContext }, requireReasonableRange: true }
   );
 }
 function selectNearbyProductiveEnergySinkTask(creep, constructionSites, controller, constructionReservationContext) {
@@ -6495,12 +7443,13 @@ function compareProductiveEnergySinkCompletion(left, right) {
   }
   return left.canCompleteConstruction ? -1 : 1;
 }
-function selectCapacityEnablingConstructionSite(creep, constructionSites, controller, constructionReservationContext) {
+function selectCapacityEnablingConstructionSite(creep, constructionSites, controller, constructionReservationContext, priorityContext) {
   const spawnConstructionSite = selectUnreservedConstructionSite(
     creep,
     constructionSites,
     constructionReservationContext,
-    isSpawnConstructionSite
+    isSpawnConstructionSite,
+    { priorityContext: priorityContext != null ? priorityContext : {}, requireReasonableRange: true }
   );
   if (spawnConstructionSite) {
     return spawnConstructionSite;
@@ -6512,26 +7461,28 @@ function selectCapacityEnablingConstructionSite(creep, constructionSites, contro
     creep,
     constructionSites,
     constructionReservationContext,
-    isExtensionConstructionSite
+    isExtensionConstructionSite,
+    { priorityContext: priorityContext != null ? priorityContext : {}, requireReasonableRange: true }
   );
 }
-function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(creep, capacityConstructionSite, constructionSites, constructionReservationContext) {
+function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(creep, capacityConstructionSite, constructionSites, constructionReservationContext, priorityContext) {
   var _a;
   if (!capacityConstructionSite || !isExtensionConstructionSite(capacityConstructionSite) || shouldPrioritizeExtensionCapacity(creep.room)) {
     return null;
   }
-  return (_a = selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext)) != null ? _a : selectUnreservedConstructionSite(
+  return (_a = selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext, priorityContext)) != null ? _a : selectUnreservedConstructionSite(
     creep,
     constructionSites,
     constructionReservationContext,
-    isContainerConstructionSite2
+    isContainerConstructionSite2,
+    { priorityContext: priorityContext != null ? priorityContext : {}, requireReasonableRange: true }
   );
 }
 function shouldPrioritizeExtensionCapacity(room) {
   const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
   return energyCapacityAvailable === null || energyCapacityAvailable < BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY;
 }
-function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstructionSite, controller, constructionSites, constructionReservationContext) {
+function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstructionSite, controller, constructionSites, constructionReservationContext, priorityContext) {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
     return null;
   }
@@ -6539,7 +7490,8 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
     creep,
     capacityConstructionSite,
     constructionSites,
-    constructionReservationContext
+    constructionReservationContext,
+    priorityContext
   );
   if (baselineLogisticsConstructionSite) {
     return { type: "build", targetId: baselineLogisticsConstructionSite.id };
@@ -6557,23 +7509,30 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
   const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
     creep,
     constructionSites,
-    constructionReservationContext
+    constructionReservationContext,
+    priorityContext
   );
   return criticalRoadConstructionSite ? { type: "build", targetId: criticalRoadConstructionSite.id } : null;
 }
 function isSpawnConstructionSite(site) {
-  return matchesStructureType5(site.structureType, "STRUCTURE_SPAWN", "spawn");
+  return matchesStructureType6(site.structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function isExtensionConstructionSite(site) {
-  return matchesStructureType5(site.structureType, "STRUCTURE_EXTENSION", "extension");
+  return matchesStructureType6(site.structureType, "STRUCTURE_EXTENSION", "extension");
 }
 function isContainerConstructionSite2(site) {
-  return matchesStructureType5(site.structureType, "STRUCTURE_CONTAINER", "container");
+  return matchesStructureType6(site.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function isRoadConstructionSite2(site) {
-  return matchesStructureType5(site.structureType, "STRUCTURE_ROAD", "road");
+  return matchesStructureType6(site.structureType, "STRUCTURE_ROAD", "road");
 }
-function matchesStructureType5(actual, globalName, fallback) {
+function isRampartConstructionSite(site) {
+  return matchesStructureType6(site.structureType, "STRUCTURE_RAMPART", "rampart");
+}
+function isHighImpactConstructionSite(site, priorityContext) {
+  return isContainerConstructionSite2(site) || getConstructionSiteImpactPriority(site, priorityContext != null ? priorityContext : {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.tower;
+}
+function matchesStructureType6(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -6621,7 +7580,7 @@ function isSafeStoredEnergySource(structure, context) {
   return isStoredWorkerEnergySource(structure) && hasStoredEnergy2(structure) && isFriendlyStoredEnergySource(structure, context);
 }
 function isStoredWorkerEnergySource(structure) {
-  return matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType5(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType5(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
+  return matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType6(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType6(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
 }
 function hasStoredEnergy2(structure) {
   return getStoredEnergy2(structure) > 0;
@@ -6635,7 +7594,7 @@ function isFriendlyStoredEnergySource(structure, context) {
   if (((_a = context.room.controller) == null ? void 0 : _a.my) === true) {
     return true;
   }
-  return matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container") && isRoomSafeForUnownedContainerWithdrawal(context);
+  return matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container") && isRoomSafeForUnownedContainerWithdrawal(context);
 }
 function isRoomSafeForUnownedContainerWithdrawal(context) {
   var _a;
@@ -6954,7 +7913,7 @@ function isDurableStoredEnergySource(source) {
 }
 function isStructureEnergySourceType(source, globalName, fallback) {
   const structureType = source.structureType;
-  return matchesStructureType5(typeof structureType === "string" ? structureType : void 0, globalName, fallback);
+  return matchesStructureType6(typeof structureType === "string" ? structureType : void 0, globalName, fallback);
 }
 function scoreWorkerEnergyAcquisitionAmount(energy, freeCapacity) {
   if (freeCapacity <= 0) {
@@ -7241,7 +8200,7 @@ function isSafeRepairTarget(structure) {
   if (isRoadOrContainerRepairTarget(structure)) {
     return true;
   }
-  return matchesStructureType5(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
+  return matchesStructureType6(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
 }
 function isCriticalInfrastructureRepairTarget(structure, criticalRoadContext, options) {
   if (!isSafeRepairTarget(structure) || !isRoadOrContainerRepairTarget(structure) || getHitsRatio(structure) > CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO) {
@@ -7256,17 +8215,17 @@ function isRoadOrContainerRepairTarget(structure) {
   return isRoadRepairTarget(structure) || isContainerRepairTarget(structure);
 }
 function isRoadRepairTarget(structure) {
-  return matchesStructureType5(structure.structureType, "STRUCTURE_ROAD", "road");
+  return matchesStructureType6(structure.structureType, "STRUCTURE_ROAD", "road");
 }
 function isContainerRepairTarget(structure) {
-  return matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container");
+  return matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function isWorkerRepairTargetComplete(structure) {
   return structure.hits >= getWorkerRepairHitsCeiling(structure);
 }
 function getWorkerRepairHitsCeiling(structure) {
-  if (matchesStructureType5(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure)) {
-    return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING);
+  if (matchesStructureType6(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure)) {
+    return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING2);
   }
   return structure.hitsMax;
 }
@@ -7277,10 +8236,10 @@ function compareRepairTargets(left, right) {
   return getRepairPriority(left) - getRepairPriority(right) || getHitsRatio(left) - getHitsRatio(right) || left.hits - right.hits || String(left.id).localeCompare(String(right.id));
 }
 function getRepairPriority(structure) {
-  if (matchesStructureType5(structure.structureType, "STRUCTURE_ROAD", "road")) {
+  if (matchesStructureType6(structure.structureType, "STRUCTURE_ROAD", "road")) {
     return 0;
   }
-  if (matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+  if (matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
     return 1;
   }
   return 2;
@@ -7524,7 +8483,7 @@ function selectSource2ControllerLaneHarvestTask(creep) {
   return { type: "harvest", targetId: topology.source.id };
 }
 function getSource2ControllerLaneTopology(room, controller) {
-  if (controller.my !== true || typeof controller.level !== "number" || controller.level < 2 || getRoomObjectPosition2(controller) === null || !isHomeRoomName(room, controller) || hasVisibleHostilePresence(room)) {
+  if (controller.my !== true || typeof controller.level !== "number" || controller.level < 2 || getRoomObjectPosition3(controller) === null || !isHomeRoomName(room, controller) || hasVisibleHostilePresence(room)) {
     return null;
   }
   const source = getSource2(room);
@@ -7567,9 +8526,9 @@ function isSource2ControllerLaneTask(creep, topology) {
   return (task == null ? void 0 : task.type) === "harvest" && task.targetId === topology.source.id || (task == null ? void 0 : task.type) === "upgrade" && task.targetId === topology.controller.id;
 }
 function getRangeBetweenRoomObjectPositions(left, right) {
-  const leftPosition = getRoomObjectPosition2(left);
-  const rightPosition = getRoomObjectPosition2(right);
-  if (!leftPosition || !rightPosition || !isSameRoomPosition4(leftPosition, rightPosition)) {
+  const leftPosition = getRoomObjectPosition3(left);
+  const rightPosition = getRoomObjectPosition3(right);
+  if (!leftPosition || !rightPosition || !isSameRoomPosition5(leftPosition, rightPosition)) {
     return null;
   }
   const rangeFromApi = getRangeBetweenRoomObjects(left, right);
@@ -7578,15 +8537,15 @@ function getRangeBetweenRoomObjectPositions(left, right) {
   }
   return Math.max(Math.abs(leftPosition.x - rightPosition.x), Math.abs(leftPosition.y - rightPosition.y));
 }
-function getRoomObjectPosition2(object) {
+function getRoomObjectPosition3(object) {
   const position = object.pos;
   return isRoomPosition2(position) ? position : null;
 }
 function getPositionRoomName(object) {
   var _a, _b;
-  return (_b = (_a = getRoomObjectPosition2(object)) == null ? void 0 : _a.roomName) != null ? _b : null;
+  return (_b = (_a = getRoomObjectPosition3(object)) == null ? void 0 : _a.roomName) != null ? _b : null;
 }
-function isSameRoomPosition4(left, right) {
+function isSameRoomPosition5(left, right) {
   if (typeof left.roomName === "string" && typeof right.roomName === "string") {
     return left.roomName === right.roomName;
   }
@@ -7817,8 +8776,8 @@ function hasVisiblePositionedContainer(room) {
     return false;
   }
   return room.find(FIND_STRUCTURES).some((structure) => {
-    const position = getRoomObjectPosition2(structure);
-    return position !== null && matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container");
+    const position = getRoomObjectPosition3(structure);
+    return position !== null && matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container");
   });
 }
 function selectHarvestSource(creep) {
@@ -7918,7 +8877,7 @@ function createEmptyHarvestSourceAssignmentLoad() {
   return { assignedWorkParts: 0, assignmentCount: 0 };
 }
 function getHarvestSourceAccessCapacity(source) {
-  const position = getRoomObjectPosition2(source);
+  const position = getRoomObjectPosition3(source);
   if (!position) {
     return 1;
   }
@@ -8864,7 +9823,7 @@ function selectPostClaimControllerSustainPlan(colony) {
 function getPostClaimControllerSustainRecords(colonyName) {
   var _a, _b;
   const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
-  if (!isRecord5(records)) {
+  if (!isRecord6(records)) {
     return [];
   }
   return Object.values(records).filter(
@@ -8872,7 +9831,7 @@ function getPostClaimControllerSustainRecords(colonyName) {
   ).sort(comparePostClaimControllerSustainRecords);
 }
 function isPostClaimControllerSustainRecord(record, colonyName) {
-  return isRecord5(record) && record.colony === colonyName && record.roomName !== colonyName && isNonEmptyString6(record.roomName) && (record.status === "detected" || record.status === "spawnSitePending" || record.status === "spawnSiteBlocked" || record.status === "spawningWorkers" || record.status === "ready");
+  return isRecord6(record) && record.colony === colonyName && record.roomName !== colonyName && isNonEmptyString6(record.roomName) && (record.status === "detected" || record.status === "spawnSitePending" || record.status === "spawnSiteBlocked" || record.status === "spawningWorkers" || record.status === "ready");
 }
 function comparePostClaimControllerSustainRecords(left, right) {
   const leftHasSpawn = hasOperationalSpawnInRoom(left.roomName);
@@ -9175,803 +10134,11 @@ function getVisibleRoom2(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
-function isRecord5(value) {
+function isRecord6(value) {
   return typeof value === "object" && value !== null;
 }
 function isNonEmptyString6(value) {
   return typeof value === "string" && value.length > 0;
-}
-
-// src/construction/constructionPriority.ts
-var CONTROLLER_DOWNGRADE_CRITICAL_TICKS = 5e3;
-var CONTROLLER_DOWNGRADE_WARNING_TICKS = 1e4;
-var EARLY_ENERGY_CAPACITY_TARGET = 550;
-var MIN_SAFE_WORKERS_FOR_EXPANSION = 3;
-var MIN_RCL_FOR_AUTOMATED_ROADS = 4;
-var MAX_SCORE = 100;
-var MAX_URGENCY_POINTS = 35;
-var MAX_ROOM_STATE_POINTS = 20;
-var MAX_EXPANSION_POINTS = 20;
-var MAX_ECONOMIC_POINTS = 20;
-var MAX_VISION_POINTS = 15;
-var MAX_RISK_COST = 25;
-var CRITICAL_REPAIR_HITS_RATIO = 0.5;
-var DECAYING_REPAIR_HITS_RATIO = 0.8;
-var IDLE_RAMPART_REPAIR_HITS_CEILING2 = 1e5;
-var STRUCTURE_BUILD_COSTS = {
-  spawn: 15e3,
-  extension: 3e3,
-  tower: 5e3,
-  rampart: 1,
-  road: 300,
-  container: 5e3,
-  storage: 3e4,
-  "remote-logistics": 5e3,
-  observation: 0
-};
-var EXPOSURE_COST = {
-  none: 0,
-  low: 2,
-  medium: 5,
-  high: 9
-};
-var OBSERVATION_LABELS = {
-  "room-controller": "missing observation: room controller/RCL",
-  "energy-capacity": "missing observation: room energy capacity",
-  "worker-count": "missing observation: available worker count",
-  "spawn-count": "missing observation: spawn count",
-  "construction-sites": "missing observation: construction site backlog",
-  "repair-decay": "missing observation: repair/decay signals",
-  "hostile-presence": "missing observation: hostile pressure",
-  sources: "missing observation: source count",
-  "territory-intents": "missing observation: territory intent state",
-  "remote-paths": "missing observation: remote path/logistics exposure"
-};
-function scoreConstructionPriorities(roomState, candidates) {
-  const scoredCandidates = candidates.map((candidate) => scoreConstructionCandidate(roomState, candidate)).sort(compareConstructionPriorityScores);
-  return {
-    candidates: scoredCandidates,
-    nextPrimary: selectNextPrimaryConstruction(scoredCandidates)
-  };
-}
-function scoreConstructionCandidate(roomState, candidate) {
-  var _a, _b, _c, _d, _e;
-  const missingObservations = getMissingObservations(roomState, candidate);
-  const blockingPreconditions = getBlockingPreconditions(roomState, candidate, missingObservations);
-  const preconditions = [
-    ...(_a = candidate.preconditions) != null ? _a : [],
-    ...missingObservations.map((observation) => OBSERVATION_LABELS[observation]),
-    ...blockingPreconditions
-  ];
-  const blocked = missingObservations.length > 0 || blockingPreconditions.length > 0;
-  if (blocked) {
-    return {
-      buildItem: candidate.buildItem,
-      room: (_b = candidate.roomName) != null ? _b : roomState.roomName,
-      score: 0,
-      urgency: "blocked",
-      preconditions,
-      expectedKpiMovement: candidate.expectedKpiMovement,
-      risk: (_c = candidate.risk) != null ? _c : [],
-      factors: {
-        urgency: 0,
-        roomState: 0,
-        expansionPrerequisites: 0,
-        economicBenefit: 0,
-        visionWeight: 0,
-        riskCost: 0
-      },
-      missingObservations,
-      blocked
-    };
-  }
-  const urgencyMagnitude = getUrgencyMagnitude(roomState, candidate);
-  const factors = {
-    urgency: Math.round(urgencyMagnitude * MAX_URGENCY_POINTS),
-    roomState: scoreRoomState(roomState, candidate),
-    expansionPrerequisites: scoreExpansionPrerequisites(roomState, candidate),
-    economicBenefit: scoreEconomicBenefit(roomState, candidate),
-    visionWeight: scoreVisionWeight(candidate),
-    riskCost: scoreRiskCost(roomState, candidate)
-  };
-  const rawScore = factors.urgency + factors.roomState + factors.expansionPrerequisites + factors.economicBenefit + factors.visionWeight - factors.riskCost;
-  const gatedScore = applySurvivalGate(roomState, candidate, rawScore);
-  const score = clampScore(Math.round(gatedScore));
-  return {
-    buildItem: candidate.buildItem,
-    room: (_d = candidate.roomName) != null ? _d : roomState.roomName,
-    score,
-    urgency: classifyUrgency(score, urgencyMagnitude),
-    preconditions,
-    expectedKpiMovement: candidate.expectedKpiMovement,
-    risk: (_e = candidate.risk) != null ? _e : [],
-    factors,
-    missingObservations,
-    blocked
-  };
-}
-function selectNextPrimaryConstruction(candidates) {
-  var _a;
-  if (candidates.length === 0) {
-    return null;
-  }
-  return (_a = candidates.find((candidate) => !candidate.blocked)) != null ? _a : candidates[0];
-}
-function buildRuntimeConstructionPriorityReport(colony, creeps) {
-  const state = buildRuntimeConstructionPriorityState(colony, creeps);
-  return scoreConstructionPriorities(state, buildRuntimeConstructionCandidates(state));
-}
-function getMissingObservations(roomState, candidate) {
-  var _a;
-  return ((_a = candidate.requiredObservations) != null ? _a : []).filter((observation) => !hasObservation(roomState, observation));
-}
-function hasObservation(roomState, observation) {
-  var _a;
-  const explicitObservation = (_a = roomState.observations) == null ? void 0 : _a[observation];
-  if (typeof explicitObservation === "boolean") {
-    return explicitObservation;
-  }
-  switch (observation) {
-    case "room-controller":
-      return typeof roomState.rcl === "number";
-    case "energy-capacity":
-      return typeof roomState.energyCapacity === "number";
-    case "worker-count":
-      return typeof roomState.workerCount === "number";
-    case "spawn-count":
-      return typeof roomState.spawnCount === "number";
-    case "construction-sites":
-      return typeof roomState.constructionSiteCount === "number";
-    case "repair-decay":
-      return typeof roomState.criticalRepairCount === "number" && typeof roomState.decayingStructureCount === "number";
-    case "hostile-presence":
-      return typeof roomState.hostileCreepCount === "number" && typeof roomState.hostileStructureCount === "number";
-    case "sources":
-      return typeof roomState.sourceCount === "number";
-    case "territory-intents":
-      return typeof roomState.activeTerritoryIntentCount === "number" && typeof roomState.plannedTerritoryIntentCount === "number";
-    case "remote-paths":
-      return roomState.remoteLogisticsReady === true;
-    default:
-      return false;
-  }
-}
-function getBlockingPreconditions(roomState, candidate, missingObservations) {
-  var _a, _b, _c, _d, _e, _f;
-  if (missingObservations.length > 0) {
-    return [];
-  }
-  const preconditions = [];
-  if (typeof candidate.minimumRcl === "number" && ((_a = roomState.rcl) != null ? _a : 0) < candidate.minimumRcl) {
-    preconditions.push(`requires RCL ${candidate.minimumRcl} (current RCL ${(_b = roomState.rcl) != null ? _b : "unknown"})`);
-  }
-  if (typeof candidate.minimumWorkers === "number" && ((_c = roomState.workerCount) != null ? _c : 0) < candidate.minimumWorkers) {
-    preconditions.push(`needs ${candidate.minimumWorkers} available workers (current ${(_d = roomState.workerCount) != null ? _d : "unknown"})`);
-  }
-  if (typeof candidate.minimumEnergyCapacity === "number" && ((_e = roomState.energyCapacity) != null ? _e : 0) < candidate.minimumEnergyCapacity) {
-    preconditions.push(
-      `needs ${candidate.minimumEnergyCapacity} energy capacity (current ${(_f = roomState.energyCapacity) != null ? _f : "unknown"})`
-    );
-  }
-  if (candidate.requiresSafeHome && hasSurvivalPressure(roomState)) {
-    preconditions.push("resolve survival/recovery pressure before expansion construction");
-  }
-  return preconditions;
-}
-function getUrgencyMagnitude(roomState, candidate) {
-  var _a;
-  const signals = (_a = candidate.signals) != null ? _a : {};
-  const recoveryUrgency = Math.max(
-    normalizeSignal(signals.survivalRecovery),
-    isRecoveryCandidate(candidate) ? getWorkerRecoveryPressure(roomState) : 0
-  );
-  const downgradeUrgency = Math.max(
-    normalizeSignal(signals.controllerDowngrade),
-    isControllerProtectionCandidate(candidate) ? getControllerDowngradePressure(roomState) : 0
-  );
-  const defenseUrgency = Math.max(
-    normalizeSignal(signals.defense),
-    isDefenseCandidate(candidate) ? getDefensePressure(roomState) : 0
-  );
-  const energyUrgency = Math.max(
-    normalizeSignal(signals.energyBottleneck),
-    isEnergyCapacityCandidate(candidate) ? getEnergyBottleneckPressure(roomState) : 0
-  );
-  const repairUrgency = Math.max(
-    normalizeSignal(signals.repairDecay),
-    isRepairSupportCandidate(candidate) ? getRepairDecayPressure(roomState) : 0
-  );
-  return Math.max(recoveryUrgency, downgradeUrgency, defenseUrgency, energyUrgency, repairUrgency);
-}
-function scoreRoomState(roomState, candidate) {
-  var _a, _b, _c, _d, _e;
-  let score = 0;
-  if (candidate.status === "existing-site") {
-    score += 4;
-  }
-  if (typeof roomState.rcl === "number" && (!candidate.minimumRcl || roomState.rcl >= candidate.minimumRcl)) {
-    score += Math.min(5, Math.max(1, roomState.rcl));
-  }
-  if (isRecoveryCandidate(candidate)) {
-    score += Math.round(getWorkerRecoveryPressure(roomState) * 7);
-  } else if (((_a = roomState.workerCount) != null ? _a : 0) >= MIN_SAFE_WORKERS_FOR_EXPANSION) {
-    score += 4;
-  }
-  if (isEnergyCapacityCandidate(candidate) && ((_b = roomState.energyCapacity) != null ? _b : EARLY_ENERGY_CAPACITY_TARGET) < EARLY_ENERGY_CAPACITY_TARGET) {
-    score += 4;
-  }
-  if (isRepairSupportCandidate(candidate)) {
-    score += Math.min(4, ((_c = roomState.criticalRepairCount) != null ? _c : 0) * 2 + ((_d = roomState.decayingStructureCount) != null ? _d : 0));
-  }
-  if (isDefenseCandidate(candidate)) {
-    score += Math.round(getDefensePressure(roomState) * 5);
-  }
-  if (((_e = roomState.constructionSiteCount) != null ? _e : 0) > 0 && candidate.status === "existing-site") {
-    score += 2;
-  }
-  return Math.min(MAX_ROOM_STATE_POINTS, score);
-}
-function scoreExpansionPrerequisites(roomState, candidate) {
-  var _a, _b, _c;
-  const signal = normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.expansionPrerequisite);
-  const territoryIntentPressure = Math.min(
-    1,
-    ((_b = roomState.activeTerritoryIntentCount) != null ? _b : 0) * 0.7 + ((_c = roomState.plannedTerritoryIntentCount) != null ? _c : 0) * 0.45
-  );
-  const structureMultiplier = candidate.buildType === "remote-logistics" || candidate.buildType === "road" || candidate.buildType === "container" || candidate.buildType === "tower" || candidate.buildType === "rampart" ? 1 : 0.35;
-  return Math.min(
-    MAX_EXPANSION_POINTS,
-    Math.round(signal * 14 + territoryIntentPressure * structureMultiplier * 6)
-  );
-}
-function scoreEconomicBenefit(roomState, candidate) {
-  var _a;
-  const signals = (_a = candidate.signals) != null ? _a : {};
-  const score = normalizeSignal(signals.harvestThroughput) * 8 + normalizeSignal(signals.spawnUtilization) * 5 + normalizeSignal(signals.rclAcceleration) * 5 + normalizeSignal(signals.storageLogistics) * 4 + normalizeSignal(signals.energyBottleneck) * 4 + getSourceBenefit(roomState, candidate);
-  return Math.min(MAX_ECONOMIC_POINTS, Math.round(score));
-}
-function scoreVisionWeight(candidate) {
-  var _a;
-  const vision = (_a = candidate.vision) != null ? _a : {};
-  const score = normalizeSignal(vision.survival) * 15 + normalizeSignal(vision.territory) * 13 + normalizeSignal(vision.resources) * 9 + normalizeSignal(vision.enemyKills) * 5;
-  return Math.min(MAX_VISION_POINTS, Math.round(score));
-}
-function scoreRiskCost(roomState, candidate) {
-  var _a, _b, _c, _d, _e, _f, _g, _h;
-  const energyCost = (_b = (_a = candidate.estimatedEnergyCost) != null ? _a : STRUCTURE_BUILD_COSTS[candidate.buildType]) != null ? _b : 0;
-  const buildTicks = (_c = candidate.estimatedBuildTicks) != null ? _c : 0;
-  const energyRisk = Math.min(8, energyCost / 4e3);
-  const buildTimeRisk = Math.min(5, buildTicks / 1500);
-  const exposureRisk = EXPOSURE_COST[(_d = candidate.pathExposure) != null ? _d : "none"] + EXPOSURE_COST[(_e = candidate.hostileExposure) != null ? _e : "none"];
-  const backlogRisk = Math.max(0, (((_f = roomState.constructionSiteCount) != null ? _f : 0) - 3) * 1.5);
-  const hostilePressureRisk = ((_g = roomState.hostileCreepCount) != null ? _g : 0) > 0 && !isDefenseCandidate(candidate) ? 4 : 0;
-  const lowWorkerRisk = ((_h = roomState.workerCount) != null ? _h : MIN_SAFE_WORKERS_FOR_EXPANSION) < MIN_SAFE_WORKERS_FOR_EXPANSION && !isSurvivalCandidate(candidate) ? 4 : 0;
-  return Math.min(
-    MAX_RISK_COST,
-    Math.round(energyRisk + buildTimeRisk + exposureRisk + backlogRisk + hostilePressureRisk + lowWorkerRisk)
-  );
-}
-function applySurvivalGate(roomState, candidate, rawScore) {
-  var _a, _b;
-  if (!hasSurvivalPressure(roomState) || isSurvivalCandidate(candidate)) {
-    return rawScore;
-  }
-  const hardRecoveryPressure = ((_a = roomState.workerCount) != null ? _a : MIN_SAFE_WORKERS_FOR_EXPANSION) === 0 || ((_b = roomState.spawnCount) != null ? _b : 1) === 0 || getControllerDowngradePressure(roomState) >= 0.85 || getDefensePressure(roomState) >= 0.9;
-  return Math.min(rawScore, hardRecoveryPressure ? 45 : 60);
-}
-function classifyUrgency(score, urgencyMagnitude) {
-  if (score >= 85 || urgencyMagnitude >= 0.9) {
-    return "critical";
-  }
-  if (score >= 70 || urgencyMagnitude >= 0.7) {
-    return "high";
-  }
-  if (score >= 45 || urgencyMagnitude >= 0.4) {
-    return "medium";
-  }
-  return "low";
-}
-function compareConstructionPriorityScores(left, right) {
-  if (left.blocked !== right.blocked) {
-    return left.blocked ? 1 : -1;
-  }
-  return right.score - left.score || urgencyRank(right.urgency) - urgencyRank(left.urgency) || right.factors.visionWeight - left.factors.visionWeight || left.buildItem.localeCompare(right.buildItem) || left.room.localeCompare(right.room);
-}
-function urgencyRank(urgency) {
-  switch (urgency) {
-    case "critical":
-      return 4;
-    case "high":
-      return 3;
-    case "medium":
-      return 2;
-    case "low":
-      return 1;
-    case "blocked":
-      return 0;
-    default:
-      return 0;
-  }
-}
-function hasSurvivalPressure(roomState) {
-  var _a, _b;
-  return ((_a = roomState.workerCount) != null ? _a : MIN_SAFE_WORKERS_FOR_EXPANSION) === 0 || ((_b = roomState.spawnCount) != null ? _b : 1) === 0 || getControllerDowngradePressure(roomState) >= 0.7 || getDefensePressure(roomState) >= 0.7;
-}
-function isSurvivalCandidate(candidate) {
-  return isRecoveryCandidate(candidate) || isDefenseCandidate(candidate) || isControllerProtectionCandidate(candidate);
-}
-function isRecoveryCandidate(candidate) {
-  var _a;
-  return candidate.buildType === "spawn" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.survivalRecovery) > 0;
-}
-function isControllerProtectionCandidate(candidate) {
-  var _a;
-  return candidate.buildType === "container" || candidate.buildType === "road" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.controllerDowngrade) > 0;
-}
-function isDefenseCandidate(candidate) {
-  var _a;
-  return candidate.buildType === "tower" || candidate.buildType === "rampart" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.defense) > 0;
-}
-function isEnergyCapacityCandidate(candidate) {
-  var _a;
-  return candidate.buildType === "extension" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.energyBottleneck) > 0;
-}
-function isRepairSupportCandidate(candidate) {
-  var _a;
-  return candidate.buildType === "road" || candidate.buildType === "container" || candidate.buildType === "rampart" || normalizeSignal((_a = candidate.signals) == null ? void 0 : _a.repairDecay) > 0;
-}
-function getWorkerRecoveryPressure(roomState) {
-  if (roomState.spawnCount === 0) {
-    return 1;
-  }
-  const workerCount = roomState.workerCount;
-  if (typeof workerCount !== "number") {
-    return 0;
-  }
-  if (workerCount <= 0) {
-    return 1;
-  }
-  if (workerCount === 1) {
-    return 0.65;
-  }
-  if (workerCount === 2) {
-    return 0.35;
-  }
-  return 0;
-}
-function getControllerDowngradePressure(roomState) {
-  const ticksToDowngrade = roomState.controllerTicksToDowngrade;
-  if (typeof ticksToDowngrade !== "number") {
-    return 0;
-  }
-  if (ticksToDowngrade <= 1e3) {
-    return 1;
-  }
-  if (ticksToDowngrade <= CONTROLLER_DOWNGRADE_CRITICAL_TICKS) {
-    return 0.85;
-  }
-  if (ticksToDowngrade <= CONTROLLER_DOWNGRADE_WARNING_TICKS) {
-    return 0.35;
-  }
-  return 0;
-}
-function getDefensePressure(roomState) {
-  var _a, _b;
-  if (((_a = roomState.hostileCreepCount) != null ? _a : 0) > 0) {
-    return 0.9;
-  }
-  if (((_b = roomState.hostileStructureCount) != null ? _b : 0) > 0) {
-    return 0.55;
-  }
-  return 0;
-}
-function getEnergyBottleneckPressure(roomState) {
-  const energyCapacity = roomState.energyCapacity;
-  if (typeof energyCapacity !== "number") {
-    return 0;
-  }
-  if (energyCapacity < 350) {
-    return 0.85;
-  }
-  if (energyCapacity < EARLY_ENERGY_CAPACITY_TARGET) {
-    return 0.65;
-  }
-  return 0;
-}
-function getRepairDecayPressure(roomState) {
-  var _a, _b;
-  if (((_a = roomState.criticalRepairCount) != null ? _a : 0) > 0) {
-    return 0.7;
-  }
-  if (((_b = roomState.decayingStructureCount) != null ? _b : 0) > 0) {
-    return 0.35;
-  }
-  return 0;
-}
-function getSourceBenefit(roomState, candidate) {
-  var _a;
-  if (candidate.buildType !== "container" && candidate.buildType !== "road" && candidate.buildType !== "remote-logistics") {
-    return 0;
-  }
-  return Math.min(3, (_a = roomState.sourceCount) != null ? _a : 0);
-}
-function normalizeSignal(value) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.max(0, Math.min(1, value));
-}
-function clampScore(score) {
-  return Math.max(0, Math.min(MAX_SCORE, score));
-}
-function buildRuntimeConstructionPriorityState(colony, creeps) {
-  var _a, _b, _c;
-  const room = colony.room;
-  const ownedConstructionSites = findRoomObjects5(room, "FIND_MY_CONSTRUCTION_SITES");
-  const ownedStructures = findRoomObjects5(room, "FIND_MY_STRUCTURES");
-  const visibleStructures = findRoomObjects5(room, "FIND_STRUCTURES");
-  const hostileCreeps = findRoomObjects5(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects5(room, "FIND_HOSTILE_STRUCTURES");
-  const sources = findRoomObjects5(room, "FIND_SOURCES");
-  const colonyWorkers = creeps.filter((creep) => {
-    var _a2, _b2;
-    return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && ((_b2 = creep.memory) == null ? void 0 : _b2.colony) === room.name;
-  });
-  const repairSignals = summarizeRepairSignals(visibleStructures, buildCriticalRoadLogisticsContext(room));
-  const territoryIntentCounts = countTerritoryIntents(room.name);
-  return {
-    roomName: room.name,
-    rcl: ((_a = room.controller) == null ? void 0 : _a.my) === true ? room.controller.level : void 0,
-    energyAvailable: colony.energyAvailable,
-    energyCapacity: colony.energyCapacityAvailable,
-    workerCount: colonyWorkers.length,
-    spawnCount: colony.spawns.length,
-    sourceCount: sources == null ? void 0 : sources.length,
-    extensionCount: countStructuresByType(ownedStructures, "STRUCTURE_EXTENSION", "extension"),
-    towerCount: countStructuresByType(ownedStructures, "STRUCTURE_TOWER", "tower"),
-    constructionSiteCount: ownedConstructionSites == null ? void 0 : ownedConstructionSites.length,
-    criticalRepairCount: repairSignals == null ? void 0 : repairSignals.criticalRepairCount,
-    decayingStructureCount: repairSignals == null ? void 0 : repairSignals.decayingStructureCount,
-    controllerTicksToDowngrade: ((_b = room.controller) == null ? void 0 : _b.my) === true ? room.controller.ticksToDowngrade : void 0,
-    hostileCreepCount: hostileCreeps == null ? void 0 : hostileCreeps.length,
-    hostileStructureCount: hostileStructures == null ? void 0 : hostileStructures.length,
-    activeTerritoryIntentCount: territoryIntentCounts.active,
-    plannedTerritoryIntentCount: territoryIntentCounts.planned,
-    remoteLogisticsReady: false,
-    observations: {
-      "room-controller": ((_c = room.controller) == null ? void 0 : _c.my) === true && typeof room.controller.level === "number",
-      "energy-capacity": typeof colony.energyCapacityAvailable === "number",
-      "worker-count": true,
-      "spawn-count": true,
-      "construction-sites": ownedConstructionSites !== null,
-      "repair-decay": visibleStructures !== null,
-      "hostile-presence": hostileCreeps !== null && hostileStructures !== null,
-      sources: sources !== null,
-      "territory-intents": true,
-      "remote-paths": false
-    },
-    ownedConstructionSites,
-    ownedStructures,
-    visibleStructures
-  };
-}
-function buildRuntimeConstructionCandidates(state) {
-  const candidates = [
-    ...buildExistingSiteCandidates(state),
-    ...buildPlannedLocalCandidates(state),
-    ...buildRemoteLogisticsCandidates(state)
-  ];
-  if (candidates.length > 0) {
-    return candidates;
-  }
-  return [
-    {
-      buildItem: "observe construction backlog",
-      buildType: "observation",
-      requiredObservations: ["construction-sites"],
-      expectedKpiMovement: ["construction priority table becomes evidence-backed"],
-      risk: ["no build action should be selected until construction-site observations exist"],
-      vision: { resources: 0.2 }
-    }
-  ];
-}
-function buildExistingSiteCandidates(state) {
-  var _a;
-  return ((_a = state.ownedConstructionSites) != null ? _a : []).map((site) => {
-    const buildType = mapStructureTypeToBuildType(String(site.structureType));
-    return {
-      ...createCandidateForBuildType(buildType, state),
-      buildItem: `finish ${site.structureType} site`,
-      status: "existing-site",
-      estimatedEnergyCost: getConstructionSiteRemainingProgress2(site)
-    };
-  });
-}
-function buildPlannedLocalCandidates(state) {
-  var _a, _b, _c, _d, _e, _f;
-  const candidates = [];
-  const rcl = (_a = state.rcl) != null ? _a : 0;
-  const extensionLimit = getExtensionLimitForRcl(state.rcl);
-  if (extensionLimit > 0 && ((_b = state.extensionCount) != null ? _b : 0) < extensionLimit) {
-    candidates.push(createCandidateForBuildType("extension", state));
-  }
-  if (rcl >= 2 && ((_c = state.sourceCount) != null ? _c : 0) > 0) {
-    candidates.push(createCandidateForBuildType("container", state));
-  }
-  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && ((_d = state.sourceCount) != null ? _d : 0) > 0) {
-    candidates.push(createCandidateForBuildType("road", state));
-  }
-  if (rcl >= 2 && getDefensePressure(state) > 0) {
-    candidates.push(createCandidateForBuildType("rampart", state));
-  }
-  if (rcl >= 3 && ((_e = state.towerCount) != null ? _e : 0) === 0) {
-    candidates.push(createCandidateForBuildType("tower", state));
-  }
-  if (((_f = state.spawnCount) != null ? _f : 1) === 0) {
-    candidates.push(createCandidateForBuildType("spawn", state));
-  }
-  return candidates;
-}
-function buildRemoteLogisticsCandidates(state) {
-  var _a, _b;
-  const territoryIntentCount = ((_a = state.activeTerritoryIntentCount) != null ? _a : 0) + ((_b = state.plannedTerritoryIntentCount) != null ? _b : 0);
-  if (territoryIntentCount === 0) {
-    return [];
-  }
-  return [createCandidateForBuildType("remote-logistics", state)];
-}
-function createCandidateForBuildType(buildType, state) {
-  var _a, _b;
-  switch (buildType) {
-    case "spawn":
-      return {
-        buildItem: "build spawn recovery",
-        buildType,
-        minimumRcl: 1,
-        requiredObservations: ["spawn-count", "worker-count", "room-controller"],
-        expectedKpiMovement: ["restores worker production and prevents room loss"],
-        risk: ["high energy commitment before economy is recovered"],
-        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.spawn,
-        signals: { survivalRecovery: 1, spawnUtilization: 0.8 },
-        vision: { survival: 1, territory: 0.6 }
-      };
-    case "extension":
-      return {
-        buildItem: "build extension capacity",
-        buildType,
-        minimumRcl: 2,
-        requiredObservations: ["room-controller", "energy-capacity", "worker-count", "construction-sites"],
-        expectedKpiMovement: ["raises spawn energy capacity", "unlocks larger workers and faster RCL progress"],
-        risk: ["adds build backlog before roads/containers if worker capacity is low"],
-        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.extension,
-        signals: {
-          energyBottleneck: getEnergyBottleneckPressure(state),
-          spawnUtilization: 0.8,
-          rclAcceleration: 0.65
-        },
-        vision: { resources: 1, territory: 0.35 }
-      };
-    case "tower":
-      return {
-        buildItem: "build tower defense",
-        buildType,
-        minimumRcl: 3,
-        requiredObservations: ["room-controller", "hostile-presence", "energy-capacity", "worker-count"],
-        expectedKpiMovement: ["improves room hold safety", "adds hostile damage and repair response capacity"],
-        risk: ["requires steady energy income to keep tower effective"],
-        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.tower,
-        hostileExposure: "medium",
-        signals: { defense: Math.max(0.75, getDefensePressure(state)), enemyKillPotential: 0.7 },
-        vision: { survival: getDefensePressure(state), territory: 0.9, enemyKills: 0.5 }
-      };
-    case "rampart":
-      return {
-        buildItem: "build rampart defense",
-        buildType,
-        minimumRcl: 2,
-        requiredObservations: ["room-controller", "hostile-presence", "repair-decay", "worker-count"],
-        expectedKpiMovement: ["improves spawn/controller survivability under pressure"],
-        risk: ["decays without sustained repair budget"],
-        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.rampart,
-        hostileExposure: "medium",
-        signals: { defense: getDefensePressure(state), repairDecay: getRepairDecayPressure(state) },
-        vision: { survival: getDefensePressure(state), territory: 0.8, enemyKills: 0.15 }
-      };
-    case "road":
-      return {
-        buildItem: "build source/controller roads",
-        buildType,
-        minimumRcl: 2,
-        requiredObservations: ["room-controller", "sources", "repair-decay", "worker-count"],
-        expectedKpiMovement: ["reduces worker travel time", "improves harvest-to-spawn throughput"],
-        risk: ["road decay creates recurring repair load"],
-        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.road,
-        pathExposure: "low",
-        signals: {
-          harvestThroughput: 0.55,
-          rclAcceleration: 0.45,
-          expansionPrerequisite: ((_a = state.activeTerritoryIntentCount) != null ? _a : 0) > 0 ? 0.45 : 0.2,
-          controllerDowngrade: getControllerDowngradePressure(state) >= 0.7 ? 0.55 : 0
-        },
-        vision: { resources: 0.8, territory: 0.45 }
-      };
-    case "container":
-      return {
-        buildItem: "build source containers",
-        buildType,
-        minimumRcl: 2,
-        requiredObservations: ["room-controller", "sources", "worker-count"],
-        expectedKpiMovement: ["raises harvest throughput", "reduces dropped-energy waste"],
-        risk: ["large early build cost and decay upkeep"],
-        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.container,
-        pathExposure: "low",
-        signals: {
-          harvestThroughput: 0.9,
-          storageLogistics: 0.65,
-          rclAcceleration: 0.35,
-          expansionPrerequisite: ((_b = state.activeTerritoryIntentCount) != null ? _b : 0) > 0 ? 0.4 : 0.15,
-          controllerDowngrade: getControllerDowngradePressure(state) >= 0.7 ? 0.5 : 0
-        },
-        vision: { resources: 1, territory: 0.35 }
-      };
-    case "storage":
-      return {
-        buildItem: "build storage logistics",
-        buildType,
-        minimumRcl: 4,
-        minimumWorkers: MIN_SAFE_WORKERS_FOR_EXPANSION,
-        requiredObservations: ["room-controller", "energy-capacity", "worker-count"],
-        expectedKpiMovement: ["improves durable resource buffering and logistics"],
-        risk: ["very high energy commitment"],
-        estimatedEnergyCost: STRUCTURE_BUILD_COSTS.storage,
-        signals: { storageLogistics: 0.95 },
-        vision: { resources: 1, territory: 0.25 }
-      };
-    case "remote-logistics":
-      return {
-        buildItem: "build remote road/container logistics",
-        buildType,
-        minimumRcl: 2,
-        minimumWorkers: MIN_SAFE_WORKERS_FOR_EXPANSION,
-        requiresSafeHome: true,
-        requiredObservations: ["territory-intents", "remote-paths", "worker-count", "hostile-presence"],
-        expectedKpiMovement: ["turns reserved/scouted territory into sustainable income", "improves remote room hold viability"],
-        risk: ["path exposure and hostile pressure can waste builder time"],
-        estimatedEnergyCost: STRUCTURE_BUILD_COSTS["remote-logistics"],
-        pathExposure: "high",
-        hostileExposure: "medium",
-        signals: {
-          expansionPrerequisite: 1,
-          harvestThroughput: 0.75,
-          storageLogistics: 0.5
-        },
-        vision: { territory: 1, resources: 0.6 }
-      };
-    case "observation":
-    default:
-      return {
-        buildItem: "observe construction backlog",
-        buildType: "observation",
-        requiredObservations: ["construction-sites"],
-        expectedKpiMovement: ["construction priority table becomes evidence-backed"],
-        risk: ["no build action should be selected until construction-site observations exist"],
-        signals: {},
-        vision: { resources: 0.2 }
-      };
-  }
-}
-function mapStructureTypeToBuildType(structureType) {
-  if (matchesStructureType6(structureType, "STRUCTURE_SPAWN", "spawn")) {
-    return "spawn";
-  }
-  if (matchesStructureType6(structureType, "STRUCTURE_EXTENSION", "extension")) {
-    return "extension";
-  }
-  if (matchesStructureType6(structureType, "STRUCTURE_TOWER", "tower")) {
-    return "tower";
-  }
-  if (matchesStructureType6(structureType, "STRUCTURE_RAMPART", "rampart")) {
-    return "rampart";
-  }
-  if (matchesStructureType6(structureType, "STRUCTURE_ROAD", "road")) {
-    return "road";
-  }
-  if (matchesStructureType6(structureType, "STRUCTURE_CONTAINER", "container")) {
-    return "container";
-  }
-  if (matchesStructureType6(structureType, "STRUCTURE_STORAGE", "storage")) {
-    return "storage";
-  }
-  return "observation";
-}
-function getConstructionSiteRemainingProgress2(site) {
-  var _a;
-  const progressTotal = typeof site.progressTotal === "number" ? site.progressTotal : (_a = STRUCTURE_BUILD_COSTS.observation) != null ? _a : 0;
-  const progress = typeof site.progress === "number" ? site.progress : 0;
-  return Math.max(0, progressTotal - progress);
-}
-function findRoomObjects5(room, constantName) {
-  const findConstant = getFindConstant2(constantName);
-  if (findConstant === null || typeof room.find !== "function") {
-    return null;
-  }
-  try {
-    const result = room.find(findConstant);
-    return Array.isArray(result) ? result : [];
-  } catch {
-    return null;
-  }
-}
-function getFindConstant2(constantName) {
-  const findConstant = globalThis[constantName];
-  return typeof findConstant === "number" ? findConstant : null;
-}
-function countStructuresByType(structures, globalName, fallback) {
-  return structures == null ? void 0 : structures.filter((structure) => matchesStructureType6(structure.structureType, globalName, fallback)).length;
-}
-function summarizeRepairSignals(structures, criticalRoadContext) {
-  if (structures === null) {
-    return null;
-  }
-  return structures.reduce(
-    (summary, structure) => {
-      if (!isRepairSignalStructure(structure) || !hasHits(structure)) {
-        return summary;
-      }
-      if (matchesStructureType6(structure.structureType, "STRUCTURE_ROAD", "road") && !isCriticalRoadLogisticsWork(structure, criticalRoadContext)) {
-        return summary;
-      }
-      const hitsRatio = structure.hitsMax > 0 ? structure.hits / structure.hitsMax : 1;
-      if (hitsRatio <= CRITICAL_REPAIR_HITS_RATIO) {
-        summary.criticalRepairCount += 1;
-      } else if (hitsRatio <= DECAYING_REPAIR_HITS_RATIO) {
-        summary.decayingStructureCount += 1;
-      }
-      return summary;
-    },
-    { criticalRepairCount: 0, decayingStructureCount: 0 }
-  );
-}
-function isRepairSignalStructure(structure) {
-  if (matchesStructureType6(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
-    return true;
-  }
-  return matchesStructureType6(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true && structure.hits <= IDLE_RAMPART_REPAIR_HITS_CEILING2;
-}
-function hasHits(structure) {
-  return typeof structure.hits === "number" && typeof structure.hitsMax === "number";
-}
-function countTerritoryIntents(roomName) {
-  var _a, _b;
-  const intents = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.intents;
-  if (!Array.isArray(intents)) {
-    return { active: 0, planned: 0 };
-  }
-  return intents.reduce(
-    (counts, intent) => {
-      if (!isRecord6(intent)) {
-        return counts;
-      }
-      if (intent.colony !== roomName) {
-        return counts;
-      }
-      if (intent.status === "active") {
-        counts.active += 1;
-      } else if (intent.status === "planned") {
-        counts.planned += 1;
-      }
-      return counts;
-    },
-    { active: 0, planned: 0 }
-  );
-}
-function isRecord6(value) {
-  return typeof value === "object" && value !== null;
-}
-function matchesStructureType6(actual, globalName, fallback) {
-  var _a;
-  const constants = globalThis;
-  return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 
 // src/territory/expansionScoring.ts
@@ -10871,11 +11038,11 @@ function findInitialSpawnConstructionPositions(room) {
   return positions;
 }
 function selectInitialSpawnAnchor(room) {
-  const controllerPosition = getRoomObjectPosition3(room.controller);
+  const controllerPosition = getRoomObjectPosition4(room.controller);
   if (!controllerPosition) {
     return null;
   }
-  const sources = findSources(room).map(getRoomObjectPosition3).filter((position) => position !== null).sort((left, right) => getRange(controllerPosition, left) - getRange(controllerPosition, right));
+  const sources = findSources(room).map(getRoomObjectPosition4).filter((position) => position !== null).sort((left, right) => getRange(controllerPosition, left) - getRange(controllerPosition, right));
   const nearestSourcePosition = sources[0];
   if (!nearestSourcePosition) {
     return clampPosition(controllerPosition);
@@ -10893,14 +11060,14 @@ function buildSpawnPlacementLookups(room, anchor, maximumScanRadius) {
     ...lookForArea(room, "LOOK_STRUCTURES", anchor, maximumScanRadius),
     ...lookForArea(room, "LOOK_CONSTRUCTION_SITES", anchor, maximumScanRadius)
   ]) {
-    const position = getRoomObjectPosition3(object);
+    const position = getRoomObjectPosition4(object);
     if (position) {
       blockingPositions.add(getPositionKey4(position));
     }
   }
   const mineralPositions = /* @__PURE__ */ new Set();
   for (const object of lookForArea(room, "LOOK_MINERALS", anchor, maximumScanRadius)) {
-    const position = getRoomObjectPosition3(object);
+    const position = getRoomObjectPosition4(object);
     if (position) {
       mineralPositions.add(getPositionKey4(position));
     }
@@ -10961,7 +11128,7 @@ function findSources(room) {
   }
   return room.find(findConstant);
 }
-function getRoomObjectPosition3(object) {
+function getRoomObjectPosition4(object) {
   if (!isRecord8(object)) {
     return null;
   }
@@ -10976,7 +11143,7 @@ function getRoomObjectPosition3(object) {
 }
 function toSpawnSiteMemory(site) {
   var _a, _b, _c, _d, _e, _f;
-  const position = getRoomObjectPosition3(site);
+  const position = getRoomObjectPosition4(site);
   return {
     roomName: (_d = (_c = (_a = site.pos) == null ? void 0 : _a.roomName) != null ? _c : (_b = site.room) == null ? void 0 : _b.name) != null ? _d : "",
     x: (_e = position == null ? void 0 : position.x) != null ? _e : site.pos.x,

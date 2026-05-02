@@ -259,7 +259,7 @@ describe('impact-weighted construction site selection', () => {
     );
   });
 
-  it('selects a low-priority site when no high-priority site is in reasonable range', () => {
+  it('selects a high-priority site even when it is outside reasonable range', () => {
     const farExtensionSite = makeConstructionSite('extension-far', 'extension', 20, 20);
     const wallSite = makeConstructionSite('wall-near', 'constructedWall', 21, 20);
     const origin = makeSelectionOrigin({
@@ -267,7 +267,7 @@ describe('impact-weighted construction site selection', () => {
       'wall-near': 3
     });
 
-    expect(selectImpactWeightedConstructionSite(origin, [farExtensionSite, wallSite])?.id).toBe('wall-near');
+    expect(selectImpactWeightedConstructionSite(origin, [farExtensionSite, wallSite])?.id).toBe('extension-far');
   });
 });
 

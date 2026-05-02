@@ -1276,9 +1276,9 @@ function compareConstructionSiteCandidates(
   priorityContext: ConstructionSiteImpactPriorityContext
 ): number {
   return (
-    compareConstructionSiteReasonableRange(creep, left, right) ||
     getConstructionSiteImpactPriority(right, priorityContext) -
       getConstructionSiteImpactPriority(left, priorityContext) ||
+    compareConstructionSiteReasonableRange(creep, left, right) ||
     compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) ||
     compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
     compareConstructionSiteId(left, right)
@@ -1653,7 +1653,7 @@ function isHighImpactConstructionSite(
 ): boolean {
   return (
     isContainerConstructionSite(site) ||
-    getConstructionSiteImpactPriority(site, priorityContext ?? {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad
+    getConstructionSiteImpactPriority(site, priorityContext ?? {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.tower
   );
 }
 
