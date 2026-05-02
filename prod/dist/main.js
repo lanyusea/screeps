@@ -22,9 +22,13 @@ var main_exports = {};
 __export(main_exports, {
   DEFAULT_STRATEGY_REGISTRY: () => DEFAULT_STRATEGY_REGISTRY,
   DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG: () => DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG,
+  HistoricalReplayValidator: () => HistoricalReplayValidator,
+  RlRolloutGate: () => RlRolloutGate,
   STRATEGY_REGISTRY_SCHEMA_VERSION: () => STRATEGY_REGISTRY_SCHEMA_VERSION,
   evaluateStrategyShadowReplay: () => evaluateStrategyShadowReplay,
+  loadHistoricalReplays: () => loadHistoricalReplays,
   loop: () => loop,
+  validateRlStrategyRollout: () => validateRlStrategyRollout,
   validateStrategyRegistry: () => validateStrategyRegistry,
   validateStrategyRegistryEntry: () => validateStrategyRegistryEntry
 });
@@ -15274,6 +15278,169 @@ function isDamageableSnapshotStructure(object) {
   return object.type === "constructedWall" || object.type === "container" || object.type === "extension" || object.type === "rampart" || object.type === "road" || object.type === "spawn" || object.type === "storage" || object.type === "tower";
 }
 
+// src/strategy/historicalReplayValidator.ts
+var MIN_HISTORICAL_REPLAY_COUNT = 3;
+var MIN_HISTORICAL_REPLAY_CORRELATION = 0.5;
+var HistoricalReplayValidator = class {
+  validateStrategy(strategyId, historicalReplays) {
+    const scorePairs = historicalReplays.flatMap((replay) => {
+      const shadowScore = getLatestFiniteScore(replay.kpiHistory[strategyId]);
+      if (shadowScore === void 0 || !Number.isFinite(replay.finalScore)) {
+        return [];
+      }
+      return [{ shadowScore, finalScore: replay.finalScore }];
+    });
+    const correlation = scorePairs.length >= 2 ? calculatePearsonCorrelation(
+      scorePairs.map((pair) => pair.shadowScore),
+      scorePairs.map((pair) => pair.finalScore)
+    ) : 0;
+    const pass = scorePairs.length >= MIN_HISTORICAL_REPLAY_COUNT && correlation >= MIN_HISTORICAL_REPLAY_CORRELATION;
+    return {
+      pass,
+      correlation,
+      details: buildValidationDetails(strategyId, historicalReplays.length, scorePairs.length, correlation, pass)
+    };
+  }
+};
+function loadHistoricalReplays(room) {
+  var _a, _b;
+  const memory = globalThis;
+  const storedReplays = (_b = (_a = memory.Memory) == null ? void 0 : _a.strategyHistoricalReplays) == null ? void 0 : _b[room];
+  if (!Array.isArray(storedReplays)) {
+    return [];
+  }
+  return storedReplays.flatMap((replay) => {
+    const normalizedReplay = normalizeHistoricalReplay(replay);
+    return normalizedReplay ? [normalizedReplay] : [];
+  });
+}
+function buildValidationDetails(strategyId, availableReplayCount, usableReplayCount, correlation, pass) {
+  const formattedCorrelation = formatCorrelation(correlation);
+  if (usableReplayCount < MIN_HISTORICAL_REPLAY_COUNT) {
+    return `historical replay validation failed for ${strategyId}: ${usableReplayCount}/${availableReplayCount} usable replays, requires at least ${MIN_HISTORICAL_REPLAY_COUNT}; correlation=${formattedCorrelation}`;
+  }
+  if (!pass) {
+    return `historical replay validation failed for ${strategyId}: correlation=${formattedCorrelation} below ${MIN_HISTORICAL_REPLAY_CORRELATION.toFixed(
+      3
+    )} across ${usableReplayCount}/${availableReplayCount} usable replays`;
+  }
+  return `historical replay validation passed for ${strategyId}: correlation=${formattedCorrelation} across ${usableReplayCount}/${availableReplayCount} usable replays`;
+}
+function calculatePearsonCorrelation(left, right) {
+  if (left.length !== right.length || left.length === 0) {
+    return 0;
+  }
+  const leftMean = average(left);
+  const rightMean = average(right);
+  let covariance = 0;
+  let leftVariance = 0;
+  let rightVariance = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftDelta = left[index] - leftMean;
+    const rightDelta = right[index] - rightMean;
+    covariance += leftDelta * rightDelta;
+    leftVariance += leftDelta * leftDelta;
+    rightVariance += rightDelta * rightDelta;
+  }
+  if (leftVariance === 0 || rightVariance === 0) {
+    return 0;
+  }
+  return clampCorrelation(covariance / Math.sqrt(leftVariance * rightVariance));
+}
+function average(values) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+function clampCorrelation(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(-1, Math.min(1, value));
+}
+function getLatestFiniteScore(scores) {
+  if (!Array.isArray(scores)) {
+    return void 0;
+  }
+  for (let index = scores.length - 1; index >= 0; index -= 1) {
+    const score = scores[index];
+    if (Number.isFinite(score)) {
+      return score;
+    }
+  }
+  return void 0;
+}
+function normalizeHistoricalReplay(rawReplay) {
+  if (!isRecord15(rawReplay)) {
+    return null;
+  }
+  if (!isNonEmptyString14(rawReplay.replayId) || !isNonEmptyString14(rawReplay.room) || !isFiniteNumber7(rawReplay.startTick) || !isFiniteNumber7(rawReplay.endTick) || !isFiniteNumber7(rawReplay.finalScore) || !isRecord15(rawReplay.kpiHistory)) {
+    return null;
+  }
+  const kpiHistory = Object.entries(rawReplay.kpiHistory).reduce(
+    (history, [kpiName, rawScores]) => {
+      if (!Array.isArray(rawScores)) {
+        return history;
+      }
+      history[kpiName] = rawScores.filter((score) => Number.isFinite(score));
+      return history;
+    },
+    {}
+  );
+  return {
+    replayId: rawReplay.replayId,
+    room: rawReplay.room,
+    startTick: rawReplay.startTick,
+    endTick: rawReplay.endTick,
+    finalScore: rawReplay.finalScore,
+    kpiHistory
+  };
+}
+function formatCorrelation(correlation) {
+  return correlation.toFixed(3);
+}
+function isRecord15(value) {
+  return typeof value === "object" && value !== null;
+}
+function isNonEmptyString14(value) {
+  return typeof value === "string" && value.length > 0;
+}
+function isFiniteNumber7(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+// src/strategy/rlRolloutGate.ts
+var RlRolloutGate = class {
+  constructor(historicalReplayValidator = new HistoricalReplayValidator()) {
+    this.historicalReplayValidator = historicalReplayValidator;
+  }
+  validateStrategyRollout(request) {
+    var _a, _b;
+    const prerequisiteResults = (_a = request.prerequisiteResults) != null ? _a : [];
+    const historicalReplays = (_b = request.historicalReplays) != null ? _b : loadHistoricalReplays(request.room);
+    const historicalReplay = this.historicalReplayValidator.validateStrategy(request.strategyId, historicalReplays);
+    const failedPrerequisites = prerequisiteResults.filter((result) => !result.pass);
+    const pass = failedPrerequisites.length === 0 && historicalReplay.pass;
+    return {
+      pass,
+      correlation: historicalReplay.correlation,
+      details: buildRolloutDetails(request.strategyId, historicalReplay, failedPrerequisites),
+      historicalReplay,
+      prerequisiteResults
+    };
+  }
+};
+function validateRlStrategyRollout(request) {
+  return new RlRolloutGate().validateStrategyRollout(request);
+}
+function buildRolloutDetails(strategyId, historicalReplay, failedPrerequisites) {
+  if (failedPrerequisites.length > 0) {
+    return `RL rollout blocked for ${strategyId}: ${failedPrerequisites.length} prerequisite gate(s) failed; ${historicalReplay.details}`;
+  }
+  if (!historicalReplay.pass) {
+    return `RL rollout blocked for ${strategyId}: ${historicalReplay.details}`;
+  }
+  return `RL rollout allowed for ${strategyId}: ${historicalReplay.details}`;
+}
+
 // src/main.ts
 var kernel = new Kernel();
 function loop() {
@@ -15283,9 +15450,13 @@ function loop() {
 0 && (module.exports = {
   DEFAULT_STRATEGY_REGISTRY,
   DEFAULT_STRATEGY_SHADOW_EVALUATOR_CONFIG,
+  HistoricalReplayValidator,
+  RlRolloutGate,
   STRATEGY_REGISTRY_SCHEMA_VERSION,
   evaluateStrategyShadowReplay,
+  loadHistoricalReplays,
   loop,
+  validateRlStrategyRollout,
   validateStrategyRegistry,
   validateStrategyRegistryEntry
 });
