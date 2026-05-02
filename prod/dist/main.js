@@ -7685,9 +7685,13 @@ function selectSourceContainerHarvestTask(creep) {
   }
   const source = selectBestHarvestSource(
     creep,
-    creep.room.find(FIND_SOURCES).filter((candidate) => findSourceContainer(creep.room, candidate) !== null)
+    creep.room.find(FIND_SOURCES).filter((candidate) => hasNonEmptySourceContainer(creep.room, candidate))
   );
   return source ? { type: "harvest", targetId: source.id } : null;
+}
+function hasNonEmptySourceContainer(room, source) {
+  const sourceContainer = findSourceContainer(room, source);
+  return sourceContainer !== null && getStoredEnergy2(sourceContainer) > 0;
 }
 function hasVisiblePositionedContainer(room) {
   if (typeof FIND_STRUCTURES !== "number" || typeof room.find !== "function") {
@@ -8045,8 +8049,11 @@ function shouldReplaceTask(creep, task) {
   const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
   if (task.type === "harvest" || task.type === "pickup" || task.type === "withdraw") {
-    if (task.type === "harvest" && isDedicatedSourceContainerHarvestTask(creep, task)) {
-      return false;
+    if (task.type === "harvest") {
+      const sourceContainer = findHarvestTaskSourceContainer(creep, task);
+      if (sourceContainer) {
+        return freeEnergyCapacity === 0 || getFreeTransferEnergyCapacity(sourceContainer) <= 0;
+      }
     }
     return freeEnergyCapacity === 0;
   }
@@ -8426,11 +8433,11 @@ function transferDedicatedHarvestEnergy(creep, sourceContainer) {
   return result;
 }
 function isDedicatedSourceContainerHarvestTask(creep, task) {
-  if (task.type !== "harvest") {
-    return false;
-  }
+  return task.type === "harvest" && findHarvestTaskSourceContainer(creep, task) !== null;
+}
+function findHarvestTaskSourceContainer(creep, task) {
   const source = findHarvestTaskSource(creep, task);
-  return source !== null && findSourceContainer(creep.room, source) !== null;
+  return source === null ? null : findSourceContainer(creep.room, source);
 }
 function findHarvestTaskSource(creep, task) {
   var _a;
@@ -8763,6 +8770,7 @@ var CONTROLLER_DOWNGRADE_CRITICAL_TICKS = 5e3;
 var CONTROLLER_DOWNGRADE_WARNING_TICKS = 1e4;
 var EARLY_ENERGY_CAPACITY_TARGET = 550;
 var MIN_SAFE_WORKERS_FOR_EXPANSION = 3;
+var MIN_RCL_FOR_AUTOMATED_ROADS = 4;
 var MAX_SCORE = 100;
 var MAX_URGENCY_POINTS = 35;
 var MAX_ROOM_STATE_POINTS = 20;
@@ -9263,7 +9271,7 @@ function buildExistingSiteCandidates(state) {
   });
 }
 function buildPlannedLocalCandidates(state) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f;
   const candidates = [];
   const rcl = (_a = state.rcl) != null ? _a : 0;
   const extensionLimit = getExtensionLimitForRcl(state.rcl);
@@ -9271,16 +9279,18 @@ function buildPlannedLocalCandidates(state) {
     candidates.push(createCandidateForBuildType("extension", state));
   }
   if (rcl >= 2 && ((_c = state.sourceCount) != null ? _c : 0) > 0) {
-    candidates.push(createCandidateForBuildType("road", state));
     candidates.push(createCandidateForBuildType("container", state));
+  }
+  if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && ((_d = state.sourceCount) != null ? _d : 0) > 0) {
+    candidates.push(createCandidateForBuildType("road", state));
   }
   if (rcl >= 2 && getDefensePressure(state) > 0) {
     candidates.push(createCandidateForBuildType("rampart", state));
   }
-  if (rcl >= 3 && ((_d = state.towerCount) != null ? _d : 0) === 0) {
+  if (rcl >= 3 && ((_e = state.towerCount) != null ? _e : 0) === 0) {
     candidates.push(createCandidateForBuildType("tower", state));
   }
-  if (((_e = state.spawnCount) != null ? _e : 1) === 0) {
+  if (((_f = state.spawnCount) != null ? _f : 1) === 0) {
     candidates.push(createCandidateForBuildType("spawn", state));
   }
   return candidates;
@@ -9464,8 +9474,8 @@ function getConstructionSiteRemainingProgress2(site) {
   return Math.max(0, progressTotal - progress);
 }
 function findRoomObjects5(room, constantName) {
-  const findConstant = globalThis[constantName];
-  if (typeof findConstant !== "number" || typeof room.find !== "function") {
+  const findConstant = getFindConstant2(constantName);
+  if (findConstant === null || typeof room.find !== "function") {
     return null;
   }
   try {
@@ -9474,6 +9484,10 @@ function findRoomObjects5(room, constantName) {
   } catch {
     return null;
   }
+}
+function getFindConstant2(constantName) {
+  const findConstant = globalThis[constantName];
+  return typeof findConstant === "number" ? findConstant : null;
 }
 function countStructuresByType(structures, globalName, fallback) {
   return structures == null ? void 0 : structures.filter((structure) => matchesStructureType6(structure.structureType, globalName, fallback)).length;

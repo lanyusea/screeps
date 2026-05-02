@@ -149,12 +149,13 @@ describe('runWorker', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(source);
   });
 
-  it('keeps a full source-container harvester assigned and transfers into the container', () => {
+  it('switches a full source-container harvester to controller work', () => {
     const source = {
       id: 'source1',
       energy: 300,
       pos: { x: 10, y: 10, roomName: 'W1N1' } as RoomPosition
     } as Source;
+    const controller = { id: 'controller1', my: true, level: 1 } as StructureController;
     const container = {
       id: 'container1',
       structureType: 'container',
@@ -163,6 +164,7 @@ describe('runWorker', () => {
     } as unknown as StructureContainer;
     const room = {
       name: 'W1N1',
+      controller,
       find: jest.fn((type: number) => {
         if (type === FIND_SOURCES) {
           return [source];
@@ -181,17 +183,70 @@ describe('runWorker', () => {
       room,
       harvest: jest.fn(),
       transfer: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn().mockReturnValue(0),
       moveTo: jest.fn()
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: { Harvester: creep },
-      getObjectById: jest.fn().mockReturnValue(source)
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : id === 'controller1' ? controller : null))
     };
 
     runWorker(creep);
 
-    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
-    expect(creep.transfer).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+    expect(creep.transfer).not.toHaveBeenCalled();
+    expect(creep.harvest).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('switches a source-container harvester away when the container is full', () => {
+    const source = {
+      id: 'source1',
+      energy: 300,
+      pos: { x: 10, y: 10, roomName: 'W1N1' } as RoomPosition
+    } as Source;
+    const controller = { id: 'controller1', my: true, level: 1 } as StructureController;
+    const container = {
+      id: 'container1',
+      structureType: 'container',
+      pos: { x: 10, y: 11, roomName: 'W1N1' } as RoomPosition,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
+    } as unknown as StructureContainer;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        return type === FIND_STRUCTURES ? [container] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(49),
+        getFreeCapacity: jest.fn().mockReturnValue(1)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room,
+      harvest: jest.fn(),
+      transfer: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Harvester: creep },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : id === 'controller1' ? controller : null))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+    expect(creep.transfer).not.toHaveBeenCalled();
     expect(creep.harvest).not.toHaveBeenCalled();
     expect(creep.moveTo).not.toHaveBeenCalled();
   });

@@ -3276,9 +3276,14 @@ function selectSourceContainerHarvestTask(creep: Creep): Extract<CreepTaskMemory
 
   const source = selectBestHarvestSource(
     creep,
-    creep.room.find(FIND_SOURCES).filter((candidate) => findSourceContainer(creep.room, candidate) !== null)
+    creep.room.find(FIND_SOURCES).filter((candidate) => hasNonEmptySourceContainer(creep.room, candidate))
   );
   return source ? { type: 'harvest', targetId: source.id } : null;
+}
+
+function hasNonEmptySourceContainer(room: Room, source: Source): boolean {
+  const sourceContainer = findSourceContainer(room, source);
+  return sourceContainer !== null && getStoredEnergy(sourceContainer) > 0;
 }
 
 function hasVisiblePositionedContainer(room: Room): boolean {

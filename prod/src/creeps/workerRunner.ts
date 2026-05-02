@@ -179,8 +179,11 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
 
   if (task.type === 'harvest' || task.type === 'pickup' || task.type === 'withdraw') {
-    if (task.type === 'harvest' && isDedicatedSourceContainerHarvestTask(creep, task)) {
-      return false;
+    if (task.type === 'harvest') {
+      const sourceContainer = findHarvestTaskSourceContainer(creep, task);
+      if (sourceContainer) {
+        return freeEnergyCapacity === 0 || getFreeTransferEnergyCapacity(sourceContainer) <= 0;
+      }
     }
 
     return freeEnergyCapacity === 0;
@@ -771,12 +774,15 @@ function isDedicatedSourceContainerHarvestTask(
   creep: Creep,
   task: CreepTaskMemory
 ): task is Extract<CreepTaskMemory, { type: 'harvest' }> {
-  if (task.type !== 'harvest') {
-    return false;
-  }
+  return task.type === 'harvest' && findHarvestTaskSourceContainer(creep, task) !== null;
+}
 
+function findHarvestTaskSourceContainer(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'harvest' }>
+): StructureContainer | null {
   const source = findHarvestTaskSource(creep, task);
-  return source !== null && findSourceContainer(creep.room, source) !== null;
+  return source === null ? null : findSourceContainer(creep.room, source);
 }
 
 function findHarvestTaskSource(
