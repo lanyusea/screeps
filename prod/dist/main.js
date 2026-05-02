@@ -1547,6 +1547,37 @@ function getBodyPartConstant(globalName, fallback) {
   return (_a = constants[globalName]) != null ? _a : fallback;
 }
 
+// src/spawn/bodyTemplates.ts
+var TERRITORY_CONTROLLER_BODY = ["claim", "move"];
+var TERRITORY_CONTROLLER_BODY_COST = 650;
+var TERRITORY_CLAIMER_UPGRADE_PARTS = ["work", "carry", "move"];
+var TERRITORY_CLAIMER_UPGRADE_PART_COST = 250;
+var MAX_CREEP_PARTS = 50;
+var TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS = 5;
+var TERRITORY_CONTROLLER_PRESSURE_BODY = Array.from(
+  { length: TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS },
+  () => TERRITORY_CONTROLLER_BODY
+).flat();
+var TERRITORY_CONTROLLER_PRESSURE_BODY_COST = TERRITORY_CONTROLLER_BODY_COST * TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
+function buildTerritoryClaimerBody(energyAvailable) {
+  if (energyAvailable < TERRITORY_CONTROLLER_BODY_COST) {
+    return [];
+  }
+  const upgradeEnergy = energyAvailable - TERRITORY_CONTROLLER_BODY_COST;
+  const maxUpgradePairsByEnergy = Math.floor(upgradeEnergy / TERRITORY_CLAIMER_UPGRADE_PART_COST);
+  const maxUpgradePairsByCapacity = Math.floor(
+    (MAX_CREEP_PARTS - TERRITORY_CONTROLLER_BODY.length) / TERRITORY_CLAIMER_UPGRADE_PARTS.length
+  );
+  const upgradePairs = Math.min(maxUpgradePairsByEnergy, maxUpgradePairsByCapacity);
+  if (upgradePairs <= 0) {
+    return [...TERRITORY_CONTROLLER_BODY];
+  }
+  return [
+    ...TERRITORY_CONTROLLER_BODY,
+    ...Array.from({ length: upgradePairs }).flatMap(() => TERRITORY_CLAIMER_UPGRADE_PARTS)
+  ];
+}
+
 // src/spawn/bodyBuilder.ts
 var WORKER_PATTERN = ["work", "carry", "move"];
 var WORKER_PATTERN_COST = 200;
@@ -1556,15 +1587,7 @@ var WORKER_SURPLUS_MOVE = ["move"];
 var WORKER_SURPLUS_MOVE_COST = 50;
 var EMERGENCY_DEFENDER_BODY = ["tough", "attack", "move"];
 var EMERGENCY_DEFENDER_BODY_COST = 140;
-var TERRITORY_CONTROLLER_BODY = ["claim", "move"];
-var TERRITORY_CONTROLLER_BODY_COST = 650;
-var TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS = 5;
-var TERRITORY_CONTROLLER_PRESSURE_BODY = Array.from(
-  { length: TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS },
-  () => TERRITORY_CONTROLLER_BODY
-).flat();
-var TERRITORY_CONTROLLER_PRESSURE_BODY_COST = TERRITORY_CONTROLLER_BODY_COST * TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
-var MAX_CREEP_PARTS = 50;
+var MAX_CREEP_PARTS2 = 50;
 var MAX_WORKER_PATTERN_COUNT = 4;
 var BODY_PART_COSTS = {
   move: 50,
@@ -1581,7 +1604,7 @@ function buildWorkerBody(energyAvailable) {
     return [];
   }
   const maxPatternCountByEnergy = Math.floor(energyAvailable / WORKER_PATTERN_COST);
-  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / WORKER_PATTERN.length);
+  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS2 / WORKER_PATTERN.length);
   const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize, MAX_WORKER_PATTERN_COUNT);
   const body = Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
   if (shouldAddWorkerLogisticsPair(energyAvailable, patternCount, body.length)) {
@@ -1594,11 +1617,11 @@ function buildWorkerBody(energyAvailable) {
 }
 function shouldAddWorkerLogisticsPair(energyAvailable, patternCount, bodyPartCount) {
   const remainingEnergy = energyAvailable - patternCount * WORKER_PATTERN_COST;
-  return patternCount >= 2 && patternCount < MAX_WORKER_PATTERN_COUNT && remainingEnergy >= WORKER_LOGISTICS_PAIR_COST && bodyPartCount + WORKER_LOGISTICS_PAIR.length <= MAX_CREEP_PARTS;
+  return patternCount >= 2 && patternCount < MAX_WORKER_PATTERN_COUNT && remainingEnergy >= WORKER_LOGISTICS_PAIR_COST && bodyPartCount + WORKER_LOGISTICS_PAIR.length <= MAX_CREEP_PARTS2;
 }
 function shouldAddWorkerSurplusMove(energyAvailable, patternCount, bodyPartCount) {
   const remainingEnergy = energyAvailable - patternCount * WORKER_PATTERN_COST;
-  return patternCount >= 2 && patternCount < MAX_WORKER_PATTERN_COUNT && remainingEnergy >= WORKER_SURPLUS_MOVE_COST && bodyPartCount + WORKER_SURPLUS_MOVE.length <= MAX_CREEP_PARTS;
+  return patternCount >= 2 && patternCount < MAX_WORKER_PATTERN_COUNT && remainingEnergy >= WORKER_SURPLUS_MOVE_COST && bodyPartCount + WORKER_SURPLUS_MOVE.length <= MAX_CREEP_PARTS2;
 }
 function buildEmergencyWorkerBody(energyAvailable) {
   if (energyAvailable < WORKER_PATTERN_COST) {
@@ -1613,10 +1636,7 @@ function buildEmergencyDefenderBody(energyAvailable) {
   return [...EMERGENCY_DEFENDER_BODY];
 }
 function buildTerritoryControllerBody(energyAvailable) {
-  if (energyAvailable < TERRITORY_CONTROLLER_BODY_COST) {
-    return [];
-  }
-  return [...TERRITORY_CONTROLLER_BODY];
+  return buildTerritoryClaimerBody(energyAvailable);
 }
 function buildTerritoryControllerPressureBody(energyAvailable) {
   if (energyAvailable < TERRITORY_CONTROLLER_PRESSURE_BODY_COST) {
@@ -11535,7 +11555,7 @@ var REMOTE_UPGRADER_TRAVEL_PATTERN = ["work", "carry", "move", "move"];
 var RESERVED_CONTROLLER_BASE_BODY = ["claim", "move"];
 var REMOTE_UPGRADER_PATTERN_COST = 200;
 var MOVE_PART_COST = 50;
-var MAX_CREEP_PARTS2 = 50;
+var MAX_CREEP_PARTS3 = 50;
 var MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 var DEFAULT_RESERVED_CONTROLLER_LEVEL = 0;
 var ERR_NO_PATH_CODE4 = -2;
@@ -11572,7 +11592,7 @@ function buildMultiRoomUpgraderBody(energyAvailable, plan) {
   const pattern = getRemoteUpgraderPattern(plan.routeDistance);
   const patternCost = getBodyCost2(pattern);
   const maxPatternCountByEnergy = Math.floor(remainingEnergy / patternCost);
-  const maxPatternCountBySize = Math.floor((MAX_CREEP_PARTS2 - baseBody.length) / pattern.length);
+  const maxPatternCountBySize = Math.floor((MAX_CREEP_PARTS3 - baseBody.length) / pattern.length);
   const patternCount = Math.min(
     maxPatternCountByEnergy,
     maxPatternCountBySize,
@@ -11586,7 +11606,7 @@ function buildMultiRoomUpgraderBody(energyAvailable, plan) {
     ...Array.from({ length: patternCount }).flatMap(() => pattern)
   ];
   const unusedEnergy = energyAvailable - getBodyCost2(body);
-  if (unusedEnergy >= MOVE_PART_COST && body.length < MAX_CREEP_PARTS2) {
+  if (unusedEnergy >= MOVE_PART_COST && body.length < MAX_CREEP_PARTS3) {
     return [...body, "move"];
   }
   return body;
@@ -15429,6 +15449,11 @@ function isTerritoryAssignment(assignment) {
   return typeof (assignment == null ? void 0 : assignment.targetRoom) === "string" && assignment.targetRoom.length > 0 && (assignment.action === "claim" || assignment.action === "reserve" || assignment.action === "scout");
 }
 
+// src/creeps/claimerRunner.ts
+function runClaimer(creep, telemetryEvents = []) {
+  runTerritoryControllerCreep(creep, telemetryEvents);
+}
+
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
 var OK_CODE7 = 0;
@@ -15504,7 +15529,9 @@ function runEconomy(preludeTelemetryEvents = []) {
       runRemoteHarvester(creep);
     } else if (creep.memory.role === HAULER_ROLE) {
       runHauler(creep);
-    } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE || creep.memory.role === TERRITORY_SCOUT_ROLE) {
+    } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE) {
+      runClaimer(creep, telemetryEvents);
+    } else if (creep.memory.role === TERRITORY_SCOUT_ROLE) {
       runTerritoryControllerCreep(creep, telemetryEvents);
     }
   }
