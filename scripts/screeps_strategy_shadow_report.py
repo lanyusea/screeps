@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,7 +29,47 @@ DEFAULT_MAX_RANKING_DIFF_SAMPLES = 25
 DEFAULT_MAX_WARNING_COUNT = 20
 DEFAULT_MAX_WARNING_BYTES = 240
 DEFAULT_NODE_TIMEOUT_SECONDS = 30
+DEFAULT_MAX_AGE_HOURS = 24 * 7
 REPORT_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+FAST_SUMMARY_SUBDIR_PATTERNS = (
+    "official-screeps-deploy",
+    "screeps-monitor",
+    "screeps-monitor-*",
+)
+FAST_SCAN_BASE_PATHS = (
+    "runtime-artifacts",
+    "/root/screeps/runtime-artifacts",
+    "/root/.hermes/cron/output",
+)
+FAST_EXCLUDED_DIRECTORY_NAMES = (
+    ".git",
+    ".hermes",
+    "dist",
+    "node_modules",
+    ".next",
+    "screenshots",
+    "images",
+    "png",
+    "jpeg",
+    "jpg",
+    "webp",
+    "strategy-shadow",
+)
+FAST_BINARY_FILE_EXTENSIONS = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".mp4",
+    ".webm",
+    ".zip",
+    ".gz",
+    ".bz2",
+    ".xz",
+    ".bin",
+)
 
 JsonObject = dict[str, Any]
 
@@ -87,19 +128,31 @@ def build_strategy_shadow_report(
     max_warning_count: int = DEFAULT_MAX_WARNING_COUNT,
     node_timeout_seconds: int = DEFAULT_NODE_TIMEOUT_SECONDS,
     candidate_strategy_ids: Sequence[str] = (),
+    fast: bool = False,
+    max_age_hours: int | None = None,
     repo_root: Path | None = None,
 ) -> JsonObject:
     repo = (repo_root or Path.cwd()).expanduser().resolve()
     resolved_out_dir = resolve_path_against_repo(out_dir, repo)
-    resolved_paths = resolve_scan_paths(paths, repo)
+    resolved_paths = resolve_scan_paths(paths, repo, fast=fast)
     resolved_dist_path = resolve_dist_path(dist_path, repo)
     resolved_bot_commit = bot_commit or dataset_export.git_commit(repo)
     resolved_generated_at = generated_at or utc_now_iso()
+
+    scan_kwargs = {}
+    if fast:
+        scan_kwargs.update(
+            max_age_hours=max_age_hours,
+            excluded_directory_names=FAST_EXCLUDED_DIRECTORY_NAMES,
+            binary_file_extensions=FAST_BINARY_FILE_EXTENSIONS,
+        )
 
     scan = dataset_export.collect_artifact_records(
         resolved_paths,
         max_file_bytes=max_file_bytes,
         excluded_roots=[resolved_out_dir],
+        use_default_paths=not fast,
+        **scan_kwargs,
     )
     selected_records = list(scan.records[:artifact_limit])
     selected_artifacts = [
@@ -146,9 +199,40 @@ def resolve_dist_path(dist_path: Path, repo_root: Path) -> Path:
     return resolved
 
 
-def resolve_scan_paths(paths: Sequence[str], repo_root: Path) -> list[Path]:
-    input_paths = list(paths) if paths else list(dataset_export.DEFAULT_INPUT_PATHS)
+def resolve_scan_paths(paths: Sequence[str], repo_root: Path, *, fast: bool = False) -> list[Path]:
+    if not paths:
+        if fast:
+            input_paths = resolve_fast_scan_roots(repo_root)
+        else:
+            input_paths = list(dataset_export.DEFAULT_INPUT_PATHS)
+    else:
+        input_paths = list(paths)
     return [resolve_path_against_repo(Path(path), repo_root) for path in input_paths]
+
+
+def resolve_fast_scan_roots(repo_root: Path) -> list[Path]:
+    resolved_roots: list[Path] = []
+    for base_path in [resolve_path_against_repo(Path(path), repo_root) for path in FAST_SCAN_BASE_PATHS]:
+        if not base_path.is_dir():
+            continue
+        for pattern in FAST_SUMMARY_SUBDIR_PATTERNS:
+            if "*" in pattern:
+                for match in sorted(base_path.glob(pattern)):
+                    if match.is_dir():
+                        resolved_roots.append(match.resolve())
+                continue
+            candidate = base_path / pattern
+            if candidate.is_dir():
+                resolved_roots.append(candidate.resolve())
+
+    unique_paths: list[Path] = []
+    seen = set[str]()
+    for path in resolved_roots:
+        canonical = str(path)
+        if canonical not in seen:
+            unique_paths.append(path)
+            seen.add(canonical)
+    return sorted(unique_paths, key=lambda item: str(item))
 
 
 def resolve_path_against_repo(path: Path, repo_root: Path) -> Path:
@@ -598,10 +682,32 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Maximum warnings retained in the report. Default: {DEFAULT_MAX_WARNING_COUNT}.",
     )
     parser.add_argument(
+        "--fast",
+        action="store_true",
+        help=(
+            "Use cron-optimized scan: only official-screeps-deploy/, screeps-monitor/, and screeps-monitor-* "
+            "under runtime-artifacts and /root/.hermes/cron/output."
+        ),
+    )
+    parser.add_argument(
+        "--max-age-hours",
+        type=positive_int,
+        default=DEFAULT_MAX_AGE_HOURS,
+        help=(
+            "When --fast is enabled, only include files modified in the last N hours. "
+            f"Default: {DEFAULT_MAX_AGE_HOURS}."
+        ),
+    )
+    parser.add_argument(
         "--candidate-strategy-id",
         action="append",
         default=[],
         help="Candidate strategy ID to evaluate. Repeat to override the registry's shadow candidates.",
+    )
+    parser.add_argument(
+        "--json-summary",
+        action="store_true",
+        help="Output a compact one-line JSON summary for cron parsing.",
     )
     parser.add_argument(
         "--node-timeout-seconds",
@@ -619,6 +725,7 @@ def main(
 ) -> int:
     args = build_parser().parse_args(argv)
     repo = (repo_root or Path.cwd()).expanduser().resolve()
+    start_time = time.perf_counter()
     summary = build_strategy_shadow_report(
         args.paths,
         args.out_dir,
@@ -632,10 +739,37 @@ def main(
         max_warning_count=args.max_warning_count,
         node_timeout_seconds=args.node_timeout_seconds,
         candidate_strategy_ids=args.candidate_strategy_id,
+        fast=args.fast,
+        max_age_hours=args.max_age_hours if args.fast else None,
     )
-    stdout.write(json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=True))
+    wall_seconds = time.perf_counter() - start_time
+    if args.json_summary:
+        stdout.write(
+            json.dumps(
+                build_json_summary(summary, wall_seconds),
+                sort_keys=True,
+                ensure_ascii=True,
+            )
+        )
+    else:
+        stdout.write(json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=True))
     stdout.write("\n")
     return 0
+
+
+def build_json_summary(report_summary: JsonObject, wall_seconds: float) -> JsonObject:
+    return {
+        "ok": bool(report_summary.get("ok")),
+        "reportId": report_summary.get("reportId"),
+        "reportPath": report_summary.get("reportPath"),
+        "artifactCount": report_summary.get("artifactCount"),
+        "parsedRuntimeArtifactCount": report_summary.get("parsedRuntimeArtifactCount"),
+        "modelReportCount": report_summary.get("modelReportCount"),
+        "rankingDiffCount": report_summary.get("rankingDiffCount"),
+        "changedTopCount": report_summary.get("changedTopCount"),
+        "warnings": report_summary.get("warnings", []),
+        "wallSeconds": round(wall_seconds, 3),
+    }
 
 
 if __name__ == "__main__":

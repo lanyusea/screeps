@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence, TextIO
@@ -163,10 +164,25 @@ def collect_artifact_records(
     paths: Sequence[str],
     max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
     excluded_roots: Sequence[Path | str] = (),
+    max_age_hours: int | None = None,
+    excluded_directory_names: Sequence[str] = (),
+    binary_file_extensions: Sequence[str] = (),
+    use_default_paths: bool = True,
 ) -> ScanResult:
-    input_paths = list(paths) if paths else list(DEFAULT_INPUT_PATHS)
+    input_paths = list(paths) if paths or not use_default_paths else list(DEFAULT_INPUT_PATHS)
     resolved_excluded_roots = resolved_paths(excluded_roots)
     result = ScanResult(input_paths=input_paths)
+    max_age_cutoff = (
+        time.time() - (max_age_hours * 3600.0) if max_age_hours is not None and max_age_hours > 0 else None
+    )
+    excluded_directory_names = tuple(
+        name.lower() for name in excluded_directory_names if isinstance(name, str) and name.strip()
+    )
+    binary_file_extensions = tuple(
+        extension.lower() if extension.startswith(".") else f".{extension.lower()}"
+        for extension in binary_file_extensions
+        if isinstance(extension, str) and extension.strip()
+    )
 
     for path_text in input_paths:
         path = Path(path_text).expanduser()
@@ -176,11 +192,29 @@ def collect_artifact_records(
         if is_excluded_path(path, resolved_excluded_roots):
             continue
         if path.is_file():
-            scan_file(path, result, max_file_bytes)
+            scan_file(
+                path,
+                result,
+                max_file_bytes,
+                max_age_cutoff=max_age_cutoff,
+                binary_file_extensions=binary_file_extensions,
+            )
             continue
         if path.is_dir():
-            for file_path in iter_directory_files(path, result, resolved_excluded_roots):
-                scan_file(file_path, result, max_file_bytes)
+            for file_path in iter_directory_files(
+                path,
+                result,
+                resolved_excluded_roots,
+                excluded_directory_names=excluded_directory_names,
+                binary_file_extensions=binary_file_extensions,
+            ):
+                scan_file(
+                    file_path,
+                    result,
+                    max_file_bytes,
+                    max_age_cutoff=max_age_cutoff,
+                    binary_file_extensions=binary_file_extensions,
+                )
             continue
         result.skip(path, "not_file_or_directory")
 
@@ -188,8 +222,16 @@ def collect_artifact_records(
     return result
 
 
-def iter_directory_files(root: Path, result: ScanResult, excluded_roots: Sequence[Path] = ()) -> list[Path]:
+def iter_directory_files(
+    root: Path,
+    result: ScanResult,
+    excluded_roots: Sequence[Path] = (),
+    *,
+    excluded_directory_names: Sequence[str] = (),
+    binary_file_extensions: Sequence[str] = (),
+) -> list[Path]:
     files: list[Path] = []
+    excluded_dirnames = {name.lower() for name in excluded_directory_names if name}
 
     def record_error(error: OSError) -> None:
         result.skip(error.filename or root, "read_error")
@@ -199,9 +241,16 @@ def iter_directory_files(root: Path, result: ScanResult, excluded_roots: Sequenc
         if is_excluded_path(directory, excluded_roots):
             dirnames[:] = []
             continue
-        dirnames[:] = [name for name in sorted(dirnames) if not is_excluded_path(directory / name, excluded_roots)]
+        dirnames[:] = [
+            name
+            for name in sorted(dirnames)
+            if name.lower() not in excluded_dirnames and not is_excluded_path(directory / name, excluded_roots)
+        ]
         for filename in sorted(filenames):
             file_path = directory / filename
+            if file_path.suffix.lower() in binary_file_extensions:
+                result.skip(file_path, "binary_extension", extension=file_path.suffix.lower())
+                continue
             if not is_excluded_path(file_path, excluded_roots):
                 files.append(file_path)
 
@@ -234,7 +283,14 @@ def is_relative_to(path: Path, parent: Path) -> bool:
     return True
 
 
-def scan_file(path: Path, result: ScanResult, max_file_bytes: int) -> None:
+def scan_file(
+    path: Path,
+    result: ScanResult,
+    max_file_bytes: int,
+    *,
+    max_age_cutoff: float | None = None,
+    binary_file_extensions: Sequence[str] = (),
+) -> None:
     if path.is_symlink():
         result.skip(path, "symlink")
         return
@@ -247,6 +303,21 @@ def scan_file(path: Path, result: ScanResult, max_file_bytes: int) -> None:
 
     if not path.is_file():
         result.skip(path, "not_regular_file")
+        return
+
+    if path.suffix.lower() in binary_file_extensions:
+        result.skip(path, "binary_extension", extension=path.suffix.lower())
+        return
+
+    if max_age_cutoff is not None and stat_result.st_mtime < max_age_cutoff:
+        result.skip(
+            path,
+            "older_than_max_age",
+            fileMtime=stat_result.st_mtime,
+            maxAgeHours=(
+                int((time.time() - stat_result.st_mtime) / 3600) if stat_result.st_mtime else 0
+            ),
+        )
         return
 
     result.scanned_files += 1
