@@ -17,6 +17,12 @@ import {
   isSelfReservedRoom,
   type CriticalRoadLogisticsContext
 } from '../construction/criticalRoads';
+import {
+  CONSTRUCTION_SITE_IMPACT_PRIORITY,
+  DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
+  getConstructionSiteImpactPriority,
+  type ConstructionSiteImpactPriorityContext
+} from '../construction/constructionPriority';
 import { findSourceContainer } from '../economy/sourceContainers';
 
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
@@ -94,6 +100,11 @@ interface NearTermSpawnExtensionRefillReserveCache {
 
 interface ConstructionReservationContext {
   reservedProgressBySiteId: Map<string, number>;
+}
+
+interface ConstructionSiteSelectionOptions {
+  priorityContext?: ConstructionSiteImpactPriorityContext | undefined;
+  requireReasonableRange?: boolean;
 }
 
 interface Source2ControllerLaneTopology {
@@ -342,23 +353,19 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return null;
   }
 
-  const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
-    creep,
-    constructionSites,
-    constructionReservationContext
-  );
-  if (criticalRoadConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: criticalRoadConstructionSite.id });
-  }
-
-  const containerConstructionSite = selectUnreservedConstructionSite(
+  const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const highImpactConstructionSite = selectUnreservedConstructionSite(
     creep,
     constructionSites,
     constructionReservationContext,
-    isContainerConstructionSite
+    (site) => isHighImpactConstructionSite(site, constructionPriorityContext),
+    {
+      priorityContext: constructionPriorityContext,
+      requireReasonableRange: true
+    }
   );
-  if (containerConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: containerConstructionSite.id });
+  if (highImpactConstructionSite) {
+    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: highImpactConstructionSite.id });
   }
 
   if (controller && shouldUseSurplusForControllerProgress(creep, controller)) {
@@ -375,20 +382,12 @@ export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
   }
 
-  const roadConstructionSite = selectUnreservedConstructionSite(
-    creep,
-    constructionSites,
-    constructionReservationContext,
-    isRoadConstructionSite
-  );
-  if (roadConstructionSite) {
-    return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: roadConstructionSite.id });
-  }
-
   const constructionSite = selectUnreservedConstructionSite(
     creep,
     constructionSites,
-    constructionReservationContext
+    constructionReservationContext,
+    () => true,
+    { priorityContext: constructionPriorityContext }
   );
   if (constructionSite) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: constructionSite.id });
@@ -1095,13 +1094,20 @@ function selectConstructionSite(
   creep: Creep,
   constructionSites: ConstructionSite[],
   predicate: (site: ConstructionSite) => boolean = () => true,
-  constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext()
+  constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext(),
+  options: ConstructionSiteSelectionOptions = {}
 ): ConstructionSite | null {
-  const candidates = constructionSites.filter(predicate);
+  const candidates = constructionSites.filter(
+    (site) =>
+      predicate(site) &&
+      (!options.requireReasonableRange ||
+        isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
+  );
   if (candidates.length === 0) {
     return null;
   }
 
+  const priorityContext = options.priorityContext ?? buildWorkerConstructionSiteImpactPriorityContext(creep, candidates);
   const position = (creep as Creep & {
     pos?: {
       findClosestByRange?: (objects: ConstructionSite[]) => ConstructionSite | null;
@@ -1111,13 +1117,14 @@ function selectConstructionSite(
 
   if (typeof position?.getRangeTo === 'function') {
     return [...candidates].sort((left, right) =>
-      compareConstructionSiteCandidates(creep, left, right, constructionReservationContext)
+      compareConstructionSiteCandidates(creep, left, right, constructionReservationContext, priorityContext)
     )[0];
   }
 
+  const topImpactCandidates = selectTopImpactConstructionSiteCandidates(candidates, priorityContext);
   const completableConstructionSite = selectNearTermCompletableConstructionSite(
     creep,
-    candidates,
+    topImpactCandidates,
     constructionReservationContext
   );
   if (completableConstructionSite) {
@@ -1125,25 +1132,96 @@ function selectConstructionSite(
   }
 
   if (typeof position?.findClosestByRange === 'function') {
-    const candidatesByStableId = [...candidates].sort(compareConstructionSiteId);
+    const candidatesByStableId = [...topImpactCandidates].sort(compareConstructionSiteId);
     return position.findClosestByRange(candidatesByStableId) ?? candidatesByStableId[0];
   }
 
-  return candidates[0];
+  return topImpactCandidates.sort(compareConstructionSiteId)[0];
 }
 
 function selectUnreservedConstructionSite(
   creep: Creep,
   constructionSites: ConstructionSite[],
   constructionReservationContext: ConstructionReservationContext,
-  predicate: (site: ConstructionSite) => boolean = () => true
+  predicate: (site: ConstructionSite) => boolean = () => true,
+  options: ConstructionSiteSelectionOptions = {}
 ): ConstructionSite | null {
   return selectConstructionSite(
     creep,
     constructionSites,
     (site) => predicate(site) && hasUnreservedConstructionProgress(creep, site, constructionReservationContext),
-    constructionReservationContext
+    constructionReservationContext,
+    options
   );
+}
+
+function buildWorkerConstructionSiteImpactPriorityContext(
+  creep: Creep,
+  constructionSites: ConstructionSite[]
+): ConstructionSiteImpactPriorityContext {
+  const context: ConstructionSiteImpactPriorityContext = {};
+  if (constructionSites.some(isRoadConstructionSite)) {
+    context.criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
+  }
+
+  if (constructionSites.some(isContainerConstructionSite)) {
+    context.sources = findConstructionPrioritySources(creep.room);
+  }
+
+  if (constructionSites.some(isRampartConstructionSite)) {
+    context.protectedRampartAnchors = findConstructionPriorityProtectedRampartAnchors(creep.room);
+  }
+
+  return context;
+}
+
+function findConstructionPrioritySources(room: Room): Source[] {
+  if (typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const sources = room.find(FIND_SOURCES);
+    return Array.isArray(sources) ? sources : [];
+  } catch {
+    return [];
+  }
+}
+
+function findConstructionPriorityProtectedRampartAnchors(room: Room): RoomPosition[] {
+  const anchors: RoomPosition[] = [];
+  if (room.controller?.pos && isPositionInRoom(room.controller.pos, room.name)) {
+    anchors.push(room.controller.pos);
+  }
+
+  for (const structure of findConstructionPriorityOwnedStructures(room)) {
+    if (
+      matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') &&
+      structure.pos &&
+      isPositionInRoom(structure.pos, room.name)
+    ) {
+      anchors.push(structure.pos);
+    }
+  }
+
+  return anchors;
+}
+
+function findConstructionPriorityOwnedStructures(room: Room): AnyOwnedStructure[] {
+  if (typeof FIND_MY_STRUCTURES !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const structures = room.find(FIND_MY_STRUCTURES);
+    return Array.isArray(structures) ? structures : [];
+  } catch {
+    return [];
+  }
+}
+
+function isPositionInRoom(position: RoomPosition, roomName: string): boolean {
+  return typeof position.roomName !== 'string' || position.roomName === roomName;
 }
 
 function hasUnreservedConstructionProgress(
@@ -1232,13 +1310,58 @@ function compareConstructionSiteCandidates(
   creep: Creep,
   left: ConstructionSite,
   right: ConstructionSite,
-  constructionReservationContext: ConstructionReservationContext
+  constructionReservationContext: ConstructionReservationContext,
+  priorityContext: ConstructionSiteImpactPriorityContext
 ): number {
   return (
+    getConstructionSiteImpactPriority(right, priorityContext) -
+      getConstructionSiteImpactPriority(left, priorityContext) ||
+    compareConstructionSiteReasonableRange(creep, left, right) ||
     compareConstructionSiteCompletion(creep, left, right, constructionReservationContext) ||
     compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
     compareConstructionSiteId(left, right)
   );
+}
+
+function compareConstructionSiteReasonableRange(
+  creep: Creep,
+  left: ConstructionSite,
+  right: ConstructionSite
+): number {
+  const leftInRange = isConstructionSiteWithinReasonableRange(
+    creep,
+    left,
+    DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE
+  );
+  const rightInRange = isConstructionSiteWithinReasonableRange(
+    creep,
+    right,
+    DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE
+  );
+  if (leftInRange === rightInRange) {
+    return 0;
+  }
+
+  return leftInRange ? -1 : 1;
+}
+
+function isConstructionSiteWithinReasonableRange(
+  creep: Creep,
+  site: ConstructionSite,
+  rangeLimit: number
+): boolean {
+  const range = getRangeBetweenRoomObjects(creep, site);
+  return range === null || range <= rangeLimit;
+}
+
+function selectTopImpactConstructionSiteCandidates(
+  candidates: ConstructionSite[],
+  priorityContext: ConstructionSiteImpactPriorityContext
+): ConstructionSite[] {
+  const highestPriority = Math.max(
+    ...candidates.map((site) => getConstructionSiteImpactPriority(site, priorityContext))
+  );
+  return candidates.filter((site) => getConstructionSiteImpactPriority(site, priorityContext) === highestPriority);
 }
 
 function compareConstructionSiteCompletion(
@@ -1331,7 +1454,8 @@ function compareConstructionSiteId(left: ConstructionSite, right: ConstructionSi
 function selectCriticalRoadConstructionSite(
   creep: Creep,
   constructionSites: ConstructionSite[],
-  constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext()
+  constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext(),
+  priorityContext?: ConstructionSiteImpactPriorityContext
 ): ConstructionSite | null {
   if (!constructionSites.some(isRoadConstructionSite)) {
     return null;
@@ -1342,7 +1466,8 @@ function selectCriticalRoadConstructionSite(
     creep,
     constructionSites,
     constructionReservationContext,
-    (site) => isCriticalRoadLogisticsWork(site, criticalRoadContext)
+    (site) => isCriticalRoadLogisticsWork(site, criticalRoadContext),
+    { priorityContext: priorityContext ?? { criticalRoadContext }, requireReasonableRange: true }
   );
 }
 
@@ -1433,13 +1558,15 @@ function selectCapacityEnablingConstructionSite(
   creep: Creep,
   constructionSites: ConstructionSite[],
   controller: StructureController | undefined,
-  constructionReservationContext: ConstructionReservationContext
+  constructionReservationContext: ConstructionReservationContext,
+  priorityContext?: ConstructionSiteImpactPriorityContext
 ): ConstructionSite | null {
   const spawnConstructionSite = selectUnreservedConstructionSite(
     creep,
     constructionSites,
     constructionReservationContext,
-    isSpawnConstructionSite
+    isSpawnConstructionSite,
+    { priorityContext: priorityContext ?? {}, requireReasonableRange: true }
   );
   if (spawnConstructionSite) {
     return spawnConstructionSite;
@@ -1453,7 +1580,8 @@ function selectCapacityEnablingConstructionSite(
     creep,
     constructionSites,
     constructionReservationContext,
-    isExtensionConstructionSite
+    isExtensionConstructionSite,
+    { priorityContext: priorityContext ?? {}, requireReasonableRange: true }
   );
 }
 
@@ -1461,7 +1589,8 @@ function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
   creep: Creep,
   capacityConstructionSite: ConstructionSite | null,
   constructionSites: ConstructionSite[],
-  constructionReservationContext: ConstructionReservationContext
+  constructionReservationContext: ConstructionReservationContext,
+  priorityContext?: ConstructionSiteImpactPriorityContext
 ): ConstructionSite | null {
   if (
     !capacityConstructionSite ||
@@ -1472,12 +1601,13 @@ function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
   }
 
   return (
-    selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext) ??
+    selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext, priorityContext) ??
     selectUnreservedConstructionSite(
       creep,
       constructionSites,
       constructionReservationContext,
-      isContainerConstructionSite
+      isContainerConstructionSite,
+      { priorityContext: priorityContext ?? {}, requireReasonableRange: true }
     )
   );
 }
@@ -1495,7 +1625,8 @@ function selectReadyFollowUpProductiveEnergySinkTask(
   capacityConstructionSite: ConstructionSite | null,
   controller: StructureController | undefined,
   constructionSites: ConstructionSite[],
-  constructionReservationContext: ConstructionReservationContext
+  constructionReservationContext: ConstructionReservationContext,
+  priorityContext?: ConstructionSiteImpactPriorityContext
 ): ProductiveEnergySinkTask | null {
   if (!hasReadyTerritoryFollowUpEnergy(creep)) {
     return null;
@@ -1505,7 +1636,8 @@ function selectReadyFollowUpProductiveEnergySinkTask(
     creep,
     capacityConstructionSite,
     constructionSites,
-    constructionReservationContext
+    constructionReservationContext,
+    priorityContext
   );
   if (baselineLogisticsConstructionSite) {
     return { type: 'build', targetId: baselineLogisticsConstructionSite.id };
@@ -1527,7 +1659,8 @@ function selectReadyFollowUpProductiveEnergySinkTask(
   const criticalRoadConstructionSite = selectCriticalRoadConstructionSite(
     creep,
     constructionSites,
-    constructionReservationContext
+    constructionReservationContext,
+    priorityContext
   );
   return criticalRoadConstructionSite ? { type: 'build', targetId: criticalRoadConstructionSite.id } : null;
 }
@@ -1546,6 +1679,20 @@ function isContainerConstructionSite(site: ConstructionSite): boolean {
 
 function isRoadConstructionSite(site: ConstructionSite): boolean {
   return matchesStructureType(site.structureType, 'STRUCTURE_ROAD', 'road');
+}
+
+function isRampartConstructionSite(site: ConstructionSite): boolean {
+  return matchesStructureType(site.structureType, 'STRUCTURE_RAMPART', 'rampart');
+}
+
+function isHighImpactConstructionSite(
+  site: ConstructionSite,
+  priorityContext: ConstructionSiteImpactPriorityContext | undefined
+): boolean {
+  return (
+    isContainerConstructionSite(site) ||
+    getConstructionSiteImpactPriority(site, priorityContext ?? {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.tower
+  );
 }
 
 type StructureConstantGlobal =

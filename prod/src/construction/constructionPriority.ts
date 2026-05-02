@@ -132,6 +132,16 @@ export interface ConstructionPriorityPlanningResult {
   roadResults: ScreepsReturnCode[];
 }
 
+export interface ConstructionSiteImpactPriorityContext {
+  criticalRoadContext?: CriticalRoadLogisticsContext;
+  protectedRampartAnchors?: RoomPosition[];
+  sources?: Source[];
+}
+
+export interface ImpactWeightedConstructionSiteSelectionOptions {
+  reasonableRange?: number;
+}
+
 interface RuntimeConstructionPriorityState extends ConstructionPriorityRoomState {
   ownedConstructionSites: ConstructionSite[] | null;
   ownedStructures: AnyOwnedStructure[] | null;
@@ -161,6 +171,7 @@ const DEFAULT_MAX_CONTAINER_SITES_PER_TICK = 1;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const ROOM_EDGE_MIN = 1;
 const ROOM_EDGE_MAX = 48;
+export const DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE = 20;
 const MAX_SCORE = 100;
 const MAX_URGENCY_POINTS = 35;
 const MAX_ROOM_STATE_POINTS = 20;
@@ -171,6 +182,19 @@ const MAX_RISK_COST = 25;
 const CRITICAL_REPAIR_HITS_RATIO = 0.5;
 const DECAYING_REPAIR_HITS_RATIO = 0.8;
 const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
+export const CONSTRUCTION_SITE_IMPACT_PRIORITY = {
+  extension: 100,
+  spawn: 95,
+  sourceContainer: 85,
+  criticalRoad: 75,
+  tower: 60,
+  container: 55,
+  protectedRampart: 50,
+  road: 45,
+  other: 35,
+  rampart: 20,
+  wall: 5
+} as const;
 
 const STRUCTURE_BUILD_COSTS: Partial<Record<ConstructionPriorityBuildType, number>> = {
   spawn: 15_000,
@@ -294,6 +318,76 @@ export function selectNextPrimaryConstruction(
   }
 
   return candidates.find((candidate) => !candidate.blocked) ?? candidates[0];
+}
+
+export function buildConstructionSiteImpactPriorityContext(
+  room: Room
+): ConstructionSiteImpactPriorityContext {
+  const ownedStructures = findRoomObjects(room, 'FIND_MY_STRUCTURES') as AnyOwnedStructure[] | null;
+  const sources = findRoomObjects(room, 'FIND_SOURCES') as Source[] | null;
+
+  return {
+    criticalRoadContext: buildCriticalRoadLogisticsContext(room),
+    protectedRampartAnchors: getProtectedRampartAnchorPositions(room, ownedStructures),
+    ...(sources === null ? {} : { sources })
+  };
+}
+
+export function getConstructionSiteImpactPriority(
+  site: ConstructionSite,
+  context: ConstructionSiteImpactPriorityContext = {}
+): number {
+  if (matchesStructureType(site.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.extension;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_SPAWN', 'spawn')) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.spawn;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container')) {
+    return isSourceContainerConstructionSite(site, context)
+      ? CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer
+      : CONSTRUCTION_SITE_IMPACT_PRIORITY.container;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_ROAD', 'road')) {
+    return context.criticalRoadContext && isCriticalRoadLogisticsWork(site, context.criticalRoadContext)
+      ? CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad
+      : CONSTRUCTION_SITE_IMPACT_PRIORITY.road;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_TOWER', 'tower')) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.tower;
+  }
+
+  if (matchesStructureType(site.structureType, 'STRUCTURE_RAMPART', 'rampart')) {
+    return isProtectedRampartConstructionSite(site, context)
+      ? CONSTRUCTION_SITE_IMPACT_PRIORITY.protectedRampart
+      : CONSTRUCTION_SITE_IMPACT_PRIORITY.rampart;
+  }
+
+  if (isWallConstructionSite(site)) {
+    return CONSTRUCTION_SITE_IMPACT_PRIORITY.wall;
+  }
+
+  return CONSTRUCTION_SITE_IMPACT_PRIORITY.other;
+}
+
+export function selectImpactWeightedConstructionSite(
+  origin: RoomObject,
+  constructionSites: ConstructionSite[],
+  context: ConstructionSiteImpactPriorityContext = {},
+  options: ImpactWeightedConstructionSiteSelectionOptions = {}
+): ConstructionSite | null {
+  const candidates = constructionSites.filter(hasIncompleteConstructionSiteProgress);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return [...candidates].sort((left, right) =>
+    compareImpactWeightedConstructionSites(origin, left, right, context, options)
+  )[0];
 }
 
 export function buildRuntimeConstructionPriorityReport(
@@ -580,6 +674,136 @@ function isNearRoomObject(
     range !== null &&
     range <= 1
   );
+}
+
+function compareImpactWeightedConstructionSites(
+  origin: RoomObject,
+  left: ConstructionSite,
+  right: ConstructionSite,
+  context: ConstructionSiteImpactPriorityContext,
+  options: ImpactWeightedConstructionSiteSelectionOptions
+): number {
+  return (
+    getConstructionSiteImpactPriority(right, context) - getConstructionSiteImpactPriority(left, context) ||
+    compareConstructionSiteReasonableRange(origin, left, right, options.reasonableRange) ||
+    compareOptionalNumber(getRangeToRoomObject(origin, left), getRangeToRoomObject(origin, right)) ||
+    compareConstructionSiteStableId(left, right)
+  );
+}
+
+function compareConstructionSiteReasonableRange(
+  origin: RoomObject,
+  left: ConstructionSite,
+  right: ConstructionSite,
+  reasonableRange = DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE
+): number {
+  const leftInRange = isConstructionSiteWithinReasonableRange(origin, left, reasonableRange);
+  const rightInRange = isConstructionSiteWithinReasonableRange(origin, right, reasonableRange);
+  if (leftInRange === rightInRange) {
+    return 0;
+  }
+
+  return leftInRange ? -1 : 1;
+}
+
+function isConstructionSiteWithinReasonableRange(
+  origin: RoomObject,
+  site: ConstructionSite,
+  reasonableRange = DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE
+): boolean {
+  const range = getRangeToRoomObject(origin, site);
+  return range === null || range <= reasonableRange;
+}
+
+function getRangeToRoomObject(origin: RoomObject, target: RoomObject): number | null {
+  const getRangeTo = (origin as RoomObject & {
+    pos?: { getRangeTo?: (target: RoomObject) => number };
+  }).pos?.getRangeTo;
+  if (typeof getRangeTo !== 'function') {
+    return null;
+  }
+
+  try {
+    const range = getRangeTo.call((origin as RoomObject).pos, target);
+    return typeof range === 'number' && Number.isFinite(range) ? range : null;
+  } catch {
+    return null;
+  }
+}
+
+function compareConstructionSiteStableId(left: ConstructionSite, right: ConstructionSite): number {
+  return String(left.id).localeCompare(String(right.id));
+}
+
+function hasIncompleteConstructionSiteProgress(site: ConstructionSite): boolean {
+  const progress = (site as ConstructionSite & { progress?: number }).progress;
+  const progressTotal = (site as ConstructionSite & { progressTotal?: number }).progressTotal;
+  if (
+    typeof progress !== 'number' ||
+    typeof progressTotal !== 'number' ||
+    !Number.isFinite(progress) ||
+    !Number.isFinite(progressTotal)
+  ) {
+    return true;
+  }
+
+  return progress < progressTotal;
+}
+
+function isSourceContainerConstructionSite(
+  site: ConstructionSite,
+  context: ConstructionSiteImpactPriorityContext
+): boolean {
+  const sitePosition = getRoomObjectPosition(site);
+  if (!sitePosition || !context.sources || context.sources.length === 0) {
+    return false;
+  }
+
+  return context.sources.some((source) => isNearRoomObject(source, sitePosition));
+}
+
+function isProtectedRampartConstructionSite(
+  site: ConstructionSite,
+  context: ConstructionSiteImpactPriorityContext
+): boolean {
+  const sitePosition = getRoomObjectPosition(site);
+  if (!sitePosition || !context.protectedRampartAnchors || context.protectedRampartAnchors.length === 0) {
+    return false;
+  }
+
+  return context.protectedRampartAnchors.some((anchor) => {
+    const range = getRangeBetweenPositions(sitePosition, anchor);
+    return range !== null && range <= 2;
+  });
+}
+
+function isWallConstructionSite(site: ConstructionSite): boolean {
+  return (
+    matchesStructureType(site.structureType, 'STRUCTURE_WALL', 'constructedWall') ||
+    String(site.structureType) === 'wall'
+  );
+}
+
+function getProtectedRampartAnchorPositions(
+  room: Room,
+  ownedStructures: AnyOwnedStructure[] | null
+): RoomPosition[] {
+  const anchors: RoomPosition[] = [];
+  const controllerPosition = room.controller?.pos;
+  if (controllerPosition && isSameRoomPosition(controllerPosition, room.name)) {
+    anchors.push(controllerPosition);
+  }
+
+  for (const structure of ownedStructures ?? []) {
+    if (
+      matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') &&
+      isSameRoomPosition(structure.pos ?? null, room.name)
+    ) {
+      anchors.push(structure.pos);
+    }
+  }
+
+  return anchors;
 }
 
 function getRoomObjectPosition(object: RoomObject | undefined): PositionedRoomPosition | null {
@@ -1452,6 +1676,7 @@ type StructureConstantName =
   | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_TOWER'
   | 'STRUCTURE_RAMPART'
+  | 'STRUCTURE_WALL'
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_STORAGE';
