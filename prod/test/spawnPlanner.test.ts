@@ -5,6 +5,7 @@ import {
   scoreOccupationRecommendations
 } from '../src/territory/occupationRecommendation';
 import {
+  TERRITORY_CLAIM_READY_TICKS,
   TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS,
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
   TERRITORY_SUPPRESSION_RETRY_TICKS
@@ -1117,6 +1118,46 @@ describe('planSpawn', () => {
         updatedAt: 142
       }
     ]);
+  });
+
+  it('plans a claimer-role claimer for a mature configured reserve target', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const controller = {
+      my: false,
+      reservation: { username: 'player', ticksToEnd: TERRITORY_CLAIM_READY_TICKS + 1 }
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: {
+          name: 'W2N1',
+          controller,
+          find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: 'source1' }, { id: 'source2' }] : [])),
+          energyAvailable: 300,
+          energyCapacityAvailable: 300
+        } as unknown as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 142)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-142',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'claim' }
+      }
+    });
   });
 
   it('does not spawn a one-CLAIM reserver for foreign reservation pressure', () => {

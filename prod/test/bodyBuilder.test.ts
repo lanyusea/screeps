@@ -6,6 +6,7 @@ import {
   buildWorkerBody,
   getBodyCost
 } from '../src/spawn/bodyBuilder';
+import { TERRITORY_CONTROLLER_BODY, TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/creepBodies';
 
 const WORKER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 
@@ -114,6 +115,13 @@ describe('buildTerritoryControllerBody', () => {
 
     expect(nonMoveParts).toBeLessThanOrEqual(moveParts * 3);
     expect(moveParts).toBe(1 + upgradePairs);
+  });
+});
+
+describe('creep body templates', () => {
+  it('defines a claimer body template with claim and move', () => {
+    expect(TERRITORY_CONTROLLER_BODY).toEqual(['claim', 'move']);
+    expect(TERRITORY_CONTROLLER_BODY_COST).toBe(650);
   });
 });
 
