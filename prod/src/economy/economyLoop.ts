@@ -342,9 +342,19 @@ function getNextExpansionSelectionCacheStateKey(colony: ColonySnapshot): string 
     colony.room.name,
     colony.energyCapacityAvailable,
     controllerLevel,
+    countVisibleOwnedRooms(),
     downgradeState,
     countActivePostClaimBootstraps()
   ].join('|');
+}
+
+function countVisibleOwnedRooms(): number {
+  const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+  if (!rooms) {
+    return 0;
+  }
+
+  return Object.values(rooms).filter((room) => room?.controller?.my === true).length;
 }
 
 function countActivePostClaimBootstraps(): number {

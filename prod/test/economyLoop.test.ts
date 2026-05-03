@@ -700,6 +700,71 @@ describe('runEconomy', () => {
     });
   });
 
+  it('refreshes next expansion scoring before the interval when owned room count reaches the RCL cap', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_HOSTILE_CREEPS: number;
+      FIND_HOSTILE_STRUCTURES: number;
+      TERRAIN_MASK_WALL: number;
+      TERRAIN_MASK_SWAMP: number;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 2;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 3;
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const room = makeTerritoryReadyEconomyRoom();
+    const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    const getRoomTerrain = jest.fn(() => ({ get: jest.fn().mockReturnValue(0) } as unknown as RoomTerrain));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 501,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: {},
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null),
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' })),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game.rooms = {
+      W1N1: room,
+      W2N1: targetRoom,
+      W3N1: makeOwnedEconomyRoom('W3N1')
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 502;
+
+    runEconomy();
+
+    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
+    expect(room.memory.lastExpansionScoreTime).toBe(502);
+    expect(room.memory.cachedExpansionSelection).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.targets).toEqual([{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 502
+      }
+    ]);
+  });
+
   it('uses a second idle spawn for controller pressure after spawning follow-up support', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     const followUp: TerritoryFollowUpMemory = {
@@ -1599,6 +1664,19 @@ function makeTerritoryReadyEconomyRoom({
       ticksToDowngrade: 10_000
     } as StructureController,
     find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: 'home-source' } as Source] : []))
+  } as unknown as Room;
+}
+
+function makeOwnedEconomyRoom(roomName: string): Room {
+  return {
+    name: roomName,
+    controller: {
+      my: true,
+      owner: { username: 'me' },
+      level: 3,
+      ticksToDowngrade: 10_000
+    } as StructureController,
+    find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
   } as unknown as Room;
 }
 

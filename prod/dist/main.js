@@ -12803,6 +12803,16 @@ var DEFAULT_TERRAIN_SWAMP_MASK = 2;
 var DOWNGRADE_GUARD_TICKS2 = 5e3;
 var MIN_CONTROLLER_LEVEL = 2;
 var FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = "foreign reservation requires controller pressure";
+var MAX_ROOM_COUNT_BY_RCL = {
+  1: 1,
+  2: 1,
+  3: 2,
+  4: 3,
+  5: 5,
+  6: 8,
+  7: 15,
+  8: 99
+};
 function buildRuntimeExpansionCandidateReport(colony) {
   return scoreExpansionCandidates(buildRuntimeExpansionScoringInput(colony));
 }
@@ -12839,10 +12849,18 @@ function buildRuntimeExpansionScoringInput(colony) {
     ...getControllerOwnerUsername5(colony.room.controller) ? { colonyOwnerUsername: getControllerOwnerUsername5(colony.room.controller) } : {},
     energyCapacityAvailable: colony.energyCapacityAvailable,
     ...typeof ((_a = colony.room.controller) == null ? void 0 : _a.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
+    ownedRoomCount: countVisibleOwnedRooms(colony.room.name, getControllerOwnerUsername5(colony.room.controller)),
     ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
     activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
     candidates: buildRuntimeExpansionCandidates(colony)
   };
+}
+function maxRoomsForRcl(controllerLevel) {
+  if (typeof controllerLevel !== "number" || !Number.isFinite(controllerLevel)) {
+    return MAX_ROOM_COUNT_BY_RCL[1];
+  }
+  const rcl = Math.min(8, Math.max(1, Math.floor(controllerLevel)));
+  return MAX_ROOM_COUNT_BY_RCL[rcl];
 }
 function buildRuntimeExpansionCandidates(colony) {
   const rooms = getGameRooms2();
@@ -13064,6 +13082,11 @@ function getExpansionPreconditions(input) {
   if (((_a = input.controllerLevel) != null ? _a : 0) < MIN_CONTROLLER_LEVEL) {
     preconditions.push("reach controller level 2 before expansion");
   }
+  const ownedRoomCount = getOwnedRoomCount(input);
+  const maxRoomCount = maxRoomsForRcl(input.controllerLevel);
+  if (ownedRoomCount >= maxRoomCount) {
+    preconditions.push(`limit expansion to ${maxRoomCount} owned rooms for current controller level`);
+  }
   if (typeof input.ticksToDowngrade === "number" && input.ticksToDowngrade <= DOWNGRADE_GUARD_TICKS2) {
     preconditions.push("stabilize home controller downgrade timer");
   }
@@ -13071,6 +13094,12 @@ function getExpansionPreconditions(input) {
     preconditions.push("finish active post-claim bootstrap before next expansion");
   }
   return preconditions;
+}
+function getOwnedRoomCount(input) {
+  if (typeof input.ownedRoomCount !== "number" || !Number.isFinite(input.ownedRoomCount)) {
+    return 1;
+  }
+  return Math.max(0, Math.floor(input.ownedRoomCount));
 }
 function selectPersistableExpansionCandidate(report) {
   var _a;
@@ -13223,6 +13252,9 @@ function getVisibleOwnedRoomNames3(colonyName, ownerUsername) {
     }
   }
   return ownedRoomNames;
+}
+function countVisibleOwnedRooms(colonyName, ownerUsername) {
+  return getVisibleOwnedRoomNames3(colonyName, ownerUsername).size;
 }
 function getAdjacentRoomNamesByOwnedRoom(ownedRoomNames) {
   const adjacentRoomNames = /* @__PURE__ */ new Map();
@@ -15962,9 +15994,21 @@ function getNextExpansionSelectionCacheStateKey(colony) {
     colony.room.name,
     colony.energyCapacityAvailable,
     controllerLevel,
+    countVisibleOwnedRooms2(),
     downgradeState,
     countActivePostClaimBootstraps2()
   ].join("|");
+}
+function countVisibleOwnedRooms2() {
+  var _a;
+  const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
+  if (!rooms) {
+    return 0;
+  }
+  return Object.values(rooms).filter((room) => {
+    var _a2;
+    return ((_a2 = room == null ? void 0 : room.controller) == null ? void 0 : _a2.my) === true;
+  }).length;
 }
 function countActivePostClaimBootstraps2() {
   var _a, _b;
