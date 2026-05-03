@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -289,6 +291,28 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(list(registry), ["candidate"])
         self.assertEqual(registry["candidate"].parameters["expansion_aggressiveness"], 1)
 
+    def test_strategy_registry_loader_preserves_comment_markers_inside_strings(self) -> None:
+        registry_text = """
+export const STRATEGY_REGISTRY = [
+  {
+    id: 'candidate',
+    title: 'https://planner.example/variants/*literal*/',
+    defaultValues: {
+      construction_priority: 'https://planner.example/queues',
+      defense_posture: 'hold /* literal comment marker */',
+    },
+  },
+];
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            registry_path = Path(temp_dir) / "strategyRegistry.ts"
+            registry_path.write_text(registry_text, encoding="utf-8")
+            registry = runner.load_strategy_registry(registry_path)
+
+        self.assertEqual(registry["candidate"].title, "https://planner.example/variants/*literal*/")
+        self.assertEqual(registry["candidate"].parameters["construction_priority"], "https://planner.example/queues")
+        self.assertEqual(registry["candidate"].parameters["defense_posture"], "hold /* literal comment marker */")
+
     def test_variant_ranking_uses_resources_when_territory_ties(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         lower_resource = variant_result("baseline", [start, tick(2, [room("W1N1", energy=300, harvested=100)])])
@@ -446,6 +470,33 @@ export const STRATEGY_REGISTRY = [
                 )
 
             self.assertFalse((out_dir / "unsafe-flags.json").exists())
+
+    def test_final_report_secret_scan_includes_steam_key_variant_errors(self) -> None:
+        secret = "steam-secret-token-123456"
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        failed_candidate = variant_result("candidate", [])
+        failed_candidate["ok"] = False
+        failed_candidate["error"] = f"simulator echoed {secret}"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, base_card())
+            with (
+                mock.patch.dict(os.environ, {"STEAM_KEY": secret}),
+                mock.patch.object(runner.dataset_export, "configured_secret_values", return_value=[]),
+                self.assertRaisesRegex(RuntimeError, "configured secret"),
+            ):
+                runner.run_training_experiment(
+                    card_path,
+                    out_dir,
+                    report_id="steam-key-error-leak",
+                    simulator_runner=MockSimulator({"baseline": baseline, "candidate": failed_candidate}),
+                )
+
+            self.assertFalse((out_dir / "steam-key-error-leak.json").exists())
 
 
 if __name__ == "__main__":

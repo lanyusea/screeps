@@ -257,8 +257,7 @@ def load_strategy_registry(path: Path) -> dict[str, StrategyVariant]:
     except OSError:
         return {}
 
-    text = re.sub(r"//.*", "", text)
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    text = mask_ts_comments_outside_strings(text)
     registry: dict[str, StrategyVariant] = {}
     for block in iter_registry_entry_blocks(text):
         variant_id = regex_group(r"\bid:\s*['\"]([^'\"]+)['\"]", block)
@@ -274,6 +273,53 @@ def load_strategy_registry(path: Path) -> dict[str, StrategyVariant]:
             source="registry",
         )
     return registry
+
+
+def mask_ts_comments_outside_strings(text: str) -> str:
+    """Replace TypeScript comments with whitespace without touching quoted content."""
+    masked: list[str] = []
+    index = 0
+    quote: str | None = None
+    escaped = False
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if quote:
+            masked.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in ("'", '"', "`"):
+            quote = char
+            masked.append(char)
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            masked.extend((" ", " "))
+            index += 2
+            while index < len(text) and text[index] not in "\r\n":
+                masked.append(" ")
+                index += 1
+            continue
+        if char == "/" and next_char == "*":
+            masked.extend((" ", " "))
+            index += 2
+            while index < len(text):
+                if text[index] == "*" and index + 1 < len(text) and text[index + 1] == "/":
+                    masked.extend((" ", " "))
+                    index += 2
+                    break
+                masked.append(text[index] if text[index] in "\r\n" else " ")
+                index += 1
+            continue
+        masked.append(char)
+        index += 1
+    return "".join(masked)
 
 
 def iter_registry_entry_blocks(text: str) -> list[str]:
@@ -300,7 +346,7 @@ def find_matching_brace(text: str, start: int) -> int | None:
             elif char == quote:
                 quote = None
             continue
-        if char in ("'", '"'):
+        if char in ("'", '"', "`"):
             quote = char
             continue
         if char == "{":
@@ -476,7 +522,8 @@ def run_training_experiment(
         report_id=resolved_report_id,
         generated_at=generated_at or utc_now_iso(),
     )
-    assert_no_secret_leak(report, dataset_export.configured_secret_values())
+    report_secret_values = dataset_export.configured_secret_values() + [os.environ.get("STEAM_KEY", "")]
+    assert_no_secret_leak(report, report_secret_values)
     report_path = out_dir.expanduser() / f"{resolved_report_id}.json"
     write_json_atomic(report_path, report)
     report["reportPath"] = dataset_export.display_path(report_path)
