@@ -38,6 +38,8 @@ export const NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
 export const MINIMUM_USEFUL_LOAD_RATIO = 0.4;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
+export const BUILDER_STORAGE_WITHDRAW_MIN = 100;
+export const BUILDER_DROPPED_PICKUP_RANGE = 5;
 const DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
 const MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
@@ -65,6 +67,7 @@ const MIN_LOADED_WORKERS_FOR_SURPLUS_CONTROLLER_PROGRESS = 5;
 const MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 const MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
 const BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY = 550;
+const BUILDER_STORAGE_ACQUISITION_SITE_RANGE = BUILDER_DROPPED_PICKUP_RANGE;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -87,6 +90,17 @@ type WorkerEnergySpendingTask =
   | Extract<CreepTaskMemory, { type: 'build' }>
   | Extract<CreepTaskMemory, { type: 'repair' }>
   | Extract<CreepTaskMemory, { type: 'upgrade' }>;
+type BuilderEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>;
+type BuilderEnergyAcquisitionPriority = 0 | 1 | 2;
+
+interface BuilderEnergyAcquisitionCandidate {
+  energy: number;
+  priority: BuilderEnergyAcquisitionPriority;
+  range: number | null;
+  score: number;
+  source: WorkerEnergyAcquisitionSource | Source;
+  task: BuilderEnergyAcquisitionTask;
+}
 
 interface StoredEnergySourceContext {
   creepOwnerUsername: string | null;
@@ -191,6 +205,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
       if (shouldStandbySurplusWorkerInsteadOfAcquiring(creep, creep.room.controller)) {
         return null;
+      }
+
+      const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
+      if (builderEnergyAcquisitionTask) {
+        return builderEnergyAcquisitionTask;
       }
 
       const nearbyContainerEnergyAcquisitionTask = selectNearbyContainerWorkerEnergyAcquisitionTask(creep);
@@ -2042,6 +2061,152 @@ function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitio
   }
 
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+}
+
+function selectBuilderEnergyAcquisitionTask(creep: Creep): BuilderEnergyAcquisitionTask | null {
+  const buildTask = creep.memory?.task;
+  if (buildTask?.type !== 'build' || buildTask.targetId == null) {
+    return null;
+  }
+
+  const constructionSite = getGameObjectById<ConstructionSite>(buildTask.targetId);
+  if (!constructionSite) {
+    return null;
+  }
+
+  const candidates = findBuilderEnergyAcquisitionCandidates(creep, constructionSite);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
+}
+
+export function findBuilderEnergyAcquisitionCandidates(
+  creep: Creep,
+  constructionSite: ConstructionSite
+): BuilderEnergyAcquisitionCandidate[] {
+  const context: StoredEnergySourceContext = {
+    creepOwnerUsername: getCreepOwnerUsername(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+
+  const storedEnergyCandidates = findVisibleRoomStructures(creep.room)
+    .filter((structure): structure is StoredWorkerEnergySource => isSafeStoredEnergySource(structure, context))
+    .filter((source) => isConstructionSiteNearSource(constructionSite, source, BUILDER_STORAGE_ACQUISITION_SITE_RANGE))
+    .flatMap((source) => {
+      const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+        creep,
+        source,
+        getStoredEnergy(source),
+        {
+          type: 'withdraw',
+          targetId: source.id as Id<AnyStoreStructure>
+        },
+        reservationContext,
+        BUILDER_STORAGE_WITHDRAW_MIN
+      );
+
+      return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate, 0)] : [];
+    });
+
+  const droppedEnergyCandidates = findDroppedResources(creep.room)
+    .filter((resource): resource is Resource<ResourceConstant> =>
+      isDroppedEnergy(resource, MIN_DROPPED_ENERGY_PICKUP_AMOUNT)
+    )
+    .filter((source) => isConstructionSiteNearSource(constructionSite, source, BUILDER_DROPPED_PICKUP_RANGE))
+    .flatMap((resource) => {
+      const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+        creep,
+        resource,
+        resource.amount,
+        {
+          type: 'pickup',
+          targetId: resource.id
+        },
+        reservationContext,
+        MIN_DROPPED_ENERGY_PICKUP_AMOUNT
+      );
+
+      return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate, 1)] : [];
+    })
+    .filter((candidate) => isReachable(creep, candidate.source))
+    .sort(compareBuilderEnergyAcquisitionCandidates)
+    .slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS);
+
+  if (storedEnergyCandidates.length > 0 || droppedEnergyCandidates.length > 0) {
+    return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
+  }
+
+  const harvestSource = selectHarvestSource(creep);
+  if (!harvestSource || isSourceDepleted(harvestSource)) {
+    return [];
+  }
+
+  return [
+    toBuilderEnergyAcquisitionCandidate(
+      createLowLoadWorkerEnergyAcquisitionCandidate(
+        creep,
+        harvestSource,
+        getHarvestCandidateEnergy(creep, harvestSource),
+        { type: 'harvest', targetId: harvestSource.id }
+      ),
+      2
+    )
+  ];
+}
+
+function toBuilderEnergyAcquisitionCandidate(
+  candidate: WorkerEnergyAcquisitionCandidate | LowLoadWorkerEnergyAcquisitionCandidate,
+  priority: BuilderEnergyAcquisitionPriority
+): BuilderEnergyAcquisitionCandidate {
+  return {
+    ...candidate,
+    source: candidate.source as BuilderEnergyAcquisitionCandidate['source'],
+    task: candidate.task as BuilderEnergyAcquisitionCandidate['task'],
+    priority
+  };
+}
+
+function isConstructionSiteNearSource(
+  constructionSite: ConstructionSite,
+  source: RoomObject,
+  rangeLimit: number
+): boolean {
+  const rangeToSite = getRangeBetweenRoomObjects(constructionSite, source);
+  return rangeToSite !== null && rangeToSite <= rangeLimit;
+}
+
+function compareBuilderEnergyAcquisitionCandidates(
+  left: BuilderEnergyAcquisitionCandidate,
+  right: BuilderEnergyAcquisitionCandidate
+): number {
+  const priorityComparison = left.priority - right.priority;
+  if (priorityComparison !== 0) {
+    return priorityComparison;
+  }
+
+  return (
+    compareOptionalRanges(left.range, right.range) ||
+    right.score - left.score ||
+    right.energy - left.energy ||
+    String(left.source.id).localeCompare(String(right.source.id)) ||
+    left.task.type.localeCompare(right.task.type)
+  );
+}
+
+function getGameObjectById<T extends RoomObject>(
+  objectId: string
+): T | null {
+  const game = (globalThis as unknown as { Game?: Partial<Game> }).Game;
+  if (!game?.getObjectById) {
+    return null;
+  }
+
+  const object = game.getObjectById(objectId);
+  return object ? ((object as unknown) as T) : null;
 }
 
 export function selectWorkerEnergyFallbackTask(creep: Creep): CreepTaskMemory | null {
