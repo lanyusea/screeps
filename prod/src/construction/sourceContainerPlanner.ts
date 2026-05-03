@@ -24,10 +24,18 @@ interface SourceContainerPlannerLookups {
   pendingContainerPositions: Set<string>;
 }
 
-export function planSourceContainerConstruction(colony: ColonySnapshot): ScreepsReturnCode | null {
+export interface SourceContainerPlanningOptions {
+  anchor?: RoomPosition | null;
+  minimumControllerLevel?: number;
+}
+
+export function planSourceContainerConstruction(
+  colony: ColonySnapshot,
+  options: SourceContainerPlanningOptions = {}
+): ScreepsReturnCode | null {
   const room = colony.room;
   if (
-    (room.controller?.level ?? 0) < MIN_CONTROLLER_LEVEL_FOR_SOURCE_CONTAINERS ||
+    (room.controller?.level ?? 0) < getMinimumControllerLevel(options) ||
     !hasRequiredRoomApis(room) ||
     typeof FIND_SOURCES !== 'number'
   ) {
@@ -39,7 +47,7 @@ export function planSourceContainerConstruction(colony: ColonySnapshot): Screeps
     return null;
   }
 
-  const anchor = selectContainerAnchor(colony);
+  const anchor = options.anchor === undefined ? selectContainerAnchor(colony) : options.anchor;
   for (const source of getSortedSources(room)) {
     if (findSourceContainer(room, source) || hasPendingSourceContainerSite(source, lookups)) {
       continue;
@@ -60,6 +68,10 @@ export function planSourceContainerConstruction(colony: ColonySnapshot): Screeps
   }
 
   return null;
+}
+
+function getMinimumControllerLevel(options: SourceContainerPlanningOptions): number {
+  return options.minimumControllerLevel ?? MIN_CONTROLLER_LEVEL_FOR_SOURCE_CONTAINERS;
 }
 
 function hasRequiredRoomApis(room: Room): boolean {

@@ -78,7 +78,7 @@ type StoredWorkerEnergySource = StructureContainer | StructureStorage | Structur
 type UpgraderBoostStoredEnergySource = StructureContainer | StructureStorage;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
 type FillableEnergySink = StructureSpawn | StructureExtension | StructureTower;
-type RemoteHaulerDeliverySink = StructureSpawn | StructureExtension | StructureStorage;
+type RemoteHaulerDeliverySink = StructureSpawn | StructureExtension | StructureStorage | StructureTower;
 type SpawnExtensionEnergyStructure = StructureSpawn | StructureExtension;
 type WorkerEnergyAcquisitionSource =
   | StoredWorkerEnergySource
@@ -1231,7 +1231,8 @@ function selectRemoteHaulerDeliverySink(room: Room): RemoteHaulerDeliverySink | 
   const fillableSinks = findFillableEnergySinksInRoom(room);
   return (
     selectFirstEnergySinkByStableId(fillableSinks.filter(isSpawnOrExtensionEnergySink)) ??
-    selectFirstStorageSinkByStableId(findRemoteHaulerStorageSinks(room))
+    selectFirstStorageSinkByStableId(findRemoteHaulerStorageSinks(room)) ??
+    selectFirstEnergySinkByStableId(fillableSinks.filter(isTowerEnergySink))
   );
 }
 

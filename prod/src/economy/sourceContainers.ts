@@ -31,6 +31,31 @@ export function findSourceContainer(room: Room, source: Source): StructureContai
   return containers.sort((left, right) => compareSourceContainers(sourcePosition, left, right))[0] ?? null;
 }
 
+export function findSourceContainerConstructionSite(room: Room, source: Source): ConstructionSite | null {
+  if (typeof FIND_CONSTRUCTION_SITES !== 'number' || typeof room.find !== 'function') {
+    return null;
+  }
+
+  const sourcePosition = getRoomObjectPosition(source);
+  if (!sourcePosition || !isSameRoomPosition(sourcePosition, room.name)) {
+    return null;
+  }
+
+  const sites = room
+    .find(FIND_CONSTRUCTION_SITES)
+    .filter((site): site is ConstructionSite => isContainerConstructionSite(site))
+    .filter((site) => {
+      const sitePosition = getRoomObjectPosition(site);
+      return (
+        sitePosition !== null &&
+        isSameRoomPosition(sitePosition, room.name) &&
+        getRangeBetweenPositions(sourcePosition, sitePosition) <= 1
+      );
+    });
+
+  return sites.sort((left, right) => compareSourceContainerSites(sourcePosition, left, right))[0] ?? null;
+}
+
 export function isContainerStructure(structure: AnyStructure): structure is StructureContainer {
   return matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container');
 }
@@ -65,6 +90,23 @@ function compareSourceContainers(sourcePosition: RoomPosition, left: StructureCo
   );
 }
 
+function compareSourceContainerSites(
+  sourcePosition: RoomPosition,
+  left: ConstructionSite,
+  right: ConstructionSite
+): number {
+  const leftPosition = getRoomObjectPosition(left);
+  const rightPosition = getRoomObjectPosition(right);
+
+  return (
+    compareNumbers(
+      leftPosition ? getRangeBetweenPositions(sourcePosition, leftPosition) : Number.POSITIVE_INFINITY,
+      rightPosition ? getRangeBetweenPositions(sourcePosition, rightPosition) : Number.POSITIVE_INFINITY
+    ) ||
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
 function compareNumbers(left: number, right: number): number {
   return left - right;
 }
@@ -87,4 +129,8 @@ function matchesStructureType(
 ): boolean {
   const constants = globalThis as unknown as Partial<Record<SourceContainerStructureConstantGlobal, string>>;
   return actual === (constants[globalName] ?? fallback);
+}
+
+function isContainerConstructionSite(site: ConstructionSite): boolean {
+  return matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container');
 }
