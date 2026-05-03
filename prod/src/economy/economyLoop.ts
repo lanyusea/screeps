@@ -41,7 +41,8 @@ import {
   hasPendingTerritoryFollowUpIntent,
   TERRITORY_CLAIMER_ROLE,
   TERRITORY_SCOUT_ROLE,
-  recordAutonomousExpansionClaimReserveFallbackIntent
+  recordAutonomousExpansionClaimReserveFallbackIntent,
+  refreshRemoteMiningSetup
 } from '../territory/territoryPlanner';
 import { runTerritoryControllerCreep } from '../territory/territoryRunner';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
@@ -83,6 +84,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         planEarlyRoadConstruction(colony);
       }
     }
+    refreshRemoteMiningSetup(colony, Game.time);
 
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);

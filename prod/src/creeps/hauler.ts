@@ -1,30 +1,27 @@
 import { selectRemoteHaulerDeliveryTask } from '../tasks/workerTasks';
 import {
   getRemoteSourceAssignments,
-  isRemoteOperationSuspended,
   moveTowardRoom,
   REMOTE_CREEP_REPLACEMENT_TICKS,
+  shouldRetreatFromRemote,
   type RemoteSourceAssignment
 } from './remoteHarvester';
+import { buildRemoteHaulerBody } from '../spawn/bodyBuilder';
 
 export const HAULER_ROLE = 'hauler';
 export const REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD = 500;
 
 const MAX_REMOTE_HAULERS_PER_CONTAINER = 1;
-const MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS = 10;
 const HAULER_MOVE_OPTS: MoveToOpts = { reusePath: 20, ignoreRoads: false };
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 
-export function buildRemoteHaulerBody(energyAvailable: number): BodyPartConstant[] {
-  const pairCount = Math.min(MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS, Math.floor(Math.max(0, energyAvailable) / 100));
-  if (pairCount <= 0) {
-    return [];
-  }
-
-  return Array.from({ length: pairCount }).flatMap(() => ['carry', 'move'] as BodyPartConstant[]);
-}
+export { buildRemoteHaulerBody };
 
 export function selectRemoteHaulerAssignment(homeRoom: string): RemoteSourceAssignment | null {
+  if (!hasRemoteHaulerDeliveryDemand(homeRoom)) {
+    return null;
+  }
+
   return (
     getRemoteSourceAssignments(homeRoom)
       .filter((assignment) => assignment.containerEnergy > REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD)
@@ -33,15 +30,22 @@ export function selectRemoteHaulerAssignment(homeRoom: string): RemoteSourceAssi
   );
 }
 
+function hasRemoteHaulerDeliveryDemand(homeRoom: string): boolean {
+  const room = getVisibleRoom(homeRoom);
+  return room !== undefined && selectRemoteHaulerDeliveryTask(room) !== null;
+}
+
 export function runHauler(creep: Creep): void {
   const assignment = normalizeRemoteHaulerMemory(creep.memory?.remoteHauler);
   if (!assignment) {
     return;
   }
 
-  if (isRemoteOperationSuspended(assignment.homeRoom, assignment.targetRoom)) {
+  if (shouldRetreatFromRemote(creep, assignment)) {
     delete creep.memory.task;
-    if (creep.room?.name !== assignment.homeRoom || getCarriedEnergy(creep) > 0) {
+    if (getCarriedEnergy(creep) > 0 && creep.room?.name === assignment.homeRoom) {
+      deliverEnergy(creep, assignment);
+    } else if (creep.room?.name !== assignment.homeRoom || getCarriedEnergy(creep) > 0) {
       moveTowardRoom(creep, assignment.homeRoom);
     }
     return;
@@ -120,7 +124,7 @@ function compareRemoteHaulerAssignments(left: RemoteSourceAssignment, right: Rem
 }
 
 function countRemoteHaulersForContainer(assignment: RemoteSourceAssignment): number {
-  return getGameCreeps().filter(
+  return getRemoteOperationCreeps(assignment.homeRoom, assignment.targetRoom).filter(
     (creep) =>
       creep.memory?.role === HAULER_ROLE &&
       canSatisfyRemoteCreepCapacity(creep) &&
@@ -186,9 +190,42 @@ function getObjectById<T>(id: string): T | null {
   return typeof getObjectById === 'function' ? getObjectById(String(id)) : null;
 }
 
-function getGameCreeps(): Creep[] {
-  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  return creeps ? Object.values(creeps) : [];
+function getRemoteOperationCreeps(homeRoom: string, targetRoom: string): Creep[] {
+  const findMyCreeps = (globalThis as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
+  if (typeof findMyCreeps !== 'number') {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const creeps: Creep[] = [];
+  for (const roomName of [homeRoom, targetRoom]) {
+    const room = getVisibleRoom(roomName);
+    const roomCreeps =
+      typeof room?.find === 'function' ? (room.find(findMyCreeps as FindConstant) as Creep[]) : undefined;
+    if (!Array.isArray(roomCreeps)) {
+      continue;
+    }
+
+    for (const creep of roomCreeps) {
+      const key = getCreepStableKey(creep);
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      creeps.push(creep);
+    }
+  }
+
+  return creeps;
+}
+
+function getVisibleRoom(roomName: string): Room | undefined {
+  return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
+}
+
+function getCreepStableKey(creep: Creep): string {
+  return creep.name ?? `${creep.memory?.role ?? 'creep'}:${creep.memory?.colony ?? ''}:${creep.ticksToLive ?? ''}`;
 }
 
 function getErrNotInRangeCode(): ScreepsReturnCode {

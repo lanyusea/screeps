@@ -7,6 +7,7 @@ import {
   planTerritoryIntent,
   recordTerritoryReserveFallbackIntent,
   recordRecoveredTerritoryFollowUpRetryCooldown,
+  refreshRemoteMiningSetup,
   requiresTerritoryControllerPressure,
   shouldSpawnTerritoryControllerCreep,
   suppressTerritoryIntent,
@@ -6034,6 +6035,310 @@ describe('planTerritoryIntent', () => {
       }
     });
   });
+
+  it('plans remote source container construction and records pending remote mining state', () => {
+    (globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      OK: ScreepsReturnCode;
+    }).FIND_STRUCTURES = 10;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 12;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { OK: ScreepsReturnCode }).OK = 0 as ScreepsReturnCode;
+    const colony = makeSafeColony();
+    const constructionSites: ConstructionSite[] = [];
+    const remoteRoom = makeRemoteMiningRoom({
+      constructionSites,
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'W2N1' } as RoomPosition
+        } as ConstructionSite);
+        return 0 as ScreepsReturnCode;
+      })
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: makeRemoteMiningBootstrap()
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 700,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom },
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    refreshRemoteMiningSetup(colony, 700);
+
+    expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'containerPending',
+      updatedAt: 700,
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerBuilt: false,
+          containerSitePending: true,
+          harvesterAssigned: false,
+          haulerAssigned: false,
+          energyAvailable: 0,
+          energyFlowing: false
+        }
+      }
+    });
+  });
+
+  it('records active remote mining state from source containers and room-local assigned creeps', () => {
+    (globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      RESOURCE_ENERGY: ResourceConstant;
+    }).FIND_STRUCTURES = 10;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 12;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    const colony = makeSafeColony();
+    const container = makeRemoteMiningContainer('container1', 700);
+    const remoteHarvester = makeAssignedRemoteMiningCreep('remoteHarvester', 'W2N1');
+    const remoteHauler = makeAssignedRemoteMiningCreep('hauler', 'W2N1');
+    const remoteRoom = makeRemoteMiningRoom({
+      structures: [container],
+      creeps: [remoteHarvester, remoteHauler]
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: makeRemoteMiningBootstrap()
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 701,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom }
+    };
+
+    refreshRemoteMiningSetup(colony, 701);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'active',
+      updatedAt: 701,
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerId: 'container1',
+          containerBuilt: true,
+          containerSitePending: false,
+          harvesterAssigned: true,
+          haulerAssigned: true,
+          energyAvailable: 700,
+          energyFlowing: true
+        }
+      }
+    });
+  });
+
+  it('records neutral visible remote rooms as usable remote mining targets', () => {
+    (globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      RESOURCE_ENERGY: ResourceConstant;
+    }).FIND_STRUCTURES = 10;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 12;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    const colony = makeSafeColony();
+    const container = makeRemoteMiningContainer('container1', 0);
+    const remoteRoom = makeRemoteMiningRoom({
+      controller: {
+        id: 'controller2',
+        my: false,
+        level: 0,
+        pos: { x: 25, y: 25, roomName: 'W2N1' } as RoomPosition
+      } as StructureController,
+      structures: [container]
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: makeRemoteMiningBootstrap()
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 702,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom }
+    };
+
+    refreshRemoteMiningSetup(colony, 702);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'containerReady',
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerId: 'container1',
+          containerBuilt: true
+        }
+      }
+    });
+  });
+
+  it('does not rewrite unchanged remote mining memory on later economy ticks', () => {
+    (globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      RESOURCE_ENERGY: ResourceConstant;
+    }).FIND_STRUCTURES = 10;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 12;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    const colony = makeSafeColony();
+    const container = makeRemoteMiningContainer('container1', 0);
+    const remoteRoom = makeRemoteMiningRoom({ structures: [container] });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: makeRemoteMiningBootstrap()
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 703,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom }
+    };
+
+    refreshRemoteMiningSetup(colony, 703);
+    const previous = Memory.territory?.remoteMining?.['W1N1:W2N1'];
+    refreshRemoteMiningSetup(colony, 704);
+
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toBe(previous);
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']?.updatedAt).toBe(703);
+  });
+
+  it('does not reassign normalized remote mining memory when setup is unchanged', () => {
+    (globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      RESOURCE_ENERGY: ResourceConstant;
+    }).FIND_STRUCTURES = 10;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 12;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    const colony = makeSafeColony();
+    const container = makeRemoteMiningContainer('container1', 0);
+    const remoteRoom = makeRemoteMiningRoom({ structures: [container] });
+    const existingEntry: TerritoryRemoteMiningRoomMemory = {
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'containerReady',
+      updatedAt: 703,
+      sources: {
+        source1: {
+          sourceId: 'source1',
+          containerId: 'container1',
+          containerBuilt: true,
+          containerSitePending: false,
+          harvesterAssigned: false,
+          haulerAssigned: false,
+          energyAvailable: 0,
+          energyFlowing: false
+        }
+      }
+    };
+    let remoteMining: Record<string, TerritoryRemoteMiningRoomMemory> = {
+      'W1N1:W2N1': existingEntry
+    };
+    const territoryMemory: TerritoryMemory = {
+      postClaimBootstraps: {
+        W2N1: makeRemoteMiningBootstrap()
+      }
+    };
+    const remoteMiningSetter = jest.fn((next: Record<string, TerritoryRemoteMiningRoomMemory>) => {
+      remoteMining = next;
+    });
+    Object.defineProperty(territoryMemory, 'remoteMining', {
+      configurable: true,
+      enumerable: true,
+      get: () => remoteMining,
+      set: remoteMiningSetter
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: territoryMemory
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 704,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom }
+    };
+
+    refreshRemoteMiningSetup(colony, 704);
+
+    expect(remoteMiningSetter).not.toHaveBeenCalled();
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toBe(existingEntry);
+  });
+
+  it('keeps Room.find bound while collecting assigned remote mining creeps', () => {
+    (globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      RESOURCE_ENERGY: ResourceConstant;
+    }).FIND_STRUCTURES = 10;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 12;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    const colony = makeSafeColony();
+    const container = makeRemoteMiningContainer('container1', 0);
+    const remoteHarvester = makeAssignedRemoteMiningCreep('remoteHarvester', 'W2N1');
+    const remoteRoom = makeRemoteMiningRoom({
+      structures: [container],
+      creeps: [remoteHarvester],
+      requireFindReceiver: true
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: makeRemoteMiningBootstrap()
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 705,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom }
+    };
+
+    expect(() => refreshRemoteMiningSetup(colony, 705)).not.toThrow();
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']?.sources.source1.harvesterAssigned).toBe(true);
+  });
 });
 
 function makeFollowUp(
@@ -6083,6 +6388,111 @@ function makeRecommendationRoom(
       }
     })
   } as unknown as Room;
+}
+
+function makeRemoteMiningBootstrap(): TerritoryPostClaimBootstrapMemory {
+  return {
+    colony: 'W1N1',
+    roomName: 'W2N1',
+    status: 'ready',
+    claimedAt: 650,
+    updatedAt: 651,
+    workerTarget: 2,
+    controllerId: 'controller2' as Id<StructureController>
+  };
+}
+
+function makeRemoteMiningRoom({
+  structures = [],
+  constructionSites = [],
+  creeps = [],
+  createConstructionSite = jest.fn().mockReturnValue(0 as ScreepsReturnCode),
+  controller = {
+    id: 'controller2',
+    my: true,
+    level: 1,
+    pos: { x: 25, y: 25, roomName: 'W2N1' } as RoomPosition
+  } as StructureController,
+  requireFindReceiver = false
+}: {
+  structures?: AnyStructure[];
+  constructionSites?: ConstructionSite[];
+  creeps?: Creep[];
+  createConstructionSite?: jest.Mock;
+  controller?: StructureController;
+  requireFindReceiver?: boolean;
+} = {}): Room & { createConstructionSite: jest.Mock } {
+  const room = {
+    name: 'W2N1',
+    energyAvailable: 0,
+    energyCapacityAvailable: 0,
+    controller,
+    createConstructionSite
+  } as unknown as Room & { createConstructionSite: jest.Mock; find: jest.Mock };
+  room.find = jest.fn(function (this: Room | undefined, type: number) {
+    if (requireFindReceiver && this !== room) {
+      throw new Error('Room.find called without a Room receiver');
+    }
+
+    if (type === FIND_SOURCES) {
+      return [{ id: 'source1', pos: { x: 10, y: 10, roomName: 'W2N1' } as RoomPosition } as Source];
+    }
+
+    if (type === FIND_STRUCTURES) {
+      return structures;
+    }
+
+    if (type === FIND_CONSTRUCTION_SITES) {
+      return constructionSites;
+    }
+
+    if (type === FIND_MY_CREEPS) {
+      return creeps;
+    }
+
+    return [];
+  }) as unknown as jest.Mock;
+  return room;
+}
+
+function makeRemoteMiningContainer(id: string, energy: number): StructureContainer {
+  return {
+    id,
+    structureType: 'container',
+    pos: { x: 10, y: 11, roomName: 'W2N1' } as RoomPosition,
+    store: {
+      getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0))
+    }
+  } as unknown as StructureContainer;
+}
+
+function makeAssignedRemoteMiningCreep(role: 'remoteHarvester' | 'hauler', roomName: string): Creep {
+  return {
+    name: `${role}1`,
+    room: { name: roomName } as Room,
+    ticksToLive: 1_000,
+    memory: {
+      role,
+      colony: 'W1N1',
+      ...(role === 'remoteHarvester'
+        ? {
+            remoteHarvester: {
+              homeRoom: 'W1N1',
+              targetRoom: 'W2N1',
+              sourceId: 'source1' as Id<Source>,
+              containerId: 'container1' as Id<StructureContainer>
+            }
+          }
+        : {
+            remoteHauler: {
+              homeRoom: 'W1N1',
+              targetRoom: 'W2N1',
+              sourceId: 'source1' as Id<Source>,
+              containerId: 'container1' as Id<StructureContainer>
+            }
+          })
+    }
+  } as Creep;
 }
 
 function makeSafeColony({
