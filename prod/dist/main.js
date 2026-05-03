@@ -1651,9 +1651,6 @@ function buildLowRclWorkerBody(energyAvailable) {
   return body;
 }
 function buildProfileWorkerBody(energyAvailable, profile) {
-  if (energyAvailable < WORKER_PATTERN_COST) {
-    return [];
-  }
   if (energyAvailable < profile.patternCost) {
     return buildLowRclWorkerBody(energyAvailable);
   }
