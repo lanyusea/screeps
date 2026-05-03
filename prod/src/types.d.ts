@@ -188,6 +188,7 @@ declare global {
     demands?: TerritoryFollowUpDemandMemory[];
     executionHints?: TerritoryExecutionHintMemory[];
     postClaimBootstraps?: Record<string, TerritoryPostClaimBootstrapMemory>;
+    remoteMining?: Record<string, TerritoryRemoteMiningRoomMemory>;
     reservations?: Record<string, TerritoryReservationMemory>;
     routeDistancesUpdatedAt?: Record<string, number>;
     routeDistances?: Record<string, number | null>;
@@ -274,6 +275,32 @@ declare global {
     controllerId?: Id<StructureController>;
     spawnSite?: TerritoryPostClaimBootstrapSpawnSiteMemory;
     lastResult?: ScreepsReturnCode;
+  }
+
+  type TerritoryRemoteMiningStatus =
+    | 'unclaimed'
+    | 'containerPending'
+    | 'containerReady'
+    | 'active'
+    | 'suspended';
+
+  interface TerritoryRemoteMiningRoomMemory {
+    colony: string;
+    roomName: string;
+    status: TerritoryRemoteMiningStatus;
+    updatedAt: number;
+    sources: Record<string, TerritoryRemoteMiningSourceMemory>;
+  }
+
+  interface TerritoryRemoteMiningSourceMemory {
+    sourceId: string;
+    containerId?: string;
+    containerBuilt: boolean;
+    containerSitePending: boolean;
+    harvesterAssigned: boolean;
+    haulerAssigned: boolean;
+    energyAvailable: number;
+    energyFlowing: boolean;
   }
 
   interface CreepTerritoryMemory {

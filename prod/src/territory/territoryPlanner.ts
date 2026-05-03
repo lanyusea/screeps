@@ -21,6 +21,11 @@ import {
   isRouteBlockedByKnownDeadZone,
   refreshVisibleRoomDeadZoneMemory
 } from '../defense/deadZone';
+import { planSourceContainerConstruction } from '../construction/sourceContainerPlanner';
+import {
+  findSourceContainer,
+  findSourceContainerConstructionSite
+} from '../economy/sourceContainers';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -67,6 +72,7 @@ const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 const TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 const TERRITORY_SCOUT_BODY_COST = 50;
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
+const REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 1;
 
 export interface TerritoryIntentPlan {
   colony: string;
@@ -867,6 +873,98 @@ export function recordAutonomousExpansionClaimReserveFallbackIntent(
     },
     gameTime
   );
+}
+
+export function refreshRemoteMiningSetup(colony: ColonySnapshot, gameTime = getGameTime()): void {
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  const remoteMining = territoryMemory.remoteMining ?? {};
+  territoryMemory.remoteMining = remoteMining;
+  const colonyName = colony.room.name;
+  const activeKeys = new Set<string>();
+
+  for (const record of getRemoteMiningBootstrapRecords(territoryMemory, colonyName)) {
+    const key = getRemoteMiningMemoryKey(record.colony, record.roomName);
+    activeKeys.add(key);
+
+    const room = getVisibleRoom(record.roomName);
+    if (!room) {
+      const previous = remoteMining[key];
+      remoteMining[key] = {
+        colony: record.colony,
+        roomName: record.roomName,
+        status: previous?.status ?? 'containerPending',
+        updatedAt: gameTime,
+        sources: previous?.sources ?? {}
+      };
+      continue;
+    }
+
+    if (room.controller?.my !== true) {
+      remoteMining[key] = {
+        colony: record.colony,
+        roomName: record.roomName,
+        status: 'unclaimed',
+        updatedAt: gameTime,
+        sources: {}
+      };
+      continue;
+    }
+
+    const suspended = isRemoteMiningSuspended(territoryMemory, record.colony, record.roomName, gameTime);
+    if (!suspended) {
+      planSourceContainerConstruction(
+        {
+          room,
+          spawns: [],
+          energyAvailable: room.energyAvailable,
+          energyCapacityAvailable: room.energyCapacityAvailable
+        },
+        {
+          anchor: room.controller?.pos ?? null,
+          minimumControllerLevel: REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL
+        }
+      );
+    }
+
+    const sources = getRemoteMiningSources(room);
+    const assignedCreeps = getRemoteMiningAssignedCreeps(record.colony, record.roomName);
+    const sourceStates = Object.fromEntries(
+      sources.map((source) => {
+        const container = findSourceContainer(room, source);
+        const pendingSite = findSourceContainerConstructionSite(room, source);
+        const sourceId = String(source.id);
+        const state: TerritoryRemoteMiningSourceMemory = {
+          sourceId,
+          ...(container ? { containerId: String(container.id) } : {}),
+          containerBuilt: container !== null,
+          containerSitePending: pendingSite !== null,
+          harvesterAssigned: hasAssignedRemoteHarvester(assignedCreeps, record.colony, record.roomName, sourceId),
+          haulerAssigned: hasAssignedRemoteHauler(assignedCreeps, record.colony, record.roomName, sourceId, container),
+          energyAvailable: container ? getStoredEnergy(container) : 0,
+          energyFlowing: container !== null && hasRemoteEnergyFlow(container, assignedCreeps, record, sourceId)
+        };
+        return [sourceId, state];
+      })
+    );
+
+    remoteMining[key] = {
+      colony: record.colony,
+      roomName: record.roomName,
+      status: suspended ? 'suspended' : getRemoteMiningStatus(Object.values(sourceStates)),
+      updatedAt: gameTime,
+      sources: sourceStates
+    };
+  }
+
+  for (const key of Object.keys(remoteMining)) {
+    if (key.startsWith(`${colonyName}:`) && !activeKeys.has(key)) {
+      delete remoteMining[key];
+    }
+  }
 }
 
 export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
@@ -4720,6 +4818,175 @@ function getVisibleController(targetRoom: string, controllerId?: Id<StructureCon
 function getGameTime(): number {
   const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
   return typeof gameTime === 'number' ? gameTime : 0;
+}
+
+function getRemoteMiningBootstrapRecords(
+  territoryMemory: TerritoryMemory,
+  colonyName: string
+): TerritoryPostClaimBootstrapMemory[] {
+  const records = territoryMemory.postClaimBootstraps;
+  if (!isRecord(records)) {
+    return [];
+  }
+
+  return Object.values(records)
+    .filter((record): record is TerritoryPostClaimBootstrapMemory => isRemoteMiningBootstrapRecord(record, colonyName))
+    .sort(compareRemoteMiningBootstrapRecords);
+}
+
+function isRemoteMiningBootstrapRecord(
+  record: unknown,
+  colonyName: string
+): record is TerritoryPostClaimBootstrapMemory {
+  return (
+    isRecord(record) &&
+    record.colony === colonyName &&
+    isNonEmptyString(record.roomName) &&
+    record.roomName !== colonyName &&
+    isPostClaimRemoteMiningStatus(record.status)
+  );
+}
+
+function isPostClaimRemoteMiningStatus(status: unknown): status is TerritoryPostClaimBootstrapStatus {
+  return (
+    status === 'detected' ||
+    status === 'spawnSitePending' ||
+    status === 'spawnSiteBlocked' ||
+    status === 'spawningWorkers' ||
+    status === 'ready'
+  );
+}
+
+function compareRemoteMiningBootstrapRecords(
+  left: TerritoryPostClaimBootstrapMemory,
+  right: TerritoryPostClaimBootstrapMemory
+): number {
+  return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
+}
+
+function getRemoteMiningMemoryKey(colony: string, roomName: string): string {
+  return `${colony}:${roomName}`;
+}
+
+function isRemoteMiningSuspended(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  roomName: string,
+  gameTime: number
+): boolean {
+  if (isKnownDeadZoneRoom(roomName)) {
+    return true;
+  }
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  return intents.some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.targetRoom === roomName &&
+      isTerritoryIntentSuspensionActive(intent, gameTime)
+  );
+}
+
+function getRemoteMiningSources(room: Room): Source[] {
+  if (typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  return (room.find(FIND_SOURCES) as Source[]).sort((left, right) =>
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
+function getRemoteMiningAssignedCreeps(homeRoom: string, targetRoom: string): Creep[] {
+  const findMyCreeps = (globalThis as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
+  if (typeof findMyCreeps !== 'number') {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const creeps: Creep[] = [];
+  for (const roomName of [homeRoom, targetRoom]) {
+    const room = getVisibleRoom(roomName);
+    const find = room?.find as ((type: number) => Creep[]) | undefined;
+    const roomCreeps = find?.(findMyCreeps);
+    if (!Array.isArray(roomCreeps)) {
+      continue;
+    }
+
+    for (const creep of roomCreeps) {
+      const key = getRemoteMiningCreepKey(creep);
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      creeps.push(creep);
+    }
+  }
+
+  return creeps;
+}
+
+function getRemoteMiningCreepKey(creep: Creep): string {
+  return creep.name ?? `${creep.memory?.role ?? 'creep'}:${creep.memory?.colony ?? ''}:${creep.ticksToLive ?? ''}`;
+}
+
+function hasAssignedRemoteHarvester(
+  creeps: Creep[],
+  homeRoom: string,
+  targetRoom: string,
+  sourceId: string
+): boolean {
+  return creeps.some(
+    (creep) =>
+      creep.memory?.role === 'remoteHarvester' &&
+      creep.memory.remoteHarvester?.homeRoom === homeRoom &&
+      creep.memory.remoteHarvester?.targetRoom === targetRoom &&
+      String(creep.memory.remoteHarvester?.sourceId) === sourceId
+  );
+}
+
+function hasAssignedRemoteHauler(
+  creeps: Creep[],
+  homeRoom: string,
+  targetRoom: string,
+  sourceId: string,
+  container: StructureContainer | null
+): boolean {
+  return creeps.some(
+    (creep) =>
+      creep.memory?.role === 'hauler' &&
+      creep.memory.remoteHauler?.homeRoom === homeRoom &&
+      creep.memory.remoteHauler?.targetRoom === targetRoom &&
+      String(creep.memory.remoteHauler?.sourceId) === sourceId &&
+      (container === null || String(creep.memory.remoteHauler?.containerId) === String(container.id))
+  );
+}
+
+function hasRemoteEnergyFlow(
+  container: StructureContainer,
+  creeps: Creep[],
+  record: TerritoryPostClaimBootstrapMemory,
+  sourceId: string
+): boolean {
+  return (
+    getStoredEnergy(container) > 0 ||
+    hasAssignedRemoteHauler(creeps, record.colony, record.roomName, sourceId, container)
+  );
+}
+
+function getRemoteMiningStatus(
+  sources: TerritoryRemoteMiningSourceMemory[]
+): TerritoryRemoteMiningStatus {
+  if (sources.length === 0 || sources.some((source) => !source.containerBuilt)) {
+    return 'containerPending';
+  }
+
+  if (sources.some((source) => source.harvesterAssigned || source.energyFlowing)) {
+    return 'active';
+  }
+
+  return 'containerReady';
 }
 
 function getWritableTerritoryMemoryRecord(): TerritoryMemory | null {

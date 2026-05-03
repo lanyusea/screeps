@@ -1,6 +1,8 @@
 import {
   buildEmergencyDefenderBody,
   buildEmergencyWorkerBody,
+  buildRemoteHarvesterBody,
+  buildRemoteHaulerBody,
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildWorkerBody,
@@ -218,6 +220,38 @@ describe('buildTerritoryControllerPressureBody', () => {
       'claim',
       'move'
     ]);
+  });
+});
+
+describe('buildRemoteHarvesterBody', () => {
+  it('builds a work-heavy remote miner with carry and move support', () => {
+    expect(buildRemoteHarvesterBody(199)).toEqual([]);
+    expect(buildRemoteHarvesterBody(200)).toEqual(['work', 'carry', 'move']);
+    expect(buildRemoteHarvesterBody(650)).toEqual(['work', 'work', 'work', 'work', 'work', 'carry', 'move']);
+    expect(getBodyCost(buildRemoteHarvesterBody(650))).toBeLessThanOrEqual(650);
+  });
+});
+
+describe('buildRemoteHaulerBody', () => {
+  it('builds carry and move logistics bodies within the energy and distance budget', () => {
+    expect(buildRemoteHaulerBody(99)).toEqual([]);
+    expect(buildRemoteHaulerBody(300, 1)).toEqual(['carry', 'move', 'carry', 'move', 'carry', 'move']);
+    expect(buildRemoteHaulerBody(1_000, 1)).toEqual([
+      'carry',
+      'move',
+      'carry',
+      'move',
+      'carry',
+      'move',
+      'carry',
+      'move',
+      'carry',
+      'move',
+      'carry',
+      'move'
+    ]);
+    expect(buildRemoteHaulerBody(1_000, 5).length).toBeGreaterThan(buildRemoteHaulerBody(1_000, 1).length);
+    expect(getBodyCost(buildRemoteHaulerBody(1_000, 5))).toBeLessThanOrEqual(1_000);
   });
 });
 
