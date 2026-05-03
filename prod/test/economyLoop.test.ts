@@ -1650,6 +1650,94 @@ describe('runEconomy', () => {
     );
   });
 
+  it('refreshes remote mining setup for claimed expansion rooms during the economy tick', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      OK: ScreepsReturnCode;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 2;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 4;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { OK: ScreepsReturnCode }).OK = OK_CODE;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'ready',
+            claimedAt: 420,
+            updatedAt: 421,
+            workerTarget: 2
+          }
+        }
+      }
+    };
+    const homeRoom = makeTerritoryReadyEconomyRoom();
+    const constructionSites: ConstructionSite[] = [];
+    const remoteRoom = {
+      name: 'W2N1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: {
+        my: true,
+        level: 1,
+        pos: { x: 25, y: 25, roomName: 'W2N1' } as RoomPosition
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'remote-source', pos: { x: 10, y: 10, roomName: 'W2N1' } as RoomPosition } as Source];
+        }
+
+        if (type === FIND_CONSTRUCTION_SITES) {
+          return constructionSites;
+        }
+
+        return [];
+      }),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'W2N1' } as RoomPosition
+        } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room & { createConstructionSite: jest.Mock };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 422,
+      rooms: { W1N1: homeRoom, W2N1: remoteRoom },
+      spawns: {},
+      creeps: {},
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'containerPending',
+      sources: {
+        'remote-source': {
+          sourceId: 'remote-source',
+          containerSitePending: true
+        }
+      }
+    });
+  });
+
   it('keeps unsafe occupation recommendations on worker recovery before territory spawn pressure', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};

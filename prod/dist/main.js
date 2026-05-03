@@ -1596,6 +1596,9 @@ var HIGH_RCL_WORKER_PATTERN_COST = 450;
 var EMERGENCY_DEFENDER_BODY = ["tough", "attack", "move"];
 var EMERGENCY_DEFENDER_BODY_COST = 140;
 var MAX_CREEP_PARTS2 = 50;
+var MAX_REMOTE_HARVESTER_WORK_PARTS = 5;
+var MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS = 10;
+var MIN_REMOTE_HAULER_CARRY_MOVE_PAIRS = 6;
 var MAX_WORKER_PATTERN_COUNT = 4;
 var MIN_MID_RCL = 4;
 var MIN_HIGH_RCL = 7;
@@ -1716,8 +1719,43 @@ function buildTerritoryControllerPressureBody(energyAvailable) {
   }
   return [...TERRITORY_CONTROLLER_PRESSURE_BODY];
 }
+function buildRemoteHarvesterBody(energyAvailable) {
+  const workParts = Math.min(
+    MAX_REMOTE_HARVESTER_WORK_PARTS,
+    Math.floor(
+      (Math.max(0, energyAvailable) - getBodyPartCost("carry") - getBodyPartCost("move")) / getBodyPartCost("work")
+    )
+  );
+  if (workParts <= 0) {
+    return [];
+  }
+  return [...Array.from({ length: workParts }, () => "work"), "carry", "move"];
+}
+function buildRemoteHaulerBody(energyAvailable, routeDistance = 1) {
+  const pairCount = Math.min(
+    getRemoteHaulerCarryMovePairLimit(routeDistance),
+    Math.floor(Math.max(0, energyAvailable) / (getBodyPartCost("carry") + getBodyPartCost("move"))),
+    Math.floor(MAX_CREEP_PARTS2 / 2)
+  );
+  if (pairCount <= 0) {
+    return [];
+  }
+  return Array.from({ length: pairCount }).flatMap(() => ["carry", "move"]);
+}
 function getBodyCost(body) {
   return body.reduce((cost, part) => cost + BODY_PART_COSTS[part], 0);
+}
+function getRemoteHaulerCarryMovePairLimit(routeDistance) {
+  if (!Number.isFinite(routeDistance) || routeDistance <= 0) {
+    return MIN_REMOTE_HAULER_CARRY_MOVE_PAIRS;
+  }
+  return Math.min(
+    MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS,
+    Math.max(MIN_REMOTE_HAULER_CARRY_MOVE_PAIRS, Math.ceil(routeDistance) * 2)
+  );
+}
+function getBodyPartCost(part) {
+  return BODY_PART_COSTS[part];
 }
 
 // src/colony/survivalMode.ts
@@ -2382,6 +2420,21 @@ function findSourceContainer(room, source) {
   });
   return (_a = containers.sort((left, right) => compareSourceContainers(sourcePosition, left, right))[0]) != null ? _a : null;
 }
+function findSourceContainerConstructionSite(room, source) {
+  var _a;
+  if (typeof FIND_CONSTRUCTION_SITES !== "number" || typeof room.find !== "function") {
+    return null;
+  }
+  const sourcePosition = getRoomObjectPosition(source);
+  if (!sourcePosition || !isSameRoomPosition2(sourcePosition, room.name)) {
+    return null;
+  }
+  const sites = room.find(FIND_CONSTRUCTION_SITES).filter((site) => isContainerConstructionSite(site)).filter((site) => {
+    const sitePosition = getRoomObjectPosition(site);
+    return sitePosition !== null && isSameRoomPosition2(sitePosition, room.name) && getRangeBetweenPositions2(sourcePosition, sitePosition) <= 1;
+  });
+  return (_a = sites.sort((left, right) => compareSourceContainerSites(sourcePosition, left, right))[0]) != null ? _a : null;
+}
 function isContainerStructure(structure) {
   return matchesStructureType3(structure.structureType, "STRUCTURE_CONTAINER", "container");
 }
@@ -2406,6 +2459,14 @@ function compareSourceContainers(sourcePosition, left, right) {
     rightPosition ? getRangeBetweenPositions2(sourcePosition, rightPosition) : Number.POSITIVE_INFINITY
   ) || String(left.id).localeCompare(String(right.id));
 }
+function compareSourceContainerSites(sourcePosition, left, right) {
+  const leftPosition = getRoomObjectPosition(left);
+  const rightPosition = getRoomObjectPosition(right);
+  return compareNumbers(
+    leftPosition ? getRangeBetweenPositions2(sourcePosition, leftPosition) : Number.POSITIVE_INFINITY,
+    rightPosition ? getRangeBetweenPositions2(sourcePosition, rightPosition) : Number.POSITIVE_INFINITY
+  ) || String(left.id).localeCompare(String(right.id));
+}
 function compareNumbers(left, right) {
   return left - right;
 }
@@ -2417,23 +2478,26 @@ function matchesStructureType3(actual, globalName, fallback) {
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
+function isContainerConstructionSite(site) {
+  return matchesStructureType3(site.structureType, "STRUCTURE_CONTAINER", "container");
+}
 
 // src/construction/sourceContainerPlanner.ts
 var MIN_CONTROLLER_LEVEL_FOR_SOURCE_CONTAINERS = 2;
 var ROOM_EDGE_MIN3 = 1;
 var ROOM_EDGE_MAX3 = 48;
 var DEFAULT_TERRAIN_WALL_MASK3 = 1;
-function planSourceContainerConstruction(colony) {
+function planSourceContainerConstruction(colony, options = {}) {
   var _a, _b;
   const room = colony.room;
-  if (((_b = (_a = room.controller) == null ? void 0 : _a.level) != null ? _b : 0) < MIN_CONTROLLER_LEVEL_FOR_SOURCE_CONTAINERS || !hasRequiredRoomApis2(room) || typeof FIND_SOURCES !== "number") {
+  if (((_b = (_a = room.controller) == null ? void 0 : _a.level) != null ? _b : 0) < getMinimumControllerLevel(options) || !hasRequiredRoomApis2(room) || typeof FIND_SOURCES !== "number") {
     return null;
   }
   const lookups = createSourceContainerPlannerLookups(room);
   if (!lookups) {
     return null;
   }
-  const anchor = selectContainerAnchor(colony);
+  const anchor = options.anchor === void 0 ? selectContainerAnchor(colony) : options.anchor;
   for (const source of getSortedSources2(room)) {
     if (findSourceContainer(room, source) || hasPendingSourceContainerSite(source, lookups)) {
       continue;
@@ -2450,6 +2514,10 @@ function planSourceContainerConstruction(colony) {
     return result;
   }
   return null;
+}
+function getMinimumControllerLevel(options) {
+  var _a;
+  return (_a = options.minimumControllerLevel) != null ? _a : MIN_CONTROLLER_LEVEL_FOR_SOURCE_CONTAINERS;
 }
 function hasRequiredRoomApis2(room) {
   const partialRoom = room;
@@ -2481,7 +2549,7 @@ function createSourceContainerPlannerLookups(room) {
     }
     const key = getPositionKey3(position);
     lookups.blockedPositions.add(key);
-    if (isContainerConstructionSite(site)) {
+    if (isContainerConstructionSite2(site)) {
       lookups.pendingContainerPositions.add(key);
     }
   }
@@ -2564,7 +2632,7 @@ function getTerrainWallMask3() {
   const terrainWallMask = globalThis.TERRAIN_MASK_WALL;
   return typeof terrainWallMask === "number" ? terrainWallMask : DEFAULT_TERRAIN_WALL_MASK3;
 }
-function isContainerConstructionSite(site) {
+function isContainerConstructionSite2(site) {
   return site.structureType === getContainerStructureType();
 }
 function getContainerStructureType() {
@@ -3460,6 +3528,7 @@ var TERRITORY_ROUTE_DISTANCE_SEPARATOR2 = ">";
 var TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 var TERRITORY_SCOUT_BODY_COST = 50;
 var OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 = "occupationRecommendation";
+var REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
 var recoveredTerritoryFollowUpRetryMetadata = /* @__PURE__ */ new WeakMap();
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options = {}) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
@@ -3948,6 +4017,112 @@ function recordAutonomousExpansionClaimReserveFallbackIntent(colony, evaluation,
     },
     gameTime
   );
+}
+function refreshRemoteMiningSetup(colony, gameTime = getGameTime6()) {
+  var _a, _b, _c, _d;
+  const territoryMemory = getWritableTerritoryMemoryRecord2();
+  if (!territoryMemory) {
+    return;
+  }
+  const colonyName = colony.room.name;
+  const records = getRemoteMiningBootstrapRecords(territoryMemory, colonyName);
+  const storedRemoteMining = territoryMemory.remoteMining;
+  if (storedRemoteMining === void 0 && records.length === 0) {
+    return;
+  }
+  let remoteMining;
+  if (isRecord4(storedRemoteMining) && !Array.isArray(storedRemoteMining)) {
+    remoteMining = storedRemoteMining;
+  } else {
+    remoteMining = {};
+    territoryMemory.remoteMining = remoteMining;
+  }
+  const activeKeys = /* @__PURE__ */ new Set();
+  for (const record of records) {
+    const key = getRemoteMiningMemoryKey(record.colony, record.roomName);
+    activeKeys.add(key);
+    const room = getVisibleRoom(record.roomName);
+    if (!room) {
+      const previous = remoteMining[key];
+      updateRemoteMiningRoomMemoryIfChanged(
+        remoteMining,
+        key,
+        {
+          colony: record.colony,
+          roomName: record.roomName,
+          status: (_a = previous == null ? void 0 : previous.status) != null ? _a : "containerPending",
+          sources: (_b = previous == null ? void 0 : previous.sources) != null ? _b : {}
+        },
+        gameTime
+      );
+      continue;
+    }
+    if (isHostileOwnedController(room.controller)) {
+      updateRemoteMiningRoomMemoryIfChanged(
+        remoteMining,
+        key,
+        {
+          colony: record.colony,
+          roomName: record.roomName,
+          status: "unclaimed",
+          sources: {}
+        },
+        gameTime
+      );
+      continue;
+    }
+    const suspended = isRemoteMiningSuspended(territoryMemory, record.colony, record.roomName, gameTime);
+    if (!suspended) {
+      planSourceContainerConstruction(
+        {
+          room,
+          spawns: [],
+          energyAvailable: room.energyAvailable,
+          energyCapacityAvailable: room.energyCapacityAvailable
+        },
+        {
+          anchor: (_d = (_c = room.controller) == null ? void 0 : _c.pos) != null ? _d : null,
+          minimumControllerLevel: REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL
+        }
+      );
+    }
+    const sources = getRemoteMiningSources(room);
+    const assignedCreeps = getRemoteMiningAssignedCreeps(record.colony, record.roomName);
+    const sourceStates = Object.fromEntries(
+      sources.map((source) => {
+        const container = findSourceContainer(room, source);
+        const pendingSite = findSourceContainerConstructionSite(room, source);
+        const sourceId = String(source.id);
+        const state = {
+          sourceId,
+          ...container ? { containerId: String(container.id) } : {},
+          containerBuilt: container !== null,
+          containerSitePending: pendingSite !== null,
+          harvesterAssigned: hasAssignedRemoteHarvester(assignedCreeps, record.colony, record.roomName, sourceId),
+          haulerAssigned: hasAssignedRemoteHauler(assignedCreeps, record.colony, record.roomName, sourceId, container),
+          energyAvailable: container ? getStoredEnergy(container) : 0,
+          energyFlowing: container !== null && hasRemoteEnergyFlow(container, assignedCreeps, record, sourceId)
+        };
+        return [sourceId, state];
+      })
+    );
+    updateRemoteMiningRoomMemoryIfChanged(
+      remoteMining,
+      key,
+      {
+        colony: record.colony,
+        roomName: record.roomName,
+        status: suspended ? "suspended" : getRemoteMiningStatus(Object.values(sourceStates)),
+        sources: sourceStates
+      },
+      gameTime
+    );
+  }
+  for (const key of Object.keys(remoteMining)) {
+    if (key.startsWith(`${colonyName}:`) && !activeKeys.has(key)) {
+      delete remoteMining[key];
+    }
+  }
 }
 function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
@@ -6263,6 +6438,12 @@ function isVisibleRoomMissingController(targetRoom) {
 function isControllerOwned(controller) {
   return controller.owner != null || controller.my === true;
 }
+function isHostileOwnedController(controller) {
+  if ((controller == null ? void 0 : controller.owner) == null) {
+    return false;
+  }
+  return controller.my !== true;
+}
 function isControllerOwnedByColony2(controller, colonyOwnerUsername) {
   const ownerUsername = getControllerOwnerUsername2(controller);
   return controller.my === true || isNonEmptyString5(ownerUsername) && ownerUsername === colonyOwnerUsername;
@@ -6371,6 +6552,133 @@ function getGameTime6() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
+}
+function getRemoteMiningBootstrapRecords(territoryMemory, colonyName) {
+  const records = territoryMemory.postClaimBootstraps;
+  if (!isRecord4(records)) {
+    return [];
+  }
+  return Object.values(records).filter((record) => isRemoteMiningBootstrapRecord(record, colonyName)).sort(compareRemoteMiningBootstrapRecords);
+}
+function isRemoteMiningBootstrapRecord(record, colonyName) {
+  return isRecord4(record) && record.colony === colonyName && isNonEmptyString5(record.roomName) && record.roomName !== colonyName && isPostClaimRemoteMiningStatus(record.status);
+}
+function isPostClaimRemoteMiningStatus(status) {
+  return status === "detected" || status === "spawnSitePending" || status === "spawnSiteBlocked" || status === "spawningWorkers" || status === "ready";
+}
+function compareRemoteMiningBootstrapRecords(left, right) {
+  return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
+}
+function getRemoteMiningMemoryKey(colony, roomName) {
+  return `${colony}:${roomName}`;
+}
+function updateRemoteMiningRoomMemoryIfChanged(remoteMining, key, nextState, gameTime) {
+  var _a;
+  const previous = remoteMining[key];
+  const candidate = {
+    ...nextState,
+    updatedAt: (_a = previous == null ? void 0 : previous.updatedAt) != null ? _a : gameTime
+  };
+  if (isSameRemoteMiningRoomMemory(previous, candidate)) {
+    return;
+  }
+  remoteMining[key] = {
+    ...nextState,
+    updatedAt: gameTime
+  };
+}
+function isSameRemoteMiningRoomMemory(left, right) {
+  return left != null && left.colony === right.colony && left.roomName === right.roomName && left.status === right.status && left.updatedAt === right.updatedAt && isSameRemoteMiningSources(left.sources, right.sources);
+}
+function isSameRemoteMiningSources(left, right) {
+  if (!isRecord4(left)) {
+    return false;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  return rightKeys.every((key) => isSameRemoteMiningSource(left[key], right[key]));
+}
+function isSameRemoteMiningSource(left, right) {
+  return left != null && left.sourceId === right.sourceId && left.containerId === right.containerId && left.containerBuilt === right.containerBuilt && left.containerSitePending === right.containerSitePending && left.harvesterAssigned === right.harvesterAssigned && left.haulerAssigned === right.haulerAssigned && left.energyAvailable === right.energyAvailable && left.energyFlowing === right.energyFlowing;
+}
+function isRemoteMiningSuspended(territoryMemory, colony, roomName, gameTime) {
+  if (isKnownDeadZoneRoom(roomName)) {
+    return true;
+  }
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  return intents.some(
+    (intent) => intent.colony === colony && intent.targetRoom === roomName && isTerritoryIntentSuspensionActive(intent, gameTime)
+  );
+}
+function getRemoteMiningSources(room) {
+  if (typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  return room.find(FIND_SOURCES).sort(
+    (left, right) => String(left.id).localeCompare(String(right.id))
+  );
+}
+function getRemoteMiningAssignedCreeps(homeRoom, targetRoom) {
+  const findMyCreeps3 = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps3 !== "number") {
+    return [];
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const creeps = [];
+  for (const roomName of [homeRoom, targetRoom]) {
+    const room = getVisibleRoom(roomName);
+    if (!room || typeof room.find !== "function") {
+      continue;
+    }
+    const roomCreeps = room.find(findMyCreeps3);
+    if (!Array.isArray(roomCreeps)) {
+      continue;
+    }
+    for (const creep of roomCreeps) {
+      const key = getRemoteMiningCreepKey(creep);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      creeps.push(creep);
+    }
+  }
+  return creeps;
+}
+function getRemoteMiningCreepKey(creep) {
+  var _a, _b, _c, _d, _e, _f;
+  return (_f = creep.name) != null ? _f : `${(_b = (_a = creep.memory) == null ? void 0 : _a.role) != null ? _b : "creep"}:${(_d = (_c = creep.memory) == null ? void 0 : _c.colony) != null ? _d : ""}:${(_e = creep.ticksToLive) != null ? _e : ""}`;
+}
+function hasAssignedRemoteHarvester(creeps, homeRoom, targetRoom, sourceId) {
+  return creeps.some(
+    (creep) => {
+      var _a, _b, _c, _d;
+      return ((_a = creep.memory) == null ? void 0 : _a.role) === "remoteHarvester" && ((_b = creep.memory.remoteHarvester) == null ? void 0 : _b.homeRoom) === homeRoom && ((_c = creep.memory.remoteHarvester) == null ? void 0 : _c.targetRoom) === targetRoom && String((_d = creep.memory.remoteHarvester) == null ? void 0 : _d.sourceId) === sourceId;
+    }
+  );
+}
+function hasAssignedRemoteHauler(creeps, homeRoom, targetRoom, sourceId, container) {
+  return creeps.some(
+    (creep) => {
+      var _a, _b, _c, _d, _e;
+      return ((_a = creep.memory) == null ? void 0 : _a.role) === "hauler" && ((_b = creep.memory.remoteHauler) == null ? void 0 : _b.homeRoom) === homeRoom && ((_c = creep.memory.remoteHauler) == null ? void 0 : _c.targetRoom) === targetRoom && String((_d = creep.memory.remoteHauler) == null ? void 0 : _d.sourceId) === sourceId && (container === null || String((_e = creep.memory.remoteHauler) == null ? void 0 : _e.containerId) === String(container.id));
+    }
+  );
+}
+function hasRemoteEnergyFlow(container, creeps, record, sourceId) {
+  return getStoredEnergy(container) > 0 || hasAssignedRemoteHauler(creeps, record.colony, record.roomName, sourceId, container);
+}
+function getRemoteMiningStatus(sources) {
+  if (sources.length === 0 || sources.some((source) => !source.containerBuilt)) {
+    return "containerPending";
+  }
+  if (sources.some((source) => source.harvesterAssigned || source.energyFlowing)) {
+    return "active";
+  }
+  return "containerReady";
 }
 function getWritableTerritoryMemoryRecord2() {
   const memory = getMemoryRecord();
@@ -8865,9 +9173,9 @@ function findSpawnExtensionEnergyStructures(room) {
   return room.find(FIND_MY_STRUCTURES).filter((structure) => isSpawnExtensionEnergyStructure(structure));
 }
 function selectRemoteHaulerDeliverySink(room) {
-  var _a;
+  var _a, _b;
   const fillableSinks = findFillableEnergySinksInRoom(room);
-  return (_a = selectFirstEnergySinkByStableId(fillableSinks.filter(isSpawnOrExtensionEnergySink))) != null ? _a : selectFirstStorageSinkByStableId(findRemoteHaulerStorageSinks(room));
+  return (_b = (_a = selectFirstEnergySinkByStableId(fillableSinks.filter(isSpawnOrExtensionEnergySink))) != null ? _a : selectFirstStorageSinkByStableId(findRemoteHaulerStorageSinks(room))) != null ? _b : selectFirstEnergySinkByStableId(fillableSinks.filter(isTowerEnergySink));
 }
 function findRemoteHaulerStorageSinks(room) {
   if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
@@ -8977,7 +9285,7 @@ function buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSit
   if (constructionSites.some(isRoadConstructionSite2)) {
     context.criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
   }
-  if (constructionSites.some(isContainerConstructionSite2)) {
+  if (constructionSites.some(isContainerConstructionSite3)) {
     context.sources = findConstructionPrioritySources(creep.room);
   }
   if (constructionSites.some(isRampartConstructionSite)) {
@@ -9285,7 +9593,7 @@ function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(creep,
     creep,
     constructionSites,
     constructionReservationContext,
-    isContainerConstructionSite2,
+    isContainerConstructionSite3,
     { priorityContext: priorityContext != null ? priorityContext : {}, requireReasonableRange: true }
   );
 }
@@ -9331,7 +9639,7 @@ function isSpawnConstructionSite(site) {
 function isExtensionConstructionSite(site) {
   return matchesStructureType7(site.structureType, "STRUCTURE_EXTENSION", "extension");
 }
-function isContainerConstructionSite2(site) {
+function isContainerConstructionSite3(site) {
   return matchesStructureType7(site.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function isRoadConstructionSite2(site) {
@@ -9341,7 +9649,7 @@ function isRampartConstructionSite(site) {
   return matchesStructureType7(site.structureType, "STRUCTURE_RAMPART", "rampart");
 }
 function isHighImpactConstructionSite(site, priorityContext) {
-  return isContainerConstructionSite2(site) || getConstructionSiteImpactPriority(site, priorityContext != null ? priorityContext : {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad;
+  return isContainerConstructionSite3(site) || getConstructionSiteImpactPriority(site, priorityContext != null ? priorityContext : {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad;
 }
 function matchesStructureType7(actual, globalName, fallback) {
   var _a;
@@ -11853,21 +12161,11 @@ function isInRangeToRoomObject(creep, target, range) {
 var REMOTE_HARVESTER_ROLE = "remoteHarvester";
 var REMOTE_CREEP_REPLACEMENT_TICKS = 100;
 var MAX_REMOTE_HARVESTERS_PER_SOURCE = 1;
-var MAX_REMOTE_HARVESTER_WORK_PARTS = 5;
 var REMOTE_MOVE_OPTS = { reusePath: 20, ignoreRoads: false };
 var ERR_FULL_CODE = -8;
 var ERR_NOT_ENOUGH_RESOURCES_CODE = -6;
 var ERR_NOT_IN_RANGE_CODE3 = -9;
-function buildRemoteHarvesterBody(energyAvailable) {
-  const workParts = Math.min(
-    MAX_REMOTE_HARVESTER_WORK_PARTS,
-    Math.floor((Math.max(0, energyAvailable) - 100) / 100)
-  );
-  if (workParts <= 0) {
-    return [];
-  }
-  return [...Array.from({ length: workParts }, () => "work"), "carry", "move"];
-}
+var DEFAULT_REMOTE_ROOM_DISTANCE = 1;
 function selectRemoteHarvesterAssignment(homeRoom) {
   var _a;
   return (_a = getRemoteSourceAssignments(homeRoom).find(
@@ -11907,7 +12205,7 @@ function runRemoteHarvester(creep) {
   if (!assignment) {
     return;
   }
-  if (isRemoteOperationSuspended(assignment.homeRoom, assignment.targetRoom)) {
+  if (shouldRetreatFromRemote(creep, assignment)) {
     delete creep.memory.task;
     moveTowardRoom2(creep, assignment.homeRoom);
     return;
@@ -11967,6 +12265,16 @@ function moveTowardRoom2(creep, roomName, target) {
     moveTo(creep, new RoomPositionCtor(25, 25, roomName));
   }
 }
+function shouldRetreatFromRemote(creep, assignment) {
+  if (isRemoteOperationSuspended(assignment.homeRoom, assignment.targetRoom)) {
+    return true;
+  }
+  const targetRoom = getVisibleRoom2(assignment.targetRoom);
+  if (isForeignOwnedRemoteController(targetRoom == null ? void 0 : targetRoom.controller)) {
+    return true;
+  }
+  return isVisibleRemoteThreatened(targetRoom, assignment.targetRoom);
+}
 function getRemoteSourceAssignmentsInRoom(homeRoom, room) {
   if (typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
     return [];
@@ -11978,7 +12286,8 @@ function getRemoteSourceAssignmentsInRoom(homeRoom, room) {
       targetRoom: room.name,
       sourceId: source.id,
       containerId: container.id,
-      containerEnergy: getStoredEnergy5(container)
+      containerEnergy: getStoredEnergy5(container),
+      routeDistance: estimateRemoteRoomDistance(homeRoom, room.name)
     } : null;
   }).filter((assignment) => assignment !== null);
 }
@@ -12000,11 +12309,16 @@ function compareRemoteSourceAssignments(left, right) {
   return left.targetRoom.localeCompare(right.targetRoom) || String(left.sourceId).localeCompare(String(right.sourceId));
 }
 function isUsableRemoteRoom(room) {
-  var _a;
-  return ((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my) === true && typeof room.find === "function";
+  return room != null && !isForeignOwnedRemoteController(room.controller) && typeof room.find === "function";
+}
+function isForeignOwnedRemoteController(controller) {
+  if ((controller == null ? void 0 : controller.owner) == null) {
+    return false;
+  }
+  return controller.my !== true;
 }
 function countRemoteHarvestersForSource(assignment) {
-  return getGameCreeps2().filter(
+  return getRemoteOperationCreeps(assignment.homeRoom, assignment.targetRoom).filter(
     (creep) => {
       var _a, _b, _c, _d;
       return ((_a = creep.memory) == null ? void 0 : _a.role) === REMOTE_HARVESTER_ROLE && canSatisfyRemoteCreepCapacity(creep) && ((_b = creep.memory.remoteHarvester) == null ? void 0 : _b.homeRoom) === assignment.homeRoom && ((_c = creep.memory.remoteHarvester) == null ? void 0 : _c.targetRoom) === assignment.targetRoom && String((_d = creep.memory.remoteHarvester) == null ? void 0 : _d.sourceId) === String(assignment.sourceId);
@@ -12100,10 +12414,33 @@ function getVisibleRoom2(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
-function getGameCreeps2() {
-  var _a;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  return creeps ? Object.values(creeps) : [];
+function getRemoteOperationCreeps(homeRoom, targetRoom) {
+  const findMyCreeps3 = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps3 !== "number") {
+    return [];
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const creeps = [];
+  for (const roomName of [homeRoom, targetRoom]) {
+    const room = getVisibleRoom2(roomName);
+    const roomCreeps = typeof (room == null ? void 0 : room.find) === "function" ? room.find(findMyCreeps3) : void 0;
+    if (!Array.isArray(roomCreeps)) {
+      continue;
+    }
+    for (const creep of roomCreeps) {
+      const key = getCreepStableKey2(creep);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      creeps.push(creep);
+    }
+  }
+  return creeps;
+}
+function getCreepStableKey2(creep) {
+  var _a, _b, _c, _d, _e, _f;
+  return (_f = creep.name) != null ? _f : `${(_b = (_a = creep.memory) == null ? void 0 : _a.role) != null ? _b : "creep"}:${(_d = (_c = creep.memory) == null ? void 0 : _c.colony) != null ? _d : ""}:${(_e = creep.ticksToLive) != null ? _e : ""}`;
 }
 function isAdjacentRoomOrUnknown(homeRoom, targetRoom) {
   const home = parseRoomCoordinates2(homeRoom);
@@ -12129,6 +12466,21 @@ function parseRoomCoordinates2(roomName) {
     y: match[3] === "S" ? verticalValue : -verticalValue - 1
   };
 }
+function estimateRemoteRoomDistance(homeRoom, targetRoom) {
+  const home = parseRoomCoordinates2(homeRoom);
+  const target = parseRoomCoordinates2(targetRoom);
+  if (!home || !target) {
+    return DEFAULT_REMOTE_ROOM_DISTANCE;
+  }
+  return Math.max(DEFAULT_REMOTE_ROOM_DISTANCE, Math.max(Math.abs(home.x - target.x), Math.abs(home.y - target.y)));
+}
+function isVisibleRemoteThreatened(room, targetRoom) {
+  if ((room == null ? void 0 : room.name) !== targetRoom || typeof FIND_HOSTILE_CREEPS !== "number" || typeof room.find !== "function") {
+    return false;
+  }
+  const hostiles = room.find(FIND_HOSTILE_CREEPS);
+  return Array.isArray(hostiles) && hostiles.length > 0;
+}
 function getErrFullCode() {
   var _a;
   return (_a = globalThis.ERR_FULL) != null ? _a : ERR_FULL_CODE;
@@ -12152,29 +12504,30 @@ function isNonEmptyString7(value) {
 var HAULER_ROLE = "hauler";
 var REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD = 500;
 var MAX_REMOTE_HAULERS_PER_CONTAINER = 1;
-var MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS = 10;
 var HAULER_MOVE_OPTS = { reusePath: 20, ignoreRoads: false };
 var ERR_NOT_IN_RANGE_CODE4 = -9;
-function buildRemoteHaulerBody(energyAvailable) {
-  const pairCount = Math.min(MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS, Math.floor(Math.max(0, energyAvailable) / 100));
-  if (pairCount <= 0) {
-    return [];
-  }
-  return Array.from({ length: pairCount }).flatMap(() => ["carry", "move"]);
-}
 function selectRemoteHaulerAssignment(homeRoom) {
   var _a;
+  if (!hasRemoteHaulerDeliveryDemand(homeRoom)) {
+    return null;
+  }
   return (_a = getRemoteSourceAssignments(homeRoom).filter((assignment) => assignment.containerEnergy > REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD).filter((assignment) => countRemoteHaulersForContainer(assignment) < MAX_REMOTE_HAULERS_PER_CONTAINER).sort(compareRemoteHaulerAssignments)[0]) != null ? _a : null;
 }
+function hasRemoteHaulerDeliveryDemand(homeRoom) {
+  const room = getVisibleRoom3(homeRoom);
+  return room !== void 0 && selectRemoteHaulerDeliveryTask(room) !== null;
+}
 function runHauler(creep) {
-  var _a, _b;
+  var _a, _b, _c;
   const assignment = normalizeRemoteHaulerMemory((_a = creep.memory) == null ? void 0 : _a.remoteHauler);
   if (!assignment) {
     return;
   }
-  if (isRemoteOperationSuspended(assignment.homeRoom, assignment.targetRoom)) {
+  if (shouldRetreatFromRemote(creep, assignment)) {
     delete creep.memory.task;
-    if (((_b = creep.room) == null ? void 0 : _b.name) !== assignment.homeRoom || getCarriedEnergy3(creep) > 0) {
+    if (getCarriedEnergy3(creep) > 0 && ((_b = creep.room) == null ? void 0 : _b.name) === assignment.homeRoom) {
+      deliverEnergy(creep, assignment);
+    } else if (((_c = creep.room) == null ? void 0 : _c.name) !== assignment.homeRoom || getCarriedEnergy3(creep) > 0) {
       moveTowardRoom2(creep, assignment.homeRoom);
     }
     return;
@@ -12239,7 +12592,7 @@ function compareRemoteHaulerAssignments(left, right) {
   return right.containerEnergy - left.containerEnergy || left.targetRoom.localeCompare(right.targetRoom) || String(left.sourceId).localeCompare(String(right.sourceId));
 }
 function countRemoteHaulersForContainer(assignment) {
-  return getGameCreeps3().filter(
+  return getRemoteOperationCreeps2(assignment.homeRoom, assignment.targetRoom).filter(
     (creep) => {
       var _a, _b, _c, _d;
       return ((_a = creep.memory) == null ? void 0 : _a.role) === HAULER_ROLE && canSatisfyRemoteCreepCapacity2(creep) && ((_b = creep.memory.remoteHauler) == null ? void 0 : _b.homeRoom) === assignment.homeRoom && ((_c = creep.memory.remoteHauler) == null ? void 0 : _c.targetRoom) === assignment.targetRoom && String((_d = creep.memory.remoteHauler) == null ? void 0 : _d.containerId) === String(assignment.containerId);
@@ -12289,10 +12642,37 @@ function getObjectById2(id) {
   const getObjectById3 = (_a = globalThis.Game) == null ? void 0 : _a.getObjectById;
   return typeof getObjectById3 === "function" ? getObjectById3(String(id)) : null;
 }
-function getGameCreeps3() {
-  var _a;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  return creeps ? Object.values(creeps) : [];
+function getRemoteOperationCreeps2(homeRoom, targetRoom) {
+  const findMyCreeps3 = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps3 !== "number") {
+    return [];
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const creeps = [];
+  for (const roomName of [homeRoom, targetRoom]) {
+    const room = getVisibleRoom3(roomName);
+    const roomCreeps = typeof (room == null ? void 0 : room.find) === "function" ? room.find(findMyCreeps3) : void 0;
+    if (!Array.isArray(roomCreeps)) {
+      continue;
+    }
+    for (const creep of roomCreeps) {
+      const key = getCreepStableKey3(creep);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      creeps.push(creep);
+    }
+  }
+  return creeps;
+}
+function getVisibleRoom3(roomName) {
+  var _a, _b;
+  return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
+}
+function getCreepStableKey3(creep) {
+  var _a, _b, _c, _d, _e, _f;
+  return (_f = creep.name) != null ? _f : `${(_b = (_a = creep.memory) == null ? void 0 : _a.role) != null ? _b : "creep"}:${(_d = (_c = creep.memory) == null ? void 0 : _c.colony) != null ? _d : ""}:${(_e = creep.ticksToLive) != null ? _e : ""}`;
 }
 function getErrNotInRangeCode2() {
   var _a;
@@ -12485,9 +12865,9 @@ function getRemoteUpgraderPattern(routeDistance) {
   return typeof routeDistance === "number" && routeDistance > 1 ? REMOTE_UPGRADER_TRAVEL_PATTERN : REMOTE_UPGRADER_PATTERN;
 }
 function getBodyCost2(body) {
-  return body.reduce((total, part) => total + getBodyPartCost(part), 0);
+  return body.reduce((total, part) => total + getBodyPartCost2(part), 0);
 }
-function getBodyPartCost(part) {
+function getBodyPartCost2(part) {
   switch (part) {
     case "work":
       return 100;
@@ -12833,7 +13213,7 @@ function selectPostClaimControllerSustainPlan(colony) {
   var _a;
   const records = getPostClaimControllerSustainRecords(colony.room.name);
   for (const record of records) {
-    const targetRoom = getVisibleRoom3(record.roomName);
+    const targetRoom = getVisibleRoom4(record.roomName);
     if (((_a = targetRoom == null ? void 0 : targetRoom.controller) == null ? void 0 : _a.my) !== true) {
       continue;
     }
@@ -12880,7 +13260,7 @@ function comparePostClaimControllerSustainRecords(left, right) {
 }
 function getVisibleControllerLevel(roomName) {
   var _a, _b;
-  const level = (_b = (_a = getVisibleRoom3(roomName)) == null ? void 0 : _a.controller) == null ? void 0 : _b.level;
+  const level = (_b = (_a = getVisibleRoom4(roomName)) == null ? void 0 : _a.controller) == null ? void 0 : _b.level;
   return typeof level === "number" ? level : MAX_CONTROLLER_LEVEL2 + 1;
 }
 function hasOperationalSpawnInRoom(roomName) {
@@ -13000,7 +13380,7 @@ function planRemoteEconomySpawn(context) {
   if (!remoteHaulerAssignment) {
     return null;
   }
-  const body = buildRemoteHaulerBody(context.colony.energyAvailable);
+  const body = buildRemoteHaulerBody(context.colony.energyAvailable, remoteHaulerAssignment.routeDistance);
   if (body.length === 0) {
     return null;
   }
@@ -13257,7 +13637,7 @@ function buildTerritorySpawnBody(energyAvailable, intent) {
   }
   return buildTerritoryControllerBody(energyAvailable);
 }
-function getVisibleRoom3(roomName) {
+function getVisibleRoom4(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
@@ -15728,7 +16108,7 @@ function recordSourceWorkloads(room, creeps, tick) {
     )
   };
 }
-function buildSourceWorkloadRecords(room, sources = findSources3(room), creeps = getGameCreeps4()) {
+function buildSourceWorkloadRecords(room, sources = findSources3(room), creeps = getGameCreeps2()) {
   const roomName = getRoomName3(room);
   const assignmentLoads = getSourceAssignmentLoads(roomName, sources, creeps);
   return sources.filter((source) => hasSourcePositionInRoom(source, room)).sort((left, right) => String(left.id).localeCompare(String(right.id))).map((source) => {
@@ -15865,7 +16245,7 @@ function getBodyPartConstant4(globalName, fallback) {
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
 }
-function getGameCreeps4() {
+function getGameCreeps2() {
   var _a;
   const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
   return creeps ? Object.values(creeps) : [];
@@ -16309,7 +16689,7 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime) {
   if (colony.energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST) {
     return { ...baseEvaluation, reason: "energyCapacityLow" };
   }
-  const room = getVisibleRoom4(candidate.roomName);
+  const room = getVisibleRoom5(candidate.roomName);
   if (!room) {
     return { ...baseEvaluation, reason: "roomNotVisible" };
   }
@@ -16506,7 +16886,7 @@ function isSameTarget2(left, right) {
 function getTargetKey2(roomName, action) {
   return `${roomName}:${action}`;
 }
-function getVisibleRoom4(roomName) {
+function getVisibleRoom5(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
@@ -16817,6 +17197,7 @@ function runEconomy(preludeTelemetryEvents = []) {
         planEarlyRoadConstruction(colony);
       }
     }
+    refreshRemoteMiningSetup(colony, Game.time);
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
