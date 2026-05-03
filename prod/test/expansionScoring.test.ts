@@ -419,7 +419,7 @@ describe('next expansion scoring', () => {
     expect(refreshNextExpansionTargetSelection(colony, report, 210)).toEqual({
       status: 'skipped',
       colony: 'W1N1',
-      reason: 'unmetPreconditions'
+      reason: 'roomLimitReached'
     });
     expect(Memory.territory?.targets).toBeUndefined();
     expect(Memory.territory?.intents).toBeUndefined();
@@ -498,7 +498,7 @@ describe('next expansion scoring', () => {
     expect(refreshNextExpansionTargetSelection(colony, report, 212)).toEqual({
       status: 'skipped',
       colony: 'W1N1',
-      reason: 'unmetPreconditions'
+      reason: 'roomLimitReached'
     });
     expect(Memory.territory?.targets).toEqual([]);
     expect(Memory.territory?.intents).toEqual([activeClaimIntent]);

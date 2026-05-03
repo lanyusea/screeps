@@ -751,7 +751,7 @@ describe('runEconomy', () => {
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'skipped',
       colony: 'W1N1',
-      reason: 'unmetPreconditions'
+      reason: 'roomLimitReached'
     });
     expect(Memory.territory?.targets).toEqual([{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]);
     expect(Memory.territory?.intents).toEqual([
@@ -763,6 +763,58 @@ describe('runEconomy', () => {
         updatedAt: 502
       }
     ]);
+  });
+
+  it('keeps recommendation reserve targets when the RCL room limit caps expansion claims', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_HOSTILE_CREEPS: number;
+      FIND_HOSTILE_STRUCTURES: number;
+      TERRAIN_MASK_WALL: number;
+      TERRAIN_MASK_SWAMP: number;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 2;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 3;
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
+    const recommendationTarget: TerritoryTargetMemory = {
+      colony: 'W1N1',
+      roomName: 'W9N9',
+      action: 'reserve',
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: { targets: [recommendationTarget] }
+    };
+    const room = makeTerritoryReadyEconomyRoom();
+    const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 503,
+      rooms: { W1N1: room, W2N1: targetRoom, W3N1: makeOwnedEconomyRoom('W3N1') },
+      spawns: {},
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null),
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' })),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => ({ get: jest.fn().mockReturnValue(0) } as unknown as RoomTerrain))
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(room.memory.cachedExpansionSelection).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'roomLimitReached'
+    });
+    expect(Memory.territory?.targets).toContainEqual(recommendationTarget);
   });
 
   it('uses a second idle spawn for controller pressure after spawning follow-up support', () => {

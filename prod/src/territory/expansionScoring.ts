@@ -15,6 +15,7 @@ const DEFAULT_TERRAIN_SWAMP_MASK = 2;
 const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
+const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
   1: 1,
   2: 1,
@@ -104,6 +105,7 @@ export interface ExpansionReservationEvidence {
 export type NextExpansionTargetSelectionStatus = 'planned' | 'skipped';
 export type NextExpansionTargetSelectionReason =
   | 'noCandidate'
+  | 'roomLimitReached'
   | 'unmetPreconditions'
   | 'insufficientEvidence'
   | 'unavailable';
@@ -516,6 +518,10 @@ function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansion
     return 'noCandidate';
   }
 
+  if (report.candidates.every(isBlockedOnlyByRoomLimit)) {
+    return 'roomLimitReached';
+  }
+
   if (report.candidates.some((candidate) => candidate.preconditions.length > 0)) {
     return 'unmetPreconditions';
   }
@@ -525,6 +531,13 @@ function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansion
   }
 
   return 'unavailable';
+}
+
+function isBlockedOnlyByRoomLimit(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.preconditions.length === 1 &&
+    candidate.preconditions[0].startsWith(ROOM_LIMIT_PRECONDITION_PREFIX)
+  );
 }
 
 function persistNextExpansionTarget(

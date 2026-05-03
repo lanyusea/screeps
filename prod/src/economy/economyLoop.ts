@@ -166,6 +166,9 @@ function refreshExecutableTerritoryRecommendation(
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
     }
+    if (expansionSelection.reason === 'roomLimitReached') {
+      return;
+    }
     if (expansionSelection.reason === 'unmetPreconditions') {
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
@@ -284,6 +287,7 @@ function normalizeNextExpansionTargetSelectionReason(
   reason: unknown
 ): NextExpansionTargetSelection['reason'] | undefined {
   return reason === 'noCandidate' ||
+    reason === 'roomLimitReached' ||
     reason === 'unmetPreconditions' ||
     reason === 'insufficientEvidence' ||
     reason === 'unavailable'

@@ -12803,6 +12803,7 @@ var DEFAULT_TERRAIN_SWAMP_MASK = 2;
 var DOWNGRADE_GUARD_TICKS2 = 5e3;
 var MIN_CONTROLLER_LEVEL = 2;
 var FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = "foreign reservation requires controller pressure";
+var ROOM_LIMIT_PRECONDITION_PREFIX = "limit expansion to ";
 var MAX_ROOM_COUNT_BY_RCL = {
   1: 1,
   2: 1,
@@ -13111,6 +13112,9 @@ function getSelectionSkipReason(report) {
   if (report.candidates.length === 0) {
     return "noCandidate";
   }
+  if (report.candidates.every(isBlockedOnlyByRoomLimit)) {
+    return "roomLimitReached";
+  }
   if (report.candidates.some((candidate) => candidate.preconditions.length > 0)) {
     return "unmetPreconditions";
   }
@@ -13118,6 +13122,9 @@ function getSelectionSkipReason(report) {
     return "insufficientEvidence";
   }
   return "unavailable";
+}
+function isBlockedOnlyByRoomLimit(candidate) {
+  return candidate.preconditions.length === 1 && candidate.preconditions[0].startsWith(ROOM_LIMIT_PRECONDITION_PREFIX);
 }
 function persistNextExpansionTarget(colony, candidate, gameTime) {
   const territoryMemory = getWritableTerritoryMemoryRecord3();
@@ -15888,6 +15895,9 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
     }
+    if (expansionSelection.reason === "roomLimitReached") {
+      return;
+    }
     if (expansionSelection.reason === "unmetPreconditions") {
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
@@ -15968,7 +15978,7 @@ function normalizeNextExpansionTargetSelection(rawSelection, colonyName) {
   };
 }
 function normalizeNextExpansionTargetSelectionReason(reason) {
-  return reason === "noCandidate" || reason === "unmetPreconditions" || reason === "insufficientEvidence" || reason === "unavailable" ? reason : void 0;
+  return reason === "noCandidate" || reason === "roomLimitReached" || reason === "unmetPreconditions" || reason === "insufficientEvidence" || reason === "unavailable" ? reason : void 0;
 }
 function isNextExpansionTargetSelectionCacheReusable(cachedSelection, colony, gameTime, stateKey) {
   if (cachedSelection.stateKey !== stateKey || gameTime < cachedSelection.refreshedAt || gameTime - cachedSelection.refreshedAt >= NEXT_EXPANSION_SCORING_REFRESH_INTERVAL) {
