@@ -164,6 +164,8 @@ interface RecoveredTerritoryFollowUpRetryMetadata {
   suppressedAt: number;
 }
 
+type RemoteMiningRoomState = Omit<TerritoryRemoteMiningRoomMemory, 'updatedAt'>;
+
 const recoveredTerritoryFollowUpRetryMetadata = new WeakMap<
   TerritoryIntentPlan,
   RecoveredTerritoryFollowUpRetryMetadata
@@ -881,36 +883,49 @@ export function refreshRemoteMiningSetup(colony: ColonySnapshot, gameTime = getG
     return;
   }
 
+  const colonyName = colony.room.name;
+  const records = getRemoteMiningBootstrapRecords(territoryMemory, colonyName);
+  if (!territoryMemory.remoteMining && records.length === 0) {
+    return;
+  }
+
   const remoteMining = territoryMemory.remoteMining ?? {};
   territoryMemory.remoteMining = remoteMining;
-  const colonyName = colony.room.name;
   const activeKeys = new Set<string>();
 
-  for (const record of getRemoteMiningBootstrapRecords(territoryMemory, colonyName)) {
+  for (const record of records) {
     const key = getRemoteMiningMemoryKey(record.colony, record.roomName);
     activeKeys.add(key);
 
     const room = getVisibleRoom(record.roomName);
     if (!room) {
       const previous = remoteMining[key];
-      remoteMining[key] = {
-        colony: record.colony,
-        roomName: record.roomName,
-        status: previous?.status ?? 'containerPending',
-        updatedAt: gameTime,
-        sources: previous?.sources ?? {}
-      };
+      updateRemoteMiningRoomMemoryIfChanged(
+        remoteMining,
+        key,
+        {
+          colony: record.colony,
+          roomName: record.roomName,
+          status: previous?.status ?? 'containerPending',
+          sources: previous?.sources ?? {}
+        },
+        gameTime
+      );
       continue;
     }
 
-    if (room.controller?.my !== true) {
-      remoteMining[key] = {
-        colony: record.colony,
-        roomName: record.roomName,
-        status: 'unclaimed',
-        updatedAt: gameTime,
-        sources: {}
-      };
+    if (isHostileOwnedController(room.controller)) {
+      updateRemoteMiningRoomMemoryIfChanged(
+        remoteMining,
+        key,
+        {
+          colony: record.colony,
+          roomName: record.roomName,
+          status: 'unclaimed',
+          sources: {}
+        },
+        gameTime
+      );
       continue;
     }
 
@@ -951,13 +966,17 @@ export function refreshRemoteMiningSetup(colony: ColonySnapshot, gameTime = getG
       })
     );
 
-    remoteMining[key] = {
-      colony: record.colony,
-      roomName: record.roomName,
-      status: suspended ? 'suspended' : getRemoteMiningStatus(Object.values(sourceStates)),
-      updatedAt: gameTime,
-      sources: sourceStates
-    };
+    updateRemoteMiningRoomMemoryIfChanged(
+      remoteMining,
+      key,
+      {
+        colony: record.colony,
+        roomName: record.roomName,
+        status: suspended ? 'suspended' : getRemoteMiningStatus(Object.values(sourceStates)),
+        sources: sourceStates
+      },
+      gameTime
+    );
   }
 
   for (const key of Object.keys(remoteMining)) {
@@ -4652,6 +4671,10 @@ function isControllerOwned(controller: StructureController): boolean {
   return controller.owner != null || controller.my === true;
 }
 
+function isHostileOwnedController(controller: StructureController | undefined): boolean {
+  return controller?.owner != null && controller.my !== true;
+}
+
 function isControllerOwnedByColony(controller: StructureController, colonyOwnerUsername: string | null): boolean {
   const ownerUsername = getControllerOwnerUsername(controller);
   return controller.my === true || (isNonEmptyString(ownerUsername) && ownerUsername === colonyOwnerUsername);
@@ -4868,6 +4891,76 @@ function getRemoteMiningMemoryKey(colony: string, roomName: string): string {
   return `${colony}:${roomName}`;
 }
 
+function updateRemoteMiningRoomMemoryIfChanged(
+  remoteMining: Record<string, TerritoryRemoteMiningRoomMemory>,
+  key: string,
+  nextState: RemoteMiningRoomState,
+  gameTime: number
+): void {
+  const previous = remoteMining[key];
+  const candidate: TerritoryRemoteMiningRoomMemory = {
+    ...nextState,
+    updatedAt: previous?.updatedAt ?? gameTime
+  };
+
+  if (isSameRemoteMiningRoomMemory(previous, candidate)) {
+    return;
+  }
+
+  remoteMining[key] = {
+    ...nextState,
+    updatedAt: gameTime
+  };
+}
+
+function isSameRemoteMiningRoomMemory(
+  left: TerritoryRemoteMiningRoomMemory | undefined,
+  right: TerritoryRemoteMiningRoomMemory
+): boolean {
+  return (
+    left != null &&
+    left.colony === right.colony &&
+    left.roomName === right.roomName &&
+    left.status === right.status &&
+    left.updatedAt === right.updatedAt &&
+    isSameRemoteMiningSources(left.sources, right.sources)
+  );
+}
+
+function isSameRemoteMiningSources(
+  left: Record<string, TerritoryRemoteMiningSourceMemory> | undefined,
+  right: Record<string, TerritoryRemoteMiningSourceMemory>
+): boolean {
+  if (!isRecord(left)) {
+    return false;
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return rightKeys.every((key) => isSameRemoteMiningSource(left[key], right[key]));
+}
+
+function isSameRemoteMiningSource(
+  left: TerritoryRemoteMiningSourceMemory | undefined,
+  right: TerritoryRemoteMiningSourceMemory
+): boolean {
+  return (
+    left != null &&
+    left.sourceId === right.sourceId &&
+    left.containerId === right.containerId &&
+    left.containerBuilt === right.containerBuilt &&
+    left.containerSitePending === right.containerSitePending &&
+    left.harvesterAssigned === right.harvesterAssigned &&
+    left.haulerAssigned === right.haulerAssigned &&
+    left.energyAvailable === right.energyAvailable &&
+    left.energyFlowing === right.energyFlowing
+  );
+}
+
 function isRemoteMiningSuspended(
   territoryMemory: TerritoryMemory,
   colony: string,
@@ -4907,8 +5000,11 @@ function getRemoteMiningAssignedCreeps(homeRoom: string, targetRoom: string): Cr
   const creeps: Creep[] = [];
   for (const roomName of [homeRoom, targetRoom]) {
     const room = getVisibleRoom(roomName);
-    const find = room?.find as ((type: number) => Creep[]) | undefined;
-    const roomCreeps = find?.(findMyCreeps);
+    if (!room || typeof room.find !== 'function') {
+      continue;
+    }
+
+    const roomCreeps = room.find(findMyCreeps as FindConstant) as Creep[];
     if (!Array.isArray(roomCreeps)) {
       continue;
     }

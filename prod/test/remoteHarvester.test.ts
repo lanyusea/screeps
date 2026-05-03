@@ -35,10 +35,10 @@ describe('runRemoteHarvester', () => {
     expect(creep.harvest).not.toHaveBeenCalled();
   });
 
-  it('retreats home when the assigned remote room is no longer claimed', () => {
+  it('retreats home when the assigned remote room is hostile owned', () => {
     const homeController = { id: 'controller1' } as StructureController;
     const homeRoom = { name: 'W1N1', controller: homeController } as Room;
-    const remoteRoom = makeRoom('W2N1', false, []);
+    const remoteRoom = makeRoom('W2N1', false, [], { username: 'enemy' });
     const creep = makeRemoteHarvester(remoteRoom, {
       usedEnergy: 0,
       freeEnergy: 50,
@@ -53,6 +53,25 @@ describe('runRemoteHarvester', () => {
 
     expect(creep.moveTo).toHaveBeenCalledWith(homeController, { reusePath: 20, ignoreRoads: false });
     expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
+  it('harvests in neutral assigned remote rooms', () => {
+    const source = makeSource('source1');
+    const remoteRoom = makeRoom('W2N1', false, []);
+    const creep = makeRemoteHarvester(remoteRoom, {
+      usedEnergy: 0,
+      freeEnergy: 50,
+      range: 1
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) => (id === source.id ? source : null))
+    };
+
+    runRemoteHarvester(creep);
+
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
   it('retreats home when hostiles threaten the remote room', () => {
@@ -112,10 +131,15 @@ function makeRemoteHarvester(
   } as unknown as Creep;
 }
 
-function makeRoom(roomName: string, owned: boolean, hostiles: Creep[]): Room {
+function makeRoom(
+  roomName: string,
+  owned: boolean,
+  hostiles: Creep[],
+  owner = owned ? { username: 'me' } : undefined
+): Room {
   return {
     name: roomName,
-    controller: { my: owned } as StructureController,
+    controller: { my: owned, ...(owner ? { owner } : {}) } as StructureController,
     find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? hostiles : []))
   } as unknown as Room;
 }
