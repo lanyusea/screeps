@@ -1873,7 +1873,7 @@ function isHighImpactConstructionSite(
 ): boolean {
   return (
     isContainerConstructionSite(site) ||
-    getConstructionSiteImpactPriority(site, priorityContext ?? {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.tower
+    getConstructionSiteImpactPriority(site, priorityContext ?? {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad
   );
 }
 

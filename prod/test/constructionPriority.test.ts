@@ -246,6 +246,31 @@ describe('impact-weighted construction site selection', () => {
     );
   });
 
+  it('keeps tower and protected rampart construction above road/container logistics', () => {
+    const towerSite = makeConstructionSite('tower-site', 'tower', 20, 20);
+    const rampartSite = makeConstructionSite('protected-rampart-site', 'rampart', 21, 20);
+    const source = { id: 'source1', pos: makeRoomPosition(22, 20) } as Source;
+    const containerSite = makeConstructionSite('source-container-site', 'container', 22, 20);
+    const roadSite = makeConstructionSite('road-site', 'road', 23, 20);
+    const origin = makeSelectionOrigin({
+      'tower-site': 5,
+      'protected-rampart-site': 5,
+      'source-container-site': 5,
+      'road-site': 5
+    });
+    const context: ConstructionSiteImpactPriorityContext = {
+      protectedRampartAnchors: [makeRoomPosition(21, 20)],
+      sources: [source]
+    };
+
+    expect(selectImpactWeightedConstructionSite(origin, [roadSite, containerSite, towerSite], context)?.id).toBe(
+      'tower-site'
+    );
+    expect(selectImpactWeightedConstructionSite(origin, [roadSite, containerSite, rampartSite], context)?.id).toBe(
+      'protected-rampart-site'
+    );
+  });
+
   it('chooses the closest site when multiple sites have the same impact', () => {
     const farExtensionSite = makeConstructionSite('extension-far', 'extension', 20, 20);
     const nearExtensionSite = makeConstructionSite('extension-near', 'extension', 21, 20);
@@ -327,6 +352,79 @@ describe('runtime construction priority report', () => {
       missingObservations: ['remote-paths']
     });
   });
+
+  it('plans tower and rampart defense without hostile-presence observation', () => {
+    const { colony } = makeRuntimeColony({
+      controllerLevel: 3,
+      energyCapacityAvailable: 800,
+      ownedStructures: [makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20)]
+    });
+    const globals = globalThis as Record<string, unknown>;
+    delete globals.FIND_HOSTILE_CREEPS;
+    delete globals.FIND_HOSTILE_STRUCTURES;
+
+    const report = buildRuntimeConstructionPriorityReport(colony, [
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep,
+      { memory: { role: 'worker', colony: 'W1N1' } } as Creep
+    ]);
+
+    expect(scoreByName(report.candidates, 'build tower defense')).toMatchObject({
+      blocked: false,
+      missingObservations: []
+    });
+    expect(scoreByName(report.candidates, 'build rampart defense')).toMatchObject({
+      blocked: false,
+      missingObservations: []
+    });
+    expect(scoreFor(report.candidates, 'build tower defense')).toBeGreaterThanOrEqual(
+      scoreFor(report.candidates, 'build rampart defense')
+    );
+  });
+
+  it('plans additional towers until the current RCL tower cap is covered', () => {
+    const oneTower = buildRuntimeConstructionPriorityReport(
+      makeRuntimeColony({
+        controllerLevel: 5,
+        energyCapacityAvailable: 800,
+        ownedStructures: [
+          makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20),
+          makeOwnedStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 21, 20)
+        ]
+      }).colony,
+      [{ memory: { role: 'worker', colony: 'W1N1' } } as Creep]
+    );
+
+    const saturated = buildRuntimeConstructionPriorityReport(
+      makeRuntimeColony({
+        controllerLevel: 5,
+        energyCapacityAvailable: 800,
+        ownedStructures: [
+          makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20),
+          makeOwnedStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 21, 20),
+          makeOwnedStructure('tower2', TEST_GLOBALS.STRUCTURE_TOWER, 22, 20)
+        ]
+      }).colony,
+      [{ memory: { role: 'worker', colony: 'W1N1' } } as Creep]
+    );
+
+    const pendingSecondTower = buildRuntimeConstructionPriorityReport(
+      makeRuntimeColony({
+        controllerLevel: 5,
+        energyCapacityAvailable: 800,
+        ownedStructures: [
+          makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20),
+          makeOwnedStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 21, 20)
+        ],
+        ownedConstructionSites: [makeConstructionSite('tower-site', TEST_GLOBALS.STRUCTURE_TOWER, 22, 20)]
+      }).colony,
+      [{ memory: { role: 'worker', colony: 'W1N1' } } as Creep]
+    );
+
+    expect(hasBuildItem(oneTower.candidates, 'build tower defense')).toBe(true);
+    expect(hasBuildItem(saturated.candidates, 'build tower defense')).toBe(false);
+    expect(hasBuildItem(pendingSecondTower.candidates, 'build tower defense')).toBe(false);
+  });
 });
 
 function makeRoomState(overrides: Partial<ConstructionPriorityRoomState> = {}): ConstructionPriorityRoomState {
@@ -381,26 +479,54 @@ function makeTowerCandidate(): ConstructionBuildCandidate {
   };
 }
 
-function makeRuntimeColony(): { colony: ColonySnapshot; room: Room } {
+interface RuntimeColonyOptions {
+  controllerLevel?: number;
+  energyCapacityAvailable?: number;
+  ownedConstructionSites?: ConstructionSite[];
+  ownedStructures?: AnyOwnedStructure[];
+  sources?: Source[];
+  visibleStructures?: AnyStructure[];
+}
+
+function makeRuntimeColony(options: RuntimeColonyOptions = {}): { colony: ColonySnapshot; room: Room } {
+  const controllerPosition = makeRoomPosition(25, 25);
+  let ownedStructures: AnyOwnedStructure[] = [];
+  const ownedConstructionSites = options.ownedConstructionSites ?? [];
+  const sources = options.sources ?? ([{ id: 'source1' }, { id: 'source2' }] as Source[]);
   const room = {
     name: 'W1N1',
-    controller: { my: true, level: 2, ticksToDowngrade: 20_000 } as StructureController,
+    controller: {
+      my: true,
+      level: options.controllerLevel ?? 2,
+      ticksToDowngrade: 20_000,
+      pos: controllerPosition
+    } as StructureController,
     find: jest.fn((findType: number) => {
       switch (findType) {
         case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
+          return ownedConstructionSites;
         case TEST_GLOBALS.FIND_MY_STRUCTURES:
+          return ownedStructures;
         case TEST_GLOBALS.FIND_STRUCTURES:
+          return options.visibleStructures ?? ownedStructures;
         case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
         case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:
           return [];
         case TEST_GLOBALS.FIND_SOURCES:
-          return [{ id: 'source1' }, { id: 'source2' }] as Source[];
+          return sources;
         default:
           return [];
       }
     })
   } as unknown as Room;
-  const spawn = { structureType: TEST_GLOBALS.STRUCTURE_SPAWN, room } as unknown as StructureSpawn;
+  const spawn = {
+    id: 'spawn1',
+    name: 'Spawn1',
+    structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
+    pos: makeRoomPosition(20, 20),
+    room
+  } as unknown as StructureSpawn;
+  ownedStructures = options.ownedStructures ?? ([spawn] as AnyOwnedStructure[]);
 
   return {
     room,
@@ -408,7 +534,7 @@ function makeRuntimeColony(): { colony: ColonySnapshot; room: Room } {
       room,
       spawns: [spawn],
       energyAvailable: 300,
-      energyCapacityAvailable: 550
+      energyCapacityAvailable: options.energyCapacityAvailable ?? 550
     }
   };
 }
@@ -446,6 +572,15 @@ function makeConstructionSite(
   } as unknown as ConstructionSite;
 }
 
+function makeOwnedStructure(id: string, structureType: string, x: number, y: number): AnyOwnedStructure {
+  return {
+    id,
+    structureType,
+    pos: makeRoomPosition(x, y),
+    my: true
+  } as unknown as AnyOwnedStructure;
+}
+
 function makeSelectionOrigin(rangesByTargetId: Record<string, number>): RoomObject {
   return {
     pos: {
@@ -465,4 +600,8 @@ function scoreByName<T extends { buildItem: string }>(candidates: T[], buildItem
   }
 
   return candidate;
+}
+
+function hasBuildItem(candidates: { buildItem: string }[], buildItem: string): boolean {
+  return candidates.some((candidate) => candidate.buildItem === buildItem);
 }
