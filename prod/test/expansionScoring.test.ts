@@ -34,6 +34,93 @@ describe('next expansion scoring', () => {
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
   });
 
+  it('adds a material score bonus for dual-source rooms', () => {
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({ roomName: 'W2N1', order: 0, sourceCount: 1 }),
+        makeCandidate({ roomName: 'W3N1', order: 1, sourceCount: 2 })
+      ])
+    );
+    const singleSource = report.candidates.find((candidate) => candidate.roomName === 'W2N1');
+    const dualSource = report.candidates.find((candidate) => candidate.roomName === 'W3N1');
+
+    expect(report.next).toMatchObject({ roomName: 'W3N1', sourceCount: 2 });
+    expect(singleSource).toBeDefined();
+    expect(dualSource).toBeDefined();
+    expect((dualSource?.score ?? 0) - (singleSource?.score ?? 0)).toBeGreaterThanOrEqual(250);
+  });
+
+  it('penalizes foreign-owned and foreign-reserved controller presence', () => {
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({ roomName: 'W2N1', order: 0 }),
+        makeCandidate({
+          roomName: 'W3N1',
+          order: 1,
+          controller: { ownerUsername: 'enemy' }
+        }),
+        makeCandidate({
+          roomName: 'W4N1',
+          order: 2,
+          controller: { reservationUsername: 'enemy', reservationTicksToEnd: 4_000 }
+        })
+      ])
+    );
+    const neutral = report.candidates.find((candidate) => candidate.roomName === 'W2N1');
+    const foreignOwned = report.candidates.find((candidate) => candidate.roomName === 'W3N1');
+    const foreignReserved = report.candidates.find((candidate) => candidate.roomName === 'W4N1');
+
+    expect(neutral).toBeDefined();
+    expect(foreignOwned).toMatchObject({
+      evidenceStatus: 'unavailable',
+      risks: ['enemy-owned controller cannot be claimed safely']
+    });
+    expect(foreignReserved).toMatchObject({
+      evidenceStatus: 'sufficient',
+      reservation: { username: 'enemy', relation: 'foreign', ticksToEnd: 4_000 },
+      requiresControllerPressure: true,
+      risks: ['foreign reservation requires controller pressure']
+    });
+    expect((neutral?.score ?? 0) - (foreignOwned?.score ?? 0)).toBeGreaterThanOrEqual(2_250);
+    expect((neutral?.score ?? 0) - (foreignReserved?.score ?? 0)).toBeGreaterThanOrEqual(400);
+  });
+
+  it('preserves ranking by proximity, terrain, and distance when resource and controller status match', () => {
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          order: 0,
+          sourceCount: 2,
+          controllerSourceRange: 6,
+          terrain: { walkableRatio: 0.92, swampRatio: 0.05, wallRatio: 0.08 },
+          routeDistance: 1,
+          nearestOwnedRoomDistance: 1
+        }),
+        makeCandidate({
+          roomName: 'W3N1',
+          order: 1,
+          sourceCount: 2,
+          controllerSourceRange: 18,
+          terrain: { walkableRatio: 0.72, swampRatio: 0.22, wallRatio: 0.28 },
+          routeDistance: 2,
+          nearestOwnedRoomDistance: 2
+        })
+      ])
+    );
+
+    expect(report.candidates.map((candidate) => candidate.roomName)).toEqual(['W2N1', 'W3N1']);
+    expect(report.candidates[0].score).toBeGreaterThan(report.candidates[1].score);
+    expect(report.candidates[0].rationale).toEqual(
+      expect.arrayContaining([
+        'controller-source range 6',
+        'terrain walkable 92%',
+        'home route distance 1',
+        'nearest owned distance 1'
+      ])
+    );
+  });
+
   it('ranks claim candidates by sources, controller proximity, terrain, reserves, and distance', () => {
     const report = scoreExpansionCandidates(
       makeInput([
