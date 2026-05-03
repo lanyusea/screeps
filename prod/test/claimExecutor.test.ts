@@ -1,6 +1,7 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import type { RuntimeTelemetryEvent } from '../src/telemetry/runtimeSummary';
 import {
+  clearAutonomousExpansionClaimIntent,
   refreshAutonomousExpansionClaimIntent,
   shouldDeferOccupationRecommendationForExpansionClaim
 } from '../src/territory/claimExecutor';
@@ -58,6 +59,7 @@ describe('autonomous expansion claim executor', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 100,
+        createdBy: 'autonomousExpansionClaim',
         controllerId: 'controller2'
       }
     ]);
@@ -140,6 +142,120 @@ describe('autonomous expansion claim executor', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 104,
+        createdBy: 'autonomousExpansionClaim',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('keeps non-autonomous claim intents when autonomous claims are cleared', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'claim',
+            createdBy: 'autonomousExpansionClaim',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 105,
+            createdBy: 'autonomousExpansionClaim',
+            controllerId: 'controller2' as Id<StructureController>
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 104,
+            controllerId: 'controller2' as Id<StructureController>
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 103,
+            createdBy: 'occupationRecommendation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    clearAutonomousExpansionClaimIntent('W1N1');
+
+    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 104,
+        controllerId: 'controller2'
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 103,
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('adds a source-scoped autonomous claim intent without overwriting unowned claim progress', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 105,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId: 'controller2' as Id<StructureController>
+    });
+
+    refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })]),
+      106
+    );
+
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'active',
+        updatedAt: 105,
+        controllerId: 'controller2'
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 106,
+        createdBy: 'autonomousExpansionClaim',
         controllerId: 'controller2'
       }
     ]);

@@ -426,6 +426,7 @@ describe('occupation recommendation scoring', () => {
       action: 'claim',
       status: 'planned',
       updatedAt: 700,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller3'
     });
     expect(Memory.territory?.intents).toEqual([
@@ -436,6 +437,7 @@ describe('occupation recommendation scoring', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 700,
+        createdBy: 'occupationRecommendation',
         controllerId: 'controller3'
       }
     ]);
@@ -509,6 +511,7 @@ describe('occupation recommendation scoring', () => {
       action: 'claim',
       status: 'planned',
       updatedAt: 704,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller3'
     });
     expect(Memory.territory?.targets).toEqual([
@@ -560,6 +563,7 @@ describe('occupation recommendation scoring', () => {
       action: 'claim',
       status: 'planned',
       updatedAt: 705,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller3'
     });
     expect(Memory.territory?.targets).toEqual([
@@ -636,7 +640,8 @@ describe('occupation recommendation scoring', () => {
       targetRoom: 'W6N1',
       action: 'scout',
       status: 'planned',
-      updatedAt: 706
+      updatedAt: 706,
+      createdBy: 'occupationRecommendation'
     });
     expect(Memory.territory?.targets).toEqual([
       manualTarget,
@@ -698,6 +703,7 @@ describe('occupation recommendation scoring', () => {
       action: 'reserve',
       status: 'planned',
       updatedAt: 707,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller3'
     });
     expect(Memory.territory?.targets).toEqual([]);
@@ -738,7 +744,8 @@ describe('occupation recommendation scoring', () => {
       targetRoom: 'W2N1',
       action: 'reserve',
       status: 'planned',
-      updatedAt: 701
+      updatedAt: 701,
+      createdBy: 'occupationRecommendation'
     });
     expect(Memory.territory?.targets).toBeUndefined();
   });
@@ -819,6 +826,7 @@ describe('occupation recommendation scoring', () => {
       action: 'reserve',
       status: 'planned',
       updatedAt: 703,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller2'
     });
     expect(Memory.territory?.targets).toEqual([
@@ -1032,6 +1040,7 @@ describe('occupation recommendation scoring', () => {
       action: 'reserve',
       status: 'planned',
       updatedAt: 702,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller2'
     });
     expect(Memory.territory?.targets).toEqual([
@@ -1083,6 +1092,7 @@ describe('occupation recommendation scoring', () => {
       action: 'claim',
       status: 'active',
       updatedAt: 700,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller3',
       followUp
     });
@@ -1093,6 +1103,7 @@ describe('occupation recommendation scoring', () => {
         action: 'claim',
         status: 'active',
         updatedAt: 700,
+        createdBy: 'occupationRecommendation',
         controllerId: 'controller3',
         followUp
       }
@@ -1124,6 +1135,7 @@ describe('occupation recommendation scoring', () => {
       action: 'reserve',
       status: 'planned',
       updatedAt: 720,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller2',
       followUp
     });
@@ -1134,6 +1146,7 @@ describe('occupation recommendation scoring', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: 720,
+        createdBy: 'occupationRecommendation',
         controllerId: 'controller2',
         followUp
       }
@@ -1158,6 +1171,7 @@ describe('occupation recommendation scoring', () => {
       action: 'reserve',
       status: 'planned',
       updatedAt: 730,
+      createdBy: 'occupationRecommendation',
       requiresControllerPressure: true
     });
 
@@ -1169,6 +1183,7 @@ describe('occupation recommendation scoring', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: 730,
+        createdBy: 'occupationRecommendation',
         requiresControllerPressure: true
       }
     ]);
@@ -1207,7 +1222,8 @@ describe('occupation recommendation scoring', () => {
       targetRoom: 'W2N1',
       action: 'reserve',
       status: 'planned',
-      updatedAt: 731
+      updatedAt: 731,
+      createdBy: 'occupationRecommendation'
     });
     expect(Memory.territory?.intents).toEqual([
       {
@@ -1215,7 +1231,8 @@ describe('occupation recommendation scoring', () => {
         targetRoom: 'W2N1',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 731
+        updatedAt: 731,
+        createdBy: 'occupationRecommendation'
       }
     ]);
   });
@@ -1247,6 +1264,7 @@ describe('occupation recommendation scoring', () => {
       action: 'reserve',
       status: 'planned',
       updatedAt: 731,
+      createdBy: 'occupationRecommendation',
       requiresControllerPressure: true
     });
     expect(Memory.territory?.intents).toEqual([
@@ -1256,6 +1274,7 @@ describe('occupation recommendation scoring', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: 731,
+        createdBy: 'occupationRecommendation',
         requiresControllerPressure: true
       }
     ]);
@@ -1288,6 +1307,7 @@ describe('occupation recommendation scoring', () => {
       action: 'claim',
       status: 'planned',
       updatedAt: 731,
+      createdBy: 'occupationRecommendation',
       requiresControllerPressure: true
     });
     expect(Memory.territory?.intents).toEqual([
@@ -1297,6 +1317,7 @@ describe('occupation recommendation scoring', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 731,
+        createdBy: 'occupationRecommendation',
         requiresControllerPressure: true
       }
     ]);
@@ -1344,6 +1365,7 @@ describe('occupation recommendation scoring', () => {
         action,
         status: 'planned',
         updatedAt: 731,
+        createdBy: 'occupationRecommendation',
         requiresControllerPressure: true
       });
       expect(Memory.territory?.intents).toEqual([
@@ -1353,6 +1375,7 @@ describe('occupation recommendation scoring', () => {
           action,
           status: 'planned',
           updatedAt: 731,
+          createdBy: 'occupationRecommendation',
           requiresControllerPressure: true
         }
       ]);
@@ -1386,7 +1409,8 @@ describe('occupation recommendation scoring', () => {
       targetRoom: 'W2N1',
       action: 'reserve',
       status: 'planned',
-      updatedAt: 731
+      updatedAt: 731,
+      createdBy: 'occupationRecommendation'
     });
     expect(Memory.territory?.intents).toEqual([
       {
@@ -1394,7 +1418,8 @@ describe('occupation recommendation scoring', () => {
         targetRoom: 'W2N1',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 731
+        updatedAt: 731,
+        createdBy: 'occupationRecommendation'
       }
     ]);
   });

@@ -1,6 +1,7 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   buildRuntimeExpansionCandidateReport,
+  maxRoomsForRcl,
   refreshNextExpansionTargetSelection,
   scoreExpansionCandidates,
   type ExpansionCandidateInput,
@@ -376,6 +377,156 @@ describe('next expansion scoring', () => {
     ]);
   });
 
+  it.each([
+    [1, 1],
+    [2, 1],
+    [3, 2],
+    [4, 3],
+    [5, 5],
+    [6, 8],
+    [7, 15],
+    [8, 99]
+  ])('blocks next expansion claims at the RCL %i max room boundary', (controllerLevel, maxRoomCount) => {
+    expect(maxRoomsForRcl(controllerLevel)).toBe(maxRoomCount);
+
+    const atLimit = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: `W${controllerLevel + 1}N1` })], {
+        controllerLevel,
+        ownedRoomCount: maxRoomCount
+      })
+    );
+    const belowLimit = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: `W${controllerLevel + 2}N1` })], {
+        controllerLevel,
+        ownedRoomCount: maxRoomCount - 1
+      })
+    );
+    const roomLimitPrecondition = `limit expansion to ${maxRoomCount} owned rooms for current controller level`;
+
+    expect(atLimit.next?.preconditions).toContain(roomLimitPrecondition);
+    expect(belowLimit.next?.preconditions).not.toContain(roomLimitPrecondition);
+  });
+
+  it('does not persist next expansion claim intents when the RCL room limit is reached', () => {
+    const colony = makeSafeColony({ controllerLevel: 3 });
+    const report = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
+        controllerLevel: 3,
+        ownedRoomCount: 2
+      })
+    );
+
+    expect(refreshNextExpansionTargetSelection(colony, report, 210)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'roomLimitReached'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+  });
+
+  it('reports the RCL room limit even when another expansion precondition is also unmet', () => {
+    const colony = makeSafeColony({ controllerLevel: 3 });
+    const report = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
+        controllerLevel: 3,
+        ownedRoomCount: 2,
+        ticksToDowngrade: 100
+      })
+    );
+
+    expect(report.next?.preconditions).toEqual(
+      expect.arrayContaining([
+        'limit expansion to 2 owned rooms for current controller level',
+        'stabilize home controller downgrade timer'
+      ])
+    );
+    expect(refreshNextExpansionTargetSelection(colony, report, 213)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'roomLimitReached'
+    });
+  });
+
+  it('leaves reserve intent planning available when the next expansion claim gate is at its room limit', () => {
+    const colony = makeSafeColony({ controllerLevel: 2 });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeVisibleExpansionRoom('W2N1', { sourceCount: 2 })
+      }
+    };
+
+    const report = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
+        controllerLevel: 2,
+        ownedRoomCount: 1
+      })
+    );
+
+    expect(report.next?.preconditions).toContain(
+      'limit expansion to 1 owned rooms for current controller level'
+    );
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 211)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+  });
+
+  it('preserves non-next-expansion claim intents when the RCL room limit prunes generated targets', () => {
+    const colony = makeSafeColony({ controllerLevel: 3 });
+    const activeClaimIntent: TerritoryIntentMemory = {
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'active',
+      updatedAt: 205,
+      createdBy: 'occupationRecommendation'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W4N1',
+            action: 'claim',
+            createdBy: 'nextExpansionScoring'
+          }
+        ],
+        intents: [
+          activeClaimIntent,
+          {
+            colony: 'W1N1',
+            targetRoom: 'W4N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 206,
+            createdBy: 'nextExpansionScoring'
+          }
+        ]
+      }
+    };
+    const report = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
+        controllerLevel: 3,
+        ownedRoomCount: 2
+      })
+    );
+
+    expect(refreshNextExpansionTargetSelection(colony, report, 212)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'roomLimitReached'
+    });
+    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([activeClaimIntent]);
+  });
+
   it('does not persist a next expansion target while post-claim bootstrap is active', () => {
     const colony = makeSafeColony();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
@@ -424,6 +575,7 @@ function makeInput(
     colonyOwnerUsername: 'me',
     energyCapacityAvailable: 650,
     controllerLevel: 3,
+    ownedRoomCount: 1,
     ticksToDowngrade: 10_000,
     candidates,
     ...overrides
@@ -448,13 +600,17 @@ function makeCandidate(overrides: Partial<ExpansionCandidateInput> = {}): Expans
   };
 }
 
-function makeSafeColony(): ColonySnapshot {
+function makeSafeColony({
+  controllerLevel = 3
+}: {
+  controllerLevel?: number;
+} = {}): ColonySnapshot {
   const room = {
     name: 'W1N1',
     controller: {
       my: true,
       owner: { username: 'me' },
-      level: 3,
+      level: controllerLevel,
       ticksToDowngrade: 10_000
     } as StructureController,
     energyAvailable: 650,
