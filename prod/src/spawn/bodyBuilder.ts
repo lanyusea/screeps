@@ -2,8 +2,14 @@ const WORKER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 const WORKER_PATTERN_COST = 200;
 const WORKER_LOGISTICS_PAIR: BodyPartConstant[] = ['carry', 'move'];
 const WORKER_LOGISTICS_PAIR_COST = 100;
+const WORKER_WORK_MOVE_PAIR: BodyPartConstant[] = ['work', 'move'];
+const WORKER_WORK_MOVE_PAIR_COST = 150;
 const WORKER_SURPLUS_MOVE: BodyPartConstant[] = ['move'];
 const WORKER_SURPLUS_MOVE_COST = 50;
+const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
+const MID_RCL_WORKER_PATTERN_COST = 350;
+const HIGH_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'work', 'carry', 'move', 'move'];
+const HIGH_RCL_WORKER_PATTERN_COST = 450;
 const EMERGENCY_DEFENDER_BODY: BodyPartConstant[] = ['tough', 'attack', 'move'];
 const EMERGENCY_DEFENDER_BODY_COST = 140;
 import {
@@ -23,6 +29,12 @@ const MAX_CREEP_PARTS = 50;
 // four 200-energy patterns (800 energy) so early rooms do not sink capacity into
 // oversized unspecialized bodies before dedicated roles exist.
 const MAX_WORKER_PATTERN_COUNT = 4;
+const MIN_MID_RCL = 4;
+const MIN_HIGH_RCL = 7;
+const MAX_MID_RCL_WORKER_PATTERN_COUNT = 5;
+const MAX_HIGH_RCL_WORKER_PATTERN_COUNT = 8;
+const MID_RCL_WORKER_MAX_COST = 1800;
+const HIGH_RCL_WORKER_MAX_COST = 3750;
 const BODY_PART_COSTS: Record<BodyPartConstant, number> = {
   move: 50,
   work: 100,
@@ -34,7 +46,43 @@ const BODY_PART_COSTS: Record<BodyPartConstant, number> = {
   tough: 10
 };
 
-export function buildWorkerBody(energyAvailable: number): BodyPartConstant[] {
+interface WorkerBodyProfile {
+  pattern: BodyPartConstant[];
+  patternCost: number;
+  maxCost: number;
+  maxPatternCount: number;
+}
+
+const MID_RCL_WORKER_PROFILE: WorkerBodyProfile = {
+  pattern: MID_RCL_WORKER_PATTERN,
+  patternCost: MID_RCL_WORKER_PATTERN_COST,
+  maxCost: MID_RCL_WORKER_MAX_COST,
+  maxPatternCount: MAX_MID_RCL_WORKER_PATTERN_COUNT
+};
+
+const HIGH_RCL_WORKER_PROFILE: WorkerBodyProfile = {
+  pattern: HIGH_RCL_WORKER_PATTERN,
+  patternCost: HIGH_RCL_WORKER_PATTERN_COST,
+  maxCost: HIGH_RCL_WORKER_MAX_COST,
+  maxPatternCount: MAX_HIGH_RCL_WORKER_PATTERN_COUNT
+};
+
+export function buildWorkerBody(
+  energyAvailable: number,
+  controllerLevel?: number
+): BodyPartConstant[] {
+  if (isHighRcl(controllerLevel)) {
+    return buildProfileWorkerBody(energyAvailable, HIGH_RCL_WORKER_PROFILE);
+  }
+
+  if (isMidRcl(controllerLevel)) {
+    return buildProfileWorkerBody(energyAvailable, MID_RCL_WORKER_PROFILE);
+  }
+
+  return buildLowRclWorkerBody(energyAvailable);
+}
+
+function buildLowRclWorkerBody(energyAvailable: number): BodyPartConstant[] {
   if (energyAvailable < WORKER_PATTERN_COST) {
     return [];
   }
@@ -53,6 +101,65 @@ export function buildWorkerBody(energyAvailable: number): BodyPartConstant[] {
   }
 
   return body;
+}
+
+function buildProfileWorkerBody(
+  energyAvailable: number,
+  profile: WorkerBodyProfile
+): BodyPartConstant[] {
+  if (energyAvailable < WORKER_PATTERN_COST) {
+    return [];
+  }
+
+  if (energyAvailable < profile.patternCost) {
+    return buildLowRclWorkerBody(energyAvailable);
+  }
+
+  const energyBudget = Math.min(energyAvailable, profile.maxCost);
+  const maxPatternCountByEnergy = Math.floor(energyBudget / profile.patternCost);
+  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / profile.pattern.length);
+  const patternCount = Math.min(
+    maxPatternCountByEnergy,
+    maxPatternCountBySize,
+    profile.maxPatternCount
+  );
+  const body = Array.from({ length: patternCount }).flatMap(() => profile.pattern);
+
+  return addProfileWorkerRemainderParts(body, energyBudget, patternCount * profile.patternCost);
+}
+
+function addProfileWorkerRemainderParts(
+  body: BodyPartConstant[],
+  energyBudget: number,
+  bodyCost: number
+): BodyPartConstant[] {
+  const additions = [
+    { parts: WORKER_WORK_MOVE_PAIR, cost: WORKER_WORK_MOVE_PAIR_COST },
+    { parts: WORKER_LOGISTICS_PAIR, cost: WORKER_LOGISTICS_PAIR_COST },
+    { parts: WORKER_SURPLUS_MOVE, cost: WORKER_SURPLUS_MOVE_COST }
+  ];
+  let nextBody = [...body];
+  let nextCost = bodyCost;
+
+  for (const addition of additions) {
+    if (
+      nextCost + addition.cost <= energyBudget &&
+      nextBody.length + addition.parts.length <= MAX_CREEP_PARTS
+    ) {
+      nextBody = [...nextBody, ...addition.parts];
+      nextCost += addition.cost;
+    }
+  }
+
+  return nextBody;
+}
+
+function isMidRcl(controllerLevel: number | undefined): boolean {
+  return typeof controllerLevel === 'number' && controllerLevel >= MIN_MID_RCL;
+}
+
+function isHighRcl(controllerLevel: number | undefined): boolean {
+  return typeof controllerLevel === 'number' && controllerLevel >= MIN_HIGH_RCL;
 }
 
 function shouldAddWorkerLogisticsPair(

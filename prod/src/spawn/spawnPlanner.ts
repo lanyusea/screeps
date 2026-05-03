@@ -843,7 +843,8 @@ function appendSpawnNameSuffix(baseName: string, options: SpawnPlanningOptions):
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {
-  const normalBody = buildWorkerBody(colony.energyCapacityAvailable);
+  const controllerLevel = colony.room.controller?.level;
+  const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
   if (canAffordBody(normalBody, colony.energyAvailable)) {
     return normalBody;
   }
@@ -852,7 +853,7 @@ function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyP
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
 
-  return buildWorkerBody(colony.energyAvailable);
+  return buildWorkerBody(colony.energyAvailable, controllerLevel);
 }
 
 function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {

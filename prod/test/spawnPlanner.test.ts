@@ -12,6 +12,9 @@ import {
 } from '../src/territory/territoryPlanner';
 
 describe('planSpawn', () => {
+  const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
+  const HIGH_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'work', 'carry', 'move', 'move'];
+
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
@@ -107,6 +110,10 @@ describe('planSpawn', () => {
         getCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? capacity : 0))
       }
     } as unknown as StructureStorage;
+  }
+
+  function repeatBodyPattern(pattern: BodyPartConstant[], patternCount: number): BodyPartConstant[] {
+    return Array.from({ length: patternCount }).flatMap(() => pattern);
   }
 
   function installHostileFindGlobals(): void {
@@ -285,6 +292,54 @@ describe('planSpawn', () => {
       body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'carry', 'move'],
       name: 'worker-W1N13-151',
       memory: { role: 'worker', colony: 'W1N13' }
+    });
+  });
+
+  it('uses the RCL4 medium worker profile when full capacity is affordable', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N19',
+      energyAvailable: 1300,
+      energyCapacityAvailable: 1300,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 2 }, 152)).toEqual({
+      spawn,
+      body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 3), 'work', 'move', 'carry', 'move'],
+      name: 'worker-W1N19-152',
+      memory: { role: 'worker', colony: 'W1N19' }
+    });
+  });
+
+  it('falls back to an affordable RCL4 worker profile while room energy recovers', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N20',
+      energyAvailable: 600,
+      energyCapacityAvailable: 1300,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 2 }, 153)).toEqual({
+      spawn,
+      body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
+      name: 'worker-W1N20-153',
+      memory: { role: 'worker', colony: 'W1N20' }
+    });
+  });
+
+  it('uses the high-RCL maximum-throughput worker profile', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N21',
+      energyAvailable: 5600,
+      energyCapacityAvailable: 5600,
+      controller: { my: true, level: 7, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 2 }, 154)).toEqual({
+      spawn,
+      body: [...repeatBodyPattern(HIGH_RCL_WORKER_PATTERN, 8), 'work', 'move'],
+      name: 'worker-W1N21-154',
+      memory: { role: 'worker', colony: 'W1N21' }
     });
   });
 

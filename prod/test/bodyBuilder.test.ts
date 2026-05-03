@@ -9,6 +9,8 @@ import {
 import { TERRITORY_CONTROLLER_BODY, TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/creepBodies';
 
 const WORKER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
+const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
+const HIGH_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'work', 'carry', 'move', 'move'];
 
 const BODY_PART_COST_CASES: Array<[BodyPartConstant, number]> = [
   ['move', 50],
@@ -23,6 +25,10 @@ const BODY_PART_COST_CASES: Array<[BodyPartConstant, number]> = [
 
 function repeatWorkerPattern(patternCount: number): BodyPartConstant[] {
   return Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
+}
+
+function repeatPattern(pattern: BodyPartConstant[], patternCount: number): BodyPartConstant[] {
+  return Array.from({ length: patternCount }).flatMap(() => pattern);
 }
 
 describe('buildWorkerBody', () => {
@@ -45,7 +51,50 @@ describe('buildWorkerBody', () => {
   it('caps general-purpose worker bodies at 800 energy', () => {
     expect(buildWorkerBody(800)).toEqual(repeatWorkerPattern(4));
     expect(buildWorkerBody(10000)).toEqual(repeatWorkerPattern(4));
+    expect(buildWorkerBody(10000, 3)).toEqual(repeatWorkerPattern(4));
     expect(getBodyCost(buildWorkerBody(10000))).toBe(800);
+  });
+
+  it('keeps low RCL worker bodies compact and balanced', () => {
+    expect(buildWorkerBody(300, 1)).toEqual(WORKER_PATTERN);
+    expect(buildWorkerBody(650, 2)).toEqual([...repeatWorkerPattern(3), 'move']);
+    expect(buildWorkerBody(800, 3)).toEqual(repeatWorkerPattern(4));
+  });
+
+  it('uses mid RCL worker profiles with higher work capacity', () => {
+    expect(buildWorkerBody(300, 4)).toEqual(WORKER_PATTERN);
+    expect(buildWorkerBody(350, 4)).toEqual(MID_RCL_WORKER_PATTERN);
+    expect(buildWorkerBody(1300, 4)).toEqual([
+      ...repeatPattern(MID_RCL_WORKER_PATTERN, 3),
+      'work',
+      'move',
+      'carry',
+      'move'
+    ]);
+    expect(buildWorkerBody(2300, 6)).toEqual([...repeatPattern(MID_RCL_WORKER_PATTERN, 5), 'move']);
+    expect(getBodyCost(buildWorkerBody(2300, 6))).toBe(1800);
+  });
+
+  it('uses high RCL worker profiles for maximum throughput', () => {
+    expect(buildWorkerBody(800, 7)).toEqual([
+      ...HIGH_RCL_WORKER_PATTERN,
+      'work',
+      'move',
+      'carry',
+      'move',
+      'move'
+    ]);
+    expect(buildWorkerBody(3800, 8)).toEqual([
+      ...repeatPattern(HIGH_RCL_WORKER_PATTERN, 8),
+      'work',
+      'move'
+    ]);
+    expect(buildWorkerBody(5600, 8)).toEqual([
+      ...repeatPattern(HIGH_RCL_WORKER_PATTERN, 8),
+      'work',
+      'move'
+    ]);
+    expect(getBodyCost(buildWorkerBody(5600, 8))).toBe(3750);
   });
 
   it('returns an empty body when there is not enough energy for a worker set', () => {
@@ -63,6 +112,28 @@ describe('buildWorkerBody', () => {
       const completePatternPartCount = body.length - (body.length % WORKER_PATTERN.length);
       for (let i = 0; i < completePatternPartCount; i += WORKER_PATTERN.length) {
         expect(body.slice(i, i + WORKER_PATTERN.length)).toEqual(WORKER_PATTERN);
+      }
+    }
+  });
+
+  it('keeps RCL-aware worker bodies affordable within energy budgets and creep size limits', () => {
+    const cases: Array<{ controllerLevel: number; maxCost: number }> = [
+      { controllerLevel: 1, maxCost: 800 },
+      { controllerLevel: 3, maxCost: 800 },
+      { controllerLevel: 4, maxCost: 1800 },
+      { controllerLevel: 6, maxCost: 1800 },
+      { controllerLevel: 7, maxCost: 3750 },
+      { controllerLevel: 8, maxCost: 3750 }
+    ];
+    const energyBudgets = [0, 199, 200, 300, 350, 400, 600, 800, 1300, 1800, 2300, 3800, 5600, 10000];
+
+    for (const { controllerLevel, maxCost } of cases) {
+      for (const energyAvailable of energyBudgets) {
+        const body = buildWorkerBody(energyAvailable, controllerLevel);
+
+        expect(body.length).toBeLessThanOrEqual(50);
+        expect(getBodyCost(body)).toBeLessThanOrEqual(energyAvailable);
+        expect(getBodyCost(body)).toBeLessThanOrEqual(maxCost);
       }
     }
   });
