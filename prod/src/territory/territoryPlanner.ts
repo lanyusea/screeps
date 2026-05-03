@@ -1945,7 +1945,11 @@ function getAdjacentReserveCandidates(
   orderOffset: number,
   routeDistanceLookupContext: RouteDistanceLookupContext
 ): ScoredTerritoryTarget[] {
-  const adjacentRooms = getAdjacentRoomNames(originRoomName);
+  const adjacentRooms = sortAdjacentRoomsByPersistedExpansionScore(
+    getAdjacentRoomNames(originRoomName),
+    colonyName,
+    territoryMemory
+  );
   if (adjacentRooms.length === 0) {
     return [];
   }
@@ -2005,6 +2009,60 @@ function getAdjacentReserveCandidates(
 
     return [];
   });
+}
+
+function sortAdjacentRoomsByPersistedExpansionScore(
+  roomNames: string[],
+  colonyName: string,
+  territoryMemory: Record<string, unknown> | null
+): string[] {
+  if (roomNames.length <= 1) {
+    return roomNames;
+  }
+
+  const scoredRoomRanks = getPersistedExpansionCandidateRanks(colonyName, territoryMemory);
+  if (scoredRoomRanks.size === 0) {
+    return roomNames;
+  }
+
+  return roomNames
+    .map((roomName, index) => ({ roomName, index }))
+    .sort(
+      (left, right) =>
+        compareOptionalNumbers(scoredRoomRanks.get(left.roomName), scoredRoomRanks.get(right.roomName)) ||
+        left.index - right.index
+    )
+    .map(({ roomName }) => roomName);
+}
+
+function getPersistedExpansionCandidateRanks(
+  colonyName: string,
+  territoryMemory: Record<string, unknown> | null
+): Map<string, number> {
+  if (!territoryMemory || !Array.isArray(territoryMemory.expansionCandidates)) {
+    return new Map();
+  }
+
+  const ranks = new Map<string, number>();
+  for (const [index, rawCandidate] of territoryMemory.expansionCandidates.entries()) {
+    if (!isRecord(rawCandidate)) {
+      continue;
+    }
+
+    if (
+      rawCandidate.colony !== colonyName ||
+      !isNonEmptyString(rawCandidate.roomName) ||
+      rawCandidate.evidenceStatus === 'unavailable' ||
+      (rawCandidate.recommendedAction !== 'scout' && rawCandidate.recommendedAction !== 'claim') ||
+      ranks.has(rawCandidate.roomName)
+    ) {
+      continue;
+    }
+
+    ranks.set(rawCandidate.roomName, index);
+  }
+
+  return ranks;
 }
 
 function getVisibleAdjacentReserveCandidates(

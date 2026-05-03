@@ -247,6 +247,7 @@ describe('next expansion scoring', () => {
       nearestOwnedRoomDistance: 1,
       adjacentToOwnedRoom: true,
       sourceCount: 2,
+      sourceAccessPoints: 8,
       controllerSourceRange: 10,
       terrain: {
         walkableRatio: 0.9,
@@ -256,6 +257,112 @@ describe('next expansion scoring', () => {
     });
     expect(findRoute).toHaveBeenCalledWith('W1N1', 'W3N1');
     expect(findRoute).toHaveBeenCalledWith('W2N1', 'W3N1');
+  });
+
+  it('scores unseen adjacent rooms as scout-needed expansion candidates and the planner follows the persisted ranking', () => {
+    const colony = makeSafeColony();
+    const describeExits = jest.fn((roomName: string) =>
+      roomName === 'W1N1' ? { '1': 'W1N2', '3': 'W2N1' } : {}
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {
+        describeExits,
+        findRoute: jest.fn(() => [{ exit: 3, room: 'next' }]),
+        getRoomTerrain: jest.fn((roomName: string) => makeTerrain(roomName === 'W2N1' ? 0.02 : 0.45))
+      } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+
+    expect(report.candidates.map((candidate) => candidate.roomName)).toEqual(['W2N1', 'W1N2']);
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      evidenceStatus: 'insufficient-evidence',
+      visible: false,
+      terrain: {
+        walkableRatio: 0.98,
+        swampRatio: 0,
+        wallRatio: 0.02
+      },
+      risks: expect.arrayContaining([
+        'controller evidence missing until scout',
+        'source count evidence missing until scout',
+        'hostile evidence missing until scout'
+      ])
+    });
+
+    expect(refreshNextExpansionTargetSelection(colony, report, 400)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'insufficientEvidence'
+    });
+    expect(getExpansionCandidateMemory()).toEqual([
+      expect.objectContaining({
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        evidenceStatus: 'insufficient-evidence',
+        recommendedAction: 'scout',
+        visible: false,
+        updatedAt: 400
+      }),
+      expect.objectContaining({
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        evidenceStatus: 'insufficient-evidence',
+        recommendedAction: 'scout',
+        visible: false,
+        updatedAt: 400
+      })
+    ]);
+    expect(Memory.territory?.targets).toBeUndefined();
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 401)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 401
+      }
+    ]);
+  });
+
+  it('records terrain-based source accessibility for visible expansion candidates', () => {
+    const colony = makeSafeColony();
+    const terrain = {
+      get: jest.fn((x: number, y: number) =>
+        x >= 14 && x <= 16 && y >= 24 && y <= 26 && !(x === 15 && y === 25) && y !== 24
+          ? TERRAIN_MASK_WALL
+          : 0
+      )
+    } as unknown as RoomTerrain;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' })),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => terrain)
+      } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeVisibleExpansionRoom('W2N1')
+      }
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      sourceAccessPoints: 3
+    });
+    expect(report.next?.rationale).toContain('source access 3 open tiles');
   });
 
   it('persists the selected claim target and the planner consumes it', () => {
@@ -679,6 +786,7 @@ function makeCandidate(overrides: Partial<ExpansionCandidateInput> = {}): Expans
     nearestOwnedRoomDistance: 1,
     controller: { },
     sourceCount: 1,
+    sourceAccessPoints: 6,
     controllerSourceRange: 8,
     terrain: { walkableRatio: 0.85, swampRatio: 0.1, wallRatio: 0.15 },
     hostileCreepCount: 0,
@@ -776,4 +884,11 @@ function makeTerrain(wallRatio: number): RoomTerrain {
       return normalized < wallRatio ? TERRAIN_MASK_WALL : 0;
     })
   } as unknown as RoomTerrain;
+}
+
+function getExpansionCandidateMemory(): Array<Record<string, unknown>> {
+  return (
+    ((Memory.territory ?? {}) as unknown as { expansionCandidates?: Array<Record<string, unknown>> })
+      .expansionCandidates ?? []
+  );
 }
