@@ -391,6 +391,50 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts energy acquisition so boosted upgraders keep upgrading with any carried energy', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      progress: 900,
+      progressTotal: 1_000
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      controller,
+      find: jest.fn().mockReturnValue([])
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W1N1', role: 'upgrader' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(75),
+        getCapacity: jest.fn().mockReturnValue(100)
+      },
+      room,
+      harvest: jest.fn(),
+      upgradeController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { BoostUpgrader: creep },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : id === 'controller1' ? controller : null))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'upgrade', targetId: 'controller1' });
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+    expect(creep.harvest).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('switches from a depleted harvest target to a viable source in the same tick', () => {
     const depletedSource = { id: 'source1', energy: 0 } as Source;
     const viableSource = { id: 'source2', energy: 100 } as Source;

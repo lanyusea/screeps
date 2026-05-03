@@ -7738,6 +7738,8 @@ var MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 var DEFAULT_SOURCE_ENERGY_CAPACITY = 3e3;
 var DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
 var MAX_CONTROLLER_LEVEL = 8;
+var UPGRADER_BOOST_CONTROLLER_PROGRESS_RATIO = 0.9;
+var UPGRADER_BOOST_LOW_ENERGY_RATIO = 0.5;
 var SOURCE2_CONTROLLER_LANE_SOURCE_INDEX = 1;
 var SOURCE2_CONTROLLER_LANE_MAX_RANGE = 6;
 var MIN_LOADED_WORKERS_FOR_SECOND_SUSTAINED_CONTROLLER_PROGRESS = 4;
@@ -7791,6 +7793,10 @@ function selectHeuristicWorkerTask(creep) {
       if (shouldStandbySurplusWorkerInsteadOfAcquiring(creep, creep.room.controller)) {
         return null;
       }
+      const upgraderBoostEnergyAcquisitionTask = selectUpgraderBoostEnergyAcquisitionTask(creep, creep.room.controller);
+      if (upgraderBoostEnergyAcquisitionTask) {
+        return upgraderBoostEnergyAcquisitionTask;
+      }
       const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
       if (builderEnergyAcquisitionTask) {
         return builderEnergyAcquisitionTask;
@@ -7835,6 +7841,10 @@ function selectHeuristicWorkerTask(creep) {
     };
     recordLowLoadReturnTelemetry(creep, downgradeGuardTask, "controllerDowngradeGuard");
     return downgradeGuardTask;
+  }
+  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
+  if (upgraderBoostUpgradeTask) {
+    return upgraderBoostUpgradeTask;
   }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
   if (spawnOrExtensionEnergySink) {
@@ -8035,6 +8045,66 @@ function selectControllerSustainUpgradeTask(creep, controller) {
     return null;
   }
   return { type: "upgrade", targetId: controller.id };
+}
+function selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy) {
+  if (carriedEnergy <= 0 || !isUpgraderBoostActive(creep, controller)) {
+    return null;
+  }
+  return { type: "upgrade", targetId: controller.id };
+}
+function selectUpgraderBoostEnergyAcquisitionTask(creep, controller) {
+  if (!isUpgraderBoostActive(creep, controller) || !hasLowEnergyForUpgraderBoost(creep) || getFreeEnergyCapacity2(creep) <= 0) {
+    return null;
+  }
+  const context = {
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const candidates = findVisibleRoomStructures(creep.room).filter(
+    (structure) => isSafeStoredEnergySource(structure, context) && isUpgraderBoostStoredEnergySource(structure)
+  ).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getStoredEnergy2(source),
+      {
+        type: "withdraw",
+        targetId: source.id
+      },
+      reservationContext
+    );
+    return candidate ? [candidate] : [];
+  });
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+}
+function isUpgraderBoostActive(creep, controller) {
+  return isUpgraderCreep(creep) && isControllerNearLevelUp(controller);
+}
+function isUpgraderCreep(creep) {
+  var _a, _b, _c;
+  return ((_a = creep.memory) == null ? void 0 : _a.role) === "upgrader" || ((_c = (_b = creep.memory) == null ? void 0 : _b.controllerSustain) == null ? void 0 : _c.role) === "upgrader";
+}
+function isControllerNearLevelUp(controller) {
+  if (!controller || !canLevelUpController(controller)) {
+    return false;
+  }
+  const progress = controller.progress;
+  const progressTotal = controller.progressTotal;
+  return typeof progress === "number" && Number.isFinite(progress) && typeof progressTotal === "number" && Number.isFinite(progressTotal) && progressTotal > 0 && Math.max(0, progress) / progressTotal >= UPGRADER_BOOST_CONTROLLER_PROGRESS_RATIO;
+}
+function hasLowEnergyForUpgraderBoost(creep) {
+  const carriedEnergy = getUsedEnergy2(creep);
+  const freeCapacity = getFreeEnergyCapacity2(creep);
+  const capacity = getEnergyCapacity(creep, carriedEnergy, freeCapacity);
+  return capacity > 0 && carriedEnergy < capacity * UPGRADER_BOOST_LOW_ENERGY_RATIO;
+}
+function isUpgraderBoostStoredEnergySource(source) {
+  return matchesStructureType6(source.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType6(source.structureType, "STRUCTURE_STORAGE", "storage");
 }
 function selectFirstEnergySinkByStableId(energySinks) {
   var _a;
@@ -10656,6 +10726,8 @@ function runWorker(creep) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptTaskForUpgraderBoost(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, currentTask, selectedTask)) {
@@ -11010,6 +11082,16 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, task, 
     return false;
   }
   return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+function shouldPreemptTaskForUpgraderBoost(creep, task, selectedTask) {
+  var _a;
+  if (!isOwnedControllerUpgradeTask(creep, selectedTask) || isSameTask(task, selectedTask)) {
+    return false;
+  }
+  if (!isUpgraderBoostActive(creep, (_a = creep.room) == null ? void 0 : _a.controller)) {
+    return false;
+  }
+  return getCarriedEnergy(creep) > 0;
 }
 function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, task, selectedTask) {
   var _a;

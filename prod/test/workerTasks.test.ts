@@ -360,6 +360,74 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
   });
 
+  it('boosting upgraders withdraw stored energy before source2 lane harvesting near controller level-up', () => {
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 25);
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 500, {
+      my: true,
+      pos: makeRoomPosition(10, 10)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      progress: 900,
+      progressTotal: 1_000,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const creep = {
+      name: 'BoostUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W1N1', role: 'upgrader' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(100),
+        getCapacity: jest.fn().mockReturnValue(100)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage1' ? 8 : 1)) },
+      room: makeWorkerTaskRoom({ controller, sources: [source1, source2], structures: [storage] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
+  });
+
+  it('does not activate upgrader boost at RCL8', () => {
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 25);
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 500, {
+      my: true,
+      pos: makeRoomPosition(10, 10)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 8,
+      progress: 1_000,
+      progressTotal: 1_000,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const creep = {
+      name: 'MaxRclUpgrader',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W1N1', role: 'upgrader' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(100),
+        getCapacity: jest.fn().mockReturnValue(100)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage1' ? 8 : 1)) },
+      room: makeWorkerTaskRoom({ controller, sources: [source1, source2], structures: [storage] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
+  });
+
   it('selects the richest dropped energy before harvesting when worker has free capacity', () => {
     const lowValueDroppedEnergy = { id: 'drop-low', resourceType: 'energy', amount: 24 } as Resource<ResourceConstant>;
     const farDroppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
