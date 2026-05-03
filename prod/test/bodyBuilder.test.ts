@@ -75,6 +75,10 @@ describe('buildWorkerBody', () => {
     expect(getBodyCost(buildWorkerBody(2300, 6))).toBe(1800);
   });
 
+  it('falls back to a low-RCL worker body when high-RCL energy is below the profile pattern cost', () => {
+    expect(buildWorkerBody(400, 7)).toEqual(repeatWorkerPattern(2));
+  });
+
   it('uses high RCL worker profiles for maximum throughput', () => {
     expect(buildWorkerBody(800, 7)).toEqual([
       ...HIGH_RCL_WORKER_PATTERN,

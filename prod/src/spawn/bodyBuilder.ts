@@ -107,10 +107,6 @@ function buildProfileWorkerBody(
   energyAvailable: number,
   profile: WorkerBodyProfile
 ): BodyPartConstant[] {
-  if (energyAvailable < WORKER_PATTERN_COST) {
-    return [];
-  }
-
   if (energyAvailable < profile.patternCost) {
     return buildLowRclWorkerBody(energyAvailable);
   }
