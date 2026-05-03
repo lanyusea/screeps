@@ -2,6 +2,7 @@ import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   selectWorkerPreHarvestTask,
+  isUpgraderBoostActive,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
@@ -59,6 +60,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
+    assignSelectedTask(creep, selectedTask, currentTask);
+  } else if (shouldPreemptTaskForUpgraderBoost(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
   } else if (shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, currentTask, selectedTask)) {
     assignSelectedTask(creep, selectedTask, currentTask);
@@ -569,6 +572,22 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
   }
 
   return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+
+function shouldPreemptTaskForUpgraderBoost(
+  creep: Creep,
+  task: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (!isOwnedControllerUpgradeTask(creep, selectedTask) || isSameTask(task, selectedTask)) {
+    return false;
+  }
+
+  if (!isUpgraderBoostActive(creep, creep.room?.controller)) {
+    return false;
+  }
+
+  return getCarriedEnergy(creep) > 0;
 }
 
 function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(

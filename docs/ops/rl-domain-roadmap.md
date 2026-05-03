@@ -39,6 +39,10 @@ Until then, outputs are offline/shadow/high-level recommendation only: construct
 | L5 Historical validation | Test candidates against official-MMO historical windows before rollout | #417 | pass/fail validation report with OOD/reliability rejection | before any live influence |
 | L6 KPI rollout/rollback | Deploy only gated high-level strategy changes, monitor, and revert on degradation | #418 | rollout decision, rollback plan, post-rollout KPI report | per candidate release |
 
+## Implementation status
+
+- L4: Training framework — implemented 2026-05-03 — scripts/screeps_rl_experiment_card.py, docs/ops/rl-training-reward-workflow.md, docs/research/2026-05-03-rl-training-approaches.md
+
 ## Current issue map
 
 Completed foundation:
