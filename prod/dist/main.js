@@ -8981,24 +8981,7 @@ function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
     );
     return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate, 1)] : [];
   }).sort(compareBuilderEnergyAcquisitionCandidates).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
-  if (storedEnergyCandidates.length > 0 || droppedEnergyCandidates.length > 0) {
-    return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
-  }
-  const harvestSource = selectHarvestSource(creep);
-  if (!harvestSource || isSourceDepleted(harvestSource)) {
-    return [];
-  }
-  return [
-    toBuilderEnergyAcquisitionCandidate(
-      createLowLoadWorkerEnergyAcquisitionCandidate(
-        creep,
-        harvestSource,
-        getHarvestCandidateEnergy(creep, harvestSource),
-        { type: "harvest", targetId: harvestSource.id }
-      ),
-      2
-    )
-  ];
+  return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
 }
 function toBuilderEnergyAcquisitionCandidate(candidate, priority) {
   return {
