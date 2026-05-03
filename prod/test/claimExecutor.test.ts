@@ -181,6 +181,52 @@ describe('autonomous expansion claim executor', () => {
     ]);
   });
 
+  it('blocks a room already targeted by a same-colony autonomous claim intent', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 105,
+            createdBy: 'autonomousExpansionClaim',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId: 'controller2' as Id<StructureController>
+    });
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })]),
+      106
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      reason: 'existingClaimIntent'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 105,
+        createdBy: 'autonomousExpansionClaim',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
   it('blocks same-tick autonomous claims for a room already targeted by another colony', () => {
     const firstColony = makeColony({ roomName: 'W1N1', controllerLevel: 4 });
     const secondColony = makeColony({ roomName: 'W3N1', controllerLevel: 4 });

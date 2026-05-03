@@ -206,7 +206,7 @@ function evaluateAutonomousExpansionClaim(
   const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport);
   const candidate =
     adjacentCandidates.find(
-      (scoredCandidate) => !hasBlockingClaimIntentForRoom(colonyName, scoredCandidate.roomName, context.territoryIntents)
+      (scoredCandidate) => !hasBlockingClaimIntentForRoom(scoredCandidate.roomName, context.territoryIntents)
     ) ?? null;
   if (!candidate) {
     const blockedCandidate = adjacentCandidates[0];
@@ -502,17 +502,13 @@ function hasSufficientAutonomousExpansionClaimRcl(colony: ColonySnapshot): boole
 }
 
 function hasBlockingClaimIntentForRoom(
-  colony: string,
   targetRoom: string,
   intents: TerritoryIntentMemory[]
 ): boolean {
   return intents.some(
     (intent) =>
       intent.targetRoom === targetRoom &&
-      intent.action === 'claim' &&
-      (intent.status === 'active' ||
-        intent.createdBy !== AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR ||
-        intent.colony !== colony)
+      intent.action === 'claim'
   );
 }
 
@@ -563,7 +559,7 @@ function persistAutonomousExpansionClaimIntent(
   }
 
   const cachedIntents = getTerritoryIntentsForAutonomousExpansionClaim(territoryMemory, context);
-  if (hasBlockingClaimIntentForRoom(colony, evaluation.targetRoom, cachedIntents)) {
+  if (hasBlockingClaimIntentForRoom(evaluation.targetRoom, cachedIntents)) {
     return;
   }
 

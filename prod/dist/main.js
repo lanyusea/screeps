@@ -16214,15 +16214,17 @@ var ERR_NOT_IN_RANGE_CODE5 = -9;
 var ERR_INVALID_TARGET_CODE2 = -7;
 var ERR_NO_BODYPART_CODE = -12;
 var ERR_GCL_NOT_ENOUGH_CODE = -15;
+var autonomousExpansionClaimTickContext = null;
 function refreshAutonomousExpansionClaimIntent(colony, report, gameTime, telemetryEvents = []) {
-  const evaluation = evaluateAutonomousExpansionClaim(colony, report, gameTime);
+  const context = getAutonomousExpansionClaimTickContext(gameTime);
+  const evaluation = evaluateAutonomousExpansionClaim(colony, report, gameTime, context);
   if (evaluation.status === "planned" && evaluation.targetRoom) {
-    persistAutonomousExpansionClaimIntent(colony.room.name, evaluation, gameTime);
+    persistAutonomousExpansionClaimIntent(colony.room.name, evaluation, gameTime, context);
     recordAutonomousExpansionClaimTelemetry(telemetryEvents, evaluation, "intent");
     return evaluation;
   }
   if (shouldPruneAutonomousExpansionClaimTargets(evaluation.reason)) {
-    pruneAutonomousExpansionClaimTargets(colony.room.name);
+    pruneAutonomousExpansionClaimTargets(colony.room.name, void 0, void 0, context);
   }
   if (evaluation.targetRoom) {
     recordAutonomousExpansionClaimTelemetry(telemetryEvents, evaluation, "skip");
@@ -16234,6 +16236,7 @@ function shouldDeferOccupationRecommendationForExpansionClaim(evaluation) {
 }
 function clearAutonomousExpansionClaimIntent(colony) {
   pruneAutonomousExpansionClaimTargets(colony);
+  autonomousExpansionClaimTickContext = null;
 }
 function shouldPruneAutonomousExpansionClaimTargets(reason) {
   return reason === "noAdjacentCandidate" || reason === "scoreBelowThreshold" || reason === "hostilePresence" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved";
@@ -16260,6 +16263,29 @@ function isAutonomousExpansionClaimGclInsufficient() {
     return false;
   }
   return getVisibleOwnedRoomCount() >= maxClaimableRooms;
+}
+function getAutonomousExpansionClaimTickContext(gameTime) {
+  var _a;
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  const territoryMemory = getTerritoryMemoryRecord5();
+  const rawIntents = territoryMemory == null ? void 0 : territoryMemory.intents;
+  if (autonomousExpansionClaimTickContext && autonomousExpansionClaimTickContext.gameTime === gameTime && autonomousExpansionClaimTickContext.gameMap === gameMap) {
+    if (autonomousExpansionClaimTickContext.territoryMemory !== territoryMemory || autonomousExpansionClaimTickContext.rawIntents !== rawIntents) {
+      autonomousExpansionClaimTickContext.territoryMemory = territoryMemory;
+      autonomousExpansionClaimTickContext.rawIntents = rawIntents;
+      autonomousExpansionClaimTickContext.territoryIntents = normalizeTerritoryIntents(rawIntents);
+    }
+    return autonomousExpansionClaimTickContext;
+  }
+  autonomousExpansionClaimTickContext = {
+    gameTime,
+    gameMap,
+    territoryMemory,
+    rawIntents,
+    territoryIntents: normalizeTerritoryIntents(rawIntents),
+    adjacentRoomNamesByOwnedRoom: /* @__PURE__ */ new Map()
+  };
+  return autonomousExpansionClaimTickContext;
 }
 function executeExpansionClaim(creep, controller, telemetryEvents = []) {
   var _a, _b, _c, _d, _e, _f, _g, _h;
@@ -16290,13 +16316,13 @@ function recordExpansionClaimSkipTelemetry(creep, controller, reason, telemetryE
     reason
   });
 }
-function evaluateAutonomousExpansionClaim(colony, report, gameTime) {
+function evaluateAutonomousExpansionClaim(colony, report, gameTime, context) {
   var _a;
   const colonyName = colony.room.name;
-  const expansionReport = scoreExpansionCandidates(buildAutonomousExpansionScoringInput(colony, report));
+  const expansionReport = scoreExpansionCandidates(buildAutonomousExpansionScoringInput(colony, report, context));
   const adjacentCandidates = getRankedAdjacentExpansionCandidates(expansionReport);
   const candidate = (_a = adjacentCandidates.find(
-    (scoredCandidate) => !hasBlockingClaimIntentForRoom(colonyName, scoredCandidate.roomName)
+    (scoredCandidate) => !hasBlockingClaimIntentForRoom(scoredCandidate.roomName, context.territoryIntents)
   )) != null ? _a : null;
   if (!candidate) {
     const blockedCandidate = adjacentCandidates[0];
@@ -16350,7 +16376,7 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime) {
   if (isExpansionClaimControllerOnCooldown(controller)) {
     return { ...controllerEvaluation, reason: "controllerCooldown" };
   }
-  if (isAutonomousClaimSuppressed(colonyName, candidate.roomName, gameTime)) {
+  if (isAutonomousClaimSuppressed(colonyName, candidate.roomName, gameTime, context.territoryIntents)) {
     return { ...controllerEvaluation, reason: "suppressed" };
   }
   if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
@@ -16364,12 +16390,12 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime) {
     ...typeof controllerId === "string" ? { controllerId } : {}
   };
 }
-function buildAutonomousExpansionScoringInput(colony, report) {
+function buildAutonomousExpansionScoringInput(colony, report, context) {
   var _a, _b;
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername6(colony.room.controller);
   const ownedRoomNames = getVisibleOwnedRoomNames4(colonyName, colonyOwnerUsername);
-  const adjacentRoomNamesByOwnedRoom = getAdjacentRoomNamesByOwnedRoom2(ownedRoomNames);
+  const adjacentRoomNamesByOwnedRoom = getAdjacentRoomNamesByOwnedRoom2(ownedRoomNames, context);
   const seenRooms = /* @__PURE__ */ new Set();
   const candidates = [];
   report.candidates.forEach((candidate, order) => {
@@ -16447,12 +16473,21 @@ function getVisibleOwnedRoomNames4(colonyName, ownerUsername) {
   }
   return ownedRoomNames;
 }
-function getAdjacentRoomNamesByOwnedRoom2(ownedRoomNames) {
+function getAdjacentRoomNamesByOwnedRoom2(ownedRoomNames, context) {
   const adjacentRoomNamesByOwnedRoom = /* @__PURE__ */ new Map();
   for (const roomName of ownedRoomNames) {
-    adjacentRoomNamesByOwnedRoom.set(roomName, new Set(getAdjacentRoomNames4(roomName)));
+    adjacentRoomNamesByOwnedRoom.set(roomName, getCachedAdjacentRoomNames(roomName, context));
   }
   return adjacentRoomNamesByOwnedRoom;
+}
+function getCachedAdjacentRoomNames(roomName, context) {
+  const cachedAdjacentRoomNames = context.adjacentRoomNamesByOwnedRoom.get(roomName);
+  if (cachedAdjacentRoomNames) {
+    return cachedAdjacentRoomNames;
+  }
+  const adjacentRoomNames = new Set(getAdjacentRoomNames4(roomName, context.gameMap));
+  context.adjacentRoomNamesByOwnedRoom.set(roomName, adjacentRoomNames);
+  return adjacentRoomNames;
 }
 function getOwnedAdjacency(roomName, adjacentRoomNamesByOwnedRoom) {
   for (const [ownedRoomName, adjacentRoomNames] of adjacentRoomNamesByOwnedRoom.entries()) {
@@ -16466,9 +16501,7 @@ function getOwnedAdjacency(roomName, adjacentRoomNamesByOwnedRoom) {
   }
   return { adjacentToOwnedRoom: false };
 }
-function getAdjacentRoomNames4(roomName) {
-  var _a;
-  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+function getAdjacentRoomNames4(roomName, gameMap = ((_a) => (_a = globalThis.Game) == null ? void 0 : _a.map)()) {
   if (!gameMap || typeof gameMap.describeExits !== "function") {
     return [];
   }
@@ -16493,14 +16526,28 @@ function hasSufficientAutonomousExpansionClaimRcl(colony) {
   var _a, _b;
   return ((_b = (_a = colony.room.controller) == null ? void 0 : _a.level) != null ? _b : 0) >= MIN_AUTONOMOUS_EXPANSION_CLAIM_RCL;
 }
-function hasBlockingClaimIntentForRoom(colony, targetRoom) {
-  var _a;
-  const intents = normalizeTerritoryIntents((_a = getTerritoryMemoryRecord5()) == null ? void 0 : _a.intents);
+function hasBlockingClaimIntentForRoom(targetRoom, intents) {
   return intents.some(
-    (intent) => intent.colony === colony && intent.targetRoom === targetRoom && intent.action === "claim" && (intent.status === "active" || intent.createdBy !== AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR)
+    (intent) => intent.targetRoom === targetRoom && intent.action === "claim"
   );
 }
-function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime) {
+function getTerritoryIntentsForAutonomousExpansionClaim(territoryMemory, context) {
+  if (context && context.territoryMemory === territoryMemory && context.rawIntents === territoryMemory.intents) {
+    return context.territoryIntents;
+  }
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  syncAutonomousExpansionClaimIntentContext(context, territoryMemory, intents);
+  return intents;
+}
+function syncAutonomousExpansionClaimIntentContext(context, territoryMemory, intents) {
+  if (!context) {
+    return;
+  }
+  context.territoryMemory = territoryMemory;
+  context.rawIntents = territoryMemory.intents;
+  context.territoryIntents = intents;
+}
+function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime, context) {
   if (!evaluation.targetRoom) {
     return;
   }
@@ -16508,7 +16555,8 @@ function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime) {
   if (!territoryMemory) {
     return;
   }
-  if (hasBlockingClaimIntentForRoom(colony, evaluation.targetRoom)) {
+  const cachedIntents = getTerritoryIntentsForAutonomousExpansionClaim(territoryMemory, context);
+  if (hasBlockingClaimIntentForRoom(evaluation.targetRoom, cachedIntents)) {
     return;
   }
   const target = {
@@ -16519,9 +16567,9 @@ function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime) {
     ...evaluation.controllerId ? { controllerId: evaluation.controllerId } : {}
   };
   pruneOccupationRecommendationTargets(territoryMemory, colony);
-  pruneAutonomousExpansionClaimTargets(colony, territoryMemory, target);
+  pruneAutonomousExpansionClaimTargets(colony, territoryMemory, target, context);
   upsertTerritoryTarget2(territoryMemory, target);
-  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  const intents = getTerritoryIntentsForAutonomousExpansionClaim(territoryMemory, context);
   territoryMemory.intents = intents;
   const existingIntent = intents.find(
     (intent) => intent.colony === colony && intent.targetRoom === target.roomName && intent.action === "claim" && intent.createdBy === AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR
@@ -16535,6 +16583,7 @@ function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime) {
     createdBy: AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR,
     ...target.controllerId ? { controllerId: target.controllerId } : {}
   });
+  syncAutonomousExpansionClaimIntentContext(context, territoryMemory, intents);
 }
 function upsertTerritoryTarget2(territoryMemory, target) {
   if (!Array.isArray(territoryMemory.targets)) {
@@ -16566,7 +16615,7 @@ function upsertTerritoryIntent4(intents, nextIntent) {
   }
   intents.push(nextIntent);
 }
-function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerritoryMemoryRecord5(), activeTarget) {
+function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerritoryMemoryRecord5(), activeTarget, context) {
   if (!territoryMemory || !Array.isArray(territoryMemory.targets)) {
     return;
   }
@@ -16586,9 +16635,11 @@ function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerri
   if (removedTargetKeys.size === 0) {
     return;
   }
-  territoryMemory.intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
+  const intents = getTerritoryIntentsForAutonomousExpansionClaim(territoryMemory, context).filter(
     (intent) => intent.colony !== colony || intent.createdBy !== AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR || !removedTargetKeys.has(getTargetKey2(intent.targetRoom, intent.action))
   );
+  territoryMemory.intents = intents;
+  syncAutonomousExpansionClaimIntentContext(context, territoryMemory, intents);
 }
 function pruneOccupationRecommendationTargets(territoryMemory, colony) {
   if (!Array.isArray(territoryMemory.targets)) {
@@ -16598,9 +16649,7 @@ function pruneOccupationRecommendationTargets(territoryMemory, colony) {
     (target) => !(isRecord14(target) && target.colony === colony && target.createdBy === "occupationRecommendation")
   );
 }
-function isAutonomousClaimSuppressed(colony, targetRoom, gameTime) {
-  var _a;
-  const intents = normalizeTerritoryIntents((_a = getTerritoryMemoryRecord5()) == null ? void 0 : _a.intents);
+function isAutonomousClaimSuppressed(colony, targetRoom, gameTime, intents) {
   return intents.some(
     (intent) => intent.colony === colony && intent.targetRoom === targetRoom && intent.action === "claim" && intent.status === "suppressed" && gameTime >= intent.updatedAt && gameTime - intent.updatedAt < TERRITORY_SUPPRESSION_RETRY_TICKS2
   );
