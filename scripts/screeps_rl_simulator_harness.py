@@ -461,6 +461,7 @@ def _build_tick_entry(
     overview: Any,
     terrain: Any,
     room_overviews: Any,
+    visible_rooms: Sequence[str] | None = None,
 ) -> JsonObject:
     overview_payload: JsonObject = {"roomCount": 0, "rooms": []}
     if isinstance(overview, dict):
@@ -474,7 +475,11 @@ def _build_tick_entry(
                     "gametime": selected.get("gametime"),
                     "gametimes": selected.get("gametimes"),
                 }
-    room_names = _visible_room_names(overview, shard, room)
+    room_names = (
+        _dedupe_room_names(visible_rooms)
+        if visible_rooms is not None
+        else _visible_room_names(overview, shard, room)
+    )
     room_payloads = _room_overview_payloads(room_overviews, room_names, room)
     room_summaries = {
         room_name: _summarize_room_state(room_payloads.get(room_name, {}), room_name)
@@ -488,6 +493,14 @@ def _build_tick_entry(
         "overview": overview_payload,
         "terrain": _terrain_summary(terrain),
     }
+
+
+def _dedupe_room_names(room_names: Sequence[str]) -> list[str]:
+    ordered: list[str] = []
+    for room_name in room_names:
+        if isinstance(room_name, str) and room_name not in ordered:
+            ordered.append(room_name)
+    return ordered
 
 
 def _visible_room_names(overview: Any, shard: str, anchor_room: str) -> list[str]:
@@ -594,6 +607,7 @@ def _run_one_tick(
                 overview_result.payload,
                 terrain_result.payload,
                 room_overviews,
+                visible_rooms,
             )
             return token, current_tick, tick_entry
         time.sleep(RUN_TICK_POLL_SECONDS)

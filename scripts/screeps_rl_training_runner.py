@@ -257,7 +257,8 @@ def load_strategy_registry(path: Path) -> dict[str, StrategyVariant]:
     except OSError:
         return {}
 
-    text = strip_ts_comments(text)
+    text = re.sub(r"//.*", "", text)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     registry: dict[str, StrategyVariant] = {}
     for block in iter_registry_entry_blocks(text):
         variant_id = regex_group(r"\bid:\s*['\"]([^'\"]+)['\"]", block)
@@ -273,11 +274,6 @@ def load_strategy_registry(path: Path) -> dict[str, StrategyVariant]:
             source="registry",
         )
     return registry
-
-
-def strip_ts_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    return re.sub(r"//.*", "", text)
 
 
 def iter_registry_entry_blocks(text: str) -> list[str]:
