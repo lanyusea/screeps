@@ -35,13 +35,13 @@ Until then, outputs are offline/shadow/high-level recommendation only: construct
 | L1 Data substrate | Convert saved runtime/monitor artifacts into train/eval-ready samples | #409, #415 | `runtime-artifacts/rl-datasets/<run-id>/` with card/manifests | export after new artifact windows and before experiments |
 | L2 Shadow evaluator automation | Run passive strategy comparisons over saved artifacts | #409, #417 | bounded strategy-shadow reports indexed by dataset exporter | scheduled/offline; must become recurring |
 | L3 Simulator harness | Self-hosted accelerated parallel environment | #414, #413 | resettable scenario runner and throughput report toward 100x aggregate official tick speed | implementation lane until usable |
-| L4 Training/reward framework | Select RL/bandit/evolutionary method and tune objective safely | #416, #266 | experiment config, reward card, baseline-vs-candidate report | per experiment |
+| L4 Training/reward framework | Select RL/bandit/evolutionary method and tune objective safely | #416, #266, #549 | experiment config, reward card, private-simulator training report | per experiment |
 | L5 Historical validation | Test candidates against official-MMO historical windows before rollout | #417 | pass/fail validation report with OOD/reliability rejection | before any live influence |
 | L6 KPI rollout/rollback | Deploy only gated high-level strategy changes, monitor, and revert on degradation | #418 | rollout decision, rollback plan, post-rollout KPI report | per candidate release |
 
 ## Implementation status
 
-- L4: Training framework — implemented 2026-05-03 — scripts/screeps_rl_experiment_card.py, docs/ops/rl-training-reward-workflow.md, docs/research/2026-05-03-rl-training-approaches.md
+- L4: Training framework — implemented 2026-05-03 — `scripts/screeps_rl_training_runner.py` runs JSON/YAML experiment cards through the private simulator harness, computes lexicographic territory/resources/kills rewards with expansion-survival penalties, emits shadow-compatible JSON reports, and is covered by `scripts/test_screeps_rl_training_runner.py`. Supporting artifacts: `scripts/screeps_rl_experiment_card.py`, `docs/ops/rl-training-reward-workflow.md`, `docs/research/2026-05-03-rl-training-approaches.md`.
 
 ## Current issue map
 
@@ -59,6 +59,7 @@ Active/next P1 roadmap:
 - #409 — dataset/evaluation gate; bridge from artifacts to executable experiments.
 - #414 — accelerated self-hosted simulator harness.
 - #416 — training framework and reward workflow.
+- #549 — real RL training runner implementation with lexicographic reward and private-simulator orchestration.
 - #417 — historical official-MMO validation.
 - #418 — KPI-gated rollout, rollback, online feedback ingestion.
 - #266 — offline RL / hierarchical recommendation prototype; must wait for enough L1-L5 evidence and must remain offline-only initially.
@@ -182,11 +183,15 @@ Deliverables:
 - produce one offline high-level recommendation baseline.
 - durable workflow: `docs/ops/rl-training-reward-workflow.md`;
 - executable offline experiment-card helper: `scripts/screeps_rl_experiment_card.py`.
+- executable training runner: `scripts/screeps_rl_training_runner.py`;
+- unit coverage for lexicographic reward, expansion survival, card loading, ranking, and JSON report shape.
 
 Verification:
 
 - experiment card links dataset run ID and code commit;
 - generated/validated cards preserve `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`;
+- training runner reports preserve `liveEffect:false`, `officialMmoWrites:false`, and `officialMmoWritesAllowed:false`;
+- expansion rooms count as territory only when they survive with spawns and creeps at the end of simulation;
 - candidate cannot advance without #417 historical validation.
 
 ## Reporting format
