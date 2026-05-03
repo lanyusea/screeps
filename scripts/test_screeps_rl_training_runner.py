@@ -309,6 +309,34 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["ranking"][0]["rewardTuple"][0], 0)
         self.assertEqual(report["statisticalComparison"]["pairwise"][0]["firstDifferingTier"], "resources")
 
+    def test_equal_reward_tuple_does_not_count_as_top_change(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        finish = tick(2, [room("W1N1", energy=300, harvested=100)])
+        baseline = variant_result("baseline", [start, finish])
+        candidate = variant_result("candidate", [start, finish])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, base_card())
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="equal-reward-tie",
+                simulator_runner=MockSimulator({"baseline": baseline, "candidate": candidate}),
+            )
+
+        self.assertEqual(report["ranking"][0]["variantId"], "candidate")
+        self.assertEqual([item["rank"] for item in report["ranking"]], [1, 1])
+        self.assertIsNone(report["statisticalComparison"]["pairwise"][0]["winner"])
+        self.assertEqual(report["changedTopCount"], 0)
+        self.assertEqual(report["rankingDiffCount"], 0)
+
+        model_report = next(item for item in report["modelReports"] if item["candidateStrategyId"] == "candidate")
+        self.assertEqual(model_report["changedTopCount"], 0)
+        self.assertFalse(model_report["rankingDiffs"][0]["changedTop"])
+        self.assertEqual(runner.build_generation_summary(report)["changedTopCount"], 0)
+
     def test_failed_variant_runs_are_excluded_from_reward_ranking(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         negative_baseline = variant_result(

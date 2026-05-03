@@ -570,9 +570,13 @@ def build_training_report(
     scored_results = [result for result in results if result["sampleCount"] > 0]
     ranking = rank_variant_results(scored_results)
     incumbent_ids = incumbent_strategy_ids(variants)
-    model_reports = build_shadow_compatible_model_reports(ranking, incumbent_ids)
+    best_incumbent_reward_tuple = best_incumbent_reward_tuple_from_ranking(ranking, incumbent_ids)
+    model_reports = build_shadow_compatible_model_reports(ranking, incumbent_ids, best_incumbent_reward_tuple)
     pairwise = build_pairwise_comparisons(scored_results)
-    changed_top_count = 1 if ranking and incumbent_ids and ranking[0]["variantId"] not in incumbent_ids else 0
+    changed_top = bool(
+        ranking and variant_strictly_beats_best_incumbent(ranking[0], incumbent_ids, best_incumbent_reward_tuple)
+    )
+    changed_top_count = 1 if changed_top else 0
     ranking_diff_count = sum(1 for item in pairwise if item.get("winner") and item["winner"] not in incumbent_ids)
     warnings = build_report_warnings(results, simulator_runs)
 
@@ -1212,6 +1216,27 @@ def build_pairwise_comparisons(results: Sequence[JsonObject]) -> list[JsonObject
     return comparisons
 
 
+def best_incumbent_reward_tuple_from_ranking(
+    ranking: Sequence[JsonObject], incumbent_ids: Sequence[str]
+) -> Sequence[Any] | None:
+    best_tuple: Sequence[Any] | None = None
+    for item in ranking:
+        if item["variantId"] not in incumbent_ids:
+            continue
+        reward_tuple = item["rewardTuple"]
+        if best_tuple is None or compare_reward_tuples(reward_tuple, best_tuple) > 0:
+            best_tuple = reward_tuple
+    return best_tuple
+
+
+def variant_strictly_beats_best_incumbent(
+    item: JsonObject, incumbent_ids: Sequence[str], best_incumbent_reward_tuple: Sequence[Any] | None
+) -> bool:
+    if item["variantId"] in incumbent_ids or best_incumbent_reward_tuple is None:
+        return False
+    return compare_reward_tuples(item["rewardTuple"], best_incumbent_reward_tuple) > 0
+
+
 def compare_reward_tuples(left: Sequence[Any], right: Sequence[Any]) -> int:
     for left_value, right_value in zip(left, right):
         left_float = float(left_value)
@@ -1235,8 +1260,14 @@ def incumbent_strategy_ids(variants: Sequence[StrategyVariant]) -> list[str]:
     return incumbents or ([variants[0].id] if variants else [])
 
 
-def build_shadow_compatible_model_reports(ranking: Sequence[JsonObject], incumbent_ids: Sequence[str]) -> list[JsonObject]:
+def build_shadow_compatible_model_reports(
+    ranking: Sequence[JsonObject],
+    incumbent_ids: Sequence[str],
+    best_incumbent_reward_tuple: Sequence[Any] | None = None,
+) -> list[JsonObject]:
     incumbent = incumbent_ids[0] if incumbent_ids else None
+    if best_incumbent_reward_tuple is None:
+        best_incumbent_reward_tuple = best_incumbent_reward_tuple_from_ranking(ranking, incumbent_ids)
     reports: list[JsonObject] = []
     rank_by_variant = {item["variantId"]: item["rank"] for item in ranking}
     incumbent_rank = rank_by_variant.get(incumbent) if incumbent else None
@@ -1244,7 +1275,9 @@ def build_shadow_compatible_model_reports(ranking: Sequence[JsonObject], incumbe
         variant_id = item["variantId"]
         if variant_id == incumbent:
             continue
-        changed_top = item["rank"] == 1 and variant_id != incumbent
+        changed_top = item["rank"] == 1 and variant_strictly_beats_best_incumbent(
+            item, incumbent_ids, best_incumbent_reward_tuple
+        )
         reports.append(
             {
                 "family": "rl-training",
