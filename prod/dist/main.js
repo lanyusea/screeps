@@ -1585,12 +1585,24 @@ var WORKER_PATTERN = ["work", "carry", "move"];
 var WORKER_PATTERN_COST = 200;
 var WORKER_LOGISTICS_PAIR = ["carry", "move"];
 var WORKER_LOGISTICS_PAIR_COST = 100;
+var WORKER_WORK_MOVE_PAIR = ["work", "move"];
+var WORKER_WORK_MOVE_PAIR_COST = 150;
 var WORKER_SURPLUS_MOVE = ["move"];
 var WORKER_SURPLUS_MOVE_COST = 50;
+var MID_RCL_WORKER_PATTERN = ["work", "work", "carry", "move", "move"];
+var MID_RCL_WORKER_PATTERN_COST = 350;
+var HIGH_RCL_WORKER_PATTERN = ["work", "work", "work", "carry", "move", "move"];
+var HIGH_RCL_WORKER_PATTERN_COST = 450;
 var EMERGENCY_DEFENDER_BODY = ["tough", "attack", "move"];
 var EMERGENCY_DEFENDER_BODY_COST = 140;
 var MAX_CREEP_PARTS2 = 50;
 var MAX_WORKER_PATTERN_COUNT = 4;
+var MIN_MID_RCL = 4;
+var MIN_HIGH_RCL = 7;
+var MAX_MID_RCL_WORKER_PATTERN_COUNT = 5;
+var MAX_HIGH_RCL_WORKER_PATTERN_COUNT = 8;
+var MID_RCL_WORKER_MAX_COST = 1800;
+var HIGH_RCL_WORKER_MAX_COST = 3750;
 var BODY_PART_COSTS = {
   move: 50,
   work: 100,
@@ -1601,7 +1613,28 @@ var BODY_PART_COSTS = {
   claim: 600,
   tough: 10
 };
-function buildWorkerBody(energyAvailable) {
+var MID_RCL_WORKER_PROFILE = {
+  pattern: MID_RCL_WORKER_PATTERN,
+  patternCost: MID_RCL_WORKER_PATTERN_COST,
+  maxCost: MID_RCL_WORKER_MAX_COST,
+  maxPatternCount: MAX_MID_RCL_WORKER_PATTERN_COUNT
+};
+var HIGH_RCL_WORKER_PROFILE = {
+  pattern: HIGH_RCL_WORKER_PATTERN,
+  patternCost: HIGH_RCL_WORKER_PATTERN_COST,
+  maxCost: HIGH_RCL_WORKER_MAX_COST,
+  maxPatternCount: MAX_HIGH_RCL_WORKER_PATTERN_COUNT
+};
+function buildWorkerBody(energyAvailable, controllerLevel) {
+  if (isHighRcl(controllerLevel)) {
+    return buildProfileWorkerBody(energyAvailable, HIGH_RCL_WORKER_PROFILE);
+  }
+  if (isMidRcl(controllerLevel)) {
+    return buildProfileWorkerBody(energyAvailable, MID_RCL_WORKER_PROFILE);
+  }
+  return buildLowRclWorkerBody(energyAvailable);
+}
+function buildLowRclWorkerBody(energyAvailable) {
   if (energyAvailable < WORKER_PATTERN_COST) {
     return [];
   }
@@ -1616,6 +1649,43 @@ function buildWorkerBody(energyAvailable) {
     return [...body, ...WORKER_SURPLUS_MOVE];
   }
   return body;
+}
+function buildProfileWorkerBody(energyAvailable, profile) {
+  if (energyAvailable < profile.patternCost) {
+    return buildLowRclWorkerBody(energyAvailable);
+  }
+  const energyBudget = Math.min(energyAvailable, profile.maxCost);
+  const maxPatternCountByEnergy = Math.floor(energyBudget / profile.patternCost);
+  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS2 / profile.pattern.length);
+  const patternCount = Math.min(
+    maxPatternCountByEnergy,
+    maxPatternCountBySize,
+    profile.maxPatternCount
+  );
+  const body = Array.from({ length: patternCount }).flatMap(() => profile.pattern);
+  return addProfileWorkerRemainderParts(body, energyBudget, patternCount * profile.patternCost);
+}
+function addProfileWorkerRemainderParts(body, energyBudget, bodyCost) {
+  const additions = [
+    { parts: WORKER_WORK_MOVE_PAIR, cost: WORKER_WORK_MOVE_PAIR_COST },
+    { parts: WORKER_LOGISTICS_PAIR, cost: WORKER_LOGISTICS_PAIR_COST },
+    { parts: WORKER_SURPLUS_MOVE, cost: WORKER_SURPLUS_MOVE_COST }
+  ];
+  let nextBody = [...body];
+  let nextCost = bodyCost;
+  for (const addition of additions) {
+    if (nextCost + addition.cost <= energyBudget && nextBody.length + addition.parts.length <= MAX_CREEP_PARTS2) {
+      nextBody = [...nextBody, ...addition.parts];
+      nextCost += addition.cost;
+    }
+  }
+  return nextBody;
+}
+function isMidRcl(controllerLevel) {
+  return typeof controllerLevel === "number" && controllerLevel >= MIN_MID_RCL;
+}
+function isHighRcl(controllerLevel) {
+  return typeof controllerLevel === "number" && controllerLevel >= MIN_HIGH_RCL;
 }
 function shouldAddWorkerLogisticsPair(energyAvailable, patternCount, bodyPartCount) {
   const remainingEnergy = energyAvailable - patternCount * WORKER_PATTERN_COST;
@@ -12910,14 +12980,16 @@ function appendSpawnNameSuffix(baseName, options) {
   return options.nameSuffix ? `${baseName}-${options.nameSuffix}` : baseName;
 }
 function selectWorkerBody(colony, roleCounts) {
-  const normalBody = buildWorkerBody(colony.energyCapacityAvailable);
+  var _a;
+  const controllerLevel = (_a = colony.room.controller) == null ? void 0 : _a.level;
+  const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
   if (canAffordBody(normalBody, colony.energyAvailable)) {
     return normalBody;
   }
   if (roleCounts.worker === 0) {
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
-  return buildWorkerBody(colony.energyAvailable);
+  return buildWorkerBody(colony.energyAvailable, controllerLevel);
 }
 function canAffordBody(body, energyAvailable) {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
