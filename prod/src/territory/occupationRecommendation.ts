@@ -55,6 +55,7 @@ export interface OccupationRecommendationCandidateInput {
   order: number;
   adjacent: boolean;
   visible: boolean;
+  ignoreOwnHealthyReservation?: boolean;
   actionHint?: TerritoryControlAction;
   controllerId?: Id<StructureController>;
   routeDistance?: number | null;
@@ -497,13 +498,13 @@ function scoreOccupationCandidate(
       risks.push(unavailableReason);
       evidenceStatus = 'unavailable';
       action = candidate.actionHint === 'claim' ? 'occupy' : 'reserve';
-    } else if (isOwnHealthyReservation(input, candidate.controller)) {
-      evidence.push('own reservation is healthy');
-      evidenceStatus = 'unavailable';
-      action = 'reserve';
-    } else if (isOwnReservationDueForRenewal(input, candidate.controller)) {
+    } else if (candidate.actionHint !== 'claim' && isOwnReservationDueForRenewal(input, candidate.controller)) {
       evidence.push('own reservation needs renewal');
       action = 'reserve';
+    } else if (candidate.ignoreOwnHealthyReservation !== true && isOwnHealthyReservation(input, candidate.controller)) {
+      evidence.push('own reservation is healthy');
+      evidenceStatus = 'unavailable';
+      action = candidate.actionHint === 'claim' ? 'occupy' : 'reserve';
     } else if (candidate.sourceCount === undefined) {
       evidence.push('controller is available');
       risks.push('source count evidence missing');
