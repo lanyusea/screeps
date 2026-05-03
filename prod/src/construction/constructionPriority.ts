@@ -169,6 +169,14 @@ const MIN_RCL_FOR_AUTOMATED_CONSTRUCTION = 2;
 const MIN_RCL_FOR_AUTOMATED_ROADS = 4;
 const DEFAULT_MAX_CONTAINER_SITES_PER_TICK = 1;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
+const TOWER_LIMITS_BY_RCL: Record<number, number> = {
+  3: 1,
+  4: 1,
+  5: 2,
+  6: 2,
+  7: 3,
+  8: 6
+};
 const ROOM_EDGE_MIN = 1;
 const ROOM_EDGE_MAX = 48;
 export const DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE = 20;
@@ -185,14 +193,14 @@ const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 export const CONSTRUCTION_SITE_IMPACT_PRIORITY = {
   extension: 100,
   spawn: 95,
-  sourceContainer: 85,
-  criticalRoad: 75,
-  tower: 60,
-  container: 55,
-  protectedRampart: 50,
-  road: 45,
+  tower: 90,
+  protectedRampart: 90,
+  rampart: 85,
+  sourceContainer: 70,
+  criticalRoad: 80,
+  road: 55,
+  container: 45,
   other: 35,
-  rampart: 20,
   wall: 5
 } as const;
 
@@ -1426,24 +1434,25 @@ function buildPlannedLocalCandidates(state: RuntimeConstructionPriorityState): C
   const candidates: ConstructionBuildCandidate[] = [];
   const rcl = state.rcl ?? 0;
   const extensionLimit = getExtensionLimitForRcl(state.rcl);
+  const towerLimit = getTowerLimitForRcl(state.rcl);
   if (extensionLimit > 0 && (state.extensionCount ?? 0) < extensionLimit) {
     candidates.push(createCandidateForBuildType('extension', state));
   }
 
-  if (rcl >= 2 && (state.sourceCount ?? 0) > 0) {
-    candidates.push(createCandidateForBuildType('container', state));
+  if (towerLimit > 0 && getExistingAndPendingBuildCount(state, 'STRUCTURE_TOWER', 'tower') < towerLimit) {
+    candidates.push(createCandidateForBuildType('tower', state));
+  }
+
+  if (rcl >= 2) {
+    candidates.push(createCandidateForBuildType('rampart', state));
   }
 
   if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && (state.sourceCount ?? 0) > 0) {
     candidates.push(createCandidateForBuildType('road', state));
   }
 
-  if (rcl >= 2 && getDefensePressure(state) > 0) {
-    candidates.push(createCandidateForBuildType('rampart', state));
-  }
-
-  if (rcl >= 3 && (state.towerCount ?? 0) === 0) {
-    candidates.push(createCandidateForBuildType('tower', state));
+  if (rcl >= 2 && (state.sourceCount ?? 0) > 0) {
+    candidates.push(createCandidateForBuildType('container', state));
   }
 
   if ((state.spawnCount ?? 1) === 0) {
@@ -1451,6 +1460,26 @@ function buildPlannedLocalCandidates(state: RuntimeConstructionPriorityState): C
   }
 
   return candidates;
+}
+
+function getTowerLimitForRcl(level: number | undefined): number {
+  return level ? TOWER_LIMITS_BY_RCL[level] ?? 0 : 0;
+}
+
+function getExistingAndPendingBuildCount(
+  state: RuntimeConstructionPriorityState,
+  globalName: StructureConstantName,
+  fallback: string
+): number {
+  const existingStructures = countStructuresByType(state.ownedStructures, globalName, fallback);
+  const existingCount =
+    existingStructures ??
+    (globalName === 'STRUCTURE_TOWER' && fallback === 'tower' ? state.towerCount ?? 0 : 0);
+  const pendingCount =
+    state.ownedConstructionSites?.filter((site) => matchesStructureType(String(site.structureType), globalName, fallback))
+      .length ?? 0;
+
+  return existingCount + pendingCount;
 }
 
 function buildRemoteLogisticsCandidates(state: RuntimeConstructionPriorityState): ConstructionBuildCandidate[] {
@@ -1500,26 +1529,26 @@ function createCandidateForBuildType(
         buildItem: 'build tower defense',
         buildType,
         minimumRcl: 3,
-        requiredObservations: ['room-controller', 'hostile-presence', 'energy-capacity', 'worker-count'],
+        requiredObservations: ['room-controller', 'energy-capacity', 'worker-count'],
         expectedKpiMovement: ['improves room hold safety', 'adds hostile damage and repair response capacity'],
         risk: ['requires steady energy income to keep tower effective'],
         estimatedEnergyCost: STRUCTURE_BUILD_COSTS.tower,
         hostileExposure: 'medium',
         signals: { defense: Math.max(0.75, getDefensePressure(state)), enemyKillPotential: 0.7 },
-        vision: { survival: getDefensePressure(state), territory: 0.9, enemyKills: 0.5 }
+        vision: { survival: Math.max(0.75, getDefensePressure(state)), territory: 0.9, enemyKills: 0.5 }
       };
     case 'rampart':
       return {
         buildItem: 'build rampart defense',
         buildType,
         minimumRcl: 2,
-        requiredObservations: ['room-controller', 'hostile-presence', 'repair-decay', 'worker-count'],
+        requiredObservations: ['room-controller', 'repair-decay', 'worker-count'],
         expectedKpiMovement: ['improves spawn/controller survivability under pressure'],
         risk: ['decays without sustained repair budget'],
         estimatedEnergyCost: STRUCTURE_BUILD_COSTS.rampart,
         hostileExposure: 'medium',
-        signals: { defense: getDefensePressure(state), repairDecay: getRepairDecayPressure(state) },
-        vision: { survival: getDefensePressure(state), territory: 0.8, enemyKills: 0.15 }
+        signals: { defense: Math.max(0.7, getDefensePressure(state)), repairDecay: getRepairDecayPressure(state) },
+        vision: { survival: Math.max(0.7, getDefensePressure(state)), territory: 0.8, enemyKills: 0.15 }
       };
     case 'road':
       return {
