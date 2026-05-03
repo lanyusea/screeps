@@ -227,6 +227,9 @@ describe('next expansion scoring', () => {
           roomName === 'W2N1' ? { '3': 'W3N1' } : { '3': 'W2N1' }
         ),
         findRoute,
+        getRoomLinearDistance: jest.fn((fromRoom: string, toRoom: string) =>
+          fromRoom === 'W2N1' && toRoom === 'W3N1' ? 1 : 8
+        ),
         getRoomTerrain: jest.fn((roomName: string) => makeTerrain(roomName === 'W3N1' ? 0.1 : 0.4))
       } as unknown as GameMap,
       rooms: {
@@ -256,7 +259,45 @@ describe('next expansion scoring', () => {
       }
     });
     expect(findRoute).toHaveBeenCalledWith('W1N1', 'W3N1');
-    expect(findRoute).toHaveBeenCalledWith('W2N1', 'W3N1');
+    expect(findRoute).not.toHaveBeenCalledWith('W2N1', 'W3N1');
+  });
+
+  it('filters distant owned rooms by linear distance before route lookup', () => {
+    const colony = makeSafeColony();
+    const findRoute = jest.fn((fromRoom: string, toRoom: string) =>
+      Array.from(
+        { length: fromRoom === 'W2N1' && toRoom === 'W4N1' ? 2 : 3 },
+        (_value, index) => ({ exit: 3, room: `${toRoom}-${index}` })
+      )
+    );
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: {
+        describeExits: jest.fn(() => ({})),
+        findRoute,
+        getRoomLinearDistance: jest.fn((fromRoom: string, toRoom: string) =>
+          fromRoom === 'W2N1' && toRoom === 'W4N1' ? 2 : 10
+        ),
+        getRoomTerrain: jest.fn(() => makeTerrain(0.1))
+      } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeOwnedRoom('W2N1'),
+        W20N20: makeOwnedRoom('W20N20'),
+        W4N1: makeVisibleExpansionRoom('W4N1', { sourceCount: 2 })
+      }
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+
+    expect(report.next).toMatchObject({
+      roomName: 'W4N1',
+      routeDistance: 3,
+      nearestOwnedRoom: 'W2N1',
+      nearestOwnedRoomDistance: 2
+    });
+    expect(findRoute).toHaveBeenCalledWith('W1N1', 'W4N1');
+    expect(findRoute).toHaveBeenCalledWith('W2N1', 'W4N1');
+    expect(findRoute).not.toHaveBeenCalledWith('W20N20', 'W4N1');
   });
 
   it('scores unseen adjacent rooms as scout-needed expansion candidates and the planner follows the persisted ranking', () => {

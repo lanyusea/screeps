@@ -2029,7 +2029,8 @@ function sortAdjacentRoomsByPersistedExpansionScore(
     .map((roomName, index) => ({ roomName, index }))
     .sort(
       (left, right) =>
-        compareOptionalNumbers(scoredRoomRanks.get(left.roomName), scoredRoomRanks.get(right.roomName)) ||
+        (scoredRoomRanks.get(left.roomName) ?? Number.POSITIVE_INFINITY) -
+          (scoredRoomRanks.get(right.roomName) ?? Number.POSITIVE_INFINITY) ||
         left.index - right.index
     )
     .map(({ roomName }) => roomName);

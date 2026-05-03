@@ -987,8 +987,18 @@ function getNearestOwnedRoomDistance(
   let nearestDistance: number | null | undefined;
   for (const ownedRoomName of ownedRoomNames) {
     const adjacentDistance = adjacentRoomNames.get(ownedRoomName)?.has(targetRoom) ? 1 : undefined;
-    const routeDistance = getKnownRouteLength(ownedRoomName, targetRoom);
-    const distance = routeDistance ?? adjacentDistance;
+    if (adjacentDistance !== undefined) {
+      nearestRoomName = ownedRoomName;
+      nearestDistance = adjacentDistance;
+      break;
+    }
+
+    const linearDistance = getLinearRoomDistance(ownedRoomName, targetRoom);
+    if (linearDistance !== undefined && linearDistance > MAX_NEARBY_EXPANSION_ROUTE_DISTANCE) {
+      continue;
+    }
+
+    const distance = getKnownRouteLength(ownedRoomName, targetRoom);
     if (distance === undefined) {
       continue;
     }
@@ -1011,6 +1021,18 @@ function getNearestOwnedRoomDistance(
     ...(nearestRoomName ? { roomName: nearestRoomName } : {}),
     ...(nearestDistance !== undefined ? { distance: nearestDistance } : {})
   };
+}
+
+function getLinearRoomDistance(fromRoom: string, targetRoom: string): number | undefined {
+  const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map as
+    | (Partial<GameMap> & { getRoomLinearDistance?: (roomName1: string, roomName2: string) => number })
+    | undefined;
+  if (typeof gameMap?.getRoomLinearDistance !== 'function') {
+    return undefined;
+  }
+
+  const distance = gameMap.getRoomLinearDistance.call(gameMap, fromRoom, targetRoom);
+  return Number.isFinite(distance) ? distance : undefined;
 }
 
 function isNearbyExpansionCandidate(
