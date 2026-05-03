@@ -77,6 +77,7 @@ RUN_TICK_TIMEOUT_SECONDS = 300
 RUN_TICK_POLL_SECONDS = 0.20
 RUN_WORKER_PREFIX = "rl-sim-worker"
 RUN_ID_PREFIX = "rl-sim-run"
+RUN_ID_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 JsonObject = dict[str, Any]
 _smoke_module = None
@@ -137,6 +138,26 @@ def _safe_filename(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9._-]", "-", value)
     safe = re.sub(r"-+", "-", safe).strip("-.")
     return safe or "variant"
+
+
+def validate_run_id_token(value: str) -> str:
+    if (
+        not value
+        or value in {".", ".."}
+        or ".." in value
+        or "/" in value
+        or "\\" in value
+        or not RUN_ID_TOKEN_RE.fullmatch(value)
+    ):
+        raise ValueError("run_id must use only letters, numbers, dashes, and underscores with no path separators or '..'")
+    return value
+
+
+def parse_run_id_token(value: str) -> str:
+    try:
+        return validate_run_id_token(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -328,10 +349,14 @@ def build_run_artifact(
     workers: int,
     variant_results: Sequence[JsonObject],
     branch: str,
+    wall_clock_seconds: float | None = None,
 ) -> JsonObject:
     """Build the public run-mode artifact payload."""
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     wall_clock = [item.get("wall_clock_seconds", 0.0) for item in variant_results]
+    elapsed_wall_clock = wall_clock_seconds if wall_clock_seconds is not None else max(wall_clock, default=0.0)
+    if elapsed_wall_clock < 0:
+        elapsed_wall_clock = 0.0
     ticks_total = sum(item.get("ticks_run", 0) for item in variant_results)
     return {
         "type": RUN_SUMMARY_TYPE,
@@ -348,7 +373,7 @@ def build_run_artifact(
         "branch": branch,
         "ticksRequested": ticks,
         "workerCount": workers,
-        "wallClockSeconds": round(sum(wall_clock), 3),
+        "wallClockSeconds": round(elapsed_wall_clock, 3),
         "wallClockSummary": {
             "minSeconds": round(min(wall_clock), 3) if wall_clock else 0.0,
             "maxSeconds": round(max(wall_clock), 3) if wall_clock else 0.0,
@@ -413,6 +438,15 @@ def _load_private_smoke_module():
     spec.loader.exec_module(module)
     _smoke_module = module
     return module
+
+
+def _require_launcher_cli_success(smoke: Any, compose: list[str], cfg: Any, expression: str, phase: str) -> JsonObject:
+    result = smoke.run_launcher_cli(compose, cfg, expression)
+    if not isinstance(result, dict):
+        raise RuntimeError(f"{phase} failed: launcher CLI returned non-object result")
+    if not result.get("ok"):
+        raise RuntimeError(f"{phase} failed: {_safe_redact_smoke_payload(result)}")
+    return result
 
 
 def _worker_output_dir(out_root: Path, run_id: str, worker_index: int) -> Path:
@@ -549,7 +583,7 @@ def _run_variant(
         server_host=server_host,
         http_port=http_port,
         cli_port=cli_port,
-        server_url=f"{server_host}:{http_port}",
+        server_url=f"http://{server_host}:{http_port}",
         username=f"rl-sim-{variant_slug}",
         email=f"{variant_slug}@sim.local",
         password=password,
@@ -570,7 +604,6 @@ def _run_variant(
         compose_project=compose_project,
         mongo_db="screeps",
     )
-    cfg.server_url = f"http://{server_host}:{http_port}"
     errors: list[str] = []
     start = time.time()
     token: str | None = None
@@ -595,11 +628,17 @@ def _run_variant(
         smoke.run_command([*compose, "down", "-v"], cfg, timeout=RUN_CONTAINER_DOWN_TIMEOUT_SECONDS)
         smoke.run_command([*compose, "up", "-d"], cfg, timeout=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
         _wait_for_http_with_smoke(cfg, smoke, timeout_seconds=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
-        smoke.run_launcher_cli(compose, cfg, "system.resetAllData()")
-        smoke.run_launcher_cli(compose, cfg, "utils.importMapFile('/screeps/maps/map-0b6758af.json')")
+        _require_launcher_cli_success(smoke, compose, cfg, "system.resetAllData()", "reset simulator data")
+        _require_launcher_cli_success(
+            smoke,
+            compose,
+            cfg,
+            "utils.importMapFile('/screeps/maps/map-0b6758af.json')",
+            "import simulator map",
+        )
         smoke.run_command([*compose, "restart", "screeps"], cfg, timeout=RUN_CONTAINER_RESTART_TIMEOUT_SECONDS)
         _wait_for_http_with_smoke(cfg, smoke, timeout_seconds=RUN_CONTAINER_UP_TIMEOUT_SECONDS)
-        smoke.run_launcher_cli(compose, cfg, "system.resumeSimulation()")
+        _require_launcher_cli_success(smoke, compose, cfg, "system.resumeSimulation()", "resume simulator")
 
         register = smoke.http_json(
             "POST",
@@ -745,6 +784,7 @@ def run_variants(
     if workers <= 0:
         raise ValueError("workers must be a positive integer")
 
+    start = time.monotonic()
     normalized_workers = max(1, min(workers, len(variants)))
     buckets = _run_worker_assignments(variants, normalized_workers)
     worker_variants: list[list[str]] = [[variants[index] for index in bucket] for bucket in buckets]
@@ -754,7 +794,7 @@ def run_variants(
         for variant_id in assigned_variants:
             results.append(
                 _run_variant(
-                    worker_id=worker_id,
+                    worker_index=worker_id,
                     variant_id=variant_id,
                     run_id=run_id,
                     ticks=ticks,
@@ -787,6 +827,7 @@ def run_variants(
         workers=normalized_workers,
         variant_results=ordered,
         branch=branch,
+        wall_clock_seconds=time.monotonic() - start,
     )
     return artifact, ordered
 
@@ -1600,7 +1641,10 @@ def run_simulator(
     resolved_out_dir = out_dir.expanduser()
     resolved_code_path = code_path.expanduser()
     resolved_map_source = map_source_file.expanduser()
-    resolved_run_id = run_id or f"{RUN_ID_PREFIX}-{int(time.time())}"
+    try:
+        resolved_run_id = validate_run_id_token(run_id or f"{RUN_ID_PREFIX}-{int(time.time())}")
+    except ValueError as error:
+        raise RuntimeError(str(error)) from error
     artifact, variants_result = run_variants(
         variants=variants,
         ticks=ticks,
@@ -1701,6 +1745,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--run-id",
+        type=parse_run_id_token,
         default=None,
         help="Optional run artifact id. Defaults to a timestamped rl-sim-run value.",
     )
@@ -1798,7 +1843,11 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout) -> int:
         )
         stdout.write(json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=True))
         stdout.write("\n")
-        return 0
+        variant_results = summary.get("variants")
+        if not isinstance(variant_results, list):
+            return 1
+        overall_ok = all(isinstance(variant, dict) and variant.get("ok", False) for variant in variant_results)
+        return 0 if overall_ok else 1
     raise AssertionError(f"unhandled command: {args.command}")
 
 
