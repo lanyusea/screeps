@@ -8980,7 +8980,7 @@ function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
       MIN_DROPPED_ENERGY_PICKUP_AMOUNT
     );
     return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate, 1)] : [];
-  }).filter((candidate) => isReachable(creep, candidate.source)).sort(compareBuilderEnergyAcquisitionCandidates).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS);
+  }).sort(compareBuilderEnergyAcquisitionCandidates).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
   if (storedEnergyCandidates.length > 0 || droppedEnergyCandidates.length > 0) {
     return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
   }

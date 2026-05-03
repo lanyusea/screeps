@@ -577,7 +577,9 @@ describe('selectWorkerTask', () => {
       }
     );
     const storage = withRangeTo(
-      makeStoredEnergyStructure('storage-small', 'storage' as StructureConstant, BUILDER_STORAGE_WITHDRAW_MIN - 1),
+      makeStoredEnergyStructure('storage-small', 'storage' as StructureConstant, BUILDER_STORAGE_WITHDRAW_MIN - 1, {
+        my: true
+      }),
       { 'build-site1': 2 }
     );
     const getRangeTo = jest.fn((target: { id?: string }) => {
