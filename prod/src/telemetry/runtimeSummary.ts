@@ -234,6 +234,7 @@ interface RuntimeBehaviorSummary {
   workerTaskPolicy?: RuntimeWorkerTaskBehaviorSummary;
   creeps?: RuntimeCreepBehaviorSummary[];
   totals?: RuntimeBehaviorTotals;
+  topIdleWorkers?: RuntimeCreepBehaviorSummary[];
 }
 
 interface RuntimeCreepBehaviorSummary {

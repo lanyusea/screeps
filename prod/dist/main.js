@@ -11216,6 +11216,7 @@ var BEHAVIOR_COUNTER_KEYS = [
   { key: "containerTransfers" },
   { key: "pathLength" }
 ];
+var TOP_IDLE_WORKER_COUNT = 3;
 function observeCreepBehaviorTick(creep, tick = getGameTime7()) {
   var _a, _b;
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -11282,7 +11283,8 @@ function summarizeAndResetCreepBehaviorTelemetry(workers) {
   return {
     behavior: {
       creeps: creepSummaries,
-      totals: summarizeBehaviorTotals(creepSummaries)
+      totals: summarizeBehaviorTotals(creepSummaries),
+      ...summarizeTopIdleWorkers(creepSummaries)
     }
   };
 }
@@ -11346,9 +11348,16 @@ function summarizeBehaviorTotals(creeps) {
     }
   );
 }
+function summarizeTopIdleWorkers(creeps) {
+  const topIdleWorkers = creeps.filter((creep) => creep.idleTicks > 0).sort(compareRuntimeIdleWorkerSummaries).slice(0, TOP_IDLE_WORKER_COUNT);
+  return topIdleWorkers.length > 0 ? { topIdleWorkers } : {};
+}
 function compareRuntimeCreepBehaviorSummaries(left, right) {
   var _a, _b;
   return ((_a = left.creepName) != null ? _a : "").localeCompare((_b = right.creepName) != null ? _b : "");
+}
+function compareRuntimeIdleWorkerSummaries(left, right) {
+  return right.idleTicks - left.idleTicks || compareRuntimeCreepBehaviorSummaries(left, right);
 }
 function buildCreepNameSummary(creep) {
   const name = creep.name;
