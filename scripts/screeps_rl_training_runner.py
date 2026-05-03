@@ -567,10 +567,11 @@ def build_training_report(
         summarize_variant(variant, per_variant_runs.get(variant.id, []), reward_options)
         for variant in variants
     ]
-    ranking = rank_variant_results(results)
+    scored_results = [result for result in results if result["sampleCount"] > 0]
+    ranking = rank_variant_results(scored_results)
     incumbent_ids = incumbent_strategy_ids(variants)
     model_reports = build_shadow_compatible_model_reports(ranking, incumbent_ids)
-    pairwise = build_pairwise_comparisons(results)
+    pairwise = build_pairwise_comparisons(scored_results)
     changed_top_count = 1 if ranking and incumbent_ids and ranking[0]["variantId"] not in incumbent_ids else 0
     ranking_diff_count = sum(1 for item in pairwise if item.get("winner") and item["winner"] not in incumbent_ids)
     warnings = build_report_warnings(results, simulator_runs)
@@ -628,7 +629,7 @@ def build_training_report(
             "sampleCountByVariant": {result["variantId"]: result["sampleCount"] for result in results},
             "componentMeans": {
                 result["variantId"]: result["reward"]["tuple"]
-                for result in results
+                for result in scored_results
             },
             "pairwise": pairwise,
         },
@@ -637,7 +638,7 @@ def build_training_report(
         "changedTopCount": changed_top_count,
         "modelFamilies": sorted({text for text in (result.get("family") for result in results) if isinstance(text, str)}),
         "modelReports": model_reports,
-        "kpiSummary": build_kpi_summary(results),
+        "kpiSummary": build_kpi_summary(scored_results),
         "warnings": warnings,
     }
 
@@ -664,14 +665,17 @@ def summarize_variant(
     runs: Sequence[JsonObject],
     reward_options: JsonObject,
 ) -> JsonObject:
-    run_metrics = [compute_run_metrics(run, reward_options) for run in runs]
+    scored_runs = [run for run in runs if run.get("ok") is True]
+    excluded_run_count = len(runs) - len(scored_runs)
+    run_metrics = [compute_run_metrics(run, reward_options) for run in scored_runs]
     reward_tuple = mean_reward_tuple(run_metrics)
     return {
         "variantId": variant.id,
         "family": variant.family,
         "rolloutStatus": variant.rollout_status,
         "sampleCount": len(run_metrics),
-        "ok": bool(runs) and all(run.get("ok", True) is True for run in runs),
+        "excludedRunCount": excluded_run_count,
+        "ok": bool(scored_runs) and excluded_run_count == 0,
         "parameters": variant.parameters,
         "reward": {
             "type": "lexicographic",
@@ -685,7 +689,7 @@ def summarize_variant(
             {
                 "variantRunId": run.get("variant_run_id", run.get("variantRunId")),
                 "ticksRun": number_or_none(run.get("ticks_run", run.get("ticksRun"))),
-                "ok": run.get("ok", True) is True,
+                "ok": run.get("ok") is True,
                 "error": text_or_none(run.get("error")),
             }
             for run in runs
@@ -1314,7 +1318,12 @@ def build_kpi_summary(results: Sequence[JsonObject]) -> JsonObject:
 def build_report_warnings(results: Sequence[JsonObject], simulator_runs: Sequence[JsonObject]) -> list[str]:
     warnings: list[str] = []
     for result in results:
-        if result["sampleCount"] == 0:
+        excluded_run_count = int(result.get("excludedRunCount", 0))
+        if excluded_run_count > 0:
+            warnings.append(
+                f"variant {result['variantId']} excluded {excluded_run_count} failed simulator run(s) from reward scoring"
+            )
+        elif result["sampleCount"] == 0:
             warnings.append(f"variant {result['variantId']} produced no simulator result")
         elif not result["ok"]:
             warnings.append(f"variant {result['variantId']} had simulator errors")

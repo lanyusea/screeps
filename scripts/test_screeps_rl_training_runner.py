@@ -309,6 +309,38 @@ export const STRATEGY_REGISTRY = [
         self.assertEqual(report["ranking"][0]["rewardTuple"][0], 0)
         self.assertEqual(report["statisticalComparison"]["pairwise"][0]["firstDifferingTier"], "resources")
 
+    def test_failed_variant_runs_are_excluded_from_reward_ranking(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        negative_baseline = variant_result(
+            "baseline",
+            [
+                start,
+                tick(2, [room("W1N1", spawns=0, creeps=0, energy=0, claimed=True)]),
+            ],
+        )
+        failed_candidate = variant_result("candidate", [])
+        failed_candidate["ok"] = False
+        failed_candidate["error"] = "simulator failed"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, base_card())
+            report = runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="failed-run-excluded",
+                simulator_runner=MockSimulator({"baseline": negative_baseline, "candidate": failed_candidate}),
+            )
+
+        candidate_result = next(result for result in report["variantResults"] if result["variantId"] == "candidate")
+        self.assertEqual(candidate_result["sampleCount"], 0)
+        self.assertEqual(candidate_result["excludedRunCount"], 1)
+        self.assertEqual(candidate_result["reward"]["samples"], [])
+        self.assertEqual([item["variantId"] for item in report["ranking"]], ["baseline"])
+        self.assertNotIn("candidate", report["statisticalComparison"]["componentMeans"])
+        self.assertTrue(any("excluded 1 failed simulator run" in warning for warning in report["warnings"]))
+
     def test_json_report_output_format_is_shadow_report_compatible(self) -> None:
         start = tick(1, [room("W1N1", energy=100, spawn_status="idle")])
         baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200, spawn_status="spawning")])])
