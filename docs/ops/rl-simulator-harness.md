@@ -1,6 +1,6 @@
 # RL Simulator Harness Contract
 
-Status: first bounded #414 dry-run slice.
+Status: first bounded #414 dry-run slice plus issue #548 Docker-run execution implementation.
 
 Roadmap link: `docs/ops/rl-domain-roadmap.md` L3, Slice B.
 
@@ -26,6 +26,43 @@ runtime-artifacts/rl-simulator-harness/<manifest-id>/simulator_harness_manifest.
 
 The output directory is covered by the repository `runtime-artifacts/` ignore rule.
 
+## Run Command
+
+The `run` subcommand executes a real private-server harness for one or more strategy variants.
+
+```bash
+python3 scripts/screeps_rl_simulator_harness.py run \
+  --run-id rl-sim-$(date -u +%Y%m%dT%H%M%SZ) \
+  --out-dir runtime-artifacts/rl-simulator \
+  --variants baseline \
+  --ticks 100 \
+  --workers 2 \
+  --room E26S49 \
+  --shard shardX \
+  --branch activeWorld \
+  --code-path prod/dist/main.js \
+  --map-source-file /root/screeps/maps/map-0b6758af.json
+```
+
+Defaults and behavior:
+
+- Docker images are inherited from the private-smoke launcher:
+  - `screepers/screeps-launcher:v1.16.2`
+  - `mongo:8.2.7`
+  - `redis:7.4.8`
+- `STEAM_KEY` must be set in environment (launcher configuration file is mounted from it).
+- Spawn is placed at `(20,20)` as `Spawn1`.
+- Per variant, the harness resets by stopping Docker and removing volumes, starts a fresh stack, resets world data, imports `/root/screeps/maps/map-0b6758af.json`, restarts Screeps, resumes simulation, uploads code to `/api/user/code`, places spawn, and collects tick-level observations.
+- Per variant readbacks include `/api/user/overview`, `/api/game/room-terrain`, and `/api/game/room-overview`.
+- `--variants` is optional and defaults to all strategy IDs discovered in `prod/src/strategy/strategyRegistry.ts`.
+- Tick metrics are written to:
+
+```text
+runtime-artifacts/rl-simulator/<run-id>/run_summary.json
+```
+
+Run supports `--workers` for parallel execution. Use `--workers 2` as proof of concept; scale to `4` by passing `--workers 4` and ensuring host ports are free.
+
 ## Safety Boundary
 
 The manifest must preserve these flags:
@@ -43,6 +80,21 @@ The manifest must preserve these flags:
 ```
 
 No learned or tuned policy may directly control official MMO creep intents, spawn intents, construction intents, market orders, Memory writes, RawMemory commands, or official API writes until the roadmap gates pass: simulator evidence, historical official-MMO validation, private/shadow safety gate, KPI rollout gate, and rollback gate.
+
+Run artifacts must keep the same safety boundary with equivalent snake-case and camel-case keys:
+
+```json
+{
+  "live_effect": false,
+  "official_mmo_writes": false,
+  "official_mmo_writes_allowed": false,
+  "liveEffect": false,
+  "officialMmoWrites": false,
+  "officialMmoWritesAllowed": false
+}
+```
+
+Steam keys and tokens are never printed. All run artifacts are redacted using configured secret values and the local code-redaction helper.
 
 ## Source Metadata Contract
 
@@ -115,13 +167,32 @@ Throughput evidence may be:
 
 Samples are treated as parallel worker windows, so aggregate throughput is total room ticks divided by the maximum worker wall-clock seconds. If the target is missed, the manifest records the gap; #414 follow-up work should report bottlenecks and scale workers or rooms per worker rather than changing game rules.
 
+## Run Artifact Schema (minimum)
+
+Run artifacts written by `run` must include:
+
+- `type: screeps-rl-simulator-run`
+- `harness_version`
+- `timestamp`
+- `live_effect: false`
+- `official_mmo_writes: false`
+- `official_mmo_writes_allowed: false`
+- `variants` array with each item including:
+  - `variant_id`
+  - `ticks_requested`
+  - `ticks_run`
+  - `wall_clock_seconds`
+  - `ticks_per_second`
+  - `tick_log` list where each entry includes at least `tick`
+- `safety` block.
+
 ## Verification
 
 Local offline checks:
 
 ```bash
 python3 -m py_compile scripts/screeps_rl_simulator_harness.py scripts/test_screeps_rl_simulator_harness.py
-python3 -m unittest scripts/test_screeps_rl_simulator_harness.py
+python3 -m pytest scripts/test_screeps_rl_simulator_harness.py -q
 python3 scripts/screeps_rl_simulator_harness.py self-test
 ```
 
