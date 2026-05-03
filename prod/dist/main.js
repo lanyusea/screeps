@@ -4030,8 +4030,13 @@ function refreshRemoteMiningSetup(colony, gameTime = getGameTime6()) {
   if (storedRemoteMining === void 0 && records.length === 0) {
     return;
   }
-  const remoteMining = isRecord4(storedRemoteMining) && !Array.isArray(storedRemoteMining) ? storedRemoteMining : {};
-  territoryMemory.remoteMining = remoteMining;
+  let remoteMining;
+  if (isRecord4(storedRemoteMining) && !Array.isArray(storedRemoteMining)) {
+    remoteMining = storedRemoteMining;
+  } else {
+    remoteMining = {};
+    territoryMemory.remoteMining = remoteMining;
+  }
   const activeKeys = /* @__PURE__ */ new Set();
   for (const record of records) {
     const key = getRemoteMiningMemoryKey(record.colony, record.roomName);
@@ -6434,7 +6439,10 @@ function isControllerOwned(controller) {
   return controller.owner != null || controller.my === true;
 }
 function isHostileOwnedController(controller) {
-  return (controller == null ? void 0 : controller.owner) != null && controller.my !== true;
+  if ((controller == null ? void 0 : controller.owner) == null) {
+    return false;
+  }
+  return controller.my !== true;
 }
 function isControllerOwnedByColony2(controller, colonyOwnerUsername) {
   const ownerUsername = getControllerOwnerUsername2(controller);
@@ -12262,7 +12270,7 @@ function shouldRetreatFromRemote(creep, assignment) {
     return true;
   }
   const targetRoom = getVisibleRoom2(assignment.targetRoom);
-  if (isHostileOwnedRemoteController(targetRoom == null ? void 0 : targetRoom.controller)) {
+  if (isForeignOwnedRemoteController(targetRoom == null ? void 0 : targetRoom.controller)) {
     return true;
   }
   return isVisibleRemoteThreatened(targetRoom, assignment.targetRoom);
@@ -12301,10 +12309,13 @@ function compareRemoteSourceAssignments(left, right) {
   return left.targetRoom.localeCompare(right.targetRoom) || String(left.sourceId).localeCompare(String(right.sourceId));
 }
 function isUsableRemoteRoom(room) {
-  return room != null && !isHostileOwnedRemoteController(room.controller) && typeof room.find === "function";
+  return room != null && !isForeignOwnedRemoteController(room.controller) && typeof room.find === "function";
 }
-function isHostileOwnedRemoteController(controller) {
-  return (controller == null ? void 0 : controller.owner) != null && controller.my !== true;
+function isForeignOwnedRemoteController(controller) {
+  if ((controller == null ? void 0 : controller.owner) == null) {
+    return false;
+  }
+  return controller.my !== true;
 }
 function countRemoteHarvestersForSource(assignment) {
   return getRemoteOperationCreeps(assignment.homeRoom, assignment.targetRoom).filter(

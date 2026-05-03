@@ -160,7 +160,7 @@ export function shouldRetreatFromRemote(
   }
 
   const targetRoom = getVisibleRoom(assignment.targetRoom);
-  if (isHostileOwnedRemoteController(targetRoom?.controller)) {
+  if (isForeignOwnedRemoteController(targetRoom?.controller)) {
     return true;
   }
 
@@ -226,11 +226,15 @@ function compareRemoteSourceAssignments(left: RemoteSourceAssignment, right: Rem
 }
 
 function isUsableRemoteRoom(room: Room | undefined): room is Room {
-  return room != null && !isHostileOwnedRemoteController(room.controller) && typeof room.find === 'function';
+  return room != null && !isForeignOwnedRemoteController(room.controller) && typeof room.find === 'function';
 }
 
-function isHostileOwnedRemoteController(controller: StructureController | undefined): boolean {
-  return controller?.owner != null && controller.my !== true;
+function isForeignOwnedRemoteController(controller: StructureController | undefined): boolean {
+  if (controller?.owner == null) {
+    return false;
+  }
+
+  return controller.my !== true;
 }
 
 function countRemoteHarvestersForSource(assignment: RemoteSourceAssignment): number {

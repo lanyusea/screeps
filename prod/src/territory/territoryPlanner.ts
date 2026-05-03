@@ -890,11 +890,13 @@ export function refreshRemoteMiningSetup(colony: ColonySnapshot, gameTime = getG
     return;
   }
 
-  const remoteMining =
-    isRecord(storedRemoteMining) && !Array.isArray(storedRemoteMining)
-      ? (storedRemoteMining as Record<string, TerritoryRemoteMiningRoomMemory>)
-      : {};
-  territoryMemory.remoteMining = remoteMining;
+  let remoteMining: Record<string, TerritoryRemoteMiningRoomMemory>;
+  if (isRecord(storedRemoteMining) && !Array.isArray(storedRemoteMining)) {
+    remoteMining = storedRemoteMining as Record<string, TerritoryRemoteMiningRoomMemory>;
+  } else {
+    remoteMining = {};
+    territoryMemory.remoteMining = remoteMining;
+  }
   const activeKeys = new Set<string>();
 
   for (const record of records) {
@@ -4676,7 +4678,11 @@ function isControllerOwned(controller: StructureController): boolean {
 }
 
 function isHostileOwnedController(controller: StructureController | undefined): boolean {
-  return controller?.owner != null && controller.my !== true;
+  if (controller?.owner == null) {
+    return false;
+  }
+
+  return controller.my !== true;
 }
 
 function isControllerOwnedByColony(controller: StructureController, colonyOwnerUsername: string | null): boolean {
