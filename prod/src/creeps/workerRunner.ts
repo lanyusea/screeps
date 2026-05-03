@@ -19,7 +19,11 @@ import {
   recordCreepBehaviorWork
 } from '../telemetry/behaviorTelemetry';
 
-type TransferSinkStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION' | 'STRUCTURE_TOWER';
+type TransferSinkStructureConstantGlobal =
+  | 'STRUCTURE_EXTENSION'
+  | 'STRUCTURE_LINK'
+  | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_TOWER';
 type CapacityConstructionStructureConstantGlobal = 'STRUCTURE_SPAWN' | 'STRUCTURE_EXTENSION';
 
 const MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
@@ -913,6 +917,10 @@ function getTransferSinkPriority(target: unknown): number {
 
   if (matchesTransferSinkStructureType(structureType, 'STRUCTURE_EXTENSION', 'extension')) {
     return 2;
+  }
+
+  if (matchesTransferSinkStructureType(structureType, 'STRUCTURE_LINK', 'link')) {
+    return 0.5;
   }
 
   return matchesTransferSinkStructureType(structureType, 'STRUCTURE_TOWER', 'tower') ? 1 : 0;

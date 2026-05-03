@@ -8848,9 +8848,9 @@ function createConstructionReservationContext(room) {
 }
 function getRoomOwnedCreeps(room) {
   var _a;
-  const findMyCreeps2 = globalThis.FIND_MY_CREEPS;
-  if (typeof findMyCreeps2 === "number") {
-    const roomCreeps = (_a = room.find) == null ? void 0 : _a.call(room, findMyCreeps2);
+  const findMyCreeps3 = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps3 === "number") {
+    const roomCreeps = (_a = room.find) == null ? void 0 : _a.call(room, findMyCreeps3);
     if (Array.isArray(roomCreeps)) {
       return roomCreeps;
     }
@@ -9178,7 +9178,7 @@ function isSafeStoredEnergySource(structure, context) {
   return isStoredWorkerEnergySource(structure) && hasStoredEnergy2(structure) && isFriendlyStoredEnergySource(structure, context);
 }
 function isStoredWorkerEnergySource(structure) {
-  return matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType6(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType6(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
+  return matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType6(structure.structureType, "STRUCTURE_LINK", "link") || matchesStructureType6(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType6(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
 }
 function hasStoredEnergy2(structure) {
   return getStoredEnergy2(structure) > 0;
@@ -11457,6 +11457,9 @@ function getTransferSinkPriority(target) {
   }
   if (matchesTransferSinkStructureType(structureType, "STRUCTURE_EXTENSION", "extension")) {
     return 2;
+  }
+  if (matchesTransferSinkStructureType(structureType, "STRUCTURE_LINK", "link")) {
+    return 0.5;
   }
   return matchesTransferSinkStructureType(structureType, "STRUCTURE_TOWER", "tower") ? 1 : 0;
 }
@@ -15655,9 +15658,542 @@ function getRoomName3(room) {
   return typeof room.name === "string" && room.name.length > 0 ? room.name : null;
 }
 
+// src/economy/linkManager.ts
+var SOURCE_LINK_RANGE = 2;
+var CONTROLLER_LINK_RANGE = 3;
+var STORAGE_LINK_RANGE = 2;
+var OK_CODE5 = 0;
+function transferEnergy(room) {
+  var _a, _b, _c, _d;
+  const network = classifyLinks(room);
+  if (network.sourceLinks.length === 0) {
+    return [];
+  }
+  const destinationLinks = getDestinationLinks(network);
+  if (destinationLinks.length === 0) {
+    return [];
+  }
+  const projectedState = createProjectedLinkState(network.links);
+  const results = [];
+  for (const sourceLink of sortLinksByEnergy(network.sourceLinks, projectedState)) {
+    if (!canLinkSendEnergy(sourceLink, projectedState)) {
+      continue;
+    }
+    const destination = selectDestinationLink(sourceLink, destinationLinks, projectedState);
+    if (!destination) {
+      continue;
+    }
+    const sourceId = getObjectId3(sourceLink);
+    const destinationId = getObjectId3(destination.link);
+    const amount = Math.min(
+      (_a = projectedState.storedEnergyById.get(sourceId)) != null ? _a : 0,
+      (_b = projectedState.freeCapacityById.get(destinationId)) != null ? _b : 0
+    );
+    if (amount <= 0) {
+      continue;
+    }
+    const result = sourceLink.transferEnergy(destination.link, amount);
+    results.push({
+      amount,
+      destinationId,
+      destinationRole: destination.role,
+      result,
+      sourceId
+    });
+    if (result === OK_CODE5) {
+      projectedState.storedEnergyById.set(sourceId, Math.max(0, ((_c = projectedState.storedEnergyById.get(sourceId)) != null ? _c : 0) - amount));
+      projectedState.freeCapacityById.set(
+        destinationId,
+        Math.max(0, ((_d = projectedState.freeCapacityById.get(destinationId)) != null ? _d : 0) - amount)
+      );
+    }
+  }
+  return results;
+}
+function classifyLinks(room) {
+  const links = findOwnedLinks(room);
+  const controllerLink = selectControllerLink(room, links);
+  const storageLink = selectStorageLink(room, links, controllerLink);
+  const destinationIds = new Set(
+    [controllerLink, storageLink].filter((link) => link !== null).map((link) => getObjectId3(link))
+  );
+  return {
+    links,
+    sourceLinks: selectSourceLinks(room, links, destinationIds),
+    controllerLink,
+    storageLink
+  };
+}
+function getDestinationLinks(network) {
+  const destinations = [];
+  if (network.controllerLink) {
+    destinations.push({ link: network.controllerLink, role: "controller" });
+  }
+  if (network.storageLink && getObjectId3(network.storageLink) !== getObjectId3(network.controllerLink)) {
+    destinations.push({ link: network.storageLink, role: "storage" });
+  }
+  return destinations;
+}
+function selectDestinationLink(sourceLink, destinationLinks, projectedState) {
+  var _a;
+  const sourceId = getObjectId3(sourceLink);
+  return (_a = destinationLinks.find((destination) => {
+    var _a2;
+    const destinationId = getObjectId3(destination.link);
+    return destinationId !== sourceId && ((_a2 = projectedState.freeCapacityById.get(destinationId)) != null ? _a2 : 0) > 0;
+  })) != null ? _a : null;
+}
+function canLinkSendEnergy(link, projectedState) {
+  var _a;
+  return getLinkCooldown(link) <= 0 && ((_a = projectedState.storedEnergyById.get(getObjectId3(link))) != null ? _a : 0) > 0;
+}
+function createProjectedLinkState(links) {
+  return {
+    freeCapacityById: new Map(links.map((link) => [getObjectId3(link), getFreeEnergyCapacity4(link)])),
+    storedEnergyById: new Map(links.map((link) => [getObjectId3(link), getStoredEnergy7(link)]))
+  };
+}
+function sortLinksByEnergy(links, projectedState) {
+  return [...links].sort(
+    (left, right) => {
+      var _a, _b;
+      return ((_a = projectedState.storedEnergyById.get(getObjectId3(right))) != null ? _a : 0) - ((_b = projectedState.storedEnergyById.get(getObjectId3(left))) != null ? _b : 0) || getObjectId3(left).localeCompare(getObjectId3(right));
+    }
+  );
+}
+function selectSourceLinks(room, links, destinationIds) {
+  const sources = findSources3(room);
+  if (sources.length === 0) {
+    return [];
+  }
+  return links.filter((link) => !destinationIds.has(getObjectId3(link))).filter((link) => sources.some((source) => isNearRoomObject2(link, source, room.name, SOURCE_LINK_RANGE))).sort(compareObjectIds2);
+}
+function selectControllerLink(room, links) {
+  const controller = room.controller;
+  if (!controller) {
+    return null;
+  }
+  return selectClosestLink(links, controller, room.name, CONTROLLER_LINK_RANGE);
+}
+function selectStorageLink(room, links, controllerLink) {
+  var _a;
+  const storage = (_a = room.storage) != null ? _a : findStorage(room);
+  if (!storage) {
+    return null;
+  }
+  return selectClosestLink(
+    links.filter((link) => getObjectId3(link) !== getObjectId3(controllerLink)),
+    storage,
+    room.name,
+    STORAGE_LINK_RANGE
+  );
+}
+function selectClosestLink(links, target, roomName, range) {
+  var _a;
+  const targetPosition = getRoomObjectPosition(target);
+  if (!targetPosition || !isSameRoomPosition2(targetPosition, roomName)) {
+    return null;
+  }
+  return (_a = links.filter((link) => isNearRoomObject2(link, target, roomName, range)).sort(
+    (left, right) => compareRangeToPosition(targetPosition, left, right) || getObjectId3(left).localeCompare(getObjectId3(right))
+  )[0]) != null ? _a : null;
+}
+function isNearRoomObject2(left, right, roomName, range) {
+  const leftPosition = getRoomObjectPosition(left);
+  const rightPosition = getRoomObjectPosition(right);
+  return leftPosition !== null && rightPosition !== null && isSameRoomPosition2(leftPosition, roomName) && isSameRoomPosition2(rightPosition, roomName) && getRangeBetweenPositions2(leftPosition, rightPosition) <= range;
+}
+function compareRangeToPosition(position, left, right) {
+  const leftPosition = getRoomObjectPosition(left);
+  const rightPosition = getRoomObjectPosition(right);
+  return (leftPosition ? getRangeBetweenPositions2(position, leftPosition) : Number.POSITIVE_INFINITY) - (rightPosition ? getRangeBetweenPositions2(position, rightPosition) : Number.POSITIVE_INFINITY);
+}
+function findOwnedLinks(room) {
+  return findOwnedStructures2(room).filter((structure) => matchesStructureType9(structure.structureType, "STRUCTURE_LINK", "link")).sort(compareObjectIds2);
+}
+function findOwnedStructures2(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  const result = room.find(FIND_MY_STRUCTURES);
+  return Array.isArray(result) ? result : [];
+}
+function findStorage(room) {
+  var _a;
+  return (_a = findOwnedStructures2(room).filter(
+    (structure) => matchesStructureType9(structure.structureType, "STRUCTURE_STORAGE", "storage")
+  )[0]) != null ? _a : null;
+}
+function findSources3(room) {
+  if (typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  const result = room.find(FIND_SOURCES);
+  return Array.isArray(result) ? result : [];
+}
+function getStoredEnergy7(structure) {
+  var _a, _b;
+  const storedEnergy = (_b = (_a = structure.store) == null ? void 0 : _a.getUsedCapacity) == null ? void 0 : _b.call(_a, getEnergyResource6());
+  return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+}
+function getFreeEnergyCapacity4(structure) {
+  var _a, _b;
+  const freeCapacity = (_b = (_a = structure.store) == null ? void 0 : _a.getFreeCapacity) == null ? void 0 : _b.call(_a, getEnergyResource6());
+  return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
+}
+function getLinkCooldown(link) {
+  return typeof link.cooldown === "number" && Number.isFinite(link.cooldown) ? link.cooldown : 0;
+}
+function getEnergyResource6() {
+  var _a;
+  return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
+}
+function compareObjectIds2(left, right) {
+  return getObjectId3(left).localeCompare(getObjectId3(right));
+}
+function getObjectId3(object) {
+  if (typeof object !== "object" || object === null) {
+    return "";
+  }
+  const id = object.id;
+  return typeof id === "string" ? id : "";
+}
+function matchesStructureType9(actual, globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return actual === ((_a = constants[globalName]) != null ? _a : fallback);
+}
+
+// src/economy/storageManager.ts
+var STORAGE_EMERGENCY_BUFFER = 1e3;
+var TOWER_REFILL_THRESHOLD = 500;
+function manageStorage(room) {
+  const storage = getRoomStorage(room);
+  if (!storage) {
+    return { assignedTasks: 0, linkTransfers: [] };
+  }
+  const linkTransfers = transferStorageLinkEnergy(room);
+  const storageEnergy = getStoredEnergy8(storage);
+  if (storageEnergy <= 0) {
+    return { assignedTasks: 0, linkTransfers };
+  }
+  const demandState = buildEnergyDemandState(room);
+  if (!hasRemainingDemand(demandState)) {
+    return { assignedTasks: 0, linkTransfers };
+  }
+  const workers = findStorageManagementWorkers(room, storage, demandState);
+  const projectedStorageEnergy = reserveExistingAssignments(workers, storage, demandState, storageEnergy);
+  const assignedTasks = assignLoadedWorkers(workers, demandState) + assignStorageWithdrawals(workers, storage, demandState, projectedStorageEnergy);
+  return { assignedTasks, linkTransfers };
+}
+function transferStorageLinkEnergy(room) {
+  const { controllerLink, storageLink } = classifyLinks(room);
+  if (!controllerLink || !storageLink || getObjectId4(controllerLink) === getObjectId4(storageLink)) {
+    return [];
+  }
+  if (getLinkCooldown2(storageLink) > 0) {
+    return [];
+  }
+  const storedEnergy = getStoredEnergy8(storageLink);
+  const destinationFreeCapacity = getFreeEnergyCapacity5(controllerLink);
+  const amount = Math.min(storedEnergy, destinationFreeCapacity);
+  if (amount <= 0) {
+    return [];
+  }
+  return [
+    {
+      amount,
+      destinationId: getObjectId4(controllerLink),
+      result: storageLink.transferEnergy(controllerLink, amount),
+      sourceId: getObjectId4(storageLink)
+    }
+  ];
+}
+function buildEnergyDemandState(room) {
+  const targets = [
+    ...findSpawnExtensionRefillTargets(room),
+    ...findTowerRefillTargets(room),
+    ...findStorageLinkRefillTargets(room)
+  ].sort(compareDemandTargets);
+  return {
+    remainingCapacityById: new Map(targets.map((target) => [target.id, target.freeCapacity])),
+    targets
+  };
+}
+function findSpawnExtensionRefillTargets(room) {
+  const structures = findOwnedStructures3(room).filter(
+    (structure) => (matchesStructureType10(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType10(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && getFreeEnergyCapacity5(structure) > 0
+  );
+  if (!isRoomSpawnExtensionEnergyLow(room, structures)) {
+    return [];
+  }
+  return structures.map((target) => ({
+    freeCapacity: getFreeEnergyCapacity5(target),
+    id: getObjectId4(target),
+    priority: 3,
+    target
+  }));
+}
+function findTowerRefillTargets(room) {
+  return findOwnedStructures3(room).filter(
+    (structure) => matchesStructureType10(structure.structureType, "STRUCTURE_TOWER", "tower") && getStoredEnergy8(structure) < TOWER_REFILL_THRESHOLD && getFreeEnergyCapacity5(structure) > 0
+  ).map((target) => ({
+    freeCapacity: getFreeEnergyCapacity5(target),
+    id: getObjectId4(target),
+    priority: 2,
+    target
+  }));
+}
+function findStorageLinkRefillTargets(room) {
+  const { controllerLink, storageLink } = classifyLinks(room);
+  if (!controllerLink || !storageLink || getObjectId4(controllerLink) === getObjectId4(storageLink)) {
+    return [];
+  }
+  if (getFreeEnergyCapacity5(controllerLink) <= 0 || getFreeEnergyCapacity5(storageLink) <= 0) {
+    return [];
+  }
+  return [
+    {
+      freeCapacity: getFreeEnergyCapacity5(storageLink),
+      id: getObjectId4(storageLink),
+      priority: 1,
+      target: storageLink
+    }
+  ];
+}
+function isRoomSpawnExtensionEnergyLow(room, structures) {
+  if (structures.length === 0) {
+    return false;
+  }
+  const energyAvailable = room.energyAvailable;
+  const energyCapacityAvailable = room.energyCapacityAvailable;
+  if (typeof energyAvailable === "number" && Number.isFinite(energyAvailable) && typeof energyCapacityAvailable === "number" && Number.isFinite(energyCapacityAvailable)) {
+    return energyAvailable < energyCapacityAvailable;
+  }
+  return structures.some((structure) => getFreeEnergyCapacity5(structure) > 0);
+}
+function findStorageManagementWorkers(room, storage, demandState) {
+  const storageId = getObjectId4(storage);
+  const demandTargetIds = new Set(demandState.targets.map((target) => target.id));
+  return findMyCreeps2(room).filter((creep) => isEligibleStorageManagementWorker(creep, room.name)).filter((creep) => isAssignableStorageManagementWorker(creep, storageId, demandTargetIds)).sort(compareWorkers);
+}
+function reserveExistingAssignments(workers, storage, demandState, storageEnergy) {
+  let projectedStorageEnergy = storageEnergy;
+  const storageId = getObjectId4(storage);
+  for (const worker of workers) {
+    const task = worker.memory.task;
+    if ((task == null ? void 0 : task.type) === "transfer") {
+      const targetId = String(task.targetId);
+      const remainingCapacity = demandState.remainingCapacityById.get(targetId);
+      if (typeof remainingCapacity === "number") {
+        demandState.remainingCapacityById.set(
+          targetId,
+          Math.max(0, remainingCapacity - getCarriedEnergy4(worker))
+        );
+      }
+    }
+    if ((task == null ? void 0 : task.type) === "withdraw" && String(task.targetId) === storageId) {
+      projectedStorageEnergy -= getFreeEnergyCapacity5(worker);
+    }
+  }
+  return Math.max(0, projectedStorageEnergy);
+}
+function assignLoadedWorkers(workers, demandState) {
+  let assignedTasks = 0;
+  for (const worker of workers) {
+    const carriedEnergy = getCarriedEnergy4(worker);
+    if (carriedEnergy <= 0) {
+      continue;
+    }
+    if (isExistingDemandTransfer(worker, demandState)) {
+      continue;
+    }
+    const target = selectDemandTarget(worker, demandState);
+    if (!target) {
+      continue;
+    }
+    if (setWorkerTask(worker, { type: "transfer", targetId: target.target.id })) {
+      assignedTasks += 1;
+    }
+    reserveDemandCapacity(demandState, target.id, carriedEnergy);
+  }
+  return assignedTasks;
+}
+function assignStorageWithdrawals(workers, storage, demandState, initialProjectedStorageEnergy) {
+  var _a;
+  let assignedTasks = 0;
+  let projectedStorageEnergy = initialProjectedStorageEnergy;
+  for (const worker of workers) {
+    if (!hasRemainingDemand(demandState) || getCarriedEnergy4(worker) > 0) {
+      continue;
+    }
+    if (((_a = worker.memory.task) == null ? void 0 : _a.type) === "withdraw" && String(worker.memory.task.targetId) === String(storage.id)) {
+      continue;
+    }
+    const freeCapacity = getFreeEnergyCapacity5(worker);
+    const plannedWithdrawal = Math.min(freeCapacity, projectedStorageEnergy);
+    if (plannedWithdrawal <= 0 || projectedStorageEnergy - plannedWithdrawal <= STORAGE_EMERGENCY_BUFFER) {
+      continue;
+    }
+    if (setWorkerTask(worker, { type: "withdraw", targetId: storage.id })) {
+      assignedTasks += 1;
+    }
+    projectedStorageEnergy -= plannedWithdrawal;
+  }
+  return assignedTasks;
+}
+function isExistingDemandTransfer(worker, demandState) {
+  const task = worker.memory.task;
+  return (task == null ? void 0 : task.type) === "transfer" && demandState.remainingCapacityById.has(String(task.targetId));
+}
+function selectDemandTarget(worker, demandState) {
+  var _a;
+  const availableTargets = demandState.targets.filter(
+    (target) => {
+      var _a2;
+      return ((_a2 = demandState.remainingCapacityById.get(target.id)) != null ? _a2 : 0) > 0;
+    }
+  );
+  if (availableTargets.length === 0) {
+    return null;
+  }
+  return (_a = [...availableTargets].sort((left, right) => compareDemandTargetsForWorker(worker, left, right))[0]) != null ? _a : null;
+}
+function reserveDemandCapacity(demandState, targetId, amount) {
+  var _a;
+  demandState.remainingCapacityById.set(
+    targetId,
+    Math.max(0, ((_a = demandState.remainingCapacityById.get(targetId)) != null ? _a : 0) - amount)
+  );
+}
+function hasRemainingDemand(demandState) {
+  return [...demandState.remainingCapacityById.values()].some((capacity) => capacity > 0);
+}
+function setWorkerTask(worker, task) {
+  var _a;
+  if (((_a = worker.memory.task) == null ? void 0 : _a.type) === task.type && String(worker.memory.task.targetId) === String(task.targetId)) {
+    return false;
+  }
+  worker.memory.task = task;
+  return true;
+}
+function isEligibleStorageManagementWorker(creep, roomName) {
+  var _a;
+  if (creep.memory.role !== "worker" || ((_a = creep.room) == null ? void 0 : _a.name) !== roomName) {
+    return false;
+  }
+  if (creep.memory.colony && creep.memory.colony !== roomName) {
+    return false;
+  }
+  return !creep.memory.controllerSustain && !creep.memory.territory;
+}
+function isAssignableStorageManagementWorker(creep, storageId, demandTargetIds) {
+  const task = creep.memory.task;
+  if (!task) {
+    return true;
+  }
+  if (task.type === "claim" || task.type === "reserve") {
+    return false;
+  }
+  if (task.type === "withdraw") {
+    return String(task.targetId) === storageId;
+  }
+  return task.type === "transfer" && demandTargetIds.has(String(task.targetId));
+}
+function compareDemandTargetsForWorker(worker, left, right) {
+  return right.priority - left.priority || compareOptionalRange(worker, left.target, right.target) || left.id.localeCompare(right.id);
+}
+function compareDemandTargets(left, right) {
+  return right.priority - left.priority || left.id.localeCompare(right.id);
+}
+function compareOptionalRange(worker, left, right) {
+  var _a;
+  const getRangeTo = (_a = worker.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo !== "function") {
+    return 0;
+  }
+  const leftRange = getRangeTo.call(worker.pos, left);
+  const rightRange = getRangeTo.call(worker.pos, right);
+  return normalizeRange(leftRange) - normalizeRange(rightRange);
+}
+function normalizeRange(range) {
+  return typeof range === "number" && Number.isFinite(range) ? range : Number.POSITIVE_INFINITY;
+}
+function compareWorkers(left, right) {
+  return getWorkerId(left).localeCompare(getWorkerId(right));
+}
+function getWorkerId(creep) {
+  const name = creep.name;
+  if (typeof name === "string" && name.length > 0) {
+    return name;
+  }
+  const id = creep.id;
+  return typeof id === "string" ? id : "";
+}
+function getRoomStorage(room) {
+  var _a;
+  if (room.storage) {
+    return room.storage;
+  }
+  return (_a = findOwnedStructures3(room).filter(
+    (structure) => matchesStructureType10(structure.structureType, "STRUCTURE_STORAGE", "storage")
+  )[0]) != null ? _a : null;
+}
+function findOwnedStructures3(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  const result = room.find(FIND_MY_STRUCTURES);
+  return Array.isArray(result) ? result : [];
+}
+function findMyCreeps2(room) {
+  if (typeof FIND_MY_CREEPS !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  const result = room.find(FIND_MY_CREEPS);
+  return Array.isArray(result) ? result : [];
+}
+function getStoredEnergy8(target) {
+  var _a;
+  const store = target == null ? void 0 : target.store;
+  const storedEnergy = (_a = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a.call(store, getEnergyResource7());
+  return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+}
+function getFreeEnergyCapacity5(target) {
+  var _a;
+  const store = target == null ? void 0 : target.store;
+  const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, getEnergyResource7());
+  return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
+}
+function getCarriedEnergy4(creep) {
+  return getStoredEnergy8(creep);
+}
+function getLinkCooldown2(link) {
+  return typeof link.cooldown === "number" && Number.isFinite(link.cooldown) ? link.cooldown : 0;
+}
+function getEnergyResource7() {
+  var _a;
+  return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
+}
+function getObjectId4(object) {
+  if (typeof object !== "object" || object === null) {
+    return "";
+  }
+  const candidate = object;
+  if (typeof candidate.id === "string") {
+    return candidate.id;
+  }
+  return typeof candidate.name === "string" ? candidate.name : "";
+}
+function matchesStructureType10(actual, globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return actual === ((_a = constants[globalName]) != null ? _a : fallback);
+}
+
 // src/territory/claimExecutor.ts
 var AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR = "autonomousExpansionClaim";
-var OK_CODE5 = 0;
+var OK_CODE6 = 0;
 var ERR_NOT_IN_RANGE_CODE5 = -9;
 var ERR_INVALID_TARGET_CODE2 = -7;
 var ERR_NO_BODYPART_CODE = -12;
@@ -15717,7 +16253,7 @@ function isAutonomousExpansionClaimGclInsufficient() {
 }
 function executeExpansionClaim(creep, controller, telemetryEvents = []) {
   var _a, _b, _c, _d, _e, _f, _g, _h;
-  const result = typeof creep.claimController === "function" ? creep.claimController(controller) : OK_CODE5;
+  const result = typeof creep.claimController === "function" ? creep.claimController(controller) : OK_CODE6;
   const reason = getClaimResultReason(result);
   recordTerritoryClaimTelemetry(telemetryEvents, {
     colony: (_e = (_d = (_b = creep.memory.colony) != null ? _b : (_a = creep.room) == null ? void 0 : _a.name) != null ? _d : (_c = controller.room) == null ? void 0 : _c.name) != null ? _e : "unknown",
@@ -15923,7 +16459,7 @@ function recordTerritoryClaimTelemetry(telemetryEvents, event) {
 }
 function getClaimResultReason(result) {
   switch (result) {
-    case OK_CODE5:
+    case OK_CODE6:
       return null;
     case ERR_NOT_IN_RANGE_CODE5:
       return "notInRange";
@@ -16009,7 +16545,7 @@ var ERR_NOT_IN_RANGE_CODE6 = -9;
 var ERR_INVALID_TARGET_CODE3 = -7;
 var ERR_NO_BODYPART_CODE2 = -12;
 var ERR_GCL_NOT_ENOUGH_CODE2 = -15;
-var OK_CODE6 = 0;
+var OK_CODE7 = 0;
 var CLAIM_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([
   ERR_INVALID_TARGET_CODE3,
   ERR_NO_BODYPART_CODE2,
@@ -16087,7 +16623,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
     return;
   }
   const result = assignment.action === "claim" ? executeExpansionClaim(creep, controller, telemetryEvents) : executeControllerAction(creep, controller, "reserveController");
-  if (assignment.action === "claim" && result === OK_CODE6) {
+  if (assignment.action === "claim" && result === OK_CODE7) {
     recordPostClaimBootstrapIfOwned(creep, assignment, controller, telemetryEvents);
   }
   if (result === ERR_NOT_IN_RANGE_CODE6 && typeof creep.moveTo === "function") {
@@ -16173,7 +16709,7 @@ function selectTargetController(creep, assignment) {
 function executeControllerAction(creep, controller, action) {
   const controllerAction = creep[action];
   if (typeof controllerAction !== "function") {
-    return OK_CODE6;
+    return OK_CODE7;
   }
   return controllerAction.call(creep, controller);
 }
@@ -16249,7 +16785,7 @@ function runClaimer(creep, telemetryEvents = []) {
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
-var OK_CODE7 = 0;
+var OK_CODE8 = 0;
 var NEXT_EXPANSION_SCORING_REFRESH_INTERVAL = 50;
 var NEXT_EXPANSION_SCORING_DOWNGRADE_GUARD_TICKS = 5e3;
 function runEconomy(preludeTelemetryEvents = []) {
@@ -16299,7 +16835,7 @@ function runEconomy(preludeTelemetryEvents = []) {
         telemetryEvents,
         planningColony.spawns
       );
-      if (!outcome || outcome.result !== OK_CODE7) {
+      if (!outcome || outcome.result !== OK_CODE8) {
         break;
       }
       usedSpawns.add(outcome.spawn);
@@ -16314,6 +16850,8 @@ function runEconomy(preludeTelemetryEvents = []) {
       }
       roleCounts = addPlannedWorker(roleCounts);
     }
+    transferEnergy(colony.room);
+    manageStorage(colony.room);
   }
   for (const creep of creeps) {
     if (creep.memory.role === "worker") {

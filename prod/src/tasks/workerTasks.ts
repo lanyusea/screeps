@@ -73,7 +73,7 @@ const BUILDER_STORAGE_ACQUISITION_SITE_RANGE = BUILDER_DROPPED_PICKUP_RANGE;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
-type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
+type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal | StructureLink;
 type UpgraderBoostStoredEnergySource = StructureContainer | StructureStorage;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
 type FillableEnergySink = StructureSpawn | StructureExtension | StructureTower;
@@ -1997,6 +1997,7 @@ type StructureConstantGlobal =
   | 'STRUCTURE_TOWER'
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_LINK'
   | 'STRUCTURE_STORAGE'
   | 'STRUCTURE_TERMINAL'
   | 'STRUCTURE_RAMPART';
@@ -2077,6 +2078,7 @@ function isSafeStoredEnergySource(
 function isStoredWorkerEnergySource(structure: AnyStructure): structure is StoredWorkerEnergySource {
   return (
     matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_LINK', 'link') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')
   );
