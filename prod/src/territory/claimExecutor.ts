@@ -60,6 +60,10 @@ export function shouldDeferOccupationRecommendationForExpansionClaim(
   return evaluation.status === 'planned' || evaluation.reason === 'controllerCooldown';
 }
 
+export function clearAutonomousExpansionClaimIntent(colony: string): void {
+  pruneAutonomousExpansionClaimTargets(colony);
+}
+
 function shouldPruneAutonomousExpansionClaimTargets(
   reason: RuntimeTerritoryClaimTelemetryReason | undefined
 ): boolean {

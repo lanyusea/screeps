@@ -2617,12 +2617,56 @@ function clearOccupationRecommendationFollowUpIntent(report) {
   report.followUpIntent = null;
   return report;
 }
+function suppressOccupationClaimRecommendation(report) {
+  var _a, _b, _c;
+  if (((_a = report.next) == null ? void 0 : _a.action) !== "occupy" && ((_b = report.followUpIntent) == null ? void 0 : _b.action) !== "claim") {
+    return report;
+  }
+  const next = (_c = report.candidates.find(
+    (candidate) => candidate.action !== "occupy" && candidate.evidenceStatus !== "unavailable"
+  )) != null ? _c : null;
+  report.next = next;
+  report.followUpIntent = isNonEmptyString4(report.colonyName) ? buildOccupationRecommendationFollowUpIntent(report.colonyName, next) : null;
+  return report;
+}
+function clearOccupationRecommendationClaimIntent(colony) {
+  if (!isNonEmptyString4(colony)) {
+    return;
+  }
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+  const removedTargetKeys = /* @__PURE__ */ new Set();
+  if (Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+      const target = normalizeTerritoryTarget(rawTarget);
+      if ((target == null ? void 0 : target.colony) !== colony || target.action !== "claim" || target.createdBy !== OCCUPATION_RECOMMENDATION_TARGET_CREATOR) {
+        return true;
+      }
+      removedTargetKeys.add(getOccupationRecommendationTargetKey(target.roomName, target.action));
+      return false;
+    });
+  }
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  const nextIntents = intents.filter(
+    (intent) => !(intent.colony === colony && intent.action === "claim" && (intent.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR || removedTargetKeys.has(getOccupationRecommendationTargetKey(intent.targetRoom, intent.action))))
+  );
+  if (nextIntents.length === intents.length) {
+    return;
+  }
+  if (nextIntents.length > 0) {
+    territoryMemory.intents = nextIntents;
+  } else {
+    delete territoryMemory.intents;
+  }
+}
 function scoreOccupationRecommendations(input) {
   var _a;
   const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreOccupationCandidate(input, candidate)).sort(compareOccupationRecommendationScores);
   const next = (_a = candidates.find((candidate) => candidate.evidenceStatus !== "unavailable")) != null ? _a : null;
   return attachOccupationRecommendationReportColony(
-    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) },
+    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input.colonyName, next) },
     input.colonyName
   );
 }
@@ -2723,6 +2767,9 @@ function buildActiveOccupationRecommendationControlTarget(report) {
     return null;
   }
   return { roomName: recommendation.roomName, action };
+}
+function getOccupationRecommendationTargetKey(roomName, action) {
+  return `${roomName}:${action}`;
 }
 function revokeOccupationRecommendationTarget(territoryMemory, intent) {
   if (!isTerritoryControlAction(intent.action) || !Array.isArray(territoryMemory.targets)) {
@@ -2937,12 +2984,12 @@ function scoreOccupationCandidate(input, candidate) {
     ...candidate.hostileStructureCount !== void 0 ? { hostileStructureCount: candidate.hostileStructureCount } : {}
   };
 }
-function buildOccupationRecommendationFollowUpIntent(input, next) {
+function buildOccupationRecommendationFollowUpIntent(colonyName, next) {
   if (!next) {
     return null;
   }
   return {
-    colony: input.colonyName,
+    colony: colonyName,
     targetRoom: next.roomName,
     action: getTerritoryIntentAction(next.action),
     ...next.controllerId ? { controllerId: next.controllerId } : {},
@@ -5293,8 +5340,14 @@ function upsertTerritoryIntent2(intents, nextIntent) {
 }
 function findTerritoryIntentIndex(intents, nextIntent) {
   if (nextIntent.createdBy) {
-    return intents.findIndex(
+    const sourceOwnedIntentIndex = intents.findIndex(
       (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === nextIntent.createdBy
+    );
+    if (sourceOwnedIntentIndex >= 0) {
+      return sourceOwnedIntentIndex;
+    }
+    return intents.findIndex(
+      (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === void 0
     );
   }
   const unownedIntentIndex = intents.findIndex(
@@ -12865,6 +12918,9 @@ function refreshNextExpansionTargetSelection(colony, report, gameTime) {
     ...candidate.controllerId ? { controllerId: candidate.controllerId } : {}
   };
 }
+function clearNextExpansionTargetIntent(colony) {
+  pruneNextExpansionTargets(colony);
+}
 function buildRuntimeExpansionScoringInput(colony) {
   var _a, _b;
   return {
@@ -15268,6 +15324,9 @@ function refreshAutonomousExpansionClaimIntent(colony, report, gameTime, telemet
 function shouldDeferOccupationRecommendationForExpansionClaim(evaluation) {
   return evaluation.status === "planned" || evaluation.reason === "controllerCooldown";
 }
+function clearAutonomousExpansionClaimIntent(colony) {
+  pruneAutonomousExpansionClaimTargets(colony);
+}
 function shouldPruneAutonomousExpansionClaimTargets(reason) {
   return reason === "noAdjacentCandidate" || reason === "hostilePresence" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved";
 }
@@ -15910,7 +15969,7 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
   const colonyWorkers = creeps.filter(
     (creep) => creep.memory.role === "worker" && creep.memory.colony === colony.room.name
   );
-  const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  let report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   if (territoryReady) {
     const expansionSelection = refreshNextExpansionTargetSelectionIfDue(colony, Game.time);
     if (expansionSelection.status === "planned") {
@@ -15918,6 +15977,12 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
       return;
     }
     if (expansionSelection.reason === "roomLimitReached") {
+      const colonyName = colony.room.name;
+      clearNextExpansionTargetIntent(colonyName);
+      clearAutonomousExpansionClaimIntent(colonyName);
+      clearOccupationRecommendationClaimIntent(colonyName);
+      report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+      persistOccupationRecommendationFollowUpIntent(suppressOccupationClaimRecommendation(report), Game.time);
       return;
     }
     if (expansionSelection.reason === "unmetPreconditions") {

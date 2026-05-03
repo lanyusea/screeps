@@ -3133,8 +3133,15 @@ function findTerritoryIntentIndex(
   nextIntent: TerritoryIntentMemory
 ): number {
   if (nextIntent.createdBy) {
-    return intents.findIndex(
+    const sourceOwnedIntentIndex = intents.findIndex(
       (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === nextIntent.createdBy
+    );
+    if (sourceOwnedIntentIndex >= 0) {
+      return sourceOwnedIntentIndex;
+    }
+
+    return intents.findIndex(
+      (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === undefined
     );
   }
 

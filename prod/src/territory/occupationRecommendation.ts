@@ -111,6 +111,73 @@ export function clearOccupationRecommendationFollowUpIntent(
   return report;
 }
 
+export function suppressOccupationClaimRecommendation(
+  report: OccupationRecommendationReport
+): OccupationRecommendationReport {
+  if (report.next?.action !== 'occupy' && report.followUpIntent?.action !== 'claim') {
+    return report;
+  }
+
+  const next =
+    report.candidates.find(
+      (candidate) => candidate.action !== 'occupy' && candidate.evidenceStatus !== 'unavailable'
+    ) ?? null;
+  report.next = next;
+  report.followUpIntent = isNonEmptyString(report.colonyName)
+    ? buildOccupationRecommendationFollowUpIntent(report.colonyName, next)
+    : null;
+  return report;
+}
+
+export function clearOccupationRecommendationClaimIntent(colony: string): void {
+  if (!isNonEmptyString(colony)) {
+    return;
+  }
+
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  const removedTargetKeys = new Set<string>();
+  if (Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+      const target = normalizeTerritoryTarget(rawTarget);
+      if (
+        target?.colony !== colony ||
+        target.action !== 'claim' ||
+        target.createdBy !== OCCUPATION_RECOMMENDATION_TARGET_CREATOR
+      ) {
+        return true;
+      }
+
+      removedTargetKeys.add(getOccupationRecommendationTargetKey(target.roomName, target.action));
+      return false;
+    });
+  }
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  const nextIntents = intents.filter(
+    (intent) =>
+      !(
+        intent.colony === colony &&
+        intent.action === 'claim' &&
+        (intent.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR ||
+          removedTargetKeys.has(getOccupationRecommendationTargetKey(intent.targetRoom, intent.action)))
+      )
+  );
+
+  if (nextIntents.length === intents.length) {
+    return;
+  }
+
+  if (nextIntents.length > 0) {
+    territoryMemory.intents = nextIntents;
+  } else {
+    delete territoryMemory.intents;
+  }
+}
+
 export function scoreOccupationRecommendations(
   input: OccupationRecommendationInput
 ): OccupationRecommendationReport {
@@ -121,7 +188,7 @@ export function scoreOccupationRecommendations(
   const next = candidates.find((candidate) => candidate.evidenceStatus !== 'unavailable') ?? null;
 
   return attachOccupationRecommendationReportColony(
-    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input, next) },
+    { candidates, next, followUpIntent: buildOccupationRecommendationFollowUpIntent(input.colonyName, next) },
     input.colonyName
   );
 }
@@ -277,6 +344,10 @@ function buildActiveOccupationRecommendationControlTarget(
   }
 
   return { roomName: recommendation.roomName, action };
+}
+
+function getOccupationRecommendationTargetKey(roomName: string, action: TerritoryIntentAction): string {
+  return `${roomName}:${action}`;
 }
 
 function revokeOccupationRecommendationTarget(territoryMemory: TerritoryMemory, intent: TerritoryIntentMemory): void {
@@ -543,7 +614,7 @@ function scoreOccupationCandidate(
 }
 
 function buildOccupationRecommendationFollowUpIntent(
-  input: OccupationRecommendationInput,
+  colonyName: string,
   next: OccupationRecommendationScore | null
 ): OccupationRecommendationFollowUpIntent | null {
   if (!next) {
@@ -551,7 +622,7 @@ function buildOccupationRecommendationFollowUpIntent(
   }
 
   return {
-    colony: input.colonyName,
+    colony: colonyName,
     targetRoom: next.roomName,
     action: getTerritoryIntentAction(next.action),
     ...(next.controllerId ? { controllerId: next.controllerId } : {}),

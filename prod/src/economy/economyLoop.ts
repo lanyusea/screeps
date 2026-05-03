@@ -17,16 +17,20 @@ import { emitRuntimeSummary, type RuntimeSummary, type RuntimeTelemetryEvent } f
 import { recordSourceWorkloads } from './sourceWorkload';
 import {
   buildRuntimeOccupationRecommendationReport,
+  clearOccupationRecommendationClaimIntent,
   clearOccupationRecommendationFollowUpIntent,
-  persistOccupationRecommendationFollowUpIntent
+  persistOccupationRecommendationFollowUpIntent,
+  suppressOccupationClaimRecommendation
 } from '../territory/occupationRecommendation';
 import {
   buildRuntimeExpansionCandidateReport,
+  clearNextExpansionTargetIntent,
   NEXT_EXPANSION_TARGET_CREATOR,
   type NextExpansionTargetSelection,
   refreshNextExpansionTargetSelection
 } from '../territory/expansionScoring';
 import {
+  clearAutonomousExpansionClaimIntent,
   refreshAutonomousExpansionClaimIntent,
   shouldDeferOccupationRecommendationForExpansionClaim
 } from '../territory/claimExecutor';
@@ -159,7 +163,7 @@ function refreshExecutableTerritoryRecommendation(
   const colonyWorkers = creeps.filter(
     (creep) => creep.memory.role === 'worker' && creep.memory.colony === colony.room.name
   );
-  const report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+  let report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   if (territoryReady) {
     const expansionSelection = refreshNextExpansionTargetSelectionIfDue(colony, Game.time);
     if (expansionSelection.status === 'planned') {
@@ -167,6 +171,12 @@ function refreshExecutableTerritoryRecommendation(
       return;
     }
     if (expansionSelection.reason === 'roomLimitReached') {
+      const colonyName = colony.room.name;
+      clearNextExpansionTargetIntent(colonyName);
+      clearAutonomousExpansionClaimIntent(colonyName);
+      clearOccupationRecommendationClaimIntent(colonyName);
+      report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
+      persistOccupationRecommendationFollowUpIntent(suppressOccupationClaimRecommendation(report), Game.time);
       return;
     }
     if (expansionSelection.reason === 'unmetPreconditions') {

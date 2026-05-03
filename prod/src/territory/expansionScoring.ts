@@ -159,6 +159,10 @@ export function refreshNextExpansionTargetSelection(
   };
 }
 
+export function clearNextExpansionTargetIntent(colony: string): void {
+  pruneNextExpansionTargets(colony);
+}
+
 function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionScoringInput {
   return {
     colonyName: colony.room.name,
