@@ -24,6 +24,7 @@ import {
   type ConstructionSiteImpactPriorityContext
 } from '../construction/constructionPriority';
 import { findSourceContainer } from '../economy/sourceContainers';
+import { isSourceLink } from '../economy/linkManager';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 
@@ -73,7 +74,7 @@ const BUILDER_STORAGE_ACQUISITION_SITE_RANGE = BUILDER_DROPPED_PICKUP_RANGE;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
-type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
+type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal | StructureLink;
 type UpgraderBoostStoredEnergySource = StructureContainer | StructureStorage;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
 type FillableEnergySink = StructureSpawn | StructureExtension | StructureTower;
@@ -1997,6 +1998,7 @@ type StructureConstantGlobal =
   | 'STRUCTURE_TOWER'
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_LINK'
   | 'STRUCTURE_STORAGE'
   | 'STRUCTURE_TERMINAL'
   | 'STRUCTURE_RAMPART';
@@ -2071,10 +2073,14 @@ function isSafeStoredEnergySource(
   structure: AnyStructure,
   context: StoredEnergySourceContext
 ): structure is StoredWorkerEnergySource {
-  return isStoredWorkerEnergySource(structure) && hasStoredEnergy(structure) && isFriendlyStoredEnergySource(structure, context);
+  return isStoredWorkerEnergySource(structure, context.room) && hasStoredEnergy(structure) && isFriendlyStoredEnergySource(structure, context);
 }
 
-function isStoredWorkerEnergySource(structure: AnyStructure): structure is StoredWorkerEnergySource {
+function isStoredWorkerEnergySource(structure: AnyStructure, room: Room): structure is StoredWorkerEnergySource {
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_LINK', 'link')) {
+    return isSourceLink(room, structure as StructureLink);
+  }
+
   return (
     matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||

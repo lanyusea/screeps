@@ -152,6 +152,16 @@ function makeStoredEnergyStructure(
   } as unknown as StructureContainer | StructureStorage | StructureTerminal;
 }
 
+function makeStoredEnergyLink(id: string, x: number, y: number, energy: number): StructureLink {
+  return {
+    id,
+    my: true,
+    structureType: 'link',
+    pos: makeRoomPosition(x, y),
+    store: { getUsedCapacity: jest.fn().mockReturnValue(energy) }
+  } as unknown as StructureLink;
+}
+
 function makeSalvageEnergySource(
   id: string,
   energy: number,
@@ -308,7 +318,7 @@ function recordSurvivalMode(
 describe('selectWorkerTask', () => {
   beforeEach(() => {
     clearColonySurvivalAssessmentCache();
-    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; FIND_HOSTILE_CREEPS: number; FIND_HOSTILE_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_TOWER: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; FIND_HOSTILE_CREEPS: number; FIND_HOSTILE_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_TOWER: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_LINK: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
     (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
@@ -323,6 +333,7 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
     (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_LINK: StructureConstant }).STRUCTURE_LINK = 'link';
     (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
@@ -1543,6 +1554,35 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-tiny' });
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('withdraws only from source links and ignores controller links', () => {
+    const source = makeSource('source1', 10, 10);
+    const sourceLink = makeStoredEnergyLink('source-link', 11, 10, 300);
+    const controllerLink = makeStoredEnergyLink('controller-link', 25, 23, 800);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      myStructures: [sourceLink, controllerLink],
+      sources: [source],
+      structures: [controllerLink, sourceLink]
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'controller-link' ? 1 : 10))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'source-link' });
   });
 
   it('prefers a nearby full-load pickup over distant surplus stored energy', () => {
