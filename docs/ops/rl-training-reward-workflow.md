@@ -13,10 +13,15 @@ Primary artifacts:
 - `scripts/screeps_rl_dataset_export.py`
 - `scripts/screeps_strategy_shadow_report.py`
 - `scripts/screeps_rl_simulator_harness.py`
+- `scripts/screeps_rl_mmo_validator.py`
+- `scripts/screeps_rl_rollout_manager.py`
+- `docs/ops/rl-rollout-rollback.md`
 
 ## Purpose
 
 The RL training lane sits between the private-server simulator harness and historical validation. It may create offline experiment cards, candidate weight vectors, and shadow recommendations. It must not create an official MMO control path.
+
+Rollout and rollback evidence is handled by `scripts/screeps_rl_rollout_manager.py` after a candidate has passed offline, simulator, historical, and manual-review gates. The rollout manager emits dry-run decisions, rollback checks, and post-rollout KPI comparisons; it does not deploy or revert live code.
 
 Use the helper to link a dataset run and bot commit:
 
@@ -46,6 +51,14 @@ Run a real offline/private-simulator training experiment:
 python3 scripts/screeps_rl_training_runner.py \
   --experiment-card runtime-artifacts/rl-experiment-cards/<card>.json \
   --out-dir runtime-artifacts/rl-training
+```
+
+Run historical official-MMO validation before any rollout recommendation advances:
+
+```bash
+python3 scripts/screeps_rl_mmo_validator.py \
+  --candidate-config runtime-artifacts/rl-training/<candidate-config>.json \
+  runtime-artifacts/
 ```
 
 The card is deterministic JSON. `card_id` is derived from `dataset_run_id` plus the first 12 hex characters of `code_commit`. Output goes to stdout unless `--output <path>` is provided.
@@ -257,11 +270,24 @@ Candidate evidence must advance in this order:
 2. Experiment-card gate: code commit, training approach, lexicographic reward model, and safety fields validated.
 3. Shadow gate: incumbent-vs-candidate report with `liveEffect:false` and bounded ranking/KPI evidence.
 4. Simulator gate: resettable private-server evidence with determinism and throughput metadata.
-5. Historical gate: official-MMO historical validation with OOD and reliability rejection.
+5. Historical gate: `scripts/screeps_rl_mmo_validator.py` validates the candidate against official-MMO historical runtime artifacts or artifact-bridge KPI reports, emits pass/fail per reliability/territory/resources/kills metric, and blocks degradation before KPI rollout review.
 6. Manual-review gate: at least one full 8h positive KPI shadow cycle and an explainable recommendation.
-7. Rollout gate: bounded high-level strategy rollout plan with rollback trigger and post-window ingestion.
+7. Rollout gate: bounded high-level strategy rollout plan with rollback trigger and post-window ingestion through `scripts/screeps_rl_rollout_manager.py`.
 
 This workflow cannot promote a candidate to live influence by itself.
+
+## Rollout And Feedback
+
+The L6 rollout workflow is documented in `docs/ops/rl-rollout-rollback.md`.
+
+Minimum rollout command set:
+
+```bash
+python3 scripts/screeps_rl_rollout_manager.py contract
+python3 scripts/screeps_rl_rollout_manager.py dry-run --pre <pre-kpi.json> --post <post-kpi.json> --candidate-id <candidate-id>
+python3 scripts/screeps_rl_rollout_manager.py rollback-check --baseline <baseline-kpi.json> --current <current-kpi.json> --candidate-id <candidate-id>
+python3 scripts/screeps_rl_rollout_manager.py compare --pre <pre-kpi.json> --post <post-kpi.json>
+```
 
 ## Verification
 
