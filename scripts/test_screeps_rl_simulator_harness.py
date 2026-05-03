@@ -329,6 +329,309 @@ class RlSimulatorHarnessTest(unittest.TestCase):
                 with self.assertRaises(argparse.ArgumentTypeError):
                     harness.parse_throughput_sample(sample)
 
+    def test_build_scenario_config_is_stable_and_records_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\":true}", encoding="utf-8")
+
+            scenario = harness.build_scenario_config(
+                "run-1",
+                "baseline",
+                room="E26S49",
+                shard="shardX",
+                branch="activeWorld",
+                ticks=100,
+                code_path=code_path,
+                map_source_file=map_path,
+            )
+
+        self.assertEqual(scenario["type"], "screeps-rl-sim-run-scenario")
+        self.assertEqual(scenario["runId"], "run-1")
+        self.assertEqual(scenario["variantId"], "baseline")
+        self.assertEqual(scenario["activeWorldBranch"], "activeWorld")
+        self.assertEqual(scenario["room"], "E26S49")
+        self.assertEqual(scenario["shard"], "shardX")
+        self.assertEqual(scenario["tickPlan"]["ticks"], 100)
+        self.assertEqual(scenario["spawn"], {"name": "Spawn1", "x": 20, "y": 20})
+        self.assertEqual(scenario["codeArtifact"]["path"], str(root / "main.js"))
+        self.assertEqual(scenario["mapArtifact"]["sourcePath"], str(root / "map.json"))
+        self.assertIsInstance(scenario["codeArtifact"]["sha256"], str)
+        self.assertIsInstance(scenario["mapArtifact"]["sha256"], str)
+
+    def test_validate_run_artifact_checks_schema(self) -> None:
+        valid_variant = {
+            "variant_id": "baseline",
+            "variant_run_id": "run-1-baseline",
+            "worker_id": 0,
+            "ticks_requested": 2,
+            "ticks_run": 2,
+            "wall_clock_seconds": 0.5,
+            "ticks_per_second": 4.0,
+            "tick_log": [
+                {
+                    "tick": 1,
+                    "shard": "shardX",
+                    "room": "E26S49",
+                    "rooms": {"E26S49": {"room": "E26S49", "controller": {"level": 1, "progress": 0, "progressTotal": 300}, "energy": 300, "creeps": 0, "structures": {}}},
+                    "overview": {"roomCount": 1, "rooms": []},
+                    "terrain": {"bytes": 0},
+                },
+            ],
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "ok": True,
+        }
+        artifact = {
+            "type": harness.RUN_SUMMARY_TYPE,
+            "runId": "validate-run",
+            "harness_version": harness.HARNESS_VERSION,
+            "safety": {"liveEffect": False},
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "official_mmo_writes_allowed": False,
+            "variants": [valid_variant],
+        }
+
+        self.assertTrue(harness.validate_run_artifact(artifact))
+
+        invalid = dict(artifact)
+        invalid["official_mmo_writes"] = True
+        with self.assertRaises(ValueError):
+            harness.validate_run_artifact(invalid)
+
+    def test_build_run_artifact_uses_elapsed_wall_clock_for_parallel_summary(self) -> None:
+        variants = [
+            {"variant_id": "a", "wall_clock_seconds": 10.0, "ticks_run": 2},
+            {"variant_id": "b", "wall_clock_seconds": 12.0, "ticks_run": 2},
+        ]
+
+        artifact = harness.build_run_artifact(
+            "parallel-run",
+            ticks=2,
+            workers=2,
+            variant_results=variants,
+            branch="activeWorld",
+            wall_clock_seconds=13.4567,
+        )
+        fallback = harness.build_run_artifact(
+            "parallel-run",
+            ticks=2,
+            workers=2,
+            variant_results=variants,
+            branch="activeWorld",
+        )
+
+        self.assertEqual(artifact["wallClockSeconds"], 13.457)
+        self.assertEqual(fallback["wallClockSeconds"], 12.0)
+        self.assertEqual(artifact["wallClockSummary"]["maxSeconds"], 12.0)
+
+    def test_require_launcher_cli_success_fails_on_false_ok_result(self) -> None:
+        class FakeSmoke:
+            def run_launcher_cli(self, compose: list[str], cfg: object, expression: str) -> dict[str, object]:
+                return {"ok": False, "error": f"rejected {expression}"}
+
+        with self.assertRaisesRegex(RuntimeError, "reset simulator data failed"):
+            harness._require_launcher_cli_success(
+                FakeSmoke(),
+                ["docker", "compose"],
+                object(),
+                "system.resetAllData()",
+                "reset simulator data",
+            )
+
+    def test_require_launcher_cli_success_fails_on_missing_ok_result(self) -> None:
+        class FakeSmoke:
+            def run_launcher_cli(self, compose: list[str], cfg: object, expression: str) -> dict[str, object]:
+                return {"result": f"accepted {expression}"}
+
+        with self.assertRaisesRegex(RuntimeError, "resume simulator failed"):
+            harness._require_launcher_cli_success(
+                FakeSmoke(),
+                ["docker", "compose"],
+                object(),
+                "system.resumeSimulation()",
+                "resume simulator",
+            )
+
+    def test_run_id_rejects_dots_even_without_path_separators(self) -> None:
+        with self.assertRaisesRegex(argparse.ArgumentTypeError, "letters, numbers"):
+            harness.parse_run_id_token("run.1")
+
+    def test_run_variant_initializes_frozen_smoke_config_with_http_server_url(self) -> None:
+        captured_server_urls: list[str] = []
+
+        class FrozenSmokeConfig:
+            def __init__(self, **kwargs: object) -> None:
+                object.__setattr__(self, "_frozen", False)
+                for key, value in kwargs.items():
+                    object.__setattr__(self, key, value)
+                object.__setattr__(self, "_frozen", True)
+
+            def __setattr__(self, key: str, value: object) -> None:
+                if getattr(self, "_frozen", False):
+                    raise AttributeError(f"cannot assign to frozen field {key}")
+                object.__setattr__(self, key, value)
+
+        class FakeSmoke:
+            SmokeConfig = FrozenSmokeConfig
+
+            def required_env_errors(self, cfg: FrozenSmokeConfig) -> list[str]:
+                captured_server_urls.append(str(cfg.server_url))
+                return ["stop before side effects"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+
+            with mock.patch("screeps_rl_simulator_harness._load_private_smoke_module", return_value=FakeSmoke()):
+                result = harness._run_variant(
+                    0,
+                    "baseline",
+                    run_id="frozen-config",
+                    ticks=1,
+                    room="E26S49",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=code_path,
+                    map_source_file=map_path,
+                    out_dir=root / "out",
+                )
+
+        self.assertEqual(captured_server_urls, ["http://127.0.0.1:21025"])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "stop before side effects")
+
+    def test_run_variants_passes_worker_index_and_records_elapsed_wall_clock(self) -> None:
+        calls: list[tuple[int, str]] = []
+
+        def fake_run_variant(worker_index: int, variant_id: str, **kwargs: object) -> dict[str, object]:
+            calls.append((worker_index, variant_id))
+            return {
+                "variant_id": variant_id,
+                "worker_id": worker_index,
+                "ticks_run": 1,
+                "wall_clock_seconds": 10.0 + worker_index,
+                "tick_log": [],
+                "ok": True,
+            }
+
+        with mock.patch("screeps_rl_simulator_harness._run_variant", side_effect=fake_run_variant):
+            with mock.patch("screeps_rl_simulator_harness.time.monotonic", side_effect=[100.0, 101.25]):
+                artifact, results = harness.run_variants(
+                    variants=["a", "b"],
+                    ticks=1,
+                    workers=2,
+                    room="E26S49",
+                    shard="shardX",
+                    branch="activeWorld",
+                    code_path=Path("main.js"),
+                    map_source_file=Path("map.json"),
+                    out_dir=Path("out"),
+                    run_id="parallel-run",
+                )
+
+        self.assertEqual(sorted(calls), [(0, "a"), (1, "b")])
+        self.assertEqual([item["variant_id"] for item in results], ["a", "b"])
+        self.assertEqual(artifact["wallClockSeconds"], 1.25)
+
+    def test_run_simulator_writes_schema_validated_and_redacted_artifact(self) -> None:
+        mock_variant = {
+            "variant_id": "baseline",
+            "ticks_requested": 3,
+            "ticks_run": 3,
+            "wall_clock_seconds": 1.2,
+            "ticks_per_second": 2.5,
+            "tick_log": [],
+            "live_effect": False,
+            "official_mmo_writes": False,
+        }
+        run_artifact = {
+            "type": harness.RUN_SUMMARY_TYPE,
+            "runId": "run-validate",
+            "harness_version": harness.HARNESS_VERSION,
+            "safety": {"liveEffect": False},
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "official_mmo_writes_allowed": False,
+            "variants": [mock_variant],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+            out_dir = root / "runtime-artifacts"
+            output_data: dict[str, object] | None = None
+            with mock.patch.dict(os.environ, {"STEAM_KEY": "super-secret-key"}):
+                with mock.patch("screeps_rl_simulator_harness.run_variants", return_value=(run_artifact, [mock_variant])):
+                    summary = harness.run_simulator(
+                        ticks=3,
+                        workers=1,
+                        variants=["baseline"],
+                        out_dir=out_dir,
+                        run_id="run-validate",
+                        code_path=code_path,
+                        map_source_file=map_path,
+                    )
+                    output_path = out_dir / "run-validate" / "run_summary.json"
+                    output_data = json.loads(output_path.read_text(encoding="utf-8"))
+                    self.assertTrue(output_path.exists())
+
+        self.assertEqual(summary["runId"], "run-validate")
+        self.assertIsNotNone(output_data)
+        self.assertEqual(output_data["runId"], "run-validate")
+        self.assertEqual(output_data["variants"][0]["variant_id"], "baseline")
+        self.assertFalse(output_data["official_mmo_writes"])
+        self.assertFalse(output_data["live_effect"])
+        self.assertNotIn("super-secret-key", json.dumps(output_data))
+
+    def test_run_simulator_rejects_unsafe_run_id_before_writing_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+            out_dir = root / "runtime-artifacts"
+
+            with mock.patch.dict(os.environ, {"STEAM_KEY": "super-secret-key"}):
+                with mock.patch("screeps_rl_simulator_harness.run_variants") as run_variants:
+                    with self.assertRaisesRegex(RuntimeError, "letters, numbers"):
+                        harness.run_simulator(
+                            ticks=1,
+                            workers=1,
+                            variants=["baseline"],
+                            out_dir=out_dir,
+                            run_id="../outside",
+                            code_path=code_path,
+                            map_source_file=map_path,
+                        )
+
+        run_variants.assert_not_called()
+        self.assertFalse((root / "outside" / "run_summary.json").exists())
+
+    def test_run_command_exits_nonzero_when_any_variant_failed(self) -> None:
+        failed_summary = {
+            "type": harness.RUN_SUMMARY_TYPE,
+            "runId": "failed-run",
+            "variants": [{"variant_id": "baseline", "ok": False, "error": "boom"}],
+        }
+        output = io.StringIO()
+
+        with mock.patch("screeps_rl_simulator_harness.discover_strategy_variants", return_value=["baseline"]):
+            with mock.patch("screeps_rl_simulator_harness.run_simulator", return_value=failed_summary):
+                exit_code = harness.main(["run", "--variants", "baseline"], stdout=output)
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn('"ok": false', output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()
