@@ -7115,10 +7115,12 @@ function getTowerLimitForRcl(level) {
   return level ? (_a = TOWER_LIMITS_BY_RCL[level]) != null ? _a : 0 : 0;
 }
 function getExistingAndPendingBuildCount(state, globalName, fallback) {
-  var _a, _b, _c;
+  var _a, _b;
   const existingStructures = countStructuresByType(state.ownedStructures, globalName, fallback);
   const existingCount = existingStructures != null ? existingStructures : globalName === "STRUCTURE_TOWER" && fallback === "tower" ? (_a = state.towerCount) != null ? _a : 0 : 0;
-  const pendingCount = (_c = (_b = state.ownedConstructionSites) == null ? void 0 : _b.filter((site) => matchesStructureType5(String(site.structureType), globalName, fallback)).length) != null ? _c : 0;
+  const pendingCount = ((_b = state.ownedConstructionSites) != null ? _b : []).filter(
+    (site) => matchesStructureType5(String(site.structureType), globalName, fallback)
+  ).length;
   return existingCount + pendingCount;
 }
 function buildRemoteLogisticsCandidates(state) {
@@ -7170,8 +7172,8 @@ function createCandidateForBuildType(buildType, state) {
         risk: ["requires steady energy income to keep tower effective"],
         estimatedEnergyCost: STRUCTURE_BUILD_COSTS.tower,
         hostileExposure: "medium",
-        signals: { defense: Math.max(0.75, getDefensePressure(state)), enemyKillPotential: 0.7 },
-        vision: { survival: Math.max(0.75, getDefensePressure(state)), territory: 0.9, enemyKills: 0.5 }
+        signals: { defense: getDefensePressure(state), enemyKillPotential: 0.7 },
+        vision: { survival: getDefensePressure(state), territory: 0.9, enemyKills: 0.5 }
       };
     case "rampart":
       return {
@@ -7183,8 +7185,8 @@ function createCandidateForBuildType(buildType, state) {
         risk: ["decays without sustained repair budget"],
         estimatedEnergyCost: STRUCTURE_BUILD_COSTS.rampart,
         hostileExposure: "medium",
-        signals: { defense: Math.max(0.7, getDefensePressure(state)), repairDecay: getRepairDecayPressure(state) },
-        vision: { survival: Math.max(0.7, getDefensePressure(state)), territory: 0.8, enemyKills: 0.15 }
+        signals: { defense: getDefensePressure(state), repairDecay: getRepairDecayPressure(state) },
+        vision: { survival: getDefensePressure(state), territory: 0.8, enemyKills: 0.15 }
       };
     case "road":
       return {

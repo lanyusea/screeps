@@ -1475,9 +1475,9 @@ function getExistingAndPendingBuildCount(
   const existingCount =
     existingStructures ??
     (globalName === 'STRUCTURE_TOWER' && fallback === 'tower' ? state.towerCount ?? 0 : 0);
-  const pendingCount =
-    state.ownedConstructionSites?.filter((site) => matchesStructureType(String(site.structureType), globalName, fallback))
-      .length ?? 0;
+  const pendingCount = (state.ownedConstructionSites ?? []).filter((site) =>
+    matchesStructureType(String(site.structureType), globalName, fallback)
+  ).length;
 
   return existingCount + pendingCount;
 }
@@ -1534,8 +1534,8 @@ function createCandidateForBuildType(
         risk: ['requires steady energy income to keep tower effective'],
         estimatedEnergyCost: STRUCTURE_BUILD_COSTS.tower,
         hostileExposure: 'medium',
-        signals: { defense: Math.max(0.75, getDefensePressure(state)), enemyKillPotential: 0.7 },
-        vision: { survival: Math.max(0.75, getDefensePressure(state)), territory: 0.9, enemyKills: 0.5 }
+        signals: { defense: getDefensePressure(state), enemyKillPotential: 0.7 },
+        vision: { survival: getDefensePressure(state), territory: 0.9, enemyKills: 0.5 }
       };
     case 'rampart':
       return {
@@ -1547,8 +1547,8 @@ function createCandidateForBuildType(
         risk: ['decays without sustained repair budget'],
         estimatedEnergyCost: STRUCTURE_BUILD_COSTS.rampart,
         hostileExposure: 'medium',
-        signals: { defense: Math.max(0.7, getDefensePressure(state)), repairDecay: getRepairDecayPressure(state) },
-        vision: { survival: Math.max(0.7, getDefensePressure(state)), territory: 0.8, enemyKills: 0.15 }
+        signals: { defense: getDefensePressure(state), repairDecay: getRepairDecayPressure(state) },
+        vision: { survival: getDefensePressure(state), territory: 0.8, enemyKills: 0.15 }
       };
     case 'road':
       return {
