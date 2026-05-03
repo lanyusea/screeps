@@ -4637,7 +4637,10 @@ function sortAdjacentRoomsByPersistedExpansionScore(roomNames, colonyName, terri
     return roomNames;
   }
   return roomNames.map((roomName, index) => ({ roomName, index })).sort(
-    (left, right) => compareOptionalNumbers2(scoredRoomRanks.get(left.roomName), scoredRoomRanks.get(right.roomName)) || left.index - right.index
+    (left, right) => {
+      var _a, _b;
+      return ((_a = scoredRoomRanks.get(left.roomName)) != null ? _a : Number.POSITIVE_INFINITY) - ((_b = scoredRoomRanks.get(right.roomName)) != null ? _b : Number.POSITIVE_INFINITY) || left.index - right.index;
+    }
   ).map(({ roomName }) => roomName);
 }
 function getPersistedExpansionCandidateRanks(colonyName, territoryMemory) {
@@ -13590,8 +13593,16 @@ function getNearestOwnedRoomDistance(ownedRoomNames, targetRoom, adjacentRoomNam
   let nearestDistance;
   for (const ownedRoomName of ownedRoomNames) {
     const adjacentDistance = ((_a = adjacentRoomNames.get(ownedRoomName)) == null ? void 0 : _a.has(targetRoom)) ? 1 : void 0;
-    const routeDistance = getKnownRouteLength2(ownedRoomName, targetRoom);
-    const distance = routeDistance != null ? routeDistance : adjacentDistance;
+    if (adjacentDistance !== void 0) {
+      nearestRoomName = ownedRoomName;
+      nearestDistance = adjacentDistance;
+      break;
+    }
+    const linearDistance = getLinearRoomDistance(ownedRoomName, targetRoom);
+    if (linearDistance !== void 0 && linearDistance > MAX_NEARBY_EXPANSION_ROUTE_DISTANCE) {
+      continue;
+    }
+    const distance = getKnownRouteLength2(ownedRoomName, targetRoom);
     if (distance === void 0) {
       continue;
     }
@@ -13611,6 +13622,15 @@ function getNearestOwnedRoomDistance(ownedRoomNames, targetRoom, adjacentRoomNam
     ...nearestRoomName ? { roomName: nearestRoomName } : {},
     ...nearestDistance !== void 0 ? { distance: nearestDistance } : {}
   };
+}
+function getLinearRoomDistance(fromRoom, targetRoom) {
+  var _a;
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (typeof (gameMap == null ? void 0 : gameMap.getRoomLinearDistance) !== "function") {
+    return void 0;
+  }
+  const distance = gameMap.getRoomLinearDistance.call(gameMap, fromRoom, targetRoom);
+  return Number.isFinite(distance) ? distance : void 0;
 }
 function isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom) {
   if (routeDistance === null || nearestOwnedDistance.distance === null) {
