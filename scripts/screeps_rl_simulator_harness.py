@@ -460,7 +460,8 @@ def _build_tick_entry(
     tick: int | None,
     overview: Any,
     terrain: Any,
-    room_overview: Any,
+    room_overviews: Any,
+    visible_rooms: Sequence[str] | None = None,
 ) -> JsonObject:
     overview_payload: JsonObject = {"roomCount": 0, "rooms": []}
     if isinstance(overview, dict):
@@ -474,15 +475,54 @@ def _build_tick_entry(
                     "gametime": selected.get("gametime"),
                     "gametimes": selected.get("gametimes"),
                 }
-    room_summary = _summarize_room_state(_extract_room_payload(room_overview, room), room)
+    room_names = (
+        _dedupe_room_names(visible_rooms)
+        if visible_rooms is not None
+        else _visible_room_names(overview, shard, room)
+    )
+    room_payloads = _room_overview_payloads(room_overviews, room_names, room)
+    room_summaries = {
+        room_name: _summarize_room_state(room_payloads.get(room_name, {}), room_name)
+        for room_name in room_names
+    }
     return {
         "tick": tick if isinstance(tick, int) else None,
         "shard": shard,
         "room": room,
-        "rooms": {room: room_summary},
+        "rooms": room_summaries,
         "overview": overview_payload,
         "terrain": _terrain_summary(terrain),
     }
+
+
+def _dedupe_room_names(room_names: Sequence[str]) -> list[str]:
+    ordered: list[str] = []
+    for room_name in room_names:
+        if isinstance(room_name, str) and room_name not in ordered:
+            ordered.append(room_name)
+    return ordered
+
+
+def _visible_room_names(overview: Any, shard: str, anchor_room: str) -> list[str]:
+    ordered: list[str] = []
+    for room_name in runtime_monitor.overview_rooms(overview, shard):
+        if room_name not in ordered:
+            ordered.append(room_name)
+    if anchor_room not in ordered:
+        ordered.insert(0, anchor_room)
+    return ordered
+
+
+def _room_overview_payloads(room_overviews: Any, room_names: Sequence[str], anchor_room: str) -> dict[str, Any]:
+    if not isinstance(room_overviews, dict):
+        return {}
+    if any(isinstance(room_overviews.get(room_name), dict) for room_name in room_names):
+        return {
+            room_name: payload
+            for room_name, payload in room_overviews.items()
+            if isinstance(room_name, str) and isinstance(payload, dict)
+        }
+    return {anchor_room: room_overviews}
 
 
 def _wait_for_http_with_smoke(cfg: Any, smoke: Any, timeout_seconds: int = RUN_PHASE_TIMEOUT_SECONDS) -> None:
@@ -500,6 +540,33 @@ def _read_gametime_from_overview(payload: Any, shard: str) -> int | None:
 
 def _safe_redact_smoke_payload(payload: Any) -> JsonObject:
     return {"ok": True, "payload": dataset_export.redact_text(json.dumps(payload, sort_keys=True, ensure_ascii=True))[:2000]}
+
+
+def _fetch_room_overviews(
+    cfg: Any,
+    smoke: Any,
+    token: str,
+    rooms: Sequence[str],
+    shard: str,
+) -> tuple[str, dict[str, Any]]:
+    payloads: dict[str, Any] = {}
+    for room_name in rooms:
+        room_overview = smoke.http_json(
+            "GET",
+            cfg.server_url,
+            "/api/game/room-overview",
+            params={"room": room_name, "shard": shard},
+            headers=smoke.token_headers(token),
+            timeout=RUN_API_TIMEOUT_SECONDS,
+        )
+        token = smoke.update_token_from_headers(token, room_overview.headers)
+        if isinstance(room_overview.payload, dict) and not smoke.api_dict_succeeded(room_overview):
+            raise RuntimeError(
+                f"/api/game/room-overview returned unusable payload for {room_name}: "
+                f"{_safe_redact_smoke_payload(room_overview.payload)}"
+            )
+        payloads[room_name] = room_overview.payload
+    return token, payloads
 
 
 def _run_one_tick(
@@ -524,33 +591,23 @@ def _run_one_tick(
             timeout=RUN_API_TIMEOUT_SECONDS,
         )
         token = smoke.update_token_from_headers(token, terrain_result.headers)
-        room_overview = smoke.http_json(
-            "GET",
-            cfg.server_url,
-            "/api/game/room-overview",
-            params={"room": room, "shard": shard},
-            headers=smoke.token_headers(token),
-            timeout=RUN_API_TIMEOUT_SECONDS,
-        )
-        token = smoke.update_token_from_headers(token, room_overview.headers)
         current_tick = _read_gametime_from_overview(overview_result.payload, shard)
         if isinstance(overview_result.payload, dict) and not smoke.api_dict_succeeded(overview_result):
             raise RuntimeError(f"/api/user/overview returned unusable payload: {_safe_redact_smoke_payload(overview_result.payload)}")
-        if isinstance(room_overview.payload, dict) and not smoke.api_dict_succeeded(room_overview):
-            raise RuntimeError(
-                f"/api/game/room-overview returned unusable payload: {_safe_redact_smoke_payload(room_overview.payload)}"
-            )
         if current_tick is None:
             time.sleep(RUN_TICK_POLL_SECONDS)
             continue
         if previous_tick is None or current_tick > previous_tick:
+            visible_rooms = _visible_room_names(overview_result.payload, shard, room)
+            token, room_overviews = _fetch_room_overviews(cfg, smoke, token, visible_rooms, shard)
             tick_entry = _build_tick_entry(
                 shard,
                 room,
                 current_tick,
                 overview_result.payload,
                 terrain_result.payload,
-                room_overview.payload,
+                room_overviews,
+                visible_rooms,
             )
             return token, current_tick, tick_entry
         time.sleep(RUN_TICK_POLL_SECONDS)
