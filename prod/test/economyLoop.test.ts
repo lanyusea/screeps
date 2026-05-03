@@ -874,6 +874,7 @@ describe('runEconomy', () => {
             action: 'claim',
             status: 'planned',
             updatedAt: 499,
+            createdBy: 'autonomousExpansionClaim',
             controllerId: 'controller2' as Id<StructureController>
           },
           {
@@ -1023,6 +1024,7 @@ describe('runEconomy', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: 323,
+        createdBy: 'occupationRecommendation',
         controllerId: 'controller2',
         requiresControllerPressure: true,
         followUp
@@ -1210,6 +1212,7 @@ describe('runEconomy', () => {
       action: 'claim',
       status: 'planned',
       updatedAt: 325,
+      createdBy: 'occupationRecommendation',
       controllerId: 'controller3'
     });
   });

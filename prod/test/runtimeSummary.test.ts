@@ -946,6 +946,7 @@ describe('runtime telemetry summaries', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: RUNTIME_SUMMARY_INTERVAL,
+        createdBy: 'occupationRecommendation',
         controllerId: 'controller2'
       }
     ]);

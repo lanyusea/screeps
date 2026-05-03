@@ -522,7 +522,7 @@ function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansion
     return 'noCandidate';
   }
 
-  if (report.candidates.every(isBlockedOnlyByRoomLimit)) {
+  if (report.candidates.some(hasRoomLimitPrecondition)) {
     return 'roomLimitReached';
   }
 
@@ -537,10 +537,9 @@ function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansion
   return 'unavailable';
 }
 
-function isBlockedOnlyByRoomLimit(candidate: ExpansionCandidateScore): boolean {
-  return (
-    candidate.preconditions.length === 1 &&
-    candidate.preconditions[0].startsWith(ROOM_LIMIT_PRECONDITION_PREFIX)
+function hasRoomLimitPrecondition(candidate: ExpansionCandidateScore): boolean {
+  return candidate.preconditions.some((precondition) =>
+    precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX)
   );
 }
 

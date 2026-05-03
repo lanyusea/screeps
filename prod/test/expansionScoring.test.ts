@@ -425,6 +425,29 @@ describe('next expansion scoring', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
+  it('reports the RCL room limit even when another expansion precondition is also unmet', () => {
+    const colony = makeSafeColony({ controllerLevel: 3 });
+    const report = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
+        controllerLevel: 3,
+        ownedRoomCount: 2,
+        ticksToDowngrade: 100
+      })
+    );
+
+    expect(report.next?.preconditions).toEqual(
+      expect.arrayContaining([
+        'limit expansion to 2 owned rooms for current controller level',
+        'stabilize home controller downgrade timer'
+      ])
+    );
+    expect(refreshNextExpansionTargetSelection(colony, report, 213)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'roomLimitReached'
+    });
+  });
+
   it('leaves reserve intent planning available when the next expansion claim gate is at its room limit', () => {
     const colony = makeSafeColony({ controllerLevel: 2 });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {

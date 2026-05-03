@@ -234,6 +234,7 @@ export function persistOccupationRecommendationFollowUpIntent(
     action: followUpIntent.action,
     status: existingIntent?.status === 'active' ? 'active' : 'planned',
     updatedAt: gameTime,
+    createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
     ...(controllerId ? { controllerId } : {}),
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(followUp ? { followUp } : {}),

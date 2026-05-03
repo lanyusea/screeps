@@ -2697,6 +2697,7 @@ function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGam
     action: followUpIntent.action,
     status: (existingIntent == null ? void 0 : existingIntent.status) === "active" ? "active" : "planned",
     updatedAt: gameTime,
+    createdBy: OCCUPATION_RECOMMENDATION_TARGET_CREATOR,
     ...controllerId ? { controllerId } : {},
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...followUp ? { followUp } : {},
@@ -5340,14 +5341,8 @@ function upsertTerritoryIntent2(intents, nextIntent) {
 }
 function findTerritoryIntentIndex(intents, nextIntent) {
   if (nextIntent.createdBy) {
-    const sourceOwnedIntentIndex = intents.findIndex(
-      (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === nextIntent.createdBy
-    );
-    if (sourceOwnedIntentIndex >= 0) {
-      return sourceOwnedIntentIndex;
-    }
     return intents.findIndex(
-      (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === void 0
+      (intent) => isSameTerritoryIntentRecord(intent, nextIntent) && intent.createdBy === nextIntent.createdBy
     );
   }
   const unownedIntentIndex = intents.findIndex(
@@ -13190,7 +13185,7 @@ function getSelectionSkipReason(report) {
   if (report.candidates.length === 0) {
     return "noCandidate";
   }
-  if (report.candidates.every(isBlockedOnlyByRoomLimit)) {
+  if (report.candidates.some(hasRoomLimitPrecondition)) {
     return "roomLimitReached";
   }
   if (report.candidates.some((candidate) => candidate.preconditions.length > 0)) {
@@ -13201,8 +13196,10 @@ function getSelectionSkipReason(report) {
   }
   return "unavailable";
 }
-function isBlockedOnlyByRoomLimit(candidate) {
-  return candidate.preconditions.length === 1 && candidate.preconditions[0].startsWith(ROOM_LIMIT_PRECONDITION_PREFIX);
+function hasRoomLimitPrecondition(candidate) {
+  return candidate.preconditions.some(
+    (precondition) => precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX)
+  );
 }
 function persistNextExpansionTarget(colony, candidate, gameTime) {
   const territoryMemory = getWritableTerritoryMemoryRecord3();
@@ -15464,7 +15461,7 @@ function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime) {
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
   const existingIntent = intents.find(
-    (intent) => intent.colony === colony && intent.targetRoom === target.roomName && intent.action === "claim"
+    (intent) => intent.colony === colony && intent.targetRoom === target.roomName && intent.action === "claim" && intent.createdBy === AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR
   );
   upsertTerritoryIntent4(intents, {
     colony,
@@ -15472,6 +15469,7 @@ function persistAutonomousExpansionClaimIntent(colony, evaluation, gameTime) {
     action: "claim",
     status: (existingIntent == null ? void 0 : existingIntent.status) === "active" ? "active" : "planned",
     updatedAt: gameTime,
+    createdBy: AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR,
     ...target.controllerId ? { controllerId: target.controllerId } : {}
   });
 }
@@ -15479,7 +15477,9 @@ function upsertTerritoryTarget2(territoryMemory, target) {
   if (!Array.isArray(territoryMemory.targets)) {
     territoryMemory.targets = [];
   }
-  const existingTarget = territoryMemory.targets.find((rawTarget) => isSameTarget2(rawTarget, target));
+  const existingTarget = territoryMemory.targets.find(
+    (rawTarget) => isSameTarget2(rawTarget, target) && isRecord14(rawTarget) && rawTarget.createdBy === target.createdBy
+  );
   if (!existingTarget) {
     territoryMemory.targets.push(target);
     return;
@@ -15495,7 +15495,7 @@ function upsertTerritoryTarget2(territoryMemory, target) {
 }
 function upsertTerritoryIntent4(intents, nextIntent) {
   const existingIndex = intents.findIndex(
-    (intent) => intent.colony === nextIntent.colony && intent.targetRoom === nextIntent.targetRoom && intent.action === nextIntent.action
+    (intent) => intent.colony === nextIntent.colony && intent.targetRoom === nextIntent.targetRoom && intent.action === nextIntent.action && intent.createdBy === nextIntent.createdBy
   );
   if (existingIndex >= 0) {
     intents[existingIndex] = nextIntent;
@@ -15524,7 +15524,7 @@ function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerri
     return;
   }
   territoryMemory.intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
-    (intent) => intent.colony !== colony || !removedTargetKeys.has(getTargetKey2(intent.targetRoom, intent.action))
+    (intent) => intent.colony !== colony || intent.createdBy !== AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR || !removedTargetKeys.has(getTargetKey2(intent.targetRoom, intent.action))
   );
 }
 function pruneOccupationRecommendationTargets(territoryMemory, colony) {
