@@ -329,6 +329,131 @@ class RlSimulatorHarnessTest(unittest.TestCase):
                 with self.assertRaises(argparse.ArgumentTypeError):
                     harness.parse_throughput_sample(sample)
 
+    def test_build_scenario_config_is_stable_and_records_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\":true}", encoding="utf-8")
+
+            scenario = harness.build_scenario_config(
+                "run-1",
+                "baseline",
+                room="E26S49",
+                shard="shardX",
+                branch="activeWorld",
+                ticks=100,
+                code_path=code_path,
+                map_source_file=map_path,
+            )
+
+        self.assertEqual(scenario["type"], "screeps-rl-sim-run-scenario")
+        self.assertEqual(scenario["runId"], "run-1")
+        self.assertEqual(scenario["variantId"], "baseline")
+        self.assertEqual(scenario["activeWorldBranch"], "activeWorld")
+        self.assertEqual(scenario["room"], "E26S49")
+        self.assertEqual(scenario["shard"], "shardX")
+        self.assertEqual(scenario["tickPlan"]["ticks"], 100)
+        self.assertEqual(scenario["spawn"], {"name": "Spawn1", "x": 20, "y": 20})
+        self.assertEqual(scenario["codeArtifact"]["path"], str(root / "main.js"))
+        self.assertEqual(scenario["mapArtifact"]["sourcePath"], str(root / "map.json"))
+        self.assertIsInstance(scenario["codeArtifact"]["sha256"], str)
+        self.assertIsInstance(scenario["mapArtifact"]["sha256"], str)
+
+    def test_validate_run_artifact_checks_schema(self) -> None:
+        valid_variant = {
+            "variant_id": "baseline",
+            "variant_run_id": "run-1-baseline",
+            "worker_id": 0,
+            "ticks_requested": 2,
+            "ticks_run": 2,
+            "wall_clock_seconds": 0.5,
+            "ticks_per_second": 4.0,
+            "tick_log": [
+                {
+                    "tick": 1,
+                    "shard": "shardX",
+                    "room": "E26S49",
+                    "rooms": {"E26S49": {"room": "E26S49", "controller": {"level": 1, "progress": 0, "progressTotal": 300}, "energy": 300, "creeps": 0, "structures": {}}},
+                    "overview": {"roomCount": 1, "rooms": []},
+                    "terrain": {"bytes": 0},
+                },
+            ],
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "ok": True,
+        }
+        artifact = {
+            "type": harness.RUN_SUMMARY_TYPE,
+            "runId": "validate-run",
+            "harness_version": harness.HARNESS_VERSION,
+            "safety": {"liveEffect": False},
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "official_mmo_writes_allowed": False,
+            "variants": [valid_variant],
+        }
+
+        self.assertTrue(harness.validate_run_artifact(artifact))
+
+        invalid = dict(artifact)
+        invalid["official_mmo_writes"] = True
+        with self.assertRaises(ValueError):
+            harness.validate_run_artifact(invalid)
+
+    def test_run_simulator_writes_schema_validated_and_redacted_artifact(self) -> None:
+        mock_variant = {
+            "variant_id": "baseline",
+            "ticks_requested": 3,
+            "ticks_run": 3,
+            "wall_clock_seconds": 1.2,
+            "ticks_per_second": 2.5,
+            "tick_log": [],
+            "live_effect": False,
+            "official_mmo_writes": False,
+        }
+        run_artifact = {
+            "type": harness.RUN_SUMMARY_TYPE,
+            "runId": "run-validate",
+            "harness_version": harness.HARNESS_VERSION,
+            "safety": {"liveEffect": False},
+            "live_effect": False,
+            "official_mmo_writes": False,
+            "official_mmo_writes_allowed": False,
+            "variants": [mock_variant],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            code_path = root / "main.js"
+            map_path = root / "map.json"
+            code_path.write_text("module.exports.loop = function() {};", encoding="utf-8")
+            map_path.write_text("{\"ok\": true}", encoding="utf-8")
+            out_dir = root / "runtime-artifacts"
+            output_data: dict[str, object] | None = None
+            with mock.patch.dict(os.environ, {"STEAM_KEY": "super-secret-key"}):
+                with mock.patch("screeps_rl_simulator_harness.run_variants", return_value=(run_artifact, [mock_variant])):
+                    summary = harness.run_simulator(
+                        ticks=3,
+                        workers=1,
+                        variants=["baseline"],
+                        out_dir=out_dir,
+                        run_id="run-validate",
+                        code_path=code_path,
+                        map_source_file=map_path,
+                    )
+                    output_path = out_dir / "run-validate" / "run_summary.json"
+                    output_data = json.loads(output_path.read_text(encoding="utf-8"))
+                    self.assertTrue(output_path.exists())
+
+        self.assertEqual(summary["runId"], "run-validate")
+        self.assertIsNotNone(output_data)
+        self.assertEqual(output_data["runId"], "run-validate")
+        self.assertEqual(output_data["variants"][0]["variant_id"], "baseline")
+        self.assertFalse(output_data["official_mmo_writes"])
+        self.assertFalse(output_data["live_effect"])
+        self.assertNotIn("super-secret-key", json.dumps(output_data))
+
 
 if __name__ == "__main__":
     unittest.main()
