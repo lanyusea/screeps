@@ -498,7 +498,7 @@ function scoreOccupationCandidate(
       risks.push(unavailableReason);
       evidenceStatus = 'unavailable';
       action = candidate.actionHint === 'claim' ? 'occupy' : 'reserve';
-    } else if (isOwnReservationDueForRenewal(input, candidate.controller)) {
+    } else if (candidate.actionHint !== 'claim' && isOwnReservationDueForRenewal(input, candidate.controller)) {
       evidence.push('own reservation needs renewal');
       action = 'reserve';
     } else if (candidate.ignoreOwnHealthyReservation !== true && isOwnHealthyReservation(input, candidate.controller)) {

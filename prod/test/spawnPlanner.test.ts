@@ -1120,7 +1120,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('plans a claimer-role claimer for a mature configured reserve target', () => {
+  it('plans a claimer-role claimer for a claim-ready configured reserve target', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
@@ -1128,7 +1128,7 @@ describe('planSpawn', () => {
     });
     const controller = {
       my: false,
-      reservation: { username: 'player', ticksToEnd: TERRITORY_CLAIM_READY_TICKS + 1 }
+      reservation: { username: 'player', ticksToEnd: TERRITORY_CLAIM_READY_TICKS }
     } as StructureController;
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {

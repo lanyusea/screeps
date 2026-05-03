@@ -34,7 +34,7 @@ export const TERRITORY_RESERVATION_TICKS =
   Number.isFinite(GLOBAL_TERRITORY_RESERVATION_TICKS)
     ? Math.floor(GLOBAL_TERRITORY_RESERVATION_TICKS)
     : 5_000;
-const TERRITORY_DEFAULT_CLAIM_READY_TICKS = Math.max(1, Math.floor(TERRITORY_RESERVATION_TICKS / 2));
+const TERRITORY_DEFAULT_CLAIM_READY_TICKS = 10;
 export const TERRITORY_CLAIM_READY_TICKS =
   typeof GLOBAL_TERRITORY_CLAIM_READY_TICKS === 'number' &&
   Number.isFinite(GLOBAL_TERRITORY_CLAIM_READY_TICKS) &&
@@ -1313,18 +1313,14 @@ function getConfiguredTerritoryCandidates(
     }
 
     const actionForTarget = getConfiguredTerritoryCandidateAction(target, colonyOwnerUsername, territoryMemory, gameTime);
-    const ignoreOwnHealthyReservation =
-      target.action === 'reserve';
     const actionableTarget = actionForTarget === target.action ? target : { ...target, action: actionForTarget };
+    const ignoreOwnHealthyReservation = actionableTarget.action === 'claim';
     const isConfiguredTerritoryTargetActionable = isVisibleTerritoryIntentActionable(
       actionableTarget.roomName,
       actionableTarget.action,
       actionableTarget.controllerId,
       colonyOwnerUsername
     );
-    const isConfiguredReserveTerritoryTargetActionable =
-      actionableTarget.action === 'reserve' &&
-      isConfiguredReserveTargetActionableForActionablePlannedController(actionableTarget, colonyOwnerUsername);
     if (
       isTerritoryTargetSuppressed(actionableTarget, intents, gameTime) ||
       isTerritoryIntentSuspendedForAction(
@@ -1348,7 +1344,7 @@ function getConfiguredTerritoryCandidates(
         gameTime,
         routeDistanceLookupContext
       ) ||
-      !(isConfiguredTerritoryTargetActionable || isConfiguredReserveTerritoryTargetActionable)
+      !isConfiguredTerritoryTargetActionable
     ) {
       return [];
     }
@@ -1410,7 +1406,7 @@ function getConfiguredTerritoryCandidateAction(
 
   const controller = getVisibleController(target.roomName, target.controllerId);
   const visibleTicksToEnd = controller ? getOwnReservationTicksToEnd(controller, colonyOwnerUsername) : null;
-  if (visibleTicksToEnd !== null && visibleTicksToEnd >= TERRITORY_CLAIM_READY_TICKS) {
+  if (visibleTicksToEnd !== null && visibleTicksToEnd <= TERRITORY_CLAIM_READY_TICKS) {
     return 'claim';
   }
 
@@ -1419,29 +1415,9 @@ function getConfiguredTerritoryCandidateAction(
     return target.action;
   }
 
-  return getEstimatedTerritoryReservationTicksToEnd(storedReservation, gameTime) >= TERRITORY_CLAIM_READY_TICKS
+  return getEstimatedTerritoryReservationTicksToEnd(storedReservation, gameTime) <= TERRITORY_CLAIM_READY_TICKS
     ? 'claim'
     : target.action;
-}
-
-function isConfiguredReserveTargetActionableForActionablePlannedController(
-  target: TerritoryTargetMemory,
-  colonyOwnerUsername: string | null
-): boolean {
-  if (target.action !== 'reserve' || !isNonEmptyString(colonyOwnerUsername)) {
-    return false;
-  }
-
-  const controller = getVisibleController(target.roomName, target.controllerId);
-  if (!controller || !isOwnReservedController(controller, colonyOwnerUsername)) {
-    return false;
-  }
-
-  const reservationTicksToEnd = getOwnReservationTicksToEnd(controller, colonyOwnerUsername);
-  return (
-    typeof reservationTicksToEnd === 'number' &&
-    reservationTicksToEnd >= Math.max(TERRITORY_CLAIM_READY_TICKS - 1, TERRITORY_RESERVATION_RENEWAL_TICKS)
-  );
 }
 
 function getPersistedTerritoryIntentCandidates(
