@@ -275,11 +275,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return downgradeGuardTask;
   }
 
-  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
-  if (upgraderBoostUpgradeTask) {
-    return upgraderBoostUpgradeTask;
-  }
-
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask: Extract<CreepTaskMemory, { type: 'transfer' }> = {
@@ -305,6 +300,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
 
     return null;
+  }
+
+  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
+  if (upgraderBoostUpgradeTask) {
+    return upgraderBoostUpgradeTask;
   }
 
   const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);

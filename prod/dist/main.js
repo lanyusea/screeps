@@ -7890,10 +7890,6 @@ function selectHeuristicWorkerTask(creep) {
     recordLowLoadReturnTelemetry(creep, downgradeGuardTask, "controllerDowngradeGuard");
     return downgradeGuardTask;
   }
-  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
-  if (upgraderBoostUpgradeTask) {
-    return upgraderBoostUpgradeTask;
-  }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask = {
@@ -7915,6 +7911,10 @@ function selectHeuristicWorkerTask(creep) {
       return suppressedRemoteEnergyHandlingTask;
     }
     return null;
+  }
+  const upgraderBoostUpgradeTask = selectUpgraderBoostUpgradeTask(creep, controller, carriedEnergy);
+  if (upgraderBoostUpgradeTask) {
+    return upgraderBoostUpgradeTask;
   }
   const controllerSustainUpgradeTask = selectControllerSustainUpgradeTask(creep, controller);
   if (controllerSustainUpgradeTask) {

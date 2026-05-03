@@ -428,6 +428,61 @@ describe('selectWorkerTask', () => {
     expect(isUpgraderBoostActive(creep, controller)).toBe(false);
   });
 
+  it('lets emergency spawn refill preempt boosted upgrader controller work', () => {
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 0, 300);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      progress: 900,
+      progressTotal: 1_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'BoostUpgrader',
+      memory: { role: 'upgrader', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        energyCapacityAvailable: 300,
+        myStructures: [spawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'spawn1' });
+  });
+
+  it('recalls boosted remote upgraders before controller work while survival suppresses remote spending', () => {
+    recordSurvivalMode('BOOTSTRAP');
+    const homeSpawn = makeEnergySink('home-spawn', 'spawn' as StructureConstant, 300);
+    const homeRoom = makeWorkerTaskRoom({ myStructures: [homeSpawn as AnyOwnedStructure] });
+    const remoteController = {
+      id: 'remote-controller',
+      my: true,
+      level: 3,
+      progress: 900,
+      progressTotal: 1_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const remoteRoom = makeWorkerTaskRoom({ controller: remoteController });
+    (remoteRoom as Room & { name: string }).name = 'W2N1';
+    const globalScope = globalThis as unknown as { Game?: Partial<Game> };
+    globalScope.Game = {
+      ...(globalScope.Game ?? {}),
+      creeps: {},
+      rooms: { W1N1: homeRoom, W2N1: remoteRoom }
+    };
+    const creep = {
+      name: 'RemoteBoostUpgrader',
+      memory: { role: 'upgrader', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: remoteRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'home-spawn' });
+  });
+
   it('lets visible hostiles preempt boosted upgrader controller work for tower refill', () => {
     const hostile = { id: 'hostile1' } as Creep;
     const tower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
