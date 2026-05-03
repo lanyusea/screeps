@@ -19,6 +19,8 @@ describe('planSpawn', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 5;
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 6;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
@@ -38,7 +40,8 @@ describe('planSpawn', () => {
     spawning = null,
     controller,
     storageEnergy,
-    storageCapacity
+    storageCapacity,
+    ownedStructures = []
   }: {
     sourceCount?: number;
     energyAvailable?: number;
@@ -51,6 +54,7 @@ describe('planSpawn', () => {
     controller?: StructureController;
     storageEnergy?: number;
     storageCapacity?: number;
+    ownedStructures?: AnyOwnedStructure[];
   } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
     const sources = Array.from({ length: sourceCount }, (_, index) => ({ id: `source${index}` }) as Source);
     const constructionSites = Array.from(
@@ -64,6 +68,14 @@ describe('planSpawn', () => {
 
       if (type === FIND_MY_CONSTRUCTION_SITES) {
         return constructionSites;
+      }
+
+      if (type === FIND_MY_CREEPS) {
+        return findMockCreepsInRoom(roomName);
+      }
+
+      if (type === FIND_MY_STRUCTURES) {
+        return ownedStructures;
       }
 
       const hostileCreepsFind = (globalThis as Record<string, unknown>).FIND_HOSTILE_CREEPS;
@@ -110,6 +122,16 @@ describe('planSpawn', () => {
         getCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? capacity : 0))
       }
     } as unknown as StructureStorage;
+  }
+
+  function makeRemoteHaulerStorageSink(id: string): AnyOwnedStructure {
+    return {
+      id,
+      structureType: 'storage',
+      store: {
+        getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? 5_000 : 0))
+      }
+    } as unknown as AnyOwnedStructure;
   }
 
   function repeatBodyPattern(pattern: BodyPartConstant[], patternCount: number): BodyPartConstant[] {
@@ -187,6 +209,10 @@ describe('planSpawn', () => {
           return [container];
         }
 
+        if (type === FIND_MY_CREEPS) {
+          return findMockCreepsInRoom(roomName);
+        }
+
         return [];
       })
     } as unknown as Room;
@@ -226,8 +252,14 @@ describe('planSpawn', () => {
           containerId: containerId as Id<StructureContainer>
         }
       },
+      room: { name: 'W2N1' } as Room,
       ticksToLive: 1_000
     } as Creep;
+  }
+
+  function findMockCreepsInRoom(roomName: string): Creep[] {
+    const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+    return creeps ? Object.values(creeps).filter((creep) => creep.room?.name === roomName) : [];
   }
 
   it('plans a worker when the colony has no workers and an idle spawn', () => {
@@ -741,7 +773,8 @@ describe('planSpawn', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: makeSafeOwnedController(),
+      ownedStructures: [makeRemoteHaulerStorageSink('storage1')]
     });
     const source = makeRemoteSource('W2N1-source0');
     const belowThresholdRoom = makeRemoteEconomyRoom({
@@ -796,6 +829,34 @@ describe('planSpawn', () => {
         }
       }
     });
+  });
+
+  it('waits on remote haulers when the home colony has no known delivery demand', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const remoteRoom = makeRemoteEconomyRoom({
+      container: makeRemoteContainer('W2N1-container0', 700)
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 506,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        RemoteUpgrader: makePostClaimSustainUpgrader(),
+        RemoteHarvester: makeRemoteHarvester()
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 507)).toBeNull();
   });
 
   it('does not spawn remote harvesters while the target has a hostile territory suspension', () => {

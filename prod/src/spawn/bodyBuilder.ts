@@ -25,6 +25,9 @@ export {
   TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
 } from './bodyTemplates';
 const MAX_CREEP_PARTS = 50;
+const MAX_REMOTE_HARVESTER_WORK_PARTS = 5;
+const MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS = 10;
+const MIN_REMOTE_HAULER_CARRY_MOVE_PAIRS = 6;
 // General workers cover harvest, haul, build, and upgrade duties. Cap them at
 // four 200-energy patterns (800 energy) so early rooms do not sink capacity into
 // oversized unspecialized bodies before dedicated roles exist.
@@ -216,6 +219,49 @@ export function buildTerritoryControllerPressureBody(energyAvailable: number): B
   return [...TERRITORY_CONTROLLER_PRESSURE_BODY];
 }
 
+export function buildRemoteHarvesterBody(energyAvailable: number): BodyPartConstant[] {
+  const workParts = Math.min(
+    MAX_REMOTE_HARVESTER_WORK_PARTS,
+    Math.floor(
+      (Math.max(0, energyAvailable) - getBodyPartCost('carry') - getBodyPartCost('move')) /
+        getBodyPartCost('work')
+    )
+  );
+  if (workParts <= 0) {
+    return [];
+  }
+
+  return [...Array.from({ length: workParts }, () => 'work' as BodyPartConstant), 'carry', 'move'];
+}
+
+export function buildRemoteHaulerBody(energyAvailable: number, routeDistance = 1): BodyPartConstant[] {
+  const pairCount = Math.min(
+    getRemoteHaulerCarryMovePairLimit(routeDistance),
+    Math.floor(Math.max(0, energyAvailable) / (getBodyPartCost('carry') + getBodyPartCost('move'))),
+    Math.floor(MAX_CREEP_PARTS / 2)
+  );
+  if (pairCount <= 0) {
+    return [];
+  }
+
+  return Array.from({ length: pairCount }).flatMap(() => ['carry', 'move'] as BodyPartConstant[]);
+}
+
 export function getBodyCost(body: BodyPartConstant[]): number {
   return body.reduce((cost, part) => cost + BODY_PART_COSTS[part], 0);
+}
+
+function getRemoteHaulerCarryMovePairLimit(routeDistance: number): number {
+  if (!Number.isFinite(routeDistance) || routeDistance <= 0) {
+    return MIN_REMOTE_HAULER_CARRY_MOVE_PAIRS;
+  }
+
+  return Math.min(
+    MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS,
+    Math.max(MIN_REMOTE_HAULER_CARRY_MOVE_PAIRS, Math.ceil(routeDistance) * 2)
+  );
+}
+
+function getBodyPartCost(part: BodyPartConstant): number {
+  return BODY_PART_COSTS[part];
 }

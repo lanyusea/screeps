@@ -1,15 +1,16 @@
 import { hasSafeRouteAvoidingDeadZones, isKnownDeadZoneRoom } from '../defense/deadZone';
 import { findSourceContainer } from '../economy/sourceContainers';
+import { buildRemoteHarvesterBody } from '../spawn/bodyBuilder';
 
 export const REMOTE_HARVESTER_ROLE = 'remoteHarvester';
 export const REMOTE_CREEP_REPLACEMENT_TICKS = 100;
 
 const MAX_REMOTE_HARVESTERS_PER_SOURCE = 1;
-const MAX_REMOTE_HARVESTER_WORK_PARTS = 5;
 const REMOTE_MOVE_OPTS: MoveToOpts = { reusePath: 20, ignoreRoads: false };
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const ERR_NOT_ENOUGH_RESOURCES_CODE = -6 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const DEFAULT_REMOTE_ROOM_DISTANCE = 1;
 
 export interface RemoteSourceAssignment {
   homeRoom: string;
@@ -17,19 +18,10 @@ export interface RemoteSourceAssignment {
   sourceId: Id<Source>;
   containerId: Id<StructureContainer>;
   containerEnergy: number;
+  routeDistance: number;
 }
 
-export function buildRemoteHarvesterBody(energyAvailable: number): BodyPartConstant[] {
-  const workParts = Math.min(
-    MAX_REMOTE_HARVESTER_WORK_PARTS,
-    Math.floor((Math.max(0, energyAvailable) - 100) / 100)
-  );
-  if (workParts <= 0) {
-    return [];
-  }
-
-  return [...Array.from({ length: workParts }, () => 'work' as BodyPartConstant), 'carry', 'move'];
-}
+export { buildRemoteHarvesterBody };
 
 export function selectRemoteHarvesterAssignment(homeRoom: string): RemoteSourceAssignment | null {
   return (
@@ -84,7 +76,7 @@ export function runRemoteHarvester(creep: Creep): void {
     return;
   }
 
-  if (isRemoteOperationSuspended(assignment.homeRoom, assignment.targetRoom)) {
+  if (shouldRetreatFromRemote(creep, assignment)) {
     delete creep.memory.task;
     moveTowardRoom(creep, assignment.homeRoom);
     return;
@@ -159,6 +151,22 @@ export function moveTowardRoom(creep: Creep, roomName: string, target?: RoomObje
   }
 }
 
+export function shouldRetreatFromRemote(
+  creep: Creep,
+  assignment: CreepRemoteHarvesterMemory | CreepRemoteHaulerMemory
+): boolean {
+  if (isRemoteOperationSuspended(assignment.homeRoom, assignment.targetRoom)) {
+    return true;
+  }
+
+  const targetRoom = getVisibleRoom(assignment.targetRoom);
+  if (isForeignOwnedRemoteController(targetRoom?.controller)) {
+    return true;
+  }
+
+  return isVisibleRemoteThreatened(targetRoom, assignment.targetRoom);
+}
+
 function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteSourceAssignment[] {
   if (typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
     return [];
@@ -173,7 +181,8 @@ function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteS
             targetRoom: room.name,
             sourceId: source.id,
             containerId: container.id,
-            containerEnergy: getStoredEnergy(container)
+            containerEnergy: getStoredEnergy(container),
+            routeDistance: estimateRemoteRoomDistance(homeRoom, room.name)
           }
         : null;
     })
@@ -217,11 +226,19 @@ function compareRemoteSourceAssignments(left: RemoteSourceAssignment, right: Rem
 }
 
 function isUsableRemoteRoom(room: Room | undefined): room is Room {
-  return room?.controller?.my === true && typeof room.find === 'function';
+  return room != null && !isForeignOwnedRemoteController(room.controller) && typeof room.find === 'function';
+}
+
+function isForeignOwnedRemoteController(controller: StructureController | undefined): boolean {
+  if (controller?.owner == null) {
+    return false;
+  }
+
+  return controller.my !== true;
 }
 
 function countRemoteHarvestersForSource(assignment: RemoteSourceAssignment): number {
-  return getGameCreeps().filter(
+  return getRemoteOperationCreeps(assignment.homeRoom, assignment.targetRoom).filter(
     (creep) =>
       creep.memory?.role === REMOTE_HARVESTER_ROLE &&
       canSatisfyRemoteCreepCapacity(creep) &&
@@ -346,9 +363,38 @@ function getVisibleRoom(roomName: string): Room | undefined {
   return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
 }
 
-function getGameCreeps(): Creep[] {
-  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  return creeps ? Object.values(creeps) : [];
+function getRemoteOperationCreeps(homeRoom: string, targetRoom: string): Creep[] {
+  const findMyCreeps = (globalThis as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
+  if (typeof findMyCreeps !== 'number') {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const creeps: Creep[] = [];
+  for (const roomName of [homeRoom, targetRoom]) {
+    const room = getVisibleRoom(roomName);
+    const roomCreeps =
+      typeof room?.find === 'function' ? (room.find(findMyCreeps as FindConstant) as Creep[]) : undefined;
+    if (!Array.isArray(roomCreeps)) {
+      continue;
+    }
+
+    for (const creep of roomCreeps) {
+      const key = getCreepStableKey(creep);
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      creeps.push(creep);
+    }
+  }
+
+  return creeps;
+}
+
+function getCreepStableKey(creep: Creep): string {
+  return creep.name ?? `${creep.memory?.role ?? 'creep'}:${creep.memory?.colony ?? ''}:${creep.ticksToLive ?? ''}`;
 }
 
 function isAdjacentRoomOrUnknown(homeRoom: string, targetRoom: string): boolean {
@@ -378,6 +424,25 @@ function parseRoomCoordinates(roomName: string): { x: number; y: number } | null
     x: match[1] === 'E' ? horizontalValue : -horizontalValue - 1,
     y: match[3] === 'S' ? verticalValue : -verticalValue - 1
   };
+}
+
+function estimateRemoteRoomDistance(homeRoom: string, targetRoom: string): number {
+  const home = parseRoomCoordinates(homeRoom);
+  const target = parseRoomCoordinates(targetRoom);
+  if (!home || !target) {
+    return DEFAULT_REMOTE_ROOM_DISTANCE;
+  }
+
+  return Math.max(DEFAULT_REMOTE_ROOM_DISTANCE, Math.max(Math.abs(home.x - target.x), Math.abs(home.y - target.y)));
+}
+
+function isVisibleRemoteThreatened(room: Room | undefined, targetRoom: string): boolean {
+  if (room?.name !== targetRoom || typeof FIND_HOSTILE_CREEPS !== 'number' || typeof room.find !== 'function') {
+    return false;
+  }
+
+  const hostiles = room.find(FIND_HOSTILE_CREEPS) as Creep[];
+  return Array.isArray(hostiles) && hostiles.length > 0;
 }
 
 function getErrFullCode(): ScreepsReturnCode {

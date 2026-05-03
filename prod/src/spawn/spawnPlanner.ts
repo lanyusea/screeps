@@ -6,12 +6,10 @@ import {
 } from '../colony/survivalMode';
 import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import {
-  buildRemoteHarvesterBody,
   REMOTE_HARVESTER_ROLE,
   selectRemoteHarvesterAssignment
 } from '../creeps/remoteHarvester';
 import {
-  buildRemoteHaulerBody,
   HAULER_ROLE,
   selectRemoteHaulerAssignment
 } from '../creeps/hauler';
@@ -19,6 +17,8 @@ import { DEFENDER_ROLE } from '../defense/defenseLoop';
 import {
   buildEmergencyDefenderBody,
   buildEmergencyWorkerBody,
+  buildRemoteHarvesterBody,
+  buildRemoteHaulerBody,
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildWorkerBody,
@@ -500,7 +500,7 @@ function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | n
     return null;
   }
 
-  const body = buildRemoteHaulerBody(context.colony.energyAvailable);
+  const body = buildRemoteHaulerBody(context.colony.energyAvailable, remoteHaulerAssignment.routeDistance);
   if (body.length === 0) {
     return null;
   }
