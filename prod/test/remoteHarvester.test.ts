@@ -94,6 +94,27 @@ describe('runRemoteHarvester', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(homeController, { reusePath: 20, ignoreRoads: false });
     expect(creep.harvest).not.toHaveBeenCalled();
   });
+
+  it('retreats home while in transit when hostiles threaten the visible target room', () => {
+    const homeController = { id: 'controller1' } as StructureController;
+    const homeRoom = { name: 'W1N1', controller: homeController } as Room;
+    const hostile = { id: 'hostile1' } as Creep;
+    const remoteRoom = makeRoom('W2N1', false, [hostile]);
+    const creep = makeRemoteHarvester(homeRoom, {
+      usedEnergy: 0,
+      freeEnergy: 50,
+      range: 20
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W1N1: homeRoom, W2N1: remoteRoom },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runRemoteHarvester(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(homeController, { reusePath: 20, ignoreRoads: false });
+    expect(creep.harvest).not.toHaveBeenCalled();
+  });
 });
 
 function makeRemoteHarvester(

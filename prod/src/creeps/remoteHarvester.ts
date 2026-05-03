@@ -164,7 +164,7 @@ export function shouldRetreatFromRemote(
     return true;
   }
 
-  return isVisibleRemoteThreatened(creep.room, assignment.targetRoom);
+  return isVisibleRemoteThreatened(targetRoom, assignment.targetRoom);
 }
 
 function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteSourceAssignment[] {
