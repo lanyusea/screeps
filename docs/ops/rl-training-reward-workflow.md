@@ -6,6 +6,8 @@ Roadmap link: `docs/ops/rl-domain-roadmap.md` L4, Slice C.
 
 Primary artifacts:
 
+- `scripts/screeps_rl_training_runner.py`
+- `scripts/test_screeps_rl_training_runner.py`
 - `scripts/screeps_rl_experiment_card.py`
 - `docs/research/2026-05-03-rl-training-approaches.md`
 - `scripts/screeps_rl_dataset_export.py`
@@ -38,6 +40,14 @@ python3 scripts/screeps_rl_experiment_card.py --validate --input runtime-artifac
 python3 scripts/screeps_rl_experiment_card.py self-test
 ```
 
+Run a real offline/private-simulator training experiment:
+
+```bash
+python3 scripts/screeps_rl_training_runner.py \
+  --experiment-card runtime-artifacts/rl-experiment-cards/<card>.json \
+  --out-dir runtime-artifacts/rl-training
+```
+
 The card is deterministic JSON. `card_id` is derived from `dataset_run_id` plus the first 12 hex characters of `code_commit`. Output goes to stdout unless `--output <path>` is provided.
 
 ## Experiment Card Contract
@@ -48,7 +58,9 @@ Every experiment card records exactly the offline decision surface:
 - `dataset_run_id`
 - `code_commit`
 - `training_approach`: `bandit`, `evolutionary`, or `policy_gradient`
-- `reward_model`: lexicographic component order and dominance weights
+- `reward_model`: lexicographic component order and dominance metadata
+- `simulation`: tick count, worker count, room, shard, code bundle, map fixture, and repetition count
+- `strategy_variants`: registry IDs or inline parameter sets for expansion aggressiveness, worker allocation ratio, construction priority, and defense posture
 - `safety`
 - `created_at`
 - `status`: always `shadow`
@@ -69,62 +81,87 @@ Validation fails if `liveEffect`, `officialMmoWrites`, or `officialMmoWritesAllo
 
 ## Reward Definition
 
-The reward function is lexicographic. The expression below is documentation for dominance order, not permission to let a later component compensate for an earlier failure:
+The implemented training runner computes a lexicographic tuple, not a scalar weighted sum:
 
 ```text
-R = α·R_reliability + β·R_territory + γ·R_resources + δ·R_kills
-where α ≫ β ≫ γ ≫ δ
+R = (T, E, K)
+T = rooms_gained - rooms_lost
+E = (stored_energy_delta + collected_energy) / resource_normalizer
+K = hostile_kills - own_losses
 ```
 
-Interpretation:
+Comparison is strict lexicographic order:
 
-- `R_reliability` dominates every other component.
-- `R_territory` is evaluated only after reliability passes.
-- `R_resources` is evaluated only after reliability and territory pass.
-- `R_kills` is last and cannot justify losses in reliability, territory, or economy.
+- `T` territory is compared first.
+- `E` resources/economy is compared only when `T` ties.
+- `K` combat outcome is compared only when both `T` and `E` tie.
+- A variant that loses territory cannot outscore one that holds territory because of resources or kills.
 
-The experiment card encodes dominance weights as:
+The runner accepts cards whose component order is either:
 
-```json
-{
-  "alpha_reliability": 1000000000,
-  "beta_territory": 1000000,
-  "gamma_resources": 1000,
-  "delta_kills": 1
-}
+```text
+territory -> resources -> kills
 ```
 
-These are guardrail weights for auditability. They are not a scalar weighted-sum approval.
+or the older card-helper order:
+
+```text
+reliability -> territory -> resources -> kills
+```
+
+In the older order, reliability remains a safety/audit gate. It is not allowed to make later reward components compensate for a territory loss.
 
 ## Reward Components
 
-`R_reliability`:
-
-- owned spawns remain `owned_spawns > 0`;
-- owned creeps remain `owned_creeps >= 3`;
-- no controller downgrade risk window is introduced or hidden;
-- no loop exceptions, uncaught errors, telemetry silence, memory corruption, or CPU bucket collapse.
-
-`R_territory`:
+`T` territory:
 
 - owned room count delta;
 - RCL progression and controller progress;
 - controller reservation uptime for remote rooms;
 - safe expansion, reserve, and remote target quality.
+- expansion survival rule: a claimed room counts as held only if it has at least one spawn and at least one owned creep at the end of the simulator run.
+- claimed rooms that do not survive count as `rooms_lost`, even if they were newly claimed during the run.
 
-`R_resources`:
+Concrete implemented territory calculation:
+
+```text
+initial_held = rooms with an owned controller or owned spawn at the first observation
+claimed = rooms claimed/owned at any observation, plus explicit claimedRooms metrics
+survived_end = claimed rooms with spawns > 0 and owned_creeps > 0 at the final observation
+rooms_gained = count(survived_end - initial_held)
+rooms_lost = count(initial_held - survived_end) + count((claimed - survived_end) - initial_held)
+T = rooms_gained - rooms_lost
+```
+
+`E` resources:
 
 - stored energy plus carried energy delta;
 - source utilization and harvested energy;
 - useful transfer/logistics throughput;
 - GCL progress and sustainable economy conversion.
 
-`R_kills`:
+Concrete implemented resource calculation:
+
+```text
+stored_energy_delta = final_room_energy - initial_room_energy
+collected_energy = sum(harvestedEnergy + collectedEnergy + pickupEnergy events)
+E = (stored_energy_delta + collected_energy) / resource_normalizer
+```
+
+Default `resource_normalizer` is `1000` unless the card overrides it.
+
+`K` kills:
 
 - hostile creep destruction delta;
 - hostile structure destruction delta;
 - hostile objective denial;
 - own creep, structure, and room-loss penalties.
+
+Concrete implemented combat calculation:
+
+```text
+K = hostile_kills - own_losses
+```
 
 ## OOD And Conservative Rejection
 
@@ -147,7 +184,7 @@ OOD detection:
 Shadow evidence gate:
 
 - Shadow evaluation must show at least one full 8h Gameplay Evolution review cycle with positive KPI delta before any recommendation reaches `consider for manual review`.
-- Positive KPI delta must respect lexicographic order: reliability non-regression first, then territory, then resources, then kills.
+- Positive KPI delta must respect lexicographic order: safety/reliability non-regression as a gate, then territory, then resources, then kills.
 - Missing historical validation from the #417 lane blocks promotion beyond offline/shadow analysis.
 
 ## Baseline Experiment
@@ -232,8 +269,10 @@ Local checks:
 
 ```bash
 python3 -m py_compile scripts/screeps_rl_experiment_card.py
+python3 -m py_compile scripts/screeps_rl_training_runner.py
 python3 scripts/screeps_rl_experiment_card.py self-test
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000
 python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000 --output /tmp/test-card.json
 python3 scripts/screeps_rl_experiment_card.py --validate --input /tmp/test-card.json
+python3 -m unittest scripts/test_screeps_rl_training_runner.py -v
 ```
