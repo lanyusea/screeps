@@ -72,7 +72,7 @@ const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 const TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 const TERRITORY_SCOUT_BODY_COST = 50;
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
-const REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 1;
+const REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
 
 export interface TerritoryIntentPlan {
   colony: string;
@@ -885,11 +885,15 @@ export function refreshRemoteMiningSetup(colony: ColonySnapshot, gameTime = getG
 
   const colonyName = colony.room.name;
   const records = getRemoteMiningBootstrapRecords(territoryMemory, colonyName);
-  if (!territoryMemory.remoteMining && records.length === 0) {
+  const storedRemoteMining = territoryMemory.remoteMining;
+  if (storedRemoteMining === undefined && records.length === 0) {
     return;
   }
 
-  const remoteMining = territoryMemory.remoteMining ?? {};
+  const remoteMining =
+    isRecord(storedRemoteMining) && !Array.isArray(storedRemoteMining)
+      ? (storedRemoteMining as Record<string, TerritoryRemoteMiningRoomMemory>)
+      : {};
   territoryMemory.remoteMining = remoteMining;
   const activeKeys = new Set<string>();
 

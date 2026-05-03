@@ -369,8 +369,8 @@ function getRemoteOperationCreeps(homeRoom: string, targetRoom: string): Creep[]
   const creeps: Creep[] = [];
   for (const roomName of [homeRoom, targetRoom]) {
     const room = getVisibleRoom(roomName);
-    const find = room?.find as ((type: number) => Creep[]) | undefined;
-    const roomCreeps = find?.(findMyCreeps);
+    const roomCreeps =
+      typeof room?.find === 'function' ? (room.find(findMyCreeps as FindConstant) as Creep[]) : undefined;
     if (!Array.isArray(roomCreeps)) {
       continue;
     }
