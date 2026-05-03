@@ -67,7 +67,7 @@ export function transferEnergy(room: Room): LinkTransferResult[] {
       continue;
     }
 
-    const result = sourceLink.transferEnergy(destination.link, amount);
+    const result = transferLinkEnergy(sourceLink, destination.link, amount);
     results.push({
       amount,
       destinationId,
@@ -106,6 +106,11 @@ export function classifyLinks(room: Room): LinkNetwork {
   };
 }
 
+export function isSourceLink(room: Room, link: StructureLink): boolean {
+  const linkId = getObjectId(link);
+  return linkId !== '' && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId(sourceLink) === linkId);
+}
+
 function getDestinationLinks(
   network: LinkNetwork
 ): Array<{ link: StructureLink; role: LinkDestinationRole }> {
@@ -118,6 +123,12 @@ function getDestinationLinks(
   }
 
   return destinations;
+}
+
+function transferLinkEnergy(sourceLink: StructureLink, destinationLink: StructureLink, amount: number): ScreepsReturnCode {
+  return (sourceLink as StructureLink & {
+    transfer: (target: StructureLink, amount?: number) => ScreepsReturnCode;
+  }).transfer(destinationLink, amount);
 }
 
 function selectDestinationLink(

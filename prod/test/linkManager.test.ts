@@ -1,6 +1,7 @@
 import { classifyLinks, transferEnergy } from '../src/economy/linkManager';
 
 const OK_CODE = 0 as ScreepsReturnCode;
+type TestStructureLink = StructureLink & { transfer: jest.Mock };
 
 describe('linkManager', () => {
   beforeEach(() => {
@@ -55,7 +56,7 @@ describe('linkManager', () => {
         sourceId: 'source-link'
       }
     ]);
-    expect(sourceLink.transferEnergy).toHaveBeenCalledWith(controllerLink, 300);
+    expect(sourceLink.transfer).toHaveBeenCalledWith(controllerLink, 300);
   });
 
   it('falls back to the storage link when the controller link is full', () => {
@@ -77,7 +78,7 @@ describe('linkManager', () => {
         sourceId: 'source-link'
       }
     ]);
-    expect(sourceLink.transferEnergy).toHaveBeenCalledWith(storageLink, 200);
+    expect(sourceLink.transfer).toHaveBeenCalledWith(storageLink, 200);
   });
 
   it('respects source cooldown and empty or full link edge cases', () => {
@@ -91,8 +92,8 @@ describe('linkManager', () => {
     });
 
     expect(transferEnergy(room)).toEqual([]);
-    expect(coolingSourceLink.transferEnergy).not.toHaveBeenCalled();
-    expect(emptySourceLink.transferEnergy).not.toHaveBeenCalled();
+    expect(coolingSourceLink.transfer).not.toHaveBeenCalled();
+    expect(emptySourceLink.transfer).not.toHaveBeenCalled();
   });
 
   it('tracks projected destination capacity across multiple source links', () => {
@@ -109,8 +110,8 @@ describe('linkManager', () => {
       { amount: 400, sourceId: 'source-a', destinationId: 'controller-link' },
       { amount: 100, sourceId: 'source-b', destinationId: 'controller-link' }
     ]);
-    expect(sourceLinkA.transferEnergy).toHaveBeenCalledWith(controllerLink, 400);
-    expect(sourceLinkB.transferEnergy).toHaveBeenCalledWith(controllerLink, 100);
+    expect(sourceLinkA.transfer).toHaveBeenCalledWith(controllerLink, 400);
+    expect(sourceLinkB.transfer).toHaveBeenCalledWith(controllerLink, 100);
   });
 });
 
@@ -121,7 +122,7 @@ function makeRoom({
   storage
 }: {
   controller?: StructureController;
-  links?: StructureLink[];
+  links?: TestStructureLink[];
   sources?: Source[];
   storage?: StructureStorage;
 }): Room {
@@ -151,7 +152,7 @@ function makeLink(
   energy: number,
   freeCapacity: number,
   cooldown = 0
-): StructureLink {
+): TestStructureLink {
   return {
     id,
     cooldown,
@@ -161,8 +162,8 @@ function makeLink(
       getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
       getUsedCapacity: jest.fn().mockReturnValue(energy)
     },
-    transferEnergy: jest.fn().mockReturnValue(OK_CODE)
-  } as unknown as StructureLink;
+    transfer: jest.fn().mockReturnValue(OK_CODE)
+  } as unknown as TestStructureLink;
 }
 
 function makeStorage(id: string, x: number, y: number, energy: number): StructureStorage {

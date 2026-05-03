@@ -5,6 +5,7 @@ import {
 } from '../src/economy/storageManager';
 
 const OK_CODE = 0 as ScreepsReturnCode;
+type TestStructureLink = StructureLink & { transfer: jest.Mock };
 
 describe('storageManager', () => {
   beforeEach(() => {
@@ -102,7 +103,7 @@ describe('storageManager', () => {
         sourceId: 'storage-link'
       }
     ]);
-    expect(storageLink.transferEnergy).toHaveBeenCalledWith(controllerLink, 300);
+    expect(storageLink.transfer).toHaveBeenCalledWith(controllerLink, 300);
   });
 
   it('does not feed controller links when the storage link is cooling down or the destination is full', () => {
@@ -116,7 +117,7 @@ describe('storageManager', () => {
     });
 
     expect(manageStorage(room).linkTransfers).toEqual([]);
-    expect(storageLink.transferEnergy).not.toHaveBeenCalled();
+    expect(storageLink.transfer).not.toHaveBeenCalled();
   });
 
   it('assigns workers to fill the storage link when the controller link can receive energy', () => {
@@ -225,13 +226,13 @@ function makeLink(
   energy: number,
   freeCapacity: number,
   cooldown = 0
-): StructureLink {
+): TestStructureLink {
   return {
     ...makeEnergyStructure(id, 'link', energy, freeCapacity),
     cooldown,
     pos: makeRoomPosition(x, y),
-    transferEnergy: jest.fn().mockReturnValue(OK_CODE)
-  } as unknown as StructureLink;
+    transfer: jest.fn().mockReturnValue(OK_CODE)
+  } as unknown as TestStructureLink;
 }
 
 function makeEnergyStructure(

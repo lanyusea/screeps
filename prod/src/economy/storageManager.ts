@@ -82,10 +82,16 @@ function transferStorageLinkEnergy(room: Room): StorageLinkTransferResult[] {
     {
       amount,
       destinationId: getObjectId(controllerLink),
-      result: storageLink.transferEnergy(controllerLink, amount),
+      result: transferLinkEnergy(storageLink, controllerLink, amount),
       sourceId: getObjectId(storageLink)
     }
   ];
+}
+
+function transferLinkEnergy(sourceLink: StructureLink, destinationLink: StructureLink, amount: number): ScreepsReturnCode {
+  return (sourceLink as StructureLink & {
+    transfer: (target: StructureLink, amount?: number) => ScreepsReturnCode;
+  }).transfer(destinationLink, amount);
 }
 
 function buildEnergyDemandState(room: Room): EnergyDemandState {
