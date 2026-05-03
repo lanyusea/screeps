@@ -16,6 +16,7 @@ const DUAL_SOURCE_BONUS = 180;
 const FOREIGN_CONTROLLER_PENALTY = 300;
 const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
+const MAX_PERSISTED_EXPANSION_CANDIDATES = 5;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
@@ -41,6 +42,7 @@ export interface ExpansionCandidateScore {
   roomName: string;
   score: number;
   evidenceStatus: ExpansionCandidateEvidenceStatus;
+  visible: boolean;
   rationale: string[];
   preconditions: string[];
   risks: string[];
@@ -50,6 +52,7 @@ export interface ExpansionCandidateScore {
   adjacentToOwnedRoom: boolean;
   controllerId?: Id<StructureController>;
   sourceCount?: number;
+  sourceAccessPoints?: number;
   controllerSourceRange?: number;
   terrain?: ExpansionTerrainQuality;
   hostileCreepCount?: number;
@@ -73,12 +76,14 @@ export interface ExpansionCandidateInput {
   roomName: string;
   order: number;
   adjacentToOwnedRoom: boolean;
+  visible?: boolean;
   routeDistance?: number | null;
   nearestOwnedRoom?: string;
   nearestOwnedRoomDistance?: number | null;
   controller?: ExpansionControllerEvidence;
   controllerId?: Id<StructureController>;
   sourceCount?: number;
+  sourceAccessPoints?: number;
   controllerSourceRange?: number;
   terrain?: ExpansionTerrainQuality;
   hostileCreepCount?: number;
@@ -103,6 +108,37 @@ export interface ExpansionReservationEvidence {
   relation: 'own' | 'foreign';
   ticksToEnd?: number;
 }
+
+type PersistedExpansionCandidateRecommendedAction = 'claim' | 'scout';
+
+interface PersistedExpansionCandidateMemory {
+  colony: string;
+  roomName: string;
+  score: number;
+  evidenceStatus: ExpansionCandidateEvidenceStatus;
+  visible: boolean;
+  updatedAt: number;
+  adjacentToOwnedRoom: boolean;
+  recommendedAction?: PersistedExpansionCandidateRecommendedAction;
+  routeDistance?: number;
+  nearestOwnedRoom?: string;
+  nearestOwnedRoomDistance?: number;
+  controllerId?: Id<StructureController>;
+  sourceCount?: number;
+  sourceAccessPoints?: number;
+  controllerSourceRange?: number;
+  terrain?: ExpansionTerrainQuality;
+  hostileCreepCount?: number;
+  hostileStructureCount?: number;
+  requiresControllerPressure?: boolean;
+  risks?: string[];
+  preconditions?: string[];
+  rationale?: string[];
+}
+
+type TerritoryMemoryWithExpansionCandidates = TerritoryMemory & {
+  expansionCandidates?: PersistedExpansionCandidateMemory[];
+};
 
 export type NextExpansionTargetSelectionStatus = 'planned' | 'skipped';
 export type NextExpansionTargetSelectionReason =
@@ -141,6 +177,7 @@ export function refreshNextExpansionTargetSelection(
   gameTime: number
 ): NextExpansionTargetSelection {
   const colonyName = colony.room.name;
+  persistExpansionCandidateScores(colonyName, report, gameTime);
   const candidate = selectPersistableExpansionCandidate(report);
   if (!candidate) {
     pruneNextExpansionTargets(colonyName);
@@ -192,20 +229,36 @@ export function maxRoomsForRcl(controllerLevel: number | undefined): number {
 }
 
 function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandidateInput[] {
-  const rooms = getGameRooms();
-  if (!rooms) {
-    return [];
-  }
-
+  const rooms = getGameRooms() ?? {};
   const colonyName = colony.room.name;
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
   const ownedRoomNames = getVisibleOwnedRoomNames(colonyName, ownerUsername);
   const adjacentRoomNames = getAdjacentRoomNamesByOwnedRoom(ownedRoomNames);
-  const candidates: ExpansionCandidateInput[] = [];
+  const candidateOrders = new Map<string, number>();
   let order = 0;
+
+  for (const ownedRoomName of ownedRoomNames) {
+    const adjacentRooms = adjacentRoomNames.get(ownedRoomName);
+    if (!adjacentRooms) {
+      continue;
+    }
+
+    for (const roomName of adjacentRooms) {
+      if (roomName === colonyName || ownedRoomNames.has(roomName) || candidateOrders.has(roomName)) {
+        continue;
+      }
+
+      candidateOrders.set(roomName, order);
+      order += 1;
+    }
+  }
 
   for (const room of Object.values(rooms)) {
     if (!room || !isNonEmptyString(room.name) || room.name === colonyName || ownedRoomNames.has(room.name)) {
+      continue;
+    }
+
+    if (candidateOrders.has(room.name)) {
       continue;
     }
 
@@ -216,21 +269,44 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
       continue;
     }
 
-    candidates.push({
-      roomName: room.name,
-      order,
-      adjacentToOwnedRoom,
-      ...(routeDistance !== undefined ? { routeDistance } : {}),
-      ...(nearestOwnedDistance.roomName ? { nearestOwnedRoom: nearestOwnedDistance.roomName } : {}),
-      ...(nearestOwnedDistance.distance !== undefined
-        ? { nearestOwnedRoomDistance: nearestOwnedDistance.distance }
-        : {}),
-      ...buildVisibleExpansionCandidateEvidence(room)
-    });
+    candidateOrders.set(room.name, order);
     order += 1;
   }
 
-  return candidates;
+  return Array.from(candidateOrders.entries()).flatMap(([roomName, candidateOrder]) => {
+    const routeDistance = getKnownRouteLength(colonyName, roomName);
+    const nearestOwnedDistance = getNearestOwnedRoomDistance(ownedRoomNames, roomName, adjacentRoomNames);
+    const adjacentToOwnedRoom = isAdjacentToOwnedRoom(roomName, adjacentRoomNames);
+    if (!isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom)) {
+      return [];
+    }
+
+    const room = rooms[roomName];
+    return [
+      {
+        roomName,
+        order: candidateOrder,
+        visible: room != null,
+        adjacentToOwnedRoom,
+        ...(routeDistance !== undefined ? { routeDistance } : {}),
+        ...(nearestOwnedDistance.roomName ? { nearestOwnedRoom: nearestOwnedDistance.roomName } : {}),
+        ...(nearestOwnedDistance.distance !== undefined
+          ? { nearestOwnedRoomDistance: nearestOwnedDistance.distance }
+          : {}),
+        ...(room ? buildVisibleExpansionCandidateEvidence(room) : buildUnseenExpansionCandidateEvidence(roomName))
+      }
+    ];
+  });
+}
+
+function buildUnseenExpansionCandidateEvidence(
+  roomName: string
+): Omit<ExpansionCandidateInput, 'roomName' | 'order' | 'adjacentToOwnedRoom'> {
+  const terrain = summarizeRoomTerrain(roomName);
+  return {
+    visible: false,
+    ...(terrain ? { terrain } : {})
+  };
 }
 
 function buildVisibleExpansionCandidateEvidence(
@@ -239,7 +315,9 @@ function buildVisibleExpansionCandidateEvidence(
   const controller = room.controller;
   const sources = findRoomObjects<Source>(room, getFindConstant('FIND_SOURCES'));
   const controllerSourceRange = calculateAverageControllerSourceRange(controller, sources);
-  const terrain = summarizeRoomTerrain(room);
+  const roomTerrain = getRoomTerrain(room);
+  const terrain = summarizeRoomTerrainFromTerrain(roomTerrain);
+  const sourceAccessPoints = calculateAverageSourceAccessPoints(roomTerrain, sources);
   const hostileCreepCount = findRoomObjects<Creep>(room, getFindConstant('FIND_HOSTILE_CREEPS')).length;
   const hostileStructureCount = findRoomObjects<AnyStructure>(
     room,
@@ -247,9 +325,11 @@ function buildVisibleExpansionCandidateEvidence(
   ).length;
 
   return {
+    visible: true,
     ...(controller ? { controller: summarizeExpansionController(controller) } : {}),
     ...(typeof controller?.id === 'string' ? { controllerId: controller.id as Id<StructureController> } : {}),
     sourceCount: sources.length,
+    ...(typeof sourceAccessPoints === 'number' ? { sourceAccessPoints } : {}),
     ...(typeof controllerSourceRange === 'number' ? { controllerSourceRange } : {}),
     ...(terrain ? { terrain } : {}),
     hostileCreepCount,
@@ -265,6 +345,7 @@ function scoreExpansionCandidate(
   const risks: string[] = [];
   const preconditions = getExpansionPreconditions(input);
   let evidenceStatus: ExpansionCandidateEvidenceStatus = 'sufficient';
+  const visible = candidate.visible !== false;
 
   const routeDistance = candidate.routeDistance === null ? undefined : candidate.routeDistance;
   const nearestOwnedRoomDistance =
@@ -275,8 +356,14 @@ function scoreExpansionCandidate(
   }
 
   if (!candidate.controller) {
-    risks.push('visible room has no controller');
-    evidenceStatus = 'unavailable';
+    if (visible) {
+      risks.push('visible room has no controller');
+      evidenceStatus = 'unavailable';
+    } else {
+      rationale.push('scout required for controller evidence');
+      risks.push('controller evidence missing until scout');
+      evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
+    }
   } else {
     const controllerStatus = getControllerStatus(input, candidate.controller);
     rationale.push(controllerStatus.rationale);
@@ -291,14 +378,18 @@ function scoreExpansionCandidate(
   if (typeof candidate.sourceCount === 'number') {
     rationale.push(`${candidate.sourceCount} sources visible`);
   } else {
-    risks.push('source count evidence missing');
+    risks.push(visible ? 'source count evidence missing' : 'source count evidence missing until scout');
     evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
+  }
+
+  if (typeof candidate.sourceAccessPoints === 'number') {
+    rationale.push(`source access ${formatSourceAccessPoints(candidate.sourceAccessPoints)} open tiles`);
   }
 
   if (typeof candidate.controllerSourceRange === 'number') {
     rationale.push(`controller-source range ${candidate.controllerSourceRange}`);
   } else {
-    risks.push('controller proximity evidence missing');
+    risks.push(visible ? 'controller proximity evidence missing' : 'controller proximity evidence missing until scout');
     evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
   }
 
@@ -311,6 +402,10 @@ function scoreExpansionCandidate(
 
   const hostileCreepCount = candidate.hostileCreepCount ?? 0;
   const hostileStructureCount = candidate.hostileStructureCount ?? 0;
+  if (!visible && (candidate.hostileCreepCount === undefined || candidate.hostileStructureCount === undefined)) {
+    risks.push('hostile evidence missing until scout');
+    evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
+  }
   if (hostileCreepCount > 0 || hostileStructureCount > 0) {
     risks.push('hostile presence visible');
     evidenceStatus = 'unavailable';
@@ -333,6 +428,7 @@ function scoreExpansionCandidate(
     roomName: candidate.roomName,
     score,
     evidenceStatus,
+    visible,
     rationale,
     preconditions,
     risks,
@@ -342,6 +438,7 @@ function scoreExpansionCandidate(
     ...(nearestOwnedRoomDistance !== undefined ? { nearestOwnedRoomDistance } : {}),
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
     ...(candidate.sourceCount !== undefined ? { sourceCount: candidate.sourceCount } : {}),
+    ...(candidate.sourceAccessPoints !== undefined ? { sourceAccessPoints: candidate.sourceAccessPoints } : {}),
     ...(candidate.controllerSourceRange !== undefined
       ? { controllerSourceRange: candidate.controllerSourceRange }
       : {}),
@@ -364,6 +461,8 @@ function calculateExpansionScore(
     ? Math.min(candidate.sourceCount, 2) * 120 + Math.max(0, candidate.sourceCount - 2) * 20
     : 0;
   const dualSourceBonus = (candidate.sourceCount ?? 0) >= 2 ? DUAL_SOURCE_BONUS : 0;
+  const sourceAccessScore =
+    typeof candidate.sourceAccessPoints === 'number' ? Math.round(candidate.sourceAccessPoints * 18) : 0;
   const proximityScore = typeof candidate.controllerSourceRange === 'number'
     ? Math.max(-80, 100 - candidate.controllerSourceRange * 6)
     : 0;
@@ -385,6 +484,7 @@ function calculateExpansionScore(
     500 +
       sourceScore +
       dualSourceBonus +
+      sourceAccessScore +
       proximityScore +
       terrainScore +
       reservationScore +
@@ -431,7 +531,11 @@ function getReservationScore(
   input: ExpansionScoringInput,
   controller: ExpansionControllerEvidence | undefined
 ): number {
-  if (!controller?.reservationUsername) {
+  if (!controller) {
+    return 0;
+  }
+
+  if (!controller.reservationUsername) {
     return 45;
   }
 
@@ -565,6 +669,83 @@ function hasRoomLimitPrecondition(candidate: ExpansionCandidateScore): boolean {
   return candidate.preconditions.some((precondition) =>
     precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX)
   );
+}
+
+function persistExpansionCandidateScores(
+  colony: string,
+  report: ExpansionCandidateReport,
+  gameTime: number
+): void {
+  const territoryMemory = getWritableTerritoryMemoryRecord() as TerritoryMemoryWithExpansionCandidates | null;
+  if (!territoryMemory) {
+    return;
+  }
+
+  const existingCandidates = Array.isArray(territoryMemory.expansionCandidates)
+    ? territoryMemory.expansionCandidates.filter(
+        (candidate) => isRecord(candidate) && candidate.colony !== colony
+      )
+    : [];
+  const nextCandidates = report.candidates
+    .slice(0, MAX_PERSISTED_EXPANSION_CANDIDATES)
+    .map((candidate) => toPersistedExpansionCandidateMemory(colony, candidate, gameTime));
+
+  if (existingCandidates.length === 0 && nextCandidates.length === 0) {
+    delete territoryMemory.expansionCandidates;
+    return;
+  }
+
+  territoryMemory.expansionCandidates = [...existingCandidates, ...nextCandidates];
+}
+
+function toPersistedExpansionCandidateMemory(
+  colony: string,
+  candidate: ExpansionCandidateScore,
+  gameTime: number
+): PersistedExpansionCandidateMemory {
+  const recommendedAction = getPersistedExpansionCandidateRecommendedAction(candidate);
+  return {
+    colony,
+    roomName: candidate.roomName,
+    score: candidate.score,
+    evidenceStatus: candidate.evidenceStatus,
+    visible: candidate.visible,
+    updatedAt: gameTime,
+    adjacentToOwnedRoom: candidate.adjacentToOwnedRoom,
+    ...(recommendedAction ? { recommendedAction } : {}),
+    ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
+    ...(candidate.nearestOwnedRoom ? { nearestOwnedRoom: candidate.nearestOwnedRoom } : {}),
+    ...(candidate.nearestOwnedRoomDistance !== undefined
+      ? { nearestOwnedRoomDistance: candidate.nearestOwnedRoomDistance }
+      : {}),
+    ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
+    ...(candidate.sourceCount !== undefined ? { sourceCount: candidate.sourceCount } : {}),
+    ...(candidate.sourceAccessPoints !== undefined ? { sourceAccessPoints: candidate.sourceAccessPoints } : {}),
+    ...(candidate.controllerSourceRange !== undefined
+      ? { controllerSourceRange: candidate.controllerSourceRange }
+      : {}),
+    ...(candidate.terrain ? { terrain: candidate.terrain } : {}),
+    ...(candidate.hostileCreepCount !== undefined ? { hostileCreepCount: candidate.hostileCreepCount } : {}),
+    ...(candidate.hostileStructureCount !== undefined
+      ? { hostileStructureCount: candidate.hostileStructureCount }
+      : {}),
+    ...(candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
+    ...(candidate.risks.length > 0 ? { risks: candidate.risks } : {}),
+    ...(candidate.preconditions.length > 0 ? { preconditions: candidate.preconditions } : {}),
+    ...(candidate.rationale.length > 0 ? { rationale: candidate.rationale } : {})
+  };
+}
+
+function getPersistedExpansionCandidateRecommendedAction(
+  candidate: ExpansionCandidateScore
+): PersistedExpansionCandidateRecommendedAction | undefined {
+  if (candidate.evidenceStatus === 'sufficient' && candidate.preconditions.length === 0) {
+    return 'claim';
+  }
+
+  return candidate.evidenceStatus === 'insufficient-evidence' && candidate.adjacentToOwnedRoom
+    ? 'scout'
+    : undefined;
 }
 
 function persistNextExpansionTarget(
@@ -806,8 +987,18 @@ function getNearestOwnedRoomDistance(
   let nearestDistance: number | null | undefined;
   for (const ownedRoomName of ownedRoomNames) {
     const adjacentDistance = adjacentRoomNames.get(ownedRoomName)?.has(targetRoom) ? 1 : undefined;
-    const routeDistance = getKnownRouteLength(ownedRoomName, targetRoom);
-    const distance = routeDistance ?? adjacentDistance;
+    if (adjacentDistance !== undefined) {
+      nearestRoomName = ownedRoomName;
+      nearestDistance = adjacentDistance;
+      break;
+    }
+
+    const linearDistance = getLinearRoomDistance(ownedRoomName, targetRoom);
+    if (linearDistance !== undefined && linearDistance > MAX_NEARBY_EXPANSION_ROUTE_DISTANCE) {
+      continue;
+    }
+
+    const distance = getKnownRouteLength(ownedRoomName, targetRoom);
     if (distance === undefined) {
       continue;
     }
@@ -830,6 +1021,18 @@ function getNearestOwnedRoomDistance(
     ...(nearestRoomName ? { roomName: nearestRoomName } : {}),
     ...(nearestDistance !== undefined ? { distance: nearestDistance } : {})
   };
+}
+
+function getLinearRoomDistance(fromRoom: string, targetRoom: string): number | undefined {
+  const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map as
+    | (Partial<GameMap> & { getRoomLinearDistance?: (roomName1: string, roomName2: string) => number })
+    | undefined;
+  if (typeof gameMap?.getRoomLinearDistance !== 'function') {
+    return undefined;
+  }
+
+  const distance = gameMap.getRoomLinearDistance.call(gameMap, fromRoom, targetRoom);
+  return Number.isFinite(distance) ? distance : undefined;
 }
 
 function isNearbyExpansionCandidate(
@@ -956,12 +1159,60 @@ function calculateAverageControllerSourceRange(
   return Math.round(ranges.reduce((total, range) => total + range, 0) / ranges.length);
 }
 
+function calculateAverageSourceAccessPoints(
+  terrain: RoomTerrain | null,
+  sources: Source[]
+): number | undefined {
+  if (sources.length === 0) {
+    return undefined;
+  }
+
+  if (!terrain || typeof terrain.get !== 'function') {
+    return undefined;
+  }
+
+  const wallMask = getTerrainMask('TERRAIN_MASK_WALL', DEFAULT_TERRAIN_WALL_MASK);
+  const accessCounts = sources.flatMap((source) => {
+    if (!source.pos) {
+      return [];
+    }
+
+    return [countWalkableAdjacentTiles(source.pos, terrain, wallMask)];
+  });
+  if (accessCounts.length === 0) {
+    return undefined;
+  }
+
+  const average = accessCounts.reduce((total, count) => total + count, 0) / accessCounts.length;
+  return Math.round(average * 10) / 10;
+}
+
+function countWalkableAdjacentTiles(pos: RoomPosition, terrain: RoomTerrain, wallMask: number): number {
+  let walkableCount = 0;
+  for (let x = Math.max(0, pos.x - 1); x <= Math.min(49, pos.x + 1); x += 1) {
+    for (let y = Math.max(0, pos.y - 1); y <= Math.min(49, pos.y + 1); y += 1) {
+      if (x === pos.x && y === pos.y) {
+        continue;
+      }
+
+      if ((terrain.get(x, y) & wallMask) === 0) {
+        walkableCount += 1;
+      }
+    }
+  }
+
+  return walkableCount;
+}
+
 function getRoomPositionRange(left: RoomPosition, right: RoomPosition): number {
   return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
 }
 
-function summarizeRoomTerrain(room: Room): ExpansionTerrainQuality | null {
-  const terrain = getRoomTerrain(room);
+function summarizeRoomTerrain(roomOrName: Room | string): ExpansionTerrainQuality | null {
+  return summarizeRoomTerrainFromTerrain(getRoomTerrain(roomOrName));
+}
+
+function summarizeRoomTerrainFromTerrain(terrain: RoomTerrain | null): ExpansionTerrainQuality | null {
   if (!terrain || typeof terrain.get !== 'function') {
     return null;
   }
@@ -996,16 +1247,19 @@ function summarizeRoomTerrain(room: Room): ExpansionTerrainQuality | null {
   };
 }
 
-function getRoomTerrain(room: Room): RoomTerrain | null {
-  const roomWithTerrain = room as Room & { getTerrain?: () => RoomTerrain };
-  if (typeof roomWithTerrain.getTerrain === 'function') {
-    return roomWithTerrain.getTerrain();
+function getRoomTerrain(roomOrName: Room | string): RoomTerrain | null {
+  if (typeof roomOrName !== 'string') {
+    const roomWithTerrain = roomOrName as Room & { getTerrain?: () => RoomTerrain };
+    if (typeof roomWithTerrain.getTerrain === 'function') {
+      return roomWithTerrain.getTerrain();
+    }
   }
 
   const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map as
     | (Partial<GameMap> & { getRoomTerrain?: (roomName: string) => RoomTerrain })
     | undefined;
-  return typeof gameMap?.getRoomTerrain === 'function' ? gameMap.getRoomTerrain(room.name) : null;
+  const roomName = typeof roomOrName === 'string' ? roomOrName : roomOrName.name;
+  return typeof gameMap?.getRoomTerrain === 'function' ? gameMap.getRoomTerrain(roomName) : null;
 }
 
 function getTerrainMask(name: 'TERRAIN_MASK_WALL' | 'TERRAIN_MASK_SWAMP', fallback: number): number {
@@ -1085,6 +1339,10 @@ function roundRatio(numerator: number, denominator: number): number {
 
 function toPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
+}
+
+function formatSourceAccessPoints(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
