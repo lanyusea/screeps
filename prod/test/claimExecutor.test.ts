@@ -181,6 +181,55 @@ describe('autonomous expansion claim executor', () => {
     ]);
   });
 
+  it('blocks same-tick autonomous claims for a room already targeted by another colony', () => {
+    const firstColony = makeColony({ roomName: 'W1N1', controllerLevel: 4 });
+    const secondColony = makeColony({ roomName: 'W3N1', controllerLevel: 4 });
+    (Game.rooms as Record<string, Room>) = {
+      W1N1: firstColony.room,
+      W3N1: secondColony.room,
+      W2N1: makeTargetRoom('W2N1', {
+        controllerId: 'controller2' as Id<StructureController>
+      })
+    };
+    (Game as { map: GameMap }).map = makeMap({
+      W1N1: { '3': 'W2N1' },
+      W3N1: { '7': 'W2N1' },
+      W2N1: { '7': 'W1N1' }
+    });
+    const report = makeReport([
+      makeCandidate({
+        roomName: 'W2N1',
+        controllerId: 'controller2' as Id<StructureController>,
+        sourceCount: 2
+      })
+    ]);
+
+    const firstEvaluation = refreshAutonomousExpansionClaimIntent(firstColony, report, 107);
+    const secondEvaluation = refreshAutonomousExpansionClaimIntent(secondColony, report, 107);
+
+    expect(firstEvaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1'
+    });
+    expect(secondEvaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W3N1',
+      targetRoom: 'W2N1',
+      reason: 'existingClaimIntent'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'autonomousExpansionClaim',
+        controllerId: 'controller2'
+      }
+    ]);
+    expect(Game.map.describeExits).toHaveBeenCalledTimes(2);
+  });
+
   it('does not record a claim when colony claim resources are insufficient', () => {
     (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
       controllerId: 'controller2' as Id<StructureController>
@@ -431,16 +480,18 @@ describe('autonomous expansion claim executor', () => {
 });
 
 function makeColony({
+  roomName = 'W1N1',
   energyAvailable = 650,
   energyCapacityAvailable = 650,
   controllerLevel = 3
 }: {
+  roomName?: string;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   controllerLevel?: number;
 } = {}): ColonySnapshot {
   const room = {
-    name: 'W1N1',
+    name: roomName,
     energyAvailable,
     energyCapacityAvailable,
     controller: { my: true, owner: { username: 'me' }, level: controllerLevel, ticksToDowngrade: 10_000 }
