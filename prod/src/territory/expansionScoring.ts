@@ -15,6 +15,17 @@ const DEFAULT_TERRAIN_SWAMP_MASK = 2;
 const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
+const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
+const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
+  1: 1,
+  2: 1,
+  3: 2,
+  4: 3,
+  5: 5,
+  6: 8,
+  7: 15,
+  8: 99
+};
 
 export type ExpansionCandidateEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
 
@@ -50,6 +61,7 @@ export interface ExpansionScoringInput {
   colonyOwnerUsername?: string;
   energyCapacityAvailable: number;
   controllerLevel?: number;
+  ownedRoomCount?: number;
   ticksToDowngrade?: number;
   activePostClaimBootstrapCount?: number;
   candidates: ExpansionCandidateInput[];
@@ -93,6 +105,7 @@ export interface ExpansionReservationEvidence {
 export type NextExpansionTargetSelectionStatus = 'planned' | 'skipped';
 export type NextExpansionTargetSelectionReason =
   | 'noCandidate'
+  | 'roomLimitReached'
   | 'unmetPreconditions'
   | 'insufficientEvidence'
   | 'unavailable';
@@ -146,6 +159,10 @@ export function refreshNextExpansionTargetSelection(
   };
 }
 
+export function clearNextExpansionTargetIntent(colony: string): void {
+  pruneNextExpansionTargets(colony);
+}
+
 function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionScoringInput {
   return {
     colonyName: colony.room.name,
@@ -154,12 +171,22 @@ function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionSco
       : {}),
     energyCapacityAvailable: colony.energyCapacityAvailable,
     ...(typeof colony.room.controller?.level === 'number' ? { controllerLevel: colony.room.controller.level } : {}),
+    ownedRoomCount: countVisibleOwnedRooms(colony.room.name, getControllerOwnerUsername(colony.room.controller)),
     ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
       ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
       : {}),
     activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
     candidates: buildRuntimeExpansionCandidates(colony)
   };
+}
+
+export function maxRoomsForRcl(controllerLevel: number | undefined): number {
+  if (typeof controllerLevel !== 'number' || !Number.isFinite(controllerLevel)) {
+    return MAX_ROOM_COUNT_BY_RCL[1];
+  }
+
+  const rcl = Math.min(8, Math.max(1, Math.floor(controllerLevel)));
+  return MAX_ROOM_COUNT_BY_RCL[rcl];
 }
 
 function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandidateInput[] {
@@ -457,6 +484,12 @@ function getExpansionPreconditions(input: ExpansionScoringInput): string[] {
     preconditions.push('reach controller level 2 before expansion');
   }
 
+  const ownedRoomCount = getOwnedRoomCount(input);
+  const maxRoomCount = maxRoomsForRcl(input.controllerLevel);
+  if (ownedRoomCount >= maxRoomCount) {
+    preconditions.push(`limit expansion to ${maxRoomCount} owned rooms for current controller level`);
+  }
+
   if (typeof input.ticksToDowngrade === 'number' && input.ticksToDowngrade <= DOWNGRADE_GUARD_TICKS) {
     preconditions.push('stabilize home controller downgrade timer');
   }
@@ -466,6 +499,14 @@ function getExpansionPreconditions(input: ExpansionScoringInput): string[] {
   }
 
   return preconditions;
+}
+
+function getOwnedRoomCount(input: ExpansionScoringInput): number {
+  if (typeof input.ownedRoomCount !== 'number' || !Number.isFinite(input.ownedRoomCount)) {
+    return 1;
+  }
+
+  return Math.max(0, Math.floor(input.ownedRoomCount));
 }
 
 function selectPersistableExpansionCandidate(report: ExpansionCandidateReport): ExpansionCandidateScore | null {
@@ -481,6 +522,10 @@ function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansion
     return 'noCandidate';
   }
 
+  if (report.candidates.some(hasRoomLimitPrecondition)) {
+    return 'roomLimitReached';
+  }
+
   if (report.candidates.some((candidate) => candidate.preconditions.length > 0)) {
     return 'unmetPreconditions';
   }
@@ -490,6 +535,12 @@ function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansion
   }
 
   return 'unavailable';
+}
+
+function hasRoomLimitPrecondition(candidate: ExpansionCandidateScore): boolean {
+  return candidate.preconditions.some((precondition) =>
+    precondition.startsWith(ROOM_LIMIT_PRECONDITION_PREFIX)
+  );
 }
 
 function persistNextExpansionTarget(
@@ -697,6 +748,10 @@ function getVisibleOwnedRoomNames(colonyName: string, ownerUsername: string | un
   }
 
   return ownedRoomNames;
+}
+
+function countVisibleOwnedRooms(colonyName: string, ownerUsername: string | undefined): number {
+  return getVisibleOwnedRoomNames(colonyName, ownerUsername).size;
 }
 
 function getAdjacentRoomNamesByOwnedRoom(ownedRoomNames: Set<string>): Map<string, Set<string>> {

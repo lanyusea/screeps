@@ -64,6 +64,70 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('keeps source-owned territory intents separate from unowned progress records', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: {
+          name: 'W2N1',
+          controller: { id: 'controller2', my: false } as StructureController
+        } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'reserve',
+            createdBy: 'occupationRecommendation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 599,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 600)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller2',
+      createdBy: 'occupationRecommendation'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 599,
+        controllerId: 'controller2'
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 600,
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
   it('seeds an adjacent reserve target when no configured targets exist', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));

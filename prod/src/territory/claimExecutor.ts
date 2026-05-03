@@ -60,6 +60,10 @@ export function shouldDeferOccupationRecommendationForExpansionClaim(
   return evaluation.status === 'planned' || evaluation.reason === 'controllerCooldown';
 }
 
+export function clearAutonomousExpansionClaimIntent(colony: string): void {
+  pruneAutonomousExpansionClaimTargets(colony);
+}
+
 function shouldPruneAutonomousExpansionClaimTargets(
   reason: RuntimeTerritoryClaimTelemetryReason | undefined
 ): boolean {
@@ -252,7 +256,11 @@ function persistAutonomousExpansionClaimIntent(
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
   const existingIntent = intents.find(
-    (intent) => intent.colony === colony && intent.targetRoom === target.roomName && intent.action === 'claim'
+    (intent) =>
+      intent.colony === colony &&
+      intent.targetRoom === target.roomName &&
+      intent.action === 'claim' &&
+      intent.createdBy === AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR
   );
   upsertTerritoryIntent(intents, {
     colony,
@@ -260,6 +268,7 @@ function persistAutonomousExpansionClaimIntent(
     action: 'claim',
     status: existingIntent?.status === 'active' ? 'active' : 'planned',
     updatedAt: gameTime,
+    createdBy: AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR,
     ...(target.controllerId ? { controllerId: target.controllerId } : {})
   });
 }
@@ -269,7 +278,12 @@ function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: Territo
     territoryMemory.targets = [];
   }
 
-  const existingTarget = territoryMemory.targets.find((rawTarget) => isSameTarget(rawTarget, target));
+  const existingTarget = territoryMemory.targets.find(
+    (rawTarget) =>
+      isSameTarget(rawTarget, target) &&
+      isRecord(rawTarget) &&
+      rawTarget.createdBy === target.createdBy
+  );
   if (!existingTarget) {
     territoryMemory.targets.push(target);
     return;
@@ -293,7 +307,8 @@ function upsertTerritoryIntent(
     (intent) =>
       intent.colony === nextIntent.colony &&
       intent.targetRoom === nextIntent.targetRoom &&
-      intent.action === nextIntent.action
+      intent.action === nextIntent.action &&
+      intent.createdBy === nextIntent.createdBy
   );
   if (existingIndex >= 0) {
     intents[existingIndex] = nextIntent;
@@ -334,7 +349,9 @@ function pruneAutonomousExpansionClaimTargets(
 
   territoryMemory.intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
     (intent) =>
-      intent.colony !== colony || !removedTargetKeys.has(getTargetKey(intent.targetRoom, intent.action))
+      intent.colony !== colony ||
+      intent.createdBy !== AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR ||
+      !removedTargetKeys.has(getTargetKey(intent.targetRoom, intent.action))
   );
 }
 

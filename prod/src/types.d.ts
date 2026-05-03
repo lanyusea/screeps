@@ -162,6 +162,7 @@ declare global {
   type RoomExpansionSelectionStatus = 'planned' | 'skipped';
   type RoomExpansionSelectionReason =
     | 'noCandidate'
+    | 'roomLimitReached'
     | 'unmetPreconditions'
     | 'insufficientEvidence'
     | 'unavailable';

@@ -1419,6 +1419,7 @@ describe('planSpawn', () => {
       action: 'claim',
       status: 'planned',
       updatedAt: 147,
+      createdBy: 'occupationRecommendation',
       requiresControllerPressure: true
     });
 
@@ -1441,6 +1442,7 @@ describe('planSpawn', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 148,
+        createdBy: 'occupationRecommendation',
         requiresControllerPressure: true
       }
     ]);
