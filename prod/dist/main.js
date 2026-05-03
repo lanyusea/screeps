@@ -8131,7 +8131,7 @@ function selectUpgraderBoostEnergyAcquisitionTask(creep, controller) {
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
 }
 function isUpgraderBoostActive(creep, controller) {
-  return isUpgraderCreep(creep) && isControllerNearLevelUp(controller);
+  return isUpgraderCreep(creep) && !hasVisibleHostilePresence(creep.room) && isControllerNearLevelUp(controller);
 }
 function isUpgraderCreep(creep) {
   var _a, _b, _c;

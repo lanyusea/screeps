@@ -13,6 +13,7 @@ import {
   estimateNearTermSpawnExtensionRefillReserve,
   canLevelUpController,
   canUpgradeController,
+  isUpgraderBoostActive,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
@@ -392,6 +393,64 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
+  });
+
+  it('reports upgrader boost active near controller level-up when no hostiles are visible', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      progress: 900,
+      progressTotal: 1_000
+    } as StructureController;
+    const creep = {
+      memory: { role: 'upgrader' },
+      room: makeWorkerTaskRoom({ controller })
+    } as unknown as Creep;
+
+    expect(isUpgraderBoostActive(creep, controller)).toBe(true);
+  });
+
+  it('reports upgrader boost inactive when hostiles are visible', () => {
+    const hostile = { id: 'hostile1' } as Creep;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      progress: 900,
+      progressTotal: 1_000
+    } as StructureController;
+    const creep = {
+      memory: { role: 'upgrader' },
+      room: makeWorkerTaskRoom({ controller, hostileCreeps: [hostile] })
+    } as unknown as Creep;
+
+    expect(isUpgraderBoostActive(creep, controller)).toBe(false);
+  });
+
+  it('lets visible hostiles preempt boosted upgrader controller work for tower refill', () => {
+    const hostile = { id: 'hostile1' } as Creep;
+    const tower = makeTowerEnergySink('tower-low', TOWER_REFILL_ENERGY_FLOOR - 1, 501);
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      progress: 900,
+      progressTotal: 1_000,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      name: 'BoostUpgrader',
+      memory: { role: 'upgrader', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        controller,
+        hostileCreeps: [hostile],
+        myStructures: [tower as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'tower-low' });
   });
 
   it('does not activate upgrader boost at RCL8', () => {

@@ -597,7 +597,7 @@ export function isUpgraderBoostActive(
   creep: Creep,
   controller: StructureController | undefined
 ): controller is StructureController {
-  return isUpgraderCreep(creep) && isControllerNearLevelUp(controller);
+  return isUpgraderCreep(creep) && !hasVisibleHostilePresence(creep.room) && isControllerNearLevelUp(controller);
 }
 
 function isUpgraderCreep(creep: Creep): boolean {
