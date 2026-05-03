@@ -6,6 +6,7 @@ import {
   shouldEmitRuntimeSummary,
   type RuntimeTelemetryEvent
 } from '../src/telemetry/runtimeSummary';
+import { recordCreepBehaviorIdle } from '../src/telemetry/behaviorTelemetry';
 import { CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 
 const TEST_GLOBALS = {
@@ -257,13 +258,67 @@ describe('runtime telemetry summaries', () => {
         stuckTicks: 1,
         containerTransfers: 1,
         pathLength: 2
-      }
+      },
+      topIdleWorkers: [
+        {
+          creepName: 'RepairWorker',
+          idleTicks: 1,
+          moveTicks: 3,
+          workTicks: 2,
+          stuckTicks: 1,
+          containerTransfers: 1,
+          pathLength: 2,
+          repairTargetId: 'road-damaged'
+        }
+      ]
     });
     expect(worker.memory.behaviorTelemetry).toEqual({
       lastPosition: { x: 10, y: 12, roomName: 'W1N1' },
       lastMoveTick: RUNTIME_SUMMARY_INTERVAL,
       lastObservedTick: RUNTIME_SUMMARY_INTERVAL
     });
+  });
+
+  it('populates behavior summary after simulateWorkerIdle and reports the top idle workers', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    const workers = [
+      makeWorker({ role: 'worker', colony: 'W1N1' }, 0, 'IdleA'),
+      makeWorker({ role: 'worker', colony: 'W1N1' }, 0, 'IdleB'),
+      makeWorker({ role: 'worker', colony: 'W1N1' }, 0, 'IdleC'),
+      makeWorker({ role: 'worker', colony: 'W1N1' }, 0, 'IdleD')
+    ];
+
+    simulateWorkerIdle(workers[0], 4);
+    simulateWorkerIdle(workers[1], 2);
+    simulateWorkerIdle(workers[2], 3);
+    simulateWorkerIdle(workers[3], 1);
+
+    emitRuntimeSummary([colony], workers);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.behavior).toEqual({
+      creeps: [
+        makeIdleBehaviorSummary('IdleA', 4),
+        makeIdleBehaviorSummary('IdleB', 2),
+        makeIdleBehaviorSummary('IdleC', 3),
+        makeIdleBehaviorSummary('IdleD', 1)
+      ],
+      totals: {
+        idleTicks: 10,
+        moveTicks: 0,
+        workTicks: 0,
+        stuckTicks: 0,
+        containerTransfers: 0,
+        pathLength: 0
+      },
+      topIdleWorkers: [
+        makeIdleBehaviorSummary('IdleA', 4),
+        makeIdleBehaviorSummary('IdleC', 3),
+        makeIdleBehaviorSummary('IdleB', 2)
+      ]
+    });
+    expect(workers.map((worker) => worker.memory.behaviorTelemetry)).toEqual([undefined, undefined, undefined, undefined]);
   });
 
   it('reports cadence structure snapshots with defenses, containers, repairs, and road coverage', () => {
@@ -1160,6 +1215,24 @@ describe('runtime telemetry summaries', () => {
     return JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length)) as Record<string, unknown>;
   }
 });
+
+function simulateWorkerIdle(worker: Creep, idleTicks: number): void {
+  for (let tick = 1; tick <= idleTicks; tick += 1) {
+    recordCreepBehaviorIdle(worker, tick);
+  }
+}
+
+function makeIdleBehaviorSummary(creepName: string, idleTicks: number): Record<string, unknown> {
+  return {
+    creepName,
+    idleTicks,
+    moveTicks: 0,
+    workTicks: 0,
+    stuckTicks: 0,
+    containerTransfers: 0,
+    pathLength: 0
+  };
+}
 
 function installRuntimeTelemetryGlobals(): void {
   const globals = globalThis as Record<string, unknown>;

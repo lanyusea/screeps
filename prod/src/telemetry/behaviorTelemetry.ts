@@ -12,6 +12,7 @@ export interface RuntimeCreepBehaviorSummary {
 export interface RuntimeBehaviorSummary {
   creeps: RuntimeCreepBehaviorSummary[];
   totals: RuntimeBehaviorTotals;
+  topIdleWorkers?: RuntimeCreepBehaviorSummary[];
 }
 
 interface RuntimeBehaviorTotals {
@@ -38,6 +39,7 @@ const BEHAVIOR_COUNTER_KEYS: CreepBehaviorCounterKey[] = [
   { key: 'containerTransfers' },
   { key: 'pathLength' }
 ];
+const TOP_IDLE_WORKER_COUNT = 3;
 
 export function observeCreepBehaviorTick(creep: Creep, tick: number = getGameTime()): void {
   const telemetry = ensureCreepBehaviorTelemetry(creep);
@@ -117,7 +119,8 @@ export function summarizeAndResetCreepBehaviorTelemetry(workers: Creep[]): { beh
   return {
     behavior: {
       creeps: creepSummaries,
-      totals: summarizeBehaviorTotals(creepSummaries)
+      totals: summarizeBehaviorTotals(creepSummaries),
+      ...summarizeTopIdleWorkers(creepSummaries)
     }
   };
 }
@@ -196,11 +199,29 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
   );
 }
 
+function summarizeTopIdleWorkers(
+  creeps: RuntimeCreepBehaviorSummary[]
+): { topIdleWorkers?: RuntimeCreepBehaviorSummary[] } {
+  const topIdleWorkers = creeps
+    .filter((creep) => creep.idleTicks > 0)
+    .sort(compareRuntimeIdleWorkerSummaries)
+    .slice(0, TOP_IDLE_WORKER_COUNT);
+
+  return topIdleWorkers.length > 0 ? { topIdleWorkers } : {};
+}
+
 function compareRuntimeCreepBehaviorSummaries(
   left: RuntimeCreepBehaviorSummary,
   right: RuntimeCreepBehaviorSummary
 ): number {
   return (left.creepName ?? '').localeCompare(right.creepName ?? '');
+}
+
+function compareRuntimeIdleWorkerSummaries(
+  left: RuntimeCreepBehaviorSummary,
+  right: RuntimeCreepBehaviorSummary
+): number {
+  return right.idleTicks - left.idleTicks || compareRuntimeCreepBehaviorSummaries(left, right);
 }
 
 function buildCreepNameSummary(creep: Creep): { creepName?: string } {
