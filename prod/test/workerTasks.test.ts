@@ -3,6 +3,8 @@ import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
+  BUILDER_DROPPED_PICKUP_RANGE,
+  BUILDER_STORAGE_WITHDRAW_MIN,
   LOW_LOAD_NEARBY_ENERGY_RANGE,
   LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
   MINIMUM_USEFUL_LOAD_RATIO,
@@ -389,6 +391,272 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-far' });
     expect(getRangeTo).not.toHaveBeenCalledWith(lowValueDroppedEnergy);
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('builder uses nearby stored energy near the construction site before harvesting', () => {
+    const source = { id: 'source1' } as Source;
+    const constructionSite = withRangeTo(
+      {
+      id: 'build-site1',
+        structureType: 'extension',
+        pos: makeRoomPosition(10, 10)
+      } as ConstructionSite,
+      {
+        'container-near': 2
+      }
+    );
+    const container = withRangeTo(
+      makeStoredEnergyStructure('container-near', 'container' as StructureConstant, 500),
+      { 'build-site1': 2 }
+    );
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        'container-near': 2,
+        source1: 4
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return [constructionSite];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [container];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      memory: { role: 'worker', task: { type: 'build', targetId: 'build-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: {
+        find: roomFind
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(constructionSite)
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near' });
+  });
+
+  it('builder uses nearby storage when it is the only viable stored-energy source near the site', () => {
+    const source = { id: 'source1' } as Source;
+    const constructionSite = withRangeTo(
+      {
+        id: 'build-site1',
+        structureType: 'extension',
+        pos: makeRoomPosition(10, 10)
+      } as ConstructionSite,
+      {
+        'storage-eligible': 4,
+        'container-empty': 2
+      }
+    );
+    const emptyContainer = withRangeTo(
+      makeStoredEnergyStructure('container-empty', 'container' as StructureConstant, 0),
+      { 'build-site1': 2 }
+    );
+    const storage = withRangeTo(
+      makeStoredEnergyStructure('storage-eligible', 'storage' as StructureConstant, 300, { my: true }),
+      { 'build-site1': 4 }
+    );
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        'container-empty': 2,
+        'storage-eligible': 4,
+        source1: 6
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return [constructionSite];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [emptyContainer, storage];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      memory: { role: 'worker', task: { type: 'build', targetId: 'build-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { find: roomFind }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(constructionSite)
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-eligible' });
+  });
+
+  it('builder falls through to nearby container acquisition when no site-local energy is available', () => {
+    const source = makeSource('source1', 10, 10, 300);
+    const constructionSite = withRangeTo(
+      {
+        id: 'build-site1',
+        structureType: 'extension',
+        pos: makeRoomPosition(20, 20)
+      } as ConstructionSite,
+      {
+        'container-near-creep': BUILDER_DROPPED_PICKUP_RANGE + 1
+      }
+    );
+    const nearbyContainer = withRangeTo(
+      makeStoredEnergyStructure('container-near-creep', 'container' as StructureConstant, 500),
+      { 'build-site1': BUILDER_DROPPED_PICKUP_RANGE + 1 }
+    );
+    const room = makeWorkerTaskRoom({
+      constructionSites: [constructionSite],
+      sources: [source],
+      structures: [nearbyContainer]
+    });
+    const creep = {
+      memory: { role: 'worker', task: { type: 'build', targetId: 'build-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'container-near-creep' ? 2 : 1))
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(constructionSite)
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near-creep' });
+    expect(room.find).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('builder falls through to nearby container energy when site-local candidates do not meet builder thresholds', () => {
+    const source = makeSource('source1', 10, 10, 300);
+    const constructionSite = withRangeTo(
+      {
+        id: 'build-site1',
+        structureType: 'extension',
+        pos: makeRoomPosition(10, 10)
+      } as ConstructionSite,
+      {
+        'container-small': 2,
+        'drop-near': 2
+      }
+    );
+    const lowContainer = withRangeTo(
+      makeStoredEnergyStructure('container-small', 'container' as StructureConstant, BUILDER_STORAGE_WITHDRAW_MIN - 1),
+      { 'build-site1': 2 }
+    );
+    const nearDrop = {
+      id: 'drop-near',
+      resourceType: 'energy',
+      amount: 10
+    } as Resource<ResourceConstant>;
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        'container-small': 2,
+        'drop-near': 2,
+        source1: 4
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [nearDrop];
+      }
+
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return [constructionSite];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [lowContainer];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      memory: { role: 'worker', task: { type: 'build', targetId: 'build-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { find: roomFind }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(constructionSite)
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-small' });
+  });
+
+  it('builder falls through to general stored-energy acquisition when site-local storage is below builder threshold', () => {
+    const source = makeSource('source1', 10, 10, 300);
+    const constructionSite = withRangeTo(
+      {
+        id: 'build-site1',
+        structureType: 'extension',
+        pos: makeRoomPosition(10, 10)
+      } as ConstructionSite,
+      {
+        'storage-small': 2
+      }
+    );
+    const storage = withRangeTo(
+      makeStoredEnergyStructure('storage-small', 'storage' as StructureConstant, BUILDER_STORAGE_WITHDRAW_MIN - 1, {
+        my: true
+      }),
+      { 'build-site1': 2 }
+    );
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        'storage-small': 2,
+        source1: 4
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return [constructionSite];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [storage];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      memory: { role: 'worker', task: { type: 'build', targetId: 'build-site1' as Id<ConstructionSite> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { find: roomFind }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn().mockReturnValue(constructionSite)
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-small' });
   });
 
   it('falls back to harvesting when visible dropped energy is not reachable', () => {

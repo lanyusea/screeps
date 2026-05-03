@@ -7694,6 +7694,8 @@ var NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
 var MINIMUM_USEFUL_LOAD_RATIO = 0.4;
 var LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 var LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
+var BUILDER_STORAGE_WITHDRAW_MIN = 100;
+var BUILDER_DROPPED_PICKUP_RANGE = 5;
 var DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
 var MIN_LOADED_WORKERS_FOR_SUSTAINED_CONTROLLER_PROGRESS = 2;
 var MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
@@ -7721,6 +7723,7 @@ var MIN_LOADED_WORKERS_FOR_SURPLUS_CONTROLLER_PROGRESS = 5;
 var MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 var MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
 var BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY = 550;
+var BUILDER_STORAGE_ACQUISITION_SITE_RANGE = BUILDER_DROPPED_PICKUP_RANGE;
 var nearTermSpawnExtensionRefillReserveCache = null;
 function selectWorkerTask(creep) {
   clearWorkerEfficiencyTelemetry(creep);
@@ -7765,6 +7768,10 @@ function selectHeuristicWorkerTask(creep) {
       }
       if (shouldStandbySurplusWorkerInsteadOfAcquiring(creep, creep.room.controller)) {
         return null;
+      }
+      const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
+      if (builderEnergyAcquisitionTask) {
+        return builderEnergyAcquisitionTask;
       }
       const nearbyContainerEnergyAcquisitionTask = selectNearbyContainerWorkerEnergyAcquisitionTask(creep);
       if (nearbyContainerEnergyAcquisitionTask) {
@@ -8966,6 +8973,88 @@ function selectWorkerEnergyAcquisitionTask(creep) {
     return null;
   }
   return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+}
+function selectBuilderEnergyAcquisitionTask(creep) {
+  var _a;
+  const buildTask = (_a = creep.memory) == null ? void 0 : _a.task;
+  if ((buildTask == null ? void 0 : buildTask.type) !== "build" || buildTask.targetId == null) {
+    return null;
+  }
+  const constructionSite = getGameObjectById(buildTask.targetId);
+  if (!constructionSite) {
+    return null;
+  }
+  const candidates = findBuilderEnergyAcquisitionCandidates(creep, constructionSite);
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareBuilderEnergyAcquisitionCandidates)[0].task;
+}
+function findBuilderEnergyAcquisitionCandidates(creep, constructionSite) {
+  const context = {
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
+    hasHostilePresence: hasVisibleHostilePresence(creep.room),
+    room: creep.room
+  };
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const storedEnergyCandidates = findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).filter((source) => isConstructionSiteNearSource(constructionSite, source, BUILDER_STORAGE_ACQUISITION_SITE_RANGE)).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getStoredEnergy2(source),
+      {
+        type: "withdraw",
+        targetId: source.id
+      },
+      reservationContext,
+      BUILDER_STORAGE_WITHDRAW_MIN
+    );
+    return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate, 0)] : [];
+  });
+  const droppedEnergyCandidates = findDroppedResources(creep.room).filter(
+    (resource) => isDroppedEnergy(resource, MIN_DROPPED_ENERGY_PICKUP_AMOUNT)
+  ).filter((source) => isConstructionSiteNearSource(constructionSite, source, BUILDER_DROPPED_PICKUP_RANGE)).flatMap((resource) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      resource,
+      resource.amount,
+      {
+        type: "pickup",
+        targetId: resource.id
+      },
+      reservationContext,
+      MIN_DROPPED_ENERGY_PICKUP_AMOUNT
+    );
+    return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate, 1)] : [];
+  }).sort(compareBuilderEnergyAcquisitionCandidates).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
+  return [...storedEnergyCandidates, ...droppedEnergyCandidates].sort(compareBuilderEnergyAcquisitionCandidates);
+}
+function toBuilderEnergyAcquisitionCandidate(candidate, priority) {
+  return {
+    ...candidate,
+    source: candidate.source,
+    task: candidate.task,
+    priority
+  };
+}
+function isConstructionSiteNearSource(constructionSite, source, rangeLimit) {
+  const rangeToSite = getRangeBetweenRoomObjects2(constructionSite, source);
+  return rangeToSite !== null && rangeToSite <= rangeLimit;
+}
+function compareBuilderEnergyAcquisitionCandidates(left, right) {
+  const priorityComparison = left.priority - right.priority;
+  if (priorityComparison !== 0) {
+    return priorityComparison;
+  }
+  return compareOptionalRanges(left.range, right.range) || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+}
+function getGameObjectById(objectId) {
+  const game = globalThis.Game;
+  if (!(game == null ? void 0 : game.getObjectById)) {
+    return null;
+  }
+  const object = game.getObjectById(objectId);
+  return object ? object : null;
 }
 function selectWorkerPreHarvestTask(creep) {
   const source = selectHarvestSource(creep);
