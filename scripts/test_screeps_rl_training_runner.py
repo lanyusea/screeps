@@ -259,6 +259,36 @@ strategy_variants:
         self.assertEqual(variants[0].parameters["construction_priority"], "balanced")
         self.assertEqual(config.ticks, 5)
 
+    def test_strategy_registry_loader_ignores_commented_entries(self) -> None:
+        registry_text = """
+export const STRATEGY_REGISTRY = [
+  // { id: 'commented-line', defaultValues: { expansion_aggressiveness: 9 } },
+  {
+    id: 'candidate',
+    family: 'test-family',
+    rolloutStatus: 'shadow',
+    title: 'Candidate',
+    defaultValues: {
+      expansion_aggressiveness: 1,
+      worker_allocation_ratio: 0.5,
+    },
+  },
+  /*
+  {
+    id: 'commented-block',
+    defaultValues: { expansion_aggressiveness: 10 },
+  },
+  */
+];
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            registry_path = Path(temp_dir) / "strategyRegistry.ts"
+            registry_path.write_text(registry_text, encoding="utf-8")
+            registry = runner.load_strategy_registry(registry_path)
+
+        self.assertEqual(list(registry), ["candidate"])
+        self.assertEqual(registry["candidate"].parameters["expansion_aggressiveness"], 1)
+
     def test_variant_ranking_uses_resources_when_territory_ties(self) -> None:
         start = tick(1, [room("W1N1", energy=100)])
         lower_resource = variant_result("baseline", [start, tick(2, [room("W1N1", energy=300, harvested=100)])])
@@ -311,6 +341,51 @@ strategy_variants:
         self.assertTrue(str(report["reportPath"]).endswith("reports/format-check.json"))
         self.assertEqual(simulator.calls[0]["ticks"], 2)
         self.assertEqual(simulator.calls[0]["variants"], ["baseline", "candidate"])
+
+    def test_report_id_with_dots_is_normalized_for_simulator_run_id(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+        simulator = MockSimulator({"baseline": baseline, "candidate": candidate})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            write_json(card_path, base_card())
+            runner.run_training_experiment(
+                card_path,
+                root / "reports",
+                report_id="rl.exp.with.dots",
+                simulator_runner=simulator,
+            )
+
+        self.assertEqual(simulator.calls[0]["run_id"], "rl_exp_with_dots")
+
+    def test_unsafe_simulator_flags_fail_before_report_is_persisted(self) -> None:
+        start = tick(1, [room("W1N1", energy=100)])
+        baseline = variant_result("baseline", [start, tick(2, [room("W1N1", energy=200)])])
+        candidate = variant_result("candidate", [start, tick(2, [room("W1N1", energy=250)])])
+
+        class UnsafeSimulator(MockSimulator):
+            def __call__(self, **kwargs: Any) -> JsonObject:
+                result = super().__call__(**kwargs)
+                result["liveEffect"] = True
+                return result
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            card_path = root / "card.json"
+            out_dir = root / "reports"
+            write_json(card_path, base_card())
+            with self.assertRaisesRegex(RuntimeError, "liveEffect=true"):
+                runner.run_training_experiment(
+                    card_path,
+                    out_dir,
+                    report_id="unsafe-flags",
+                    simulator_runner=UnsafeSimulator({"baseline": baseline, "candidate": candidate}),
+                )
+
+            self.assertFalse((out_dir / "unsafe-flags.json").exists())
 
 
 if __name__ == "__main__":

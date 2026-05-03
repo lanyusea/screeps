@@ -460,6 +460,50 @@ class RlSimulatorHarnessTest(unittest.TestCase):
         with self.assertRaisesRegex(argparse.ArgumentTypeError, "letters, numbers"):
             harness.parse_run_id_token("run.1")
 
+    def test_build_tick_entry_includes_all_visible_room_summaries(self) -> None:
+        overview = {
+            "shards": {
+                "shardX": {
+                    "rooms": ["E26S49", "E26S50"],
+                    "gametime": 12,
+                    "gametimes": [12],
+                }
+            }
+        }
+        room_overviews = {
+            "E26S49": {
+                "room": "E26S49",
+                "roomData": {
+                    "controller": {"level": 1},
+                    "objects": [{"type": "spawn"}],
+                    "creeps": 2,
+                    "energy": 300,
+                },
+            },
+            "E26S50": {
+                "room": "E26S50",
+                "roomData": {
+                    "controller": {"level": 2},
+                    "objects": [{"type": "spawn"}],
+                    "creeps": 1,
+                    "energy": 200,
+                },
+            },
+        }
+
+        tick_entry = harness._build_tick_entry(
+            "shardX",
+            "E26S49",
+            12,
+            overview,
+            {"terrain": [{"room": "E26S49", "terrain": "0" * 2500}]},
+            room_overviews,
+        )
+
+        self.assertEqual(sorted(tick_entry["rooms"]), ["E26S49", "E26S50"])
+        self.assertEqual(tick_entry["rooms"]["E26S49"]["structures"]["spawn"], 1)
+        self.assertEqual(tick_entry["rooms"]["E26S50"]["controller"]["level"], 2)
+
     def test_run_variant_initializes_frozen_smoke_config_with_http_server_url(self) -> None:
         captured_server_urls: list[str] = []
 

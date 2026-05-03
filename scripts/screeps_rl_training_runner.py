@@ -257,6 +257,7 @@ def load_strategy_registry(path: Path) -> dict[str, StrategyVariant]:
     except OSError:
         return {}
 
+    text = strip_ts_comments(text)
     registry: dict[str, StrategyVariant] = {}
     for block in iter_registry_entry_blocks(text):
         variant_id = regex_group(r"\bid:\s*['\"]([^'\"]+)['\"]", block)
@@ -272,6 +273,11 @@ def load_strategy_registry(path: Path) -> dict[str, StrategyVariant]:
             source="registry",
         )
     return registry
+
+
+def strip_ts_comments(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    return re.sub(r"//.*", "", text)
 
 
 def iter_registry_entry_blocks(text: str) -> list[str]:
@@ -463,6 +469,7 @@ def run_training_experiment(
         card=card,
         report_id=resolved_report_id,
     )
+    assert_simulator_runs_shadow_safe(simulator_runs)
     report = build_training_report(
         card=card,
         card_path=card_path,
@@ -491,7 +498,8 @@ def execute_simulator_runs(
     report_id: str,
 ) -> list[JsonObject]:
     variant_ids = [variant.id for variant in variants]
-    base_run_id = text_or_none(card.get("run_id")) or text_or_none(card.get("runId")) or report_id
+    raw_run_id = text_or_none(card.get("run_id")) or text_or_none(card.get("runId")) or report_id
+    base_run_id = normalize_simulator_run_id(raw_run_id)
     runs: list[JsonObject] = []
     for repetition in range(config.repetitions):
         run_id = base_run_id if config.repetitions == 1 else f"{base_run_id}-r{repetition + 1:02d}"
@@ -510,6 +518,41 @@ def execute_simulator_runs(
             )
         )
     return runs
+
+
+def normalize_simulator_run_id(raw: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_-]+", "_", raw)
+    normalized = re.sub(r"_+", "_", normalized).strip("_-")
+    if not normalized:
+        normalized = "rl_training"
+    simulator_harness.validate_run_id_token(normalized)
+    return normalized
+
+
+def assert_simulator_runs_shadow_safe(simulator_runs: Sequence[JsonObject]) -> None:
+    unsafe: list[str] = []
+    for index, run in enumerate(simulator_runs):
+        if not isinstance(run, dict):
+            continue
+        unsafe.extend(unsafe_simulator_flags(run, f"run[{index}]"))
+        variants = run.get("variants")
+        if isinstance(variants, list):
+            for variant_index, variant in enumerate(variants):
+                if isinstance(variant, dict):
+                    unsafe.extend(unsafe_simulator_flags(variant, f"run[{index}].variants[{variant_index}]"))
+    if unsafe:
+        raise RuntimeError("refusing to persist unsafe RL training report: " + "; ".join(unsafe))
+
+
+def unsafe_simulator_flags(payload: JsonObject, label: str) -> list[str]:
+    unsafe: list[str] = []
+    for field in ("liveEffect", "live_effect"):
+        if payload.get(field) is True:
+            unsafe.append(f"{label}.{field}=true")
+    for field in ("officialMmoWrites", "official_mmo_writes"):
+        if payload.get(field) is True:
+            unsafe.append(f"{label}.{field}=true")
+    return unsafe
 
 
 def build_training_report(
