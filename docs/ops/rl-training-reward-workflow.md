@@ -1,218 +1,239 @@
 # RL Training Reward Workflow
 
-Status: first bounded workflow artifact for issue #416.
+Status: implemented training framework and reward workflow for issue #549.
 
 Roadmap link: `docs/ops/rl-domain-roadmap.md` L4, Slice C.
 
-Inputs:
+Primary artifacts:
 
-- `docs/research/2026-04-29-screeps-rl-self-evolving-strategy-paper.md`
-- `docs/research/2026-05-01-overmind-rl-architecture-audit.md`
-- `docs/ops/rl-dataset-pipeline.md`
-- `docs/ops/rl-simulator-harness.md`
+- `scripts/screeps_rl_experiment_card.py`
+- `docs/research/2026-05-03-rl-training-approaches.md`
 - `scripts/screeps_rl_dataset_export.py`
 - `scripts/screeps_strategy_shadow_report.py`
 - `scripts/screeps_rl_simulator_harness.py`
 
 ## Purpose
 
-This slice chooses the initial training and reward workflow for Screeps strategy iteration without creating any live control path. The artifact produced here is an offline experiment card:
+The RL training lane sits between the private-server simulator harness and historical validation. It may create offline experiment cards, candidate weight vectors, and shadow recommendations. It must not create an official MMO control path.
+
+Use the helper to link a dataset run and bot commit:
 
 ```bash
-python3 scripts/screeps_rl_experiment_card.py generate \
-  runtime-artifacts/rl-datasets/<run-id>/run_manifest.json \
-  runtime-artifacts/strategy-shadow/<report-id>.json \
-  runtime-artifacts/rl-simulator-harness/<manifest-id>/simulator_harness_manifest.json \
-  --out-dir runtime-artifacts/rl-experiment-cards \
-  --card-id <card-id>
+python3 scripts/screeps_rl_experiment_card.py \
+  --dataset-run-id <run-id> \
+  --code-commit <commit-sha> \
+  --training-approach bandit
 ```
 
-The output is local derived metadata:
-
-```text
-runtime-artifacts/rl-experiment-cards/<card-id>/
-  experiment_card.json
-  experiment_card.md
-```
-
-`runtime-artifacts/` is ignored. The helper is stdlib-only, deterministic for the same inputs, and can validate generated cards:
+Dry-run generation is allowed for pipeline checks:
 
 ```bash
-python3 scripts/screeps_rl_experiment_card.py validate \
-  runtime-artifacts/rl-experiment-cards/<card-id>/experiment_card.json
+python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000
+```
+
+Validate an existing card:
+
+```bash
+python3 scripts/screeps_rl_experiment_card.py --validate --input runtime-artifacts/rl-experiment-cards/<card>.json
 python3 scripts/screeps_rl_experiment_card.py self-test
 ```
 
-## Safety Boundary
+The card is deterministic JSON. `card_id` is derived from `dataset_run_id` plus the first 12 hex characters of `code_commit`. Output goes to stdout unless `--output <path>` is provided.
 
-no learned or tuned policy may directly control official MMO creep intents, spawn intents, construction intents, market orders, Memory writes, or RawMemory commands until simulator evidence, historical official-MMO validation, private/shadow safety gate, KPI rollout gates, and rollback gates pass. Initial outputs remain offline/shadow/high-level recommendations only.
+## Experiment Card Contract
 
-The experiment card must preserve:
+Every experiment card records exactly the offline decision surface:
+
+- `card_id`
+- `dataset_run_id`
+- `code_commit`
+- `training_approach`: `bandit`, `evolutionary`, or `policy_gradient`
+- `reward_model`: lexicographic component order and dominance weights
+- `safety`
+- `created_at`
+- `status`: always `shadow`
+
+The safety block must preserve:
 
 ```json
 {
   "liveEffect": false,
   "officialMmoWrites": false,
-  "officialMmoWritesAllowed": false
+  "officialMmoWritesAllowed": false,
+  "ood_rejection": true,
+  "conservative_actions_only": true
 }
 ```
 
-The validator rejects generated cards with live effects, official MMO writes, official MMO write allowance, network requirement, live secret requirement, Memory writes, RawMemory writes, raw creep intent control, or creep/spawn/market intent authority.
+Validation fails if `liveEffect`, `officialMmoWrites`, or `officialMmoWritesAllowed` is anything except `false`.
 
-## Framework Comparison
+## Reward Definition
 
-| Stack | Implementation cost | Vectorized env support | Checkpointing | Distributed/parallel training | TypeScript Screeps integration | First-use decision |
-| --- | --- | --- | --- | --- | --- | --- |
-| Contextual bandit/evolutionary tuning | Low | Does not require a Gym env; batch datasets and simulator scenarios can be parallelized | Candidate weight vectors, registry version, reward card, dataset/shadow/simulator evidence | Cron batches or multiprocessing first; population-style search later | Emits bounded strategy weights or high-level recommendations for deterministic validators | Recommended first stack |
-| Gymnasium-style wrappers | Medium | Good once #414 exposes reset/step/observe; supports local vectorized envs | Wrapper config, seeds, scenario manifest, reward card, and downstream algorithm checkpoint | Local vectorized workers first; can feed SB3 or RLlib later | Needs a typed adapter from Python actions to TypeScript recommendation validators | Build after simulator adapter exists |
-| RLlib-style distributed training | High | Strong fit for many private-server workers and multi-agent/vectorized scenarios | Ray checkpoints plus exact scenario/dataset/reward manifests | Native distributed workers and env runners | Requires hardened local control API and strict high-level action schema | Defer until throughput/determinism evidence is real |
-| Stable-Baselines-style local training | Medium | Good single-host VecEnv baseline, weaker cluster story | Model zip/checkpoints plus exact wrapper, seed, reward card, and manifests | Local/vectorized only by default | Requires same Gymnasium adapter and high-level recommendation output | Useful smoke baseline after wrapper exists |
-| Conservative heuristic/baseline path | Very low | Not required; evaluate incumbent and fixed candidate weights over saved evidence | Bot commit, strategy registry entry, card ID, dataset run ID, report IDs | Cron/offline report batches | Already matches deterministic strategy surfaces | Required baseline and rollback target |
-
-## Recommended First Stack
-
-Use the conservative heuristic baseline plus contextual-bandit/evolutionary tuning over bounded high-level strategy knobs.
-
-Initial candidate surfaces:
-
-- construction priority preset or bounded weight vector;
-- remote target ranking;
-- expansion candidate ranking;
-- defense posture preset;
-- strategy-family selector for offline/shadow comparison.
-
-Why this is first:
-
-- It consumes the existing dataset exporter, strategy-shadow reports, and simulator dry-run manifests now.
-- It does not need a live Gym/RLlib/SB3 dependency before #414 has a real reset/step/observe adapter.
-- It can checkpoint candidates as JSON/registry entries and compare them with the incumbent.
-- It keeps integration with the TypeScript bot at the strategy-validator layer, not at raw intent control.
-
-Deferred stacks:
-
-- Gymnasium wrappers are the next interface once #414 can reset and step private scenarios.
-- Stable-Baselines-style local training is useful for small local baselines after the wrapper exists.
-- RLlib-style distributed training is appropriate only after vectorized private workers, scenario determinism, and historical validation are demonstrated.
-
-## Reward Contract
-
-The reward contract is lexicographic, not scalar-first:
+The reward function is lexicographic. The expression below is documentation for dominance order, not permission to let a later component compensate for an earlier failure:
 
 ```text
-reliability/survival floor -> territory -> resources -> kills
+R = α·R_reliability + β·R_territory + γ·R_resources + δ·R_kills
+where α ≫ β ≫ γ ≫ δ
 ```
 
-The first experiment card keeps `scalarReward: null`. A later scalar may exist inside a specific experiment only if it preserves this order and cannot let later objectives compensate for earlier failures.
+Interpretation:
 
-### Reliability And Survival Floor
+- `R_reliability` dominates every other component.
+- `R_territory` is evaluated only after reliability passes.
+- `R_resources` is evaluated only after reliability and territory pass.
+- `R_kills` is last and cannot justify losses in reliability, territory, or economy.
 
-Hard reject if a candidate causes or hides:
+The experiment card encodes dominance weights as:
 
-- loop crash, uncaught exception, global reset regression, or telemetry silence;
-- Memory or RawMemory corruption;
-- spawn recovery failure, worker death spiral, or controller downgrade emergency;
-- unsafe CPU bucket collapse;
-- any live-effect path to official MMO writes.
+```json
+{
+  "alpha_reliability": 1000000000,
+  "beta_territory": 1000000,
+  "gamma_resources": 1000,
+  "delta_kills": 1
+}
+```
 
-Reliability is evaluated before territory, resources, or kills. A candidate with better expansion score but worse reliability is rejected.
+These are guardrail weights for auditability. They are not a scalar weighted-sum approval.
 
-### Territory
+## Reward Components
 
-Territory is the first optimization layer after survival. Reward components include:
+`R_reliability`:
 
-- owned rooms held or gained;
-- reservation uptime and remote viability;
-- controller progress and reduced downgrade risk;
-- safe expansion and remote target quality.
+- owned spawns remain `owned_spawns > 0`;
+- owned creeps remain `owned_creeps >= 3`;
+- no controller downgrade risk window is introduced or hidden;
+- no loop exceptions, uncaught errors, telemetry silence, memory corruption, or CPU bucket collapse.
 
-Hard reject if a candidate risks room loss, reservation collapse, downgrade regression, or unsafe expansion. Resource or combat gains cannot compensate for territory regression.
+`R_territory`:
 
-### Resources
+- owned room count delta;
+- RCL progression and controller progress;
+- controller reservation uptime for remote rooms;
+- safe expansion, reserve, and remote target quality.
 
-Resources are optimized only after reliability and territory pass. Components include:
+`R_resources`:
 
-- net harvested energy and useful stored resources;
-- RCL/GCL progress;
-- spawn and logistics throughput;
-- sustainable remote income.
+- stored energy plus carried energy delta;
+- source utilization and harvested energy;
+- useful transfer/logistics throughput;
+- GCL progress and sustainable economy conversion.
 
-Resource gains are invalid if they depend on reliability, survival, or territory regressions.
+`R_kills`:
 
-### Kills
+- hostile creep destruction delta;
+- hostile structure destruction delta;
+- hostile objective denial;
+- own creep, structure, and room-loss penalties.
 
-Kills and combat outcomes are optimized last. Components include:
+## OOD And Conservative Rejection
 
-- hostile value destroyed;
-- hostile objectives denied;
-- own losses avoided;
-- combat alert noise reduced.
+Default decision is reject. A learned recommendation advances only when it is in-distribution, conservative, and accepted by deterministic production validators.
 
-Kills never compensate for lost rooms, unreliable runtime, broken economy, or unsafe CPU cost.
+Hard rejection rules:
 
-## Rejection And OOD Policy
+- Any learned policy recommendation that would reduce `owned_creeps` below `3` is automatically rejected.
+- Any action that would abandon or downgrade the last owned controller is rejected.
+- Any candidate with `liveEffect:true`, official MMO writes, Memory writes, RawMemory writes, raw creep intent authority, spawn intent authority, construction intent authority, or market intent authority is rejected.
+- The production bot's deterministic validators in `prod/src/` are always the final gate before any later high-level live recommendation path.
 
-Default decision is reject or defer. The candidate can advance only when evidence is in-distribution for the relevant context.
+OOD detection:
 
-Reject or defer when:
+- Track current game state dimensions: room count, RCL distribution, and hostile density.
+- Compare each dimension against every training scenario distribution.
+- If the current state differs from all training scenarios by more than `2σ` in any dimension, flag as OOD and reject all learned recommendations.
+- If a dimension lacks enough training support to estimate `σ`, treat it as OOD for promotion decisions.
 
-- dataset coverage does not include comparable room phase, threat level, controller state, or resource state;
-- the strategy-shadow report shows changed top recommendations without clear KPI support;
-- simulator evidence is missing or non-deterministic for the candidate context;
-- #417 historical official-MMO validation is missing;
-- reliability or territory floor gates are uncertain.
+Shadow evidence gate:
 
-The experiment card records OOD rejection as a first-class gate instead of allowing an optimistic scalar score.
+- Shadow evaluation must show at least one full 8h Gameplay Evolution review cycle with positive KPI delta before any recommendation reaches `consider for manual review`.
+- Positive KPI delta must respect lexicographic order: reliability non-regression first, then territory, then resources, then kills.
+- Missing historical validation from the #417 lane blocks promotion beyond offline/shadow analysis.
 
-## Stop Criteria
+## Baseline Experiment
 
-Stop an experiment and keep the incumbent when any of these occur:
+The dry baseline proves the end-to-end shape without claiming real training.
 
-- loop exception, global reset increase, or telemetry silence;
-- Memory/RawMemory mutation path or official write path detected;
-- CPU bucket collapse;
-- spawn recovery, controller downgrade, room, or reservation regression;
-- candidate result cannot reproduce deterministic simulator evidence;
-- OOD context without conservative confidence;
-- validator cannot explain why a recommendation is safe.
+Variant A is the incumbent registry baseline from `prod/src/strategy/strategyRegistry.ts`:
 
-## Candidate Promotion Gates
+| Surface | base | territory | resources | kills | risk |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `construction-priority.incumbent.v1` | 1.0 | 6.0 | 4.0 | 6.0 | 4.0 |
+| `expansion-remote.incumbent.v1` | 1.0 | 8.0 | 5.0 | 2.0 | 10.0 |
+
+Variant B is the trivial perturbation for the dry baseline:
+
+| Surface | base | territory | resources | kills | risk |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `construction-priority.perturb-territory-plus10.v0` | 1.0 | 6.6 | 3.6 | 6.0 | 4.0 |
+| `expansion-remote.perturb-territory-plus10.v0` | 1.0 | 8.8 | 4.5 | 2.0 | 10.0 |
+
+Dry result:
+
+- Training approach: `bandit`.
+- Dataset run ID: `rl-000000000000`.
+- Recommendation: keep Variant A as incumbent; Variant B is a shadow-only candidate for future replay because no 8h positive KPI delta or historical validation exists yet.
+- Safety state: `shadow`, `liveEffect:false`, `officialMmoWrites:false`, `officialMmoWritesAllowed:false`.
+
+Sample experiment card:
+
+```json
+{
+  "card_id": "rl-exp-rl-000000000000-371161645c28",
+  "code_commit": "371161645c28b694d9de5808fbf7223c99b10cf0",
+  "created_at": "2026-05-03T00:00:00Z",
+  "dataset_run_id": "rl-000000000000",
+  "reward_model": {
+    "component_order": [
+      "reliability",
+      "territory",
+      "resources",
+      "kills"
+    ],
+    "component_weights": {
+      "alpha_reliability": 1000000000,
+      "beta_territory": 1000000,
+      "delta_kills": 1,
+      "gamma_resources": 1000
+    },
+    "formula": "R = alpha*R_reliability + beta*R_territory + gamma*R_resources + delta*R_kills; alpha >> beta >> gamma >> delta",
+    "scalar_weighted_sum_authorized": false,
+    "type": "lexicographic"
+  },
+  "safety": {
+    "conservative_actions_only": true,
+    "liveEffect": false,
+    "officialMmoWrites": false,
+    "officialMmoWritesAllowed": false,
+    "ood_rejection": true
+  },
+  "status": "shadow",
+  "training_approach": "bandit"
+}
+```
+
+## Promotion Gates
 
 Candidate evidence must advance in this order:
 
-1. Dataset gate: dataset run ID, bot commit, dataset card, no raw secrets.
-2. Shadow gate: strategy-shadow report, candidate-vs-incumbent diff, `liveEffect:false`.
-3. Simulator gate: resettable/private scenario evidence, determinism, throughput report.
-4. Historical official-MMO validation gate: #417 validation report and OOD/reliability rejection.
-5. Private/shadow safety gate: recommendation-only run and deterministic validator decisions.
-6. KPI rollout gate: owner-visible KPI plan and bounded rollout scope.
-7. Rollback gate: rollback trigger, incumbent strategy ID, and post-window ingestion plan.
+1. Dataset gate: dataset run ID, source index, data card, split metadata, and no raw secrets.
+2. Experiment-card gate: code commit, training approach, lexicographic reward model, and safety fields validated.
+3. Shadow gate: incumbent-vs-candidate report with `liveEffect:false` and bounded ranking/KPI evidence.
+4. Simulator gate: resettable private-server evidence with determinism and throughput metadata.
+5. Historical gate: official-MMO historical validation with OOD and reliability rejection.
+6. Manual-review gate: at least one full 8h positive KPI shadow cycle and an explainable recommendation.
+7. Rollout gate: bounded high-level strategy rollout plan with rollback trigger and post-window ingestion.
 
-This #416 artifact cannot promote a candidate to live influence by itself. It only chooses the first offline training/reward path and prepares the next #266 decision.
-
-## Experiment Card Contract
-
-`scripts/screeps_rl_experiment_card.py` scans local metadata only. It does not copy raw runtime-summary lines, raw dataset rows, raw ranking diff bodies, or configured secret values.
-
-Generated cards include:
-
-- framework decision and recommended first stack;
-- dataset/shadow/simulator metadata references;
-- explicit reward components and lexicographic semantics;
-- OOD rejection policy;
-- stop criteria;
-- promotion gates;
-- safety flags and forbidden official MMO output surfaces.
-
-The helper rejects unsafe input manifests when they contain `liveEffect:true`, official MMO write allowance, network requirement, live secret requirement, Memory/RawMemory write allowance, or raw creep intent control. The validator applies the same safety posture to generated cards.
+This workflow cannot promote a candidate to live influence by itself.
 
 ## Verification
 
 Local checks:
 
 ```bash
-python3 -m py_compile scripts/screeps_rl_experiment_card.py scripts/test_screeps_rl_experiment_card.py
-python3 -m unittest scripts/test_screeps_rl_experiment_card.py
+python3 -m py_compile scripts/screeps_rl_experiment_card.py
 python3 scripts/screeps_rl_experiment_card.py self-test
+python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000
+python3 scripts/screeps_rl_experiment_card.py --dry-run --dataset-run-id rl-000000000000 --output /tmp/test-card.json
+python3 scripts/screeps_rl_experiment_card.py --validate --input /tmp/test-card.json
 ```
-
-The self-test uses temporary local fixtures only and preserves `liveEffect:false` and `officialMmoWrites:false`.
