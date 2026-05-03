@@ -12,6 +12,8 @@ const TERRAIN_SCAN_MIN = 2;
 const TERRAIN_SCAN_MAX = 47;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const DEFAULT_TERRAIN_SWAMP_MASK = 2;
+const DUAL_SOURCE_BONUS = 180;
+const FOREIGN_CONTROLLER_PENALTY = 300;
 const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
@@ -361,6 +363,7 @@ function calculateExpansionScore(
   const sourceScore = typeof candidate.sourceCount === 'number'
     ? Math.min(candidate.sourceCount, 2) * 120 + Math.max(0, candidate.sourceCount - 2) * 20
     : 0;
+  const dualSourceBonus = (candidate.sourceCount ?? 0) >= 2 ? DUAL_SOURCE_BONUS : 0;
   const proximityScore = typeof candidate.controllerSourceRange === 'number'
     ? Math.max(-80, 100 - candidate.controllerSourceRange * 6)
     : 0;
@@ -370,6 +373,9 @@ function calculateExpansionScore(
   const reservationScore = getReservationScore(input, candidate.controller);
   const distanceScore = getDistanceScore(candidate);
   const adjacencyScore = candidate.adjacentToOwnedRoom ? 40 : 0;
+  const foreignControllerPenalty = hasForeignControllerPresence(input, candidate.controller)
+    ? FOREIGN_CONTROLLER_PENALTY
+    : 0;
   const hostilePenalty = (candidate.hostileCreepCount ?? 0) * 240 + (candidate.hostileStructureCount ?? 0) * 140;
   const unavailablePenalty = evidenceStatus === 'unavailable' ? 2_000 : 0;
   const insufficientEvidencePenalty = evidenceStatus === 'insufficient-evidence' ? 260 : 0;
@@ -378,15 +384,33 @@ function calculateExpansionScore(
   return Math.round(
     500 +
       sourceScore +
+      dualSourceBonus +
       proximityScore +
       terrainScore +
       reservationScore +
       distanceScore +
       adjacencyScore -
+      foreignControllerPenalty -
       hostilePenalty -
       unavailablePenalty -
       insufficientEvidencePenalty -
       preconditionPenalty
+  );
+}
+
+function hasForeignControllerPresence(
+  input: ExpansionScoringInput,
+  controller: ExpansionControllerEvidence | undefined
+): boolean {
+  if (!controller) {
+    return false;
+  }
+
+  return (
+    (isNonEmptyString(controller.ownerUsername) &&
+      controller.ownerUsername !== input.colonyOwnerUsername) ||
+    (isNonEmptyString(controller.reservationUsername) &&
+      controller.reservationUsername !== input.colonyOwnerUsername)
   );
 }
 

@@ -12952,6 +12952,8 @@ var TERRAIN_SCAN_MIN = 2;
 var TERRAIN_SCAN_MAX = 47;
 var DEFAULT_TERRAIN_WALL_MASK4 = 1;
 var DEFAULT_TERRAIN_SWAMP_MASK = 2;
+var DUAL_SOURCE_BONUS = 180;
+var FOREIGN_CONTROLLER_PENALTY = 300;
 var DOWNGRADE_GUARD_TICKS2 = 5e3;
 var MIN_CONTROLLER_LEVEL = 2;
 var FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = "foreign reservation requires controller pressure";
@@ -13155,20 +13157,28 @@ function scoreExpansionCandidate(input, candidate) {
   };
 }
 function calculateExpansionScore(input, candidate, evidenceStatus) {
-  var _a, _b;
+  var _a, _b, _c;
   const sourceScore = typeof candidate.sourceCount === "number" ? Math.min(candidate.sourceCount, 2) * 120 + Math.max(0, candidate.sourceCount - 2) * 20 : 0;
+  const dualSourceBonus = ((_a = candidate.sourceCount) != null ? _a : 0) >= 2 ? DUAL_SOURCE_BONUS : 0;
   const proximityScore = typeof candidate.controllerSourceRange === "number" ? Math.max(-80, 100 - candidate.controllerSourceRange * 6) : 0;
   const terrainScore = candidate.terrain ? Math.round(candidate.terrain.walkableRatio * 140 - candidate.terrain.swampRatio * 70) : 0;
   const reservationScore = getReservationScore(input, candidate.controller);
   const distanceScore = getDistanceScore(candidate);
   const adjacencyScore = candidate.adjacentToOwnedRoom ? 40 : 0;
-  const hostilePenalty = ((_a = candidate.hostileCreepCount) != null ? _a : 0) * 240 + ((_b = candidate.hostileStructureCount) != null ? _b : 0) * 140;
+  const foreignControllerPenalty = hasForeignControllerPresence(input, candidate.controller) ? FOREIGN_CONTROLLER_PENALTY : 0;
+  const hostilePenalty = ((_b = candidate.hostileCreepCount) != null ? _b : 0) * 240 + ((_c = candidate.hostileStructureCount) != null ? _c : 0) * 140;
   const unavailablePenalty = evidenceStatus === "unavailable" ? 2e3 : 0;
   const insufficientEvidencePenalty = evidenceStatus === "insufficient-evidence" ? 260 : 0;
   const preconditionPenalty = getExpansionPreconditions(input).length * 120;
   return Math.round(
-    500 + sourceScore + proximityScore + terrainScore + reservationScore + distanceScore + adjacencyScore - hostilePenalty - unavailablePenalty - insufficientEvidencePenalty - preconditionPenalty
+    500 + sourceScore + dualSourceBonus + proximityScore + terrainScore + reservationScore + distanceScore + adjacencyScore - foreignControllerPenalty - hostilePenalty - unavailablePenalty - insufficientEvidencePenalty - preconditionPenalty
   );
+}
+function hasForeignControllerPresence(input, controller) {
+  if (!controller) {
+    return false;
+  }
+  return isNonEmptyString11(controller.ownerUsername) && controller.ownerUsername !== input.colonyOwnerUsername || isNonEmptyString11(controller.reservationUsername) && controller.reservationUsername !== input.colonyOwnerUsername;
 }
 function getDistanceScore(candidate) {
   const nearestOwnedDistance = candidate.nearestOwnedRoomDistance;
