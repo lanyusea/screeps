@@ -11,6 +11,9 @@ import type {
 } from '../src/territory/occupationRecommendation';
 
 describe('autonomous expansion claim executor', () => {
+  let tickSeed = 10000;
+  const nextTick = () => tickSeed++;
+
   beforeEach(() => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 1;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 2;
@@ -159,7 +162,7 @@ describe('autonomous expansion claim executor', () => {
     const evaluation = refreshAutonomousExpansionClaimIntent(
       makeColony(),
       makeReport([makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })]),
-      106
+      nextTick()
     );
 
     expect(evaluation).toMatchObject({
@@ -204,7 +207,7 @@ describe('autonomous expansion claim executor', () => {
     const evaluation = refreshAutonomousExpansionClaimIntent(
       makeColony(),
       makeReport([makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })]),
-      106
+      nextTick()
     );
 
     expect(evaluation).toMatchObject({
