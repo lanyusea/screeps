@@ -5,6 +5,7 @@ import { isKnownDeadZoneRoom } from '../defense/deadZone';
 export const MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 export const MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
 
+const SPAWN_CONSTRUCTION_UPGRADER_CAP_BONUS = 1;
 const REMOTE_UPGRADER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 const REMOTE_UPGRADER_TRAVEL_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move', 'move'];
 const RESERVED_CONTROLLER_BASE_BODY: BodyPartConstant[] = ['claim', 'move'];
@@ -42,6 +43,9 @@ interface MultiRoomUpgraderConfig {
   storageEnergyThresholdRatio: number;
   perRoomUpgraderCap: number;
 }
+
+type FindConstantGlobal = 'FIND_MY_CONSTRUCTION_SITES';
+type StructureConstantGlobal = 'STRUCTURE_SPAWN';
 
 export function recordPlannedMultiRoomUpgraderSpawn(memory: CreepMemory): void {
   const sustain = memory.controllerSustain;
@@ -156,7 +160,7 @@ function getVisibleMultiRoomUpgradeCandidates(
       homeRoom,
       ownerUsername,
       room,
-      config.perRoomUpgraderCap,
+      config,
       activeUpgraderCounts,
       order
     );
@@ -173,7 +177,7 @@ function getVisibleMultiRoomUpgradeCandidate(
   homeRoom: string,
   ownerUsername: string | null,
   room: Room,
-  perRoomUpgraderCap: number,
+  config: MultiRoomUpgraderConfig,
   activeUpgraderCounts: Record<string, number>,
   order: number
 ): MultiRoomUpgradeCandidate | null {
@@ -201,6 +205,7 @@ function getVisibleMultiRoomUpgradeCandidate(
   }
 
   const activeUpgraderCount = activeUpgraderCounts[room.name] ?? 0;
+  const perRoomUpgraderCap = getEffectivePerRoomUpgraderCap(room, config);
   if (activeUpgraderCount >= perRoomUpgraderCap) {
     return null;
   }
@@ -262,6 +267,67 @@ function normalizePerRoomCap(value: number | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? Math.floor(value)
     : MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP;
+}
+
+function getEffectivePerRoomUpgraderCap(room: Room, config: MultiRoomUpgraderConfig): number {
+  return hasActiveClaimedRoomSpawnConstructionSite(room)
+    ? config.perRoomUpgraderCap + SPAWN_CONSTRUCTION_UPGRADER_CAP_BONUS
+    : config.perRoomUpgraderCap;
+}
+
+function hasActiveClaimedRoomSpawnConstructionSite(room: Room): boolean {
+  if (room.controller?.my !== true || typeof room.find !== 'function') {
+    return false;
+  }
+
+  const findConstant = getFindConstant('FIND_MY_CONSTRUCTION_SITES');
+  if (findConstant === null) {
+    return false;
+  }
+
+  try {
+    const sites = room.find(findConstant);
+    return Array.isArray(sites) && sites.some(isActiveSpawnConstructionSite);
+  } catch {
+    return false;
+  }
+}
+
+function isActiveSpawnConstructionSite(site: unknown): site is ConstructionSite {
+  return (
+    isRecord(site) &&
+    matchesStructureType(site.structureType, 'STRUCTURE_SPAWN', 'spawn') &&
+    hasIncompleteConstructionSiteProgress(site)
+  );
+}
+
+function hasIncompleteConstructionSiteProgress(site: Record<string, unknown>): boolean {
+  const progress = site.progress;
+  const progressTotal = site.progressTotal;
+  if (
+    typeof progress !== 'number' ||
+    typeof progressTotal !== 'number' ||
+    !Number.isFinite(progress) ||
+    !Number.isFinite(progressTotal)
+  ) {
+    return true;
+  }
+
+  return progress < progressTotal;
+}
+
+function getFindConstant(constantName: FindConstantGlobal): FindConstant | null {
+  const findConstant = (globalThis as unknown as Partial<Record<FindConstantGlobal, number>>)[constantName];
+  return typeof findConstant === 'number' ? (findConstant as FindConstant) : null;
+}
+
+function matchesStructureType(
+  actual: unknown,
+  globalName: StructureConstantGlobal,
+  fallback: string
+): boolean {
+  const constants = globalThis as unknown as Partial<Record<StructureConstantGlobal, string>>;
+  return typeof actual === 'string' && actual === (constants[globalName] ?? fallback);
 }
 
 function getRemoteUpgraderPattern(routeDistance: number | undefined): BodyPartConstant[] {

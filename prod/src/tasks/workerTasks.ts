@@ -1403,7 +1403,8 @@ function buildWorkerConstructionSiteImpactPriorityContext(
   creep: Creep,
   constructionSites: ConstructionSite[]
 ): ConstructionSiteImpactPriorityContext {
-  const context: ConstructionSiteImpactPriorityContext = {};
+  const context: ConstructionSiteImpactPriorityContext =
+    creep.room.controller?.my === true ? { claimedRoomName: creep.room.name } : {};
   if (constructionSites.some(isRoadConstructionSite)) {
     context.criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
   }
