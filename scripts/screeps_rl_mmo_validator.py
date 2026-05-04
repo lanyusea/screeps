@@ -895,8 +895,6 @@ def extract_hostile_kills(tick: JsonObject) -> float:
         combat = room.get("combat")
         if not isinstance(combat, dict):
             continue
-        for key in ("hostileKills", "hostileCreepKills", "hostileStructureKills"):
-            total += number_or_none(combat.get(key)) or 0
         events = combat.get("events")
         if isinstance(events, dict):
             hostile_creep = number_or_none(events.get("hostileCreepDestroyedCount"))
@@ -905,6 +903,13 @@ def extract_hostile_kills(tick: JsonObject) -> float:
             hostile_structure = number_or_none(events.get("hostileStructureDestroyedCount"))
             generic_object = number_or_none(events.get("objectDestroyedCount"))
             total += hostile_structure if hostile_structure is not None else (generic_object or 0)
+            continue
+        combined = number_or_none(combat.get("hostileKills"))
+        if combined is not None:
+            total += combined
+            continue
+        for key in ("hostileCreepKills", "hostileStructureKills"):
+            total += number_or_none(combat.get(key)) or 0
     return total
 
 
@@ -914,12 +919,17 @@ def extract_own_losses(tick: JsonObject) -> float:
         combat = room.get("combat")
         if not isinstance(combat, dict):
             continue
-        for key in ("ownLosses", "ownCreepLosses", "ownStructureLosses"):
-            total += number_or_none(combat.get(key)) or 0
         events = combat.get("events")
         if isinstance(events, dict):
             for key in ("ownCreepDestroyedCount", "ownStructureDestroyedCount"):
                 total += number_or_none(events.get(key)) or 0
+            continue
+        combined = number_or_none(combat.get("ownLosses"))
+        if combined is not None:
+            total += combined
+            continue
+        for key in ("ownCreepLosses", "ownStructureLosses"):
+            total += number_or_none(combat.get(key)) or 0
     return total
 
 
