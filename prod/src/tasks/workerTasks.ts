@@ -1236,38 +1236,56 @@ function selectRemoteHaulerDeliverySink(room: Room): RemoteHaulerDeliverySink | 
   const fillableSinks = findFillableEnergySinksInRoom(room);
   return (
     selectFirstEnergySinkByStableId(fillableSinks.filter(isSpawnOrExtensionEnergySink)) ??
-    selectFirstStorageOrTerminalSinkByStableId(findRemoteHaulerStorageOrTerminalSinks(room)) ??
+    selectFirstRemoteHaulerStorageSinkByStableId(findRemoteHaulerStorageSinks(room)) ??
+    selectFirstRemoteHaulerTerminalSinkByStableId(findRemoteHaulerTerminalSinks(room)) ??
     selectFirstEnergySinkByStableId(fillableSinks.filter(isTowerEnergySink))
   );
 }
 
-function findRemoteHaulerStorageOrTerminalSinks(room: Room): Array<StructureStorage | StructureTerminal> {
+function findRemoteHaulerStorageSinks(room: Room): StructureStorage[] {
   if (typeof FIND_MY_STRUCTURES !== 'number' || typeof room.find !== 'function') {
     return [];
   }
 
-  return room
-    .find(FIND_MY_STRUCTURES)
-    .filter((structure): structure is StructureStorage | StructureTerminal =>
-      isRemoteHaulerStorageOrTerminalSink(structure)
-    );
+  return room.find(FIND_MY_STRUCTURES, {
+    filter: isRemoteHaulerStorageSink
+  });
 }
 
-function isRemoteHaulerStorageOrTerminalSink(
-  structure: AnyOwnedStructure
-): structure is StructureStorage | StructureTerminal {
+function findRemoteHaulerTerminalSinks(room: Room): StructureTerminal[] {
+  if (typeof FIND_MY_STRUCTURES !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  return room.find(FIND_MY_STRUCTURES, {
+    filter: isRemoteHaulerTerminalSink
+  });
+}
+
+function isRemoteHaulerStoredEnergySink(structure: AnyOwnedStructure): boolean {
+  return 'store' in structure && getFreeStoredEnergyCapacity(structure) > 0;
+}
+
+function isRemoteHaulerStorageSink(structure: AnyOwnedStructure): structure is StructureStorage {
   return (
-    (matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
-      matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')) &&
-    'store' in structure &&
-    getFreeStoredEnergyCapacity(structure) > 0
+    matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') &&
+    isRemoteHaulerStoredEnergySink(structure)
   );
 }
 
-function selectFirstStorageOrTerminalSinkByStableId(
-  storageSinks: Array<StructureStorage | StructureTerminal>
-): StructureStorage | StructureTerminal | null {
+function isRemoteHaulerTerminalSink(structure: AnyOwnedStructure): structure is StructureTerminal {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal') &&
+    isRemoteHaulerStoredEnergySink(structure)
+  );
+}
+
+function selectFirstRemoteHaulerStorageSinkByStableId(storageSinks: StructureStorage[]): StructureStorage | null {
   return [...storageSinks].sort((left, right) => String(left.id).localeCompare(String(right.id)))[0] ?? null;
+}
+
+function selectFirstRemoteHaulerTerminalSinkByStableId(terminalSinks: StructureTerminal[]): StructureTerminal | null {
+  return [...terminalSinks].sort((left, right) => String(left.id).localeCompare(String(right.id)))[0] ?? null;
 }
 
 function isSpawnExtensionEnergyStructure(structure: AnyOwnedStructure): structure is SpawnExtensionEnergyStructure {

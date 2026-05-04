@@ -71,18 +71,39 @@ describe('runHauler', () => {
   });
 
   it('delivers to terminal capacity when storage is unavailable', () => {
+    const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 1_000, 0);
     const terminal = makeStoreStructure('terminal1', STRUCTURE_TERMINAL, 2_000, 10_000);
-    const homeRoom = makeRoom('W1N1', true, [terminal], []);
+    const homeRoom = makeRoom('W1N1', true, [storage, terminal], []);
     const creep = makeHauler(homeRoom, 100);
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: { W1N1: homeRoom },
-      getObjectById: jest.fn((id: string) => (id === 'terminal1' ? terminal : null))
+      getObjectById: jest.fn((id: string) =>
+        id === 'storage1' ? storage : id === 'terminal1' ? terminal : null
+      )
     };
 
     runHauler(creep);
 
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'terminal1' });
     expect(creep.transfer).toHaveBeenCalledWith(terminal, RESOURCE_ENERGY);
+  });
+
+  it('delivers to storage before terminal even when the terminal id sorts first', () => {
+    const terminal = makeStoreStructure('aaa-terminal', STRUCTURE_TERMINAL, 2_000, 10_000);
+    const storage = makeStoreStructure('storage-z', STRUCTURE_STORAGE, 1_000, 5_000);
+    const homeRoom = makeRoom('W1N1', true, [terminal, storage], []);
+    const creep = makeHauler(homeRoom, 100);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W1N1: homeRoom },
+      getObjectById: jest.fn((id: string) =>
+        id === 'storage-z' ? storage : id === 'aaa-terminal' ? terminal : null
+      )
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'storage-z' });
+    expect(creep.transfer).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
   });
 
   it('delivers carried energy after a remote room becomes unclaimed', () => {
