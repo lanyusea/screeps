@@ -9175,20 +9175,20 @@ function findSpawnExtensionEnergyStructures(room) {
 function selectRemoteHaulerDeliverySink(room) {
   var _a, _b;
   const fillableSinks = findFillableEnergySinksInRoom(room);
-  return (_b = (_a = selectFirstEnergySinkByStableId(fillableSinks.filter(isSpawnOrExtensionEnergySink))) != null ? _a : selectFirstStorageSinkByStableId(findRemoteHaulerStorageSinks(room))) != null ? _b : selectFirstEnergySinkByStableId(fillableSinks.filter(isTowerEnergySink));
+  return (_b = (_a = selectFirstEnergySinkByStableId(fillableSinks.filter(isSpawnOrExtensionEnergySink))) != null ? _a : selectFirstStorageOrTerminalSinkByStableId(findRemoteHaulerStorageOrTerminalSinks(room))) != null ? _b : selectFirstEnergySinkByStableId(fillableSinks.filter(isTowerEnergySink));
 }
-function findRemoteHaulerStorageSinks(room) {
+function findRemoteHaulerStorageOrTerminalSinks(room) {
   if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
     return [];
   }
   return room.find(FIND_MY_STRUCTURES).filter(
-    (structure) => isRemoteHaulerStorageSink(structure)
+    (structure) => isRemoteHaulerStorageOrTerminalSink(structure)
   );
 }
-function isRemoteHaulerStorageSink(structure) {
-  return matchesStructureType7(structure.structureType, "STRUCTURE_STORAGE", "storage") && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
+function isRemoteHaulerStorageOrTerminalSink(structure) {
+  return (matchesStructureType7(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType7(structure.structureType, "STRUCTURE_TERMINAL", "terminal")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
-function selectFirstStorageSinkByStableId(storageSinks) {
+function selectFirstStorageOrTerminalSinkByStableId(storageSinks) {
   var _a;
   return (_a = [...storageSinks].sort((left, right) => String(left.id).localeCompare(String(right.id)))[0]) != null ? _a : null;
 }
