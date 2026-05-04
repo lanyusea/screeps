@@ -1300,20 +1300,32 @@ describe('runEconomy', () => {
     });
     expect(logSpy).toHaveBeenCalledTimes(1);
     const [message] = logSpy.mock.calls[0];
-    expect(JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length))).toMatchObject({
-      events: [
+    const payload = JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length));
+    expect(payload.events).toEqual(
+      expect.arrayContaining([
         {
           type: 'postClaimBootstrap',
           roomName: 'W2N1',
           colony: 'W1N1',
           phase: 'spawnSite',
+          controllerId: 'controller2',
           result: OK_CODE,
           spawnSite: { roomName: 'W2N1', x: 23, y: 23 },
           workerCount: 0,
           workerTarget: 2,
           spawnCount: 0
+        },
+        {
+          type: 'spawnSitePlaced',
+          roomName: 'W2N1',
+          colony: 'W1N1',
+          controllerId: 'controller2',
+          result: OK_CODE,
+          spawnSite: { roomName: 'W2N1', x: 23, y: 23 }
         }
-      ],
+      ])
+    );
+    expect(payload).toMatchObject({
       rooms: [
         {
           roomName: 'W2N1',
@@ -1326,6 +1338,82 @@ describe('runEconomy', () => {
         }
       ]
     });
+  });
+
+  it('emits spawn-site telemetry when a claimed room already has an active spawn site', () => {
+    (globalThis as unknown as {
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_SOURCES: number;
+      STRUCTURE_SPAWN: StructureConstant;
+      Memory: Partial<Memory>;
+    }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'detected',
+            claimedAt: 406,
+            updatedAt: 406,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+    const spawnSite = {
+      id: 'spawn-site-existing',
+      structureType: 'spawn',
+      progress: 100,
+      progressTotal: 15_000,
+      pos: { x: 24, y: 24, roomName: 'W2N1' }
+    } as ConstructionSite;
+    const room = {
+      name: 'W2N1',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: { id: 'controller2', my: true, level: 1 } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_MY_CONSTRUCTION_SITES) {
+          return [spawnSite];
+        }
+
+        if (type === FIND_SOURCES) {
+          return [{ id: 'source1' } as Source];
+        }
+
+        return [];
+      }),
+      createConstructionSite: jest.fn()
+    } as unknown as Room;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 407,
+      rooms: { W2N1: room },
+      spawns: {},
+      creeps: {}
+    };
+
+    runEconomy();
+
+    expect(room.createConstructionSite).not.toHaveBeenCalled();
+    const [message] = logSpy.mock.calls[0];
+    const payload = JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length));
+    expect(payload.events).toEqual(
+      expect.arrayContaining([
+        {
+          type: 'spawnSitePlaced',
+          roomName: 'W2N1',
+          colony: 'W1N1',
+          controllerId: 'controller2',
+          result: OK_CODE,
+          spawnSite: { roomName: 'W2N1', x: 24, y: 24 },
+          existing: true
+        }
+      ])
+    );
   });
 
   it('plans an initial spawn construction site beyond radius 6 when nearer tiles are blocked', () => {

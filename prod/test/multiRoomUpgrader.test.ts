@@ -12,6 +12,8 @@ describe('multi-room upgrader planner', () => {
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 5;
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = -2 as ScreepsReturnCode;
     delete (globalThis as { Game?: Partial<Game> }).Game;
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
@@ -50,13 +52,15 @@ describe('multi-room upgrader planner', () => {
     controller,
     storage,
     hostileCreeps = [],
-    hostileStructures = []
+    hostileStructures = [],
+    constructionSites = []
   }: {
     roomName: string;
     controller?: StructureController;
     storage?: StructureStorage;
     hostileCreeps?: Creep[];
     hostileStructures?: Structure[];
+    constructionSites?: ConstructionSite[];
   }): Room {
     const find = jest.fn((type: number) => {
       if (type === FIND_HOSTILE_CREEPS) {
@@ -65,6 +69,10 @@ describe('multi-room upgrader planner', () => {
 
       if (type === FIND_HOSTILE_STRUCTURES) {
         return hostileStructures;
+      }
+
+      if (type === FIND_MY_CONSTRUCTION_SITES) {
+        return constructionSites;
       }
 
       return [];
@@ -113,6 +121,15 @@ describe('multi-room upgrader planner', () => {
         controllerSustain: { homeRoom: 'W1N1', targetRoom, role: 'upgrader' }
       }
     } as Creep;
+  }
+
+  function makeSpawnConstructionSite(id = 'spawn-site', progress = 0, progressTotal = 15_000): ConstructionSite {
+    return {
+      id,
+      structureType: 'spawn',
+      progress,
+      progressTotal
+    } as ConstructionSite;
   }
 
   function installGame({
@@ -336,6 +353,45 @@ describe('multi-room upgrader planner', () => {
     expect(planWithCap1?.targetRoom).toBe('W3N1');
     expect(planWithCap2?.targetRoom).toBe('W3N1');
     expect(planWithCap3?.targetRoom).toBe('W2N1');
+  });
+
+  it('temporarily allows an extra upgrader for claimed rooms with active spawn construction', () => {
+    const colony = makeColony();
+    installGame({
+      colony,
+      rooms: [
+        makeRoom({
+          roomName: 'W2N1',
+          controller: makeOwnedController('W2N1', 1),
+          constructionSites: [makeSpawnConstructionSite()]
+        })
+      ],
+      creeps: { Existing: makeRemoteUpgrader('W2N1') },
+      routeLengths: { W2N1: 1 }
+    });
+
+    expect(selectMultiRoomUpgradePlan(colony)).toMatchObject({
+      targetRoom: 'W2N1',
+      activeUpgraderCount: 1
+    });
+  });
+
+  it('keeps the normal cap when the claimed-room spawn site is complete', () => {
+    const colony = makeColony();
+    installGame({
+      colony,
+      rooms: [
+        makeRoom({
+          roomName: 'W2N1',
+          controller: makeOwnedController('W2N1', 1),
+          constructionSites: [makeSpawnConstructionSite('spawn-site-complete', 15_000, 15_000)]
+        })
+      ],
+      creeps: { Existing: makeRemoteUpgrader('W2N1') },
+      routeLengths: { W2N1: 1 }
+    });
+
+    expect(selectMultiRoomUpgradePlan(colony)).toBeNull();
   });
 
   it('selects own reserved rooms and builds a reserve-capable sustain body', () => {

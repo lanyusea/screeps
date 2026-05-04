@@ -6975,6 +6975,7 @@ var CRITICAL_REPAIR_HITS_RATIO = 0.5;
 var DECAYING_REPAIR_HITS_RATIO = 0.8;
 var IDLE_RAMPART_REPAIR_HITS_CEILING = 1e5;
 var CONSTRUCTION_SITE_IMPACT_PRIORITY = {
+  claimedRoomSpawn: 110,
   extension: 100,
   spawn: 95,
   tower: 90,
@@ -7091,7 +7092,7 @@ function getConstructionSiteImpactPriority(site, context = {}) {
     return CONSTRUCTION_SITE_IMPACT_PRIORITY.extension;
   }
   if (matchesStructureType5(site.structureType, "STRUCTURE_SPAWN", "spawn")) {
-    return CONSTRUCTION_SITE_IMPACT_PRIORITY.spawn;
+    return isClaimedRoomConstructionSite(site, context) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.claimedRoomSpawn : CONSTRUCTION_SITE_IMPACT_PRIORITY.spawn;
   }
   if (matchesStructureType5(site.structureType, "STRUCTURE_CONTAINER", "container")) {
     return isSourceContainerConstructionSite(site, context) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer : CONSTRUCTION_SITE_IMPACT_PRIORITY.container;
@@ -7125,6 +7126,14 @@ function isSourceContainerConstructionSite(site, context) {
     return false;
   }
   return context.sources.some((source) => isNearRoomObject(source, sitePosition));
+}
+function isClaimedRoomConstructionSite(site, context) {
+  var _a;
+  const siteRoom = site.room;
+  if (((_a = siteRoom == null ? void 0 : siteRoom.controller) == null ? void 0 : _a.my) === true) {
+    return true;
+  }
+  return context.claimedRoomName !== void 0 && isSameRoomPosition4(getRoomObjectPosition2(site), context.claimedRoomName);
 }
 function isProtectedRampartConstructionSite(site, context) {
   const sitePosition = getRoomObjectPosition2(site);
@@ -9299,7 +9308,8 @@ function selectUnreservedConstructionSite(creep, constructionSites, construction
   );
 }
 function buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites) {
-  const context = {};
+  var _a;
+  const context = ((_a = creep.room.controller) == null ? void 0 : _a.my) === true ? { claimedRoomName: creep.room.name } : {};
   if (constructionSites.some(isRoadConstructionSite2)) {
     context.criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
   }
@@ -12715,6 +12725,7 @@ function isNonEmptyString8(value) {
 // src/territory/multiRoomUpgrader.ts
 var MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 var MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
+var SPAWN_CONSTRUCTION_UPGRADER_CAP_BONUS = 1;
 var REMOTE_UPGRADER_PATTERN = ["work", "carry", "move"];
 var REMOTE_UPGRADER_TRAVEL_PATTERN = ["work", "carry", "move", "move"];
 var RESERVED_CONTROLLER_BASE_BODY = ["claim", "move"];
@@ -12808,7 +12819,7 @@ function getVisibleMultiRoomUpgradeCandidates(colony, config) {
       homeRoom,
       ownerUsername,
       room,
-      config.perRoomUpgraderCap,
+      config,
       activeUpgraderCounts,
       order
     );
@@ -12819,7 +12830,7 @@ function getVisibleMultiRoomUpgradeCandidates(colony, config) {
   }
   return candidates;
 }
-function getVisibleMultiRoomUpgradeCandidate(homeRoom, ownerUsername, room, perRoomUpgraderCap, activeUpgraderCounts, order) {
+function getVisibleMultiRoomUpgradeCandidate(homeRoom, ownerUsername, room, config, activeUpgraderCounts, order) {
   var _a;
   if (!isNonEmptyString9(room.name) || room.name === homeRoom || isKnownDeadZoneRoom(room.name)) {
     return null;
@@ -12840,6 +12851,7 @@ function getVisibleMultiRoomUpgradeCandidate(homeRoom, ownerUsername, room, perR
     return null;
   }
   const activeUpgraderCount = (_a = activeUpgraderCounts[room.name]) != null ? _a : 0;
+  const perRoomUpgraderCap = getEffectivePerRoomUpgraderCap(room, config);
   if (activeUpgraderCount >= perRoomUpgraderCap) {
     return null;
   }
@@ -12887,6 +12899,45 @@ function normalizeRatio(value, fallback) {
 }
 function normalizePerRoomCap(value) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP;
+}
+function getEffectivePerRoomUpgraderCap(room, config) {
+  return hasActiveClaimedRoomSpawnConstructionSite(room) ? config.perRoomUpgraderCap + SPAWN_CONSTRUCTION_UPGRADER_CAP_BONUS : config.perRoomUpgraderCap;
+}
+function hasActiveClaimedRoomSpawnConstructionSite(room) {
+  var _a;
+  if (((_a = room.controller) == null ? void 0 : _a.my) !== true || typeof room.find !== "function") {
+    return false;
+  }
+  const findConstant = getFindConstant4("FIND_MY_CONSTRUCTION_SITES");
+  if (findConstant === null) {
+    return false;
+  }
+  try {
+    const sites = room.find(findConstant);
+    return Array.isArray(sites) && sites.some(isActiveSpawnConstructionSite);
+  } catch {
+    return false;
+  }
+}
+function isActiveSpawnConstructionSite(site) {
+  return isRecord9(site) && matchesStructureType8(site.structureType, "STRUCTURE_SPAWN", "spawn") && hasIncompleteConstructionSiteProgress(site);
+}
+function hasIncompleteConstructionSiteProgress(site) {
+  const progress = site.progress;
+  const progressTotal = site.progressTotal;
+  if (typeof progress !== "number" || typeof progressTotal !== "number" || !Number.isFinite(progress) || !Number.isFinite(progressTotal)) {
+    return true;
+  }
+  return progress < progressTotal;
+}
+function getFindConstant4(constantName) {
+  const findConstant = globalThis[constantName];
+  return typeof findConstant === "number" ? findConstant : null;
+}
+function matchesStructureType8(actual, globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return typeof actual === "string" && actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 function getRemoteUpgraderPattern(routeDistance) {
   return typeof routeDistance === "number" && routeDistance > 1 ? REMOTE_UPGRADER_TRAVEL_PATTERN : REMOTE_UPGRADER_PATTERN;
@@ -13824,15 +13875,15 @@ function buildUnseenExpansionCandidateEvidence(roomName) {
 }
 function buildVisibleExpansionCandidateEvidence(room) {
   const controller = room.controller;
-  const sources = findRoomObjects7(room, getFindConstant4("FIND_SOURCES"));
+  const sources = findRoomObjects7(room, getFindConstant5("FIND_SOURCES"));
   const controllerSourceRange = calculateAverageControllerSourceRange(controller, sources);
   const roomTerrain = getRoomTerrain4(room);
   const terrain = summarizeRoomTerrainFromTerrain(roomTerrain);
   const sourceAccessPoints = calculateAverageSourceAccessPoints(roomTerrain, sources);
-  const hostileCreepCount = findRoomObjects7(room, getFindConstant4("FIND_HOSTILE_CREEPS")).length;
+  const hostileCreepCount = findRoomObjects7(room, getFindConstant5("FIND_HOSTILE_CREEPS")).length;
   const hostileStructureCount = findRoomObjects7(
     room,
-    getFindConstant4("FIND_HOSTILE_STRUCTURES")
+    getFindConstant5("FIND_HOSTILE_STRUCTURES")
   ).length;
   return {
     visible: true,
@@ -14519,7 +14570,7 @@ function findRoomObjects7(room, findConstant) {
     return [];
   }
 }
-function getFindConstant4(name) {
+function getFindConstant5(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
@@ -14679,6 +14730,7 @@ function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents
         workerTarget,
         spawnCount
       });
+      recordSpawnSitePlacedTelemetry(record, spawnSite, OK_CODE5, telemetryEvents, true);
     }
     return { active: true, spawnConstructionPending: true };
   }
@@ -14705,6 +14757,9 @@ function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents
       workerTarget,
       spawnCount
     });
+    if (sitePlan.result === OK_CODE5 && sitePlan.position) {
+      recordSpawnSitePlacedTelemetry(record, sitePlan.position, sitePlan.result, telemetryEvents);
+    }
   }
   return { active: true, spawnConstructionPending: true };
 }
@@ -14747,6 +14802,17 @@ function getPostClaimBootstrapSummary(roomName) {
     ...record.spawnSite ? { spawnSite: record.spawnSite } : {},
     ...record.lastResult !== void 0 ? { lastResult: record.lastResult } : {}
   };
+}
+function recordSpawnSitePlacedTelemetry(record, spawnSite, result, telemetryEvents, existing = false) {
+  telemetryEvents.push({
+    type: "spawnSitePlaced",
+    roomName: record.roomName,
+    colony: record.colony,
+    ...record.controllerId ? { controllerId: record.controllerId } : {},
+    result,
+    spawnSite,
+    ...existing ? { existing } : {}
+  });
 }
 function planInitialSpawnConstructionSite(room) {
   if (typeof room.createConstructionSite !== "function") {
@@ -14871,7 +14937,7 @@ function findExistingSpawnConstructionSite(room) {
     return null;
   }
   const sites = room.find(findConstant, {
-    filter: (site) => matchesStructureType8(site.structureType, "STRUCTURE_SPAWN", "spawn")
+    filter: (site) => matchesStructureType9(site.structureType, "STRUCTURE_SPAWN", "spawn")
   });
   return (_a = sites[0]) != null ? _a : null;
 }
@@ -14976,7 +15042,7 @@ function getRoomTerrain5(roomName) {
 function getTerrainWallMask5() {
   return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK5;
 }
-function matchesStructureType8(actual, globalName, fallback) {
+function matchesStructureType9(actual, globalName, fallback) {
   return actual === getStructureConstant(globalName, fallback);
 }
 function getStructureConstant(globalName, fallback) {
@@ -15382,7 +15448,7 @@ function toRuntimeRepairTargetSnapshot(targetId, repairCount, structure) {
   };
 }
 function isStructureOfType(structure, globalName, fallback) {
-  return isRecord13(structure) && matchesStructureType9(structure.structureType, globalName, fallback);
+  return isRecord13(structure) && matchesStructureType10(structure.structureType, globalName, fallback);
 }
 function calculateRoadCoverageRatio(roadCount, pendingRoadSiteCount) {
   const totalKnownRoadWork = roadCount + pendingRoadSiteCount;
@@ -15707,10 +15773,10 @@ function getRepairBacklogHits(structure) {
   return Math.max(0, Math.ceil(repairCeiling - hits));
 }
 function isObservableRepairBacklogStructure(structure) {
-  return matchesStructureType9(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType9(structure.structureType, "STRUCTURE_CONTAINER", "container") || isObservedOwnedRampart(structure);
+  return matchesStructureType10(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType10(structure.structureType, "STRUCTURE_CONTAINER", "container") || isObservedOwnedRampart(structure);
 }
 function isObservedOwnedRampart(structure) {
-  return matchesStructureType9(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true;
+  return matchesStructureType10(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true;
 }
 function buildControllerProgressRemaining(room) {
   const controller = room.controller;
@@ -15986,7 +16052,7 @@ function getSpawnExtensionEnergyStructureIds(room) {
   return ids;
 }
 function isSpawnExtensionEnergyStructure2(structure) {
-  return isRecord13(structure) && (matchesStructureType9(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType9(structure.structureType, "STRUCTURE_EXTENSION", "extension"));
+  return isRecord13(structure) && (matchesStructureType10(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType10(structure.structureType, "STRUCTURE_EXTENSION", "extension"));
 }
 function getEventTargetId(data) {
   return typeof data.targetId === "string" && data.targetId.length > 0 ? data.targetId : null;
@@ -16076,7 +16142,7 @@ function getGlobalNumber5(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
-function matchesStructureType9(value, globalName, fallback) {
+function matchesStructureType10(value, globalName, fallback) {
   var _a;
   const expectedValue = (_a = globalThis[globalName]) != null ? _a : fallback;
   return value === expectedValue;
@@ -16342,7 +16408,7 @@ function buildEnergyDemandState(room) {
 }
 function findSpawnExtensionRefillTargets(room) {
   const structures = findOwnedStructures3(room).filter(
-    (structure) => (matchesStructureType10(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType10(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && getFreeEnergyCapacity5(structure) > 0
+    (structure) => (matchesStructureType11(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType11(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && getFreeEnergyCapacity5(structure) > 0
   );
   if (!isRoomSpawnExtensionEnergyLow(room, structures)) {
     return [];
@@ -16356,7 +16422,7 @@ function findSpawnExtensionRefillTargets(room) {
 }
 function findTowerRefillTargets(room) {
   return findOwnedStructures3(room).filter(
-    (structure) => matchesStructureType10(structure.structureType, "STRUCTURE_TOWER", "tower") && getStoredEnergy8(structure) < TOWER_REFILL_THRESHOLD && getFreeEnergyCapacity5(structure) > 0
+    (structure) => matchesStructureType11(structure.structureType, "STRUCTURE_TOWER", "tower") && getStoredEnergy8(structure) < TOWER_REFILL_THRESHOLD && getFreeEnergyCapacity5(structure) > 0
   ).map((target) => ({
     freeCapacity: getFreeEnergyCapacity5(target),
     id: getObjectId4(target),
@@ -16556,7 +16622,7 @@ function getRoomStorage(room) {
     return room.storage;
   }
   return (_a = findOwnedStructures3(room).filter(
-    (structure) => matchesStructureType10(structure.structureType, "STRUCTURE_STORAGE", "storage")
+    (structure) => matchesStructureType11(structure.structureType, "STRUCTURE_STORAGE", "storage")
   )[0]) != null ? _a : null;
 }
 function findOwnedStructures3(room) {
@@ -16605,7 +16671,7 @@ function getObjectId4(object) {
   }
   return typeof candidate.name === "string" ? candidate.name : "";
 }
-function matchesStructureType10(actual, globalName, fallback) {
+function matchesStructureType11(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);

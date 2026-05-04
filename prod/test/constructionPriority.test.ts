@@ -231,6 +231,21 @@ describe('impact-weighted construction site selection', () => {
     expect(selectImpactWeightedConstructionSite(origin, [rampartSite, extensionSite])?.id).toBe('extension-site');
   });
 
+  it('prioritizes a claimed-room spawn site over extension construction', () => {
+    const spawnSite = makeConstructionSite('spawn-site', 'spawn', 20, 20);
+    const extensionSite = makeConstructionSite('extension-site', 'extension', 21, 20);
+    const origin = makeSelectionOrigin({
+      'spawn-site': 5,
+      'extension-site': 5
+    });
+
+    expect(
+      selectImpactWeightedConstructionSite(origin, [extensionSite, spawnSite], {
+        claimedRoomName: 'W1N1'
+      })?.id
+    ).toBe('spawn-site');
+  });
+
   it('prioritizes a source container over a generic road', () => {
     const source = { id: 'source1', pos: makeRoomPosition(10, 10) } as Source;
     const containerSite = makeConstructionSite('source-container-site', 'container', 11, 10);

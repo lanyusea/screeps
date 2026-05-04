@@ -155,6 +155,7 @@ export function refreshPostClaimBootstrap(
         workerTarget,
         spawnCount
       });
+      recordSpawnSitePlacedTelemetry(record, spawnSite, OK_CODE, telemetryEvents, true);
     }
     return { active: true, spawnConstructionPending: true };
   }
@@ -185,6 +186,9 @@ export function refreshPostClaimBootstrap(
       workerTarget,
       spawnCount
     });
+    if (sitePlan.result === OK_CODE && sitePlan.position) {
+      recordSpawnSitePlacedTelemetry(record, sitePlan.position, sitePlan.result, telemetryEvents);
+    }
   }
 
   return { active: true, spawnConstructionPending: true };
@@ -239,6 +243,24 @@ export function getPostClaimBootstrapSummary(roomName: string): PostClaimBootstr
     ...(record.spawnSite ? { spawnSite: record.spawnSite } : {}),
     ...(record.lastResult !== undefined ? { lastResult: record.lastResult } : {})
   };
+}
+
+function recordSpawnSitePlacedTelemetry(
+  record: TerritoryPostClaimBootstrapMemory,
+  spawnSite: TerritoryPostClaimBootstrapSpawnSiteMemory,
+  result: ScreepsReturnCode,
+  telemetryEvents: RuntimeTelemetryEvent[],
+  existing = false
+): void {
+  telemetryEvents.push({
+    type: 'spawnSitePlaced',
+    roomName: record.roomName,
+    colony: record.colony,
+    ...(record.controllerId ? { controllerId: record.controllerId } : {}),
+    result,
+    spawnSite,
+    ...(existing ? { existing } : {})
+  });
 }
 
 function planInitialSpawnConstructionSite(room: Room): SpawnSitePlanResult {

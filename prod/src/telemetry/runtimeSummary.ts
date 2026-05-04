@@ -64,7 +64,8 @@ export type RuntimeTelemetryEvent =
   | RuntimeSpawnTelemetryEvent
   | RuntimeDefenseTelemetryEvent
   | RuntimeTerritoryClaimTelemetryEvent
-  | RuntimePostClaimBootstrapTelemetryEvent;
+  | RuntimePostClaimBootstrapTelemetryEvent
+  | RuntimeSpawnSitePlacedTelemetryEvent;
 
 export type RuntimeTerritoryClaimTelemetryReason =
   | 'noAdjacentCandidate'
@@ -124,6 +125,16 @@ export interface RuntimePostClaimBootstrapTelemetryEvent {
   workerTarget?: number;
   spawnCount?: number;
   spawnSite?: TerritoryPostClaimBootstrapSpawnSiteMemory;
+}
+
+export interface RuntimeSpawnSitePlacedTelemetryEvent {
+  type: 'spawnSitePlaced';
+  roomName: string;
+  colony: string;
+  controllerId?: Id<StructureController>;
+  result: ScreepsReturnCode;
+  spawnSite: TerritoryPostClaimBootstrapSpawnSiteMemory;
+  existing?: boolean;
 }
 
 interface RuntimeSpawnStatus {

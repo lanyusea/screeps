@@ -134,6 +134,7 @@ export interface ConstructionPriorityPlanningResult {
 
 export interface ConstructionSiteImpactPriorityContext {
   criticalRoadContext?: CriticalRoadLogisticsContext;
+  claimedRoomName?: string;
   protectedRampartAnchors?: RoomPosition[];
   sources?: Source[];
 }
@@ -191,6 +192,7 @@ const CRITICAL_REPAIR_HITS_RATIO = 0.5;
 const DECAYING_REPAIR_HITS_RATIO = 0.8;
 const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 export const CONSTRUCTION_SITE_IMPACT_PRIORITY = {
+  claimedRoomSpawn: 110,
   extension: 100,
   spawn: 95,
   tower: 90,
@@ -336,6 +338,7 @@ export function buildConstructionSiteImpactPriorityContext(
 
   return {
     criticalRoadContext: buildCriticalRoadLogisticsContext(room),
+    ...(room.controller?.my === true ? { claimedRoomName: room.name } : {}),
     protectedRampartAnchors: getProtectedRampartAnchorPositions(room, ownedStructures),
     ...(sources === null ? {} : { sources })
   };
@@ -350,7 +353,9 @@ export function getConstructionSiteImpactPriority(
   }
 
   if (matchesStructureType(site.structureType, 'STRUCTURE_SPAWN', 'spawn')) {
-    return CONSTRUCTION_SITE_IMPACT_PRIORITY.spawn;
+    return isClaimedRoomConstructionSite(site, context)
+      ? CONSTRUCTION_SITE_IMPACT_PRIORITY.claimedRoomSpawn
+      : CONSTRUCTION_SITE_IMPACT_PRIORITY.spawn;
   }
 
   if (matchesStructureType(site.structureType, 'STRUCTURE_CONTAINER', 'container')) {
@@ -768,6 +773,18 @@ function isSourceContainerConstructionSite(
   }
 
   return context.sources.some((source) => isNearRoomObject(source, sitePosition));
+}
+
+function isClaimedRoomConstructionSite(
+  site: ConstructionSite,
+  context: ConstructionSiteImpactPriorityContext
+): boolean {
+  const siteRoom = (site as ConstructionSite & { room?: Room }).room;
+  if (siteRoom?.controller?.my === true) {
+    return true;
+  }
+
+  return context.claimedRoomName !== undefined && isSameRoomPosition(getRoomObjectPosition(site), context.claimedRoomName);
 }
 
 function isProtectedRampartConstructionSite(
