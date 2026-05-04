@@ -720,8 +720,12 @@ def metrics_from_bridge_report(report: JsonObject, resource_normalizer_value: fl
     combat_events = report.get("combat", {}).get("eventDeltas") if isinstance(report.get("combat"), dict) else {}
     kills = 0.0
     if isinstance(combat_events, dict):
-        for key in ("objectDestroyedCount", "creepDestroyedCount", "hostileCreepDestroyedCount", "hostileStructureDestroyedCount"):
-            kills += number_or_none(combat_events.get(key)) or 0
+        hostile_creep = number_or_none(combat_events.get("hostileCreepDestroyedCount"))
+        generic_creep = number_or_none(combat_events.get("creepDestroyedCount"))
+        kills += hostile_creep if hostile_creep is not None else (generic_creep or 0)
+        hostile_structure = number_or_none(combat_events.get("hostileStructureDestroyedCount"))
+        generic_object = number_or_none(combat_events.get("objectDestroyedCount"))
+        kills += hostile_structure if hostile_structure is not None else (generic_object or 0)
         for key in ("ownCreepDestroyedCount", "ownStructureDestroyedCount"):
             kills -= number_or_none(combat_events.get(key)) or 0
 
@@ -775,7 +779,7 @@ def room_is_held(room: JsonObject) -> bool:
     if isinstance(controller, dict):
         if controller.get("my") is True or controller.get("owned") is True or controller.get("owner"):
             return True
-    return bool(text_or_none(room.get("roomName"))) or spawn_count(room) > 0 or creep_count(room) > 0
+    return spawn_count(room) > 0 or creep_count(room) > 0
 
 
 def spawn_count(room: JsonObject) -> int:
@@ -895,13 +899,12 @@ def extract_hostile_kills(tick: JsonObject) -> float:
             total += number_or_none(combat.get(key)) or 0
         events = combat.get("events")
         if isinstance(events, dict):
-            for key in (
-                "hostileCreepDestroyedCount",
-                "hostileStructureDestroyedCount",
-                "objectDestroyedCount",
-                "creepDestroyedCount",
-            ):
-                total += number_or_none(events.get(key)) or 0
+            hostile_creep = number_or_none(events.get("hostileCreepDestroyedCount"))
+            generic_creep = number_or_none(events.get("creepDestroyedCount"))
+            total += hostile_creep if hostile_creep is not None else (generic_creep or 0)
+            hostile_structure = number_or_none(events.get("hostileStructureDestroyedCount"))
+            generic_object = number_or_none(events.get("objectDestroyedCount"))
+            total += hostile_structure if hostile_structure is not None else (generic_object or 0)
     return total
 
 
@@ -1375,7 +1378,7 @@ def main(argv: list[str] | None = None, stdout: TextIO = sys.stdout, stderr: Tex
             max_file_bytes=args.max_file_bytes,
         )
         stdout.write(canonical_json(report if args.print_report else build_generation_summary(report)))
-        return 0
+        return 0 if bool(report.get("ok")) else 1
     except (ValidationConfigError, RuntimeError, OSError) as error:
         stderr.write(f"error: {error}\n")
         return 2
