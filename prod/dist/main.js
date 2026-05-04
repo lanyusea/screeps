@@ -9182,24 +9182,42 @@ function findSpawnExtensionEnergyStructures(room) {
   return room.find(FIND_MY_STRUCTURES).filter((structure) => isSpawnExtensionEnergyStructure(structure));
 }
 function selectRemoteHaulerDeliverySink(room) {
-  var _a, _b;
+  var _a, _b, _c;
   const fillableSinks = findFillableEnergySinksInRoom(room);
-  return (_b = (_a = selectFirstEnergySinkByStableId(fillableSinks.filter(isSpawnOrExtensionEnergySink))) != null ? _a : selectFirstStorageSinkByStableId(findRemoteHaulerStorageSinks(room))) != null ? _b : selectFirstEnergySinkByStableId(fillableSinks.filter(isTowerEnergySink));
+  return (_c = (_b = (_a = selectFirstEnergySinkByStableId(fillableSinks.filter(isSpawnOrExtensionEnergySink))) != null ? _a : selectFirstRemoteHaulerStorageSinkByStableId(findRemoteHaulerStorageSinks(room))) != null ? _b : selectFirstRemoteHaulerTerminalSinkByStableId(findRemoteHaulerTerminalSinks(room))) != null ? _c : selectFirstEnergySinkByStableId(fillableSinks.filter(isTowerEnergySink));
 }
 function findRemoteHaulerStorageSinks(room) {
   if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
     return [];
   }
-  return room.find(FIND_MY_STRUCTURES).filter(
-    (structure) => isRemoteHaulerStorageSink(structure)
-  );
+  return room.find(FIND_MY_STRUCTURES, {
+    filter: isRemoteHaulerStorageSink
+  });
+}
+function findRemoteHaulerTerminalSinks(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  return room.find(FIND_MY_STRUCTURES, {
+    filter: isRemoteHaulerTerminalSink
+  });
+}
+function isRemoteHaulerStoredEnergySink(structure) {
+  return "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
 function isRemoteHaulerStorageSink(structure) {
-  return matchesStructureType7(structure.structureType, "STRUCTURE_STORAGE", "storage") && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
+  return matchesStructureType7(structure.structureType, "STRUCTURE_STORAGE", "storage") && isRemoteHaulerStoredEnergySink(structure);
 }
-function selectFirstStorageSinkByStableId(storageSinks) {
+function isRemoteHaulerTerminalSink(structure) {
+  return matchesStructureType7(structure.structureType, "STRUCTURE_TERMINAL", "terminal") && isRemoteHaulerStoredEnergySink(structure);
+}
+function selectFirstRemoteHaulerStorageSinkByStableId(storageSinks) {
   var _a;
   return (_a = [...storageSinks].sort((left, right) => String(left.id).localeCompare(String(right.id)))[0]) != null ? _a : null;
+}
+function selectFirstRemoteHaulerTerminalSinkByStableId(terminalSinks) {
+  var _a;
+  return (_a = [...terminalSinks].sort((left, right) => String(left.id).localeCompare(String(right.id)))[0]) != null ? _a : null;
 }
 function isSpawnExtensionEnergyStructure(structure) {
   return (matchesStructureType7(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType7(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure;
