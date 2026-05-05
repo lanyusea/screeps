@@ -14,6 +14,10 @@ const EMERGENCY_DEFENDER_BODY: BodyPartConstant[] = ['tough', 'attack', 'move'];
 const EMERGENCY_DEFENDER_BODY_COST = 140;
 export const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 export const TERRITORY_SCOUT_BODY_COST = 50;
+const TERRITORY_RESERVER_BODY: BodyPartConstant[] = ['claim', 'move'];
+const TERRITORY_RESERVER_BODY_COST = 650;
+const TERRITORY_RESERVER_SCALED_BODY: BodyPartConstant[] = ['claim', 'claim', 'move', 'move'];
+const TERRITORY_RESERVER_SCALED_BODY_COST = 1300;
 import {
   buildTerritoryClaimerBody,
   TERRITORY_CONTROLLER_PRESSURE_BODY,
@@ -211,6 +215,18 @@ export function buildEmergencyDefenderBody(energyAvailable: number): BodyPartCon
 
 export function buildTerritoryControllerBody(energyAvailable: number): BodyPartConstant[] {
   return buildTerritoryClaimerBody(energyAvailable);
+}
+
+export function buildTerritoryReserverBody(energyAvailable: number): BodyPartConstant[] {
+  if (energyAvailable >= TERRITORY_RESERVER_SCALED_BODY_COST) {
+    return [...TERRITORY_RESERVER_SCALED_BODY];
+  }
+
+  if (energyAvailable >= TERRITORY_RESERVER_BODY_COST) {
+    return [...TERRITORY_RESERVER_BODY];
+  }
+
+  return [];
 }
 
 export function buildTerritoryControllerPressureBody(energyAvailable: number): BodyPartConstant[] {

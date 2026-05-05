@@ -26,6 +26,7 @@ import {
   buildRemoteHaulerBody,
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
+  buildTerritoryReserverBody,
   buildWorkerBody,
   getBodyCost,
   TERRITORY_SCOUT_BODY,
@@ -1057,6 +1058,10 @@ function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryInten
 
   if (requiresTerritoryControllerPressure(intent)) {
     return buildTerritoryControllerPressureBody(energyAvailable);
+  }
+
+  if (intent.action === 'reserve') {
+    return buildTerritoryReserverBody(energyAvailable);
   }
 
   return buildTerritoryControllerBody(energyAvailable);
