@@ -208,7 +208,7 @@ describe('planSpawn', () => {
   }: {
     roomName?: string;
     source?: Source;
-    container?: StructureContainer;
+    container?: StructureContainer | null;
     controller?: StructureController;
   } = {}): Room {
     return {
@@ -220,7 +220,7 @@ describe('planSpawn', () => {
         }
 
         if (type === FIND_STRUCTURES) {
-          return [container];
+          return container ? [container] : [];
         }
 
         if (type === FIND_MY_CREEPS) {
@@ -846,6 +846,43 @@ describe('planSpawn', () => {
           targetRoom: 'W2N1',
           sourceId: 'W2N1-source0',
           containerId: 'W2N1-container0'
+        }
+      }
+    });
+  });
+
+  it('plans a remote harvester for a newly claimed adjacent room source before container completion', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    const source = makeRemoteSource('W2N1-source0');
+    const remoteRoom = makeRemoteEconomyRoom({ source, container: null });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 503,
+      rooms: { W1N1: colony.room, W2N1: remoteRoom },
+      spawns: { Spawn1: spawn },
+      creeps: { RemoteUpgrader: makePostClaimSustainUpgrader() },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: { W2N1: makeSatisfiedPostClaimRemoteMemory() }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 504)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'remoteHarvester-W1N1-W2N1-W2N1-source0-504',
+      memory: {
+        role: 'remoteHarvester',
+        colony: 'W1N1',
+        remoteHarvester: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: 'W2N1-source0'
         }
       }
     });

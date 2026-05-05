@@ -1,4 +1,8 @@
 import { hasSafeRouteAvoidingDeadZones, isKnownDeadZoneRoom } from '../defense/deadZone';
+import {
+  buildCriticalRoadLogisticsContext,
+  isCriticalRoadLogisticsWork
+} from '../construction/criticalRoads';
 import { findSourceContainer } from '../economy/sourceContainers';
 import { buildRemoteHarvesterBody } from '../spawn/bodyBuilder';
 
@@ -11,14 +15,19 @@ const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const ERR_NOT_ENOUGH_RESOURCES_CODE = -6 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const DEFAULT_REMOTE_ROOM_DISTANCE = 1;
+const CRITICAL_ROAD_MOVE_COST = 1;
 
 export interface RemoteSourceAssignment {
   homeRoom: string;
   targetRoom: string;
   sourceId: Id<Source>;
-  containerId: Id<StructureContainer>;
+  containerId?: Id<StructureContainer>;
   containerEnergy: number;
   routeDistance: number;
+}
+
+export interface RemoteContainerAssignment extends RemoteSourceAssignment {
+  containerId: Id<StructureContainer>;
 }
 
 export { buildRemoteHarvesterBody };
@@ -78,13 +87,18 @@ export function runRemoteHarvester(creep: Creep): void {
 
   if (shouldRetreatFromRemote(creep, assignment)) {
     delete creep.memory.task;
-    moveTowardRoom(creep, assignment.homeRoom);
+    moveTowardRoom(creep, assignment.homeRoom, undefined, assignment);
     return;
   }
 
   if (creep.room?.name !== assignment.targetRoom) {
     delete creep.memory.task;
-    moveTowardRoom(creep, assignment.targetRoom, getAssignedContainer(assignment) ?? getAssignedSource(assignment));
+    moveTowardRoom(
+      creep,
+      assignment.targetRoom,
+      getAssignedContainer(assignment) ?? getAssignedSource(assignment),
+      assignment
+    );
     return;
   }
 
@@ -100,25 +114,25 @@ export function runRemoteHarvester(creep: Creep): void {
 
   if (!source) {
     if (container) {
-      moveTo(creep, container);
+      moveTo(creep, container, assignment);
     }
     return;
   }
 
   if (!isInRangeTo(creep, source, 1)) {
-    moveTo(creep, container ?? source);
+    moveTo(creep, container ?? source, assignment);
     return;
   }
 
   if (isSourceDepleted(source)) {
     if (container && getCarriedEnergy(creep) > 0) {
-      transferToContainer(creep, container);
+      transferToContainer(creep, container, assignment);
     }
     return;
   }
 
   if (container && getFreeEnergyCapacity(creep) <= 0 && getCarriedEnergy(creep) > 0) {
-    transferToContainer(creep, container);
+    transferToContainer(creep, container, assignment);
     return;
   }
 
@@ -128,26 +142,31 @@ export function runRemoteHarvester(creep: Creep): void {
     (result === getErrFullCode() || result === getErrNotEnoughResourcesCode()) &&
     getCarriedEnergy(creep) > 0
   ) {
-    transferToContainer(creep, container);
+    transferToContainer(creep, container, assignment);
   }
 }
 
-export function moveTowardRoom(creep: Creep, roomName: string, target?: RoomObject | RoomPosition | null): void {
+export function moveTowardRoom(
+  creep: Creep,
+  roomName: string,
+  target?: RoomObject | RoomPosition | null,
+  assignment?: CreepRemoteHarvesterMemory | CreepRemoteHaulerMemory
+): void {
   if (target) {
-    moveTo(creep, target);
+    moveTo(creep, target, assignment);
     return;
   }
 
   const visibleController = getVisibleRoom(roomName)?.controller;
   if (visibleController) {
-    moveTo(creep, visibleController);
+    moveTo(creep, visibleController, assignment);
     return;
   }
 
   const RoomPositionCtor = (globalThis as { RoomPosition?: new (x: number, y: number, roomName: string) => RoomPosition })
     .RoomPosition;
   if (typeof RoomPositionCtor === 'function') {
-    moveTo(creep, new RoomPositionCtor(25, 25, roomName));
+    moveTo(creep, new RoomPositionCtor(25, 25, roomName), assignment);
   }
 }
 
@@ -175,18 +194,15 @@ function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteS
   return (room.find(FIND_SOURCES) as Source[])
     .map((source) => {
       const container = findSourceContainer(room, source);
-      return container
-        ? {
-            homeRoom,
-            targetRoom: room.name,
-            sourceId: source.id,
-            containerId: container.id,
-            containerEnergy: getStoredEnergy(container),
-            routeDistance: estimateRemoteRoomDistance(homeRoom, room.name)
-          }
-        : null;
-    })
-    .filter((assignment): assignment is RemoteSourceAssignment => assignment !== null);
+      return {
+        homeRoom,
+        targetRoom: room.name,
+        sourceId: source.id,
+        ...(container ? { containerId: container.id } : {}),
+        containerEnergy: container ? getStoredEnergy(container) : 0,
+        routeDistance: estimateRemoteRoomDistance(homeRoom, room.name)
+      };
+    });
 }
 
 function getRemoteBootstrapRecords(homeRoom: string): TerritoryPostClaimBootstrapMemory[] {
@@ -277,12 +293,12 @@ function normalizeRemoteHarvesterMemory(value: unknown): CreepRemoteHarvesterMem
   return isNonEmptyString(value.homeRoom) &&
     isNonEmptyString(value.targetRoom) &&
     isNonEmptyString(value.sourceId) &&
-    isNonEmptyString(value.containerId)
+    (value.containerId == null || isNonEmptyString(value.containerId))
     ? {
         homeRoom: value.homeRoom,
         targetRoom: value.targetRoom,
         sourceId: value.sourceId as Id<Source>,
-        containerId: value.containerId as Id<StructureContainer>
+        ...(isNonEmptyString(value.containerId) ? { containerId: value.containerId as Id<StructureContainer> } : {})
       }
     : null;
 }
@@ -305,18 +321,96 @@ function getAssignedSource(assignment: CreepRemoteHarvesterMemory): Source | nul
 }
 
 function getAssignedContainer(assignment: CreepRemoteHarvesterMemory): StructureContainer | null {
-  return getObjectById<StructureContainer>(assignment.containerId);
+  if (isNonEmptyString(assignment.containerId)) {
+    const container = getObjectById<StructureContainer>(assignment.containerId);
+    if (container) {
+      return container;
+    }
+  }
+
+  const source = getAssignedSource(assignment);
+  const room = getVisibleRoom(assignment.targetRoom);
+  return source && room ? findSourceContainer(room, source) : null;
 }
 
-function transferToContainer(creep: Creep, container: StructureContainer): void {
+function transferToContainer(
+  creep: Creep,
+  container: StructureContainer,
+  assignment: CreepRemoteHarvesterMemory
+): void {
   const result = creep.transfer?.(container, getEnergyResource());
   if (result === getErrNotInRangeCode()) {
-    moveTo(creep, container);
+    moveTo(creep, container, assignment);
   }
 }
 
-function moveTo(creep: Creep, target: RoomObject | RoomPosition): void {
-  creep.moveTo?.(target, REMOTE_MOVE_OPTS);
+function moveTo(
+  creep: Creep,
+  target: RoomObject | RoomPosition,
+  assignment?: CreepRemoteHarvesterMemory | CreepRemoteHaulerMemory
+): void {
+  creep.moveTo?.(target, getRemoteMoveOpts(assignment));
+}
+
+function getRemoteMoveOpts(
+  assignment: CreepRemoteHarvesterMemory | CreepRemoteHaulerMemory | undefined
+): MoveToOpts {
+  const costCallback = assignment ? buildCriticalRoadMoveCostCallback(assignment) : undefined;
+  return costCallback ? { ...REMOTE_MOVE_OPTS, costCallback } : REMOTE_MOVE_OPTS;
+}
+
+function buildCriticalRoadMoveCostCallback(
+  assignment: CreepRemoteHarvesterMemory | CreepRemoteHaulerMemory
+): NonNullable<MoveToOpts['costCallback']> {
+  return (roomName, costMatrix) => {
+    const room = getVisibleRoom(roomName);
+    if (!room || !isRemoteMoveRoom(roomName, assignment)) {
+      return costMatrix;
+    }
+
+    const context = buildCriticalRoadLogisticsContext(room, { colonyRoomName: assignment.homeRoom });
+    for (const target of findCriticalRoadMoveTargets(room)) {
+      if (target.pos && isCriticalRoadLogisticsWork(target, context)) {
+        costMatrix.set(target.pos.x, target.pos.y, CRITICAL_ROAD_MOVE_COST);
+      }
+    }
+
+    return costMatrix;
+  };
+}
+
+function isRemoteMoveRoom(roomName: string, assignment: CreepRemoteHarvesterMemory | CreepRemoteHaulerMemory): boolean {
+  return roomName === assignment.homeRoom || roomName === assignment.targetRoom;
+}
+
+function findCriticalRoadMoveTargets(room: Room): Array<Structure | ConstructionSite> {
+  return [
+    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES')
+  ].filter((target) => matchesStructureType(target.structureType, 'STRUCTURE_ROAD', 'road'));
+}
+
+function findRoomObjects<T>(room: Room, constantName: 'FIND_STRUCTURES' | 'FIND_CONSTRUCTION_SITES'): T[] {
+  const findConstant = (globalThis as unknown as Partial<Record<typeof constantName, number>>)[constantName];
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = room.find(findConstant as FindConstant);
+    return Array.isArray(result) ? (result as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function matchesStructureType(
+  actual: string | undefined,
+  globalName: 'STRUCTURE_ROAD',
+  fallback: string
+): boolean {
+  const constants = globalThis as unknown as Partial<Record<typeof globalName, string>>;
+  return actual === (constants[globalName] ?? fallback);
 }
 
 function isInRangeTo(creep: Creep, target: RoomObject, range: number): boolean {

@@ -4,6 +4,7 @@ import {
   moveTowardRoom,
   REMOTE_CREEP_REPLACEMENT_TICKS,
   shouldRetreatFromRemote,
+  type RemoteContainerAssignment,
   type RemoteSourceAssignment
 } from './remoteHarvester';
 import { buildRemoteHaulerBody } from '../spawn/bodyBuilder';
@@ -17,17 +18,22 @@ const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 
 export { buildRemoteHaulerBody };
 
-export function selectRemoteHaulerAssignment(homeRoom: string): RemoteSourceAssignment | null {
+export function selectRemoteHaulerAssignment(homeRoom: string): RemoteContainerAssignment | null {
   if (!hasRemoteHaulerDeliveryDemand(homeRoom)) {
     return null;
   }
 
   return (
     getRemoteSourceAssignments(homeRoom)
+      .filter(hasRemoteContainerAssignment)
       .filter((assignment) => assignment.containerEnergy > REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD)
       .filter((assignment) => countRemoteHaulersForContainer(assignment) < MAX_REMOTE_HAULERS_PER_CONTAINER)
       .sort(compareRemoteHaulerAssignments)[0] ?? null
   );
+}
+
+function hasRemoteContainerAssignment(assignment: RemoteSourceAssignment): assignment is RemoteContainerAssignment {
+  return isNonEmptyString(assignment.containerId);
 }
 
 function hasRemoteHaulerDeliveryDemand(homeRoom: string): boolean {
