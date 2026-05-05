@@ -20,7 +20,6 @@ import {
 } from '../creeps/hauler';
 import { DEFENDER_ROLE } from '../defense/defenseLoop';
 import {
-  buildEmergencyDefenderBody,
   buildEmergencyWorkerBody,
   buildRemoteHarvesterBody,
   buildRemoteHaulerBody,
@@ -76,6 +75,7 @@ export interface SpawnRequest {
   name: string;
   memory: CreepMemory;
 }
+export type SpawnPlan = SpawnRequest;
 
 export interface SpawnPlanningOptions {
   nameSuffix?: string;
@@ -117,7 +117,10 @@ const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'multiRoomControllerUpgrade',
   'controllerUpgradeSurplus'
 ];
-const DEFENSE_TOWER_REFILL_ENERGY_FLOOR = 500;
+const DEFENDER_BODY_PATTERN: BodyPartConstant[] = ['tough', 'attack', 'move'];
+const DEFENDER_BODY_PATTERN_COST = 140;
+const MAX_DEFENDER_BODY_PATTERN_COUNT = 5;
+const HOSTILES_PER_DEFENDER = 3;
 
 export function planSpawn(
   colony: ColonySnapshot,
@@ -164,7 +167,7 @@ function planSpawnForPriorityTier(
     case 'remoteEconomy':
       return planRemoteEconomySpawn(context);
     case 'defense':
-      return planDefenseSpawn(context);
+      return planDefenseSpawnForContext(context);
     case 'territoryRemote':
       return planTerritoryRemoteSpawn(context);
     case 'multiRoomControllerUpgrade':
@@ -281,6 +284,89 @@ function planPostClaimControllerSustainSpawn(context: SpawnPlanningContext): Spa
       }
     }
   };
+}
+
+function buildDefenseBody(energyAvailable: number, hostileCount: number): BodyPartConstant[] {
+  const desiredPatternCount = Math.max(1, Math.min(hostileCount, MAX_DEFENDER_BODY_PATTERN_COUNT));
+  const affordablePatternCount = Math.floor(normalizeNonNegativeInteger(energyAvailable) / DEFENDER_BODY_PATTERN_COST);
+  const patternCount = Math.min(
+    desiredPatternCount,
+    affordablePatternCount,
+    Math.floor(MAX_CREEP_PARTS / DEFENDER_BODY_PATTERN.length)
+  );
+
+  if (patternCount <= 0) {
+    return [];
+  }
+
+  return Array.from({ length: patternCount }).flatMap(() => DEFENDER_BODY_PATTERN);
+}
+
+function getDesiredDefenderCount(hostileCount: number): number {
+  return Math.max(1, Math.ceil(hostileCount / HOSTILES_PER_DEFENDER));
+}
+
+function getRoomHostileCreepCount(room: Room): number {
+  const findHostiles = getGlobalNumber('FIND_HOSTILE_CREEPS');
+  if (findHostiles === undefined || typeof room.find !== 'function') {
+    return 0;
+  }
+
+  const result = room.find(findHostiles as FindConstant);
+  return Array.isArray(result) ? result.length : 0;
+}
+
+function getRoomSpawns(room: Room): StructureSpawn[] {
+  const game = (globalThis as unknown as { Game?: Partial<Pick<Game, 'spawns'>> }).Game;
+  if (!game?.spawns) {
+    return [];
+  }
+
+  return Object.values(game.spawns).filter((spawn) => spawn.room?.name === room.name);
+}
+
+function countActiveRoomDefenders(roomName: string): number {
+  const game = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game;
+  if (!game?.creeps) {
+    return 0;
+  }
+
+  return Object.values(game.creeps).filter((creep) => isActiveRoomDefender(creep, roomName)).length;
+}
+
+function isActiveRoomDefender(creep: Creep, roomName: string): boolean {
+  return (
+    creep.memory.role === DEFENDER_ROLE &&
+    creep.memory.defense?.homeRoom === roomName &&
+    creep.room?.name === roomName &&
+    canSatisfyDefenderSpawnCapacity(creep)
+  );
+}
+
+function canSatisfyDefenderSpawnCapacity(creep: Creep): boolean {
+  return (
+    (creep.ticksToLive === undefined || creep.ticksToLive > 100) &&
+    hasActiveAttackPart(creep)
+  );
+}
+
+function hasActiveAttackPart(creep: Creep): boolean {
+  const attackPart = getBodyPartConstant('ATTACK', 'attack');
+  const activeParts = creep.getActiveBodyparts?.(attackPart);
+  if (typeof activeParts === 'number') {
+    return activeParts > 0;
+  }
+
+  if (!Array.isArray(creep.body)) {
+    return false;
+  }
+
+  return creep.body.some((part) => part.type === attackPart && part.hits > 0);
+}
+
+function getBodyPartConstant(globalName: 'ATTACK', fallback: BodyPartConstant): BodyPartConstant {
+  const value = (globalThis as unknown as Partial<Record<'ATTACK', BodyPartConstant>>)[globalName];
+  return value ?? fallback;
 }
 
 function hasPostClaimSustainSpawnEnergy(colony: ColonySnapshot): boolean {
@@ -460,60 +546,69 @@ function isClaimedRoomEnergyInsufficient(room: Room | undefined): boolean {
   return typeof energyAvailable !== 'number' || energyAvailable < POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY;
 }
 
-function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
-  if (
-    !context.survival.hostilePresence ||
-    (context.roleCounts.defender ?? 0) > 0 ||
-    hasDefenseTowerRefillDemand(context.colony.room)
-  ) {
+export function planDefenseSpawn(room: Room): SpawnPlan | null {
+  if (room.controller?.my !== true) {
     return null;
   }
 
-  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  return planDefenseSpawnForRoom(
+    {
+      room,
+      spawns: getRoomSpawns(room),
+      energyAvailable: room.energyAvailable,
+      energyCapacityAvailable: room.energyCapacityAvailable
+    },
+    countActiveRoomDefenders(room.name),
+    getGameTime(),
+    {}
+  );
+}
+
+function planDefenseSpawnForContext(context: SpawnPlanningContext): SpawnRequest | null {
+  if (!context.survival.hostilePresence || context.options.workersOnly) {
+    return null;
+  }
+
+  return planDefenseSpawnForRoom(
+    context.colony,
+    countActiveRoomDefenders(context.colony.room.name),
+    context.gameTime,
+    context.options
+  );
+}
+
+function planDefenseSpawnForRoom(
+  colony: ColonySnapshot,
+  activeDefenderCount: number,
+  gameTime: number,
+  options: SpawnPlanningOptions
+): SpawnRequest | null {
+  const hostileCount = getRoomHostileCreepCount(colony.room);
+  if (hostileCount === 0 || activeDefenderCount >= getDesiredDefenderCount(hostileCount)) {
+    return null;
+  }
+
+  const spawn = colony.spawns.find((candidate) => !candidate.spawning);
   if (!spawn) {
     return null;
   }
 
-  const body = buildEmergencyDefenderBody(context.colony.energyAvailable);
+  const body = buildDefenseBody(colony.energyAvailable, hostileCount);
   if (body.length === 0) {
     return null;
   }
 
-  const roomName = context.colony.room.name;
+  const roomName = colony.room.name;
   return {
     spawn,
     body,
-    name: appendSpawnNameSuffix(`${DEFENDER_ROLE}-${roomName}-${context.gameTime}`, context.options),
+    name: appendSpawnNameSuffix(`${DEFENDER_ROLE}-${roomName}-${gameTime}`, options),
     memory: {
       role: DEFENDER_ROLE,
       colony: roomName,
       defense: { homeRoom: roomName }
     }
   };
-}
-
-function hasDefenseTowerRefillDemand(room: Room): boolean {
-  const findMyStructures = getGlobalNumber('FIND_MY_STRUCTURES');
-  if (findMyStructures === undefined || typeof room.find !== 'function') {
-    return false;
-  }
-
-  const structures = room.find(findMyStructures as FindConstant) as AnyOwnedStructure[];
-  return structures.some((structure) => isTowerStructure(structure) && isTowerBelowDefenseRefillFloor(structure));
-}
-
-function isTowerStructure(structure: AnyOwnedStructure): structure is StructureTower {
-  const towerType = (globalThis as { STRUCTURE_TOWER?: StructureConstant }).STRUCTURE_TOWER ?? 'tower';
-  return structure.structureType === towerType || structure.structureType === 'tower';
-}
-
-function isTowerBelowDefenseRefillFloor(tower: StructureTower): boolean {
-  const usedEnergy = getStoredEnergy(tower);
-  if (usedEnergy !== null) {
-    return usedEnergy < DEFENSE_TOWER_REFILL_ENERGY_FLOOR;
-  }
-
-  return getFreeEnergyCapacity(tower) > 0;
 }
 
 function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | null {
@@ -1079,29 +1174,11 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
-function getStoredEnergy(structure: { store?: StoreDefinition }): number | null {
-  const resourceEnergy = (globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy';
-  const getUsedCapacity = structure.store?.getUsedCapacity;
-  if (typeof getUsedCapacity !== 'function') {
-    return null;
-  }
-
-  const usedCapacity = getUsedCapacity.call(structure.store, resourceEnergy);
-  return typeof usedCapacity === 'number' && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : null;
-}
-
-function getFreeEnergyCapacity(structure: { store?: StoreDefinition }): number {
-  const resourceEnergy = (globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy';
-  const getFreeCapacity = structure.store?.getFreeCapacity;
-  if (typeof getFreeCapacity !== 'function') {
-    return 0;
-  }
-
-  const freeCapacity = getFreeCapacity.call(structure.store, resourceEnergy);
-  return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
-}
-
 function getGlobalNumber(name: string): number | undefined {
   const value = (globalThis as Record<string, unknown>)[name];
   return typeof value === 'number' ? value : undefined;
+}
+
+function getGameTime(): number {
+  return typeof Game !== 'undefined' && typeof Game.time === 'number' ? Game.time : 0;
 }

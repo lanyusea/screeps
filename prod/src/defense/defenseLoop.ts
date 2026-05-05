@@ -1,18 +1,17 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import { isDamagedStructure } from './defenseTelemetry';
 import {
   hasSafeRouteAvoidingDeadZones,
   isKnownDeadZoneRoom,
   refreshVisibleDeadZoneMemory
 } from './deadZone';
+import { runSafeModeWithResult } from './safeModeManager';
+import { runTowersWithResult } from './towerManager';
 
 export const DEFENDER_ROLE = 'defender';
 
 const MAX_RECORDED_DEFENSE_ACTIONS = 20;
-const CRITICAL_STRUCTURE_DAMAGE_RATIO = 0.85;
-const SAFE_MODE_CRITICAL_DAMAGE_RATIO = 0.75;
-const EARLY_ROOM_SAFE_MODE_RCL = 3;
-const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 
 type CriticalOwnedStructure = StructureSpawn | StructureTower;
@@ -25,11 +24,9 @@ type DefenseActionReason =
 
 interface DefenseContext {
   colony: ColonySnapshot;
-  criticalStructures: CriticalOwnedStructure[];
   damagedCriticalStructures: CriticalOwnedStructure[];
   hostileCreeps: Creep[];
   hostileStructures: Structure[];
-  towers: StructureTower[];
 }
 
 interface DefenseActionInput {
@@ -39,11 +36,6 @@ interface DefenseActionInput {
   result?: ScreepsReturnCode;
   structureId?: string;
   targetId?: string;
-}
-
-interface TowerDefenseResult {
-  attackSucceeded: boolean;
-  attackingTowerIds: Set<string>;
 }
 
 export function runDefense(): RuntimeTelemetryEvent[] {
@@ -61,146 +53,20 @@ export function runDefense(): RuntimeTelemetryEvent[] {
 }
 
 function runColonyDefense(context: DefenseContext, telemetryEvents: RuntimeTelemetryEvent[]): void {
-  const towerDefenseResult = runTowerDefense(context, telemetryEvents);
-  const safeModeActivated = activateSafeModeWhenNeeded(
-    context,
-    towerDefenseResult.attackSucceeded,
-    telemetryEvents
-  );
+  const towerDefenseResult = runTowersWithResult(context.colony.room);
+  telemetryEvents.push(...towerDefenseResult.events);
+  const safeModeResult = runSafeModeWithResult(context.colony.room);
+  telemetryEvents.push(...safeModeResult.events);
 
-  if (safeModeActivated) {
+  if (safeModeResult.activated) {
     return;
   }
 
-  if (runTowerRecovery(context, telemetryEvents, towerDefenseResult.attackingTowerIds)) {
-    return;
-  }
-
-  if (towerDefenseResult.attackSucceeded) {
+  if (towerDefenseResult.attackSucceeded || towerDefenseResult.actedTowerIds.size > 0) {
     return;
   }
 
   recordWorkerFallbackIfNeeded(context, telemetryEvents);
-}
-
-function runTowerDefense(context: DefenseContext, telemetryEvents: RuntimeTelemetryEvent[]): TowerDefenseResult {
-  const defenseResult: TowerDefenseResult = {
-    attackSucceeded: false,
-    attackingTowerIds: new Set<string>()
-  };
-
-  if (context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
-    return defenseResult;
-  }
-
-  for (const tower of getUsableTowers(context.towers)) {
-    if (typeof tower.attack !== 'function') {
-      continue;
-    }
-
-    const target = selectTowerAttackTarget(tower, context);
-    if (!target) {
-      continue;
-    }
-
-    const attackResult = tower.attack(target);
-    recordDefenseAction(
-      {
-        action: 'towerAttack',
-        context,
-        reason: 'hostileVisible',
-        result: attackResult,
-        structureId: getObjectId(tower),
-        targetId: getObjectId(target)
-      },
-      telemetryEvents
-    );
-    if (attackResult === OK_CODE) {
-      defenseResult.attackSucceeded = true;
-      defenseResult.attackingTowerIds.add(getObjectId(tower));
-    }
-  }
-
-  return defenseResult;
-}
-
-function activateSafeModeWhenNeeded(
-  context: DefenseContext,
-  towerAttackSucceeded: boolean,
-  telemetryEvents: RuntimeTelemetryEvent[]
-): boolean {
-  if (!shouldActivateSafeMode(context, towerAttackSucceeded)) {
-    return false;
-  }
-
-  const result = context.colony.room.controller?.activateSafeMode?.();
-  if (typeof result !== 'number') {
-    return false;
-  }
-
-  recordDefenseAction(
-    {
-      action: 'safeMode',
-      context,
-      reason: 'safeModeEarlyRoomThreat',
-      result,
-      targetId: getObjectId(context.colony.room.controller)
-    },
-    telemetryEvents
-  );
-
-  return result === OK_CODE;
-}
-
-function runTowerRecovery(
-  context: DefenseContext,
-  telemetryEvents: RuntimeTelemetryEvent[],
-  attackingTowerIds: Set<string>
-): boolean {
-  let acted = false;
-
-  for (const tower of getUsableTowers(context.towers)) {
-    if (attackingTowerIds.has(getObjectId(tower))) {
-      continue;
-    }
-
-    const woundedCreep = selectWoundedFriendlyCreep(context.colony.room, tower);
-    if (woundedCreep && typeof tower.heal === 'function') {
-      const result = tower.heal(woundedCreep);
-      recordDefenseAction(
-        {
-          action: 'towerHeal',
-          context,
-          reason: 'criticalStructureDamaged',
-          result,
-          structureId: getObjectId(tower),
-          targetId: getObjectId(woundedCreep)
-        },
-        telemetryEvents
-      );
-      acted = true;
-      continue;
-    }
-
-    const repairTarget = selectClosestTarget(tower, context.damagedCriticalStructures);
-    if (repairTarget && typeof tower.repair === 'function') {
-      const result = tower.repair(repairTarget);
-      recordDefenseAction(
-        {
-          action: 'towerRepair',
-          context,
-          reason: 'criticalStructureDamaged',
-          result,
-          structureId: getObjectId(tower),
-          targetId: getObjectId(repairTarget)
-        },
-        telemetryEvents
-      );
-      acted = true;
-    }
-  }
-
-  return acted;
 }
 
 function recordWorkerFallbackIfNeeded(
@@ -293,51 +159,13 @@ function recordDefenderAction(
   );
 }
 
-function shouldActivateSafeMode(context: DefenseContext, towerAttackSucceeded: boolean): boolean {
-  const controller = context.colony.room.controller;
-  if (
-    context.hostileCreeps.length === 0 ||
-    controller?.my !== true ||
-    typeof controller.activateSafeMode !== 'function' ||
-    !isEarlyRoomController(controller) ||
-    !isSafeModeAvailable(controller)
-  ) {
-    return false;
-  }
-
-  return (
-    context.colony.spawns.length === 0 ||
-    !towerAttackSucceeded ||
-    context.damagedCriticalStructures.some(isSeverelyDamagedCriticalStructure)
-  );
-}
-
-function isEarlyRoomController(controller: StructureController): boolean {
-  return typeof controller.level !== 'number' || controller.level <= EARLY_ROOM_SAFE_MODE_RCL;
-}
-
-function isSafeModeAvailable(controller: StructureController): boolean {
-  const available = controller.safeModeAvailable;
-  const cooldown = controller.safeModeCooldown;
-  const active = controller.safeMode;
-
-  return (
-    typeof available === 'number' &&
-    available > 0 &&
-    (typeof cooldown !== 'number' || cooldown <= 0) &&
-    (typeof active !== 'number' || active <= 0)
-  );
-}
-
 function createDefenseContext(colony: ColonySnapshot): DefenseContext {
   const criticalStructures = getCriticalStructures(colony);
   return {
     colony,
-    criticalStructures,
-    damagedCriticalStructures: criticalStructures.filter(isDamagedCriticalStructure),
+    damagedCriticalStructures: criticalStructures.filter(isDamagedStructure),
     hostileCreeps: findHostileCreeps(colony.room),
-    hostileStructures: findHostileStructures(colony.room),
-    towers: getOwnedTowers(colony.room)
+    hostileStructures: findHostileStructures(colony.room)
   };
 }
 
@@ -366,36 +194,6 @@ function getOwnedTowers(room: Room): StructureTower[] {
   return findOwnedStructures(room).filter((structure): structure is StructureTower =>
     matchesStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower')
   );
-}
-
-function getUsableTowers(towers: StructureTower[]): StructureTower[] {
-  return towers.filter(hasStoredEnergy).sort(compareObjectIds);
-}
-
-function hasStoredEnergy(structure: {
-  store?: { getUsedCapacity?: (resource?: ResourceConstant) => number | null };
-}): boolean {
-  const store = structure.store;
-  if (!store || typeof store.getUsedCapacity !== 'function') {
-    return true;
-  }
-
-  const usedCapacity = store.getUsedCapacity(getEnergyResource());
-  return typeof usedCapacity !== 'number' || usedCapacity > 0;
-}
-
-function selectWoundedFriendlyCreep(room: Room, tower: StructureTower): Creep | null {
-  const woundedCreeps = findMyCreeps(room).filter(isWoundedCreep);
-  return selectClosestTarget(tower, woundedCreeps);
-}
-
-function selectTowerAttackTarget(tower: StructureTower, context: DefenseContext): HostileTarget | null {
-  const hostileCreep = selectClosestTarget(tower, context.hostileCreeps);
-  if (hostileCreep) {
-    return hostileCreep;
-  }
-
-  return selectClosestTarget(tower, context.hostileStructures);
 }
 
 function selectDefenderTarget(creep: Creep): HostileTarget | null {
@@ -431,27 +229,6 @@ function compareRange(
   const leftRange = left.pos ? getRangeTo.call(origin.pos, left.pos) : Infinity;
   const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
-}
-
-function isDamagedCriticalStructure(structure: CriticalOwnedStructure): boolean {
-  return isStructureBelowHitsRatio(structure, CRITICAL_STRUCTURE_DAMAGE_RATIO);
-}
-
-function isSeverelyDamagedCriticalStructure(structure: CriticalOwnedStructure): boolean {
-  return isStructureBelowHitsRatio(structure, SAFE_MODE_CRITICAL_DAMAGE_RATIO);
-}
-
-function isStructureBelowHitsRatio(structure: CriticalOwnedStructure, ratio: number): boolean {
-  return (
-    typeof structure.hits === 'number' &&
-    typeof structure.hitsMax === 'number' &&
-    structure.hitsMax > 0 &&
-    structure.hits < structure.hitsMax * ratio
-  );
-}
-
-function isWoundedCreep(creep: Creep): boolean {
-  return typeof creep.hits === 'number' && typeof creep.hitsMax === 'number' && creep.hits < creep.hitsMax;
 }
 
 function hasColonyWorker(roomName: string): boolean {
@@ -516,10 +293,6 @@ function findOwnedStructures(room: Room): AnyOwnedStructure[] {
   return findRoomObjects<AnyOwnedStructure>(room, 'FIND_MY_STRUCTURES');
 }
 
-function findMyCreeps(room: Room): Creep[] {
-  return findRoomObjects<Creep>(room, 'FIND_MY_CREEPS');
-}
-
 function findRoomObjects<T>(room: Room, constantName: string): T[] {
   const findConstant = getGlobalNumber(constantName);
   const find = (room as Room & { find?: unknown }).find;
@@ -568,11 +341,6 @@ function getCreepName(creep: Creep): string {
 function getGlobalNumber(name: string): number | undefined {
   const value = (globalThis as Record<string, unknown>)[name];
   return typeof value === 'number' ? value : undefined;
-}
-
-function getEnergyResource(): ResourceConstant {
-  const value = (globalThis as Record<string, unknown>).RESOURCE_ENERGY;
-  return (typeof value === 'string' ? value : 'energy') as ResourceConstant;
 }
 
 function getGameTime(): number {

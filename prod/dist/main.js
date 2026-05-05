@@ -806,10 +806,145 @@ function getOwnedColonies() {
   }));
 }
 
+// src/defense/defenseTelemetry.ts
+var MAX_RECORDED_DEFENSE_ACTIONS = 20;
+var CRITICAL_STRUCTURE_DAMAGE_RATIO = 0.85;
+function recordDefenseAction(input, telemetryEvents) {
+  const actionMemory = {
+    type: input.action,
+    roomName: input.context.room.name,
+    tick: getGameTime2(),
+    reason: input.reason,
+    hostileCreepCount: input.context.hostileCreeps.length,
+    hostileStructureCount: input.context.hostileStructures.length,
+    damagedCriticalStructureCount: input.context.damagedCriticalStructures.length,
+    ...input.structureId ? { structureId: input.structureId } : {},
+    ...input.targetId ? { targetId: input.targetId } : {},
+    ...typeof input.result === "number" ? { result: input.result } : {}
+  };
+  recordDefenseActionMemory(actionMemory);
+  telemetryEvents.push({
+    type: "defense",
+    action: actionMemory.type,
+    roomName: actionMemory.roomName,
+    reason: actionMemory.reason,
+    hostileCreepCount: actionMemory.hostileCreepCount,
+    hostileStructureCount: actionMemory.hostileStructureCount,
+    damagedCriticalStructureCount: actionMemory.damagedCriticalStructureCount,
+    ...actionMemory.structureId ? { structureId: actionMemory.structureId } : {},
+    ...actionMemory.targetId ? { targetId: actionMemory.targetId } : {},
+    ...typeof actionMemory.result === "number" ? { result: actionMemory.result } : {},
+    tick: actionMemory.tick
+  });
+}
+function buildDefenseTelemetryContext(room) {
+  const criticalStructures = getCriticalStructures(room);
+  return {
+    room,
+    hostileCreeps: findHostileCreeps(room),
+    hostileStructures: findHostileStructures(room),
+    damagedCriticalStructures: criticalStructures.filter(isDamagedStructure)
+  };
+}
+function findHostileCreeps(room) {
+  return findRoomObjects(room, "FIND_HOSTILE_CREEPS");
+}
+function findHostileStructures(room) {
+  return findRoomObjects(room, "FIND_HOSTILE_STRUCTURES");
+}
+function findOwnedStructures(room) {
+  return findRoomObjects(room, "FIND_MY_STRUCTURES");
+}
+function findMyCreeps(room) {
+  return findRoomObjects(room, "FIND_MY_CREEPS");
+}
+function getOwnedTowers(room) {
+  return findOwnedStructures(room).filter(
+    (structure) => matchesStructureType(structure.structureType, "STRUCTURE_TOWER", "tower")
+  );
+}
+function getObjectId(object) {
+  if (typeof object !== "object" || object === null) {
+    return "";
+  }
+  const candidate = object;
+  if (typeof candidate.id === "string") {
+    return candidate.id;
+  }
+  if (typeof candidate.name === "string") {
+    return candidate.name;
+  }
+  return "";
+}
+function compareObjectIds(left, right) {
+  return getObjectId(left).localeCompare(getObjectId(right));
+}
+function getEnergyResource() {
+  const value = globalThis.RESOURCE_ENERGY;
+  return typeof value === "string" ? value : "energy";
+}
+function getGameTime2() {
+  return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
+}
+function recordDefenseActionMemory(action) {
+  var _a, _b, _c;
+  const globalMemory = globalThis.Memory;
+  if (!globalMemory) {
+    return;
+  }
+  const defenseMemory = (_a = globalMemory.defense) != null ? _a : {};
+  const rooms = (_b = defenseMemory.rooms) != null ? _b : {};
+  rooms[action.roomName] = action;
+  defenseMemory.rooms = rooms;
+  defenseMemory.actions = [action, ...(_c = defenseMemory.actions) != null ? _c : []].slice(0, MAX_RECORDED_DEFENSE_ACTIONS);
+  globalMemory.defense = defenseMemory;
+}
+function getCriticalStructures(room) {
+  var _a;
+  const structuresById = /* @__PURE__ */ new Map();
+  for (const structure of findOwnedStructures(room)) {
+    if (isCriticalStructure(structure)) {
+      structuresById.set(getObjectId(structure), structure);
+    }
+  }
+  if (((_a = room.controller) == null ? void 0 : _a.my) === true) {
+    structuresById.set(getObjectId(room.controller), room.controller);
+  }
+  return [...structuresById.values()].sort(compareObjectIds);
+}
+function isCriticalStructure(structure) {
+  return matchesStructureType(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType(structure.structureType, "STRUCTURE_CONTROLLER", "controller") || matchesStructureType(structure.structureType, "STRUCTURE_TOWER", "tower") || matchesStructureType(structure.structureType, "STRUCTURE_RAMPART", "rampart");
+}
+function isDamagedStructure(structure) {
+  return typeof structure.hits === "number" && typeof structure.hitsMax === "number" && structure.hitsMax > 0 && structure.hits < structure.hitsMax * CRITICAL_STRUCTURE_DAMAGE_RATIO;
+}
+function findRoomObjects(room, constantName) {
+  const findConstant = getGlobalNumber(constantName);
+  const find = room.find;
+  if (typeof findConstant !== "number" || typeof find !== "function") {
+    return [];
+  }
+  try {
+    const result = find.call(room, findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
+}
+function matchesStructureType(value, globalName, fallback) {
+  var _a;
+  const expectedValue = (_a = globalThis[globalName]) != null ? _a : fallback;
+  return value === expectedValue;
+}
+function getGlobalNumber(name) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : void 0;
+}
+
 // src/defense/deadZone.ts
 var DEAD_ZONE_MEMORY_TTL = 250;
 var ERR_NO_PATH_CODE = -2;
-function refreshVisibleDeadZoneMemory(gameTime = getGameTime2()) {
+function refreshVisibleDeadZoneMemory(gameTime = getGameTime3()) {
   var _a;
   clearExpiredDeadZoneRooms(gameTime);
   const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
@@ -820,7 +955,7 @@ function refreshVisibleDeadZoneMemory(gameTime = getGameTime2()) {
     refreshVisibleRoomDeadZoneMemory(room, gameTime);
   }
 }
-function refreshVisibleRoomDeadZoneMemory(room, gameTime = getGameTime2()) {
+function refreshVisibleRoomDeadZoneMemory(room, gameTime = getGameTime3()) {
   var _a;
   const assessment = assessVisibleRoomDeadZone(room);
   if (!assessment.unsafe || !assessment.reason) {
@@ -916,8 +1051,8 @@ function isRouteBlockedByKnownDeadZone(fromRoom, targetRoom) {
   return touchedDeadZone && route === getNoPathResultCode();
 }
 function assessVisibleRoomDeadZone(room) {
-  const hostileCreeps = findRoomObjects(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects(room, "FIND_HOSTILE_STRUCTURES");
+  const hostileCreeps = findRoomObjects2(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects2(room, "FIND_HOSTILE_STRUCTURES");
   const hostileTowerCount = hostileStructures.filter(isTowerStructure).length;
   const hostileStructureCount = hostileStructures.length;
   const hostileCreepCount = hostileCreeps.length;
@@ -946,7 +1081,7 @@ function assessVisibleRoomDeadZone(room) {
     hostileTowerCount
   };
 }
-function findRoomObjects(room, constantName) {
+function findRoomObjects2(room, constantName) {
   const findConstant = globalThis[constantName];
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
@@ -980,7 +1115,7 @@ function isDefenseUnsafeRoomMemory(value) {
   const candidate = value;
   return typeof candidate.roomName === "string" && candidate.unsafe === true && (candidate.reason === "enemyTower" || candidate.reason === "hostilePresence") && typeof candidate.updatedAt === "number";
 }
-function isDeadZoneMemoryExpired(roomMemory, gameTime = getGameTime2()) {
+function isDeadZoneMemoryExpired(roomMemory, gameTime = getGameTime3()) {
   return gameTime >= roomMemory.updatedAt && gameTime - roomMemory.updatedAt > DEAD_ZONE_MEMORY_TTL;
 }
 function clearExpiredDeadZoneRooms(gameTime) {
@@ -1014,18 +1149,247 @@ function getNoPathResultCode() {
   const noPathCode = globalThis.ERR_NO_PATH;
   return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE;
 }
-function getGameTime2() {
+function getGameTime3() {
   var _a, _b;
   return typeof ((_a = globalThis.Game) == null ? void 0 : _a.time) === "number" ? (_b = globalThis.Game.time) != null ? _b : 0 : 0;
 }
 
+// src/defense/safeModeManager.ts
+var SAFE_MODE_HOSTILE_COUNT_THRESHOLD = 2;
+var CRITICAL_SPAWN_LOSS_HITS_RATIO = 0.25;
+var OK_CODE = 0;
+function runSafeModeWithResult(room) {
+  var _a;
+  const context = buildDefenseTelemetryContext(room);
+  const events = [];
+  const result = { events, activated: false };
+  if (!shouldActivateSafeMode(context)) {
+    return result;
+  }
+  const controller = context.room.controller;
+  const activationResult = (_a = controller == null ? void 0 : controller.activateSafeMode) == null ? void 0 : _a.call(controller);
+  if (typeof activationResult !== "number") {
+    return result;
+  }
+  recordDefenseAction(
+    {
+      action: "safeMode",
+      context,
+      reason: "safeModeEarlyRoomThreat",
+      result: activationResult,
+      targetId: getObjectId(controller)
+    },
+    events
+  );
+  return {
+    events,
+    activated: activationResult === OK_CODE,
+    result: activationResult
+  };
+}
+function shouldActivateSafeMode(context) {
+  const controller = context.room.controller;
+  if (context.hostileCreeps.length === 0 || (controller == null ? void 0 : controller.my) !== true || typeof controller.activateSafeMode !== "function" || !isSafeModeAvailable(controller)) {
+    return false;
+  }
+  if (isCriticalSpawnLossThreat(context)) {
+    return true;
+  }
+  return context.hostileCreeps.length > SAFE_MODE_HOSTILE_COUNT_THRESHOLD && isControllerUnderAttack(controller, context.hostileCreeps);
+}
+function isSafeModeAvailable(controller) {
+  const available = controller.safeModeAvailable;
+  const cooldown = controller.safeModeCooldown;
+  const active = controller.safeMode;
+  return typeof available === "number" && available > 0 && (typeof cooldown !== "number" || cooldown <= 0) && (typeof active !== "number" || active <= 0);
+}
+function isControllerUnderAttack(controller, hostileCreeps) {
+  if (typeof controller.upgradeBlocked === "number" && controller.upgradeBlocked > 0) {
+    return true;
+  }
+  if (!controller.pos) {
+    return false;
+  }
+  return hostileCreeps.some((hostile) => {
+    var _a, _b;
+    if (!hostile.pos || hostile.pos.roomName !== controller.pos.roomName) {
+      return false;
+    }
+    const range = (_b = (_a = controller.pos).getRangeTo) == null ? void 0 : _b.call(_a, hostile.pos);
+    return typeof range !== "number" || range <= 3;
+  });
+}
+function isCriticalSpawnLossThreat(context) {
+  if (context.hostileCreeps.length === 0) {
+    return false;
+  }
+  const spawns = getOwnedSpawns(context.room);
+  return spawns.length === 0 || spawns.some(isCriticallyDamagedSpawn);
+}
+function getOwnedSpawns(room) {
+  return findOwnedStructures(room).filter(isOwnedSpawn);
+}
+function isOwnedSpawn(structure) {
+  var _a;
+  const spawnType = (_a = globalThis.STRUCTURE_SPAWN) != null ? _a : "spawn";
+  return structure.structureType === spawnType || structure.structureType === "spawn";
+}
+function isCriticallyDamagedSpawn(spawn) {
+  return typeof spawn.hits === "number" && typeof spawn.hitsMax === "number" && spawn.hitsMax > 0 && spawn.hits < spawn.hitsMax * CRITICAL_SPAWN_LOSS_HITS_RATIO;
+}
+
+// src/defense/towerManager.ts
+var TOWER_RECOVERY_ENERGY_RESERVE = 250;
+var OK_CODE2 = 0;
+function runTowersWithResult(room) {
+  const context = buildDefenseTelemetryContext(room);
+  const events = [];
+  const result = {
+    events,
+    attackSucceeded: false,
+    attackingTowerIds: /* @__PURE__ */ new Set(),
+    actedTowerIds: /* @__PURE__ */ new Set()
+  };
+  for (const tower of getUsableTowers(room)) {
+    if (runTowerHeal(tower, context, result)) {
+      continue;
+    }
+    if (hasHostileTarget(context) && runTowerAttack(tower, context, result)) {
+      continue;
+    }
+    runTowerRepair(tower, context, result);
+  }
+  return result;
+}
+function runTowerHeal(tower, context, result) {
+  if (!canSpendTowerEnergyOnRecovery(tower) || typeof tower.heal !== "function") {
+    return false;
+  }
+  const target = selectClosestTarget(tower, findMyCreeps(context.room).filter(isWoundedCreep));
+  if (!target) {
+    return false;
+  }
+  const healResult = tower.heal(target);
+  recordDefenseAction(
+    {
+      action: "towerHeal",
+      context,
+      reason: "criticalStructureDamaged",
+      result: healResult,
+      structureId: getObjectId(tower),
+      targetId: getObjectId(target)
+    },
+    result.events
+  );
+  result.actedTowerIds.add(getObjectId(tower));
+  return healResult === OK_CODE2;
+}
+function runTowerAttack(tower, context, result) {
+  var _a;
+  if (typeof tower.attack !== "function") {
+    return false;
+  }
+  const target = (_a = selectClosestTarget(tower, context.hostileCreeps)) != null ? _a : selectClosestTarget(tower, context.hostileStructures);
+  if (!target) {
+    return false;
+  }
+  const attackResult = tower.attack(target);
+  recordDefenseAction(
+    {
+      action: "towerAttack",
+      context,
+      reason: "hostileVisible",
+      result: attackResult,
+      structureId: getObjectId(tower),
+      targetId: getObjectId(target)
+    },
+    result.events
+  );
+  result.actedTowerIds.add(getObjectId(tower));
+  if (attackResult !== OK_CODE2) {
+    return false;
+  }
+  result.attackSucceeded = true;
+  result.attackingTowerIds.add(getObjectId(tower));
+  return true;
+}
+function runTowerRepair(tower, context, result) {
+  if (!canSpendTowerEnergyOnRecovery(tower) || typeof tower.repair !== "function") {
+    return false;
+  }
+  const target = selectClosestTarget(tower, context.damagedCriticalStructures.filter(isDamagedStructure));
+  if (!target) {
+    return false;
+  }
+  const repairResult = tower.repair(target);
+  recordDefenseAction(
+    {
+      action: "towerRepair",
+      context,
+      reason: "criticalStructureDamaged",
+      result: repairResult,
+      structureId: getObjectId(tower),
+      targetId: getObjectId(target)
+    },
+    result.events
+  );
+  result.actedTowerIds.add(getObjectId(tower));
+  return repairResult === OK_CODE2;
+}
+function hasHostileTarget(context) {
+  return context.hostileCreeps.length > 0 || context.hostileStructures.length > 0;
+}
+function getUsableTowers(room) {
+  return getOwnedTowers(room).filter(hasStoredEnergy).sort(compareObjectIds);
+}
+function hasStoredEnergy(structure) {
+  const usedCapacity = getStoredTowerEnergy(structure);
+  return usedCapacity === null || usedCapacity > 0;
+}
+function canSpendTowerEnergyOnRecovery(structure) {
+  const usedCapacity = getStoredTowerEnergy(structure);
+  return usedCapacity === null || usedCapacity >= TOWER_RECOVERY_ENERGY_RESERVE;
+}
+function getStoredTowerEnergy(structure) {
+  const store = structure.store;
+  if (!store || typeof store.getUsedCapacity !== "function") {
+    return null;
+  }
+  const usedCapacity = store.getUsedCapacity(getEnergyResource());
+  return typeof usedCapacity === "number" ? usedCapacity : null;
+}
+function selectClosestTarget(origin, targets) {
+  const targetsInRange = targets.filter((target) => isTargetInTowerRoom(origin, target));
+  if (targetsInRange.length === 0) {
+    return null;
+  }
+  return [...targetsInRange].sort(
+    (left, right) => compareRange(origin, left, right) || compareObjectIds(left, right)
+  )[0];
+}
+function isTargetInTowerRoom(origin, target) {
+  if (!origin.pos || !target.pos) {
+    return true;
+  }
+  return origin.pos.roomName === target.pos.roomName;
+}
+function compareRange(origin, left, right) {
+  var _a;
+  const getRangeTo = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo !== "function") {
+    return 0;
+  }
+  const leftRange = left.pos ? getRangeTo.call(origin.pos, left.pos) : Infinity;
+  const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
+  return leftRange - rightRange;
+}
+function isWoundedCreep(creep) {
+  return typeof creep.hits === "number" && typeof creep.hitsMax === "number" && creep.hits < creep.hitsMax;
+}
+
 // src/defense/defenseLoop.ts
 var DEFENDER_ROLE = "defender";
-var MAX_RECORDED_DEFENSE_ACTIONS = 20;
-var CRITICAL_STRUCTURE_DAMAGE_RATIO = 0.85;
-var SAFE_MODE_CRITICAL_DAMAGE_RATIO = 0.75;
-var EARLY_ROOM_SAFE_MODE_RCL = 3;
-var OK_CODE = 0;
+var MAX_RECORDED_DEFENSE_ACTIONS2 = 20;
 var ERR_NOT_IN_RANGE_CODE = -9;
 function runDefense() {
   const telemetryEvents = [];
@@ -1038,126 +1402,23 @@ function runDefense() {
   return telemetryEvents;
 }
 function runColonyDefense(context, telemetryEvents) {
-  const towerDefenseResult = runTowerDefense(context, telemetryEvents);
-  const safeModeActivated = activateSafeModeWhenNeeded(
-    context,
-    towerDefenseResult.attackSucceeded,
-    telemetryEvents
-  );
-  if (safeModeActivated) {
+  const towerDefenseResult = runTowersWithResult(context.colony.room);
+  telemetryEvents.push(...towerDefenseResult.events);
+  const safeModeResult = runSafeModeWithResult(context.colony.room);
+  telemetryEvents.push(...safeModeResult.events);
+  if (safeModeResult.activated) {
     return;
   }
-  if (runTowerRecovery(context, telemetryEvents, towerDefenseResult.attackingTowerIds)) {
-    return;
-  }
-  if (towerDefenseResult.attackSucceeded) {
+  if (towerDefenseResult.attackSucceeded || towerDefenseResult.actedTowerIds.size > 0) {
     return;
   }
   recordWorkerFallbackIfNeeded(context, telemetryEvents);
-}
-function runTowerDefense(context, telemetryEvents) {
-  const defenseResult = {
-    attackSucceeded: false,
-    attackingTowerIds: /* @__PURE__ */ new Set()
-  };
-  if (context.hostileCreeps.length === 0 && context.hostileStructures.length === 0) {
-    return defenseResult;
-  }
-  for (const tower of getUsableTowers(context.towers)) {
-    if (typeof tower.attack !== "function") {
-      continue;
-    }
-    const target = selectTowerAttackTarget(tower, context);
-    if (!target) {
-      continue;
-    }
-    const attackResult = tower.attack(target);
-    recordDefenseAction(
-      {
-        action: "towerAttack",
-        context,
-        reason: "hostileVisible",
-        result: attackResult,
-        structureId: getObjectId(tower),
-        targetId: getObjectId(target)
-      },
-      telemetryEvents
-    );
-    if (attackResult === OK_CODE) {
-      defenseResult.attackSucceeded = true;
-      defenseResult.attackingTowerIds.add(getObjectId(tower));
-    }
-  }
-  return defenseResult;
-}
-function activateSafeModeWhenNeeded(context, towerAttackSucceeded, telemetryEvents) {
-  var _a, _b;
-  if (!shouldActivateSafeMode(context, towerAttackSucceeded)) {
-    return false;
-  }
-  const result = (_b = (_a = context.colony.room.controller) == null ? void 0 : _a.activateSafeMode) == null ? void 0 : _b.call(_a);
-  if (typeof result !== "number") {
-    return false;
-  }
-  recordDefenseAction(
-    {
-      action: "safeMode",
-      context,
-      reason: "safeModeEarlyRoomThreat",
-      result,
-      targetId: getObjectId(context.colony.room.controller)
-    },
-    telemetryEvents
-  );
-  return result === OK_CODE;
-}
-function runTowerRecovery(context, telemetryEvents, attackingTowerIds) {
-  let acted = false;
-  for (const tower of getUsableTowers(context.towers)) {
-    if (attackingTowerIds.has(getObjectId(tower))) {
-      continue;
-    }
-    const woundedCreep = selectWoundedFriendlyCreep(context.colony.room, tower);
-    if (woundedCreep && typeof tower.heal === "function") {
-      const result = tower.heal(woundedCreep);
-      recordDefenseAction(
-        {
-          action: "towerHeal",
-          context,
-          reason: "criticalStructureDamaged",
-          result,
-          structureId: getObjectId(tower),
-          targetId: getObjectId(woundedCreep)
-        },
-        telemetryEvents
-      );
-      acted = true;
-      continue;
-    }
-    const repairTarget = selectClosestTarget(tower, context.damagedCriticalStructures);
-    if (repairTarget && typeof tower.repair === "function") {
-      const result = tower.repair(repairTarget);
-      recordDefenseAction(
-        {
-          action: "towerRepair",
-          context,
-          reason: "criticalStructureDamaged",
-          result,
-          structureId: getObjectId(tower),
-          targetId: getObjectId(repairTarget)
-        },
-        telemetryEvents
-      );
-      acted = true;
-    }
-  }
-  return acted;
 }
 function recordWorkerFallbackIfNeeded(context, telemetryEvents) {
   if (!hasDefensePressure(context) || !hasColonyWorker(context.colony.room.name)) {
     return;
   }
-  recordDefenseAction(
+  recordDefenseAction2(
     {
       action: "workerFallback",
       context,
@@ -1212,99 +1473,59 @@ function recordDefenderAction(creep, action, target, result, telemetryEvents) {
     energyAvailable: creep.room.energyAvailable,
     energyCapacityAvailable: creep.room.energyCapacityAvailable
   });
-  recordDefenseAction(
+  recordDefenseAction2(
     {
       action,
       context,
       reason: "hostileVisible",
       result,
       structureId: getCreepName(creep),
-      targetId: getObjectId(target)
+      targetId: getObjectId2(target)
     },
     telemetryEvents
   );
 }
-function shouldActivateSafeMode(context, towerAttackSucceeded) {
-  const controller = context.colony.room.controller;
-  if (context.hostileCreeps.length === 0 || (controller == null ? void 0 : controller.my) !== true || typeof controller.activateSafeMode !== "function" || !isEarlyRoomController(controller) || !isSafeModeAvailable(controller)) {
-    return false;
-  }
-  return context.colony.spawns.length === 0 || !towerAttackSucceeded || context.damagedCriticalStructures.some(isSeverelyDamagedCriticalStructure);
-}
-function isEarlyRoomController(controller) {
-  return typeof controller.level !== "number" || controller.level <= EARLY_ROOM_SAFE_MODE_RCL;
-}
-function isSafeModeAvailable(controller) {
-  const available = controller.safeModeAvailable;
-  const cooldown = controller.safeModeCooldown;
-  const active = controller.safeMode;
-  return typeof available === "number" && available > 0 && (typeof cooldown !== "number" || cooldown <= 0) && (typeof active !== "number" || active <= 0);
-}
 function createDefenseContext(colony) {
-  const criticalStructures = getCriticalStructures(colony);
+  const criticalStructures = getCriticalStructures2(colony);
   return {
     colony,
-    criticalStructures,
-    damagedCriticalStructures: criticalStructures.filter(isDamagedCriticalStructure),
-    hostileCreeps: findHostileCreeps(colony.room),
-    hostileStructures: findHostileStructures(colony.room),
-    towers: getOwnedTowers(colony.room)
+    damagedCriticalStructures: criticalStructures.filter(isDamagedStructure),
+    hostileCreeps: findHostileCreeps2(colony.room),
+    hostileStructures: findHostileStructures2(colony.room)
   };
 }
 function hasDefensePressure(context) {
   return context.hostileCreeps.length > 0 || context.hostileStructures.length > 0 || context.damagedCriticalStructures.length > 0;
 }
-function getCriticalStructures(colony) {
+function getCriticalStructures2(colony) {
   const structuresById = /* @__PURE__ */ new Map();
   for (const spawn of colony.spawns) {
-    structuresById.set(getObjectId(spawn), spawn);
+    structuresById.set(getObjectId2(spawn), spawn);
   }
-  for (const tower of getOwnedTowers(colony.room)) {
-    structuresById.set(getObjectId(tower), tower);
+  for (const tower of getOwnedTowers2(colony.room)) {
+    structuresById.set(getObjectId2(tower), tower);
   }
-  return [...structuresById.values()].sort(compareObjectIds);
+  return [...structuresById.values()].sort(compareObjectIds2);
 }
-function getOwnedTowers(room) {
-  return findOwnedStructures(room).filter(
-    (structure) => matchesStructureType(structure.structureType, "STRUCTURE_TOWER", "tower")
+function getOwnedTowers2(room) {
+  return findOwnedStructures2(room).filter(
+    (structure) => matchesStructureType2(structure.structureType, "STRUCTURE_TOWER", "tower")
   );
 }
-function getUsableTowers(towers) {
-  return towers.filter(hasStoredEnergy).sort(compareObjectIds);
-}
-function hasStoredEnergy(structure) {
-  const store = structure.store;
-  if (!store || typeof store.getUsedCapacity !== "function") {
-    return true;
-  }
-  const usedCapacity = store.getUsedCapacity(getEnergyResource());
-  return typeof usedCapacity !== "number" || usedCapacity > 0;
-}
-function selectWoundedFriendlyCreep(room, tower) {
-  const woundedCreeps = findMyCreeps(room).filter(isWoundedCreep);
-  return selectClosestTarget(tower, woundedCreeps);
-}
-function selectTowerAttackTarget(tower, context) {
-  const hostileCreep = selectClosestTarget(tower, context.hostileCreeps);
-  if (hostileCreep) {
-    return hostileCreep;
-  }
-  return selectClosestTarget(tower, context.hostileStructures);
-}
 function selectDefenderTarget(creep) {
-  const hostileCreep = selectClosestTarget(creep, findHostileCreeps(creep.room));
+  const hostileCreep = selectClosestTarget2(creep, findHostileCreeps2(creep.room));
   if (hostileCreep) {
     return hostileCreep;
   }
-  return selectClosestTarget(creep, findHostileStructures(creep.room));
+  return selectClosestTarget2(creep, findHostileStructures2(creep.room));
 }
-function selectClosestTarget(origin, targets) {
+function selectClosestTarget2(origin, targets) {
   if (targets.length === 0) {
     return null;
   }
-  return [...targets].sort((left, right) => compareRange(origin, left, right) || compareObjectIds(left, right))[0];
+  return [...targets].sort((left, right) => compareRange2(origin, left, right) || compareObjectIds2(left, right))[0];
 }
-function compareRange(origin, left, right) {
+function compareRange2(origin, left, right) {
   var _a;
   const getRangeTo = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
   if (typeof getRangeTo !== "function") {
@@ -1314,28 +1535,16 @@ function compareRange(origin, left, right) {
   const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
 }
-function isDamagedCriticalStructure(structure) {
-  return isStructureBelowHitsRatio(structure, CRITICAL_STRUCTURE_DAMAGE_RATIO);
-}
-function isSeverelyDamagedCriticalStructure(structure) {
-  return isStructureBelowHitsRatio(structure, SAFE_MODE_CRITICAL_DAMAGE_RATIO);
-}
-function isStructureBelowHitsRatio(structure, ratio) {
-  return typeof structure.hits === "number" && typeof structure.hitsMax === "number" && structure.hitsMax > 0 && structure.hits < structure.hitsMax * ratio;
-}
-function isWoundedCreep(creep) {
-  return typeof creep.hits === "number" && typeof creep.hitsMax === "number" && creep.hits < creep.hitsMax;
-}
 function hasColonyWorker(roomName) {
   return Object.values(Game.creeps).some(
     (creep) => creep.memory.role === "worker" && creep.memory.colony === roomName
   );
 }
-function recordDefenseAction(input, telemetryEvents) {
+function recordDefenseAction2(input, telemetryEvents) {
   const actionMemory = {
     type: input.action,
     roomName: input.context.colony.room.name,
-    tick: getGameTime3(),
+    tick: getGameTime4(),
     reason: input.reason,
     hostileCreepCount: input.context.hostileCreeps.length,
     hostileStructureCount: input.context.hostileStructures.length,
@@ -1344,7 +1553,7 @@ function recordDefenseAction(input, telemetryEvents) {
     ...input.targetId ? { targetId: input.targetId } : {},
     ...typeof input.result === "number" ? { result: input.result } : {}
   };
-  recordDefenseActionMemory(actionMemory);
+  recordDefenseActionMemory2(actionMemory);
   telemetryEvents.push({
     type: "defense",
     action: actionMemory.type,
@@ -1359,7 +1568,7 @@ function recordDefenseAction(input, telemetryEvents) {
     tick: actionMemory.tick
   });
 }
-function recordDefenseActionMemory(action) {
+function recordDefenseActionMemory2(action) {
   var _a, _b, _c;
   const globalMemory = globalThis.Memory;
   if (!globalMemory) {
@@ -1369,23 +1578,20 @@ function recordDefenseActionMemory(action) {
   const rooms = (_b = defenseMemory.rooms) != null ? _b : {};
   rooms[action.roomName] = action;
   defenseMemory.rooms = rooms;
-  defenseMemory.actions = [action, ...(_c = defenseMemory.actions) != null ? _c : []].slice(0, MAX_RECORDED_DEFENSE_ACTIONS);
+  defenseMemory.actions = [action, ...(_c = defenseMemory.actions) != null ? _c : []].slice(0, MAX_RECORDED_DEFENSE_ACTIONS2);
   globalMemory.defense = defenseMemory;
 }
-function findHostileCreeps(room) {
-  return findRoomObjects2(room, "FIND_HOSTILE_CREEPS");
+function findHostileCreeps2(room) {
+  return findRoomObjects3(room, "FIND_HOSTILE_CREEPS");
 }
-function findHostileStructures(room) {
-  return findRoomObjects2(room, "FIND_HOSTILE_STRUCTURES");
+function findHostileStructures2(room) {
+  return findRoomObjects3(room, "FIND_HOSTILE_STRUCTURES");
 }
-function findOwnedStructures(room) {
-  return findRoomObjects2(room, "FIND_MY_STRUCTURES");
+function findOwnedStructures2(room) {
+  return findRoomObjects3(room, "FIND_MY_STRUCTURES");
 }
-function findMyCreeps(room) {
-  return findRoomObjects2(room, "FIND_MY_CREEPS");
-}
-function findRoomObjects2(room, constantName) {
-  const findConstant = getGlobalNumber(constantName);
+function findRoomObjects3(room, constantName) {
+  const findConstant = getGlobalNumber2(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
     return [];
@@ -1397,15 +1603,15 @@ function findRoomObjects2(room, constantName) {
     return [];
   }
 }
-function matchesStructureType(value, globalName, fallback) {
+function matchesStructureType2(value, globalName, fallback) {
   var _a;
   const expectedValue = (_a = globalThis[globalName]) != null ? _a : fallback;
   return value === expectedValue;
 }
-function compareObjectIds(left, right) {
-  return getObjectId(left).localeCompare(getObjectId(right));
+function compareObjectIds2(left, right) {
+  return getObjectId2(left).localeCompare(getObjectId2(right));
 }
-function getObjectId(object) {
+function getObjectId2(object) {
   if (typeof object !== "object" || object === null) {
     return "";
   }
@@ -1419,17 +1625,13 @@ function getObjectId(object) {
   return "";
 }
 function getCreepName(creep) {
-  return typeof creep.name === "string" ? creep.name : getObjectId(creep);
+  return typeof creep.name === "string" ? creep.name : getObjectId2(creep);
 }
-function getGlobalNumber(name) {
+function getGlobalNumber2(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
-function getEnergyResource() {
-  const value = globalThis.RESOURCE_ENERGY;
-  return typeof value === "string" ? value : "energy";
-}
-function getGameTime3() {
+function getGameTime4() {
   return typeof Game.time === "number" ? Game.time : 0;
 }
 
@@ -1593,8 +1795,6 @@ var MID_RCL_WORKER_PATTERN = ["work", "work", "carry", "move", "move"];
 var MID_RCL_WORKER_PATTERN_COST = 350;
 var HIGH_RCL_WORKER_PATTERN = ["work", "work", "work", "carry", "move", "move"];
 var HIGH_RCL_WORKER_PATTERN_COST = 450;
-var EMERGENCY_DEFENDER_BODY = ["tough", "attack", "move"];
-var EMERGENCY_DEFENDER_BODY_COST = 140;
 var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST = 50;
 var TERRITORY_RESERVER_BODY = ["claim", "move"];
@@ -1709,12 +1909,6 @@ function buildEmergencyWorkerBody(energyAvailable) {
     return [];
   }
   return [...WORKER_PATTERN];
-}
-function buildEmergencyDefenderBody(energyAvailable) {
-  if (energyAvailable < EMERGENCY_DEFENDER_BODY_COST) {
-    return [];
-  }
-  return [...EMERGENCY_DEFENDER_BODY];
 }
 function buildTerritoryControllerBody(energyAvailable) {
   return buildTerritoryClaimerBody(energyAvailable);
@@ -1881,13 +2075,13 @@ function getWorkerTarget(colony, roleCounts) {
   }
   return Math.min(MAX_WORKER_TARGET, firstBonusTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
 }
-function recordColonySurvivalAssessment(colonyName, assessment, tick = getGameTime4()) {
+function recordColonySurvivalAssessment(colonyName, assessment, tick = getGameTime5()) {
   if (!isNonEmptyString2(colonyName) || tick === null) {
     return;
   }
   stageAssessmentByColony.set(colonyName, { assessment, tick });
 }
-function persistColonyStageAssessment(colony, assessment, tick = getGameTime4()) {
+function persistColonyStageAssessment(colony, assessment, tick = getGameTime5()) {
   if (tick === null) {
     return;
   }
@@ -1898,14 +2092,14 @@ function persistColonyStageAssessment(colony, assessment, tick = getGameTime4())
     ...assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {}
   };
 }
-function getRecordedColonySurvivalAssessment(colonyName, tick = getGameTime4()) {
+function getRecordedColonySurvivalAssessment(colonyName, tick = getGameTime5()) {
   if (!isNonEmptyString2(colonyName) || tick === null) {
     return null;
   }
   const cached = stageAssessmentByColony.get(colonyName);
   return (cached == null ? void 0 : cached.tick) === tick ? cached.assessment : null;
 }
-function getRecordedColonyStageAssessment(colonyName, tick = getGameTime4()) {
+function getRecordedColonyStageAssessment(colonyName, tick = getGameTime5()) {
   return getRecordedColonySurvivalAssessment(colonyName, tick);
 }
 function clearColonySurvivalAssessmentCache() {
@@ -2010,7 +2204,7 @@ function findSources(room) {
   if (typeof room.find !== "function") {
     return [{}];
   }
-  const sourceFindConstant = getGlobalNumber2("FIND_SOURCES");
+  const sourceFindConstant = getGlobalNumber3("FIND_SOURCES");
   if (sourceFindConstant === void 0) {
     return [{}];
   }
@@ -2020,13 +2214,13 @@ function countRoomFind(room, constantName) {
   if (typeof room.find !== "function") {
     return 0;
   }
-  const findConstant = getGlobalNumber2(constantName);
+  const findConstant = getGlobalNumber3(constantName);
   if (findConstant === void 0) {
     return 0;
   }
   return room.find(findConstant).length;
 }
-function getGlobalNumber2(name) {
+function getGlobalNumber3(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
@@ -2061,7 +2255,7 @@ function getWritableColonyMemory(colony) {
 function isColonyStage(value) {
   return value === "BOOTSTRAP" || value === "LOCAL_STABLE" || value === "TERRITORY_READY" || value === "DEFENSE";
 }
-function getGameTime4() {
+function getGameTime5() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : null;
@@ -2284,13 +2478,13 @@ function getRoomPositionKey(position) {
   return `${(_a = position.roomName) != null ? _a : ""}:${position.x}:${position.y}`;
 }
 function findOwnedSpawnPositions(room) {
-  return findRoomObjects3(room, "FIND_MY_STRUCTURES").filter(
-    (structure) => matchesStructureType2(structure.structureType, "STRUCTURE_SPAWN", "spawn")
+  return findRoomObjects4(room, "FIND_MY_STRUCTURES").filter(
+    (structure) => matchesStructureType3(structure.structureType, "STRUCTURE_SPAWN", "spawn")
   ).map((spawn) => spawn.pos).filter((position) => isSameRoomPosition(position, room.name));
 }
 function findLogisticsTargetPositions(room) {
   var _a;
-  const sourcePositions = findRoomObjects3(room, "FIND_SOURCES").map((source) => source.pos).filter((position) => isSameRoomPosition(position, room.name));
+  const sourcePositions = findRoomObjects4(room, "FIND_SOURCES").map((source) => source.pos).filter((position) => isSameRoomPosition(position, room.name));
   const controllerPositions = isSameRoomPosition((_a = room.controller) == null ? void 0 : _a.pos, room.name) ? [room.controller.pos] : [];
   return { controllerPositions, sourcePositions, targetPositions: [...sourcePositions, ...controllerPositions] };
 }
@@ -2372,7 +2566,7 @@ function findRemoteTerritoryLogisticsAnchorPositions(room, targetPositions) {
   }
   return targetPositions.slice(0, 1);
 }
-function findRoomObjects3(room, constantName) {
+function findRoomObjects4(room, constantName) {
   const findConstant = globalThis[constantName];
   if (typeof findConstant !== "number" || typeof room.find !== "function") {
     return [];
@@ -2385,7 +2579,7 @@ function findRoomObjects3(room, constantName) {
   }
 }
 function isRoadWorkTarget(target) {
-  return matchesStructureType2(target.structureType, "STRUCTURE_ROAD", "road");
+  return matchesStructureType3(target.structureType, "STRUCTURE_ROAD", "road");
 }
 function isRemoteTerritoryLogisticsRoom(room) {
   var _a;
@@ -2480,7 +2674,7 @@ function isRecord2(value) {
 function isNonEmptyString3(value) {
   return typeof value === "string" && value.length > 0;
 }
-function matchesStructureType2(actual, globalName, fallback) {
+function matchesStructureType3(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -2758,12 +2952,12 @@ function isTerrainWall2(terrain, position) {
   return (terrain.get(position.x, position.y) & getTerrainWallMask2()) !== 0;
 }
 function isRoadStructure(structure) {
-  return matchesStructureType3(structure.structureType, "STRUCTURE_ROAD", "road");
+  return matchesStructureType4(structure.structureType, "STRUCTURE_ROAD", "road");
 }
 function isRoadConstructionSite(site) {
-  return matchesStructureType3(site.structureType, "STRUCTURE_ROAD", "road");
+  return matchesStructureType4(site.structureType, "STRUCTURE_ROAD", "road");
 }
-function matchesStructureType3(actual, globalName, fallback) {
+function matchesStructureType4(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -2928,22 +3122,22 @@ function selectNextPrimaryConstruction(candidates) {
   return (_a = candidates.find((candidate) => !candidate.blocked)) != null ? _a : candidates[0];
 }
 function getConstructionSiteImpactPriority(site, context = {}) {
-  if (matchesStructureType4(site.structureType, "STRUCTURE_EXTENSION", "extension")) {
+  if (matchesStructureType5(site.structureType, "STRUCTURE_EXTENSION", "extension")) {
     return CONSTRUCTION_SITE_IMPACT_PRIORITY.extension;
   }
-  if (matchesStructureType4(site.structureType, "STRUCTURE_SPAWN", "spawn")) {
+  if (matchesStructureType5(site.structureType, "STRUCTURE_SPAWN", "spawn")) {
     return isClaimedRoomConstructionSite(site, context) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.claimedRoomSpawn : CONSTRUCTION_SITE_IMPACT_PRIORITY.spawn;
   }
-  if (matchesStructureType4(site.structureType, "STRUCTURE_CONTAINER", "container")) {
+  if (matchesStructureType5(site.structureType, "STRUCTURE_CONTAINER", "container")) {
     return isSourceContainerConstructionSite(site, context) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.sourceContainer : CONSTRUCTION_SITE_IMPACT_PRIORITY.container;
   }
-  if (matchesStructureType4(site.structureType, "STRUCTURE_ROAD", "road")) {
+  if (matchesStructureType5(site.structureType, "STRUCTURE_ROAD", "road")) {
     return context.criticalRoadContext && isCriticalRoadLogisticsWork(site, context.criticalRoadContext) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad : CONSTRUCTION_SITE_IMPACT_PRIORITY.road;
   }
-  if (matchesStructureType4(site.structureType, "STRUCTURE_TOWER", "tower")) {
+  if (matchesStructureType5(site.structureType, "STRUCTURE_TOWER", "tower")) {
     return CONSTRUCTION_SITE_IMPACT_PRIORITY.tower;
   }
-  if (matchesStructureType4(site.structureType, "STRUCTURE_RAMPART", "rampart")) {
+  if (matchesStructureType5(site.structureType, "STRUCTURE_RAMPART", "rampart")) {
     return isProtectedRampartConstructionSite(site, context) ? CONSTRUCTION_SITE_IMPACT_PRIORITY.protectedRampart : CONSTRUCTION_SITE_IMPACT_PRIORITY.rampart;
   }
   if (isWallConstructionSite(site)) {
@@ -3018,12 +3212,12 @@ function hasRequiredFixedStructurePlannerApis(room) {
   return typeof partialRoom.find === "function" && typeof partialRoom.lookForAtArea === "function" && typeof partialRoom.createConstructionSite === "function";
 }
 function countExistingAndPendingFixedStructures(room, globalName, fallback) {
-  const ownedStructures = findRoomObjects4(room, "FIND_MY_STRUCTURES");
-  const ownedConstructionSites = findRoomObjects4(room, "FIND_MY_CONSTRUCTION_SITES");
+  const ownedStructures = findRoomObjects5(room, "FIND_MY_STRUCTURES");
+  const ownedConstructionSites = findRoomObjects5(room, "FIND_MY_CONSTRUCTION_SITES");
   if (ownedStructures === null || ownedConstructionSites === null) {
     return null;
   }
-  return ownedStructures.filter((structure) => matchesStructureType4(structure.structureType, globalName, fallback)).length + ownedConstructionSites.filter((site) => matchesStructureType4(String(site.structureType), globalName, fallback)).length;
+  return ownedStructures.filter((structure) => matchesStructureType5(structure.structureType, globalName, fallback)).length + ownedConstructionSites.filter((site) => matchesStructureType5(String(site.structureType), globalName, fallback)).length;
 }
 function selectFixedStructureAnchor(colony) {
   var _a;
@@ -3154,7 +3348,7 @@ function isProtectedRampartConstructionSite(site, context) {
   });
 }
 function isWallConstructionSite(site) {
-  return matchesStructureType4(site.structureType, "STRUCTURE_WALL", "constructedWall") || String(site.structureType) === "wall";
+  return matchesStructureType5(site.structureType, "STRUCTURE_WALL", "constructedWall") || String(site.structureType) === "wall";
 }
 function getRoomObjectPosition(object) {
   const position = object == null ? void 0 : object.pos;
@@ -3504,12 +3698,12 @@ function clampScore(score) {
 function buildRuntimeConstructionPriorityState(colony, creeps) {
   var _a, _b, _c;
   const room = colony.room;
-  const ownedConstructionSites = findRoomObjects4(room, "FIND_MY_CONSTRUCTION_SITES");
-  const ownedStructures = findRoomObjects4(room, "FIND_MY_STRUCTURES");
-  const visibleStructures = findRoomObjects4(room, "FIND_STRUCTURES");
-  const hostileCreeps = findRoomObjects4(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects4(room, "FIND_HOSTILE_STRUCTURES");
-  const sources = findRoomObjects4(room, "FIND_SOURCES");
+  const ownedConstructionSites = findRoomObjects5(room, "FIND_MY_CONSTRUCTION_SITES");
+  const ownedStructures = findRoomObjects5(room, "FIND_MY_STRUCTURES");
+  const visibleStructures = findRoomObjects5(room, "FIND_STRUCTURES");
+  const hostileCreeps = findRoomObjects5(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects5(room, "FIND_HOSTILE_STRUCTURES");
+  const sources = findRoomObjects5(room, "FIND_SOURCES");
   const colonyWorkers = creeps.filter((creep) => {
     var _a2, _b2;
     return ((_a2 = creep.memory) == null ? void 0 : _a2.role) === "worker" && ((_b2 = creep.memory) == null ? void 0 : _b2.colony) === room.name;
@@ -3622,7 +3816,7 @@ function getExistingAndPendingBuildCount(state, globalName, fallback) {
   const existingStructures = countStructuresByType(state.ownedStructures, globalName, fallback);
   const existingCount = existingStructures != null ? existingStructures : globalName === "STRUCTURE_TOWER" && fallback === "tower" ? (_a = state.towerCount) != null ? _a : 0 : 0;
   const pendingCount = ((_b = state.ownedConstructionSites) != null ? _b : []).filter(
-    (site) => matchesStructureType4(String(site.structureType), globalName, fallback)
+    (site) => matchesStructureType5(String(site.structureType), globalName, fallback)
   ).length;
   return existingCount + pendingCount;
 }
@@ -3775,25 +3969,25 @@ function createCandidateForBuildType(buildType, state) {
   }
 }
 function mapStructureTypeToBuildType(structureType) {
-  if (matchesStructureType4(structureType, "STRUCTURE_SPAWN", "spawn")) {
+  if (matchesStructureType5(structureType, "STRUCTURE_SPAWN", "spawn")) {
     return "spawn";
   }
-  if (matchesStructureType4(structureType, "STRUCTURE_EXTENSION", "extension")) {
+  if (matchesStructureType5(structureType, "STRUCTURE_EXTENSION", "extension")) {
     return "extension";
   }
-  if (matchesStructureType4(structureType, "STRUCTURE_TOWER", "tower")) {
+  if (matchesStructureType5(structureType, "STRUCTURE_TOWER", "tower")) {
     return "tower";
   }
-  if (matchesStructureType4(structureType, "STRUCTURE_RAMPART", "rampart")) {
+  if (matchesStructureType5(structureType, "STRUCTURE_RAMPART", "rampart")) {
     return "rampart";
   }
-  if (matchesStructureType4(structureType, "STRUCTURE_ROAD", "road")) {
+  if (matchesStructureType5(structureType, "STRUCTURE_ROAD", "road")) {
     return "road";
   }
-  if (matchesStructureType4(structureType, "STRUCTURE_CONTAINER", "container")) {
+  if (matchesStructureType5(structureType, "STRUCTURE_CONTAINER", "container")) {
     return "container";
   }
-  if (matchesStructureType4(structureType, "STRUCTURE_STORAGE", "storage")) {
+  if (matchesStructureType5(structureType, "STRUCTURE_STORAGE", "storage")) {
     return "storage";
   }
   return "observation";
@@ -3804,7 +3998,7 @@ function getConstructionSiteRemainingProgress(site) {
   const progress = typeof site.progress === "number" ? site.progress : 0;
   return Math.max(0, progressTotal - progress);
 }
-function findRoomObjects4(room, constantName) {
+function findRoomObjects5(room, constantName) {
   const findConstant = getFindConstant(constantName);
   if (findConstant === null || typeof room.find !== "function") {
     return null;
@@ -3821,7 +4015,7 @@ function getFindConstant(constantName) {
   return typeof findConstant === "number" ? findConstant : null;
 }
 function countStructuresByType(structures, globalName, fallback) {
-  return structures == null ? void 0 : structures.filter((structure) => matchesStructureType4(structure.structureType, globalName, fallback)).length;
+  return structures == null ? void 0 : structures.filter((structure) => matchesStructureType5(structure.structureType, globalName, fallback)).length;
 }
 function summarizeRepairSignals(structures, criticalRoadContext) {
   if (structures === null) {
@@ -3832,7 +4026,7 @@ function summarizeRepairSignals(structures, criticalRoadContext) {
       if (!isRepairSignalStructure(structure) || !hasHits(structure)) {
         return summary;
       }
-      if (matchesStructureType4(structure.structureType, "STRUCTURE_ROAD", "road") && !isCriticalRoadLogisticsWork(structure, criticalRoadContext)) {
+      if (matchesStructureType5(structure.structureType, "STRUCTURE_ROAD", "road") && !isCriticalRoadLogisticsWork(structure, criticalRoadContext)) {
         return summary;
       }
       const hitsRatio = structure.hitsMax > 0 ? structure.hits / structure.hitsMax : 1;
@@ -3847,10 +4041,10 @@ function summarizeRepairSignals(structures, criticalRoadContext) {
   );
 }
 function isRepairSignalStructure(structure) {
-  if (matchesStructureType4(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType4(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+  if (matchesStructureType5(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
     return true;
   }
-  return matchesStructureType4(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true && structure.hits <= IDLE_RAMPART_REPAIR_HITS_CEILING;
+  return matchesStructureType5(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true && structure.hits <= IDLE_RAMPART_REPAIR_HITS_CEILING;
 }
 function hasHits(structure) {
   return typeof structure.hits === "number" && typeof structure.hitsMax === "number";
@@ -3882,7 +4076,7 @@ function countTerritoryIntents(roomName) {
 function isRecord3(value) {
   return typeof value === "object" && value !== null;
 }
-function matchesStructureType4(actual, globalName, fallback) {
+function matchesStructureType5(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -3929,7 +4123,7 @@ function findSourceContainerConstructionSite(room, source) {
   return (_a = sites.sort((left, right) => compareSourceContainerSites(sourcePosition, left, right))[0]) != null ? _a : null;
 }
 function isContainerStructure(structure) {
-  return matchesStructureType5(structure.structureType, "STRUCTURE_CONTAINER", "container");
+  return matchesStructureType6(structure.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function getRangeBetweenPositions3(left, right) {
   return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
@@ -3966,13 +4160,13 @@ function compareNumbers(left, right) {
 function isRoomPosition(value) {
   return typeof value === "object" && value !== null && typeof value.x === "number" && typeof value.y === "number" && Number.isFinite(value.x) && Number.isFinite(value.y);
 }
-function matchesStructureType5(actual, globalName, fallback) {
+function matchesStructureType6(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
 }
 function isContainerConstructionSite(site) {
-  return matchesStructureType5(site.structureType, "STRUCTURE_CONTAINER", "container");
+  return matchesStructureType6(site.structureType, "STRUCTURE_CONTAINER", "container");
 }
 
 // src/construction/sourceContainerPlanner.ts
@@ -4301,7 +4495,7 @@ function scoreOccupationRecommendations(input) {
     input.colonyName
   );
 }
-function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGameTime5()) {
+function persistOccupationRecommendationFollowUpIntent(report, gameTime = getGameTime6()) {
   var _a, _b;
   const followUpIntent = report.followUpIntent;
   if (!followUpIntent) {
@@ -4519,11 +4713,11 @@ function enrichVisibleOccupationCandidate(candidate) {
   if (!room) {
     return candidate;
   }
-  const hostileCreeps = findRoomObjects5(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects5(room, "FIND_HOSTILE_STRUCTURES");
-  const sources = findRoomObjects5(room, "FIND_SOURCES");
-  const constructionSites = findRoomObjects5(room, "FIND_MY_CONSTRUCTION_SITES");
-  const ownedStructures = findRoomObjects5(room, "FIND_MY_STRUCTURES");
+  const hostileCreeps = findRoomObjects6(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects6(room, "FIND_HOSTILE_STRUCTURES");
+  const sources = findRoomObjects6(room, "FIND_SOURCES");
+  const constructionSites = findRoomObjects6(room, "FIND_MY_CONSTRUCTION_SITES");
+  const ownedStructures = findRoomObjects6(room, "FIND_MY_STRUCTURES");
   const controllerId = (_b = room.controller) == null ? void 0 : _b.id;
   return {
     ...candidate,
@@ -4826,8 +5020,8 @@ function getVisibleOwnedRoomNames(fallbackRoomName) {
   }
   return Array.from(roomNames);
 }
-function findRoomObjects5(room, constantName) {
-  const findConstant = getGlobalNumber3(constantName);
+function findRoomObjects6(room, constantName) {
+  const findConstant = getGlobalNumber4(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
     return void 0;
@@ -4839,7 +5033,7 @@ function findRoomObjects5(room, constantName) {
     return void 0;
   }
 }
-function getGlobalNumber3(name) {
+function getGlobalNumber4(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
@@ -4862,7 +5056,7 @@ function getGameRooms() {
   var _a;
   return (_a = globalThis.Game) == null ? void 0 : _a.rooms;
 }
-function getGameTime5() {
+function getGameTime6() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -4968,7 +5162,7 @@ function isFiniteNumber4(value) {
 var OCCUPIED_CONTROLLER_SIGN_TEXT = "by Hermes Screeps Project";
 var ERR_NOT_IN_RANGE_CODE2 = -9;
 var ERR_TIRED_CODE = -11;
-var OK_CODE2 = 0;
+var OK_CODE3 = 0;
 function shouldSignOccupiedController(controller) {
   var _a;
   return (controller == null ? void 0 : controller.my) === true && ((_a = controller.sign) == null ? void 0 : _a.text) !== OCCUPIED_CONTROLLER_SIGN_TEXT;
@@ -4983,9 +5177,9 @@ function signOccupiedControllerIfNeeded(creep, controller) {
       return "blocked";
     }
     const moveResult = creep.moveTo(controller);
-    return moveResult === OK_CODE2 || moveResult === ERR_TIRED_CODE ? "moving" : "blocked";
+    return moveResult === OK_CODE3 || moveResult === ERR_TIRED_CODE ? "moving" : "blocked";
   }
-  return result === OK_CODE2 ? "signed" : "skipped";
+  return result === OK_CODE3 ? "signed" : "skipped";
 }
 
 // src/territory/territoryPlanner.ts
@@ -5054,7 +5248,7 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options
   );
   return plan;
 }
-function recordRecoveredTerritoryFollowUpRetryCooldown(plan, gameTime = getGameTime6()) {
+function recordRecoveredTerritoryFollowUpRetryCooldown(plan, gameTime = getGameTime7()) {
   if (!plan || !plan.followUp || !isTerritoryControlAction3(plan.action)) {
     return;
   }
@@ -5086,7 +5280,7 @@ function recordRecoveredTerritoryFollowUpRetryCooldown(plan, gameTime = getGameT
   removeTerritoryFollowUpDemand(territoryMemory, plan.colony, plan.targetRoom, plan.action);
   removeTerritoryFollowUpExecutionHint(territoryMemory, plan.colony, plan.targetRoom, plan.action);
 }
-function shouldSpawnTerritoryControllerCreep(plan, roleCounts, gameTime = getGameTime6()) {
+function shouldSpawnTerritoryControllerCreep(plan, roleCounts, gameTime = getGameTime7()) {
   if (isKnownDeadZoneRoom(plan.targetRoom)) {
     return false;
   }
@@ -5129,7 +5323,7 @@ function isTerritoryIntentPlanSpawnCapable(plan) {
   const energyCapacityAvailable = (_a = getVisibleRoom(plan.colony)) == null ? void 0 : _a.energyCapacityAvailable;
   return typeof energyCapacityAvailable !== "number" || energyCapacityAvailable >= TERRITORY_CONTROLLER_PRESSURE_BODY_COST;
 }
-function getTerritoryFollowUpPreparationWorkerDemand(plan, gameTime = getGameTime6()) {
+function getTerritoryFollowUpPreparationWorkerDemand(plan, gameTime = getGameTime7()) {
   var _a;
   if (!plan || !isTerritoryControlAction3(plan.action)) {
     return 0;
@@ -5151,7 +5345,7 @@ function getTerritoryFollowUpPreparationWorkerDemand(plan, gameTime = getGameTim
   const demand = getCurrentTerritoryFollowUpDemand(plan, gameTime);
   return (_a = demand == null ? void 0 : demand.workerCount) != null ? _a : 0;
 }
-function hasActiveTerritoryFollowUpPreparationDemand(colony, gameTime = getGameTime6()) {
+function hasActiveTerritoryFollowUpPreparationDemand(colony, gameTime = getGameTime7()) {
   if (!isNonEmptyString6(colony)) {
     return false;
   }
@@ -5163,7 +5357,7 @@ function hasActiveTerritoryFollowUpPreparationDemand(colony, gameTime = getGameT
     (demand) => demand.updatedAt === gameTime && demand.colony === colony && demand.workerCount > 0
   );
 }
-function hasPendingTerritoryFollowUpIntent(colony, roleCounts, gameTime = getGameTime6()) {
+function hasPendingTerritoryFollowUpIntent(colony, roleCounts, gameTime = getGameTime7()) {
   if (!isNonEmptyString6(colony)) {
     return false;
   }
@@ -5199,7 +5393,7 @@ function getTerritoryIntentProgressSummaries(colony, roleCounts) {
   if (!territoryMemory) {
     return [];
   }
-  const gameTime = getGameTime6();
+  const gameTime = getGameTime7();
   return normalizeTerritoryIntents(territoryMemory.intents).filter(
     (intent) => isTerritoryIntentProgressVisibleForColony(intent, colony, gameTime)
   ).map((intent) => {
@@ -5218,7 +5412,7 @@ function getTerritoryIntentProgressSummaries(colony, roleCounts) {
     };
   }).sort(compareTerritoryIntentProgressSummaries);
 }
-function getSuspendedTerritoryIntentCountsByRoom(colony, gameTime = getGameTime6()) {
+function getSuspendedTerritoryIntentCountsByRoom(colony, gameTime = getGameTime7()) {
   var _a;
   if (!isNonEmptyString6(colony)) {
     return {};
@@ -5511,7 +5705,7 @@ function recordAutonomousExpansionClaimReserveFallbackIntent(colony, evaluation,
     gameTime
   );
 }
-function refreshRemoteMiningSetup(colony, gameTime = getGameTime6()) {
+function refreshRemoteMiningSetup(colony, gameTime = getGameTime7()) {
   var _a, _b, _c, _d;
   const territoryMemory = getWritableTerritoryMemoryRecord2();
   if (!territoryMemory) {
@@ -7484,7 +7678,7 @@ function hasActiveTerritoryFollowUpIntentForColony(intents, colony) {
   return intents.some((intent) => intent.colony === colony && isActiveTerritoryFollowUpIntent(intent));
 }
 function isActiveTerritoryFollowUpIntent(intent) {
-  return (intent.status === "planned" || intent.status === "active") && intent.followUp !== void 0 && !isTerritoryIntentSuspensionActive(intent, getGameTime6());
+  return (intent.status === "planned" || intent.status === "active") && intent.followUp !== void 0 && !isTerritoryIntentSuspensionActive(intent, getGameTime7());
 }
 function buildTerritoryFollowUpExecutionHint(plan, gameTime) {
   if (!plan.followUp) {
@@ -7638,7 +7832,7 @@ function withoutTerritoryIntentSuspension(intent) {
 function isHostileTerritoryIntentSuspensionCoolingDown(suspension, gameTime) {
   return gameTime - suspension.updatedAt <= TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS;
 }
-function isTerritoryIntentSuspended(colony, targetRoom, action, gameTime = getGameTime6()) {
+function isTerritoryIntentSuspended(colony, targetRoom, action, gameTime = getGameTime7()) {
   const territoryMemory = getTerritoryMemoryRecord3();
   if (!territoryMemory) {
     return false;
@@ -7681,7 +7875,7 @@ function isSuppressedTerritoryIntentForAction(intents, colony, targetRoom, actio
     (intent) => isTerritorySuppressionFresh2(intent, gameTime) && intent.colony === colony && intent.targetRoom === targetRoom && intent.action === action
   );
 }
-function isTerritoryIntentSuppressed(colony, targetRoom, action, gameTime = getGameTime6()) {
+function isTerritoryIntentSuppressed(colony, targetRoom, action, gameTime = getGameTime7()) {
   const territoryMemory = getTerritoryMemoryRecord3();
   if (!territoryMemory) {
     return false;
@@ -7734,7 +7928,7 @@ function normalizeCreepTerritoryIntent(creep, roomName) {
     targetRoom: assignment.targetRoom,
     action: assignment.action,
     status: "active",
-    updatedAt: getGameTime6(),
+    updatedAt: getGameTime7(),
     ...assignment.controllerId ? { controllerId: assignment.controllerId } : {},
     ...followUp ? { followUp } : {}
   };
@@ -8041,7 +8235,7 @@ function getVisibleController2(targetRoom, controllerId) {
   }
   return null;
 }
-function getGameTime6() {
+function getGameTime7() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -8315,17 +8509,17 @@ function getRoomStorage(room) {
     return room.storage;
   }
   return (_a = findRoomStructures(room).filter(
-    (structure) => matchesStructureType6(structure.structureType, "STRUCTURE_STORAGE", "storage")
+    (structure) => matchesStructureType7(structure.structureType, "STRUCTURE_STORAGE", "storage")
   )[0]) != null ? _a : null;
 }
 function findRoomStructures(room) {
   const seenIds = /* @__PURE__ */ new Set();
   const structures = [];
   for (const structure of [
-    ...findRoomObjects6(room, "FIND_MY_STRUCTURES"),
-    ...findRoomObjects6(room, "FIND_STRUCTURES")
+    ...findRoomObjects7(room, "FIND_MY_STRUCTURES"),
+    ...findRoomObjects7(room, "FIND_STRUCTURES")
   ]) {
-    const stableId = getObjectId2(structure);
+    const stableId = getObjectId3(structure);
     if (stableId && seenIds.has(stableId)) {
       continue;
     }
@@ -8336,7 +8530,7 @@ function findRoomStructures(room) {
   }
   return structures;
 }
-function findRoomObjects6(room, globalName) {
+function findRoomObjects7(room, globalName) {
   const findConstant = globalThis[globalName];
   if (typeof findConstant !== "number" || typeof room.find !== "function") {
     return [];
@@ -8374,7 +8568,7 @@ function normalizeEnergyAmount(amount) {
 function getRoomName2(room) {
   return typeof room.name === "string" ? room.name : "";
 }
-function getObjectId2(object) {
+function getObjectId3(object) {
   if (typeof object !== "object" || object === null) {
     return "";
   }
@@ -8384,7 +8578,7 @@ function getObjectId2(object) {
   }
   return typeof candidate.name === "string" ? candidate.name : "";
 }
-function matchesStructureType6(actual, globalName, fallback) {
+function matchesStructureType7(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -8394,7 +8588,7 @@ function matchesStructureType6(actual, globalName, fallback) {
 var SOURCE_LINK_RANGE = 2;
 var CONTROLLER_LINK_RANGE = 3;
 var STORAGE_LINK_RANGE = 2;
-var OK_CODE3 = 0;
+var OK_CODE4 = 0;
 function transferEnergy(room) {
   var _a, _b, _c, _d;
   const network = classifyLinks(room);
@@ -8415,8 +8609,8 @@ function transferEnergy(room) {
     if (!destination) {
       continue;
     }
-    const sourceId = getObjectId3(sourceLink);
-    const destinationId = getObjectId3(destination.link);
+    const sourceId = getObjectId4(sourceLink);
+    const destinationId = getObjectId4(destination.link);
     const amount = Math.min(
       (_a = projectedState.storedEnergyById.get(sourceId)) != null ? _a : 0,
       (_b = projectedState.freeCapacityById.get(destinationId)) != null ? _b : 0
@@ -8432,7 +8626,7 @@ function transferEnergy(room) {
       result,
       sourceId
     });
-    if (result === OK_CODE3) {
+    if (result === OK_CODE4) {
       projectedState.storedEnergyById.set(sourceId, Math.max(0, ((_c = projectedState.storedEnergyById.get(sourceId)) != null ? _c : 0) - amount));
       projectedState.freeCapacityById.set(
         destinationId,
@@ -8447,7 +8641,7 @@ function classifyLinks(room) {
   const controllerLink = selectControllerLink(room, links);
   const storageLink = selectStorageLink(room, links, controllerLink);
   const destinationIds = new Set(
-    [controllerLink, storageLink].filter((link) => link !== null).map((link) => getObjectId3(link))
+    [controllerLink, storageLink].filter((link) => link !== null).map((link) => getObjectId4(link))
   );
   return {
     links,
@@ -8457,15 +8651,15 @@ function classifyLinks(room) {
   };
 }
 function isSourceLink(room, link) {
-  const linkId = getObjectId3(link);
-  return linkId !== "" && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId3(sourceLink) === linkId);
+  const linkId = getObjectId4(link);
+  return linkId !== "" && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId4(sourceLink) === linkId);
 }
 function getDestinationLinks(network) {
   const destinations = [];
   if (network.controllerLink) {
     destinations.push({ link: network.controllerLink, role: "controller" });
   }
-  if (network.storageLink && getObjectId3(network.storageLink) !== getObjectId3(network.controllerLink)) {
+  if (network.storageLink && getObjectId4(network.storageLink) !== getObjectId4(network.controllerLink)) {
     destinations.push({ link: network.storageLink, role: "storage" });
   }
   return destinations;
@@ -8475,28 +8669,28 @@ function transferLinkEnergy(sourceLink, destinationLink, amount) {
 }
 function selectDestinationLink(sourceLink, destinationLinks, projectedState) {
   var _a;
-  const sourceId = getObjectId3(sourceLink);
+  const sourceId = getObjectId4(sourceLink);
   return (_a = destinationLinks.find((destination) => {
     var _a2;
-    const destinationId = getObjectId3(destination.link);
+    const destinationId = getObjectId4(destination.link);
     return destinationId !== sourceId && ((_a2 = projectedState.freeCapacityById.get(destinationId)) != null ? _a2 : 0) > 0;
   })) != null ? _a : null;
 }
 function canLinkSendEnergy(link, projectedState) {
   var _a;
-  return getLinkCooldown(link) <= 0 && ((_a = projectedState.storedEnergyById.get(getObjectId3(link))) != null ? _a : 0) > 0;
+  return getLinkCooldown(link) <= 0 && ((_a = projectedState.storedEnergyById.get(getObjectId4(link))) != null ? _a : 0) > 0;
 }
 function createProjectedLinkState(links) {
   return {
-    freeCapacityById: new Map(links.map((link) => [getObjectId3(link), getFreeEnergyCapacity(link)])),
-    storedEnergyById: new Map(links.map((link) => [getObjectId3(link), getStoredEnergy3(link)]))
+    freeCapacityById: new Map(links.map((link) => [getObjectId4(link), getFreeEnergyCapacity(link)])),
+    storedEnergyById: new Map(links.map((link) => [getObjectId4(link), getStoredEnergy3(link)]))
   };
 }
 function sortLinksByEnergy(links, projectedState) {
   return [...links].sort(
     (left, right) => {
       var _a, _b;
-      return ((_a = projectedState.storedEnergyById.get(getObjectId3(right))) != null ? _a : 0) - ((_b = projectedState.storedEnergyById.get(getObjectId3(left))) != null ? _b : 0) || getObjectId3(left).localeCompare(getObjectId3(right));
+      return ((_a = projectedState.storedEnergyById.get(getObjectId4(right))) != null ? _a : 0) - ((_b = projectedState.storedEnergyById.get(getObjectId4(left))) != null ? _b : 0) || getObjectId4(left).localeCompare(getObjectId4(right));
     }
   );
 }
@@ -8505,7 +8699,7 @@ function selectSourceLinks(room, links, destinationIds) {
   if (sources.length === 0) {
     return [];
   }
-  return links.filter((link) => !destinationIds.has(getObjectId3(link))).filter((link) => sources.some((source) => isNearRoomObject2(link, source, room.name, SOURCE_LINK_RANGE))).sort(compareObjectIds2);
+  return links.filter((link) => !destinationIds.has(getObjectId4(link))).filter((link) => sources.some((source) => isNearRoomObject2(link, source, room.name, SOURCE_LINK_RANGE))).sort(compareObjectIds3);
 }
 function selectControllerLink(room, links) {
   const controller = room.controller;
@@ -8521,7 +8715,7 @@ function selectStorageLink(room, links, controllerLink) {
     return null;
   }
   return selectClosestLink(
-    links.filter((link) => getObjectId3(link) !== getObjectId3(controllerLink)),
+    links.filter((link) => getObjectId4(link) !== getObjectId4(controllerLink)),
     storage,
     room.name,
     STORAGE_LINK_RANGE
@@ -8534,7 +8728,7 @@ function selectClosestLink(links, target, roomName, range) {
     return null;
   }
   return (_a = links.filter((link) => isNearRoomObject2(link, target, roomName, range)).sort(
-    (left, right) => compareRangeToPosition(targetPosition, left, right) || getObjectId3(left).localeCompare(getObjectId3(right))
+    (left, right) => compareRangeToPosition(targetPosition, left, right) || getObjectId4(left).localeCompare(getObjectId4(right))
   )[0]) != null ? _a : null;
 }
 function isNearRoomObject2(left, right, roomName, range) {
@@ -8548,9 +8742,9 @@ function compareRangeToPosition(position, left, right) {
   return (leftPosition ? getRangeBetweenPositions3(position, leftPosition) : Number.POSITIVE_INFINITY) - (rightPosition ? getRangeBetweenPositions3(position, rightPosition) : Number.POSITIVE_INFINITY);
 }
 function findOwnedLinks(room) {
-  return findOwnedStructures2(room).filter((structure) => matchesStructureType7(structure.structureType, "STRUCTURE_LINK", "link")).sort(compareObjectIds2);
+  return findOwnedStructures3(room).filter((structure) => matchesStructureType8(structure.structureType, "STRUCTURE_LINK", "link")).sort(compareObjectIds3);
 }
-function findOwnedStructures2(room) {
+function findOwnedStructures3(room) {
   if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
     return [];
   }
@@ -8559,8 +8753,8 @@ function findOwnedStructures2(room) {
 }
 function findStorage(room) {
   var _a;
-  return (_a = findOwnedStructures2(room).filter(
-    (structure) => matchesStructureType7(structure.structureType, "STRUCTURE_STORAGE", "storage")
+  return (_a = findOwnedStructures3(room).filter(
+    (structure) => matchesStructureType8(structure.structureType, "STRUCTURE_STORAGE", "storage")
   )[0]) != null ? _a : null;
 }
 function findSources2(room) {
@@ -8587,17 +8781,17 @@ function getEnergyResource4() {
   var _a;
   return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
-function compareObjectIds2(left, right) {
-  return getObjectId3(left).localeCompare(getObjectId3(right));
+function compareObjectIds3(left, right) {
+  return getObjectId4(left).localeCompare(getObjectId4(right));
 }
-function getObjectId3(object) {
+function getObjectId4(object) {
   if (typeof object !== "object" || object === null) {
     return "";
   }
   const id = object.id;
   return typeof id === "string" ? id : "";
 }
-function matchesStructureType7(actual, globalName, fallback) {
+function matchesStructureType8(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -8651,12 +8845,12 @@ function recordWorkerTaskBehaviorTrace(creep, selectedTask) {
 function buildWorkerTaskBehaviorState(creep) {
   var _a, _b, _c, _d, _e;
   const room = creep.room;
-  const structures = findRoomObjects7(room, getFindConstant3("FIND_STRUCTURES"));
-  const myStructures = findRoomObjects7(room, getFindConstant3("FIND_MY_STRUCTURES"));
-  const constructionSites = findRoomObjects7(room, getFindConstant3("FIND_CONSTRUCTION_SITES"));
-  const droppedResources = findRoomObjects7(room, getFindConstant3("FIND_DROPPED_RESOURCES"));
-  const sources = findRoomObjects7(room, getFindConstant3("FIND_SOURCES"));
-  const hostileCreeps = findRoomObjects7(room, getFindConstant3("FIND_HOSTILE_CREEPS"));
+  const structures = findRoomObjects8(room, getFindConstant3("FIND_STRUCTURES"));
+  const myStructures = findRoomObjects8(room, getFindConstant3("FIND_MY_STRUCTURES"));
+  const constructionSites = findRoomObjects8(room, getFindConstant3("FIND_CONSTRUCTION_SITES"));
+  const droppedResources = findRoomObjects8(room, getFindConstant3("FIND_DROPPED_RESOURCES"));
+  const sources = findRoomObjects8(room, getFindConstant3("FIND_SOURCES"));
+  const hostileCreeps = findRoomObjects8(room, getFindConstant3("FIND_HOSTILE_CREEPS"));
   const currentTask = (_c = (_b = (_a = creep.memory) == null ? void 0 : _a.task) == null ? void 0 : _b.type) != null ? _c : "none";
   const carriedEnergy = getUsedEnergy(creep);
   const freeCapacity = getFreeEnergyCapacity2(creep);
@@ -8735,7 +8929,7 @@ function countRepairTargets(structures) {
     return isStructureType(structure, "STRUCTURE_ROAD", "road") || isStructureType(structure, "STRUCTURE_CONTAINER", "container") || isStructureType(structure, "STRUCTURE_RAMPART", "rampart") && structure.my !== false;
   }).length;
 }
-function findRoomObjects7(room, findConstant) {
+function findRoomObjects8(room, findConstant) {
   if (!room || typeof room.find !== "function" || typeof findConstant !== "number") {
     return [];
   }
@@ -9328,7 +9522,7 @@ function hasLowEnergyForUpgraderBoost(creep) {
   return capacity > 0 && carriedEnergy < capacity * UPGRADER_BOOST_LOW_ENERGY_RATIO;
 }
 function isUpgraderBoostStoredEnergySource(source) {
-  return matchesStructureType8(source.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType8(source.structureType, "STRUCTURE_STORAGE", "storage");
+  return matchesStructureType9(source.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType9(source.structureType, "STRUCTURE_STORAGE", "storage");
 }
 function selectFirstEnergySinkByStableId(energySinks) {
   var _a;
@@ -9479,7 +9673,7 @@ function recordLowLoadReturnTelemetry(creep, task, reason) {
   };
 }
 function isFillableEnergySink(structure) {
-  return (matchesStructureType8(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType8(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType8(structure.structureType, "STRUCTURE_TOWER", "tower")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
+  return (matchesStructureType9(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType9(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType9(structure.structureType, "STRUCTURE_TOWER", "tower")) && "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
 function selectFillableEnergySink(creep) {
   var _a;
@@ -9759,10 +9953,10 @@ function isRemoteHaulerStoredEnergySink(structure) {
   return "store" in structure && getFreeStoredEnergyCapacity(structure) > 0;
 }
 function isRemoteHaulerStorageSink(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_STORAGE", "storage") && isRemoteHaulerStoredEnergySink(structure);
+  return matchesStructureType9(structure.structureType, "STRUCTURE_STORAGE", "storage") && isRemoteHaulerStoredEnergySink(structure);
 }
 function isRemoteHaulerTerminalSink(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_TERMINAL", "terminal") && isRemoteHaulerStoredEnergySink(structure);
+  return matchesStructureType9(structure.structureType, "STRUCTURE_TERMINAL", "terminal") && isRemoteHaulerStoredEnergySink(structure);
 }
 function selectFirstRemoteHaulerStorageSinkByStableId(storageSinks) {
   var _a;
@@ -9773,14 +9967,14 @@ function selectFirstRemoteHaulerTerminalSinkByStableId(terminalSinks) {
   return (_a = [...terminalSinks].sort((left, right) => String(left.id).localeCompare(String(right.id)))[0]) != null ? _a : null;
 }
 function isSpawnExtensionEnergyStructure(structure) {
-  return (matchesStructureType8(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType8(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure;
+  return (matchesStructureType9(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType9(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && "store" in structure;
 }
 function isSpawnEnergySink(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_SPAWN", "spawn");
+  return matchesStructureType9(structure.structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function isNearTermSpawningSpawn(structure) {
   var _a;
-  if (!matchesStructureType8(structure.structureType, "STRUCTURE_SPAWN", "spawn")) {
+  if (!matchesStructureType9(structure.structureType, "STRUCTURE_SPAWN", "spawn")) {
     return false;
   }
   const remainingTime = (_a = structure.spawning) == null ? void 0 : _a.remainingTime;
@@ -9790,10 +9984,10 @@ function isSpawnOrExtensionEnergySink(structure) {
   return isSpawnEnergySink(structure) || isExtensionEnergySink(structure);
 }
 function isExtensionEnergySink(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_EXTENSION", "extension");
+  return matchesStructureType9(structure.structureType, "STRUCTURE_EXTENSION", "extension");
 }
 function isTowerEnergySink(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_TOWER", "tower");
+  return matchesStructureType9(structure.structureType, "STRUCTURE_TOWER", "tower");
 }
 function isPriorityTowerEnergySink(structure) {
   return isTowerEnergySink(structure) && getStoredEnergy4(structure) < TOWER_REFILL_ENERGY_FLOOR;
@@ -9895,7 +10089,7 @@ function findConstructionPriorityProtectedRampartAnchors(room) {
     anchors.push(room.controller.pos);
   }
   for (const structure of findConstructionPriorityOwnedStructures(room)) {
-    if (matchesStructureType8(structure.structureType, "STRUCTURE_SPAWN", "spawn") && structure.pos && isPositionInRoom(structure.pos, room.name)) {
+    if (matchesStructureType9(structure.structureType, "STRUCTURE_SPAWN", "spawn") && structure.pos && isPositionInRoom(structure.pos, room.name)) {
       anchors.push(structure.pos);
     }
   }
@@ -10223,24 +10417,24 @@ function selectReadyFollowUpProductiveEnergySinkTask(creep, capacityConstruction
   return criticalRoadConstructionSite ? { type: "build", targetId: criticalRoadConstructionSite.id } : null;
 }
 function isSpawnConstructionSite(site) {
-  return matchesStructureType8(site.structureType, "STRUCTURE_SPAWN", "spawn");
+  return matchesStructureType9(site.structureType, "STRUCTURE_SPAWN", "spawn");
 }
 function isExtensionConstructionSite(site) {
-  return matchesStructureType8(site.structureType, "STRUCTURE_EXTENSION", "extension");
+  return matchesStructureType9(site.structureType, "STRUCTURE_EXTENSION", "extension");
 }
 function isContainerConstructionSite3(site) {
-  return matchesStructureType8(site.structureType, "STRUCTURE_CONTAINER", "container");
+  return matchesStructureType9(site.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function isRoadConstructionSite2(site) {
-  return matchesStructureType8(site.structureType, "STRUCTURE_ROAD", "road");
+  return matchesStructureType9(site.structureType, "STRUCTURE_ROAD", "road");
 }
 function isRampartConstructionSite(site) {
-  return matchesStructureType8(site.structureType, "STRUCTURE_RAMPART", "rampart");
+  return matchesStructureType9(site.structureType, "STRUCTURE_RAMPART", "rampart");
 }
 function isHighImpactConstructionSite(site, priorityContext) {
   return isContainerConstructionSite3(site) || getConstructionSiteImpactPriority(site, priorityContext != null ? priorityContext : {}) >= CONSTRUCTION_SITE_IMPACT_PRIORITY.criticalRoad;
 }
-function matchesStructureType8(actual, globalName, fallback) {
+function matchesStructureType9(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -10288,10 +10482,10 @@ function isSafeStoredEnergySource(structure, context) {
   return isStoredWorkerEnergySource(structure, context.room) && hasStoredEnergy2(structure) && isFriendlyStoredEnergySource(structure, context);
 }
 function isStoredWorkerEnergySource(structure, room) {
-  if (matchesStructureType8(structure.structureType, "STRUCTURE_LINK", "link")) {
+  if (matchesStructureType9(structure.structureType, "STRUCTURE_LINK", "link")) {
     return isSourceLink(room, structure);
   }
-  return matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType8(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType8(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
+  return matchesStructureType9(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType9(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType9(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
 }
 function hasStoredEnergy2(structure) {
   return getStoredEnergy4(structure) > 0;
@@ -10305,7 +10499,7 @@ function isFriendlyStoredEnergySource(structure, context) {
   if (((_a = context.room.controller) == null ? void 0 : _a.my) === true) {
     return true;
   }
-  return matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container") && isRoomSafeForUnownedContainerWithdrawal(context);
+  return matchesStructureType9(structure.structureType, "STRUCTURE_CONTAINER", "container") && isRoomSafeForUnownedContainerWithdrawal(context);
 }
 function isRoomSafeForUnownedContainerWithdrawal(context) {
   var _a;
@@ -10718,7 +10912,7 @@ function isDurableStoredEnergySource(source) {
 }
 function isStructureEnergySourceType(source, globalName, fallback) {
   const structureType = source.structureType;
-  return matchesStructureType8(typeof structureType === "string" ? structureType : void 0, globalName, fallback);
+  return matchesStructureType9(typeof structureType === "string" ? structureType : void 0, globalName, fallback);
 }
 function scoreWorkerEnergyAcquisitionAmount(energy, freeCapacity) {
   if (freeCapacity <= 0) {
@@ -10946,12 +11140,12 @@ function getCreepOwnerUsername2(creep) {
   return typeof username === "string" && username.length > 0 ? username : null;
 }
 function hasVisibleHostilePresence(room) {
-  return findHostileCreeps2(room).length > 0 || findHostileStructures2(room).length > 0;
+  return findHostileCreeps3(room).length > 0 || findHostileStructures3(room).length > 0;
 }
-function findHostileCreeps2(room) {
+function findHostileCreeps3(room) {
   return typeof FIND_HOSTILE_CREEPS === "number" ? room.find(FIND_HOSTILE_CREEPS) : [];
 }
-function findHostileStructures2(room) {
+function findHostileStructures3(room) {
   return typeof FIND_HOSTILE_STRUCTURES === "number" ? room.find(FIND_HOSTILE_STRUCTURES) : [];
 }
 function selectRepairTarget(creep) {
@@ -11016,7 +11210,7 @@ function isSafeRepairTarget(structure) {
   if (isRoadOrContainerRepairTarget(structure)) {
     return true;
   }
-  return matchesStructureType8(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
+  return matchesStructureType9(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure);
 }
 function isCriticalInfrastructureRepairTarget(structure, criticalRoadContext, options) {
   if (!isSafeRepairTarget(structure) || !isRoadOrContainerRepairTarget(structure) || getHitsRatio(structure) > CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO) {
@@ -11031,16 +11225,16 @@ function isRoadOrContainerRepairTarget(structure) {
   return isRoadRepairTarget(structure) || isContainerRepairTarget(structure);
 }
 function isRoadRepairTarget(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_ROAD", "road");
+  return matchesStructureType9(structure.structureType, "STRUCTURE_ROAD", "road");
 }
 function isContainerRepairTarget(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container");
+  return matchesStructureType9(structure.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function isWorkerRepairTargetComplete(structure) {
   return structure.hits >= getWorkerRepairHitsCeiling(structure);
 }
 function getWorkerRepairHitsCeiling(structure) {
-  if (matchesStructureType8(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure)) {
+  if (matchesStructureType9(structure.structureType, "STRUCTURE_RAMPART", "rampart") && isOwnedRampart(structure)) {
     return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING2);
   }
   return structure.hitsMax;
@@ -11052,10 +11246,10 @@ function compareRepairTargets(left, right) {
   return getRepairPriority(left) - getRepairPriority(right) || getHitsRatio(left) - getHitsRatio(right) || left.hits - right.hits || String(left.id).localeCompare(String(right.id));
 }
 function getRepairPriority(structure) {
-  if (matchesStructureType8(structure.structureType, "STRUCTURE_ROAD", "road")) {
+  if (matchesStructureType9(structure.structureType, "STRUCTURE_ROAD", "road")) {
     return 0;
   }
-  if (matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
+  if (matchesStructureType9(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
     return 1;
   }
   return 2;
@@ -11603,7 +11797,7 @@ function hasVisiblePositionedContainer(room) {
   }
   return room.find(FIND_STRUCTURES).some((structure) => {
     const position = getRoomObjectPosition3(structure);
-    return position !== null && matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container");
+    return position !== null && matchesStructureType9(structure.structureType, "STRUCTURE_CONTAINER", "container");
   });
 }
 function findVisibleHarvestSources(creep) {
@@ -11935,16 +12129,16 @@ function createRoadAwareRoomCallback(allowedRoomNames) {
   };
 }
 function isRoadStructure2(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_ROAD", "road");
+  return matchesStructureType9(structure.structureType, "STRUCTURE_ROAD", "road");
 }
 function isBlockingRoadAwareStructure(structure) {
   return !isRoadStructure2(structure) && !isContainerStructure2(structure) && !isWalkableRampartStructure(structure);
 }
 function isContainerStructure2(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container");
+  return matchesStructureType9(structure.structureType, "STRUCTURE_CONTAINER", "container");
 }
 function isWalkableRampartStructure(structure) {
-  return matchesStructureType8(structure.structureType, "STRUCTURE_RAMPART", "rampart") && (structure.my === true || structure.isPublic === true);
+  return matchesStructureType9(structure.structureType, "STRUCTURE_RAMPART", "rampart") && (structure.my === true || structure.isPublic === true);
 }
 function selectViableHarvestSources(sources, harvestEnergyTarget) {
   const sourcesWithEnergy = sources.filter(hasHarvestableEnergy);
@@ -12008,7 +12202,7 @@ var BEHAVIOR_COUNTER_KEYS = [
   { key: "pathLength" }
 ];
 var TOP_IDLE_WORKER_COUNT = 3;
-function observeCreepBehaviorTick(creep, tick = getGameTime7()) {
+function observeCreepBehaviorTick(creep, tick = getGameTime8()) {
   var _a, _b;
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastObservedTick === tick) {
@@ -12028,7 +12222,7 @@ function observeCreepBehaviorTick(creep, tick = getGameTime7()) {
   }
   telemetry.lastObservedTick = tick;
 }
-function recordCreepBehaviorIdle(creep, tick = getGameTime7()) {
+function recordCreepBehaviorIdle(creep, tick = getGameTime8()) {
   var _a;
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastIdleTick === tick) {
@@ -12037,7 +12231,7 @@ function recordCreepBehaviorIdle(creep, tick = getGameTime7()) {
   telemetry.idleTicks = ((_a = telemetry.idleTicks) != null ? _a : 0) + 1;
   telemetry.lastIdleTick = tick;
 }
-function recordCreepBehaviorMove(creep, tick = getGameTime7()) {
+function recordCreepBehaviorMove(creep, tick = getGameTime8()) {
   var _a;
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastMoveTick === tick) {
@@ -12046,7 +12240,7 @@ function recordCreepBehaviorMove(creep, tick = getGameTime7()) {
   telemetry.moveTicks = ((_a = telemetry.moveTicks) != null ? _a : 0) + 1;
   telemetry.lastMoveTick = tick;
 }
-function recordCreepBehaviorWork(creep, tick = getGameTime7()) {
+function recordCreepBehaviorWork(creep, tick = getGameTime8()) {
   var _a;
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   if (telemetry.lastWorkTick === tick) {
@@ -12174,7 +12368,7 @@ function getStepDistance(previous, current) {
   }
   return Math.max(Math.abs(current.x - previous.x), Math.abs(current.y - previous.y));
 }
-function getGameTime7() {
+function getGameTime8() {
   const game = globalThis.Game;
   return typeof (game == null ? void 0 : game.time) === "number" ? game.time : 0;
 }
@@ -12184,7 +12378,7 @@ var MAX_IMMEDIATE_RESELECT_EXECUTIONS = 1;
 var WORKER_NULL_LOOP_TICK_WINDOW = 10;
 var WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 var WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
-var OK_CODE4 = 0;
+var OK_CODE5 = 0;
 var ERR_NOT_ENOUGH_RESOURCES_CODE = -6;
 var ERR_INVALID_TARGET_CODE = -7;
 var ERR_FULL_CODE = -8;
@@ -12881,10 +13075,10 @@ function executeHarvestTask(creep, source) {
   }
   if (!isInRangeToRoomObject(creep, source, 1)) {
     creep.moveTo(sourceContainer);
-    return { result: OK_CODE4, action: "move" };
+    return { result: OK_CODE5, action: "move" };
   }
   if (isDepletedHarvestSource(source)) {
-    return getUsedTransferEnergy(creep) > 0 ? transferDedicatedHarvestEnergy(creep, sourceContainer) : { result: OK_CODE4 };
+    return getUsedTransferEnergy(creep) > 0 ? transferDedicatedHarvestEnergy(creep, sourceContainer) : { result: OK_CODE5 };
   }
   if (getFreeTransferEnergyCapacity(creep) <= 0 && getUsedTransferEnergy(creep) > 0) {
     return transferDedicatedHarvestEnergy(creep, sourceContainer);
@@ -12893,24 +13087,24 @@ function executeHarvestTask(creep, source) {
   if ((result === ERR_FULL_CODE || result === ERR_NOT_ENOUGH_RESOURCES_CODE) && getUsedTransferEnergy(creep) > 0) {
     return transferDedicatedHarvestEnergy(creep, sourceContainer);
   }
-  return toTaskExecutionResult(result === ERR_NOT_ENOUGH_RESOURCES_CODE ? OK_CODE4 : result, "work");
+  return toTaskExecutionResult(result === ERR_NOT_ENOUGH_RESOURCES_CODE ? OK_CODE5 : result, "work");
 }
 function transferDedicatedHarvestEnergy(creep, sourceContainer) {
   if (typeof creep.transfer !== "function") {
-    return { result: OK_CODE4 };
+    return { result: OK_CODE5 };
   }
   const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
   if (result === ERR_NOT_IN_RANGE_CODE3) {
     creep.moveTo(sourceContainer);
-    return { result: OK_CODE4, action: "move" };
+    return { result: OK_CODE5, action: "move" };
   }
   return toTaskExecutionResult(result, "work", { containerTransfer: true });
 }
 function toTaskExecutionResult(result, successAction, options = {}) {
   return {
     result,
-    ...result === OK_CODE4 ? { action: successAction } : {},
-    ...result === OK_CODE4 && options.containerTransfer ? { containerTransfer: true } : {}
+    ...result === OK_CODE5 ? { action: successAction } : {},
+    ...result === OK_CODE5 && options.containerTransfer ? { containerTransfer: true } : {}
   };
 }
 function recordTaskBehavior(creep, task, execution) {
@@ -13240,11 +13434,11 @@ function isRemoteMoveRoom(roomName, assignment) {
 }
 function findCriticalRoadMoveTargets(room) {
   return [
-    ...findRoomObjects8(room, "FIND_STRUCTURES"),
-    ...findRoomObjects8(room, "FIND_CONSTRUCTION_SITES")
-  ].filter((target) => matchesStructureType9(target.structureType, "STRUCTURE_ROAD", "road"));
+    ...findRoomObjects9(room, "FIND_STRUCTURES"),
+    ...findRoomObjects9(room, "FIND_CONSTRUCTION_SITES")
+  ].filter((target) => matchesStructureType10(target.structureType, "STRUCTURE_ROAD", "road"));
 }
-function findRoomObjects8(room, constantName) {
+function findRoomObjects9(room, constantName) {
   const findConstant = globalThis[constantName];
   if (typeof findConstant !== "number" || typeof room.find !== "function") {
     return [];
@@ -13256,7 +13450,7 @@ function findRoomObjects8(room, constantName) {
     return [];
   }
 }
-function matchesStructureType9(actual, globalName, fallback) {
+function matchesStructureType10(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -13772,7 +13966,7 @@ function hasActiveClaimedRoomSpawnConstructionSite(room) {
   }
 }
 function isActiveSpawnConstructionSite(site) {
-  return isRecord9(site) && matchesStructureType10(site.structureType, "STRUCTURE_SPAWN", "spawn") && hasIncompleteConstructionSiteProgress(site);
+  return isRecord9(site) && matchesStructureType11(site.structureType, "STRUCTURE_SPAWN", "spawn") && hasIncompleteConstructionSiteProgress(site);
 }
 function hasIncompleteConstructionSiteProgress(site) {
   const progress = site.progress;
@@ -13786,7 +13980,7 @@ function getFindConstant4(constantName) {
   const findConstant = globalThis[constantName];
   return typeof findConstant === "number" ? findConstant : null;
 }
-function matchesStructureType10(actual, globalName, fallback) {
+function matchesStructureType11(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return typeof actual === "string" && actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -13855,7 +14049,7 @@ function combineCountMaps(baseCounts, overlayCounts) {
 function getActiveMultiRoomUpgraderCountCache() {
   var _a;
   const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  const gameTime = getGameTime8();
+  const gameTime = getGameTime9();
   if ((activeMultiRoomUpgraderCountCache == null ? void 0 : activeMultiRoomUpgraderCountCache.gameTime) !== gameTime || activeMultiRoomUpgraderCountCache.creeps !== creeps) {
     activeMultiRoomUpgraderCountCache = {
       gameTime,
@@ -13900,7 +14094,7 @@ function getRouteDistance(fromRoom, targetRoom) {
   if (fromRoom === targetRoom) {
     return 0;
   }
-  const gameTime = getGameTime8();
+  const gameTime = getGameTime9();
   const cache = getTerritoryRouteDistanceCache2(gameTime);
   const cacheKey = getTerritoryRouteDistanceCacheKey2(fromRoom, targetRoom);
   const cachedRouteDistance = (_a = cache == null ? void 0 : cache.distances) == null ? void 0 : _a[cacheKey];
@@ -13994,7 +14188,7 @@ function getNoPathResultCode4() {
   const noPathCode = globalThis.ERR_NO_PATH;
   return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE4;
 }
-function getGameTime8() {
+function getGameTime9() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -14038,7 +14232,10 @@ var SPAWN_PRIORITY_TIERS = [
   "multiRoomControllerUpgrade",
   "controllerUpgradeSurplus"
 ];
-var DEFENSE_TOWER_REFILL_ENERGY_FLOOR = 500;
+var DEFENDER_BODY_PATTERN = ["tough", "attack", "move"];
+var DEFENDER_BODY_PATTERN_COST = 140;
+var MAX_DEFENDER_BODY_PATTERN_COUNT = 5;
+var HOSTILES_PER_DEFENDER = 3;
 function planSpawn(colony, roleCounts, gameTime, options = {}) {
   const workerTarget = getWorkerTarget(colony, roleCounts);
   const workerCapacity = getWorkerCapacity(roleCounts);
@@ -14073,7 +14270,7 @@ function planSpawnForPriorityTier(tier, context) {
     case "remoteEconomy":
       return planRemoteEconomySpawn(context);
     case "defense":
-      return planDefenseSpawn(context);
+      return planDefenseSpawnForContext(context);
     case "territoryRemote":
       return planTerritoryRemoteSpawn(context);
     case "multiRoomControllerUpgrade":
@@ -14152,6 +14349,60 @@ function planPostClaimControllerSustainSpawn(context) {
       }
     }
   };
+}
+function buildDefenseBody(energyAvailable, hostileCount) {
+  const desiredPatternCount = Math.max(1, Math.min(hostileCount, MAX_DEFENDER_BODY_PATTERN_COUNT));
+  const affordablePatternCount = Math.floor(normalizeNonNegativeInteger2(energyAvailable) / DEFENDER_BODY_PATTERN_COST);
+  const patternCount = Math.min(
+    desiredPatternCount,
+    affordablePatternCount,
+    Math.floor(MAX_CREEP_PARTS4 / DEFENDER_BODY_PATTERN.length)
+  );
+  if (patternCount <= 0) {
+    return [];
+  }
+  return Array.from({ length: patternCount }).flatMap(() => DEFENDER_BODY_PATTERN);
+}
+function getDesiredDefenderCount(hostileCount) {
+  return Math.max(1, Math.ceil(hostileCount / HOSTILES_PER_DEFENDER));
+}
+function getRoomHostileCreepCount(room) {
+  const findHostiles = getGlobalNumber5("FIND_HOSTILE_CREEPS");
+  if (findHostiles === void 0 || typeof room.find !== "function") {
+    return 0;
+  }
+  const result = room.find(findHostiles);
+  return Array.isArray(result) ? result.length : 0;
+}
+function countActiveRoomDefenders(roomName) {
+  const game = globalThis.Game;
+  if (!(game == null ? void 0 : game.creeps)) {
+    return 0;
+  }
+  return Object.values(game.creeps).filter((creep) => isActiveRoomDefender(creep, roomName)).length;
+}
+function isActiveRoomDefender(creep, roomName) {
+  var _a, _b;
+  return creep.memory.role === DEFENDER_ROLE && ((_a = creep.memory.defense) == null ? void 0 : _a.homeRoom) === roomName && ((_b = creep.room) == null ? void 0 : _b.name) === roomName && canSatisfyDefenderSpawnCapacity(creep);
+}
+function canSatisfyDefenderSpawnCapacity(creep) {
+  return (creep.ticksToLive === void 0 || creep.ticksToLive > 100) && hasActiveAttackPart2(creep);
+}
+function hasActiveAttackPart2(creep) {
+  var _a;
+  const attackPart = getBodyPartConstant4("ATTACK", "attack");
+  const activeParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, attackPart);
+  if (typeof activeParts === "number") {
+    return activeParts > 0;
+  }
+  if (!Array.isArray(creep.body)) {
+    return false;
+  }
+  return creep.body.some((part) => part.type === attackPart && part.hits > 0);
+}
+function getBodyPartConstant4(globalName, fallback) {
+  const value = globalThis[globalName];
+  return value != null ? value : fallback;
 }
 function hasPostClaimSustainSpawnEnergy(colony) {
   return colony.energyAvailable >= POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY && colony.energyAvailable >= colony.energyCapacityAvailable;
@@ -14266,50 +14517,41 @@ function isClaimedRoomEnergyInsufficient(room) {
   const energyAvailable = room.energyAvailable;
   return typeof energyAvailable !== "number" || energyAvailable < POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY;
 }
-function planDefenseSpawn(context) {
-  var _a;
-  if (!context.survival.hostilePresence || ((_a = context.roleCounts.defender) != null ? _a : 0) > 0 || hasDefenseTowerRefillDemand(context.colony.room)) {
+function planDefenseSpawnForContext(context) {
+  if (!context.survival.hostilePresence || context.options.workersOnly) {
     return null;
   }
-  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  return planDefenseSpawnForRoom(
+    context.colony,
+    countActiveRoomDefenders(context.colony.room.name),
+    context.gameTime,
+    context.options
+  );
+}
+function planDefenseSpawnForRoom(colony, activeDefenderCount, gameTime, options) {
+  const hostileCount = getRoomHostileCreepCount(colony.room);
+  if (hostileCount === 0 || activeDefenderCount >= getDesiredDefenderCount(hostileCount)) {
+    return null;
+  }
+  const spawn = colony.spawns.find((candidate) => !candidate.spawning);
   if (!spawn) {
     return null;
   }
-  const body = buildEmergencyDefenderBody(context.colony.energyAvailable);
+  const body = buildDefenseBody(colony.energyAvailable, hostileCount);
   if (body.length === 0) {
     return null;
   }
-  const roomName = context.colony.room.name;
+  const roomName = colony.room.name;
   return {
     spawn,
     body,
-    name: appendSpawnNameSuffix(`${DEFENDER_ROLE}-${roomName}-${context.gameTime}`, context.options),
+    name: appendSpawnNameSuffix(`${DEFENDER_ROLE}-${roomName}-${gameTime}`, options),
     memory: {
       role: DEFENDER_ROLE,
       colony: roomName,
       defense: { homeRoom: roomName }
     }
   };
-}
-function hasDefenseTowerRefillDemand(room) {
-  const findMyStructures = getGlobalNumber4("FIND_MY_STRUCTURES");
-  if (findMyStructures === void 0 || typeof room.find !== "function") {
-    return false;
-  }
-  const structures = room.find(findMyStructures);
-  return structures.some((structure) => isTowerStructure2(structure) && isTowerBelowDefenseRefillFloor(structure));
-}
-function isTowerStructure2(structure) {
-  var _a;
-  const towerType = (_a = globalThis.STRUCTURE_TOWER) != null ? _a : "tower";
-  return structure.structureType === towerType || structure.structureType === "tower";
-}
-function isTowerBelowDefenseRefillFloor(tower) {
-  const usedEnergy = getStoredEnergy9(tower);
-  if (usedEnergy !== null) {
-    return usedEnergy < DEFENSE_TOWER_REFILL_ENERGY_FLOOR;
-  }
-  return getFreeEnergyCapacity5(tower) > 0;
 }
 function planRemoteEconomySpawn(context) {
   if (context.options.workersOnly || context.survival.mode !== "TERRITORY_READY" || context.workerCapacity < context.workerTarget || context.colony.energyAvailable < context.colony.energyCapacityAvailable) {
@@ -14702,27 +14944,7 @@ function isRecord10(value) {
 function isNonEmptyString10(value) {
   return typeof value === "string" && value.length > 0;
 }
-function getStoredEnergy9(structure) {
-  var _a, _b;
-  const resourceEnergy = (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
-  const getUsedCapacity = (_b = structure.store) == null ? void 0 : _b.getUsedCapacity;
-  if (typeof getUsedCapacity !== "function") {
-    return null;
-  }
-  const usedCapacity = getUsedCapacity.call(structure.store, resourceEnergy);
-  return typeof usedCapacity === "number" && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : null;
-}
-function getFreeEnergyCapacity5(structure) {
-  var _a, _b;
-  const resourceEnergy = (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
-  const getFreeCapacity = (_b = structure.store) == null ? void 0 : _b.getFreeCapacity;
-  if (typeof getFreeCapacity !== "function") {
-    return 0;
-  }
-  const freeCapacity = getFreeCapacity.call(structure.store, resourceEnergy);
-  return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
-}
-function getGlobalNumber4(name) {
+function getGlobalNumber5(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
@@ -14730,7 +14952,7 @@ function getGlobalNumber4(name) {
 // src/territory/scoutIntel.ts
 var TERRITORY_SCOUT_MEMORY_KEY_SEPARATOR = ">";
 var TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS = 1500;
-function recordVisibleRoomScoutIntel(colony, room, gameTime = getGameTime9(), scoutName, telemetryEvents = []) {
+function recordVisibleRoomScoutIntel(colony, room, gameTime = getGameTime10(), scoutName, telemetryEvents = []) {
   var _a, _b, _c, _d;
   if (!isNonEmptyString11(colony) || !room || !isNonEmptyString11(room.name)) {
     return null;
@@ -14906,10 +15128,10 @@ function getTerritoryScoutSummary(colony) {
 }
 function buildTerritoryScoutIntel(colony, room, gameTime, scoutName) {
   const controller = room.controller;
-  const sources = findRoomObjects9(room, "FIND_SOURCES");
-  const hostileCreeps = findRoomObjects9(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects9(room, "FIND_HOSTILE_STRUCTURES");
-  const mineral = findRoomObjects9(room, "FIND_MINERALS")[0];
+  const sources = findRoomObjects10(room, "FIND_SOURCES");
+  const hostileCreeps = findRoomObjects10(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects10(room, "FIND_HOSTILE_STRUCTURES");
+  const mineral = findRoomObjects10(room, "FIND_MINERALS")[0];
   return {
     colony,
     roomName: room.name,
@@ -15121,8 +15343,8 @@ function compareTerritoryScoutAttempts(left, right) {
 function compareTerritoryScoutIntel(left, right) {
   return right.updatedAt - left.updatedAt || left.roomName.localeCompare(right.roomName);
 }
-function findRoomObjects9(room, constantName) {
-  const findConstant = getGlobalNumber5(constantName);
+function findRoomObjects10(room, constantName) {
+  const findConstant = getGlobalNumber6(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
     return [];
@@ -15160,11 +15382,11 @@ function getControllerReservationTicksToEnd2(controller) {
 function getTerritoryScoutMemoryKey(colony, targetRoom) {
   return `${colony}${TERRITORY_SCOUT_MEMORY_KEY_SEPARATOR}${targetRoom}`;
 }
-function getGlobalNumber5(name) {
+function getGlobalNumber6(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
-function getGameTime9() {
+function getGameTime10() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -15388,13 +15610,13 @@ function buildUnseenExpansionCandidateEvidence(roomName) {
 }
 function buildVisibleExpansionCandidateEvidence(room) {
   const controller = room.controller;
-  const sources = findRoomObjects10(room, getFindConstant5("FIND_SOURCES"));
+  const sources = findRoomObjects11(room, getFindConstant5("FIND_SOURCES"));
   const controllerSourceRange = calculateAverageControllerSourceRange(controller, sources);
   const roomTerrain = getRoomTerrain5(room);
   const terrain = summarizeRoomTerrainFromTerrain(roomTerrain);
   const sourceAccessPoints = calculateAverageSourceAccessPoints(roomTerrain, sources);
-  const hostileCreepCount = findRoomObjects10(room, getFindConstant5("FIND_HOSTILE_CREEPS")).length;
-  const hostileStructureCount = findRoomObjects10(
+  const hostileCreepCount = findRoomObjects11(room, getFindConstant5("FIND_HOSTILE_CREEPS")).length;
+  const hostileStructureCount = findRoomObjects11(
     room,
     getFindConstant5("FIND_HOSTILE_STRUCTURES")
   ).length;
@@ -16072,7 +16294,7 @@ function getTerrainMask(name, fallback) {
   const value = globalThis[name];
   return typeof value === "number" ? value : fallback;
 }
-function findRoomObjects10(room, findConstant) {
+function findRoomObjects11(room, findConstant) {
   if (typeof findConstant !== "number" || typeof room.find !== "function") {
     return [];
   }
@@ -16152,7 +16374,7 @@ function isNonEmptyString12(value) {
 
 // src/territory/postClaimBootstrap.ts
 var POST_CLAIM_BOOTSTRAP_WORKER_TARGET = 2;
-var OK_CODE5 = 0;
+var OK_CODE6 = 0;
 var ERR_INVALID_TARGET_CODE2 = -7;
 var ROOM_EDGE_MIN6 = 2;
 var ROOM_EDGE_MAX6 = 47;
@@ -16166,7 +16388,7 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   if (!bootstraps) {
     return;
   }
-  const gameTime = getGameTime10();
+  const gameTime = getGameTime11();
   const existing = getPostClaimBootstrapRecord(input.roomName);
   const claimedAt = (existing == null ? void 0 : existing.status) === "ready" ? gameTime : (_a = existing == null ? void 0 : existing.claimedAt) != null ? _a : gameTime;
   bootstraps[input.roomName] = {
@@ -16233,7 +16455,7 @@ function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents
       updatedAt: gameTime,
       workerTarget,
       spawnSite,
-      lastResult: OK_CODE5
+      lastResult: OK_CODE6
     });
     if (shouldReportExistingSite) {
       telemetryEvents.push({
@@ -16242,18 +16464,18 @@ function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents
         colony: record.colony,
         phase: "spawnSite",
         ...record.controllerId ? { controllerId: record.controllerId } : {},
-        result: OK_CODE5,
+        result: OK_CODE6,
         spawnSite,
         workerCount,
         workerTarget,
         spawnCount
       });
-      recordSpawnSitePlacedTelemetry(record, spawnSite, OK_CODE5, telemetryEvents, true);
+      recordSpawnSitePlacedTelemetry(record, spawnSite, OK_CODE6, telemetryEvents, true);
     }
     return { active: true, spawnConstructionPending: true };
   }
   const sitePlan = planInitialSpawnConstructionSite(colony.room);
-  const nextStatus = sitePlan.result === OK_CODE5 ? "spawnSitePending" : "spawnSiteBlocked";
+  const nextStatus = sitePlan.result === OK_CODE6 ? "spawnSitePending" : "spawnSiteBlocked";
   const shouldReportSitePlan = record.status !== nextStatus || record.lastResult !== sitePlan.result || sitePlan.position !== void 0 && !isSameSpawnSite(record.spawnSite, sitePlan.position);
   updatePostClaimBootstrapRecord(roomName, {
     status: nextStatus,
@@ -16275,7 +16497,7 @@ function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents
       workerTarget,
       spawnCount
     });
-    if (sitePlan.result === OK_CODE5 && sitePlan.position) {
+    if (sitePlan.result === OK_CODE6 && sitePlan.position) {
       recordSpawnSitePlacedTelemetry(record, sitePlan.position, sitePlan.result, telemetryEvents);
     }
   }
@@ -16291,7 +16513,7 @@ function recordPostClaimBootstrapWorkerSpawn(roomName, spawnName, creepName, res
   }
   updatePostClaimBootstrapRecord(roomName, {
     status: "spawningWorkers",
-    updatedAt: getGameTime10()
+    updatedAt: getGameTime11()
   });
   telemetryEvents.push({
     type: "postClaimBootstrap",
@@ -16334,10 +16556,10 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
     const spawnSite = toSpawnSiteMemory(existingSpawnSite);
     updatePostClaimBootstrapRecord(roomName, {
       status: "spawnSitePending",
-      updatedAt: getGameTime10(),
+      updatedAt: getGameTime11(),
       workerTarget,
       spawnSite,
-      lastResult: OK_CODE5
+      lastResult: OK_CODE6
     });
     telemetryEvents.push({
       type: "postClaimBootstrap",
@@ -16345,20 +16567,20 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
       colony: record.colony,
       phase: "spawnSite",
       ...record.controllerId ? { controllerId: record.controllerId } : {},
-      result: OK_CODE5,
+      result: OK_CODE6,
       spawnSite,
       workerCount,
       workerTarget,
       spawnCount: 0
     });
-    recordSpawnSitePlacedTelemetry(record, spawnSite, OK_CODE5, telemetryEvents, true);
+    recordSpawnSitePlacedTelemetry(record, spawnSite, OK_CODE6, telemetryEvents, true);
     return;
   }
   const sitePlan = planInitialSpawnConstructionSite(room);
-  const nextStatus = sitePlan.result === OK_CODE5 ? "spawnSitePending" : "spawnSiteBlocked";
+  const nextStatus = sitePlan.result === OK_CODE6 ? "spawnSitePending" : "spawnSiteBlocked";
   updatePostClaimBootstrapRecord(roomName, {
     status: nextStatus,
-    updatedAt: getGameTime10(),
+    updatedAt: getGameTime11(),
     workerTarget,
     ...sitePlan.position ? { spawnSite: sitePlan.position } : {},
     lastResult: sitePlan.result
@@ -16375,7 +16597,7 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
     workerTarget,
     spawnCount: 0
   });
-  if (sitePlan.result === OK_CODE5 && sitePlan.position) {
+  if (sitePlan.result === OK_CODE6 && sitePlan.position) {
     recordSpawnSitePlacedTelemetry(record, sitePlan.position, sitePlan.result, telemetryEvents);
   }
 }
@@ -16433,7 +16655,7 @@ function planInitialSpawnConstructionSite(room) {
   let lastResult = ERR_INVALID_TARGET_CODE2;
   for (const position of positions) {
     lastResult = room.createConstructionSite(position.x, position.y, getStructureConstant("STRUCTURE_SPAWN", "spawn"));
-    if (lastResult === OK_CODE5) {
+    if (lastResult === OK_CODE6) {
       return {
         result: lastResult,
         position: { ...position, roomName: room.name }
@@ -16540,17 +16762,17 @@ function isTerrainWall4(terrain, position) {
 }
 function findExistingSpawnConstructionSite(room) {
   var _a;
-  const findConstant = getGlobalNumber6("FIND_MY_CONSTRUCTION_SITES");
+  const findConstant = getGlobalNumber7("FIND_MY_CONSTRUCTION_SITES");
   if (typeof room.find !== "function" || findConstant === null) {
     return null;
   }
   const sites = room.find(findConstant, {
-    filter: (site) => matchesStructureType11(site.structureType, "STRUCTURE_SPAWN", "spawn")
+    filter: (site) => matchesStructureType12(site.structureType, "STRUCTURE_SPAWN", "spawn")
   });
   return (_a = sites[0]) != null ? _a : null;
 }
 function findSources3(room) {
-  const findConstant = getGlobalNumber6("FIND_SOURCES");
+  const findConstant = getGlobalNumber7("FIND_SOURCES");
   if (typeof room.find !== "function" || findConstant === null) {
     return [];
   }
@@ -16650,7 +16872,7 @@ function getRoomTerrain6(roomName) {
 function getTerrainWallMask6() {
   return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK6;
 }
-function matchesStructureType11(actual, globalName, fallback) {
+function matchesStructureType12(actual, globalName, fallback) {
   return actual === getStructureConstant(globalName, fallback);
 }
 function getStructureConstant(globalName, fallback) {
@@ -16658,7 +16880,7 @@ function getStructureConstant(globalName, fallback) {
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
 }
-function getGlobalNumber6(name) {
+function getGlobalNumber7(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : null;
 }
@@ -16666,7 +16888,7 @@ function getGlobalString(name) {
   const value = globalThis[name];
   return typeof value === "string" ? value : null;
 }
-function getGameTime10() {
+function getGameTime11() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
@@ -16705,7 +16927,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   if (colonies.length === 0 && events.length === 0) {
     return void 0;
   }
-  const tick = getGameTime11();
+  const tick = getGameTime12();
   resetCachedRefillTelemetryIfTickRewound(tick);
   const emitsSummary = shouldEmitRuntimeSummary(tick, events);
   const creepsByColony = groupCreepsByColony(creeps);
@@ -16802,7 +17024,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
   if (persistOccupationRecommendations) {
-    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime11());
+    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime12());
   }
   return {
     roomName: colony.room.name,
@@ -16812,11 +17034,11 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
-    ...summarizeRuntimeBehavior(colonyWorkers, getGameTime11()),
+    ...summarizeRuntimeBehavior(colonyWorkers, getGameTime12()),
     ...includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {},
-    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime11()),
-    ...summarizeRefillTelemetry(colonyWorkers, getGameTime11()),
-    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime11()),
+    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime12()),
+    ...summarizeRefillTelemetry(colonyWorkers, getGameTime12()),
+    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime12()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -16836,7 +17058,7 @@ function buildPostClaimBootstrapSummary(roomName) {
 }
 function buildTerritoryIntentSummary(colonyName, roleCounts) {
   const territoryIntents = getTerritoryIntentProgressSummaries(colonyName, roleCounts);
-  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime11());
+  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime12());
   const hasSuspendedTerritoryIntents = Object.keys(suspendedTerritoryIntentCounts).length > 0;
   if (territoryIntents.length === 0 && !hasSuspendedTerritoryIntents) {
     return {};
@@ -16999,8 +17221,8 @@ function shouldBuildStructureSnapshot(tick) {
 }
 function summarizeStructures(colony, colonyWorkers) {
   var _a, _b;
-  const roomStructures = (_a = findRoomObjects11(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
-  const constructionSites = (_b = findRoomObjects11(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
+  const roomStructures = (_a = findRoomObjects12(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
+  const constructionSites = (_b = findRoomObjects12(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
   const roadCount = countStructuresByType2(roomStructures, "STRUCTURE_ROAD", "road");
   const pendingRoadSiteCount = countConstructionSitesByType(constructionSites, "STRUCTURE_ROAD", "road");
   return {
@@ -17026,7 +17248,7 @@ function summarizeContainers(structures) {
   return structures.filter((structure) => isStructureOfType(structure, "STRUCTURE_CONTAINER", "container")).map(toRuntimeContainerSnapshot).filter((summary) => summary !== null).sort((left, right) => left.id.localeCompare(right.id));
 }
 function toRuntimeContainerSnapshot(structure) {
-  const id = getObjectId4(structure);
+  const id = getObjectId5(structure);
   if (!id) {
     return null;
   }
@@ -17049,7 +17271,7 @@ function summarizeRepairTargetDistribution(colonyWorkers, roomStructures) {
   }
   const structuresById = /* @__PURE__ */ new Map();
   for (const structure of roomStructures) {
-    const id = getObjectId4(structure);
+    const id = getObjectId5(structure);
     if (id) {
       structuresById.set(id, structure);
     }
@@ -17070,7 +17292,7 @@ function toRuntimeRepairTargetSnapshot(targetId, repairCount, structure) {
   };
 }
 function isStructureOfType(structure, globalName, fallback) {
-  return isRecord14(structure) && matchesStructureType12(structure.structureType, globalName, fallback);
+  return isRecord14(structure) && matchesStructureType13(structure.structureType, globalName, fallback);
 }
 function calculateRoadCoverageRatio(roadCount, pendingRoadSiteCount) {
   const totalKnownRoadWork = roadCount + pendingRoadSiteCount;
@@ -17313,12 +17535,12 @@ function buildControllerSummary(room) {
 }
 function summarizeResources(colony, colonyWorkers, events) {
   var _a, _b, _c, _d, _e, _f;
-  const roomStructures = (_a = findRoomObjects11(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
+  const roomStructures = (_a = findRoomObjects12(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
   const ownedEnergyStructures = findOwnedEnergyStoreStructures(colony.room);
-  const roomCreeps = (_b = findRoomObjects11(colony.room, "FIND_MY_CREEPS")) != null ? _b : [];
-  const constructionSites = (_c = findRoomObjects11(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _c : [];
-  const droppedResources = (_d = findRoomObjects11(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _d : [];
-  const sources = (_e = findRoomObjects11(colony.room, "FIND_SOURCES")) != null ? _e : [];
+  const roomCreeps = (_b = findRoomObjects12(colony.room, "FIND_MY_CREEPS")) != null ? _b : [];
+  const constructionSites = (_c = findRoomObjects12(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _c : [];
+  const droppedResources = (_d = findRoomObjects12(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _d : [];
+  const sources = (_e = findRoomObjects12(colony.room, "FIND_SOURCES")) != null ? _e : [];
   return {
     storedEnergy: sumEnergyInStores(ownedEnergyStructures),
     workerCarriedEnergy: sumEnergyInStores(roomCreeps),
@@ -17331,13 +17553,13 @@ function summarizeResources(colony, colonyWorkers, events) {
 }
 function findOwnedEnergyStoreStructures(room) {
   var _a;
-  return ((_a = findRoomObjects11(room, "FIND_MY_STRUCTURES")) != null ? _a : []).filter(isOwnedEnergyStoreStructure);
+  return ((_a = findRoomObjects12(room, "FIND_MY_STRUCTURES")) != null ? _a : []).filter(isOwnedEnergyStoreStructure);
 }
 function isOwnedEnergyStoreStructure(structure) {
   if (!isRecord14(structure)) {
     return false;
   }
-  return matchesStructureType12(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType12(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType12(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType12(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType12(structure.structureType, "STRUCTURE_LINK", "link");
+  return matchesStructureType13(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType13(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType13(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType13(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType13(structure.structureType, "STRUCTURE_LINK", "link");
 }
 function summarizeProductiveEnergy(room, colonyWorkers, constructionSites, roomStructures) {
   const productiveAssignments = summarizeProductiveWorkerAssignments(colonyWorkers);
@@ -17408,10 +17630,10 @@ function getRepairBacklogHits(structure) {
   return Math.max(0, Math.ceil(repairCeiling - hits));
 }
 function isObservableRepairBacklogStructure(structure) {
-  return matchesStructureType12(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType12(structure.structureType, "STRUCTURE_CONTAINER", "container") || isObservedOwnedRampart(structure);
+  return matchesStructureType13(structure.structureType, "STRUCTURE_ROAD", "road") || matchesStructureType13(structure.structureType, "STRUCTURE_CONTAINER", "container") || isObservedOwnedRampart(structure);
 }
 function isObservedOwnedRampart(structure) {
-  return matchesStructureType12(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true;
+  return matchesStructureType13(structure.structureType, "STRUCTURE_RAMPART", "rampart") && structure.my === true;
 }
 function buildControllerProgressRemaining(room) {
   const controller = room.controller;
@@ -17427,8 +17649,8 @@ function buildControllerProgressRemaining(room) {
 }
 function summarizeCombat(room, events) {
   var _a, _b;
-  const hostileCreeps = (_a = findRoomObjects11(room, "FIND_HOSTILE_CREEPS")) != null ? _a : [];
-  const hostileStructures = (_b = findRoomObjects11(room, "FIND_HOSTILE_STRUCTURES")) != null ? _b : [];
+  const hostileCreeps = (_a = findRoomObjects12(room, "FIND_HOSTILE_CREEPS")) != null ? _a : [];
+  const hostileStructures = (_b = findRoomObjects12(room, "FIND_HOSTILE_STRUCTURES")) != null ? _b : [];
   return {
     hostileCreepCount: hostileCreeps.length,
     hostileStructureCount: hostileStructures.length,
@@ -17594,13 +17816,13 @@ function summarizeRoomEventMetrics(room, refillTargetIds = getSpawnExtensionEner
   if (!eventLog) {
     return {};
   }
-  const harvestEvent = getGlobalNumber7("EVENT_HARVEST");
-  const transferEvent = getGlobalNumber7("EVENT_TRANSFER");
-  const buildEvent = getGlobalNumber7("EVENT_BUILD");
-  const repairEvent = getGlobalNumber7("EVENT_REPAIR");
-  const upgradeControllerEvent = getGlobalNumber7("EVENT_UPGRADE_CONTROLLER");
-  const attackEvent = getGlobalNumber7("EVENT_ATTACK");
-  const objectDestroyedEvent = getGlobalNumber7("EVENT_OBJECT_DESTROYED");
+  const harvestEvent = getGlobalNumber8("EVENT_HARVEST");
+  const transferEvent = getGlobalNumber8("EVENT_TRANSFER");
+  const buildEvent = getGlobalNumber8("EVENT_BUILD");
+  const repairEvent = getGlobalNumber8("EVENT_REPAIR");
+  const upgradeControllerEvent = getGlobalNumber8("EVENT_UPGRADE_CONTROLLER");
+  const attackEvent = getGlobalNumber8("EVENT_ATTACK");
+  const objectDestroyedEvent = getGlobalNumber8("EVENT_OBJECT_DESTROYED");
   const resourceEvents = {
     harvestedEnergy: 0,
     transferredEnergy: 0,
@@ -17673,13 +17895,13 @@ function summarizeRoomEventMetrics(room, refillTargetIds = getSpawnExtensionEner
 }
 function getSpawnExtensionEnergyStructureIds(room) {
   var _a, _b;
-  const structures = (_b = (_a = findRoomObjects11(room, "FIND_MY_STRUCTURES")) != null ? _a : findRoomObjects11(room, "FIND_STRUCTURES")) != null ? _b : [];
+  const structures = (_b = (_a = findRoomObjects12(room, "FIND_MY_STRUCTURES")) != null ? _a : findRoomObjects12(room, "FIND_STRUCTURES")) != null ? _b : [];
   const ids = /* @__PURE__ */ new Set();
   for (const structure of structures) {
     if (!isSpawnExtensionEnergyStructure2(structure)) {
       continue;
     }
-    const id = getObjectId4(structure);
+    const id = getObjectId5(structure);
     if (id) {
       ids.add(id);
     }
@@ -17687,7 +17909,7 @@ function getSpawnExtensionEnergyStructureIds(room) {
   return ids;
 }
 function isSpawnExtensionEnergyStructure2(structure) {
-  return isRecord14(structure) && (matchesStructureType12(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType12(structure.structureType, "STRUCTURE_EXTENSION", "extension"));
+  return isRecord14(structure) && (matchesStructureType13(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType13(structure.structureType, "STRUCTURE_EXTENSION", "extension"));
 }
 function getEventTargetId(data) {
   return typeof data.targetId === "string" && data.targetId.length > 0 ? data.targetId : null;
@@ -17695,11 +17917,11 @@ function getEventTargetId(data) {
 function buildEventObjectId(entry) {
   return typeof entry.objectId === "string" && entry.objectId.length > 0 ? { objectId: entry.objectId } : {};
 }
-function getObjectId4(value) {
+function getObjectId5(value) {
   return isRecord14(value) && typeof value.id === "string" && value.id.length > 0 ? value.id : null;
 }
-function findRoomObjects11(room, constantName) {
-  const findConstant = getGlobalNumber7(constantName);
+function findRoomObjects12(room, constantName) {
+  const findConstant = getGlobalNumber8(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
     return void 0;
@@ -17776,11 +17998,11 @@ function getNumericEventData(data, key) {
   const value = data[key];
   return typeof value === "number" ? value : 0;
 }
-function getGlobalNumber7(name) {
+function getGlobalNumber8(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
-function matchesStructureType12(value, globalName, fallback) {
+function matchesStructureType13(value, globalName, fallback) {
   var _a;
   const expectedValue = (_a = globalThis[globalName]) != null ? _a : fallback;
   return value === expectedValue;
@@ -17810,7 +18032,7 @@ function buildCpuSummary() {
   }
   return Object.keys(summary).length > 0 ? { cpu: summary } : {};
 }
-function getGameTime11() {
+function getGameTime12() {
   return typeof Game.time === "number" ? Game.time : 0;
 }
 
@@ -17956,7 +18178,7 @@ function getSourceEnergyRegenTicks2() {
 }
 function getActiveWorkParts2(creep) {
   var _a;
-  const workPart = getBodyPartConstant4("WORK", "work");
+  const workPart = getBodyPartConstant5("WORK", "work");
   const activeWorkParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, workPart);
   if (typeof activeWorkParts === "number" && Number.isFinite(activeWorkParts)) {
     return Math.max(0, Math.floor(activeWorkParts));
@@ -17971,7 +18193,7 @@ function isActiveBodyPart4(part, bodyPartType) {
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant4(globalName, fallback) {
+function getBodyPartConstant5(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
@@ -17993,7 +18215,7 @@ function manageStorage(room) {
     return { assignedTasks: 0, linkTransfers: [] };
   }
   const linkTransfers = transferStorageLinkEnergy(room);
-  const storageEnergy = getStoredEnergy10(storage);
+  const storageEnergy = getStoredEnergy9(storage);
   if (storageEnergy <= 0) {
     return { assignedTasks: 0, linkTransfers };
   }
@@ -18008,14 +18230,14 @@ function manageStorage(room) {
 }
 function transferStorageLinkEnergy(room) {
   const { controllerLink, storageLink } = classifyLinks(room);
-  if (!controllerLink || !storageLink || getObjectId5(controllerLink) === getObjectId5(storageLink)) {
+  if (!controllerLink || !storageLink || getObjectId6(controllerLink) === getObjectId6(storageLink)) {
     return [];
   }
   if (getLinkCooldown2(storageLink) > 0) {
     return [];
   }
-  const storedEnergy = getStoredEnergy10(storageLink);
-  const destinationFreeCapacity = getFreeEnergyCapacity6(controllerLink);
+  const storedEnergy = getStoredEnergy9(storageLink);
+  const destinationFreeCapacity = getFreeEnergyCapacity5(controllerLink);
   const amount = Math.min(storedEnergy, destinationFreeCapacity);
   if (amount <= 0) {
     return [];
@@ -18023,9 +18245,9 @@ function transferStorageLinkEnergy(room) {
   return [
     {
       amount,
-      destinationId: getObjectId5(controllerLink),
+      destinationId: getObjectId6(controllerLink),
       result: transferLinkEnergy2(storageLink, controllerLink, amount),
-      sourceId: getObjectId5(storageLink)
+      sourceId: getObjectId6(storageLink)
     }
   ];
 }
@@ -18044,41 +18266,41 @@ function buildEnergyDemandState(room) {
   };
 }
 function findSpawnExtensionRefillTargets(room) {
-  const structures = findOwnedStructures3(room).filter(
-    (structure) => (matchesStructureType13(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType13(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && getFreeEnergyCapacity6(structure) > 0
+  const structures = findOwnedStructures4(room).filter(
+    (structure) => (matchesStructureType14(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType14(structure.structureType, "STRUCTURE_EXTENSION", "extension")) && getFreeEnergyCapacity5(structure) > 0
   );
   if (!isRoomSpawnExtensionEnergyLow(room, structures)) {
     return [];
   }
   return structures.map((target) => ({
-    freeCapacity: getFreeEnergyCapacity6(target),
-    id: getObjectId5(target),
+    freeCapacity: getFreeEnergyCapacity5(target),
+    id: getObjectId6(target),
     priority: 3,
     target
   }));
 }
 function findTowerRefillTargets(room) {
-  return findOwnedStructures3(room).filter(
-    (structure) => matchesStructureType13(structure.structureType, "STRUCTURE_TOWER", "tower") && getStoredEnergy10(structure) < TOWER_REFILL_THRESHOLD && getFreeEnergyCapacity6(structure) > 0
+  return findOwnedStructures4(room).filter(
+    (structure) => matchesStructureType14(structure.structureType, "STRUCTURE_TOWER", "tower") && getStoredEnergy9(structure) < TOWER_REFILL_THRESHOLD && getFreeEnergyCapacity5(structure) > 0
   ).map((target) => ({
-    freeCapacity: getFreeEnergyCapacity6(target),
-    id: getObjectId5(target),
+    freeCapacity: getFreeEnergyCapacity5(target),
+    id: getObjectId6(target),
     priority: 2,
     target
   }));
 }
 function findStorageLinkRefillTargets(room) {
   const { controllerLink, storageLink } = classifyLinks(room);
-  if (!controllerLink || !storageLink || getObjectId5(controllerLink) === getObjectId5(storageLink)) {
+  if (!controllerLink || !storageLink || getObjectId6(controllerLink) === getObjectId6(storageLink)) {
     return [];
   }
-  if (getFreeEnergyCapacity6(controllerLink) <= 0 || getFreeEnergyCapacity6(storageLink) <= 0) {
+  if (getFreeEnergyCapacity5(controllerLink) <= 0 || getFreeEnergyCapacity5(storageLink) <= 0) {
     return [];
   }
   return [
     {
-      freeCapacity: getFreeEnergyCapacity6(storageLink),
-      id: getObjectId5(storageLink),
+      freeCapacity: getFreeEnergyCapacity5(storageLink),
+      id: getObjectId6(storageLink),
       priority: 1,
       target: storageLink
     }
@@ -18093,16 +18315,16 @@ function isRoomSpawnExtensionEnergyLow(room, structures) {
   if (typeof energyAvailable === "number" && Number.isFinite(energyAvailable) && typeof energyCapacityAvailable === "number" && Number.isFinite(energyCapacityAvailable)) {
     return energyAvailable < energyCapacityAvailable;
   }
-  return structures.some((structure) => getFreeEnergyCapacity6(structure) > 0);
+  return structures.some((structure) => getFreeEnergyCapacity5(structure) > 0);
 }
 function findStorageManagementWorkers(room, storage, demandState) {
-  const storageId = getObjectId5(storage);
+  const storageId = getObjectId6(storage);
   const demandTargetIds = new Set(demandState.targets.map((target) => target.id));
   return findMyCreeps2(room).filter((creep) => isEligibleStorageManagementWorker(creep, room.name)).filter((creep) => isAssignableStorageManagementWorker(creep, storageId, demandTargetIds)).sort(compareWorkers);
 }
 function reserveExistingAssignments(workers, storage, demandState, storageEnergy) {
   let projectedStorageEnergy = storageEnergy;
-  const storageId = getObjectId5(storage);
+  const storageId = getObjectId6(storage);
   for (const worker of workers) {
     const task = worker.memory.task;
     if ((task == null ? void 0 : task.type) === "transfer") {
@@ -18116,7 +18338,7 @@ function reserveExistingAssignments(workers, storage, demandState, storageEnergy
       }
     }
     if ((task == null ? void 0 : task.type) === "withdraw" && String(task.targetId) === storageId) {
-      projectedStorageEnergy -= getFreeEnergyCapacity6(worker);
+      projectedStorageEnergy -= getFreeEnergyCapacity5(worker);
     }
   }
   return Math.max(0, projectedStorageEnergy);
@@ -18153,7 +18375,7 @@ function assignStorageWithdrawals(room, workers, storage, demandState, initialPr
     if (((_a = worker.memory.task) == null ? void 0 : _a.type) === "withdraw" && String(worker.memory.task.targetId) === String(storage.id)) {
       continue;
     }
-    const freeCapacity = getFreeEnergyCapacity6(worker);
+    const freeCapacity = getFreeEnergyCapacity5(worker);
     const withdrawableStorageEnergy = getStorageEnergyAvailableForWithdrawal(room, storage, projectedStorageEnergy);
     const plannedWithdrawal = Math.min(freeCapacity, projectedStorageEnergy);
     if (plannedWithdrawal <= 0 || plannedWithdrawal > withdrawableStorageEnergy || !withdrawFromStorage(room, plannedWithdrawal, storage, projectedStorageEnergy)) {
@@ -18259,11 +18481,11 @@ function getRoomStorage2(room) {
   if (room.storage) {
     return room.storage;
   }
-  return (_a = findOwnedStructures3(room).filter(
-    (structure) => matchesStructureType13(structure.structureType, "STRUCTURE_STORAGE", "storage")
+  return (_a = findOwnedStructures4(room).filter(
+    (structure) => matchesStructureType14(structure.structureType, "STRUCTURE_STORAGE", "storage")
   )[0]) != null ? _a : null;
 }
-function findOwnedStructures3(room) {
+function findOwnedStructures4(room) {
   if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
     return [];
   }
@@ -18277,20 +18499,20 @@ function findMyCreeps2(room) {
   const result = room.find(FIND_MY_CREEPS);
   return Array.isArray(result) ? result : [];
 }
-function getStoredEnergy10(target) {
+function getStoredEnergy9(target) {
   var _a;
   const store = target == null ? void 0 : target.store;
   const storedEnergy = (_a = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a.call(store, getEnergyResource8());
   return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
 }
-function getFreeEnergyCapacity6(target) {
+function getFreeEnergyCapacity5(target) {
   var _a;
   const store = target == null ? void 0 : target.store;
   const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, getEnergyResource8());
   return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
 }
 function getCarriedEnergy4(creep) {
-  return getStoredEnergy10(creep);
+  return getStoredEnergy9(creep);
 }
 function getLinkCooldown2(link) {
   return typeof link.cooldown === "number" && Number.isFinite(link.cooldown) ? link.cooldown : 0;
@@ -18299,7 +18521,7 @@ function getEnergyResource8() {
   var _a;
   return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
-function getObjectId5(object) {
+function getObjectId6(object) {
   if (typeof object !== "object" || object === null) {
     return "";
   }
@@ -18309,7 +18531,7 @@ function getObjectId5(object) {
   }
   return typeof candidate.name === "string" ? candidate.name : "";
 }
-function matchesStructureType13(actual, globalName, fallback) {
+function matchesStructureType14(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -18321,7 +18543,7 @@ var EXPANSION_CLAIM_EXECUTION_TIMEOUT_TICKS = 1500;
 var MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE = 500;
 var MIN_AUTONOMOUS_EXPANSION_CLAIM_RCL = 2;
 var EXIT_DIRECTION_ORDER4 = ["1", "3", "5", "7"];
-var OK_CODE6 = 0;
+var OK_CODE7 = 0;
 var ERR_NOT_IN_RANGE_CODE6 = -9;
 var ERR_INVALID_TARGET_CODE3 = -7;
 var ERR_NO_BODYPART_CODE = -12;
@@ -18361,7 +18583,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   if (!isClaimExecutionAssignment(assignment)) {
     return false;
   }
-  const gameTime = getGameTime12();
+  const gameTime = getGameTime13();
   const recommendedClaim = getRecommendedExpansionClaimExecutionGate(creep.memory.colony, assignment);
   if (!recommendedClaim) {
     return false;
@@ -18450,7 +18672,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   const result = executeExpansionClaim(creep, controller, telemetryEvents);
   execution.lastClaimAttemptAt = gameTime;
   execution.claimAttemptCount = ((_b = execution.claimAttemptCount) != null ? _b : 0) + 1;
-  if (result === OK_CODE6 && isClaimVerified(assignment.targetRoom, controller)) {
+  if (result === OK_CODE7 && isClaimVerified(assignment.targetRoom, controller)) {
     recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
     completeClaimAssignment(creep);
     return true;
@@ -18554,7 +18776,7 @@ function getAutonomousExpansionClaimTickContext(gameTime) {
 }
 function executeExpansionClaim(creep, controller, telemetryEvents = []) {
   var _a, _b, _c, _d, _e, _f, _g, _h;
-  const result = typeof creep.claimController === "function" ? creep.claimController(controller) : OK_CODE6;
+  const result = typeof creep.claimController === "function" ? creep.claimController(controller) : OK_CODE7;
   const reason = getClaimResultReason(result);
   recordTerritoryClaimTelemetry(telemetryEvents, {
     colony: (_e = (_d = (_b = creep.memory.colony) != null ? _b : (_a = creep.room) == null ? void 0 : _a.name) != null ? _d : (_c = controller.room) == null ? void 0 : _c.name) != null ? _e : "unknown",
@@ -19016,7 +19238,7 @@ function recordTerritoryClaimTelemetry(telemetryEvents, event) {
 }
 function getClaimResultReason(result) {
   switch (result) {
-    case OK_CODE6:
+    case OK_CODE7:
       return null;
     case ERR_NOT_IN_RANGE_CODE6:
       return "notInRange";
@@ -19192,7 +19414,7 @@ function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryE
     status: "claimed",
     controllerId: controller.id,
     creepName: creep.name,
-    updatedAt: getGameTime12()
+    updatedAt: getGameTime13()
   });
 }
 function recordRecommendedClaimTerminalFailure(creep, assignment, result, reason, options) {
@@ -19208,7 +19430,7 @@ function recordRecommendedClaimTerminalFailure(creep, assignment, result, reason
     reason
   });
   if (options.suppressIntent) {
-    suppressRecommendedClaimIntent(colony, assignment, getGameTime12(), options.controllerId, reason);
+    suppressRecommendedClaimIntent(colony, assignment, getGameTime13(), options.controllerId, reason);
   }
   recordColonyExpansionClaimVerification({
     colony,
@@ -19218,7 +19440,7 @@ function recordRecommendedClaimTerminalFailure(creep, assignment, result, reason
     creepName: creep.name,
     result,
     reason,
-    updatedAt: getGameTime12()
+    updatedAt: getGameTime13()
   });
 }
 function recordRecommendedClaimRetry(creep, assignment, result, reason, options = {}) {
@@ -19233,7 +19455,7 @@ function recordRecommendedClaimRetry(creep, assignment, result, reason, options 
     result,
     reason
   });
-  updateRecommendedClaimIntentForRetry(colony, assignment, getGameTime12(), options);
+  updateRecommendedClaimIntentForRetry(colony, assignment, getGameTime13(), options);
 }
 function updateRecommendedClaimIntentForRetry(colony, assignment, gameTime, options) {
   var _a, _b;
@@ -19356,7 +19578,7 @@ function isForeignReservedController3(controller, colony) {
 }
 function getKnownActiveClaimPartCount(creep) {
   var _a;
-  const claimPart = getBodyPartConstant5("CLAIM", "claim");
+  const claimPart = getBodyPartConstant6("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts;
@@ -19370,7 +19592,7 @@ function isActiveBodyPart5(part, bodyPartType) {
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant5(globalName, fallback) {
+function getBodyPartConstant6(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
@@ -19391,7 +19613,7 @@ function getVisibleRoom6(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
-function getGameTime12() {
+function getGameTime13() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -19537,14 +19759,14 @@ function getScoutIntel(homeRoomName, roomName) {
 }
 function countSources(room, scoutIntel) {
   if (room) {
-    return findRoomObjects12(room, "FIND_SOURCES").length;
+    return findRoomObjects13(room, "FIND_SOURCES").length;
   }
   return typeof (scoutIntel == null ? void 0 : scoutIntel.sourceCount) === "number" ? scoutIntel.sourceCount : 0;
 }
 function countHostiles(room, scoutIntel) {
   var _a, _b, _c;
   if (room) {
-    return findRoomObjects12(room, "FIND_HOSTILE_CREEPS").length + findRoomObjects12(room, "FIND_HOSTILE_STRUCTURES").length;
+    return findRoomObjects13(room, "FIND_HOSTILE_CREEPS").length + findRoomObjects13(room, "FIND_HOSTILE_STRUCTURES").length;
   }
   return ((_a = scoutIntel == null ? void 0 : scoutIntel.hostileCreepCount) != null ? _a : 0) + ((_b = scoutIntel == null ? void 0 : scoutIntel.hostileStructureCount) != null ? _b : 0) + ((_c = scoutIntel == null ? void 0 : scoutIntel.hostileSpawnCount) != null ? _c : 0);
 }
@@ -19555,7 +19777,7 @@ function scoreControllerDistance(room, details) {
     details.push("controller distance unknown");
     return 0;
   }
-  const ranges = findRoomObjects12(room, "FIND_SOURCES").map((source) => getRange2(controllerPos, source.pos)).filter((range) => typeof range === "number" && Number.isFinite(range));
+  const ranges = findRoomObjects13(room, "FIND_SOURCES").map((source) => getRange2(controllerPos, source.pos)).filter((range) => typeof range === "number" && Number.isFinite(range));
   if (ranges.length === 0) {
     details.push("controller distance unknown");
     return 0;
@@ -19571,8 +19793,8 @@ function scoreTerrain(roomName, details) {
     details.push("terrain unknown");
     return 0;
   }
-  const wallMask = (_a = getGlobalNumber8("TERRAIN_MASK_WALL")) != null ? _a : DEFAULT_TERRAIN_WALL_MASK8;
-  const swampMask = (_b = getGlobalNumber8("TERRAIN_MASK_SWAMP")) != null ? _b : DEFAULT_TERRAIN_SWAMP_MASK2;
+  const wallMask = (_a = getGlobalNumber9("TERRAIN_MASK_WALL")) != null ? _a : DEFAULT_TERRAIN_WALL_MASK8;
+  const swampMask = (_b = getGlobalNumber9("TERRAIN_MASK_SWAMP")) != null ? _b : DEFAULT_TERRAIN_SWAMP_MASK2;
   let total = 0;
   let walls = 0;
   let swamps = 0;
@@ -19666,8 +19888,8 @@ function getRoomTerrain8(roomName) {
   }
   return gameMap.getRoomTerrain(roomName);
 }
-function findRoomObjects12(room, constantName) {
-  const findConstant = getGlobalNumber8(constantName);
+function findRoomObjects13(room, constantName) {
+  const findConstant = getGlobalNumber9(constantName);
   if (!room || typeof room.find !== "function" || typeof findConstant !== "number") {
     return [];
   }
@@ -19685,7 +19907,7 @@ function getRange2(origin, target) {
   }
   return null;
 }
-function getGlobalNumber8(name) {
+function getGlobalNumber9(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
@@ -19702,7 +19924,7 @@ var MIN_ADJACENT_ROOM_RESERVATION_SCORE = 500;
 var ADJACENT_ROOM_RESERVATION_RENEWAL_TICKS_PER_CLAIM_PART = 600;
 var MAX_ADJACENT_ROOM_RESERVATION_RENEWAL_TICKS = 1e3;
 var EXIT_DIRECTION_ORDER6 = ["1", "3", "5", "7"];
-function refreshAdjacentRoomReservationIntent(colony, gameTime = getGameTime13(), options = {}) {
+function refreshAdjacentRoomReservationIntent(colony, gameTime = getGameTime14(), options = {}) {
   const evaluation = selectAdjacentRoomReservationPlan(colony, options);
   if (evaluation.status === "planned" && evaluation.targetRoom) {
     persistAdjacentRoomReservationIntent(colony.room.name, evaluation, gameTime);
@@ -20090,7 +20312,7 @@ function getWritableTerritoryMemoryRecord6() {
   }
   return root.Memory.territory;
 }
-function getGameTime13() {
+function getGameTime14() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -20106,7 +20328,7 @@ function isRecord17(value) {
 var COLONY_EXPANSION_CLAIM_TARGET_CREATOR = "colonyExpansion";
 var MIN_COLONY_EXPANSION_CLAIM_SCORE = MIN_ADJACENT_ROOM_RESERVATION_SCORE;
 var EXIT_DIRECTION_ORDER7 = ["1", "3", "5", "7"];
-function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime14()) {
+function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime15()) {
   const colonyName = colony.room.name;
   if (assessment.territoryReady !== true) {
     const reservation2 = refreshAdjacentRoomReservationIntent(colony, gameTime, {
@@ -20389,7 +20611,7 @@ function getWritableTerritoryMemoryRecord7() {
   }
   return memory.territory;
 }
-function getGameTime14() {
+function getGameTime15() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
@@ -20406,7 +20628,7 @@ var ERR_NOT_IN_RANGE_CODE7 = -9;
 var ERR_INVALID_TARGET_CODE4 = -7;
 var ERR_NO_BODYPART_CODE2 = -12;
 var ERR_GCL_NOT_ENOUGH_CODE2 = -15;
-var OK_CODE7 = 0;
+var OK_CODE8 = 0;
 var CLAIM_FATAL_RESULT_CODES = /* @__PURE__ */ new Set([
   ERR_INVALID_TARGET_CODE4,
   ERR_NO_BODYPART_CODE2,
@@ -20439,7 +20661,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
     return;
   }
   if (assignment.action === "scout") {
-    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime15(), creep.name, telemetryEvents);
+    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime16(), creep.name, telemetryEvents);
     completeTerritoryAssignment(creep);
     return;
   }
@@ -20489,7 +20711,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
     return;
   }
   const result = assignment.action === "claim" ? executeExpansionClaim(creep, controller, telemetryEvents) : executeControllerAction(creep, controller, "reserveController");
-  if (assignment.action === "claim" && result === OK_CODE7) {
+  if (assignment.action === "claim" && result === OK_CODE8) {
     recordPostClaimBootstrapIfOwned(creep, assignment, controller, telemetryEvents);
   }
   if (result === ERR_NOT_IN_RANGE_CODE7 && typeof creep.moveTo === "function") {
@@ -20521,7 +20743,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   if (typeof creep.reserveController !== "function" || !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
     return false;
   }
-  const gameTime = getGameTime15();
+  const gameTime = getGameTime16();
   const reserveAssignment = {
     targetRoom: assignment.targetRoom,
     action: "reserve",
@@ -20541,7 +20763,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   return true;
 }
 function suppressTerritoryAssignment(creep, assignment) {
-  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime15());
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime16());
   completeTerritoryAssignment(creep);
 }
 function completeTerritoryAssignment(creep) {
@@ -20588,7 +20810,7 @@ function selectTargetController(creep, assignment) {
 function executeControllerAction(creep, controller, action) {
   const controllerAction = creep[action];
   if (typeof controllerAction !== "function") {
-    return OK_CODE7;
+    return OK_CODE8;
   }
   return controllerAction.call(creep, controller);
 }
@@ -20621,14 +20843,14 @@ function selectVisibleTargetRoomController(assignment) {
   }
   return (_c = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[assignment.targetRoom]) == null ? void 0 : _b.controller) != null ? _c : null;
 }
-function getGameTime15() {
+function getGameTime16() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
 }
 function isCreepKnownToHaveNoActiveClaimParts(creep) {
   var _a;
-  const claimPart = getBodyPartConstant6("CLAIM", "claim");
+  const claimPart = getBodyPartConstant7("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts <= 0;
@@ -20645,7 +20867,7 @@ function isActiveBodyPart6(part, bodyPartType) {
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant6(globalName, fallback) {
+function getBodyPartConstant7(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
@@ -20793,11 +21015,11 @@ function buildStrategyRecommendationRoomState(colony, creeps) {
       return creep.memory.colony === room.name || ((_a2 = creep.room) == null ? void 0 : _a2.name) === room.name;
     }
   );
-  const hostileCreeps = findRoomObjects13(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects13(room, "FIND_HOSTILE_STRUCTURES");
-  const ownedStructures = findRoomObjects13(room, "FIND_MY_STRUCTURES");
-  const constructionSites = findRoomObjects13(room, "FIND_MY_CONSTRUCTION_SITES");
-  const sources = findRoomObjects13(room, "FIND_SOURCES");
+  const hostileCreeps = findRoomObjects14(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects14(room, "FIND_HOSTILE_STRUCTURES");
+  const ownedStructures = findRoomObjects14(room, "FIND_MY_STRUCTURES");
+  const constructionSites = findRoomObjects14(room, "FIND_MY_CONSTRUCTION_SITES");
+  const sources = findRoomObjects14(room, "FIND_SOURCES");
   return {
     roomName: room.name,
     controllerLevel: (_a = room.controller) == null ? void 0 : _a.level,
@@ -20805,7 +21027,7 @@ function buildStrategyRecommendationRoomState(colony, creeps) {
     workerCount: colonyCreeps.filter((creep) => creep.memory.role === "worker").length,
     energyAvailable: colony.energyAvailable,
     energyCapacity: colony.energyCapacityAvailable,
-    storedEnergy: getStoredEnergy11(room),
+    storedEnergy: getStoredEnergy10(room),
     sourceCount: sources.length,
     hostileCreepCount: hostileCreeps.length,
     hostileStructureCount: hostileStructures.length,
@@ -20950,7 +21172,7 @@ function countVisibleOwnedRooms3() {
 }
 function countStructuresByType3(structures, globalName, fallback) {
   return structures.filter(
-    (structure) => isRecord19(structure) && matchesStructureType14(structure.structureType, globalName, fallback)
+    (structure) => isRecord19(structure) && matchesStructureType15(structure.structureType, globalName, fallback)
   ).length;
 }
 function estimateRepairBacklogHits(structures) {
@@ -20966,7 +21188,7 @@ function estimateRepairBacklogHits(structures) {
     return total + (hitsMax - hits);
   }, 0);
 }
-function getStoredEnergy11(room) {
+function getStoredEnergy10(room) {
   const storage = room.storage;
   return getEnergyInStore2(storage);
 }
@@ -20982,8 +21204,8 @@ function getEnergyInStore2(object) {
   }
   return finiteNumberOrZero(object.store[resourceEnergy]);
 }
-function findRoomObjects13(room, constantName) {
-  const findConstant = getGlobalNumber9(constantName);
+function findRoomObjects14(room, constantName) {
+  const findConstant = getGlobalNumber10(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
     return [];
@@ -20995,7 +21217,7 @@ function findRoomObjects13(room, constantName) {
     return [];
   }
 }
-function matchesStructureType14(value, globalName, fallback) {
+function matchesStructureType15(value, globalName, fallback) {
   const globalValue = globalThis[globalName];
   return value === globalValue || value === fallback;
 }
@@ -21003,7 +21225,7 @@ function getResourceEnergy() {
   const value = globalThis.RESOURCE_ENERGY;
   return value != null ? value : "energy";
 }
-function getGlobalNumber9(name) {
+function getGlobalNumber10(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
@@ -21029,7 +21251,7 @@ function isRecord19(value) {
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
-var OK_CODE8 = 0;
+var OK_CODE9 = 0;
 var NEXT_EXPANSION_SCORING_REFRESH_INTERVAL = 50;
 var NEXT_EXPANSION_SCORING_DOWNGRADE_GUARD_TICKS = 5e3;
 function runEconomy(preludeTelemetryEvents = []) {
@@ -21077,7 +21299,7 @@ function runEconomy(preludeTelemetryEvents = []) {
         telemetryEvents,
         planningColony.spawns
       );
-      if (!outcome || outcome.result !== OK_CODE8) {
+      if (!outcome || outcome.result !== OK_CODE9) {
         break;
       }
       usedSpawns.add(outcome.spawn);
@@ -21435,7 +21657,7 @@ var Kernel = class {
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
     return this.dependencies.runEconomy(
-      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime16())
+      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime17())
     );
   }
 };
@@ -21507,7 +21729,7 @@ function getDefenseEventPriority(event) {
       return 3;
   }
 }
-function getGameTime16() {
+function getGameTime17() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
 
