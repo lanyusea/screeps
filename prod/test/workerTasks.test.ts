@@ -5814,6 +5814,30 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller2' });
   });
 
+  it('does not spend dedicated controller sustain energy on a maxed controller', () => {
+    const controller = { id: 'controller2', my: true, level: 8 } as StructureController;
+    const site = { id: 'spawn-site1', structureType: 'spawn' } as ConstructionSite;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W2N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' },
+        controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller
+      })
+    } as unknown as Creep;
+    (creep.room as Room & { name: string }).name = 'W2N1';
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'spawn-site1' });
+  });
+
   it('does not prioritize a freshly suppressed urgent reservation renewal', () => {
     const controller = {
       id: 'controller2',

@@ -545,7 +545,7 @@ function selectControllerSustainUpgradeTask(
     sustain?.role !== 'upgrader' ||
     sustain.targetRoom !== creep.room?.name ||
     controller?.my !== true ||
-    !canUpgradeController(controller)
+    !canLevelUpController(controller)
   ) {
     return null;
   }

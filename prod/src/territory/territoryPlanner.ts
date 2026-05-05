@@ -73,6 +73,7 @@ const TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 const TERRITORY_SCOUT_BODY_COST = 50;
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
 const REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
+const MAX_CONTROLLER_LEVEL = 8;
 
 export interface TerritoryIntentPlan {
   colony: string;
@@ -519,10 +520,20 @@ export function selectVisibleTerritoryControllerTask(creep: Creep): CreepTaskMem
   }
 
   if (controller.my === true) {
-    return getStoredEnergy(creep) > 0 ? { type: 'upgrade', targetId: controller.id } : null;
+    return getStoredEnergy(creep) > 0 && canLevelUpVisibleController(controller)
+      ? { type: 'upgrade', targetId: controller.id }
+      : null;
   }
 
   return canUseControllerClaimPart(creep) ? { type: 'claim', targetId: controller.id } : null;
+}
+
+function canLevelUpVisibleController(controller: StructureController): boolean {
+  return (
+    typeof controller.level === 'number' &&
+    Number.isFinite(controller.level) &&
+    controller.level < MAX_CONTROLLER_LEVEL
+  );
 }
 
 export function canCreepReserveTerritoryController(
