@@ -181,15 +181,6 @@ declare global {
   interface RoomMemory {
     lastExpansionScoreTime?: number;
     cachedExpansionSelection?: RoomExpansionSelectionMemory;
-    linkDistribution?: RoomLinkDistributionMemory;
-  }
-
-  interface RoomLinkDistributionMemory {
-    lastCheckedAt?: number;
-    nextCheckAt?: number;
-    lastPath?: string;
-    lastTransferAmount?: number;
-    lastCooldownTicks?: number;
   }
 
   interface RoomExpansionSelectionMemory {

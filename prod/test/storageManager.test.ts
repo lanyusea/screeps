@@ -120,23 +120,6 @@ describe('storageManager', () => {
     expect(storageLink.transfer).not.toHaveBeenCalled();
   });
 
-  it('keeps storage-link energy out of controller links while spawn refill has priority', () => {
-    const storage = makeStorage(2_000);
-    const spawn = makeSpawn('spawn1', 200);
-    const controllerLink = makeLink('controller-link', 25, 23, 0, 300);
-    const storageLink = makeLink('storage-link', 20, 21, 400, 400);
-    const room = makeRoom({
-      controller: makeController(25, 25),
-      energyAvailable: 100,
-      energyCapacityAvailable: 300,
-      storage,
-      structures: [storage, spawn, controllerLink, storageLink]
-    });
-
-    expect(manageStorage(room).linkTransfers).toEqual([]);
-    expect(storageLink.transfer).not.toHaveBeenCalled();
-  });
-
   it('assigns workers to fill the storage link when the controller link can receive energy', () => {
     const storage = makeStorage(2_000);
     const controllerLink = makeLink('controller-link', 25, 23, 0, 400);

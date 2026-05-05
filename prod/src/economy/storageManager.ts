@@ -67,10 +67,6 @@ function transferStorageLinkEnergy(room: Room): StorageLinkTransferResult[] {
     return [];
   }
 
-  if (hasPriorityEnergyDemandBeforeControllerLink(room)) {
-    return [];
-  }
-
   if (getLinkCooldown(storageLink) > 0) {
     return [];
   }
@@ -90,10 +86,6 @@ function transferStorageLinkEnergy(room: Room): StorageLinkTransferResult[] {
       sourceId: getObjectId(storageLink)
     }
   ];
-}
-
-function hasPriorityEnergyDemandBeforeControllerLink(room: Room): boolean {
-  return findSpawnExtensionRefillTargets(room).length > 0 || findTowerRefillTargets(room).length > 0;
 }
 
 function transferLinkEnergy(sourceLink: StructureLink, destinationLink: StructureLink, amount: number): ScreepsReturnCode {
