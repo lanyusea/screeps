@@ -1,7 +1,7 @@
 # Screeps Minimal Rules Registry
 
-Last updated: 2026-05-01
-Tracking issue: https://github.com/lanyusea/screeps/issues/427
+Last updated: 2026-05-05
+Tracking issue: https://github.com/lanyusea/screeps/issues/620
 
 This registry is the canonical compact rules standard for the two-person Screeps project. It intentionally avoids multi-level governance. The goal is to keep autonomous agents from doing the wrong thing while keeping the system small enough to maintain.
 
@@ -114,7 +114,7 @@ When the official target room (E26S49 on shardX) enters a dead-end state — def
 
 This authorization is automatic — no owner approval required. The agent MUST act immediately when the dead-end condition is detected, not wait for owner authorization. After recovery, post a concise summary to #decisions and update the P0 incident issue.
 
-The dead-end condition is checked by the runtime alert cron job (`1c093252ab70`). When detected with `room_dead` category and `owned_spawns=0 AND owned_creeps=0`, the alert handler must trigger the recovery sequence above, not just report.
+The dead-end condition is checked by the runtime alert cron job (`1df5ef0c3835`, `Screeps runtime room alert text check`). When detected with `room_dead` category and `owned_spawns=0 AND owned_creeps=0`, the alert handler must trigger the recovery sequence above, not just report.
 
 Owner @ notification is still required for: rollback decisions when multiple healthy commits exist, manual respawn when automated recovery fails, and non-recovery strategic decisions.
 
