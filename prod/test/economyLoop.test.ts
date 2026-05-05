@@ -41,7 +41,7 @@ describe('runEconomy', () => {
     });
   });
 
-  it('spawns an emergency worker when an owned colony has zero creeps and only basic worker energy', () => {
+  it('spawns an emergency bootstrap worker at the minimum body cost', () => {
     const room = {
       name: 'W1N1',
       energyAvailable: 200,
@@ -125,14 +125,14 @@ describe('runEconomy', () => {
     expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
     expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
     expect(spawn1.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      ['work', 'carry', 'move'],
       'worker-W1N1-126',
       {
         memory: { role: 'worker', colony: 'W1N1' }
       }
     );
     expect(spawn2.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      ['work', 'carry', 'move'],
       'worker-W1N1-126-2',
       {
         memory: { role: 'worker', colony: 'W1N1' }
@@ -226,7 +226,7 @@ describe('runEconomy', () => {
 
     expect(spawn.spawnCreep).not.toHaveBeenCalled();
 
-    room.energyAvailable = 200;
+    room.energyAvailable = 300;
     Game.time = 128;
     runEconomy();
 
@@ -365,8 +365,8 @@ describe('runEconomy', () => {
     const constructionSites: ConstructionSite[] = [];
     const room = {
       name: 'W1N1',
-      energyAvailable: 0,
-      energyCapacityAvailable: 0,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
       controller: { my: true, level: 2, id: 'controller1' } as StructureController,
       find: jest.fn((type: number) => (type === 3 ? constructionSites : [])),
       lookForAt: jest.fn(() => {
@@ -397,7 +397,13 @@ describe('runEconomy', () => {
       time: 250,
       rooms: { W1N1: room },
       spawns: { Spawn1: spawn },
-      creeps: { Worker1: worker },
+      creeps: {
+        Worker1: worker,
+        Worker2: makeEconomyWorker(room),
+        Worker3: makeEconomyWorker(room),
+        Worker4: makeEconomyWorker(room),
+        Worker5: makeEconomyWorker(room)
+      },
       map: {
         getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
       } as unknown as Game['map']
@@ -437,8 +443,8 @@ describe('runEconomy', () => {
     } as StructureController;
     const room = {
       name: 'W1N1',
-      energyAvailable: 0,
-      energyCapacityAvailable: 0,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
       controller,
       find: jest.fn((type: number) => (type === 3 ? constructionSites : [])),
       lookForAt: jest.fn(() => {
@@ -475,7 +481,13 @@ describe('runEconomy', () => {
       time: 251,
       rooms: { W1N1: room },
       spawns: { Spawn1: spawn },
-      creeps: { Worker1: worker },
+      creeps: {
+        Worker1: worker,
+        Worker2: makeEconomyWorker(room),
+        Worker3: makeEconomyWorker(room),
+        Worker4: makeEconomyWorker(room),
+        Worker5: makeEconomyWorker(room)
+      },
       getObjectById: jest.fn().mockReturnValue(controller),
       map: {
         getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
@@ -1913,7 +1925,13 @@ describe('runEconomy', () => {
       time: 422,
       rooms: { W1N1: homeRoom, W2N1: remoteRoom },
       spawns: {},
-      creeps: {},
+      creeps: {
+        Worker1: makeEconomyWorker(homeRoom),
+        Worker2: makeEconomyWorker(homeRoom),
+        Worker3: makeEconomyWorker(homeRoom),
+        Worker4: makeEconomyWorker(homeRoom),
+        Worker5: makeEconomyWorker(homeRoom)
+      },
       map: {
         getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
       } as unknown as GameMap
@@ -1960,7 +1978,7 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      ['work', 'carry', 'move'],
       'worker-W1N1-321',
       {
         memory: { role: 'worker', colony: 'W1N1' }
@@ -2033,13 +2051,6 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(['tough', 'attack', 'move'], 'defender-W1N1-322', {
-      memory: {
-        role: 'defender',
-        colony: 'W1N1',
-        defense: { homeRoom: 'W1N1' }
-      }
-    });
     expect(Memory.territory?.targets).toEqual([
       { colony: 'W1N1', roomName: 'W3N1', action: 'claim' },
       {

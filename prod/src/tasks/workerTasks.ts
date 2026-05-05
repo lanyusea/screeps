@@ -8,7 +8,7 @@ import {
   suppressesBootstrapNonCriticalWork,
   suppressesTerritoryWork,
   type ColonySurvivalAssessment
-} from '../colony/survivalMode';
+} from '../colony/colonyStage';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 import {
   buildCriticalRoadLogisticsContext,
