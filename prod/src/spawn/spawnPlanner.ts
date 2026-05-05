@@ -46,6 +46,7 @@ import {
   buildMultiRoomUpgraderMemory,
   selectMultiRoomUpgradePlans
 } from '../territory/multiRoomUpgrader';
+import { isLiveTransferCandidate } from '../economy/crossRoomHauler';
 
 type SpawnPriorityTier =
   | 'emergencyBootstrap'
@@ -82,6 +83,14 @@ export interface SpawnPlanningOptions {
   workersOnly?: boolean;
   allowTerritoryControllerPressure?: boolean;
   allowTerritoryFollowUp?: boolean;
+}
+
+export interface SpawnEnergyForecast {
+  roomName: string;
+  energyAvailable: number;
+  incomingEnergy: number;
+  outgoingEnergy: number;
+  effectiveEnergyAvailable: number;
 }
 
 const CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
@@ -151,6 +160,49 @@ export function planSpawn(
   return null;
 }
 
+export function orderColoniesForSpawnPlanning(colonies: ColonySnapshot[]): ColonySnapshot[] {
+  return [...colonies].sort(compareColoniesForSpawnPlanning);
+}
+
+export function getSpawnEnergyForecast(colony: ColonySnapshot): SpawnEnergyForecast {
+  const balance = getStorageBalanceMemory();
+  const transfers = Array.isArray(balance?.transfers) ? balance.transfers : [];
+  const incomingEnergy = transfers
+    .filter((transfer) => transfer.targetRoom === colony.room.name)
+    .reduce((total, transfer) => total + normalizeNonNegativeInteger(transfer.amount), 0);
+  const outgoingEnergy = transfers
+    .filter((transfer) => transfer.sourceRoom === colony.room.name)
+    .reduce((total, transfer) => total + normalizeNonNegativeInteger(transfer.amount), 0);
+  const energyAvailable = normalizeNonNegativeInteger(colony.energyAvailable);
+
+  return {
+    roomName: colony.room.name,
+    energyAvailable,
+    incomingEnergy,
+    outgoingEnergy,
+    effectiveEnergyAvailable: Math.max(0, energyAvailable + incomingEnergy - outgoingEnergy)
+  };
+}
+
+export function shouldSuppressWorkerSpawnForCrossRoomImport(colony: ColonySnapshot): boolean {
+  const balance = getStorageBalanceMemory();
+  if (!balance) {
+    return false;
+  }
+
+  const roomBalance = balance?.rooms?.[colony.room.name];
+  if (roomBalance?.mode !== 'import') {
+    return false;
+  }
+
+  return (balance?.transfers ?? []).some(
+    (transfer) =>
+      transfer.targetRoom === colony.room.name &&
+      transfer.amount > 0 &&
+      isLiveTransferCandidate(transfer)
+  );
+}
+
 function planSpawnForPriorityTier(
   tier: SpawnPriorityTier,
   context: SpawnPlanningContext
@@ -197,7 +249,8 @@ function planEmergencyBootstrapSpawn(context: SpawnPlanningContext): SpawnReques
 function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.workerCapacity >= context.workerTarget ||
-    !hasRecoveryWorkerSpawnEnergy(context.colony)
+    !hasRecoveryWorkerSpawnEnergy(context.colony) ||
+    (context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony))
   ) {
     return null;
   }
@@ -807,6 +860,7 @@ function shouldSpawnControllerUpgradeSurplusWorker(context: SpawnPlanningContext
     context.territoryIntentPending ||
     context.survival.mode !== 'TERRITORY_READY' ||
     hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
+    (context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony)) ||
     !hasControllerUpgradeSurplusEnergy(context.colony) ||
     !isControllerUpgradeableForSurplus(context.colony.room.controller)
   ) {
@@ -1164,6 +1218,20 @@ function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryInten
 
 function getVisibleRoom(roomName: string): Room | undefined {
   return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
+}
+
+function compareColoniesForSpawnPlanning(left: ColonySnapshot, right: ColonySnapshot): number {
+  const leftForecast = getSpawnEnergyForecast(left);
+  const rightForecast = getSpawnEnergyForecast(right);
+  return (
+    rightForecast.effectiveEnergyAvailable - leftForecast.effectiveEnergyAvailable ||
+    right.energyAvailable - left.energyAvailable ||
+    left.room.name.localeCompare(right.room.name)
+  );
+}
+
+function getStorageBalanceMemory(): EconomyStorageBalanceMemory | undefined {
+  return (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.economy?.storageBalance;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
