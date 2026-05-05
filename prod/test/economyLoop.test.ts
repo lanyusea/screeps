@@ -384,7 +384,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(sourceLink.transfer).toHaveBeenCalledWith(controllerLink, 300);
+    expect(sourceLink.transferEnergy).toHaveBeenCalledWith(controllerLink, 300);
     expect(logSpy).toHaveBeenCalledTimes(1);
     const [message] = logSpy.mock.calls[0];
     const payload = JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length));
@@ -2169,7 +2169,7 @@ function makeEconomyLink(
   y: number,
   energy: number,
   freeCapacity: number
-): StructureLink & { transfer: jest.Mock } {
+): StructureLink & { transferEnergy: jest.Mock } {
   return {
     id,
     cooldown: 0,
@@ -2179,8 +2179,8 @@ function makeEconomyLink(
       getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
       getUsedCapacity: jest.fn().mockReturnValue(energy)
     },
-    transfer: jest.fn().mockReturnValue(OK_CODE)
-  } as unknown as StructureLink & { transfer: jest.Mock };
+    transferEnergy: jest.fn().mockReturnValue(OK_CODE)
+  } as unknown as StructureLink & { transferEnergy: jest.Mock };
 }
 
 function makeEconomyRoomPosition(x: number, y: number): RoomPosition {
