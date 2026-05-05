@@ -1,11 +1,14 @@
 import { ColonySnapshot } from '../colony/colonyRegistry';
 import {
   assessColonySnapshotSurvival,
+  BOOTSTRAP_MIN_SPAWN_ENERGY,
+  EMERGENCY_BOOTSTRAP_WORKER_BODY,
   getRoomSources,
   getSourceCount,
   getWorkerTarget,
+  hasEmergencyBootstrapCreepShortfall,
   type ColonySurvivalAssessment
-} from '../colony/survivalMode';
+} from '../colony/colonyStage';
 import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import {
   REMOTE_HARVESTER_ROLE,
@@ -101,18 +104,19 @@ const POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
 const POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
 const POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS = 100;
 const POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY = 200;
+const MINIMUM_EMERGENCY_WORKER_BODY_COST = getBodyCost(EMERGENCY_BOOTSTRAP_WORKER_BODY);
 const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'emergencyBootstrap',
-  // Keep defense above local refill so hostiles cannot starve the first defender.
-  'defense',
   'localRefillSurvival',
   'controllerDowngradeGuard',
+  'defense',
   'postClaimControllerSustain',
   'remoteEconomy',
   'territoryRemote',
   'multiRoomControllerUpgrade',
   'controllerUpgradeSurplus'
 ];
+const DEFENSE_TOWER_REFILL_ENERGY_FLOOR = 500;
 
 export function planSpawn(
   colony: ColonySnapshot,
@@ -172,16 +176,25 @@ function planSpawnForPriorityTier(
 function planEmergencyBootstrapSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.survival.mode !== 'BOOTSTRAP' ||
-    context.workerCapacity >= context.survival.survivalWorkerFloor
+    !hasEmergencyBootstrapCreepShortfall(context.survival) ||
+    !hasRecoveryWorkerSpawnEnergy(context.colony)
   ) {
     return null;
   }
 
-  return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+  return planWorkerSpawnWithBody(
+    context.colony,
+    [...EMERGENCY_BOOTSTRAP_WORKER_BODY],
+    context.gameTime,
+    context.options
+  );
 }
 
 function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | null {
-  if (context.workerCapacity >= context.workerTarget) {
+  if (
+    context.workerCapacity >= context.workerTarget ||
+    !hasRecoveryWorkerSpawnEnergy(context.colony)
+  ) {
     return null;
   }
 
@@ -192,6 +205,7 @@ function planControllerDowngradeGuardSpawn(context: SpawnPlanningContext): Spawn
   if (
     !context.survival.controllerDowngradeGuard ||
     context.workerCapacity > context.workerTarget ||
+    context.colony.energyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY ||
     !hasControllerDowngradeGuardSpawnCapacity(context)
   ) {
     return null;
@@ -206,6 +220,10 @@ function hasControllerDowngradeGuardSpawnCapacity(context: SpawnPlanningContext)
   }
 
   return context.colony.spawns.filter((spawn) => !spawn.spawning).length > 1;
+}
+
+function hasRecoveryWorkerSpawnEnergy(colony: ColonySnapshot): boolean {
+  return colony.energyAvailable >= MINIMUM_EMERGENCY_WORKER_BODY_COST;
 }
 
 interface PostClaimControllerSustainPlan {
@@ -442,7 +460,11 @@ function isClaimedRoomEnergyInsufficient(room: Room | undefined): boolean {
 }
 
 function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
-  if (!context.survival.hostilePresence || (context.roleCounts.defender ?? 0) > 0) {
+  if (
+    !context.survival.hostilePresence ||
+    (context.roleCounts.defender ?? 0) > 0 ||
+    hasDefenseTowerRefillDemand(context.colony.room)
+  ) {
     return null;
   }
 
@@ -467,6 +489,30 @@ function planDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
       defense: { homeRoom: roomName }
     }
   };
+}
+
+function hasDefenseTowerRefillDemand(room: Room): boolean {
+  const findMyStructures = getGlobalNumber('FIND_MY_STRUCTURES');
+  if (findMyStructures === undefined || typeof room.find !== 'function') {
+    return false;
+  }
+
+  const structures = room.find(findMyStructures as FindConstant) as AnyOwnedStructure[];
+  return structures.some((structure) => isTowerStructure(structure) && isTowerBelowDefenseRefillFloor(structure));
+}
+
+function isTowerStructure(structure: AnyOwnedStructure): structure is StructureTower {
+  const towerType = (globalThis as { STRUCTURE_TOWER?: StructureConstant }).STRUCTURE_TOWER ?? 'tower';
+  return structure.structureType === towerType || structure.structureType === 'tower';
+}
+
+function isTowerBelowDefenseRefillFloor(tower: StructureTower): boolean {
+  const usedEnergy = getStoredEnergy(tower);
+  if (usedEnergy !== null) {
+    return usedEnergy < DEFENSE_TOWER_REFILL_ENERGY_FLOOR;
+  }
+
+  return getFreeEnergyCapacity(tower) > 0;
 }
 
 function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | null {
@@ -834,12 +880,20 @@ function planWorkerSpawn(
   gameTime: number,
   options: SpawnPlanningOptions
 ): SpawnRequest | null {
+  return planWorkerSpawnWithBody(colony, selectWorkerBody(colony, roleCounts), gameTime, options);
+}
+
+function planWorkerSpawnWithBody(
+  colony: ColonySnapshot,
+  body: BodyPartConstant[],
+  gameTime: number,
+  options: SpawnPlanningOptions
+): SpawnRequest | null {
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
   if (!spawn) {
     return null;
   }
 
-  const body = selectWorkerBody(colony, roleCounts);
   if (body.length === 0) {
     return null;
   }
@@ -1018,4 +1072,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function getStoredEnergy(structure: { store?: StoreDefinition }): number | null {
+  const resourceEnergy = (globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy';
+  const getUsedCapacity = structure.store?.getUsedCapacity;
+  if (typeof getUsedCapacity !== 'function') {
+    return null;
+  }
+
+  const usedCapacity = getUsedCapacity.call(structure.store, resourceEnergy);
+  return typeof usedCapacity === 'number' && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : null;
+}
+
+function getFreeEnergyCapacity(structure: { store?: StoreDefinition }): number {
+  const resourceEnergy = (globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy';
+  const getFreeCapacity = structure.store?.getFreeCapacity;
+  if (typeof getFreeCapacity !== 'function') {
+    return 0;
+  }
+
+  const freeCapacity = getFreeCapacity.call(structure.store, resourceEnergy);
+  return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
+}
+
+function getGlobalNumber(name: string): number | undefined {
+  const value = (globalThis as Record<string, unknown>)[name];
+  return typeof value === 'number' ? value : undefined;
 }

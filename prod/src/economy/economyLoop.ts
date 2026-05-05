@@ -2,8 +2,9 @@ import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry'
 import {
   assessColonySnapshotSurvival,
   clearColonySurvivalAssessmentCache,
+  persistColonyStageAssessment,
   recordColonySurvivalAssessment
-} from '../colony/survivalMode';
+} from '../colony/colonyStage';
 import { planExtensionConstruction } from '../construction/extensionPlanner';
 import { planStorageConstruction, planTowerConstruction } from '../construction/constructionPriority';
 import { planEarlyRoadConstruction } from '../construction/roadPlanner';
@@ -77,12 +78,14 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   for (const colony of colonies) {
     recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
-    const bootstrapResult = refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
-    planCriticalConstructionSites(colony, bootstrapResult.spawnConstructionPending);
-    refreshRemoteMiningSetup(colony, Game.time);
-
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
+    persistColonyStageAssessment(colony, survivalAssessment, Game.time);
+    const bootstrapResult = refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
+    planCriticalConstructionSites(colony, bootstrapResult.spawnConstructionPending, survivalAssessment.mode === 'BOOTSTRAP');
+    if (survivalAssessment.mode === 'TERRITORY_READY') {
+      refreshRemoteMiningSetup(colony, Game.time);
+    }
     refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
     const hasPendingTerritoryFollowUp = hasPendingTerritoryFollowUpIntent(
       colony.room.name,
@@ -158,9 +161,10 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
 
 function planCriticalConstructionSites(
   colony: ColonySnapshot,
-  spawnConstructionPending: boolean
+  spawnConstructionPending: boolean,
+  bootstrapNonCriticalConstructionSuppressed = false
 ): void {
-  if (spawnConstructionPending) {
+  if (spawnConstructionPending || bootstrapNonCriticalConstructionSuppressed) {
     return;
   }
 

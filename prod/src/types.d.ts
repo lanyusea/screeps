@@ -181,6 +181,22 @@ declare global {
   interface RoomMemory {
     lastExpansionScoreTime?: number;
     cachedExpansionSelection?: RoomExpansionSelectionMemory;
+    colonyStage?: RoomColonyStageMemory;
+  }
+
+  interface RoomColonyStageMemory {
+    mode: 'BOOTSTRAP' | 'LOCAL_STABLE' | 'TERRITORY_READY' | 'DEFENSE';
+    updatedAt: number;
+    suppressionReasons?: Array<
+      | 'bootstrapWorkerFloor'
+      | 'spawnEnergyCritical'
+      | 'bootstrapRecovery'
+      | 'localWorkerRecovery'
+      | 'controllerDowngradeGuard'
+      | 'territoryEnergyCapacity'
+      | 'controllerLevel'
+      | 'defense'
+    >;
   }
 
   interface RoomExpansionSelectionMemory {

@@ -3,7 +3,7 @@ import {
   assessColonySnapshotSurvival,
   type ColonyMode,
   type ColonySuppressionReason
-} from '../colony/survivalMode';
+} from '../colony/colonyStage';
 import { buildRuntimeConstructionPriorityReport, type ConstructionPriorityScore } from '../construction/constructionPriority';
 import { countCreepsByRole, type RoleCounts } from '../creeps/roleCounts';
 import {
