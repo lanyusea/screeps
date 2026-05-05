@@ -10585,7 +10585,7 @@ function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink, harvestEta 
   return candidates.sort(compareSpawnRecoveryEnergyAcquisitionCandidates)[0].task;
 }
 function selectSpawnRecoveryHarvestCandidate(creep, energySink) {
-  const sources = findVisibleHarvestSources(creep);
+  const sources = findVisibleHarvestSourcesInRooms([creep.room]);
   if (sources.length === 0) {
     return null;
   }
@@ -11691,7 +11691,10 @@ function selectBestHarvestSource(creep, sources) {
   }
   const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
   const assignmentLoads = getWorkerHarvestLoads(viableSources);
-  const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
+  const assignableSources = selectReachableHarvestSources(
+    creep,
+    selectAssignableHarvestSources(creep, viableSources, assignmentLoads)
+  );
   if (assignableSources.length === 0) {
     return null;
   }
@@ -11710,6 +11713,12 @@ function selectAssignableHarvestSources(creep, sources, assignmentLoads) {
   return sources.filter(
     (source) => isAssignableHarvestSource(creep, source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
   );
+}
+function selectReachableHarvestSources(creep, sources) {
+  if (!isPathFinderAvailable2()) {
+    return sources;
+  }
+  return sources.filter((source) => getHarvestSourceTravelCost(creep, source) !== null);
 }
 function isAssignableHarvestSource(creep, source, assignmentLoad) {
   if (!findVisibleSourceContainer(creep, source)) {
