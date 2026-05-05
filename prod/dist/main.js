@@ -18290,10 +18290,6 @@ function scoreTerrain(roomName, details) {
       }
     }
   }
-  if (total === 0) {
-    details.push("terrain unknown");
-    return 0;
-  }
   const walkableRatio = (total - walls) / total;
   const swampRatio = swamps / total;
   details.push(`terrain walkable ${Math.round(walkableRatio * 100)}%`);
