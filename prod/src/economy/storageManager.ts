@@ -1,4 +1,8 @@
 import { classifyLinks } from './linkManager';
+import {
+  getStorageEnergyAvailableForWithdrawal,
+  withdrawFromStorage
+} from './energyBuffer';
 
 type ManagedEnergyStructure = StructureSpawn | StructureExtension | StructureTower | StructureLink;
 type StorageStructureConstantGlobal =
@@ -56,7 +60,7 @@ export function manageStorage(room: Room): StorageManagementResult {
   const projectedStorageEnergy = reserveExistingAssignments(workers, storage, demandState, storageEnergy);
   const assignedTasks =
     assignLoadedWorkers(workers, demandState) +
-    assignStorageWithdrawals(workers, storage, demandState, projectedStorageEnergy);
+    assignStorageWithdrawals(room, workers, storage, demandState, projectedStorageEnergy);
 
   return { assignedTasks, linkTransfers };
 }
@@ -254,6 +258,7 @@ function assignLoadedWorkers(workers: Creep[], demandState: EnergyDemandState): 
 }
 
 function assignStorageWithdrawals(
+  room: Room,
   workers: Creep[],
   storage: StructureStorage,
   demandState: EnergyDemandState,
@@ -272,8 +277,13 @@ function assignStorageWithdrawals(
     }
 
     const freeCapacity = getFreeEnergyCapacity(worker);
+    const withdrawableStorageEnergy = getStorageEnergyAvailableForWithdrawal(room, storage, projectedStorageEnergy);
     const plannedWithdrawal = Math.min(freeCapacity, projectedStorageEnergy);
-    if (plannedWithdrawal <= 0 || projectedStorageEnergy - plannedWithdrawal <= STORAGE_EMERGENCY_BUFFER) {
+    if (
+      plannedWithdrawal <= 0 ||
+      plannedWithdrawal > withdrawableStorageEnergy ||
+      !withdrawFromStorage(room, plannedWithdrawal, storage, projectedStorageEnergy)
+    ) {
       continue;
     }
 

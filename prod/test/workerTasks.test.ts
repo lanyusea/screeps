@@ -375,7 +375,7 @@ describe('selectWorkerTask', () => {
   it('boosting upgraders withdraw stored energy before source2 lane harvesting near controller level-up', () => {
     const source1 = makeSource('source1', 8, 8);
     const source2 = makeSource('source2', 24, 25);
-    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 500, {
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 650, {
       my: true,
       pos: makeRoomPosition(10, 10)
     });
@@ -657,7 +657,7 @@ describe('selectWorkerTask', () => {
       { 'build-site1': 2 }
     );
     const storage = withRangeTo(
-      makeStoredEnergyStructure('storage-eligible', 'storage' as StructureConstant, 300, { my: true }),
+      makeStoredEnergyStructure('storage-eligible', 'storage' as StructureConstant, 450, { my: true }),
       { 'build-site1': 4 }
     );
     const getRangeTo = jest.fn((target: { id?: string }) => {
@@ -812,9 +812,14 @@ describe('selectWorkerTask', () => {
       }
     );
     const storage = withRangeTo(
-      makeStoredEnergyStructure('storage-small', 'storage' as StructureConstant, BUILDER_STORAGE_WITHDRAW_MIN - 1, {
-        my: true
-      }),
+      makeStoredEnergyStructure(
+        'storage-small',
+        'storage' as StructureConstant,
+        300 + BUILDER_STORAGE_WITHDRAW_MIN - 1,
+        {
+          my: true
+        }
+      ),
       { 'build-site1': 2 }
     );
     const getRangeTo = jest.fn((target: { id?: string }) => {
@@ -1131,7 +1136,7 @@ describe('selectWorkerTask', () => {
   it('uses stored energy when it ties harvest delivery under extension pressure', () => {
     const extension = makeEnergySink('extension1', 'extension' as StructureConstant, 50);
     const storedEnergy = withRangeTo(
-      makeStoredEnergyStructure('storage-equal', 'storage' as StructureConstant, 50, { my: true }),
+      makeStoredEnergyStructure('storage-equal', 'storage' as StructureConstant, 350, { my: true }),
       { extension1: 1 }
     );
     const source = withRangeTo({ id: 'source1', energy: 300 } as Source, { extension1: 1 });
@@ -3055,9 +3060,9 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
   });
 
-  it('skips storage withdrawal when storage is below reserve floor and transfers directly to spawn', () => {
+  it('withdraws below the storage reserve when spawn throughput refill needs energy', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
-    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 1_000, { my: true });
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 320, { my: true });
     const room = makeWorkerTaskRoom({
       controller: {
         id: 'controller1' as Id<StructureController>,
@@ -3077,12 +3082,12 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toBeNull();
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
   });
 
-  it('skips storage withdrawal when another worker reservation causes reserve floor violation', () => {
+  it('uses unreserved storage energy for spawn throughput refill even below the reserve floor', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
-    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 1_200, { my: true });
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 620, { my: true });
     const room = makeWorkerTaskRoom({
       controller: {
         id: 'controller1' as Id<StructureController>,
@@ -3117,7 +3122,7 @@ describe('selectWorkerTask', () => {
       TestStorageWorker: creep
     });
 
-    expect(selectWorkerTask(creep)).toBeNull();
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
   });
 
   it('skips storage-to-spawn refill when spawn and extensions are full', () => {
@@ -4661,7 +4666,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
-  it('spends carried energy productively when other loaded workers cover the near-term refill reserve', () => {
+  it('keeps construction gated by the room buffer when other workers cover near-term refill reserve', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',
       structureType: 'spawn',
@@ -4706,7 +4711,7 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ ReserveA: reserveWorkerA, ReserveB: reserveWorkerB });
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('deduplicates reserve workers by stable key before counting reserved refill energy', () => {
@@ -4739,7 +4744,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
-  it('reserves higher-energy workers before range tie-breakers for near-term refill capacity', () => {
+  it('keeps construction buffer-gated after reserving higher-energy workers for near-term refill capacity', () => {
     const busyFullSpawn = {
       id: 'spawn-busy',
       structureType: 'spawn',
@@ -4766,7 +4771,7 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ LowReserve: lowEnergyReserveWorker, HighReserve: highEnergyReserveWorker });
 
     expect(estimateNearTermSpawnExtensionRefillReserve(room)).toBe(100);
-    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
   });
 
   it('keeps emergency spawn refill before surplus spending while a near-term reserve is active', () => {
@@ -7289,6 +7294,56 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'road-site1' });
+  });
+
+  it('gates construction spending when the room energy buffer would be breached', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        controller,
+        energyAvailable: 540,
+        myStructures: [fullSpawn as AnyOwnedStructure]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('uses the survival buffer multiplier before selecting construction spending', () => {
+    const fullSpawn = makeEnergySink('spawn-full', 'spawn' as StructureConstant, 0);
+    const site = { id: 'road-site1', structureType: 'road' } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const makeCreep = (): Creep =>
+      ({
+        store: { getUsedCapacity: jest.fn().mockReturnValue(60) },
+        room: makeWorkerTaskRoom({
+          constructionSites: [site],
+          controller,
+          energyAvailable: 800,
+          myStructures: [fullSpawn as AnyOwnedStructure]
+        })
+      }) as unknown as Creep;
+
+    recordSurvivalMode('DEFENSE');
+    expect(selectWorkerTask(makeCreep())).toEqual({ type: 'upgrade', targetId: 'controller1' });
+
+    clearColonySurvivalAssessmentCache();
+    recordSurvivalMode('LOCAL_STABLE');
+    expect(selectWorkerTask(makeCreep())).toEqual({ type: 'build', targetId: 'road-site1' });
   });
 
   it('routes carried energy to controller upgrade before non-critical construction once spawn recovery is safe', () => {
