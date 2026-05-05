@@ -14,7 +14,12 @@ import {
   type ExpansionScoringInput
 } from './expansionScoring';
 import type { OccupationRecommendationReport, OccupationRecommendationScore } from './occupationRecommendation';
-import { TERRITORY_SUPPRESSION_RETRY_TICKS } from './territoryPlanner';
+import {
+  isVisibleTerritoryAssignmentSafe,
+  suppressTerritoryIntent,
+  TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS,
+  TERRITORY_SUPPRESSION_RETRY_TICKS
+} from './territoryPlanner';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import {
   ensureTerritoryScoutAttempt,
@@ -118,11 +123,34 @@ export function runRecommendedExpansionClaimExecutor(
   telemetryEvents: RuntimeTelemetryEvent[] = []
 ): boolean {
   const assignment = creep.memory.territory;
-  if (!isClaimExecutionAssignment(assignment) || !isRecommendedExpansionClaim(creep.memory.colony, assignment)) {
+  if (!isClaimExecutionAssignment(assignment)) {
     return false;
   }
 
   const gameTime = getGameTime();
+  const recommendedClaim = getRecommendedExpansionClaimExecutionGate(creep.memory.colony, assignment);
+  if (!recommendedClaim) {
+    return false;
+  }
+
+  if (!isRecommendedClaimIntentRunnable(recommendedClaim.intent, gameTime)) {
+    completeClaimAssignment(creep);
+    return true;
+  }
+
+  const visibleController = selectCurrentOrVisibleClaimTargetController(creep, assignment);
+  if (visibleController?.my === true) {
+    recordRecommendedClaimSuccess(creep, assignment, visibleController, telemetryEvents);
+    completeClaimAssignment(creep);
+    return true;
+  }
+
+  if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
+    suppressTerritoryIntent(creep.memory.colony, assignment, gameTime);
+    completeClaimAssignment(creep);
+    return true;
+  }
+
   const execution = assignment as ClaimExecutionAssignment;
   if (typeof execution.claimStartedAt !== 'number' || execution.claimStartedAt > gameTime) {
     execution.claimStartedAt = gameTime;
@@ -1038,8 +1066,8 @@ function getClaimResultReason(result: ScreepsReturnCode): RuntimeTerritoryClaimT
 }
 
 function getControllerClaimCooldown(controller: StructureController): number {
-  const claimCooldown = (controller as StructureController & { claimCooldown?: number }).claimCooldown;
-  return typeof claimCooldown === 'number' && claimCooldown > 0 ? claimCooldown : 0;
+  const upgradeBlocked = (controller as StructureController & { upgradeBlocked?: number }).upgradeBlocked;
+  return typeof upgradeBlocked === 'number' && upgradeBlocked > 0 ? upgradeBlocked : 0;
 }
 
 function isClaimExecutionAssignment(assignment: CreepTerritoryMemory | undefined): assignment is CreepTerritoryMemory {
@@ -1050,40 +1078,70 @@ function isClaimExecutionAssignment(assignment: CreepTerritoryMemory | undefined
   );
 }
 
-function isRecommendedExpansionClaim(colony: string | undefined, assignment: CreepTerritoryMemory): boolean {
+function getRecommendedExpansionClaimExecutionGate(
+  colony: string | undefined,
+  assignment: CreepTerritoryMemory
+): { intent: TerritoryIntentMemory | null } | null {
   if (!isNonEmptyString(colony)) {
-    return false;
+    return null;
   }
 
   const territoryMemory = getTerritoryMemoryRecord();
   if (!territoryMemory) {
+    return null;
+  }
+
+  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
+  const intent =
+    normalizeTerritoryIntents(territoryMemory.intents).find((candidate) =>
+      isMatchingRecommendedClaimIntent(
+        candidate,
+        colony,
+        assignment.targetRoom,
+        assignment.controllerId,
+        allowUnscopedIntent
+      )
+    ) ?? null;
+  if (intent) {
+    return { intent };
+  }
+
+  return allowUnscopedIntent ? { intent: null } : null;
+}
+
+function isRecommendedClaimIntentRunnable(intent: TerritoryIntentMemory | null, gameTime: number): boolean {
+  if (!intent || (intent.status !== 'planned' && intent.status !== 'active')) {
     return false;
   }
 
-  if (
-    normalizeTerritoryIntents(territoryMemory.intents).some(
-      (intent) =>
-        intent.colony === colony &&
-        intent.targetRoom === assignment.targetRoom &&
-        intent.action === 'claim' &&
-        intent.createdBy !== undefined &&
-        RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(intent.createdBy)
-    )
-  ) {
-    return true;
+  return !isTerritoryIntentSuspensionActive(intent, gameTime);
+}
+
+function isTerritoryIntentSuspensionActive(intent: TerritoryIntentMemory, gameTime: number): boolean {
+  if (!intent.suspended) {
+    return false;
   }
 
-  return Array.isArray(territoryMemory.targets)
-    ? territoryMemory.targets.some(
-        (target) =>
-          isRecord(target) &&
-          target.colony === colony &&
-          target.roomName === assignment.targetRoom &&
-          target.action === 'claim' &&
-          isTerritoryAutomationSource(target.createdBy) &&
-          RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(target.createdBy)
-      )
-    : false;
+  if (intent.suspended.reason === 'hostile_presence') {
+    const hostileCount = getVisibleHostileCreepCount(intent.targetRoom);
+    if (hostileCount !== null) {
+      return hostileCount > 0 && isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime);
+    }
+  }
+
+  return isHostileTerritoryIntentSuspensionCoolingDown(intent.suspended, gameTime);
+}
+
+function getVisibleHostileCreepCount(targetRoom: string): number | null {
+  const room = getVisibleRoom(targetRoom);
+  return room ? findVisibleHostileCreeps(room).length : null;
+}
+
+function isHostileTerritoryIntentSuspensionCoolingDown(
+  suspension: TerritoryIntentSuspensionMemory,
+  gameTime: number
+): boolean {
+  return gameTime - suspension.updatedAt <= TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS;
 }
 
 function selectClaimTargetController(
@@ -1130,6 +1188,17 @@ function selectVisibleClaimTargetController(assignment: CreepTerritoryMemory): S
   }
 
   return game?.rooms?.[assignment.targetRoom]?.controller ?? null;
+}
+
+function selectCurrentOrVisibleClaimTargetController(
+  creep: Creep,
+  assignment: CreepTerritoryMemory
+): StructureController | null {
+  if (creep.room?.name === assignment.targetRoom && creep.room.controller) {
+    return creep.room.controller;
+  }
+
+  return selectVisibleClaimTargetController(assignment);
 }
 
 function moveTowardController(creep: Creep, controller: StructureController): void {

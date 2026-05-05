@@ -18149,10 +18149,29 @@ function clearAutonomousExpansionClaimIntent(colony) {
 function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   var _a, _b, _c, _d;
   const assignment = creep.memory.territory;
-  if (!isClaimExecutionAssignment(assignment) || !isRecommendedExpansionClaim(creep.memory.colony, assignment)) {
+  if (!isClaimExecutionAssignment(assignment)) {
     return false;
   }
   const gameTime = getGameTime12();
+  const recommendedClaim = getRecommendedExpansionClaimExecutionGate(creep.memory.colony, assignment);
+  if (!recommendedClaim) {
+    return false;
+  }
+  if (!isRecommendedClaimIntentRunnable(recommendedClaim.intent, gameTime)) {
+    completeClaimAssignment(creep);
+    return true;
+  }
+  const visibleController = selectCurrentOrVisibleClaimTargetController(creep, assignment);
+  if ((visibleController == null ? void 0 : visibleController.my) === true) {
+    recordRecommendedClaimSuccess(creep, assignment, visibleController, telemetryEvents);
+    completeClaimAssignment(creep);
+    return true;
+  }
+  if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
+    suppressTerritoryIntent(creep.memory.colony, assignment, gameTime);
+    completeClaimAssignment(creep);
+    return true;
+  }
   const execution = assignment;
   if (typeof execution.claimStartedAt !== "number" || execution.claimStartedAt > gameTime) {
     execution.claimStartedAt = gameTime;
@@ -18803,28 +18822,60 @@ function getClaimResultReason(result) {
   }
 }
 function getControllerClaimCooldown(controller) {
-  const claimCooldown = controller.claimCooldown;
-  return typeof claimCooldown === "number" && claimCooldown > 0 ? claimCooldown : 0;
+  const upgradeBlocked = controller.upgradeBlocked;
+  return typeof upgradeBlocked === "number" && upgradeBlocked > 0 ? upgradeBlocked : 0;
 }
 function isClaimExecutionAssignment(assignment) {
   return typeof (assignment == null ? void 0 : assignment.targetRoom) === "string" && assignment.targetRoom.length > 0 && assignment.action === "claim";
 }
-function isRecommendedExpansionClaim(colony, assignment) {
+function getRecommendedExpansionClaimExecutionGate(colony, assignment) {
+  var _a;
   if (!isNonEmptyString14(colony)) {
-    return false;
+    return null;
   }
   const territoryMemory = getTerritoryMemoryRecord6();
   if (!territoryMemory) {
+    return null;
+  }
+  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
+  const intent = (_a = normalizeTerritoryIntents(territoryMemory.intents).find(
+    (candidate) => isMatchingRecommendedClaimIntent(
+      candidate,
+      colony,
+      assignment.targetRoom,
+      assignment.controllerId,
+      allowUnscopedIntent
+    )
+  )) != null ? _a : null;
+  if (intent) {
+    return { intent };
+  }
+  return allowUnscopedIntent ? { intent: null } : null;
+}
+function isRecommendedClaimIntentRunnable(intent, gameTime) {
+  if (!intent || intent.status !== "planned" && intent.status !== "active") {
     return false;
   }
-  if (normalizeTerritoryIntents(territoryMemory.intents).some(
-    (intent) => intent.colony === colony && intent.targetRoom === assignment.targetRoom && intent.action === "claim" && intent.createdBy !== void 0 && RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(intent.createdBy)
-  )) {
-    return true;
+  return !isTerritoryIntentSuspensionActive2(intent, gameTime);
+}
+function isTerritoryIntentSuspensionActive2(intent, gameTime) {
+  if (!intent.suspended) {
+    return false;
   }
-  return Array.isArray(territoryMemory.targets) ? territoryMemory.targets.some(
-    (target) => isRecord15(target) && target.colony === colony && target.roomName === assignment.targetRoom && target.action === "claim" && isTerritoryAutomationSource3(target.createdBy) && RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(target.createdBy)
-  ) : false;
+  if (intent.suspended.reason === "hostile_presence") {
+    const hostileCount = getVisibleHostileCreepCount2(intent.targetRoom);
+    if (hostileCount !== null) {
+      return hostileCount > 0 && isHostileTerritoryIntentSuspensionCoolingDown2(intent.suspended, gameTime);
+    }
+  }
+  return isHostileTerritoryIntentSuspensionCoolingDown2(intent.suspended, gameTime);
+}
+function getVisibleHostileCreepCount2(targetRoom) {
+  const room = getVisibleRoom6(targetRoom);
+  return room ? findVisibleHostileCreeps2(room).length : null;
+}
+function isHostileTerritoryIntentSuspensionCoolingDown2(suspension, gameTime) {
+  return gameTime - suspension.updatedAt <= TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS;
 }
 function selectClaimTargetController(creep, assignment) {
   var _a, _b, _c, _d;
@@ -18863,6 +18914,13 @@ function selectVisibleClaimTargetController(assignment) {
     }
   }
   return (_c = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[assignment.targetRoom]) == null ? void 0 : _b.controller) != null ? _c : null;
+}
+function selectCurrentOrVisibleClaimTargetController(creep, assignment) {
+  var _a;
+  if (((_a = creep.room) == null ? void 0 : _a.name) === assignment.targetRoom && creep.room.controller) {
+    return creep.room.controller;
+  }
+  return selectVisibleClaimTargetController(assignment);
 }
 function moveTowardController(creep, controller) {
   if (typeof creep.moveTo === "function") {

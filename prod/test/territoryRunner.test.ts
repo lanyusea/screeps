@@ -485,8 +485,8 @@ describe('runTerritoryControllerCreep', () => {
     const controller = {
       id: 'controller1',
       my: false,
-      claimCooldown: 10
-    } as StructureController & { claimCooldown: number };
+      upgradeBlocked: 10
+    } as StructureController & { upgradeBlocked: number };
     const telemetryEvents: RuntimeTelemetryEvent[] = [];
     const creep = {
       name: 'Claimer1',
