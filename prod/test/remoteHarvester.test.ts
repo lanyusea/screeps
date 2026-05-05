@@ -51,8 +51,32 @@ describe('runRemoteHarvester', () => {
 
     runRemoteHarvester(creep);
 
-    expect(creep.moveTo).toHaveBeenCalledWith(homeController, { reusePath: 20, ignoreRoads: false });
+    expect(creep.moveTo).toHaveBeenCalledWith(
+      homeController,
+      expect.objectContaining({ reusePath: 20, ignoreRoads: false })
+    );
     expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
+  it('harvests the assigned remote source before its container is built', () => {
+    const source = makeSource('source1');
+    const remoteRoom = makeRoom('W2N1', true, []);
+    const creep = makeRemoteHarvester(remoteRoom, {
+      usedEnergy: 0,
+      freeEnergy: 50,
+      range: 1,
+      containerId: null
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) => (id === source.id ? source : null))
+    };
+
+    runRemoteHarvester(creep);
+
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.transfer).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
   it('harvests in neutral assigned remote rooms', () => {
@@ -91,7 +115,10 @@ describe('runRemoteHarvester', () => {
 
     runRemoteHarvester(creep);
 
-    expect(creep.moveTo).toHaveBeenCalledWith(homeController, { reusePath: 20, ignoreRoads: false });
+    expect(creep.moveTo).toHaveBeenCalledWith(
+      homeController,
+      expect.objectContaining({ reusePath: 20, ignoreRoads: false })
+    );
     expect(creep.harvest).not.toHaveBeenCalled();
   });
 
@@ -112,8 +139,63 @@ describe('runRemoteHarvester', () => {
 
     runRemoteHarvester(creep);
 
-    expect(creep.moveTo).toHaveBeenCalledWith(homeController, { reusePath: 20, ignoreRoads: false });
+    expect(creep.moveTo).toHaveBeenCalledWith(
+      homeController,
+      expect.objectContaining({ reusePath: 20, ignoreRoads: false })
+    );
     expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
+  it('biases movement onto visible critical road logistics paths', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_STRUCTURES: number;
+      STRUCTURE_ROAD: StructureConstant;
+    }).FIND_SOURCES = 2;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 4;
+    (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 5;
+    (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
+    const source = makeSource('source1', { x: 10, y: 10, roomName: 'W2N1' });
+    const road = {
+      id: 'critical-road',
+      structureType: 'road',
+      pos: { x: 11, y: 10, roomName: 'W2N1' }
+    } as StructureRoad;
+    const remoteRoom = makeRoom('W2N1', true, [], undefined, {
+      sources: [source],
+      structures: [road]
+    });
+    const homeRoom = makeRoom('W1N1', true, []);
+    const spawn = {
+      name: 'Spawn1',
+      pos: { x: 25, y: 25, roomName: 'W1N1' },
+      room: homeRoom
+    } as StructureSpawn;
+    const creep = makeRemoteHarvester(remoteRoom, {
+      usedEnergy: 0,
+      freeEnergy: 50,
+      range: 5,
+      containerId: null
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W1N1: homeRoom, W2N1: remoteRoom },
+      spawns: { Spawn1: spawn },
+      getObjectById: jest.fn((id: string) => (id === source.id ? source : null))
+    };
+
+    runRemoteHarvester(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(
+      source,
+      expect.objectContaining({ reusePath: 20, ignoreRoads: false, costCallback: expect.any(Function) })
+    );
+    const moveOptions = (creep.moveTo as jest.Mock).mock.calls[0][1] as MoveToOpts;
+    const matrix = { set: jest.fn() } as unknown as CostMatrix;
+    expect(moveOptions.costCallback?.('W2N1', matrix)).toBe(matrix);
+    expect(matrix.set).toHaveBeenCalledWith(11, 10, 1);
   });
 });
 
@@ -122,23 +204,26 @@ function makeRemoteHarvester(
   {
     usedEnergy,
     freeEnergy,
-    range
+    range,
+    containerId
   }: {
     usedEnergy: number;
     freeEnergy: number;
     range: number;
+    containerId?: Id<StructureContainer> | null;
   }
 ): Creep {
+  const remoteHarvester: CreepRemoteHarvesterMemory = {
+    homeRoom: 'W1N1',
+    targetRoom: 'W2N1',
+    sourceId: 'source1' as Id<Source>,
+    ...(containerId === null ? {} : { containerId: containerId ?? ('container1' as Id<StructureContainer>) })
+  };
   return {
     memory: {
       role: 'remoteHarvester',
       colony: 'W1N1',
-      remoteHarvester: {
-        homeRoom: 'W1N1',
-        targetRoom: 'W2N1',
-        sourceId: 'source1' as Id<Source>,
-        containerId: 'container1' as Id<StructureContainer>
-      }
+      remoteHarvester
     },
     room,
     pos: { getRangeTo: jest.fn().mockReturnValue(range) } as unknown as RoomPosition,
@@ -156,17 +241,49 @@ function makeRoom(
   roomName: string,
   owned: boolean,
   hostiles: Creep[],
-  owner = owned ? { username: 'me' } : undefined
+  owner = owned ? { username: 'me' } : undefined,
+  {
+    sources = [],
+    structures = [],
+    constructionSites = []
+  }: {
+    sources?: Source[];
+    structures?: Structure[];
+    constructionSites?: ConstructionSite[];
+  } = {}
 ): Room {
+  const globals = globalThis as Record<string, unknown>;
   return {
     name: roomName,
-    controller: { my: owned, ...(owner ? { owner } : {}) } as StructureController,
-    find: jest.fn((type: number) => (type === FIND_HOSTILE_CREEPS ? hostiles : []))
+    controller: {
+      my: owned,
+      pos: { x: 25, y: 25, roomName },
+      ...(owner ? { owner } : {})
+    } as StructureController,
+    find: jest.fn((type: number) => {
+      if (type === FIND_HOSTILE_CREEPS) {
+        return hostiles;
+      }
+
+      if (type === globals.FIND_SOURCES) {
+        return sources;
+      }
+
+      if (type === globals.FIND_STRUCTURES) {
+        return structures;
+      }
+
+      if (type === globals.FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
+      return [];
+    })
   } as unknown as Room;
 }
 
-function makeSource(id: string): Source {
-  return { id, energy: 300 } as Source;
+function makeSource(id: string, pos = { x: 10, y: 10, roomName: 'W2N1' }): Source {
+  return { id, energy: 300, pos } as Source;
 }
 
 function makeContainer(id: string): StructureContainer {
