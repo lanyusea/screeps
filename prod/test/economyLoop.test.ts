@@ -343,6 +343,65 @@ describe('runEconomy', () => {
     expect(creeps['worker-W1N1-200']?.memory).toEqual({ role: 'worker', colony: 'W1N1' });
   });
 
+  it('emits link distribution telemetry from the economy loop', () => {
+    Object.assign(globalThis, {
+      FIND_MY_STRUCTURES: 1,
+      FIND_SOURCES: 2,
+      RESOURCE_ENERGY: 'energy',
+      STRUCTURE_LINK: 'link'
+    });
+    const sourceLink = makeEconomyLink('source-link', 11, 10, 400, 400);
+    const controllerLink = makeEconomyLink('controller-link', 25, 23, 0, 300);
+    const room = {
+      name: 'W1N1',
+      memory: {},
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: {
+        id: 'controller1',
+        my: true,
+        level: 1,
+        pos: makeEconomyRoomPosition(25, 25)
+      } as StructureController,
+      find: jest.fn((type: number) => {
+        if (type === FIND_MY_STRUCTURES) {
+          return [sourceLink, controllerLink];
+        }
+
+        if (type === FIND_SOURCES) {
+          return [{ id: 'source1', pos: makeEconomyRoomPosition(10, 10) } as Source];
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 260,
+      rooms: { W1N1: room },
+      spawns: {},
+      creeps: {}
+    };
+
+    runEconomy();
+
+    expect(sourceLink.transferEnergy).toHaveBeenCalledWith(controllerLink, 300);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const [message] = logSpy.mock.calls[0];
+    const payload = JSON.parse((message as string).slice(RUNTIME_SUMMARY_PREFIX.length));
+    expect(payload.events).toEqual([
+      {
+        type: 'linkDistribution',
+        roomName: 'W1N1',
+        action: 'linkTransfer',
+        amount: 300,
+        destinationId: 'controller-link',
+        path: 'source->controllerLink',
+        result: OK_CODE,
+        sourceId: 'source-link'
+      }
+    ]);
+  });
+
   it('plans extension construction before workers select build targets', () => {
     (globalThis as unknown as {
       FIND_MY_STRUCTURES: number;
@@ -2102,4 +2161,28 @@ function makeEconomyWorker(room: Room): Creep {
       getFreeCapacity: jest.fn().mockReturnValue(50)
     }
   } as unknown as Creep;
+}
+
+function makeEconomyLink(
+  id: string,
+  x: number,
+  y: number,
+  energy: number,
+  freeCapacity: number
+): StructureLink & { transferEnergy: jest.Mock } {
+  return {
+    id,
+    cooldown: 0,
+    structureType: 'link',
+    pos: makeEconomyRoomPosition(x, y),
+    store: {
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+      getUsedCapacity: jest.fn().mockReturnValue(energy)
+    },
+    transferEnergy: jest.fn().mockReturnValue(OK_CODE)
+  } as unknown as StructureLink & { transferEnergy: jest.Mock };
+}
+
+function makeEconomyRoomPosition(x: number, y: number): RoomPosition {
+  return { x, y, roomName: 'W1N1' } as RoomPosition;
 }
