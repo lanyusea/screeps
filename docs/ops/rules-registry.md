@@ -104,7 +104,7 @@ Done/closed items should not carry active `Blocked by`; historical blockers belo
 
 ## Autonomous recovery authorization
 
-When the official target room (E26S49 on shardX) enters a dead-end state — defined as **owned_spawns=0 AND owned_creeps=0 AND world-status != "normal"** — the autonomous system is authorized to:
+When the official target room (E26S49 on shardX) enters a dead-end state — defined as **owned_spawns=0 AND owned_creeps=0** — the autonomous system is authorized to:
 
 1. Execute destructive respawn: `POST /api/user/respawn`
 2. Place spawn at the last-known good position (14,39 for E26S49) or auto-discover valid positions
@@ -114,7 +114,7 @@ When the official target room (E26S49 on shardX) enters a dead-end state — def
 
 This authorization is automatic — no owner approval required. The agent MUST act immediately when the dead-end condition is detected, not wait for owner authorization. After recovery, post a concise summary to #decisions and update the P0 incident issue.
 
-The dead-end condition is checked by the runtime alert cron job (`1c093252ab70`). When detected with `room_dead` category and `owned_spawns=0`, the alert handler must trigger the recovery sequence above, not just report.
+The dead-end condition is checked by the runtime alert cron job (`1c093252ab70`). When detected with `room_dead` category and `owned_spawns=0 AND owned_creeps=0`, the alert handler must trigger the recovery sequence above, not just report.
 
 Owner @ notification is still required for: rollback decisions when multiple healthy commits exist, manual respawn when automated recovery fails, and non-recovery strategic decisions.
 

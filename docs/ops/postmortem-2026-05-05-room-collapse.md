@@ -58,7 +58,7 @@ After deploy, the health gate correctly detected the room was dead (postdeploy_n
 
 ## Concrete Next Actions
 
-1. **Immediate**: Merge #583 (energy telemetry) → deploy → verify non-zero energy values
+1. **Immediate**: Merge #594 (energy telemetry) → deploy → verify non-zero energy values
 2. **This cycle**: Create P0 issue for autonomous respawn authorization rule
 3. **This cycle**: Create P1 issue for spawn-survival integration test
 4. **This cycle**: Create P1 issue for Overmind-inspired bootstrap/survival mode
