@@ -107,7 +107,7 @@ declare global {
     homeRoom: string;
     targetRoom: string;
     sourceId: Id<Source>;
-    containerId: Id<StructureContainer>;
+    containerId?: Id<StructureContainer>;
   }
 
   interface CreepRemoteHaulerMemory {
