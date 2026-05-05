@@ -68,7 +68,8 @@ export type RuntimeTelemetryEvent =
   | RuntimeTerritoryClaimTelemetryEvent
   | RuntimeTerritoryScoutTelemetryEvent
   | RuntimePostClaimBootstrapTelemetryEvent
-  | RuntimeSpawnSitePlacedTelemetryEvent;
+  | RuntimeSpawnSitePlacedTelemetryEvent
+  | RuntimeStrategyRecommendationTelemetryEvent;
 
 export type RuntimeTerritoryClaimTelemetryReason =
   | 'noAdjacentCandidate'
@@ -166,6 +167,23 @@ export interface RuntimeSpawnSitePlacedTelemetryEvent {
   result: ScreepsReturnCode;
   spawnSite: TerritoryPostClaimBootstrapSpawnSiteMemory;
   existing?: boolean;
+}
+
+export interface RuntimeStrategyRecommendationTelemetryEvent {
+  type: 'strategyRecommendation';
+  roomName: string;
+  tick?: number;
+  shadow: true;
+  recommendations: RuntimeStrategyRecommendationTelemetryPayload[];
+}
+
+export interface RuntimeStrategyRecommendationTelemetryPayload {
+  constructionPreset?: string;
+  remoteTarget?: string;
+  expansionCandidate?: string;
+  defensePosture?: 'passive' | 'alert' | 'active';
+  confidence: number;
+  reasoning: string;
 }
 
 interface RuntimeSpawnStatus {

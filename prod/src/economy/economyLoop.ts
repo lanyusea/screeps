@@ -15,7 +15,12 @@ import { HAULER_ROLE, runHauler } from '../creeps/hauler';
 import { REMOTE_HARVESTER_ROLE, runRemoteHarvester } from '../creeps/remoteHarvester';
 import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
 import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
-import { emitRuntimeSummary, type RuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import {
+  RUNTIME_SUMMARY_INTERVAL,
+  emitRuntimeSummary,
+  type RuntimeSummary,
+  type RuntimeTelemetryEvent
+} from '../telemetry/runtimeSummary';
 import { recordSourceWorkloads } from './sourceWorkload';
 import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
@@ -57,6 +62,11 @@ import {
   recordPostClaimBootstrapWorkerSpawn,
   refreshPostClaimBootstrap
 } from '../territory/postClaimBootstrap';
+import {
+  buildStrategyRecommendationRoomState,
+  generateStrategyRecommendations,
+  rejectUncertain
+} from '../strategy/strategyRecommender';
 
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
@@ -145,6 +155,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
 
     transferLinkEnergy(colony.room);
     manageStorage(colony.room);
+    recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
 
   for (const creep of creeps) {
@@ -162,6 +173,40 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   }
 
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+
+function recordStrategyRecommendationTelemetry(
+  colony: ColonySnapshot,
+  creeps: Creep[],
+  telemetryEvents: RuntimeTelemetryEvent[]
+): void {
+  if (!shouldRecordStrategyRecommendationTelemetry(Game.time)) {
+    return;
+  }
+
+  let recommendations: import('../strategy/strategyRecommender').StrategyRecommendation[];
+  try {
+    recommendations = rejectUncertain(
+      generateStrategyRecommendations(buildStrategyRecommendationRoomState(colony, creeps))
+    );
+  } catch {
+    return;
+  }
+  if (recommendations.length === 0) {
+    return;
+  }
+
+  telemetryEvents.push({
+    type: 'strategyRecommendation',
+    roomName: colony.room.name,
+    tick: Game.time,
+    shadow: true,
+    recommendations
+  });
+}
+
+function shouldRecordStrategyRecommendationTelemetry(gameTime: number): boolean {
+  return gameTime > 0 && gameTime % RUNTIME_SUMMARY_INTERVAL === 0;
 }
 
 function planCriticalConstructionSites(
