@@ -37,11 +37,11 @@ export function runTowersWithResult(room: Room): TowerRunResult {
   };
 
   for (const tower of getUsableTowers(room)) {
-    if (runTowerHeal(tower, context, result)) {
+    if (hasHostileTarget(context) && runTowerAttack(tower, context, result)) {
       continue;
     }
 
-    if (hasHostileTarget(context) && runTowerAttack(tower, context, result)) {
+    if (runTowerHeal(tower, context, result)) {
       continue;
     }
 

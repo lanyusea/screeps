@@ -29,7 +29,7 @@ describe('automatic room defense response', () => {
     };
   });
 
-  it('prioritizes tower healing own wounded creeps before attacking or repairing', () => {
+  it('prioritizes attacking hostile creeps before healing wounded friendlies', () => {
     const hostile = makeHostile('hostile1');
     const wounded = makeFriendlyCreep('worker1', 25, 25, 70, 100);
     const spawn = makeSpawn('spawn1', 1_000, 5_000);
@@ -39,10 +39,10 @@ describe('automatic room defense response', () => {
 
     const events = runTowers(room);
 
-    expect(tower.heal).toHaveBeenCalledWith(wounded);
-    expect(tower.attack).not.toHaveBeenCalled();
+    expect(tower.attack).toHaveBeenCalledWith(hostile);
+    expect(tower.heal).not.toHaveBeenCalled();
     expect(tower.repair).not.toHaveBeenCalled();
-    expect(events).toMatchObject([{ type: 'defense', action: 'towerHeal', targetId: 'worker1' }]);
+    expect(events).toMatchObject([{ type: 'defense', action: 'towerAttack', targetId: 'hostile1' }]);
   });
 
   it('attacks hostile creeps before repairing damaged critical structures', () => {
