@@ -18432,6 +18432,7 @@ function getRoomDistance(homeRoomName, roomName) {
     if (Array.isArray(route)) {
       return route.length;
     }
+    return NO_ROUTE_DISTANCE;
   }
   if (typeof gameMap.getRoomLinearDistance === "function") {
     const linearDistance = gameMap.getRoomLinearDistance(homeRoomName, roomName);
