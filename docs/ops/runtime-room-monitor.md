@@ -87,8 +87,9 @@ Alert rules:
 - hostile creep visible
 - owned/damageable structure hit points decrease since previous baseline
 - previously observed critical owned structure disappears
+- target room has no owned creeps and no owned spawn recovery path (`room_dead`)
 
-First run establishes a baseline and returns no alert unless hostiles are already visible.
+First run establishes a baseline and returns no alert unless hostiles are already visible or the configured target room is already dead.
 
 Debounce:
 
@@ -190,6 +191,7 @@ Expected emergency fields:
 | `owned_structure_damage` | owned damageable structure HP decreased | high; critical when critical storage/spawn/tower/terminal is at or below 25% HP | open issue or Codex hotfix |
 | `owned_structure_disappearance` | previously observed critical owned structure disappeared | critical | Codex hotfix or rollback decision |
 | `spawn_collapse` | spawn missing/destroyed/collapsed/no recovery signal | critical | Codex hotfix or owner action |
+| `room_dead` | `room_dead`, `postdeploy_room_dead`, or room summary with `owned_spawns=0` and `owned_creeps=0` | critical / P0 | autonomous recovery or owner escalation |
 | `downgrade_risk` | controller downgrade signal | high; critical at 2000 ticks or less | owner action or Codex hotfix |
 | `telemetry_silence` | `alert` payload has `ok:false`, runtime-summary silence, loop exception, or telemetry silence signal | critical | rollback or monitor fix |
 | `runtime_exception` | loop/runtime exception signal | critical | Codex hotfix or rollback decision |
@@ -221,6 +223,7 @@ Tactical Emergency Report
 | `emergency:false`, `silent:true` | Scheduler wrapper returns exactly `[SILENT]`; no Discord alert is posted. |
 | `severity:high`, category `hostiles` only | Inspect the live room and next alert check; open/update an incident only if the hostile persists, damage follows, or manual defense is required. |
 | `severity:high`, structure or downgrade category | Open/update the incident issue when confirmed; choose Codex hotfix if bot behavior can change the outcome. |
+| `severity:critical`, category `room_dead` | Treat as P0 survival emergency; trigger authorized autonomous recovery or escalate if recovery is blocked. |
 | `severity:critical`, spawn/structure/downgrade category | Start the emergency hotfix gate or request owner action when live manual intervention is faster than code. |
 | `severity:critical`, `telemetry_silence` | Restore telemetry first; rollback only when the latest deploy plausibly caused loop exceptions or runtime-summary silence. |
 | `monitor_integrity` | Fix monitor/debounce/wrapper behavior; do not modify live cron configuration from this script. |
@@ -238,6 +241,7 @@ PASS:
 
 - `python3 scripts/screeps-runtime-monitor.py tactical-response` returns `emergency:false`, `silent:true`, and `scheduler.recommended_output:"[SILENT]"` for the no-alert dry run.
 - The hostile dry run returns `emergency:true`, `severity:"high"`, `categories:["hostiles"]`, and non-empty `next_actions`.
+- A `room_dead` dry run returns `emergency:true`, `severity:"critical"`, `priority:"P0"`, `scheduler.should_post:true`, and a non-silent emergency report recommendation.
 - Offline verification passes: `python3 -m py_compile scripts/screeps-runtime-monitor.py scripts/test_screeps_runtime_monitor_tactical_response.py`, `python3 scripts/screeps-runtime-monitor.py self-test`, and `python3 -m unittest scripts/test_screeps_runtime_monitor_tactical_response.py`.
 - `git diff --check` is clean.
 - No cron files or live scheduler configuration changed.

@@ -105,6 +105,29 @@ TACTICAL_SEVERITY_RANK = {
     "critical": 3,
 }
 
+TACTICAL_PRIORITY_BY_SEVERITY = {
+    "none": None,
+    "warning": "P2",
+    "high": "P1",
+    "critical": "P0",
+}
+
+ROOM_DEATH_REASON_KINDS = {
+    "room_dead",
+    "postdeploy_room_dead",
+}
+
+NO_OWNED_SPAWN_REASON_KINDS = {
+    "no_owned_spawn",
+    "no_spawn_recovery",
+    "owned_spawns=0",
+    "postdeploy_no_owned_spawn",
+}
+
+DEBOUNCE_BYPASS_REASON_KINDS = {
+    "room_dead",
+}
+
 TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
     "hostiles": {
         "severity": "high",
@@ -125,6 +148,11 @@ TACTICAL_CATEGORY_RULES: dict[str, dict[str, Any]] = {
         "severity": "critical",
         "decision": "codex_hotfix_or_owner_action",
         "actions": ["capture_runtime_context", "inspect_spawn_recovery", "start_hotfix_gate"],
+    },
+    "room_dead": {
+        "severity": "critical",
+        "decision": "autonomous_recovery_or_owner_escalation",
+        "actions": ["capture_runtime_context", "start_autonomous_recovery", "start_hotfix_gate"],
     },
     "downgrade_risk": {
         "severity": "high",
@@ -175,9 +203,12 @@ TACTICAL_REASON_CATEGORY_MAP = {
     "spawn_destroyed": ["spawn_collapse"],
     "spawn_collapse": ["spawn_collapse"],
     "room_ownership_lost": ["spawn_collapse"],
-    "room_dead": ["spawn_collapse"],
+    "room_dead": ["room_dead", "spawn_collapse"],
     "no_workers_no_recovery": ["spawn_collapse"],
     "no_spawn_recovery": ["spawn_collapse"],
+    "postdeploy_room_dead": ["room_dead", "spawn_collapse"],
+    "postdeploy_no_owned_spawn": ["spawn_collapse"],
+    "owned_spawns=0": ["spawn_collapse"],
     "controller_downgrade_risk": ["downgrade_risk"],
     "downgrade_risk": ["downgrade_risk"],
     "telemetry_silence": ["telemetry_silence"],
@@ -231,6 +262,11 @@ TACTICAL_ACTION_CATALOG: dict[str, dict[str, Any]] = {
         "owner": "main-agent",
         "action": "Check whether any spawn exists, whether workers can recover harvesting, and whether the bot has a deterministic recovery path.",
         "decision": "codex_hotfix_or_owner_action",
+    },
+    "start_autonomous_recovery": {
+        "owner": "scheduler-wrapper",
+        "action": "For room_dead with owned_spawns=0 and owned_creeps=0, trigger the authorized autonomous room recovery path or escalate if recovery is blocked.",
+        "decision": "autonomous_recovery",
     },
     "inspect_controller": {
         "owner": "main-agent",
@@ -890,6 +926,15 @@ def build_survival_reason(ref: RoomRef, kind: str, message: str, **details: Any)
     }
 
 
+def alert_reason_kind(reason: dict[str, Any]) -> str:
+    value = reason.get("kind")
+    return value.lower() if isinstance(value, str) else ""
+
+
+def should_bypass_alert_debounce(reason: dict[str, Any]) -> bool:
+    return alert_reason_kind(reason) in DEBOUNCE_BYPASS_REASON_KINDS
+
+
 def should_preserve_previous_baseline(
     previous_structures: dict[str, Any], current_structures: dict[str, dict[str, Any]], reasons: list[dict[str, Any]]
 ) -> bool:
@@ -979,22 +1024,6 @@ def evaluate_room_alert(
                     current_owned_creeps=current_owned_creeps,
                 )
             )
-        if (
-            current_owned_spawns == 0
-            and current_owned_creeps == 0
-            and (previous_owned_spawns in (None, 0) or previous_spawn_count == 0)
-            and previous_owned_creeps in (None, 0)
-        ):
-            detected.append(
-                build_survival_reason(
-                    snapshot.ref,
-                    "room_dead",
-                    "room has no owned creeps and no owned spawn recovery path",
-                    current_owned_spawns=current_owned_spawns,
-                    current_owned_creeps=current_owned_creeps,
-                )
-            )
-
         for object_id, current in current_structures.items():
             previous = previous_structures.get(object_id)
             if not isinstance(previous, dict):
@@ -1012,13 +1041,32 @@ def evaluate_room_alert(
             if previous.get("owned") and previous.get("critical") and object_id not in current_structures:
                 detected.append(build_missing_reason(snapshot.ref, object_id, previous))
 
+    if (baseline_established or expected_owner) and current_owned_spawns == 0 and current_owned_creeps == 0:
+        detected.append(
+            build_survival_reason(
+                snapshot.ref,
+                "room_dead",
+                "room has no owned creeps and no owned spawn recovery path",
+                current_owned_spawns=current_owned_spawns,
+                current_owned_creeps=current_owned_creeps,
+                previous_owned_spawns=previous_owned_spawns,
+                previous_owned_creeps=previous_owned_creeps,
+                severity="critical",
+                priority="P0",
+            )
+        )
+
     emitted: list[dict[str, Any]] = []
     suppressed: list[dict[str, Any]] = []
     alerts = dict(previous_alerts)
     for reason in detected:
         signature = str(reason.get("signature"))
         last_seen = alerts.get(signature)
-        if isinstance(last_seen, (int, float)) and now - int(last_seen) < debounce_seconds:
+        if (
+            not should_bypass_alert_debounce(reason)
+            and isinstance(last_seen, (int, float))
+            and now - int(last_seen) < debounce_seconds
+        ):
             suppressed.append(reason)
             continue
         alerts[signature] = now
@@ -1060,6 +1108,39 @@ def number_from_reason(reason: dict[str, Any], *keys: str) -> float | None:
         if isinstance(value, (int, float)):
             return float(value)
     return None
+
+
+def tactical_priority(severity: str) -> str | None:
+    return TACTICAL_PRIORITY_BY_SEVERITY.get(severity)
+
+
+def reason_owned_spawns(reason: dict[str, Any]) -> float | None:
+    return number_from_reason(reason, "current_owned_spawns", "owned_spawns", "ownedSpawns", "spawns")
+
+
+def reason_owned_creeps(reason: dict[str, Any]) -> float | None:
+    return number_from_reason(reason, "current_owned_creeps", "owned_creeps", "ownedCreeps", "creeps")
+
+
+def is_room_dead_reason(reason: dict[str, Any]) -> bool:
+    kind = tactical_reason_kind(reason).lower()
+    message = str(reason.get("message") or "").lower()
+    if kind in ROOM_DEATH_REASON_KINDS or "room_dead" in kind or "room dead" in message:
+        return True
+    owned_spawns = reason_owned_spawns(reason)
+    owned_creeps = reason_owned_creeps(reason)
+    return owned_spawns == 0 and owned_creeps == 0
+
+
+def is_no_owned_spawn_reason(reason: dict[str, Any]) -> bool:
+    kind = tactical_reason_kind(reason).lower()
+    message = str(reason.get("message") or "").lower()
+    if kind in NO_OWNED_SPAWN_REASON_KINDS:
+        return True
+    if "owned_spawns=0" in message or "no owned spawn" in message or "no spawn recovery" in message:
+        return True
+    owned_spawns = reason_owned_spawns(reason)
+    return owned_spawns == 0
 
 
 def nested_value(value: Any, *keys: str) -> Any:
@@ -1378,6 +1459,11 @@ def infer_tactical_categories(reason: dict[str, Any]) -> list[str]:
     categories.extend(TACTICAL_REASON_CATEGORY_MAP.get(kind, []))
     categories.extend(TACTICAL_REASON_CATEGORY_MAP.get(lowered_kind, []))
 
+    if is_room_dead_reason(reason):
+        categories.extend(["room_dead", "spawn_collapse"])
+    elif is_no_owned_spawn_reason(reason):
+        categories.append("spawn_collapse")
+
     if "hostile" in lowered_kind or "hostile" in message:
         categories.append("hostiles")
     if "downgrade" in lowered_kind or "downgrade" in message:
@@ -1477,15 +1563,68 @@ def tactical_source_summary(alert_payload: dict[str, Any], reasons: list[dict[st
     return summary
 
 
+def room_summary_count(room_summary_payload: dict[str, Any], owned_key: str, fallback_key: str) -> Any:
+    owned_value = room_summary_payload.get(owned_key)
+    if isinstance(owned_value, (int, float)):
+        return owned_value
+    return room_summary_payload.get(fallback_key)
+
+
+def tactical_room_summary_survival_reasons(alert_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_room_summaries = alert_payload.get("room_summaries")
+    if not isinstance(raw_room_summaries, list):
+        return []
+
+    reasons: list[dict[str, Any]] = []
+    for room in raw_room_summaries:
+        if not isinstance(room, dict):
+            continue
+        room_name = room.get("room")
+        owned_spawns = room_summary_count(room, "owned_spawns", "spawns")
+        owned_creeps = room_summary_count(room, "owned_creeps", "creeps")
+        if isinstance(owned_spawns, (int, float)) and owned_spawns <= 0:
+            if isinstance(owned_creeps, (int, float)) and owned_creeps <= 0:
+                reasons.append(
+                    {
+                        "kind": "room_dead",
+                        "room": room_name,
+                        "current_owned_spawns": owned_spawns,
+                        "current_owned_creeps": owned_creeps,
+                        "message": f"{room_name}: owned_spawns=0 and owned_creeps=0",
+                    }
+                )
+            else:
+                reasons.append(
+                    {
+                        "kind": "owned_spawns=0",
+                        "room": room_name,
+                        "owned_spawns": owned_spawns,
+                        "owned_creeps": owned_creeps,
+                        "message": f"{room_name}: owned_spawns=0",
+                    }
+                )
+    return reasons
+
+
 def normalize_tactical_reasons(alert_payload: dict[str, Any]) -> list[dict[str, Any]]:
     reasons: list[dict[str, Any]] = []
     if is_private_smoke_report(alert_payload):
         reasons.extend(classify_private_smoke_report(alert_payload))
 
     raw_reasons = alert_payload.get("reasons")
-    if not isinstance(raw_reasons, list):
-        return reasons
-    reasons.extend(dict(reason) for reason in raw_reasons if isinstance(reason, dict))
+    if isinstance(raw_reasons, list):
+        reasons.extend(dict(reason) for reason in raw_reasons if isinstance(reason, dict))
+
+    raw_suppressed_reasons = alert_payload.get("suppressed_reasons")
+    if isinstance(raw_suppressed_reasons, list):
+        for reason in raw_suppressed_reasons:
+            if not isinstance(reason, dict) or not is_room_dead_reason(reason):
+                continue
+            suppressed_reason = dict(reason)
+            suppressed_reason["suppressed"] = True
+            reasons.append(suppressed_reason)
+    if not any(is_room_dead_reason(reason) or is_no_owned_spawn_reason(reason) for reason in reasons):
+        reasons.extend(tactical_room_summary_survival_reasons(alert_payload))
     return reasons
 
 
@@ -1545,11 +1684,13 @@ def build_tactical_response_report(alert_payload: dict[str, Any]) -> dict[str, A
                 {
                     "category": category,
                     "severity": category_sev,
+                    "priority": tactical_priority(category_sev),
                     "decision": rule["decision"],
                     "reason_kind": tactical_reason_kind(reason),
                     "room": reason.get("room"),
                     "object_id": reason.get("object_id"),
                     "structure_type": reason.get("structure_type") or reason.get("structureType"),
+                    "suppressed": bool(reason.get("suppressed")),
                     "message": short_text(redact_secrets(str(reason.get("message") or tactical_reason_kind(reason)), [os.environ.get("SCREEPS_AUTH_TOKEN", "")]), 180),
                 }
             )
@@ -1565,6 +1706,7 @@ def build_tactical_response_report(alert_payload: dict[str, Any]) -> dict[str, A
         "direct_discord_send": False,
         "recommended_output": "TACTICAL_EMERGENCY_REPORT" if emergency else "[SILENT]",
         "silent_token": None if emergency else "[SILENT]",
+        "priority": tactical_priority(severity),
     }
 
     return {
@@ -1574,6 +1716,7 @@ def build_tactical_response_report(alert_payload: dict[str, Any]) -> dict[str, A
         "emergency": emergency,
         "silent": not emergency,
         "severity": severity,
+        "priority": tactical_priority(severity),
         "categories": categories,
         "triggers": triggers,
         "next_actions": next_actions,
@@ -2419,10 +2562,12 @@ def command_alert(args: argparse.Namespace) -> int:
         "images": images,
         "rooms": [snapshot.ref.key for snapshot in snapshots],
         "summary": summarize_rooms(snapshots),
+        "room_summaries": [room_summary(snapshot) for snapshot in snapshots],
         "state_file": str(ctx.state_file),
         "debounce_seconds": ctx.debounce_seconds,
         "suppressed": bool(all_suppressed),
         "suppressed_count": len(all_suppressed),
+        "suppressed_reasons": all_suppressed,
         "force_alert_image": bool(args.force_alert_image),
         "warnings": warnings,
     }
@@ -2691,6 +2836,30 @@ def command_self_test(_args: argparse.Namespace) -> int:
 
             self.assertIn("room_dead", [reason["kind"] for reason in emitted])
 
+        def test_room_dead_bypasses_debounce(self) -> None:
+            signature = "room_dead:shardTest/E1N1"
+            previous = {
+                "baseline_established": True,
+                "owner": None,
+                "structures": {},
+                "owned_creeps": 0,
+                "owned_spawns": 0,
+                "alerts": {signature: 90},
+            }
+            snapshot = RoomSnapshot(
+                ref=RoomRef("shardTest", "E1N1"),
+                terrain="0" * TERRAIN_CELLS,
+                objects=normalize_objects({"ctrl": {"type": "controller", "x": 5, "y": 36, "level": 3}}),
+                tick=3,
+                owner=None,
+                info={},
+            )
+
+            emitted, suppressed, _next_state = evaluate_room_alert(snapshot, previous, now=100, debounce_seconds=300)
+
+            self.assertIn("room_dead", [reason["kind"] for reason in emitted])
+            self.assertEqual(suppressed, [])
+
         def test_debounce_suppresses_identical_alert(self) -> None:
             snapshot = self.make_snapshot(
                 {
@@ -2886,6 +3055,29 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertEqual(report["categories"], ["hostiles"])
             self.assertEqual(report["scheduler"]["recommended_output"], "TACTICAL_EMERGENCY_REPORT")
 
+        def test_tactical_response_classifies_room_dead_as_p0_critical(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": True,
+                    "mode": "alert",
+                    "alert": True,
+                    "reasons": [
+                        {
+                            "kind": "room_dead",
+                            "room": "shardTest/E1N1",
+                            "current_owned_spawns": 0,
+                            "current_owned_creeps": 0,
+                            "message": "room has no owned creeps and no owned spawn recovery path",
+                        }
+                    ],
+                }
+            )
+            self.assertTrue(report["emergency"])
+            self.assertEqual(report["severity"], "critical")
+            self.assertEqual(report["priority"], "P0")
+            self.assertIn("room_dead", report["categories"])
+            self.assertEqual(report["scheduler"]["priority"], "P0")
+
         def test_tactical_response_promotes_missing_spawn_to_critical(self) -> None:
             report = build_tactical_response_report(
                 {
@@ -2906,6 +3098,28 @@ def command_self_test(_args: argparse.Namespace) -> int:
             self.assertTrue(report["emergency"])
             self.assertEqual(report["severity"], "critical")
             self.assertEqual(report["categories"], ["owned_structure_disappearance", "spawn_collapse"])
+
+        def test_tactical_response_classifies_postdeploy_no_owned_spawn_as_p0(self) -> None:
+            report = build_tactical_response_report(
+                {
+                    "ok": True,
+                    "mode": "health-gate",
+                    "alert": False,
+                    "reasons": [
+                        {
+                            "kind": "postdeploy_no_owned_spawn",
+                            "room": "shardTest/E1N1",
+                            "spawns": 0,
+                            "creeps": 1,
+                            "message": "shardTest/E1N1: no owned spawn recovery path is visible after deploy",
+                        }
+                    ],
+                }
+            )
+            self.assertTrue(report["emergency"])
+            self.assertEqual(report["severity"], "critical")
+            self.assertEqual(report["priority"], "P0")
+            self.assertIn("spawn_collapse", report["categories"])
 
         def test_tactical_response_treats_monitor_failure_as_telemetry_silence(self) -> None:
             report = build_tactical_response_report(
