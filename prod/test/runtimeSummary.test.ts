@@ -18,6 +18,7 @@ const TEST_GLOBALS = {
   FIND_MY_STRUCTURES: 106,
   FIND_MY_CONSTRUCTION_SITES: 107,
   FIND_MY_CREEPS: 108,
+  FIND_CONSTRUCTION_SITES: 109,
   EVENT_HARVEST: 201,
   EVENT_TRANSFER: 202,
   EVENT_BUILD: 203,
@@ -121,6 +122,12 @@ describe('runtime telemetry summaries', () => {
             harvestedThisTick: 10,
             droppedEnergy: 25,
             sourceCount: 2,
+            sourceContainers: {
+              sourceCount: 2,
+              sourcesWithContainers: 0,
+              sourcesWithContainerSites: 0,
+              sourcesMissingContainers: 2
+            },
             productiveEnergy: {
               assignedWorkerCount: 0,
               assignedCarriedEnergy: 0,
@@ -386,6 +393,44 @@ describe('runtime telemetry summaries', () => {
       roadCount: 2,
       pendingRoadSiteCount: 1,
       roadCoverageRatio: 0.667
+    });
+  });
+
+  it('reports source container coverage in room resource telemetry', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      sources: [
+        { id: 'source-with-container', pos: { x: 10, y: 10, roomName: 'W1N1' } },
+        { id: 'source-with-site', pos: { x: 20, y: 20, roomName: 'W1N1' } },
+        { id: 'source-missing', pos: { x: 30, y: 30, roomName: 'W1N1' } }
+      ],
+      structures: [
+        {
+          id: 'container1',
+          structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
+          pos: { x: 10, y: 11, roomName: 'W1N1' },
+          store: makeEnergyStore(100, 2000)
+        }
+      ],
+      constructionSites: [
+        {
+          id: 'container-site1',
+          structureType: TEST_GLOBALS.STRUCTURE_CONTAINER,
+          pos: { x: 21, y: 20, roomName: 'W1N1' }
+        }
+      ]
+    });
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, unknown>).sourceContainers).toEqual({
+      sourceCount: 3,
+      sourcesWithContainers: 1,
+      sourcesWithContainerSites: 1,
+      sourcesMissingContainers: 1
     });
   });
 
@@ -1432,6 +1477,7 @@ function makeColony(options: {
     spawning: { name: string; remainingTime: number } | null;
   };
   constructionSites?: unknown[];
+  sources?: unknown[];
   installGlobals?: boolean;
   includeRoomFind?: boolean;
   includeEventLog?: boolean;
@@ -1468,6 +1514,7 @@ function makeColony(options: {
     { id: 'storage1', structureType: TEST_GLOBALS.STRUCTURE_STORAGE, store: makeEnergyStore(125) }
   ];
   const constructionSites = options.constructionSites ?? [];
+  const sources = options.sources ?? [{ id: 'source1' }, { id: 'source2' }];
   const roomCreeps = options.creeps ?? [];
 
   if (options.includeRoomFind !== false) {
@@ -1478,6 +1525,7 @@ function makeColony(options: {
         case TEST_GLOBALS.FIND_MY_STRUCTURES:
           return structures;
         case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
+        case TEST_GLOBALS.FIND_CONSTRUCTION_SITES:
           return constructionSites;
         case TEST_GLOBALS.FIND_MY_CREEPS:
           return roomCreeps;
@@ -1487,7 +1535,7 @@ function makeColony(options: {
             { resourceType: 'power', amount: 100 }
           ];
         case TEST_GLOBALS.FIND_SOURCES:
-          return [{ id: 'source1' }, { id: 'source2' }];
+          return sources;
         case TEST_GLOBALS.FIND_HOSTILE_CREEPS:
           return [{ id: 'hostile1' }];
         case TEST_GLOBALS.FIND_HOSTILE_STRUCTURES:

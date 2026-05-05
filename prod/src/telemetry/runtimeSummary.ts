@@ -31,6 +31,10 @@ import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '..
 import { getTerritoryScoutSummary } from '../territory/scoutIntel';
 import { getRoomEnergyBufferHealth, type EnergyBufferHealth } from '../economy/energyBuffer';
 import {
+  summarizeSourceContainerCoverage,
+  type SourceContainerCoverageSummary
+} from '../economy/sourceContainerPlanner';
+import {
   summarizeAndResetCreepBehaviorTelemetry,
   type RuntimeBehaviorSummary as LegacyRuntimeBehaviorSummary
 } from './behaviorTelemetry';
@@ -273,6 +277,7 @@ interface RuntimeResourceSummary {
   harvestedThisTick: number;
   droppedEnergy: number;
   sourceCount: number;
+  sourceContainers: SourceContainerCoverageSummary;
   productiveEnergy: RuntimeProductiveEnergySummary;
   events?: RuntimeResourceEventSummary;
 }
@@ -1459,14 +1464,15 @@ function summarizeResources(
   const roomCreeps = findRoomObjects(colony.room, 'FIND_MY_CREEPS') ?? [];
   const constructionSites = findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? [];
   const droppedResources = findRoomObjects(colony.room, 'FIND_DROPPED_RESOURCES') ?? [];
-  const sources = findRoomObjects(colony.room, 'FIND_SOURCES') ?? [];
+  const sourceContainerCoverage = summarizeSourceContainerCoverage(colony.room);
 
   return {
     storedEnergy: sumEnergyInStores(ownedEnergyStructures),
     workerCarriedEnergy: sumEnergyInStores(roomCreeps),
     harvestedThisTick: events?.harvestedEnergy ?? 0,
     droppedEnergy: sumDroppedEnergy(droppedResources),
-    sourceCount: sources.length,
+    sourceCount: sourceContainerCoverage.sourceCount,
+    sourceContainers: sourceContainerCoverage,
     productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
     ...(events ? { events } : {})
   };
