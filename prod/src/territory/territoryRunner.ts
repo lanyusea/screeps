@@ -18,6 +18,15 @@ import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import { recordVisibleRoomScoutIntel } from './scoutIntel';
 import { selectBestClaimTarget } from './claimScoring';
 import { getRecordedColonyStageAssessment, suppressesTerritoryWork } from '../colony/colonyStage';
+export {
+  isClaimedRoomBootstrapActive,
+  refreshClaimedRoomBootstrapperOwnership,
+  runClaimedRoomBootstrapper,
+  runClaimedRoomBootstrapperForColony,
+  type ClaimedRoomBootstrapRunResult,
+  type ClaimedRoomBootstrapPlanResult,
+  type ClaimedRoomOwnershipRefreshResult
+} from './claimedRoomBootstrapper';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
