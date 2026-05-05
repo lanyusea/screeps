@@ -23,6 +23,11 @@ import {
   getConstructionSiteImpactPriority,
   type ConstructionSiteImpactPriorityContext
 } from '../construction/constructionPriority';
+import {
+  checkEnergyBufferForSpending,
+  getStorageEnergyAvailableForWithdrawal,
+  withdrawFromStorage
+} from '../economy/energyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
 import { isSourceLink } from '../economy/linkManager';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
@@ -52,7 +57,6 @@ const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
 const SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO = 0.2;
-const SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR = 1_000;
 const DEFAULT_BUILD_POWER = 5;
 const NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
 const NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
@@ -907,20 +911,18 @@ function selectStorageToSpawnExtensionRefillAcquisitionTask(
 
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
   const storageEnergy = getStoredEnergy(storage);
-  const availableStorageEnergy = getUnreservedWorkerEnergyAcquisitionAmount(storage, storageEnergy, reservationContext);
-  const plannedWithdrawal = Math.min(
-    storageEnergy,
-    creep.store.getFreeCapacity(RESOURCE_ENERGY),
-    availableStorageEnergy
-  );
-  if (plannedWithdrawal <= 0) {
+  const reservedEnergy = getReservedWorkerEnergyAcquisitionAmount(storage, reservationContext);
+  const projectedStorageEnergy = Math.max(0, storageEnergy - reservedEnergy);
+  const plannedWithdrawal = Math.min(projectedStorageEnergy, creep.store.getFreeCapacity(RESOURCE_ENERGY));
+  if (
+    plannedWithdrawal <= 0 ||
+    plannedWithdrawal > getStorageEnergyAvailableForWithdrawal(creep.room, storage, projectedStorageEnergy) ||
+    !withdrawFromStorage(creep.room, plannedWithdrawal, storage, projectedStorageEnergy)
+  ) {
     return null;
   }
 
-  const projectedStorageEnergy = availableStorageEnergy - plannedWithdrawal;
-  return projectedStorageEnergy > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR
-    ? { type: 'withdraw', targetId: storage.id as Id<AnyStoreStructure> }
-    : null;
+  return { type: 'withdraw', targetId: storage.id as Id<AnyStoreStructure> };
 }
 
 function isSpawnExtensionThroughputBottlenecked(room: Room): boolean {
@@ -944,7 +946,11 @@ function selectStorageForSpawnExtensionRefill(creep: Creep): StructureStorage | 
     (structure): structure is StructureStorage =>
       isSafeStoredEnergySource(structure, context) &&
       structure.structureType === 'storage' &&
-      getStoredEnergy(structure as StructureStorage) > SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_RESERVE_FLOOR
+      getStorageEnergyAvailableForWithdrawal(
+        creep.room,
+        structure as StructureStorage,
+        getStoredEnergy(structure as StructureStorage)
+      ) > 0
   );
 
   if (storageSources.length === 0) {
@@ -1371,6 +1377,10 @@ function selectConstructionSite(
   constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext(),
   options: ConstructionSiteSelectionOptions = {}
 ): ConstructionSite | null {
+  if (!canSpendCreepEnergyOnConstruction(creep)) {
+    return null;
+  }
+
   const candidates = constructionSites.filter(
     (site) =>
       predicate(site) &&
@@ -1730,6 +1740,10 @@ function canCompleteConstructionSiteWithCarriedEnergy(
   return remainingProgress > 0 && remainingProgress <= getUsedEnergy(creep) * getBuildPower();
 }
 
+function canSpendCreepEnergyOnConstruction(creep: Creep): boolean {
+  return checkEnergyBufferForSpending(creep.room, getUsedEnergy(creep));
+}
+
 function getUnreservedConstructionProgressForWorker(
   creep: Creep,
   site: ConstructionSite,
@@ -1813,7 +1827,11 @@ function selectNearbyProductiveEnergySinkTask(
 
   const candidates = [
     ...constructionSites
-      .filter((site) => hasUnreservedConstructionProgress(creep, site, constructionReservationContext))
+      .filter(
+        (site) =>
+          canSpendCreepEnergyOnConstruction(creep) &&
+          hasUnreservedConstructionProgress(creep, site, constructionReservationContext)
+      )
       .map((site) =>
         createProductiveEnergySinkCandidate(
           creep,
@@ -2760,7 +2778,12 @@ function createUnreservedWorkerEnergyAcquisitionCandidate(
   reservationContext: WorkerEnergyAcquisitionReservationContext,
   minimumEnergy = 1
 ): WorkerEnergyAcquisitionCandidate | null {
-  const unreservedEnergy = getUnreservedWorkerEnergyAcquisitionAmount(source, energy, reservationContext);
+  const unreservedEnergy = getUnreservedWorkerEnergyAcquisitionAmount(
+    source,
+    energy,
+    reservationContext,
+    creep
+  );
   if (unreservedEnergy < minimumEnergy) {
     return null;
   }
@@ -2807,6 +2830,10 @@ function getWorkerEnergyAcquisitionPriority(
 
 function isContainerEnergySource(source: LowLoadWorkerEnergyAcquisitionSource): source is StructureContainer {
   return isStructureEnergySourceType(source, 'STRUCTURE_CONTAINER', 'container');
+}
+
+function isStorageEnergySource(source: LowLoadWorkerEnergyAcquisitionSource): source is StructureStorage {
+  return isStructureEnergySourceType(source, 'STRUCTURE_STORAGE', 'storage');
 }
 
 function isDurableStoredEnergySource(
@@ -2880,9 +2907,31 @@ function isWorkerEnergyAcquisitionReservationTask(
 function getUnreservedWorkerEnergyAcquisitionAmount(
   source: WorkerEnergyAcquisitionSource,
   energy: number,
+  reservationContext: WorkerEnergyAcquisitionReservationContext,
+  creep?: Creep
+): number {
+  const projectedEnergy = Math.max(0, energy - getReservedWorkerEnergyAcquisitionAmount(source, reservationContext));
+  if (!creep || !isStorageEnergySource(source)) {
+    return projectedEnergy;
+  }
+
+  const plannedWithdrawal = Math.min(projectedEnergy, getFreeEnergyCapacity(creep));
+  if (
+    plannedWithdrawal <= 0 ||
+    plannedWithdrawal > getStorageEnergyAvailableForWithdrawal(creep.room, source, projectedEnergy) ||
+    !withdrawFromStorage(creep.room, plannedWithdrawal, source, projectedEnergy)
+  ) {
+    return 0;
+  }
+
+  return getStorageEnergyAvailableForWithdrawal(creep.room, source, projectedEnergy);
+}
+
+function getReservedWorkerEnergyAcquisitionAmount(
+  source: WorkerEnergyAcquisitionSource,
   reservationContext: WorkerEnergyAcquisitionReservationContext
 ): number {
-  return Math.max(0, energy - (reservationContext.reservedEnergyBySourceId.get(String(source.id)) ?? 0));
+  return reservationContext.reservedEnergyBySourceId.get(String(source.id)) ?? 0;
 }
 
 function createSpawnRecoveryEnergyAcquisitionCandidate(

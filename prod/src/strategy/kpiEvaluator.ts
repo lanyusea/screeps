@@ -14,6 +14,7 @@ export interface StrategyRuntimeSummaryRoom {
   roomName: string;
   energyAvailable?: number;
   energyCapacity?: number;
+  energyBufferHealth?: StrategyRuntimeEnergyBufferHealth;
   workerCount?: number;
   spawnStatus?: StrategyRuntimeSpawnStatus[];
   controller?: StrategyRuntimeControllerSummary;
@@ -21,6 +22,13 @@ export interface StrategyRuntimeSummaryRoom {
   combat?: StrategyRuntimeCombatSummary;
   constructionPriority?: StrategyRuntimeConstructionPrioritySummary;
   territoryRecommendation?: StrategyRuntimeTerritoryRecommendationSummary;
+}
+
+export interface StrategyRuntimeEnergyBufferHealth {
+  currentEnergy?: number;
+  threshold?: number;
+  room?: string;
+  healthy?: boolean;
 }
 
 export interface StrategyRuntimeSpawnStatus {

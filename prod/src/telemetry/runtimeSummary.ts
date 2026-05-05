@@ -29,6 +29,7 @@ import {
 } from '../territory/territoryPlanner';
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
 import { getTerritoryScoutSummary } from '../territory/scoutIntel';
+import { getRoomEnergyBufferHealth, type EnergyBufferHealth } from '../economy/energyBuffer';
 import {
   summarizeAndResetCreepBehaviorTelemetry,
   type RuntimeBehaviorSummary as LegacyRuntimeBehaviorSummary
@@ -178,6 +179,7 @@ interface RuntimeRoomSummary {
   roomName: string;
   energyAvailable: number;
   energyCapacity: number;
+  energyBufferHealth: EnergyBufferHealth;
   workerCount: number;
   spawnStatus: RuntimeSpawnStatus[];
   taskCounts: WorkerTaskCounts;
@@ -605,6 +607,7 @@ function summarizeRoom(
     roomName: colony.room.name,
     energyAvailable: colony.energyAvailable,
     energyCapacity: colony.energyCapacityAvailable,
+    energyBufferHealth: getRoomEnergyBufferHealth(colony.room),
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),

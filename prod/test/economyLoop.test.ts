@@ -365,8 +365,8 @@ describe('runEconomy', () => {
     const constructionSites: ConstructionSite[] = [];
     const room = {
       name: 'W1N1',
-      energyAvailable: 0,
-      energyCapacityAvailable: 0,
+      energyAvailable: 500,
+      energyCapacityAvailable: 500,
       controller: { my: true, level: 2, id: 'controller1' } as StructureController,
       find: jest.fn((type: number) => (type === 3 ? constructionSites : [])),
       lookForAt: jest.fn(() => {
@@ -437,8 +437,8 @@ describe('runEconomy', () => {
     } as StructureController;
     const room = {
       name: 'W1N1',
-      energyAvailable: 0,
-      energyCapacityAvailable: 0,
+      energyAvailable: 500,
+      energyCapacityAvailable: 500,
       controller,
       find: jest.fn((type: number) => (type === 3 ? constructionSites : [])),
       lookForAt: jest.fn(() => {

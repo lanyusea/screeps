@@ -9,6 +9,7 @@ import {
 } from '../tasks/workerTasks';
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
+import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
   observeCreepBehaviorTick,
@@ -31,6 +32,10 @@ const WORKER_NULL_LOOP_TICK_WINDOW = 10;
 const WORKER_STANDBY_IDLE_TIMEOUT_TICKS = 8;
 const WORKER_NULL_LOOP_FALLBACK_ATTEMPTS = 2;
 const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_NOT_ENOUGH_RESOURCES_CODE = -6 as ScreepsReturnCode;
+const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
+const ERR_FULL_CODE = -8 as ScreepsReturnCode;
+const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const MIN_HAULER_DROPPED_ENERGY = 25;
 
 interface WorkerTaskSelectionNullLoopState {
@@ -400,7 +405,7 @@ function executeAssignedTask(
     return;
   }
 
-  if (execution.result === ERR_NOT_IN_RANGE) {
+  if (execution.result === ERR_NOT_IN_RANGE_CODE) {
     creep.moveTo(target as RoomObject);
     recordCreepBehaviorMove(creep);
   }
@@ -408,14 +413,14 @@ function executeAssignedTask(
 
 function shouldImmediatelyReselectAfterTaskResult(task: CreepTaskMemory, result: ScreepsReturnCode): boolean {
   if (task.type === 'transfer') {
-    return result === ERR_FULL;
+    return result === ERR_FULL_CODE;
   }
 
   return isEnergyAcquisitionTask(task) && isUnavailableEnergyAcquisitionResult(result);
 }
 
 function isUnavailableEnergyAcquisitionResult(result: ScreepsReturnCode): boolean {
-  return result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET;
+  return result === ERR_NOT_ENOUGH_RESOURCES_CODE || result === ERR_INVALID_TARGET_CODE;
 }
 
 function assignSelectedTask(
@@ -1024,6 +1029,10 @@ function executeTask(
         containerTransfer: isContainerStructure(target)
       });
     case 'build':
+      if (!checkEnergyBufferForSpending(creep.room, getCarriedEnergy(creep))) {
+        return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
+      }
+
       return toTaskExecutionResult(creep.build(target as ConstructionSite), 'work');
     case 'repair':
       return toTaskExecutionResult(creep.repair(target as Structure), 'work');
@@ -1073,11 +1082,14 @@ function executeHarvestTask(creep: Creep, source: Source): TaskExecutionResult {
   }
 
   const result = creep.harvest(source);
-  if (((result as ScreepsReturnCode) === ERR_FULL || result === ERR_NOT_ENOUGH_RESOURCES) && getUsedTransferEnergy(creep) > 0) {
+  if (
+    ((result as ScreepsReturnCode) === ERR_FULL_CODE || result === ERR_NOT_ENOUGH_RESOURCES_CODE) &&
+    getUsedTransferEnergy(creep) > 0
+  ) {
     return transferDedicatedHarvestEnergy(creep, sourceContainer);
   }
 
-  return toTaskExecutionResult(result === ERR_NOT_ENOUGH_RESOURCES ? OK_CODE : result, 'work');
+  return toTaskExecutionResult(result === ERR_NOT_ENOUGH_RESOURCES_CODE ? OK_CODE : result, 'work');
 }
 
 function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: StructureContainer): TaskExecutionResult {
@@ -1086,7 +1098,7 @@ function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: Structure
   }
 
   const result = creep.transfer(sourceContainer, RESOURCE_ENERGY);
-  if (result === ERR_NOT_IN_RANGE) {
+  if (result === ERR_NOT_IN_RANGE_CODE) {
     creep.moveTo(sourceContainer);
     return { result: OK_CODE, action: 'move' };
   }
@@ -1119,7 +1131,7 @@ function recordTaskBehavior(
     recordCreepBehaviorMove(creep);
   } else if (execution.action === 'work') {
     recordCreepBehaviorWork(creep);
-  } else if (execution.result !== ERR_NOT_IN_RANGE) {
+  } else if (execution.result !== ERR_NOT_IN_RANGE_CODE) {
     recordCreepBehaviorIdle(creep);
   }
 
