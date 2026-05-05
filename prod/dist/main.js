@@ -8966,6 +8966,12 @@ var MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 var MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
 var BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY = 550;
 var BUILDER_STORAGE_ACQUISITION_SITE_RANGE = BUILDER_DROPPED_PICKUP_RANGE;
+var ROAD_TRAVEL_COST = 1;
+var PLAIN_TRAVEL_COST = 2;
+var SWAMP_TRAVEL_COST = 10;
+var HARVEST_SOURCE_RANGE = 1;
+var HARVEST_SOURCE_CONTAINER_RANGE = 0;
+var MAX_HARVEST_PATH_OPS = 2e3;
 var nearTermSpawnExtensionRefillReserveCache = null;
 function selectWorkerTask(creep) {
   clearWorkerEfficiencyTelemetry(creep);
@@ -10579,7 +10585,7 @@ function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink, harvestEta 
   return candidates.sort(compareSpawnRecoveryEnergyAcquisitionCandidates)[0].task;
 }
 function selectSpawnRecoveryHarvestCandidate(creep, energySink) {
-  const sources = creep.room.find(FIND_SOURCES);
+  const sources = findVisibleHarvestSourcesInRooms([creep.room]);
   if (sources.length === 0) {
     return null;
   }
@@ -10587,7 +10593,7 @@ function selectSpawnRecoveryHarvestCandidate(creep, energySink) {
     sources,
     getSpawnRecoveryHarvestEnergyTarget(creep, energySink)
   );
-  const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
+  const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
   const candidates = assignableSources.map(
     (source) => createSpawnRecoveryHarvestCandidate(
@@ -10790,8 +10796,8 @@ function estimateHarvestDeliveryEtaFromSource(creep, source, energySink) {
   if (sourceAvailabilityDelay === null) {
     return null;
   }
-  const creepToSourceRange = getRangeBetweenRoomObjects2(creep, source);
-  const sourceToSinkRange = getRangeBetweenRoomObjects2(source, energySink);
+  const creepToSourceRange = getHarvestSourceTravelCost(creep, source);
+  const sourceToSinkRange = getHarvestSourceDeliveryTravelCost(creep, source, energySink);
   if (creepToSourceRange === null || sourceToSinkRange === null) {
     return null;
   }
@@ -11574,17 +11580,21 @@ function findClosestByRange(creep, objects) {
   return typeof (position == null ? void 0 : position.findClosestByRange) === "function" ? position.findClosestByRange(objects) : null;
 }
 function selectSourceContainerHarvestTask(creep) {
-  if (getActiveWorkParts(creep) <= 0 || typeof FIND_SOURCES !== "number" || !hasVisiblePositionedContainer(creep.room)) {
+  if (getActiveWorkParts(creep) <= 0 || typeof FIND_SOURCES !== "number") {
+    return null;
+  }
+  const harvestRooms = findVisibleHarvestRooms(creep);
+  if (!harvestRooms.some(hasVisiblePositionedContainer)) {
     return null;
   }
   const source = selectBestHarvestSource(
     creep,
-    creep.room.find(FIND_SOURCES).filter((candidate) => hasNonEmptySourceContainer(creep.room, candidate))
+    findVisibleHarvestSourcesInRooms(harvestRooms).filter((candidate) => hasNonEmptyVisibleSourceContainer(creep, candidate))
   );
   return source ? { type: "harvest", targetId: source.id } : null;
 }
-function hasNonEmptySourceContainer(room, source) {
-  const sourceContainer = findSourceContainer(room, source);
+function hasNonEmptyVisibleSourceContainer(creep, source) {
+  const sourceContainer = findVisibleSourceContainer(creep, source);
   return sourceContainer !== null && getStoredEnergy4(sourceContainer) > 0;
 }
 function hasVisiblePositionedContainer(room) {
@@ -11596,8 +11606,80 @@ function hasVisiblePositionedContainer(room) {
     return position !== null && matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container");
   });
 }
+function findVisibleHarvestSources(creep) {
+  return findVisibleHarvestSourcesInRooms(findVisibleHarvestRooms(creep));
+}
+function findVisibleHarvestSourcesInRooms(rooms) {
+  if (typeof FIND_SOURCES !== "number") {
+    return [];
+  }
+  const sourcesById = /* @__PURE__ */ new Map();
+  for (const room of rooms) {
+    if (typeof room.find !== "function") {
+      continue;
+    }
+    for (const source of room.find(FIND_SOURCES)) {
+      sourcesById.set(String(source.id), source);
+    }
+  }
+  return [...sourcesById.values()];
+}
+function findVisibleHarvestRooms(creep) {
+  const rooms = [];
+  if (creep.room) {
+    rooms.push(creep.room);
+  }
+  for (const room of findVisibleAdjacentClaimedRooms(creep.room)) {
+    if (rooms.some((candidate) => candidate.name === room.name)) {
+      continue;
+    }
+    rooms.push(room);
+  }
+  return rooms;
+}
+function findVisibleAdjacentClaimedRooms(room) {
+  const roomName = room == null ? void 0 : room.name;
+  if (!roomName) {
+    return [];
+  }
+  const game = globalThis.Game;
+  const visibleRooms = game == null ? void 0 : game.rooms;
+  const adjacentRoomNames = getAdjacentRoomNames3(roomName, game == null ? void 0 : game.map);
+  if (!visibleRooms || adjacentRoomNames.length === 0) {
+    return [];
+  }
+  return adjacentRoomNames.map((adjacentRoomName) => visibleRooms[adjacentRoomName]).filter((candidate) => {
+    var _a;
+    return ((_a = candidate == null ? void 0 : candidate.controller) == null ? void 0 : _a.my) === true;
+  }).sort((left, right) => left.name.localeCompare(right.name));
+}
+function getAdjacentRoomNames3(roomName, gameMap) {
+  if (typeof (gameMap == null ? void 0 : gameMap.describeExits) !== "function") {
+    return [];
+  }
+  const exits = gameMap.describeExits(roomName);
+  if (!exits || typeof exits !== "object") {
+    return [];
+  }
+  return Object.values(exits).filter((adjacentRoomName) => typeof adjacentRoomName === "string" && adjacentRoomName.length > 0).sort((left, right) => left.localeCompare(right));
+}
+function findVisibleSourceContainer(creep, source) {
+  const sourceRoom = findVisibleSourceRoom(creep, source);
+  return sourceRoom ? findSourceContainer(sourceRoom, source) : null;
+}
+function findVisibleSourceRoom(creep, source) {
+  var _a, _b, _c, _d, _e, _f;
+  const sourceRoomName = (_b = getPositionRoomName(source)) != null ? _b : (_a = creep.room) == null ? void 0 : _a.name;
+  if (!sourceRoomName) {
+    return null;
+  }
+  if (((_c = creep.room) == null ? void 0 : _c.name) === sourceRoomName) {
+    return creep.room;
+  }
+  return (_f = (_e = (_d = globalThis.Game) == null ? void 0 : _d.rooms) == null ? void 0 : _e[sourceRoomName]) != null ? _f : null;
+}
 function selectHarvestSource(creep) {
-  const sources = creep.room.find(FIND_SOURCES);
+  const sources = findVisibleHarvestSources(creep);
   if (sources.length === 0) {
     return null;
   }
@@ -11608,8 +11690,11 @@ function selectBestHarvestSource(creep, sources) {
     return null;
   }
   const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
-  const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
-  const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
+  const assignmentLoads = getWorkerHarvestLoads(viableSources);
+  const assignableSources = selectReachableHarvestSources(
+    creep,
+    selectAssignableHarvestSources(creep, viableSources, assignmentLoads)
+  );
   if (assignableSources.length === 0) {
     return null;
   }
@@ -11629,8 +11714,14 @@ function selectAssignableHarvestSources(creep, sources, assignmentLoads) {
     (source) => isAssignableHarvestSource(creep, source, getHarvestSourceAssignmentLoad(assignmentLoads, source))
   );
 }
+function selectReachableHarvestSources(creep, sources) {
+  if (!isPathFinderAvailable2()) {
+    return sources;
+  }
+  return sources.filter((source) => getHarvestSourceTravelCost(creep, source) !== null);
+}
 function isAssignableHarvestSource(creep, source, assignmentLoad) {
-  if (!findSourceContainer(creep.room, source)) {
+  if (!findVisibleSourceContainer(creep, source)) {
     return true;
   }
   if (isWorkerAssignedToHarvestSource(creep, source)) {
@@ -11750,9 +11841,110 @@ function getTerrainWallMask5() {
   return typeof terrainWallMask === "number" ? terrainWallMask : 1;
 }
 function isCloserHarvestSource(creep, candidate, selected) {
-  const candidateRange = getRangeBetweenRoomObjects2(creep, candidate);
-  const selectedRange = getRangeBetweenRoomObjects2(creep, selected);
+  const candidateRange = getHarvestSourceTravelCost(creep, candidate);
+  const selectedRange = getHarvestSourceTravelCost(creep, selected);
   return candidateRange !== null && selectedRange !== null && candidateRange < selectedRange;
+}
+function getHarvestSourceTravelCost(creep, source) {
+  var _a;
+  const target = (_a = findVisibleSourceContainer(creep, source)) != null ? _a : source;
+  const targetRange = target === source ? HARVEST_SOURCE_RANGE : HARVEST_SOURCE_CONTAINER_RANGE;
+  return estimateRoadAwareTravelCostBetweenRoomObjects(creep, target, targetRange);
+}
+function getHarvestSourceDeliveryTravelCost(creep, source, energySink) {
+  var _a;
+  const harvestOrigin = (_a = findVisibleSourceContainer(creep, source)) != null ? _a : source;
+  return estimateRoadAwareTravelCostBetweenRoomObjects(harvestOrigin, energySink, HARVEST_SOURCE_RANGE);
+}
+function estimateRoadAwareTravelCostBetweenRoomObjects(origin, target, targetRange) {
+  const originPosition = getRoomObjectPosition3(origin);
+  const targetPosition = getRoomObjectPosition3(target);
+  if (originPosition && targetPosition) {
+    const pathCost = findRoadAwarePathCost(originPosition, targetPosition, targetRange);
+    if (pathCost !== null) {
+      return pathCost;
+    }
+    if (isPathFinderAvailable2()) {
+      return null;
+    }
+  }
+  const range = getRangeBetweenRoomObjects2(origin, target);
+  if (range !== null) {
+    return Math.max(0, range - Math.max(0, targetRange - 1));
+  }
+  if (originPosition && targetPosition && isSameRoomPosition5(originPosition, targetPosition)) {
+    return Math.max(
+      0,
+      Math.max(Math.abs(originPosition.x - targetPosition.x), Math.abs(originPosition.y - targetPosition.y)) - Math.max(0, targetRange - 1)
+    );
+  }
+  return null;
+}
+function findRoadAwarePathCost(origin, target, targetRange) {
+  if (!isPathFinderAvailable2()) {
+    return null;
+  }
+  const result = PathFinder.search(origin, { pos: target, range: Math.max(0, targetRange) }, {
+    maxOps: MAX_HARVEST_PATH_OPS,
+    maxRooms: origin.roomName === target.roomName ? 1 : 2,
+    plainCost: PLAIN_TRAVEL_COST,
+    roomCallback: createRoadAwareRoomCallback(/* @__PURE__ */ new Set([origin.roomName, target.roomName])),
+    swampCost: SWAMP_TRAVEL_COST
+  });
+  if (result.incomplete) {
+    return null;
+  }
+  if (typeof result.cost === "number" && Number.isFinite(result.cost)) {
+    return Math.max(0, result.cost);
+  }
+  return Array.isArray(result.path) ? result.path.length : null;
+}
+function isPathFinderAvailable2() {
+  return typeof PathFinder !== "undefined" && typeof PathFinder.search === "function" && typeof PathFinder.CostMatrix === "function";
+}
+function createRoadAwareRoomCallback(allowedRoomNames) {
+  const matricesByRoomName = /* @__PURE__ */ new Map();
+  return (roomName) => {
+    var _a, _b;
+    if (!allowedRoomNames.has(roomName)) {
+      return false;
+    }
+    const cachedMatrix = matricesByRoomName.get(roomName);
+    if (cachedMatrix !== void 0) {
+      return cachedMatrix;
+    }
+    const room = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
+    if (!room || typeof FIND_STRUCTURES !== "number" || typeof room.find !== "function") {
+      matricesByRoomName.set(roomName, false);
+      return false;
+    }
+    const matrix = new PathFinder.CostMatrix();
+    for (const structure of room.find(FIND_STRUCTURES)) {
+      const position = getRoomObjectPosition3(structure);
+      if (!position) {
+        continue;
+      }
+      if (isRoadStructure2(structure)) {
+        matrix.set(position.x, position.y, ROAD_TRAVEL_COST);
+      } else if (isBlockingRoadAwareStructure(structure)) {
+        matrix.set(position.x, position.y, 255);
+      }
+    }
+    matricesByRoomName.set(roomName, matrix);
+    return matrix;
+  };
+}
+function isRoadStructure2(structure) {
+  return matchesStructureType8(structure.structureType, "STRUCTURE_ROAD", "road");
+}
+function isBlockingRoadAwareStructure(structure) {
+  return !isRoadStructure2(structure) && !isContainerStructure2(structure) && !isWalkableRampartStructure(structure);
+}
+function isContainerStructure2(structure) {
+  return matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container");
+}
+function isWalkableRampartStructure(structure) {
+  return matchesStructureType8(structure.structureType, "STRUCTURE_RAMPART", "rampart") && (structure.my === true || structure.isPublic === true);
 }
 function selectViableHarvestSources(sources, harvestEnergyTarget) {
   const sourcesWithEnergy = sources.filter(hasHarvestableEnergy);
@@ -11778,24 +11970,21 @@ function getHarvestSourceAvailableEnergy(source) {
 function getHarvestEnergyTarget(creep) {
   return Math.max(1, getFreeEnergyCapacity3(creep));
 }
-function getSameRoomWorkerHarvestLoads(roomName, sources) {
-  var _a, _b, _c, _d;
+function getWorkerHarvestLoads(sources) {
+  var _a, _b, _c;
   const assignmentLoads = /* @__PURE__ */ new Map();
   for (const source of sources) {
     assignmentLoads.set(source.id, createEmptyHarvestSourceAssignmentLoad());
-  }
-  if (!roomName) {
-    return assignmentLoads;
   }
   const sourceIds = new Set(sources.map((source) => source.id));
   for (const assignedCreep of getGameCreeps()) {
     const task = (_a = assignedCreep.memory) == null ? void 0 : _a.task;
     const targetId = typeof (task == null ? void 0 : task.targetId) === "string" ? task.targetId : void 0;
-    if (((_b = assignedCreep.memory) == null ? void 0 : _b.role) !== "worker" || ((_c = assignedCreep.room) == null ? void 0 : _c.name) !== roomName || (task == null ? void 0 : task.type) !== "harvest" || !targetId || !sourceIds.has(targetId)) {
+    if (((_b = assignedCreep.memory) == null ? void 0 : _b.role) !== "worker" || (task == null ? void 0 : task.type) !== "harvest" || !targetId || !sourceIds.has(targetId)) {
       continue;
     }
     const sourceId = targetId;
-    const currentLoad = (_d = assignmentLoads.get(sourceId)) != null ? _d : createEmptyHarvestSourceAssignmentLoad();
+    const currentLoad = (_c = assignmentLoads.get(sourceId)) != null ? _c : createEmptyHarvestSourceAssignmentLoad();
     assignmentLoads.set(sourceId, {
       assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts(assignedCreep),
       assignmentCount: currentLoad.assignmentCount + 1
@@ -12634,7 +12823,7 @@ function matchesCapacityConstructionStructureType(actual, globalName, fallback) 
 function shouldReplaceTarget(creep, task, target) {
   var _a;
   if (task.type === "harvest" && isDepletedHarvestSource(target)) {
-    return !findSourceContainer(creep.room, target);
+    return !findVisibleHarvestSourceContainer(creep, target);
   }
   if (task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
     return true;
@@ -12661,7 +12850,7 @@ function executeTask(creep, task, target) {
       return toTaskExecutionResult(creep.withdraw(target, RESOURCE_ENERGY), "work");
     case "transfer":
       return toTaskExecutionResult(creep.transfer(target, RESOURCE_ENERGY), "work", {
-        containerTransfer: isContainerStructure2(target)
+        containerTransfer: isContainerStructure3(target)
       });
     case "build":
       if (!checkEnergyBufferForSpending(creep.room, getCarriedEnergy(creep))) {
@@ -12686,7 +12875,7 @@ function executeTask(creep, task, target) {
   }
 }
 function executeHarvestTask(creep, source) {
-  const sourceContainer = findSourceContainer(creep.room, source);
+  const sourceContainer = findVisibleHarvestSourceContainer(creep, source);
   if (!sourceContainer) {
     return toTaskExecutionResult(creep.harvest(source), "work");
   }
@@ -12739,7 +12928,7 @@ function recordTaskBehavior(creep, task, execution) {
     recordCreepBehaviorContainerTransfer(creep);
   }
 }
-function isContainerStructure2(target) {
+function isContainerStructure3(target) {
   const structureType = target == null ? void 0 : target.structureType;
   return typeof structureType === "string" && matchesContainerStructureType(structureType);
 }
@@ -12753,7 +12942,7 @@ function isDedicatedSourceContainerHarvestTask(creep, task) {
 }
 function findHarvestTaskSourceContainer(creep, task) {
   const source = findHarvestTaskSource(creep, task);
-  return source === null ? null : findSourceContainer(creep.room, source);
+  return source === null ? null : findVisibleHarvestSourceContainer(creep, source);
 }
 function findHarvestTaskSource(creep, task) {
   var _a;
@@ -12765,6 +12954,26 @@ function findHarvestTaskSource(creep, task) {
   }
   const target = getTaskTarget(task);
   return target && String(target.id) === String(task.targetId) ? target : null;
+}
+function findVisibleHarvestSourceContainer(creep, source) {
+  const sourceRoom = findVisibleSourceRoom2(creep, source);
+  return sourceRoom ? findSourceContainer(sourceRoom, source) : null;
+}
+function findVisibleSourceRoom2(creep, source) {
+  var _a, _b, _c, _d, _e, _f;
+  const sourceRoomName = (_b = getSourceRoomName(source)) != null ? _b : (_a = creep.room) == null ? void 0 : _a.name;
+  if (!sourceRoomName) {
+    return null;
+  }
+  if (((_c = creep.room) == null ? void 0 : _c.name) === sourceRoomName) {
+    return creep.room;
+  }
+  return (_f = (_e = (_d = globalThis.Game) == null ? void 0 : _d.rooms) == null ? void 0 : _e[sourceRoomName]) != null ? _f : null;
+}
+function getSourceRoomName(source) {
+  var _a;
+  const roomName = (_a = source.pos) == null ? void 0 : _a.roomName;
+  return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
 function isInRangeToRoomObject(creep, target, range) {
   const position = creep.pos;
@@ -15628,7 +15837,7 @@ function countVisibleOwnedRooms(colonyName, ownerUsername) {
 function getAdjacentRoomNamesByOwnedRoom(ownedRoomNames) {
   const adjacentRoomNames = /* @__PURE__ */ new Map();
   for (const roomName of ownedRoomNames) {
-    adjacentRoomNames.set(roomName, new Set(getAdjacentRoomNames3(roomName)));
+    adjacentRoomNames.set(roomName, new Set(getAdjacentRoomNames4(roomName)));
   }
   return adjacentRoomNames;
 }
@@ -15691,7 +15900,7 @@ function isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacen
   }
   return adjacentToOwnedRoom || typeof routeDistance === "number" && routeDistance <= MAX_NEARBY_EXPANSION_ROUTE_DISTANCE || typeof nearestOwnedDistance.distance === "number" && nearestOwnedDistance.distance <= MAX_NEARBY_EXPANSION_ROUTE_DISTANCE;
 }
-function getAdjacentRoomNames3(roomName) {
+function getAdjacentRoomNames4(roomName) {
   var _a;
   const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
   if (!gameMap || typeof gameMap.describeExits !== "function") {
@@ -18447,7 +18656,7 @@ function getCachedAdjacentRoomNames(roomName, context) {
   if (cachedAdjacentRoomNames) {
     return cachedAdjacentRoomNames;
   }
-  const adjacentRoomNames = new Set(getAdjacentRoomNames4(roomName, context.gameMap));
+  const adjacentRoomNames = new Set(getAdjacentRoomNames5(roomName, context.gameMap));
   context.adjacentRoomNamesByOwnedRoom.set(roomName, adjacentRoomNames);
   return adjacentRoomNames;
 }
@@ -18463,7 +18672,7 @@ function getOwnedAdjacency(roomName, adjacentRoomNamesByOwnedRoom) {
   }
   return { adjacentToOwnedRoom: false };
 }
-function getAdjacentRoomNames4(roomName, gameMap = ((_a) => (_a = globalThis.Game) == null ? void 0 : _a.map)()) {
+function getAdjacentRoomNames5(roomName, gameMap = ((_a) => (_a = globalThis.Game) == null ? void 0 : _a.map)()) {
   if (!gameMap || typeof gameMap.describeExits !== "function") {
     return [];
   }
@@ -18802,7 +19011,7 @@ function scoreClaimTarget(roomName, homeRoom) {
 }
 function selectBestClaimTarget(homeRoom) {
   var _a, _b;
-  const adjacentRooms = getAdjacentRoomNames5(homeRoom.name);
+  const adjacentRooms = getAdjacentRoomNames6(homeRoom.name);
   const candidates = adjacentRooms.map((roomName) => scoreClaimTarget(roomName, homeRoom)).filter((candidate) => candidate.sources > 0 && candidate.score > 0 && !hasUnclaimableController(candidate));
   candidates.sort(compareClaimScores);
   return (_b = (_a = candidates[0]) == null ? void 0 : _a.roomName) != null ? _b : null;
@@ -18931,7 +19140,7 @@ function getRoomDistance(homeRoomName, roomName) {
   }
   return NO_ROUTE_DISTANCE;
 }
-function getAdjacentRoomNames5(roomName) {
+function getAdjacentRoomNames6(roomName) {
   var _a;
   const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
   if (!gameMap || typeof gameMap.describeExits !== "function") {
@@ -19015,7 +19224,7 @@ function selectAdjacentRoomReservationPlan(colony, options = {}) {
   }
   const renewalThresholdTicks = getAdjacentRoomReservationRenewalThreshold(claimPartCount);
   const ownerUsername = getControllerOwnerUsername8(colony.room.controller);
-  const candidates = getAdjacentRoomNames6(colonyName).flatMap(
+  const candidates = getAdjacentRoomNames7(colonyName).flatMap(
     (roomName, order) => buildReservationCandidate(colony.room, roomName, order, ownerUsername, renewalThresholdTicks)
   );
   const actionableCandidate = selectBestReservationCandidate(
@@ -19303,7 +19512,7 @@ function isAdjacentRoomReservationTarget(target, colony) {
 function isSameTarget3(left, right) {
   return isRecord17(left) && left.colony === right.colony && left.roomName === right.roomName && left.action === right.action;
 }
-function getAdjacentRoomNames6(roomName) {
+function getAdjacentRoomNames7(roomName) {
   var _a;
   const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
   if (!gameMap || typeof gameMap.describeExits !== "function") {
@@ -19462,7 +19671,7 @@ function clearColonyExpansionClaimIntent(colony) {
 }
 function selectColonyExpansionCandidate(colony) {
   const ownerUsername = getControllerOwnerUsername9(colony.room.controller);
-  const candidates = getAdjacentRoomNames7(colony.room.name).flatMap((roomName, order) => {
+  const candidates = getAdjacentRoomNames8(colony.room.name).flatMap((roomName, order) => {
     const claimScore = scoreClaimTarget(roomName, colony.room);
     if (claimScore.sources <= 0 || hasHostileClaimScore(claimScore)) {
       return [];
@@ -19635,7 +19844,7 @@ function upsertTerritoryIntent5(intents, nextIntent) {
 function isSameTarget4(left, right) {
   return isRecord18(left) && left.colony === right.colony && left.roomName === right.roomName && left.action === right.action;
 }
-function getAdjacentRoomNames7(roomName) {
+function getAdjacentRoomNames8(roomName) {
   var _a;
   const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
   if (!gameMap || typeof gameMap.describeExits !== "function") {

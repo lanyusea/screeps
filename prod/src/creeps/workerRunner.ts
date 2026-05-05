@@ -989,7 +989,7 @@ function shouldReplaceTarget(
   target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
 ): boolean {
   if (task.type === 'harvest' && isDepletedHarvestSource(target)) {
-    return !findSourceContainer(creep.room, target);
+    return !findVisibleHarvestSourceContainer(creep, target);
   }
 
   if (task.type === 'transfer' && 'store' in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
@@ -1061,7 +1061,7 @@ function executeTask(
 }
 
 function executeHarvestTask(creep: Creep, source: Source): TaskExecutionResult {
-  const sourceContainer = findSourceContainer(creep.room, source);
+  const sourceContainer = findVisibleHarvestSourceContainer(creep, source);
   if (!sourceContainer) {
     return toTaskExecutionResult(creep.harvest(source), 'work');
   }
@@ -1162,7 +1162,7 @@ function findHarvestTaskSourceContainer(
   task: Extract<CreepTaskMemory, { type: 'harvest' }>
 ): StructureContainer | null {
   const source = findHarvestTaskSource(creep, task);
-  return source === null ? null : findSourceContainer(creep.room, source);
+  return source === null ? null : findVisibleHarvestSourceContainer(creep, source);
 }
 
 function findHarvestTaskSource(
@@ -1180,6 +1180,29 @@ function findHarvestTaskSource(
 
   const target = getTaskTarget(task) as Source | null;
   return target && String((target as { id?: unknown }).id) === String(task.targetId) ? target : null;
+}
+
+function findVisibleHarvestSourceContainer(creep: Creep, source: Source): StructureContainer | null {
+  const sourceRoom = findVisibleSourceRoom(creep, source);
+  return sourceRoom ? findSourceContainer(sourceRoom, source) : null;
+}
+
+function findVisibleSourceRoom(creep: Creep, source: Source): Room | null {
+  const sourceRoomName = getSourceRoomName(source) ?? creep.room?.name;
+  if (!sourceRoomName) {
+    return null;
+  }
+
+  if (creep.room?.name === sourceRoomName) {
+    return creep.room;
+  }
+
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[sourceRoomName] ?? null;
+}
+
+function getSourceRoomName(source: Source): string | null {
+  const roomName = (source as Source & { pos?: { roomName?: unknown } }).pos?.roomName;
+  return typeof roomName === 'string' && roomName.length > 0 ? roomName : null;
 }
 
 function isInRangeToRoomObject(creep: Creep, target: RoomObject, range: number): boolean {
