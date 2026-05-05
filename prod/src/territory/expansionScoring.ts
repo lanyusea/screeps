@@ -4,6 +4,7 @@ import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import {
   recordTerritoryScoutValidation,
   recordVisibleRoomScoutIntel,
+  getTerritoryScoutIntel,
   validateTerritoryScoutIntelForClaim,
   type TerritoryScoutValidationResult
 } from './scoutIntel';
@@ -24,6 +25,7 @@ const FOREIGN_CONTROLLER_PENALTY = 300;
 const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
 const MAX_PERSISTED_EXPANSION_CANDIDATES = 5;
+const EXPANSION_SCOUT_INTEL_TTL = 10_000;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
@@ -84,6 +86,7 @@ export interface ExpansionCandidateInput {
   order: number;
   adjacentToOwnedRoom: boolean;
   visible?: boolean;
+  scouted?: boolean;
   routeDistance?: number | null;
   nearestOwnedRoom?: string;
   nearestOwnedRoomDistance?: number | null;
@@ -118,30 +121,7 @@ export interface ExpansionReservationEvidence {
 
 type PersistedExpansionCandidateRecommendedAction = 'claim' | 'scout';
 
-interface PersistedExpansionCandidateMemory {
-  colony: string;
-  roomName: string;
-  score: number;
-  evidenceStatus: ExpansionCandidateEvidenceStatus;
-  visible: boolean;
-  updatedAt: number;
-  adjacentToOwnedRoom: boolean;
-  recommendedAction?: PersistedExpansionCandidateRecommendedAction;
-  routeDistance?: number;
-  nearestOwnedRoom?: string;
-  nearestOwnedRoomDistance?: number;
-  controllerId?: Id<StructureController>;
-  sourceCount?: number;
-  sourceAccessPoints?: number;
-  controllerSourceRange?: number;
-  terrain?: ExpansionTerrainQuality;
-  hostileCreepCount?: number;
-  hostileStructureCount?: number;
-  requiresControllerPressure?: boolean;
-  risks?: string[];
-  preconditions?: string[];
-  rationale?: string[];
-}
+type PersistedExpansionCandidateMemory = TerritoryExpansionCandidateMemory;
 
 type TerritoryMemoryWithExpansionCandidates = TerritoryMemory & {
   expansionCandidates?: PersistedExpansionCandidateMemory[];
@@ -287,6 +267,7 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
   const ownedRoomNames = getVisibleOwnedRoomNames(colonyName, ownerUsername);
   const adjacentRoomNames = getAdjacentRoomNamesByOwnedRoom(ownedRoomNames);
   const candidateOrders = new Map<string, number>();
+  const gameTime = getGameTime();
   let order = 0;
 
   for (const ownedRoomName of ownedRoomNames) {
@@ -334,6 +315,7 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
     }
 
     const room = rooms[roomName];
+    const scoutIntel = room ? null : getFreshExpansionScoutIntel(colonyName, roomName, gameTime);
     return [
       {
         roomName,
@@ -345,7 +327,11 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
         ...(nearestOwnedDistance.distance !== undefined
           ? { nearestOwnedRoomDistance: nearestOwnedDistance.distance }
           : {}),
-        ...(room ? buildVisibleExpansionCandidateEvidence(room) : buildUnseenExpansionCandidateEvidence(roomName))
+        ...(room
+          ? buildVisibleExpansionCandidateEvidence(room)
+          : scoutIntel
+            ? buildScoutedExpansionCandidateEvidence(scoutIntel)
+            : buildUnseenExpansionCandidateEvidence(roomName))
       }
     ];
   });
@@ -389,6 +375,23 @@ function buildVisibleExpansionCandidateEvidence(
   };
 }
 
+function buildScoutedExpansionCandidateEvidence(
+  intel: TerritoryScoutIntelMemory
+): Omit<ExpansionCandidateInput, 'roomName' | 'order' | 'adjacentToOwnedRoom'> {
+  return {
+    visible: false,
+    scouted: true,
+    ...(intel.controller ? { controller: summarizeExpansionScoutController(intel.controller) } : {}),
+    ...(intel.controller?.id ? { controllerId: intel.controller.id } : {}),
+    sourceCount: intel.sourceCount,
+    ...(intel.sourceAccessPoints !== undefined ? { sourceAccessPoints: intel.sourceAccessPoints } : {}),
+    ...(intel.controllerSourceRange !== undefined ? { controllerSourceRange: intel.controllerSourceRange } : {}),
+    ...(intel.terrain ? { terrain: intel.terrain } : {}),
+    hostileCreepCount: intel.hostileCreepCount,
+    hostileStructureCount: intel.hostileStructureCount
+  };
+}
+
 function scoreExpansionCandidate(
   input: ExpansionScoringInput,
   candidate: ExpansionCandidateInput
@@ -398,6 +401,8 @@ function scoreExpansionCandidate(
   const preconditions = getExpansionPreconditions(input);
   let evidenceStatus: ExpansionCandidateEvidenceStatus = 'sufficient';
   const visible = candidate.visible !== false;
+  const scouted = candidate.scouted === true;
+  const evidenceAdjective = getExpansionEvidenceAdjective(visible, scouted);
 
   const routeDistance = candidate.routeDistance === null ? undefined : candidate.routeDistance;
   const nearestOwnedRoomDistance =
@@ -408,8 +413,8 @@ function scoreExpansionCandidate(
   }
 
   if (!candidate.controller) {
-    if (visible) {
-      risks.push('visible room has no controller');
+    if (visible || scouted) {
+      risks.push(`${evidenceAdjective} room has no controller`);
       evidenceStatus = 'unavailable';
     } else {
       rationale.push('scout required for controller evidence');
@@ -428,9 +433,9 @@ function scoreExpansionCandidate(
   }
 
   if (typeof candidate.sourceCount === 'number') {
-    rationale.push(`${candidate.sourceCount} sources visible`);
+    rationale.push(`${candidate.sourceCount} sources ${evidenceAdjective}`);
   } else {
-    risks.push(visible ? 'source count evidence missing' : 'source count evidence missing until scout');
+    risks.push(visible || scouted ? 'source count evidence missing' : 'source count evidence missing until scout');
     evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
   }
 
@@ -441,7 +446,11 @@ function scoreExpansionCandidate(
   if (typeof candidate.controllerSourceRange === 'number') {
     rationale.push(`controller-source range ${candidate.controllerSourceRange}`);
   } else {
-    risks.push(visible ? 'controller proximity evidence missing' : 'controller proximity evidence missing until scout');
+    risks.push(
+      visible || scouted
+        ? 'controller proximity evidence missing'
+        : 'controller proximity evidence missing until scout'
+    );
     evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
   }
 
@@ -454,7 +463,11 @@ function scoreExpansionCandidate(
 
   const hostileCreepCount = candidate.hostileCreepCount ?? 0;
   const hostileStructureCount = candidate.hostileStructureCount ?? 0;
-  if (!visible && (candidate.hostileCreepCount === undefined || candidate.hostileStructureCount === undefined)) {
+  if (
+    !visible &&
+    !scouted &&
+    (candidate.hostileCreepCount === undefined || candidate.hostileStructureCount === undefined)
+  ) {
     risks.push('hostile evidence missing until scout');
     evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
   }
@@ -548,6 +561,10 @@ function calculateExpansionScore(
       insufficientEvidencePenalty -
       preconditionPenalty
   );
+}
+
+function getExpansionEvidenceAdjective(visible: boolean, scouted: boolean): 'visible' | 'scouted' {
+  return visible || !scouted ? 'visible' : 'scouted';
 }
 
 function hasForeignControllerPresence(
@@ -740,7 +757,7 @@ function persistExpansionCandidateScores(
     : [];
   const nextCandidates = report.candidates
     .slice(0, MAX_PERSISTED_EXPANSION_CANDIDATES)
-    .map((candidate) => toPersistedExpansionCandidateMemory(colony, candidate, gameTime));
+    .map((candidate, index) => toPersistedExpansionCandidateMemory(colony, candidate, gameTime, index + 1));
 
   if (existingCandidates.length === 0 && nextCandidates.length === 0) {
     delete territoryMemory.expansionCandidates;
@@ -753,12 +770,14 @@ function persistExpansionCandidateScores(
 function toPersistedExpansionCandidateMemory(
   colony: string,
   candidate: ExpansionCandidateScore,
-  gameTime: number
+  gameTime: number,
+  rank: number
 ): PersistedExpansionCandidateMemory {
   const recommendedAction = getPersistedExpansionCandidateRecommendedAction(candidate);
   return {
     colony,
     roomName: candidate.roomName,
+    rank,
     score: candidate.score,
     evidenceStatus: candidate.evidenceStatus,
     visible: candidate.visible,
@@ -1180,6 +1199,19 @@ function getNoPathResultCode(): ScreepsReturnCode {
   return typeof noPathCode === 'number' ? noPathCode : ERR_NO_PATH_CODE;
 }
 
+function getFreshExpansionScoutIntel(
+  colony: string,
+  roomName: string,
+  gameTime: number
+): TerritoryScoutIntelMemory | null {
+  const intel = getTerritoryScoutIntel(colony, roomName);
+  if (!intel || gameTime < intel.updatedAt) {
+    return intel;
+  }
+
+  return gameTime - intel.updatedAt <= EXPANSION_SCOUT_INTEL_TTL ? intel : null;
+}
+
 function summarizeExpansionController(controller: StructureController): ExpansionControllerEvidence {
   const ownerUsername = getControllerOwnerUsername(controller);
   const reservationUsername = getControllerReservationUsername(controller);
@@ -1190,6 +1222,19 @@ function summarizeExpansionController(controller: StructureController): Expansio
     ...(ownerUsername ? { ownerUsername } : {}),
     ...(reservationUsername ? { reservationUsername } : {}),
     ...(typeof reservationTicksToEnd === 'number' ? { reservationTicksToEnd } : {})
+  };
+}
+
+function summarizeExpansionScoutController(
+  controller: TerritoryScoutControllerIntelMemory
+): ExpansionControllerEvidence {
+  return {
+    ...(controller.my === true ? { my: true } : {}),
+    ...(controller.ownerUsername ? { ownerUsername: controller.ownerUsername } : {}),
+    ...(controller.reservationUsername ? { reservationUsername: controller.reservationUsername } : {}),
+    ...(typeof controller.reservationTicksToEnd === 'number'
+      ? { reservationTicksToEnd: controller.reservationTicksToEnd }
+      : {})
   };
 }
 
@@ -1370,6 +1415,11 @@ function getGameRooms(): Game['rooms'] | undefined {
 
 function getVisibleRoom(roomName: string): Room | undefined {
   return getGameRooms()?.[roomName];
+}
+
+function getGameTime(): number {
+  const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
+  return typeof gameTime === 'number' ? gameTime : 0;
 }
 
 function getTerritoryMemoryRecord(): TerritoryMemory | undefined {

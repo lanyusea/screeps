@@ -26,6 +26,7 @@ import {
   findSourceContainer,
   findSourceContainerConstructionSite
 } from '../economy/sourceContainers';
+import { getTerritoryScoutIntel } from './scoutIntel';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -71,6 +72,7 @@ const MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY = TERRITORY_CANDIDATE_PRIORITY_VI
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 const TERRITORY_EMERGENCY_RESERVATION_COVERAGE_TARGET = 2;
 const TERRITORY_SCOUT_BODY_COST = 50;
+const TERRITORY_SCOUT_INTEL_PLANNING_TTL = 10_000;
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
 const REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
 const MAX_CONTROLLER_LEVEL = 8;
@@ -2194,7 +2196,10 @@ function getPersistedExpansionCandidateRanks(
       continue;
     }
 
-    ranks.set(rawCandidate.roomName, index);
+    ranks.set(
+      rawCandidate.roomName,
+      isFiniteNumber(rawCandidate.rank) && rawCandidate.rank > 0 ? rawCandidate.rank : index + 1
+    );
   }
 
   return ranks;
@@ -2574,10 +2579,15 @@ function applyOccupationRecommendationScore(
   const intentAction = getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
   const requiresControllerPressure =
     isTerritoryControlAction(intentAction) && candidate.requiresControllerPressure === true;
+  const commitTarget =
+    recommendation.evidenceStatus === 'sufficient' &&
+    intentAction !== 'scout' &&
+    (candidate.commitTarget || isScoutedAdjacentControlCandidate(candidate));
+  const target = getRecommendedTerritoryTarget(candidate.target, recommendation, intentAction);
   const nextSelection: SelectedTerritoryTarget = {
-    target: candidate.target,
+    target,
     intentAction,
-    commitTarget: recommendation.evidenceStatus === 'sufficient' && intentAction !== 'scout' && candidate.commitTarget,
+    commitTarget,
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(candidate.followUp ? { followUp: candidate.followUp } : {})
   };
@@ -2592,6 +2602,7 @@ function applyOccupationRecommendationScore(
 
   return {
     ...candidateWithoutPressure,
+    target,
     intentAction,
     commitTarget: nextSelection.commitTarget,
     priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
@@ -2601,6 +2612,30 @@ function applyOccupationRecommendationScore(
     ...(safeAdjacentControllerProgress ? { safeAdjacentControllerProgress: true } : {}),
     ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {})
   };
+}
+
+function getRecommendedTerritoryTarget(
+  candidateTarget: TerritoryTargetMemory,
+  recommendation: OccupationRecommendationScore,
+  intentAction: TerritoryIntentAction
+): TerritoryTargetMemory {
+  if (!isTerritoryControlAction(intentAction)) {
+    return candidateTarget;
+  }
+
+  return {
+    ...candidateTarget,
+    action: intentAction,
+    ...(recommendation.controllerId ? { controllerId: recommendation.controllerId } : {})
+  };
+}
+
+function isScoutedAdjacentControlCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return (
+    candidate.source === 'adjacent' &&
+    candidate.intentAction === 'scout' &&
+    isTerritoryControlAction(candidate.target.action)
+  );
 }
 
 function getTerritoryCandidateRecommendationScore(
@@ -2678,6 +2713,9 @@ function buildOccupationRecommendationCandidate(
   candidate: ScoredTerritoryTarget
 ): OccupationRecommendationCandidateInput {
   const room = getVisibleRoom(candidate.target.roomName);
+  const scoutIntel = room
+    ? null
+    : getFreshTerritoryScoutIntel(candidate.target.colony, candidate.target.roomName, getGameTime());
   return {
     roomName: candidate.target.roomName,
     source: candidate.source === 'configured' ? 'configured' : 'adjacent',
@@ -2688,8 +2726,25 @@ function buildOccupationRecommendationCandidate(
     ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
     ...(candidate.roadDistance !== undefined ? { roadDistance: candidate.roadDistance } : {}),
     ...(candidate.ignoreOwnHealthyReservation === true ? { ignoreOwnHealthyReservation: true } : {}),
-    ...(room ? buildVisibleOccupationRecommendationEvidence(room, candidate.target.controllerId) : {})
+    ...(room
+      ? buildVisibleOccupationRecommendationEvidence(room, candidate.target.controllerId)
+      : scoutIntel
+        ? buildScoutedOccupationRecommendationEvidence(scoutIntel)
+        : {})
   };
+}
+
+function getFreshTerritoryScoutIntel(
+  colony: string,
+  roomName: string,
+  gameTime: number
+): TerritoryScoutIntelMemory | null {
+  const intel = getTerritoryScoutIntel(colony, roomName);
+  if (!intel || gameTime < intel.updatedAt) {
+    return intel;
+  }
+
+  return gameTime - intel.updatedAt <= TERRITORY_SCOUT_INTEL_PLANNING_TTL ? intel : null;
 }
 
 function buildVisibleOccupationRecommendationEvidence(
@@ -2712,6 +2767,40 @@ function buildVisibleOccupationRecommendationEvidence(
     hostileStructureCount: findVisibleHostileStructures(room).length,
     constructionSiteCount: countVisibleRoomObjects(room, getFindConstant('FIND_MY_CONSTRUCTION_SITES')),
     ownedStructureCount: countVisibleRoomObjects(room, getFindConstant('FIND_MY_STRUCTURES'))
+  };
+}
+
+function buildScoutedOccupationRecommendationEvidence(
+  intel: TerritoryScoutIntelMemory
+): Pick<
+  OccupationRecommendationCandidateInput,
+  | 'scouted'
+  | 'controller'
+  | 'controllerId'
+  | 'sourceCount'
+  | 'hostileCreepCount'
+  | 'hostileStructureCount'
+> {
+  return {
+    scouted: true,
+    ...(intel.controller ? { controller: summarizeScoutOccupationController(intel.controller) } : {}),
+    ...(intel.controller?.id ? { controllerId: intel.controller.id } : {}),
+    sourceCount: intel.sourceCount,
+    hostileCreepCount: intel.hostileCreepCount,
+    hostileStructureCount: intel.hostileStructureCount
+  };
+}
+
+function summarizeScoutOccupationController(
+  controller: TerritoryScoutControllerIntelMemory
+): OccupationControllerEvidence {
+  return {
+    ...(controller.my === true ? { my: true } : {}),
+    ...(controller.ownerUsername ? { ownerUsername: controller.ownerUsername } : {}),
+    ...(controller.reservationUsername ? { reservationUsername: controller.reservationUsername } : {}),
+    ...(typeof controller.reservationTicksToEnd === 'number'
+      ? { reservationTicksToEnd: controller.reservationTicksToEnd }
+      : {})
   };
 }
 

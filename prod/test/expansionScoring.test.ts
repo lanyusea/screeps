@@ -376,6 +376,81 @@ describe('next expansion scoring', () => {
     ]);
   });
 
+  it('scores no-longer-visible adjacent rooms from persisted scout intel and persists rank', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: 450,
+            controller: { id: 'controller2' as Id<StructureController>, my: false },
+            sourceIds: ['source1', 'source2'],
+            sourceCount: 2,
+            sourceAccessPoints: 7,
+            controllerSourceRange: 8,
+            terrain: {
+              walkableRatio: 0.94,
+              swampRatio: 0.01,
+              wallRatio: 0.05
+            },
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 451,
+      map: {
+        describeExits: jest.fn((roomName: string) => (roomName === 'W1N1' ? { '3': 'W2N1' } : {})),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0.2))
+      } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      evidenceStatus: 'sufficient',
+      visible: false,
+      sourceCount: 2,
+      sourceAccessPoints: 7,
+      controllerSourceRange: 8,
+      terrain: {
+        walkableRatio: 0.94,
+        swampRatio: 0.01,
+        wallRatio: 0.05
+      },
+      hostileCreepCount: 0,
+      hostileStructureCount: 0
+    });
+    expect(report.next?.rationale).toEqual(expect.arrayContaining(['2 sources scouted']));
+
+    expect(refreshNextExpansionTargetSelection(colony, report, 451)).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2',
+      score: report.next?.score
+    });
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      rank: 1,
+      evidenceStatus: 'sufficient',
+      recommendedAction: 'claim',
+      visible: false,
+      updatedAt: 451
+    });
+  });
+
   it('records terrain-based source accessibility for visible expansion candidates', () => {
     const colony = makeSafeColony();
     const terrain = {
