@@ -3086,10 +3086,15 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 133)).toBeNull();
   });
 
-  it('waits for 300 energy before spawning an emergency bootstrap worker', () => {
-    const { colony } = makeColony({ energyAvailable: 200, energyCapacityAvailable: 400 });
+  it('spawns an emergency bootstrap worker at the minimum body cost', () => {
+    const { colony, spawn } = makeColony({ energyAvailable: 200, energyCapacityAvailable: 400 });
 
-    expect(planSpawn(colony, { worker: 0 }, 125)).toBeNull();
+    expect(planSpawn(colony, { worker: 0 }, 125)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N1-125',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
   });
 
   it('keeps zero-worker recovery on the emergency basic worker body when construction backlog exists', () => {

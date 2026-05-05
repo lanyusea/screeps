@@ -101,8 +101,9 @@ export function assessColonyStage(input: ColonyStageInput): ColonyStageAssessmen
   const workerCapacity = normalizeNonNegativeInteger(input.workerCapacity);
   const workerTarget = normalizeNonNegativeInteger(input.workerTarget);
   const totalCreeps = normalizeNonNegativeInteger(input.totalCreeps ?? workerCapacity);
+  const energyCapacityAvailable = normalizeNonNegativeInteger(input.energyCapacityAvailable);
   const spawnEnergyAvailable = normalizeNonNegativeInteger(
-    input.spawnEnergyAvailable ?? input.energyAvailable ?? input.energyCapacityAvailable
+    input.spawnEnergyAvailable ?? input.energyAvailable ?? energyCapacityAvailable
   );
   const survivalWorkerFloor = Math.max(1, Math.min(BOOTSTRAP_WORKER_FLOOR, Math.max(workerTarget, 1)));
   const hostilePresence = (input.hostileCreepCount ?? 0) > 0 || (input.hostileStructureCount ?? 0) > 0;
@@ -113,13 +114,13 @@ export function assessColonyStage(input: ColonyStageInput): ColonyStageAssessmen
     input.previousMode === 'BOOTSTRAP' &&
     !bootstrapCreepFloor &&
     !bootstrapSpawnEnergy &&
-    !hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable);
+    !hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable, energyCapacityAvailable);
   const bootstrap = bootstrapCreepFloor || bootstrapSpawnEnergy || bootstrapRecovery;
   const territoryReady =
     !bootstrap &&
     !hostilePresence &&
     workerCapacity >= workerTarget &&
-    input.energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST &&
+    energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST &&
     isControllerTerritoryReady(input.controller) &&
     !controllerDowngradeGuard;
   const mode = selectColonyMode({ bootstrap, hostilePresence, territoryReady });
@@ -143,7 +144,7 @@ export function assessColonyStage(input: ColonyStageInput): ColonyStageAssessmen
       bootstrapSpawnEnergy,
       controller: input.controller,
       controllerDowngradeGuard,
-      energyCapacityAvailable: input.energyCapacityAvailable,
+      energyCapacityAvailable,
       hostilePresence,
       mode,
       workerCapacity,
@@ -370,8 +371,13 @@ function getSuppressionReasons(input: {
   return reasons;
 }
 
-function hasBootstrapExitStability(totalCreeps: number, spawnEnergyAvailable: number): boolean {
-  return totalCreeps >= BOOTSTRAP_EXIT_CREEPS && spawnEnergyAvailable >= BOOTSTRAP_EXIT_SPAWN_ENERGY;
+function hasBootstrapExitStability(
+  totalCreeps: number,
+  spawnEnergyAvailable: number,
+  energyCapacityAvailable: number
+): boolean {
+  const spawnEnergyExitThreshold = Math.min(BOOTSTRAP_EXIT_SPAWN_ENERGY, energyCapacityAvailable);
+  return totalCreeps >= BOOTSTRAP_EXIT_CREEPS && spawnEnergyAvailable >= spawnEnergyExitThreshold;
 }
 
 function isControllerTerritoryReady(controller: ColonyStageInput['controller']): boolean {

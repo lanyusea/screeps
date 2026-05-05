@@ -104,6 +104,7 @@ const POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
 const POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
 const POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS = 100;
 const POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY = 200;
+const MINIMUM_EMERGENCY_WORKER_BODY_COST = getBodyCost(EMERGENCY_BOOTSTRAP_WORKER_BODY);
 const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'emergencyBootstrap',
   'localRefillSurvival',
@@ -176,7 +177,7 @@ function planEmergencyBootstrapSpawn(context: SpawnPlanningContext): SpawnReques
   if (
     context.survival.mode !== 'BOOTSTRAP' ||
     !hasEmergencyBootstrapCreepShortfall(context.survival) ||
-    context.colony.energyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY
+    !hasRecoveryWorkerSpawnEnergy(context.colony)
   ) {
     return null;
   }
@@ -192,7 +193,7 @@ function planEmergencyBootstrapSpawn(context: SpawnPlanningContext): SpawnReques
 function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.workerCapacity >= context.workerTarget ||
-    context.colony.energyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY
+    !hasRecoveryWorkerSpawnEnergy(context.colony)
   ) {
     return null;
   }
@@ -219,6 +220,10 @@ function hasControllerDowngradeGuardSpawnCapacity(context: SpawnPlanningContext)
   }
 
   return context.colony.spawns.filter((spawn) => !spawn.spawning).length > 1;
+}
+
+function hasRecoveryWorkerSpawnEnergy(colony: ColonySnapshot): boolean {
+  return colony.energyAvailable >= MINIMUM_EMERGENCY_WORKER_BODY_COST;
 }
 
 interface PostClaimControllerSustainPlan {

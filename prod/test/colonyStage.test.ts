@@ -101,6 +101,24 @@ describe('colony bootstrap stage', () => {
     });
   });
 
+  it('transitions from BOOTSTRAP when low-RCL spawn energy reaches capacity', () => {
+    expect(
+      assessColonyStage({
+        roomName: 'W1N1',
+        totalCreeps: 5,
+        workerCapacity: 5,
+        workerTarget: 4,
+        energyAvailable: 400,
+        energyCapacityAvailable: 400,
+        previousMode: 'BOOTSTRAP',
+        controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+      })
+    ).toMatchObject({
+      mode: 'LOCAL_STABLE',
+      bootstrapRecovery: false
+    });
+  });
+
   it('orders spawn tiers from emergency bootstrap through territory work', () => {
     expect(getColonySpawnPriorityTiers()).toEqual([
       'emergencyBootstrap',

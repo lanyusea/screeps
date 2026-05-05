@@ -1783,17 +1783,18 @@ function assessColonyStage(input) {
   const workerCapacity = normalizeNonNegativeInteger(input.workerCapacity);
   const workerTarget = normalizeNonNegativeInteger(input.workerTarget);
   const totalCreeps = normalizeNonNegativeInteger((_a = input.totalCreeps) != null ? _a : workerCapacity);
+  const energyCapacityAvailable = normalizeNonNegativeInteger(input.energyCapacityAvailable);
   const spawnEnergyAvailable = normalizeNonNegativeInteger(
-    (_c = (_b = input.spawnEnergyAvailable) != null ? _b : input.energyAvailable) != null ? _c : input.energyCapacityAvailable
+    (_c = (_b = input.spawnEnergyAvailable) != null ? _b : input.energyAvailable) != null ? _c : energyCapacityAvailable
   );
   const survivalWorkerFloor = Math.max(1, Math.min(BOOTSTRAP_WORKER_FLOOR, Math.max(workerTarget, 1)));
   const hostilePresence = ((_d = input.hostileCreepCount) != null ? _d : 0) > 0 || ((_e = input.hostileStructureCount) != null ? _e : 0) > 0;
   const controllerDowngradeGuard = isControllerDowngradeGuardActive(input.controller);
   const bootstrapCreepFloor = totalCreeps < BOOTSTRAP_MIN_CREEPS;
   const bootstrapSpawnEnergy = spawnEnergyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY;
-  const bootstrapRecovery = input.previousMode === "BOOTSTRAP" && !bootstrapCreepFloor && !bootstrapSpawnEnergy && !hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable);
+  const bootstrapRecovery = input.previousMode === "BOOTSTRAP" && !bootstrapCreepFloor && !bootstrapSpawnEnergy && !hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable, energyCapacityAvailable);
   const bootstrap = bootstrapCreepFloor || bootstrapSpawnEnergy || bootstrapRecovery;
-  const territoryReady = !bootstrap && !hostilePresence && workerCapacity >= workerTarget && input.energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST && isControllerTerritoryReady(input.controller) && !controllerDowngradeGuard;
+  const territoryReady = !bootstrap && !hostilePresence && workerCapacity >= workerTarget && energyCapacityAvailable >= TERRITORY_CONTROLLER_BODY_COST && isControllerTerritoryReady(input.controller) && !controllerDowngradeGuard;
   const mode = selectColonyMode({ bootstrap, hostilePresence, territoryReady });
   return {
     mode,
@@ -1814,7 +1815,7 @@ function assessColonyStage(input) {
       bootstrapSpawnEnergy,
       controller: input.controller,
       controllerDowngradeGuard,
-      energyCapacityAvailable: input.energyCapacityAvailable,
+      energyCapacityAvailable,
       hostilePresence,
       mode,
       workerCapacity,
@@ -1946,8 +1947,9 @@ function getSuppressionReasons(input) {
   }
   return reasons;
 }
-function hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable) {
-  return totalCreeps >= BOOTSTRAP_EXIT_CREEPS && spawnEnergyAvailable >= BOOTSTRAP_EXIT_SPAWN_ENERGY;
+function hasBootstrapExitStability(totalCreeps, spawnEnergyAvailable, energyCapacityAvailable) {
+  const spawnEnergyExitThreshold = Math.min(BOOTSTRAP_EXIT_SPAWN_ENERGY, energyCapacityAvailable);
+  return totalCreeps >= BOOTSTRAP_EXIT_CREEPS && spawnEnergyAvailable >= spawnEnergyExitThreshold;
 }
 function isControllerTerritoryReady(controller) {
   return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= 2;
@@ -13472,6 +13474,7 @@ var POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
 var POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
 var POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS = 100;
 var POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY = 200;
+var MINIMUM_EMERGENCY_WORKER_BODY_COST = getBodyCost(EMERGENCY_BOOTSTRAP_WORKER_BODY);
 var SPAWN_PRIORITY_TIERS = [
   "emergencyBootstrap",
   "localRefillSurvival",
@@ -13528,7 +13531,7 @@ function planSpawnForPriorityTier(tier, context) {
   }
 }
 function planEmergencyBootstrapSpawn(context) {
-  if (context.survival.mode !== "BOOTSTRAP" || !hasEmergencyBootstrapCreepShortfall(context.survival) || context.colony.energyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY) {
+  if (context.survival.mode !== "BOOTSTRAP" || !hasEmergencyBootstrapCreepShortfall(context.survival) || !hasRecoveryWorkerSpawnEnergy(context.colony)) {
     return null;
   }
   return planWorkerSpawnWithBody(
@@ -13539,7 +13542,7 @@ function planEmergencyBootstrapSpawn(context) {
   );
 }
 function planLocalSurvivalSpawn(context) {
-  if (context.workerCapacity >= context.workerTarget || context.colony.energyAvailable < BOOTSTRAP_MIN_SPAWN_ENERGY) {
+  if (context.workerCapacity >= context.workerTarget || !hasRecoveryWorkerSpawnEnergy(context.colony)) {
     return null;
   }
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
@@ -13555,6 +13558,9 @@ function hasControllerDowngradeGuardSpawnCapacity(context) {
     return true;
   }
   return context.colony.spawns.filter((spawn) => !spawn.spawning).length > 1;
+}
+function hasRecoveryWorkerSpawnEnergy(colony) {
+  return colony.energyAvailable >= MINIMUM_EMERGENCY_WORKER_BODY_COST;
 }
 function planPostClaimControllerSustainSpawn(context) {
   if (context.survival.mode !== "TERRITORY_READY" || !hasPostClaimSustainSpawnEnergy(context.colony)) {

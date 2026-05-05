@@ -41,7 +41,7 @@ describe('runEconomy', () => {
     });
   });
 
-  it('waits for 300 energy before spawning an emergency bootstrap worker', () => {
+  it('spawns an emergency bootstrap worker at the minimum body cost', () => {
     const room = {
       name: 'W1N1',
       energyAvailable: 200,
@@ -63,7 +63,9 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).not.toHaveBeenCalled();
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-125', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
   });
 
   it('uses multiple idle spawns in one tick when worker recovery has enough room energy', () => {
