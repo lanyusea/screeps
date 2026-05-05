@@ -20,7 +20,7 @@ NOT_INSTRUMENTED = "not instrumented"
 NOT_OBSERVED = "not observed"
 
 CONTROLLER_FIELDS = ("level", "progress", "progressTotal", "ticksToDowngrade")
-RESOURCE_FIELDS = ("storedEnergy", "workerCarriedEnergy", "droppedEnergy", "sourceCount")
+RESOURCE_FIELDS = ("storedEnergy", "workerCarriedEnergy", "harvestedThisTick", "droppedEnergy", "sourceCount")
 RESOURCE_EVENT_FIELDS = ("harvestedEnergy", "transferredEnergy")
 COMBAT_FIELDS = ("hostileCreepCount", "hostileStructureCount")
 COMBAT_EVENT_FIELDS = ("attackCount", "attackDamage", "objectDestroyedCount", "creepDestroyedCount")

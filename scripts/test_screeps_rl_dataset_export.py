@@ -49,6 +49,7 @@ class RlDatasetExportTest(unittest.TestCase):
                     "resources": {
                         "storedEnergy": 420,
                         "workerCarriedEnergy": 120,
+                        "harvestedThisTick": 80,
                         "droppedEnergy": 30,
                         "sourceCount": 2,
                         "events": {"harvestedEnergy": 80, "transferredEnergy": 65},
@@ -124,6 +125,8 @@ class RlDatasetExportTest(unittest.TestCase):
             [label["surface"] for label in row["actionLabels"]],
             ["construction-priority", "expansion-remote-candidate"],
         )
+        self.assertEqual(row["observation"]["resources"]["harvestedThisTick"], 80)
+        self.assertEqual(row["reward"]["components"]["resources"]["harvestedThisTick"], 80)
         self.assertEqual(row["reward"]["components"]["resources"]["harvestedEnergy"], 80)
         self.assertEqual(run_manifest["strategy"]["decisionSurfacesObserved"], [
             "construction-priority",
@@ -132,6 +135,7 @@ class RlDatasetExportTest(unittest.TestCase):
         self.assertFalse(run_manifest["strategy"]["liveEffect"])
         self.assertEqual(kpi_windows["input"]["runtimeSummaryCount"], 1)
         self.assertEqual(kpi_windows["resources"]["totals"]["latest"]["storedEnergy"], 420)
+        self.assertEqual(kpi_windows["resources"]["totals"]["latest"]["harvestedThisTick"], 80)
 
     def test_export_is_reproducible_for_same_inputs(self) -> None:
         payload = {

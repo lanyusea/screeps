@@ -29,6 +29,7 @@ class RuntimeKpiReducerTest(unittest.TestCase):
                     "resources": {
                         "storedEnergy": 175,
                         "workerCarriedEnergy": 60,
+                        "harvestedThisTick": 10,
                         "droppedEnergy": 25,
                         "sourceCount": 2,
                         "events": {"harvestedEnergy": 10, "transferredEnergy": 5},
@@ -56,6 +57,7 @@ class RuntimeKpiReducerTest(unittest.TestCase):
                     "resources": {
                         "storedEnergy": 210,
                         "workerCarriedEnergy": 20,
+                        "harvestedThisTick": 7,
                         "droppedEnergy": 5,
                         "sourceCount": 2,
                         "events": {"harvestedEnergy": 7, "transferredEnergy": 3},
@@ -101,12 +103,14 @@ class RuntimeKpiReducerTest(unittest.TestCase):
         self.assertEqual(report["resources"]["totals"]["latest"], {
             "storedEnergy": 210,
             "workerCarriedEnergy": 20,
+            "harvestedThisTick": 7,
             "droppedEnergy": 5,
             "sourceCount": 2,
         })
         self.assertEqual(report["resources"]["totals"]["delta"], {
             "storedEnergy": 35,
             "workerCarriedEnergy": -40,
+            "harvestedThisTick": -3,
             "droppedEnergy": -20,
             "sourceCount": 0,
         })
@@ -163,7 +167,13 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "rooms": [
                 {
                     "roomName": "W1N1",
-                    "resources": {"storedEnergy": 1, "workerCarriedEnergy": 0, "droppedEnergy": 0, "sourceCount": 1},
+                    "resources": {
+                        "storedEnergy": 1,
+                        "workerCarriedEnergy": 0,
+                        "harvestedThisTick": 0,
+                        "droppedEnergy": 0,
+                        "sourceCount": 1,
+                    },
                     "combat": {"hostileCreepCount": 0, "hostileStructureCount": 0},
                 },
                 {
@@ -171,6 +181,7 @@ class RuntimeKpiReducerTest(unittest.TestCase):
                     "resources": {
                         "storedEnergy": 2,
                         "workerCarriedEnergy": 0,
+                        "harvestedThisTick": 4,
                         "droppedEnergy": 0,
                         "sourceCount": 1,
                         "events": {"harvestedEnergy": 4, "transferredEnergy": 3},
@@ -189,7 +200,13 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "rooms": [
                 {
                     "roomName": "W1N1",
-                    "resources": {"storedEnergy": 5, "workerCarriedEnergy": 0, "droppedEnergy": 0, "sourceCount": 1},
+                    "resources": {
+                        "storedEnergy": 5,
+                        "workerCarriedEnergy": 0,
+                        "harvestedThisTick": 0,
+                        "droppedEnergy": 0,
+                        "sourceCount": 1,
+                    },
                     "combat": {"hostileCreepCount": 0, "hostileStructureCount": 0},
                 }
             ],
@@ -218,7 +235,13 @@ class RuntimeKpiReducerTest(unittest.TestCase):
             "rooms": [
                 {
                     "roomName": "W2N2",
-                    "resources": {"storedEnergy": 100, "workerCarriedEnergy": 7, "droppedEnergy": 3, "sourceCount": 2},
+                    "resources": {
+                        "storedEnergy": 100,
+                        "workerCarriedEnergy": 7,
+                        "harvestedThisTick": 6,
+                        "droppedEnergy": 3,
+                        "sourceCount": 2,
+                    },
                 },
             ],
         }
@@ -235,12 +258,14 @@ class RuntimeKpiReducerTest(unittest.TestCase):
         self.assertEqual(report["resources"]["totals"]["latest"], {
             "storedEnergy": 0,
             "workerCarriedEnergy": 0,
+            "harvestedThisTick": 0,
             "droppedEnergy": 0,
             "sourceCount": 0,
         })
         self.assertEqual(report["resources"]["totals"]["delta"], {
             "storedEnergy": -100,
             "workerCarriedEnergy": -7,
+            "harvestedThisTick": -6,
             "droppedEnergy": -3,
             "sourceCount": -2,
         })
