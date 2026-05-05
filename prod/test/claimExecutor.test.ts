@@ -3,6 +3,7 @@ import type { RuntimeTelemetryEvent } from '../src/telemetry/runtimeSummary';
 import {
   clearAutonomousExpansionClaimIntent,
   refreshAutonomousExpansionClaimIntent,
+  runRecommendedExpansionClaimExecutor,
   shouldDeferOccupationRecommendationForExpansionClaim
 } from '../src/territory/claimExecutor';
 import type {
@@ -20,6 +21,13 @@ describe('autonomous expansion claim executor', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 3;
     (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 4;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { RoomPosition: RoomPositionConstructor }).RoomPosition = class {
+      constructor(
+        public readonly x: number,
+        public readonly y: number,
+        public readonly roomName: string
+      ) {}
+    } as RoomPositionConstructor;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {},
@@ -39,6 +47,7 @@ describe('autonomous expansion claim executor', () => {
     delete (globalThis as { FIND_SOURCES?: number }).FIND_SOURCES;
     delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
     delete (globalThis as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN;
+    delete (globalThis as { RoomPosition?: RoomPositionConstructor }).RoomPosition;
   });
 
   it('records a claim intent for the best expansion-scored adjacent room above threshold', () => {
@@ -963,6 +972,28 @@ describe('autonomous expansion claim executor', () => {
     });
   });
 
+  it('defers the claim while the target controller only has upgradeBlocked cooldown', () => {
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId: 'controller2' as Id<StructureController>,
+      upgradeBlocked: 25
+    });
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })]),
+      103
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      reason: 'controllerCooldown'
+    });
+    expect(shouldDeferOccupationRecommendationForExpansionClaim(evaluation)).toBe(true);
+    expect(Memory.territory?.targets).toBeUndefined();
+  });
+
   it('marks and emits a gclInsufficient skip when GCL room cap is reached', () => {
     const colony = makeColony();
     const firstOwnedRoom = makeTargetRoom('W3N1', {
@@ -1009,7 +1040,106 @@ describe('autonomous expansion claim executor', () => {
       sourceCount: 1
     });
   });
+
+  it('does not move a recommended claimer toward a visible hostile target room', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game as { time: number }).time = 2_001;
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId,
+      hostileCreeps: [{ id: 'enemy1' } as Creep]
+    });
+    seedRecommendedClaimMemory({ controllerId, updatedAt: 2_000 });
+    const creep = makeRecommendedClaimCreep({ controllerId });
+
+    expect(runRecommendedExpansionClaimExecutor(creep)).toBe(true);
+
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 2_001,
+        createdBy: 'autonomousExpansionClaim',
+        controllerId
+      }
+    ]);
+  });
+
+  it('does not act on a recommended claimer while the claim intent is suspended', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game as { time: number }).time = 2_051;
+    seedRecommendedClaimMemory({
+      controllerId,
+      updatedAt: 2_000,
+      suspended: {
+        reason: 'hostile_presence',
+        hostileCount: 1,
+        updatedAt: 2_050
+      }
+    });
+    const creep = makeRecommendedClaimCreep({ controllerId });
+
+    expect(runRecommendedExpansionClaimExecutor(creep)).toBe(true);
+
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents?.[0]).toMatchObject({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      status: 'active',
+      updatedAt: 2_000,
+      createdBy: 'autonomousExpansionClaim',
+      controllerId,
+      suspended: {
+        reason: 'hostile_presence',
+        hostileCount: 1,
+        updatedAt: 2_050
+      }
+    });
+  });
+
+  it('respects fresh suppression for recommended claim intents', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game as { time: number }).time = 2_101;
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', { controllerId });
+    seedRecommendedClaimMemory({
+      controllerId,
+      status: 'suppressed',
+      updatedAt: 2_100
+    });
+    const creep = makeRecommendedClaimCreep({ controllerId });
+
+    expect(runRecommendedExpansionClaimExecutor(creep)).toBe(true);
+
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 2_100,
+        createdBy: 'autonomousExpansionClaim',
+        controllerId
+      }
+    ]);
+  });
 });
+
+type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
+type MockClaimCreep = Creep & {
+  moveTo: jest.Mock;
+  claimController: jest.Mock;
+  memory: CreepMemory & { territory?: CreepTerritoryMemory };
+};
 
 function makeColony({
   roomName = 'W1N1',
@@ -1096,7 +1226,7 @@ function makeTargetRoom(
       id: controllerId,
       my: false,
       ...(upgradeBlocked > 0 ? { upgradeBlocked } : {})
-    } as StructureController,
+    } as StructureController & { upgradeBlocked?: number },
     find: jest.fn((type: number) => {
       if (type === FIND_HOSTILE_CREEPS) {
         return hostileCreeps;
@@ -1117,6 +1247,59 @@ function makeTargetRoom(
       return [];
     })
   } as unknown as Room;
+}
+
+function seedRecommendedClaimMemory(intent: Partial<TerritoryIntentMemory> = {}): void {
+  const controllerId = intent.controllerId ?? ('controller2' as Id<StructureController>);
+  (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+    territory: {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          action: 'claim',
+          createdBy: 'autonomousExpansionClaim',
+          controllerId
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'claim',
+          status: 'active',
+          updatedAt: 2_000,
+          createdBy: 'autonomousExpansionClaim',
+          controllerId,
+          ...intent
+        }
+      ]
+    }
+  };
+}
+
+function makeRecommendedClaimCreep({
+  controllerId = 'controller2' as Id<StructureController>,
+  room = { name: 'W1N1' } as Room
+}: {
+  controllerId?: Id<StructureController>;
+  room?: Room;
+} = {}): MockClaimCreep {
+  return {
+    name: 'Claimer1',
+    memory: {
+      role: 'claimer',
+      colony: 'W1N1',
+      territory: {
+        targetRoom: 'W2N1',
+        action: 'claim',
+        controllerId
+      }
+    },
+    room,
+    moveTo: jest.fn(),
+    claimController: jest.fn()
+  } as unknown as MockClaimCreep;
 }
 
 function makeMap(exitsByRoom: Record<string, Partial<Record<'1' | '3' | '5' | '7', string>>>): GameMap {
