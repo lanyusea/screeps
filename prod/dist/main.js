@@ -9948,6 +9948,10 @@ function selectHeuristicWorkerTask(creep) {
       if (sourceContainerHarvestTask) {
         return sourceContainerHarvestTask;
       }
+      const sourceContainerWithdrawTask = selectSourceContainerWithdrawTask(creep);
+      if (sourceContainerWithdrawTask) {
+        return sourceContainerWithdrawTask;
+      }
       if (!hasPriorityEnergySink) {
         const energyAcquisitionTask = selectWorkerEnergyAcquisitionTask(creep);
         if (energyAcquisitionTask) {
@@ -12495,6 +12499,62 @@ function findClosestByRange(creep, objects) {
   }
   return typeof (position == null ? void 0 : position.findClosestByRange) === "function" ? position.findClosestByRange(objects) : null;
 }
+function selectSourceContainerWithdrawTask(creep) {
+  const candidates = findSourceContainerWithdrawCandidates(creep);
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+}
+function findSourceContainerWithdrawCandidates(creep) {
+  const harvestRooms = findVisibleHarvestRooms(creep);
+  if (!harvestRooms.some(hasVisiblePositionedContainer)) {
+    return [];
+  }
+  const context = createSourceContainerWithdrawalContext(creep, findVisibleHarvestSourcesInRooms(harvestRooms));
+  if (context.sources.length === 0 || context.hasAssignableHarvestSource) {
+    return [];
+  }
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const candidates = [];
+  const seenContainerIds = /* @__PURE__ */ new Set();
+  for (const source of context.sources) {
+    const sourceContainer = findVisibleSourceContainer(creep, source);
+    if (!sourceContainer || seenContainerIds.has(String(sourceContainer.id))) {
+      continue;
+    }
+    const sourceRoom = findVisibleSourceRoom(creep, source);
+    if (!sourceRoom) {
+      continue;
+    }
+    if (!isSourceContainerWithdrawalSourceSaturated(
+      creep,
+      source,
+      getHarvestSourceAssignmentLoad(context.assignmentLoads, source)
+    )) {
+      continue;
+    }
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      sourceContainer,
+      getStoredEnergy4(sourceContainer),
+      {
+        type: "withdraw",
+        targetId: sourceContainer.id
+      },
+      reservationContext
+    );
+    if (candidate && isSafeStoredEnergySource(sourceContainer, {
+      creepOwnerUsername: getCreepOwnerUsername2(creep),
+      hasHostilePresence: hasVisibleHostilePresence(sourceRoom),
+      room: sourceRoom
+    })) {
+      candidates.push(candidate);
+      seenContainerIds.add(String(sourceContainer.id));
+    }
+  }
+  return candidates;
+}
 function selectSourceContainerHarvestTask(creep) {
   if (getActiveWorkParts(creep) <= 0 || typeof FIND_SOURCES !== "number") {
     return null;
@@ -12582,6 +12642,34 @@ function getAdjacentRoomNames3(roomName, gameMap) {
 function findVisibleSourceContainer(creep, source) {
   const sourceRoom = findVisibleSourceRoom(creep, source);
   return sourceRoom ? findSourceContainer(sourceRoom, source) : null;
+}
+function createSourceContainerWithdrawalContext(creep, sources = findVisibleHarvestSources(creep)) {
+  const assignmentLoads = getWorkerHarvestLoads(sources);
+  return {
+    assignmentLoads,
+    hasAssignableHarvestSource: hasAssignableHarvestSource(creep, sources, assignmentLoads),
+    sources
+  };
+}
+function hasAssignableHarvestSource(creep, sources, assignmentLoads) {
+  const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
+  if (viableSources.length === 0) {
+    return false;
+  }
+  const assignableSources = selectReachableHarvestSources(
+    creep,
+    selectAssignableHarvestSources(creep, viableSources, assignmentLoads)
+  );
+  return assignableSources.length > 0;
+}
+function isSourceContainerWithdrawalSourceSaturated(creep, source, assignmentLoad) {
+  if (isWorkerAssignedToHarvestSource(creep, source) || assignmentLoad.assignmentCount <= 0) {
+    return false;
+  }
+  return assignmentLoad.assignmentCount >= getHarvestSourceAccessCapacity(source) || hasOccupiedSourceContainerHarvestSlot(source, assignmentLoad);
+}
+function hasOccupiedSourceContainerHarvestSlot(source, assignmentLoad) {
+  return assignmentLoad.assignmentCount > 0 && getRoomObjectPosition3(source) !== null;
 }
 function findVisibleSourceRoom(creep, source) {
   var _a, _b, _c, _d, _e, _f;
@@ -12921,6 +13009,7 @@ var BEHAVIOR_COUNTER_KEYS = [
   { key: "workTicks" },
   { key: "stuckTicks" },
   { key: "containerTransfers" },
+  { key: "sourceContainerWithdrawals" },
   { key: "pathLength" }
 ];
 var TOP_IDLE_WORKER_COUNT = 3;
@@ -12979,6 +13068,15 @@ function recordCreepBehaviorContainerTransfer(creep) {
   const telemetry = ensureCreepBehaviorTelemetry(creep);
   telemetry.containerTransfers = ((_a = telemetry.containerTransfers) != null ? _a : 0) + 1;
 }
+function recordCreepBehaviorSourceContainerWithdrawal(creep, tick = getGameTime9()) {
+  var _a;
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (telemetry.lastSourceContainerWithdrawalTick === tick) {
+    return;
+  }
+  telemetry.sourceContainerWithdrawals = ((_a = telemetry.sourceContainerWithdrawals) != null ? _a : 0) + 1;
+  telemetry.lastSourceContainerWithdrawalTick = tick;
+}
 function summarizeAndResetCreepBehaviorTelemetry(workers) {
   const creepSummaries = workers.map(toRuntimeCreepBehaviorSummary).filter((summary) => summary !== null).sort(compareRuntimeCreepBehaviorSummaries);
   if (creepSummaries.length === 0) {
@@ -13013,6 +13111,7 @@ function toRuntimeCreepBehaviorSummary(creep) {
     workTicks: getNonNegativeCounter(telemetry.workTicks),
     stuckTicks: getNonNegativeCounter(telemetry.stuckTicks),
     containerTransfers: getNonNegativeCounter(telemetry.containerTransfers),
+    sourceContainerWithdrawals: getNonNegativeCounter(telemetry.sourceContainerWithdrawals),
     pathLength: getNonNegativeCounter(telemetry.pathLength),
     ...typeof telemetry.repairTargetId === "string" && telemetry.repairTargetId.length > 0 ? { repairTargetId: telemetry.repairTargetId } : {}
   };
@@ -13031,6 +13130,7 @@ function resetCreepBehaviorCounters(creep) {
   delete telemetry.repairTargetId;
   delete telemetry.lastIdleTick;
   delete telemetry.lastWorkTick;
+  delete telemetry.lastSourceContainerWithdrawalTick;
   if (!telemetry.lastPosition && telemetry.lastMoveTick === void 0 && telemetry.lastObservedTick === void 0) {
     delete creep.memory.behaviorTelemetry;
   }
@@ -13043,6 +13143,7 @@ function summarizeBehaviorTotals(creeps) {
       workTicks: totals.workTicks + creep.workTicks,
       stuckTicks: totals.stuckTicks + creep.stuckTicks,
       containerTransfers: totals.containerTransfers + creep.containerTransfers,
+      sourceContainerWithdrawals: totals.sourceContainerWithdrawals + creep.sourceContainerWithdrawals,
       pathLength: totals.pathLength + creep.pathLength
     }),
     {
@@ -13051,6 +13152,7 @@ function summarizeBehaviorTotals(creeps) {
       workTicks: 0,
       stuckTicks: 0,
       containerTransfers: 0,
+      sourceContainerWithdrawals: 0,
       pathLength: 0
     }
   );
@@ -13762,8 +13864,12 @@ function executeTask(creep, task, target) {
       return executeHarvestTask(creep, target);
     case "pickup":
       return toTaskExecutionResult(creep.pickup(target), "work");
-    case "withdraw":
-      return toTaskExecutionResult(creep.withdraw(target, RESOURCE_ENERGY), "work");
+    case "withdraw": {
+      const withdrawTarget = target;
+      return toTaskExecutionResult(creep.withdraw(withdrawTarget, RESOURCE_ENERGY), "work", {
+        sourceContainerWithdrawal: isVisibleSourceContainer(creep, withdrawTarget)
+      });
+    }
     case "transfer":
       return toTaskExecutionResult(creep.transfer(target, RESOURCE_ENERGY), "work", {
         containerTransfer: isContainerStructure3(target)
@@ -13826,7 +13932,8 @@ function toTaskExecutionResult(result, successAction, options = {}) {
   return {
     result,
     ...result === OK_CODE5 ? { action: successAction } : {},
-    ...result === OK_CODE5 && options.containerTransfer ? { containerTransfer: true } : {}
+    ...result === OK_CODE5 && options.containerTransfer ? { containerTransfer: true } : {},
+    ...result === OK_CODE5 && options.sourceContainerWithdrawal ? { sourceContainerWithdrawal: true } : {}
   };
 }
 function recordTaskBehavior(creep, task, execution) {
@@ -13843,6 +13950,9 @@ function recordTaskBehavior(creep, task, execution) {
   if (execution.containerTransfer) {
     recordCreepBehaviorContainerTransfer(creep);
   }
+  if (execution.sourceContainerWithdrawal) {
+    recordCreepBehaviorSourceContainerWithdrawal(creep);
+  }
 }
 function isContainerStructure3(target) {
   const structureType = target == null ? void 0 : target.structureType;
@@ -13852,6 +13962,33 @@ function matchesContainerStructureType(actual) {
   var _a;
   const containerType = (_a = globalThis.STRUCTURE_CONTAINER) != null ? _a : "container";
   return actual === containerType;
+}
+function isVisibleSourceContainer(creep, target) {
+  if (!isContainerStructure3(target)) {
+    return false;
+  }
+  const container = target;
+  const targetRoom = findVisibleRoomForObject(creep, container);
+  if (!targetRoom || typeof FIND_SOURCES !== "number" || typeof targetRoom.find !== "function") {
+    return false;
+  }
+  return targetRoom.find(FIND_SOURCES).some((source) => {
+    const sourceContainer = findSourceContainer(targetRoom, source);
+    return sourceContainer !== null && String(sourceContainer.id) === String(container.id);
+  });
+}
+function findVisibleRoomForObject(creep, object) {
+  var _a, _b, _c, _d, _e;
+  const roomName = getRoomObjectRoomName(object);
+  if (!roomName || ((_a = creep.room) == null ? void 0 : _a.name) === roomName) {
+    return (_b = creep.room) != null ? _b : null;
+  }
+  return (_e = (_d = (_c = globalThis.Game) == null ? void 0 : _c.rooms) == null ? void 0 : _d[roomName]) != null ? _e : null;
+}
+function getRoomObjectRoomName(object) {
+  var _a;
+  const roomName = (_a = object.pos) == null ? void 0 : _a.roomName;
+  return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
 function isDedicatedSourceContainerHarvestTask(creep, task) {
   return task.type === "harvest" && findHarvestTaskSourceContainer(creep, task) !== null;

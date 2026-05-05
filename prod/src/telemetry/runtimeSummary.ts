@@ -317,6 +317,7 @@ interface RuntimeCreepBehaviorSummary {
   workTicks: number;
   stuckTicks: number;
   containerTransfers: number;
+  sourceContainerWithdrawals: number;
   pathLength: number;
   repairTargetId?: string;
 }
@@ -327,6 +328,7 @@ interface RuntimeBehaviorTotals {
   workTicks: number;
   stuckTicks: number;
   containerTransfers: number;
+  sourceContainerWithdrawals: number;
   pathLength: number;
 }
 

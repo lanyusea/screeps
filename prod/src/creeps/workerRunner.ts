@@ -17,6 +17,7 @@ import {
   recordCreepBehaviorIdle,
   recordCreepBehaviorMove,
   recordCreepBehaviorRepairTarget,
+  recordCreepBehaviorSourceContainerWithdrawal,
   recordCreepBehaviorWork
 } from '../telemetry/behaviorTelemetry';
 
@@ -49,6 +50,7 @@ interface TaskExecutionResult {
   result: ScreepsReturnCode;
   action?: 'move' | 'work';
   containerTransfer?: boolean;
+  sourceContainerWithdrawal?: boolean;
 }
 
 export function runWorker(creep: Creep): void {
@@ -1022,8 +1024,12 @@ function executeTask(
       return executeHarvestTask(creep, target as Source);
     case 'pickup':
       return toTaskExecutionResult(creep.pickup(target as Resource<ResourceConstant>), 'work');
-    case 'withdraw':
-      return toTaskExecutionResult(creep.withdraw(target as AnyStoreStructure, RESOURCE_ENERGY), 'work');
+    case 'withdraw': {
+      const withdrawTarget = target as AnyStoreStructure;
+      return toTaskExecutionResult(creep.withdraw(withdrawTarget, RESOURCE_ENERGY), 'work', {
+        sourceContainerWithdrawal: isVisibleSourceContainer(creep, withdrawTarget)
+      });
+    }
     case 'transfer':
       return toTaskExecutionResult(creep.transfer(target as AnyStoreStructure, RESOURCE_ENERGY), 'work', {
         containerTransfer: isContainerStructure(target)
@@ -1109,12 +1115,13 @@ function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: Structure
 function toTaskExecutionResult(
   result: ScreepsReturnCode,
   successAction: 'move' | 'work',
-  options: { containerTransfer?: boolean } = {}
+  options: { containerTransfer?: boolean; sourceContainerWithdrawal?: boolean } = {}
 ): TaskExecutionResult {
   return {
     result,
     ...(result === OK_CODE ? { action: successAction } : {}),
-    ...(result === OK_CODE && options.containerTransfer ? { containerTransfer: true } : {})
+    ...(result === OK_CODE && options.containerTransfer ? { containerTransfer: true } : {}),
+    ...(result === OK_CODE && options.sourceContainerWithdrawal ? { sourceContainerWithdrawal: true } : {})
   };
 }
 
@@ -1138,6 +1145,10 @@ function recordTaskBehavior(
   if (execution.containerTransfer) {
     recordCreepBehaviorContainerTransfer(creep);
   }
+
+  if (execution.sourceContainerWithdrawal) {
+    recordCreepBehaviorSourceContainerWithdrawal(creep);
+  }
 }
 
 function isContainerStructure(target: unknown): boolean {
@@ -1148,6 +1159,37 @@ function isContainerStructure(target: unknown): boolean {
 function matchesContainerStructureType(actual: string): boolean {
   const containerType = (globalThis as unknown as { STRUCTURE_CONTAINER?: string }).STRUCTURE_CONTAINER ?? 'container';
   return actual === containerType;
+}
+
+function isVisibleSourceContainer(creep: Creep, target: unknown): target is StructureContainer {
+  if (!isContainerStructure(target)) {
+    return false;
+  }
+
+  const container = target as StructureContainer;
+  const targetRoom = findVisibleRoomForObject(creep, container);
+  if (!targetRoom || typeof FIND_SOURCES !== 'number' || typeof targetRoom.find !== 'function') {
+    return false;
+  }
+
+  return (targetRoom.find(FIND_SOURCES) as Source[]).some((source) => {
+    const sourceContainer = findSourceContainer(targetRoom, source);
+    return sourceContainer !== null && String(sourceContainer.id) === String(container.id);
+  });
+}
+
+function findVisibleRoomForObject(creep: Creep, object: RoomObject): Room | null {
+  const roomName = getRoomObjectRoomName(object);
+  if (!roomName || creep.room?.name === roomName) {
+    return creep.room ?? null;
+  }
+
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName] ?? null;
+}
+
+function getRoomObjectRoomName(object: RoomObject): string | null {
+  const roomName = (object as RoomObject & { pos?: { roomName?: unknown } }).pos?.roomName;
+  return typeof roomName === 'string' && roomName.length > 0 ? roomName : null;
 }
 
 function isDedicatedSourceContainerHarvestTask(

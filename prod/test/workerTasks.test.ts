@@ -2507,6 +2507,42 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toBeNull();
   });
 
+  it('withdraws from source containers when every source container harvest slot is occupied', () => {
+    const source1 = makeSource('source1', 10, 10);
+    const source2 = makeSource('source2', 30, 30);
+    const container1 = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const container2 = makeStoredEnergyStructure('container2', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(30, 31)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [source1, source2],
+      structures: [container1, container2]
+    });
+    setGameCreeps({
+      Harvester1: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+        room
+      } as unknown as Creep,
+      Harvester2: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source2' as Id<Source> } },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
+  });
+
   it('avoids depleted harvest sources when another source has energy', () => {
     const depletedSource = { id: 'source-empty', energy: 0 } as Source;
     const viableSource = { id: 'source-full', energy: 300 } as Source;

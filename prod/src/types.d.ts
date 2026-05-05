@@ -620,12 +620,14 @@ declare global {
     stuckTicks?: number;
     repairTargetId?: string;
     containerTransfers?: number;
+    sourceContainerWithdrawals?: number;
     pathLength?: number;
     lastPosition?: CreepBehaviorPositionMemory;
     lastMoveTick?: number;
     lastWorkTick?: number;
     lastObservedTick?: number;
     lastIdleTick?: number;
+    lastSourceContainerWithdrawalTick?: number;
   }
 
   type CreepTaskMemory =
