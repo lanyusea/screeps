@@ -94,11 +94,16 @@ describe('multi-room upgrader planner', () => {
     } as unknown as StructureStorage;
   }
 
-  function makeOwnedController(roomName: string, level: number): StructureController {
+  function makeOwnedController(
+    roomName: string,
+    level: number,
+    ticksToDowngrade?: number
+  ): StructureController {
     return {
       id: `${roomName}-controller`,
       my: true,
       level,
+      ...(typeof ticksToDowngrade === 'number' ? { ticksToDowngrade } : {}),
       owner: { username: 'player' }
     } as StructureController;
   }
@@ -112,13 +117,13 @@ describe('multi-room upgrader planner', () => {
     } as StructureController;
   }
 
-  function makeRemoteUpgrader(targetRoom: string, ticksToLive = 1_000): Creep {
+  function makeRemoteUpgrader(targetRoom: string, ticksToLive = 1_000, homeRoom = 'W1N1'): Creep {
     return {
       ticksToLive,
       memory: {
         role: 'worker',
         colony: targetRoom,
-        controllerSustain: { homeRoom: 'W1N1', targetRoom, role: 'upgrader' }
+        controllerSustain: { homeRoom, targetRoom, role: 'upgrader' }
       }
     } as Creep;
   }
@@ -203,18 +208,21 @@ describe('multi-room upgrader planner', () => {
     });
   });
 
-  it('ranks lower controller levels before proximity', () => {
+  it('prioritizes controllers closest to downgrade before level or proximity', () => {
     const colony = makeColony();
     installGame({
       colony,
       rooms: [
-        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 3) }),
-        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2) })
+        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 1, 20_000) }),
+        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 4, 2_000) })
       ],
       routeLengths: { W2N1: 1, W3N1: 3 }
     });
 
-    expect(selectMultiRoomUpgradePlan(colony)?.targetRoom).toBe('W3N1');
+    expect(selectMultiRoomUpgradePlan(colony)).toMatchObject({
+      targetRoom: 'W3N1',
+      controllerTicksToDowngrade: 2_000
+    });
   });
 
   it('returns all eligible plans in ranked order', () => {
@@ -222,8 +230,8 @@ describe('multi-room upgrader planner', () => {
     installGame({
       colony,
       rooms: [
-        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 3) }),
-        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2) })
+        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 3, 5_000) }),
+        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2, 2_000) })
       ],
       routeLengths: { W2N1: 1, W3N1: 3 }
     });
@@ -355,6 +363,21 @@ describe('multi-room upgrader planner', () => {
     expect(planWithCap3?.targetRoom).toBe('W2N1');
   });
 
+  it('counts active upgraders from every home room toward the target cap', () => {
+    const colony = makeColony();
+    installGame({
+      colony,
+      rooms: [
+        makeRoom({ roomName: 'W2N1', controller: makeOwnedController('W2N1', 1, 1_000) }),
+        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 2, 2_000) })
+      ],
+      creeps: { Existing: makeRemoteUpgrader('W2N1', 1_000, 'W9N9') },
+      routeLengths: { W2N1: 1, W3N1: 1 }
+    });
+
+    expect(selectMultiRoomUpgradePlan(colony)?.targetRoom).toBe('W3N1');
+  });
+
   it('temporarily allows an extra upgrader for claimed rooms with active spawn construction', () => {
     const colony = makeColony();
     installGame({
@@ -394,33 +417,39 @@ describe('multi-room upgrader planner', () => {
     expect(selectMultiRoomUpgradePlan(colony)).toBeNull();
   });
 
-  it('selects own reserved rooms and builds a reserve-capable sustain body', () => {
+  it('skips maxed and unowned controllers instead of building claimer sustain bodies', () => {
     const colony = makeColony({ storageEnergy: 900, storageCapacity: 1_000 });
     installGame({
       colony,
-      rooms: [makeRoom({ roomName: 'W2N1', controller: makeReservedController('W2N1') })],
-      routeLengths: { W2N1: 1 }
+      rooms: [
+        makeRoom({ roomName: 'W2N1', controller: makeReservedController('W2N1') }),
+        makeRoom({ roomName: 'W3N1', controller: makeOwnedController('W3N1', 8, 1_000) }),
+        makeRoom({ roomName: 'W4N1', controller: makeOwnedController('W4N1', 7, 3_000) })
+      ],
+      routeLengths: { W2N1: 1, W3N1: 1, W4N1: 1 }
     });
 
     const plan = selectMultiRoomUpgradePlan(colony);
 
     expect(plan).toEqual({
       homeRoom: 'W1N1',
-      targetRoom: 'W2N1',
-      controllerId: 'W2N1-controller',
-      controllerLevel: 0,
-      controllerState: 'reserved',
+      targetRoom: 'W4N1',
+      controllerId: 'W4N1-controller',
+      controllerLevel: 7,
+      controllerState: 'owned',
+      controllerTicksToDowngrade: 3_000,
       routeDistance: 1,
       activeUpgraderCount: 0
     });
-    expect(buildMultiRoomUpgraderMemory(plan!)).toEqual({
-      role: 'worker',
-      colony: 'W1N1',
-      territory: { targetRoom: 'W2N1', action: 'reserve', controllerId: 'W2N1-controller' },
-      controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
-    });
     expect(buildMultiRoomUpgraderBody(1_000, plan!)).toEqual([
-      'claim',
+      'work',
+      'carry',
+      'move',
+      'work',
+      'carry',
+      'move',
+      'work',
+      'carry',
       'move',
       'work',
       'carry',
