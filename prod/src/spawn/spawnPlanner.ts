@@ -22,7 +22,9 @@ import {
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildWorkerBody,
-  getBodyCost
+  getBodyCost,
+  TERRITORY_SCOUT_BODY,
+  TERRITORY_SCOUT_BODY_COST
 } from './bodyBuilder';
 import {
   buildTerritoryCreepMemory,
@@ -76,8 +78,6 @@ export interface SpawnPlanningOptions {
   allowTerritoryFollowUp?: boolean;
 }
 
-const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
-const TERRITORY_SCOUT_BODY_COST = 50;
 const CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
 const CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
 const CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;

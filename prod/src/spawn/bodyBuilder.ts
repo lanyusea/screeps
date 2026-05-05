@@ -12,6 +12,8 @@ const HIGH_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'work', 'ca
 const HIGH_RCL_WORKER_PATTERN_COST = 450;
 const EMERGENCY_DEFENDER_BODY: BodyPartConstant[] = ['tough', 'attack', 'move'];
 const EMERGENCY_DEFENDER_BODY_COST = 140;
+export const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
+export const TERRITORY_SCOUT_BODY_COST = 50;
 import {
   buildTerritoryClaimerBody,
   TERRITORY_CONTROLLER_PRESSURE_BODY,

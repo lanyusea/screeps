@@ -6,7 +6,9 @@ import {
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildWorkerBody,
-  getBodyCost
+  getBodyCost,
+  TERRITORY_SCOUT_BODY,
+  TERRITORY_SCOUT_BODY_COST
 } from '../src/spawn/bodyBuilder';
 import { TERRITORY_CONTROLLER_BODY, TERRITORY_CONTROLLER_BODY_COST } from '../src/spawn/creepBodies';
 
@@ -199,6 +201,11 @@ describe('creep body templates', () => {
   it('defines a claimer body template with claim and move', () => {
     expect(TERRITORY_CONTROLLER_BODY).toEqual(['claim', 'move']);
     expect(TERRITORY_CONTROLLER_BODY_COST).toBe(650);
+  });
+
+  it('defines a cheap scout body for single-room traversal', () => {
+    expect(TERRITORY_SCOUT_BODY).toEqual(['move']);
+    expect(TERRITORY_SCOUT_BODY_COST).toBe(50);
   });
 });
 

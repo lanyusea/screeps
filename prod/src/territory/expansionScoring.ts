@@ -1,5 +1,12 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
+import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import {
+  recordTerritoryScoutValidation,
+  recordVisibleRoomScoutIntel,
+  validateTerritoryScoutIntelForClaim,
+  type TerritoryScoutValidationResult
+} from './scoutIntel';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
@@ -174,7 +181,8 @@ export function scoreExpansionCandidates(input: ExpansionScoringInput): Expansio
 export function refreshNextExpansionTargetSelection(
   colony: ColonySnapshot,
   report: ExpansionCandidateReport,
-  gameTime: number
+  gameTime: number,
+  telemetryEvents: RuntimeTelemetryEvent[] = []
 ): NextExpansionTargetSelection {
   const colonyName = colony.room.name;
   persistExpansionCandidateScores(colonyName, report, gameTime);
@@ -185,6 +193,19 @@ export function refreshNextExpansionTargetSelection(
       status: 'skipped',
       colony: colonyName,
       reason: getSelectionSkipReason(report)
+    };
+  }
+
+  const scoutValidation = validateVisibleNextExpansionScoutIntel(colony, candidate, gameTime, telemetryEvents);
+  if (scoutValidation?.status === 'blocked') {
+    pruneNextExpansionTargets(colonyName);
+    return {
+      status: 'skipped',
+      colony: colonyName,
+      reason: 'unavailable',
+      targetRoom: candidate.roomName,
+      ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
+      score: candidate.score
     };
   }
 
@@ -200,6 +221,37 @@ export function refreshNextExpansionTargetSelection(
 
 export function clearNextExpansionTargetIntent(colony: string): void {
   pruneNextExpansionTargets(colony);
+}
+
+function validateVisibleNextExpansionScoutIntel(
+  colony: ColonySnapshot,
+  candidate: ExpansionCandidateScore,
+  gameTime: number,
+  telemetryEvents: RuntimeTelemetryEvent[]
+): TerritoryScoutValidationResult | null {
+  const room = getVisibleRoom(candidate.roomName);
+  if (!room) {
+    return null;
+  }
+
+  const colonyName = colony.room.name;
+  recordVisibleRoomScoutIntel(colonyName, room, gameTime, undefined, telemetryEvents);
+  const validation = validateTerritoryScoutIntelForClaim({
+    colony: colonyName,
+    targetRoom: candidate.roomName,
+    colonyOwnerUsername: getControllerOwnerUsername(colony.room.controller),
+    gameTime
+  });
+  recordTerritoryScoutValidation(
+    colonyName,
+    candidate.roomName,
+    validation,
+    gameTime,
+    telemetryEvents,
+    candidate.controllerId ?? validation.intel?.controller?.id,
+    candidate.score
+  );
+  return validation;
 }
 
 function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionScoringInput {
@@ -1314,6 +1366,10 @@ function countActivePostClaimBootstraps(): number {
 
 function getGameRooms(): Game['rooms'] | undefined {
   return (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+}
+
+function getVisibleRoom(roomName: string): Room | undefined {
+  return getGameRooms()?.[roomName];
 }
 
 function getTerritoryMemoryRecord(): TerritoryMemory | undefined {
