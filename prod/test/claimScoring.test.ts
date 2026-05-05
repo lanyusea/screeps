@@ -86,6 +86,41 @@ describe('claim scoring', () => {
     expect(selectBestClaimTarget(homeRoom)).toBe('W1N0');
   });
 
+  it('excludes controller-missing rooms from claim target selection', () => {
+    const homeRoom = makeHomeRoom();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: homeRoom,
+        W1N2: makeClaimRoom('W1N2', { sourceCount: 2, controller: null }),
+        W2N1: makeClaimRoom('W2N1', { sourceCount: 1 })
+      },
+      map: makeMap({
+        exits: { W1N1: { '1': 'W1N2', '3': 'W2N1' } },
+        routeDistances: {
+          'W1N1>W1N2': 1,
+          'W1N1>W2N1': 4
+        }
+      })
+    };
+
+    const missingController = scoreClaimTarget('W1N2', homeRoom);
+    const fallback = scoreClaimTarget('W2N1', homeRoom);
+
+    expect(missingController.score).toBeGreaterThan(0);
+    expect(missingController.score).toBeGreaterThan(fallback.score);
+    expect(missingController.details).toContain('controller missing');
+    expect(selectBestClaimTarget(homeRoom)).toBe('W2N1');
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game.map = makeMap({
+      exits: { W1N1: { '1': 'W1N2' } },
+      routeDistances: {
+        'W1N1>W1N2': 1
+      }
+    });
+
+    expect(selectBestClaimTarget(homeRoom)).toBeNull();
+  });
+
   it('penalizes farther rooms by route distance', () => {
     const homeRoom = makeHomeRoom();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -121,7 +156,7 @@ function makeClaimRoom(
     sourceCount: number;
     hostileCreepCount?: number;
     hostileStructureCount?: number;
-    controller?: Partial<StructureController>;
+    controller?: Partial<StructureController> | null;
   }
 ): Room {
   const sources = Array.from({ length: options.sourceCount }, (_value, index) =>
@@ -136,7 +171,7 @@ function makeClaimRoom(
 
   return {
     name: roomName,
-    controller: makeController(roomName, options.controller),
+    controller: options.controller === null ? undefined : makeController(roomName, options.controller),
     find: jest.fn((findType: number) => {
       if (findType === FIND_SOURCES) {
         return sources;

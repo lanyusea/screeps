@@ -93,7 +93,7 @@ export function selectBestClaimTarget(homeRoom: Room): string | null {
   const adjacentRooms = getAdjacentRoomNames(homeRoom.name);
   const candidates = adjacentRooms
     .map((roomName) => scoreClaimTarget(roomName, homeRoom))
-    .filter((candidate) => candidate.sources > 0 && candidate.score > 0 && !isClaimedOrReserved(candidate));
+    .filter((candidate) => candidate.sources > 0 && candidate.score > 0 && !hasUnclaimableController(candidate));
 
   candidates.sort(compareClaimScores);
   return candidates[0]?.roomName ?? null;
@@ -108,9 +108,12 @@ function compareClaimScores(left: ClaimScore, right: ClaimScore): number {
   );
 }
 
-function isClaimedOrReserved(score: ClaimScore): boolean {
+function hasUnclaimableController(score: ClaimScore): boolean {
   return score.details.some(
-    (detail) => detail === 'controller already claimed' || detail === 'controller already reserved'
+    (detail) =>
+      detail === 'controller already claimed' ||
+      detail === 'controller already reserved' ||
+      detail === 'controller missing'
   );
 }
 

@@ -18218,16 +18218,16 @@ function scoreClaimTarget(roomName, homeRoom) {
 function selectBestClaimTarget(homeRoom) {
   var _a, _b;
   const adjacentRooms = getAdjacentRoomNames5(homeRoom.name);
-  const candidates = adjacentRooms.map((roomName) => scoreClaimTarget(roomName, homeRoom)).filter((candidate) => candidate.sources > 0 && candidate.score > 0 && !isClaimedOrReserved(candidate));
+  const candidates = adjacentRooms.map((roomName) => scoreClaimTarget(roomName, homeRoom)).filter((candidate) => candidate.sources > 0 && candidate.score > 0 && !hasUnclaimableController(candidate));
   candidates.sort(compareClaimScores);
   return (_b = (_a = candidates[0]) == null ? void 0 : _a.roomName) != null ? _b : null;
 }
 function compareClaimScores(left, right) {
   return right.score - left.score || right.sources - left.sources || left.distance - right.distance || left.roomName.localeCompare(right.roomName);
 }
-function isClaimedOrReserved(score) {
+function hasUnclaimableController(score) {
   return score.details.some(
-    (detail) => detail === "controller already claimed" || detail === "controller already reserved"
+    (detail) => detail === "controller already claimed" || detail === "controller already reserved" || detail === "controller missing"
   );
 }
 function getVisibleRoom7(roomName) {
