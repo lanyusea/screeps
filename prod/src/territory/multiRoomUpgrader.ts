@@ -8,17 +8,16 @@ export const MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
 const SPAWN_CONSTRUCTION_UPGRADER_CAP_BONUS = 1;
 const REMOTE_UPGRADER_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move'];
 const REMOTE_UPGRADER_TRAVEL_PATTERN: BodyPartConstant[] = ['work', 'carry', 'move', 'move'];
-const RESERVED_CONTROLLER_BASE_BODY: BodyPartConstant[] = ['claim', 'move'];
 const REMOTE_UPGRADER_PATTERN_COST = 200;
 const MOVE_PART_COST = 50;
 const MAX_CREEP_PARTS = 50;
 const MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
-const DEFAULT_RESERVED_CONTROLLER_LEVEL = 0;
+const MAX_CONTROLLER_LEVEL = 8;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 const ROUTE_DISTANCE_CACHE_TTL_TICKS = 300;
 
-export type MultiRoomUpgradeControllerState = 'owned' | 'reserved';
+export type MultiRoomUpgradeControllerState = 'owned';
 
 export interface MultiRoomUpgraderOptions {
   storageEnergyThresholdRatio?: number;
@@ -31,6 +30,7 @@ export interface MultiRoomUpgradePlan {
   controllerId: Id<StructureController>;
   controllerLevel: number;
   controllerState: MultiRoomUpgradeControllerState;
+  controllerTicksToDowngrade?: number;
   routeDistance?: number;
   activeUpgraderCount: number;
 }
@@ -90,18 +90,16 @@ export function selectMultiRoomUpgradePlans(
 
 export function buildMultiRoomUpgraderBody(
   energyAvailable: number,
-  plan: Pick<MultiRoomUpgradePlan, 'controllerState' | 'routeDistance'>
+  plan: Pick<MultiRoomUpgradePlan, 'routeDistance'>
 ): BodyPartConstant[] {
-  const baseBody = plan.controllerState === 'reserved' ? RESERVED_CONTROLLER_BASE_BODY : [];
-  const remainingEnergy = energyAvailable - getBodyCost(baseBody);
-  if (remainingEnergy < REMOTE_UPGRADER_PATTERN_COST) {
+  if (energyAvailable < REMOTE_UPGRADER_PATTERN_COST) {
     return [];
   }
 
   const pattern = getRemoteUpgraderPattern(plan.routeDistance);
   const patternCost = getBodyCost(pattern);
-  const maxPatternCountByEnergy = Math.floor(remainingEnergy / patternCost);
-  const maxPatternCountBySize = Math.floor((MAX_CREEP_PARTS - baseBody.length) / pattern.length);
+  const maxPatternCountByEnergy = Math.floor(energyAvailable / patternCost);
+  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / pattern.length);
   const patternCount = Math.min(
     maxPatternCountByEnergy,
     maxPatternCountBySize,
@@ -112,7 +110,6 @@ export function buildMultiRoomUpgraderBody(
   }
 
   const body = [
-    ...baseBody,
     ...Array.from({ length: patternCount }).flatMap(() => pattern)
   ];
   const unusedEnergy = energyAvailable - getBodyCost(body);
@@ -129,7 +126,7 @@ export function buildMultiRoomUpgraderMemory(plan: MultiRoomUpgradePlan): CreepM
     colony: plan.homeRoom,
     territory: {
       targetRoom: plan.targetRoom,
-      action: plan.controllerState === 'reserved' ? 'reserve' : 'claim',
+      action: 'claim',
       controllerId: plan.controllerId
     },
     controllerSustain: {
@@ -150,15 +147,13 @@ function getVisibleMultiRoomUpgradeCandidates(
   }
 
   const homeRoom = colony.room.name;
-  const ownerUsername = getControllerOwnerUsername(colony.room.controller);
-  const activeUpgraderCounts = getActiveMultiRoomUpgraderCountsByTarget(homeRoom);
+  const activeUpgraderCounts = getActiveMultiRoomUpgraderCountsByTarget();
   const candidates: MultiRoomUpgradeCandidate[] = [];
   let order = 0;
 
   for (const room of Object.values(rooms)) {
     const candidate = getVisibleMultiRoomUpgradeCandidate(
       homeRoom,
-      ownerUsername,
       room,
       config,
       activeUpgraderCounts,
@@ -175,7 +170,6 @@ function getVisibleMultiRoomUpgradeCandidates(
 
 function getVisibleMultiRoomUpgradeCandidate(
   homeRoom: string,
-  ownerUsername: string | null,
   room: Room,
   config: MultiRoomUpgraderConfig,
   activeUpgraderCounts: Record<string, number>,
@@ -190,7 +184,7 @@ function getVisibleMultiRoomUpgradeCandidate(
     return null;
   }
 
-  const controllerState = getEligibleControllerState(controller, ownerUsername);
+  const controllerState = getEligibleControllerState(controller);
   if (!controllerState) {
     return null;
   }
@@ -216,6 +210,7 @@ function getVisibleMultiRoomUpgradeCandidate(
     controllerId: controller.id,
     controllerLevel: getControllerLevel(controller),
     controllerState,
+    ...getControllerTicksToDowngradePlanField(controller),
     ...(typeof routeDistance === 'number' ? { routeDistance } : {}),
     activeUpgraderCount,
     order
@@ -223,19 +218,9 @@ function getVisibleMultiRoomUpgradeCandidate(
 }
 
 function getEligibleControllerState(
-  controller: StructureController,
-  ownerUsername: string | null
+  controller: StructureController
 ): MultiRoomUpgradeControllerState | null {
-  if (controller.my === true) {
-    return controller.level < 8 ? 'owned' : null;
-  }
-
-  const reservationUsername = getControllerReservationUsername(controller);
-  if (ownerUsername && reservationUsername === ownerUsername) {
-    return 'reserved';
-  }
-
-  return null;
+  return controller.my === true && getControllerLevel(controller) < MAX_CONTROLLER_LEVEL ? 'owned' : null;
 }
 
 function hasPrimaryRoomStorageSurplus(colony: ColonySnapshot, storageEnergyThresholdRatio: number): boolean {
@@ -365,6 +350,7 @@ function compareMultiRoomUpgradeCandidates(
   right: MultiRoomUpgradeCandidate
 ): number {
   return (
+    compareOptionalNumbers(left.controllerTicksToDowngrade, right.controllerTicksToDowngrade) ||
     left.controllerLevel - right.controllerLevel ||
     compareOptionalNumbers(left.routeDistance, right.routeDistance) ||
     left.targetRoom.localeCompare(right.targetRoom) ||
@@ -389,10 +375,10 @@ interface RouteDistanceCacheState {
   updatedAt: Record<string, number>;
 }
 
-function getActiveMultiRoomUpgraderCountsByTarget(homeRoom: string): Record<string, number> {
+function getActiveMultiRoomUpgraderCountsByTarget(): Record<string, number> {
   const cache = getActiveMultiRoomUpgraderCountCache();
-  const activeByTarget = cache.countsByHomeRoom[homeRoom] ?? {};
-  const plannedByTarget = cache.plannedByHomeRoom[homeRoom] ?? {};
+  const activeByTarget = combineNestedCountMaps(cache.countsByHomeRoom);
+  const plannedByTarget = combineNestedCountMaps(cache.plannedByHomeRoom);
   return combineCountMaps(activeByTarget, plannedByTarget);
 }
 
@@ -431,6 +417,17 @@ function combineCountMaps(
   return combined;
 }
 
+function combineNestedCountMaps(countsByHomeRoom: Record<string, Record<string, number>>): Record<string, number> {
+  const combined: Record<string, number> = {};
+  for (const countsByTarget of Object.values(countsByHomeRoom)) {
+    for (const [targetRoom, count] of Object.entries(countsByTarget)) {
+      combined[targetRoom] = (combined[targetRoom] ?? 0) + count;
+    }
+  }
+
+  return combined;
+}
+
 function getActiveMultiRoomUpgraderCountCache(): ActiveMultiRoomUpgraderCountCache {
   const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
   const gameTime = getGameTime();
@@ -454,18 +451,17 @@ function isActiveMultiRoomUpgrader(creep: Creep): boolean {
 }
 
 function getControllerLevel(controller: StructureController): number {
-  return typeof controller.level === 'number' ? controller.level : DEFAULT_RESERVED_CONTROLLER_LEVEL;
+  return typeof controller.level === 'number' && Number.isFinite(controller.level)
+    ? controller.level
+    : MAX_CONTROLLER_LEVEL;
 }
 
-function getControllerOwnerUsername(controller: StructureController | undefined): string | null {
-  const username = (controller as (StructureController & { owner?: { username?: string } }) | undefined)?.owner
-    ?.username;
-  return isNonEmptyString(username) ? username : null;
-}
-
-function getControllerReservationUsername(controller: StructureController): string | null {
-  const username = (controller as StructureController & { reservation?: { username?: string } }).reservation?.username;
-  return isNonEmptyString(username) ? username : null;
+function getControllerTicksToDowngradePlanField(
+  controller: StructureController
+): Pick<MultiRoomUpgradePlan, 'controllerTicksToDowngrade'> {
+  return typeof controller.ticksToDowngrade === 'number' && Number.isFinite(controller.ticksToDowngrade)
+    ? { controllerTicksToDowngrade: Math.max(0, Math.floor(controller.ticksToDowngrade)) }
+    : {};
 }
 
 function getStoredEnergy(storage: StructureStorage): number {
