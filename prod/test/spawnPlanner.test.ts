@@ -1,4 +1,4 @@
-import { planSpawn } from '../src/spawn/spawnPlanner';
+import { generateHarvesterBody, planSpawn } from '../src/spawn/spawnPlanner';
 import { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   persistOccupationRecommendationFollowUpIntent,
@@ -14,6 +14,16 @@ import {
 describe('planSpawn', () => {
   const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
   const HIGH_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'work', 'carry', 'move', 'move'];
+  const BODY_PART_COSTS: Record<BodyPartConstant, number> = {
+    move: 50,
+    work: 100,
+    carry: 50,
+    attack: 80,
+    ranged_attack: 150,
+    heal: 250,
+    claim: 600,
+    tough: 10
+  };
 
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
@@ -136,6 +146,10 @@ describe('planSpawn', () => {
 
   function repeatBodyPattern(pattern: BodyPartConstant[], patternCount: number): BodyPartConstant[] {
     return Array.from({ length: patternCount }).flatMap(() => pattern);
+  }
+
+  function getBodyCost(body: BodyPartConstant[]): number {
+    return body.reduce((total, part) => total + BODY_PART_COSTS[part], 0);
   }
 
   function installHostileFindGlobals(): void {
@@ -373,6 +387,74 @@ describe('planSpawn', () => {
       name: 'worker-W1N21-154',
       memory: { role: 'worker', colony: 'W1N21' }
     });
+  });
+
+  it('generates an RCL3 harvester body within a 550 energy cap', () => {
+    expect(generateHarvesterBody(550, 5)).toEqual([
+      'work',
+      'work',
+      'work',
+      'carry',
+      'move',
+      'move',
+      'move',
+      'move'
+    ]);
+  });
+
+  it('generates an RCL4 harvester body within an 800 energy cap', () => {
+    expect(generateHarvesterBody(800, 5)).toEqual([
+      'work',
+      'work',
+      'work',
+      'work',
+      'carry',
+      'carry',
+      'move',
+      'move',
+      'move',
+      'move',
+      'move',
+      'move'
+    ]);
+  });
+
+  it('generates a full-extraction harvester body at RCL5-6 energy caps', () => {
+    const body = generateHarvesterBody(1300, 10);
+
+    expect(body.filter((part) => part === 'work')).toHaveLength(5);
+    expect(body).toEqual([
+      'work',
+      'work',
+      'work',
+      'work',
+      'work',
+      'carry',
+      'carry',
+      'carry',
+      'carry',
+      'move',
+      'move',
+      'move',
+      'move',
+      'move',
+      'move',
+      'move',
+      'move',
+      'move'
+    ]);
+  });
+
+  it('keeps generated harvester body cost within available energy', () => {
+    for (const availableEnergy of [250, 300, 550, 800, 1300, 1800]) {
+      expect(getBodyCost(generateHarvesterBody(availableEnergy, 10))).toBeLessThanOrEqual(availableEnergy);
+    }
+  });
+
+  it('always includes at least one WORK part for affordable harvester bodies', () => {
+    for (const availableEnergy of [250, 300, 550, 800, 1300]) {
+      expect(generateHarvesterBody(availableEnergy, 10)).toContain('work');
+    }
   });
 
   it('does not overbuild when replacement-aware worker capacity is at target', () => {
@@ -1077,7 +1159,7 @@ describe('planSpawn', () => {
     const { colony: localRefillColony, spawn: localRefillSpawn } = makeColony({ sourceCount: 2 });
     expect(planSpawn(localRefillColony, { worker: 3 }, 163)).toEqual({
       spawn: localRefillSpawn,
-      body: ['work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-163',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -2945,7 +3027,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 126)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'move'],
       name: 'worker-W1N2-126',
       memory: { role: 'worker', colony: 'W1N2' }
     });
@@ -2968,7 +3050,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 152)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: ['work', 'work', 'work', 'carry', 'move', 'move', 'move', 'move'],
       name: 'worker-W1N15-152',
       memory: { role: 'worker', colony: 'W1N15' }
     });
@@ -2996,7 +3078,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 5 }, 127)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: ['work', 'carry', 'move', 'move'],
       name: 'worker-W1N3-127',
       memory: { role: 'worker', colony: 'W1N3' }
     });
@@ -3090,7 +3172,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 137)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'work', 'carry', 'move', 'move', 'move'],
       name: 'worker-W1N7-137',
       memory: { role: 'worker', colony: 'W1N7' }
     });
@@ -3106,7 +3188,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 4, workerCapacity: 3 }, 150)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'work', 'carry', 'move', 'move', 'move'],
       name: 'worker-W1N12-150',
       memory: { role: 'worker', colony: 'W1N12' }
     });
