@@ -989,7 +989,7 @@ function shouldReplaceTarget(
   target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
 ): boolean {
   if (task.type === 'harvest' && isDepletedHarvestSource(target)) {
-    return !findSourceContainer(creep.room, target);
+    return !findVisibleHarvestSourceContainer(creep, target);
   }
 
   if (task.type === 'transfer' && 'store' in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {

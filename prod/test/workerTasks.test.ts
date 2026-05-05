@@ -2294,7 +2294,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
-  it('selects the least-assigned harvest source for same-room workers', () => {
+  it('selects the least-assigned harvest source while counting in-transit workers', () => {
     const source1 = { id: 'source1' } as Source;
     const source2 = { id: 'source2' } as Source;
     const room = {
@@ -2307,9 +2307,13 @@ describe('selectWorkerTask', () => {
           memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
           room
         } as unknown as Creep,
-        OtherRoom: {
+        InTransit1: {
           memory: { role: 'worker', task: { type: 'harvest', targetId: 'source2' as Id<Source> } },
           room: { name: 'W2N2' } as Room
+        } as unknown as Creep,
+        InTransit2: {
+          memory: { role: 'worker', task: { type: 'harvest', targetId: 'source2' as Id<Source> } },
+          room: { name: 'W3N3' } as Room
         } as unknown as Creep,
         Miner: {
           memory: { role: 'miner', task: { type: 'harvest', targetId: 'source2' as Id<Source> } },
@@ -2326,7 +2330,7 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
   it('uses source access capacity before closeness when harvest assignments tie', () => {
@@ -2567,14 +2571,40 @@ describe('selectWorkerTask', () => {
     const road = makeStructure('road1', 'road' as StructureConstant, 5_000, 5_000, {
       pos: makeRoomPosition(20, 10)
     });
-    const room = makeWorkerTaskRoom({ sources: [nearPlainSource, farRoadSource], structures: [road] });
-    const pathFinderSearch = jest.fn((_origin: RoomPosition, goal: { pos: RoomPosition }) => ({
+    const spawn = makeStructure('spawn1', 'spawn' as StructureConstant, 5_000, 5_000, {
+      pos: makeRoomPosition(21, 10)
+    });
+    const hostileRampart = makeStructure('rampart-hostile', 'rampart' as StructureConstant, 5_000, 5_000, {
+      my: false,
+      pos: makeRoomPosition(22, 10)
+    });
+    const tower = makeStructure('tower1', 'tower' as StructureConstant, 3_000, 3_000, {
+      pos: makeRoomPosition(23, 10)
+    });
+    const container = makeStructure('container1', 'container' as StructureConstant, 250_000, 250_000, {
+      pos: makeRoomPosition(24, 10)
+    });
+    const ownedRampart = makeStructure('rampart-owned', 'rampart' as StructureConstant, 5_000, 5_000, {
+      my: true,
+      pos: makeRoomPosition(25, 10)
+    });
+    const room = makeWorkerTaskRoom({
+      sources: [nearPlainSource, farRoadSource],
+      structures: [road, spawn, hostileRampart, tower, container, ownedRampart]
+    });
+    const matrixSets: Array<[number, number, number]> = [];
+    const pathFinderSearch = jest.fn((_origin: RoomPosition, goal: { pos: RoomPosition }, options?: PathFinderOpts) => {
+      options?.roomCallback?.('W1N1');
+      return {
       cost: goal.pos.x === 30 ? 4 : 20,
       incomplete: false,
       path: []
-    }));
+      };
+    });
     class TestCostMatrix {
-      set(_x: number, _y: number, _cost: number): void {}
+      set(x: number, y: number, cost: number): void {
+        matrixSets.push([x, y, cost]);
+      }
     }
     (globalThis as unknown as { PathFinder: Partial<PathFinder> }).PathFinder = {
       CostMatrix: TestCostMatrix as unknown as CostMatrix,
@@ -2592,6 +2622,47 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-far-road' });
     expect(pathFinderSearch).toHaveBeenCalled();
+    expect(matrixSets).toEqual(expect.arrayContaining([[20, 10, 1], [21, 10, 255], [22, 10, 255], [23, 10, 255]]));
+    expect(matrixSets).not.toContainEqual([24, 10, 255]);
+    expect(matrixSets).not.toContainEqual([25, 10, 255]);
+  });
+
+  it('does not use range fallback for unreachable road-aware harvest paths', () => {
+    const blockedSource = makeSource('source-blocked', 11, 10);
+    const reachableSource = makeSource('source-reachable', 30, 10);
+    const spawn = makeEnergySinkWithEnergy('spawn1', 'spawn' as StructureConstant, 0, 300, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const room = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [blockedSource, reachableSource]
+    });
+    const pathFinderSearch = jest.fn((_origin: RoomPosition, goal: { pos: RoomPosition }) => ({
+      cost: goal.pos.x === 30 ? 20 : 5,
+      incomplete: goal.pos.x === 11,
+      path: []
+    }));
+    class TestCostMatrix {
+      set(_x: number, _y: number, _cost: number): void {}
+    }
+    (globalThis as unknown as { PathFinder: Partial<PathFinder> }).PathFinder = {
+      CostMatrix: TestCostMatrix as unknown as CostMatrix,
+      search: pathFinderSearch as unknown as PathFinder['search']
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      rooms: { W1N1: room }
+    };
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: makeRoomPosition(10, 10),
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-reachable' });
   });
 
   it('ignores adjacent sources in rooms that are not claimed', () => {

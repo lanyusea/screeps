@@ -2665,7 +2665,7 @@ function selectSpawnRecoveryHarvestCandidate(
     sources,
     getSpawnRecoveryHarvestEnergyTarget(creep, energySink)
   );
-  const assignmentLoads = getWorkerHarvestLoads(creep, viableSources);
+  const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
   const candidates = assignableSources
     .map((source) =>
@@ -4322,7 +4322,7 @@ function selectBestHarvestSource(creep: Creep, sources: Source[]): Source | null
   }
 
   const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
-  const assignmentLoads = getWorkerHarvestLoads(creep, viableSources);
+  const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
   if (assignableSources.length === 0) {
     return null;
@@ -4549,6 +4549,10 @@ function estimateRoadAwareTravelCostBetweenRoomObjects(
     if (pathCost !== null) {
       return pathCost;
     }
+
+    if (isPathFinderAvailable()) {
+      return null;
+    }
   }
 
   const range = getRangeBetweenRoomObjects(origin, target);
@@ -4619,13 +4623,15 @@ function createRoadAwareRoomCallback(allowedRoomNames: Set<string>): (roomName: 
 
     const matrix = new PathFinder.CostMatrix();
     for (const structure of room.find(FIND_STRUCTURES) as Structure[]) {
-      if (!isRoadStructure(structure)) {
+      const position = getRoomObjectPosition(structure);
+      if (!position) {
         continue;
       }
 
-      const position = getRoomObjectPosition(structure);
-      if (position) {
+      if (isRoadStructure(structure)) {
         matrix.set(position.x, position.y, ROAD_TRAVEL_COST);
+      } else if (isBlockingRoadAwareStructure(structure)) {
+        matrix.set(position.x, position.y, 0xff);
       }
     }
 
@@ -4636,6 +4642,21 @@ function createRoadAwareRoomCallback(allowedRoomNames: Set<string>): (roomName: 
 
 function isRoadStructure(structure: Structure): structure is StructureRoad {
   return matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road');
+}
+
+function isBlockingRoadAwareStructure(structure: Structure): boolean {
+  return !isRoadStructure(structure) && !isContainerStructure(structure) && !isWalkableRampartStructure(structure);
+}
+
+function isContainerStructure(structure: Structure): structure is StructureContainer {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container');
+}
+
+function isWalkableRampartStructure(structure: Structure): boolean {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') &&
+    ((structure as Partial<StructureRampart>).my === true || (structure as Partial<StructureRampart>).isPublic === true)
+  );
 }
 
 function selectViableHarvestSources(sources: Source[], harvestEnergyTarget: number): Source[] {
@@ -4668,24 +4689,13 @@ function getHarvestEnergyTarget(creep: Creep): number {
   return Math.max(1, getFreeEnergyCapacity(creep));
 }
 
-function getWorkerHarvestLoads(
-  creep: Creep,
-  sources: Source[]
-): Map<Id<Source>, HarvestSourceAssignmentLoad> {
+function getWorkerHarvestLoads(sources: Source[]): Map<Id<Source>, HarvestSourceAssignmentLoad> {
   const assignmentLoads = new Map<Id<Source>, HarvestSourceAssignmentLoad>();
   for (const source of sources) {
     assignmentLoads.set(source.id, createEmptyHarvestSourceAssignmentLoad());
   }
 
-  const roomName = creep.room?.name;
-  if (!roomName) {
-    return assignmentLoads;
-  }
-
   const sourceIds = new Set(sources.map((source) => source.id as string));
-  const sourceRoomNamesById = new Map<string, string | undefined>(
-    sources.map((source) => [String(source.id), getPositionRoomName(source) ?? roomName])
-  );
   for (const assignedCreep of getGameCreeps()) {
     const task = assignedCreep.memory?.task as Partial<CreepTaskMemory> | undefined;
     const targetId = typeof task?.targetId === 'string' ? task.targetId : undefined;
@@ -4694,8 +4704,7 @@ function getWorkerHarvestLoads(
       assignedCreep.memory?.role !== 'worker' ||
       task?.type !== 'harvest' ||
       !targetId ||
-      !sourceIds.has(targetId) ||
-      !isRelevantHarvestAssignmentRoom(assignedCreep.room?.name, roomName, sourceRoomNamesById.get(targetId))
+      !sourceIds.has(targetId)
     ) {
       continue;
     }
@@ -4709,14 +4718,6 @@ function getWorkerHarvestLoads(
   }
 
   return assignmentLoads;
-}
-
-function isRelevantHarvestAssignmentRoom(
-  assignedRoomName: string | undefined,
-  workerRoomName: string,
-  sourceRoomName: string | undefined
-): boolean {
-  return assignedRoomName === workerRoomName || (sourceRoomName !== undefined && assignedRoomName === sourceRoomName);
 }
 
 function getGameCreeps(): Creep[] {

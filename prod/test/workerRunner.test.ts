@@ -511,6 +511,53 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('keeps a depleted remote harvest target when its visible source container can receive energy', () => {
+    const remoteSource = {
+      id: 'remote-source',
+      energy: 0,
+      pos: { x: 20, y: 20, roomName: 'W2N1' } as RoomPosition
+    } as Source;
+    const localSource = { id: 'local-source', energy: 300 } as Source;
+    const remoteContainer = {
+      id: 'remote-container',
+      structureType: 'container',
+      pos: { x: 20, y: 21, roomName: 'W2N1' } as RoomPosition,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureContainer;
+    const homeRoom = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [localSource] : []))
+    } as unknown as Room;
+    const remoteRoom = {
+      name: 'W2N1',
+      find: jest.fn((type: number) => (type === FIND_STRUCTURES ? [remoteContainer] : []))
+    } as unknown as Room;
+    const creep = {
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'remote-source' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(10) },
+      room: homeRoom,
+      harvest: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      rooms: { W1N1: homeRoom, W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) =>
+        id === 'remote-source' ? remoteSource : id === 'local-source' ? localSource : null
+      )
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'remote-source' });
+    expect(creep.moveTo).toHaveBeenCalledWith(remoteContainer);
+    expect(creep.harvest).not.toHaveBeenCalled();
+  });
+
   it('picks up dropped energy and moves when not in range', () => {
     const droppedEnergy = { id: 'drop1', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
     const creep = {

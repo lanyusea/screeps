@@ -10593,7 +10593,7 @@ function selectSpawnRecoveryHarvestCandidate(creep, energySink) {
     sources,
     getSpawnRecoveryHarvestEnergyTarget(creep, energySink)
   );
-  const assignmentLoads = getWorkerHarvestLoads(creep, viableSources);
+  const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
   const candidates = assignableSources.map(
     (source) => createSpawnRecoveryHarvestCandidate(
@@ -11690,7 +11690,7 @@ function selectBestHarvestSource(creep, sources) {
     return null;
   }
   const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
-  const assignmentLoads = getWorkerHarvestLoads(creep, viableSources);
+  const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
   if (assignableSources.length === 0) {
     return null;
@@ -11855,6 +11855,9 @@ function estimateRoadAwareTravelCostBetweenRoomObjects(origin, target, targetRan
     if (pathCost !== null) {
       return pathCost;
     }
+    if (isPathFinderAvailable2()) {
+      return null;
+    }
   }
   const range = getRangeBetweenRoomObjects2(origin, target);
   if (range !== null) {
@@ -11908,12 +11911,14 @@ function createRoadAwareRoomCallback(allowedRoomNames) {
     }
     const matrix = new PathFinder.CostMatrix();
     for (const structure of room.find(FIND_STRUCTURES)) {
-      if (!isRoadStructure2(structure)) {
+      const position = getRoomObjectPosition3(structure);
+      if (!position) {
         continue;
       }
-      const position = getRoomObjectPosition3(structure);
-      if (position) {
+      if (isRoadStructure2(structure)) {
         matrix.set(position.x, position.y, ROAD_TRAVEL_COST);
+      } else if (isBlockingRoadAwareStructure(structure)) {
+        matrix.set(position.x, position.y, 255);
       }
     }
     matricesByRoomName.set(roomName, matrix);
@@ -11922,6 +11927,15 @@ function createRoadAwareRoomCallback(allowedRoomNames) {
 }
 function isRoadStructure2(structure) {
   return matchesStructureType8(structure.structureType, "STRUCTURE_ROAD", "road");
+}
+function isBlockingRoadAwareStructure(structure) {
+  return !isRoadStructure2(structure) && !isContainerStructure2(structure) && !isWalkableRampartStructure(structure);
+}
+function isContainerStructure2(structure) {
+  return matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container");
+}
+function isWalkableRampartStructure(structure) {
+  return matchesStructureType8(structure.structureType, "STRUCTURE_RAMPART", "rampart") && (structure.my === true || structure.isPublic === true);
 }
 function selectViableHarvestSources(sources, harvestEnergyTarget) {
   const sourcesWithEnergy = sources.filter(hasHarvestableEnergy);
@@ -11947,40 +11961,27 @@ function getHarvestSourceAvailableEnergy(source) {
 function getHarvestEnergyTarget(creep) {
   return Math.max(1, getFreeEnergyCapacity3(creep));
 }
-function getWorkerHarvestLoads(creep, sources) {
-  var _a, _b, _c, _d, _e;
+function getWorkerHarvestLoads(sources) {
+  var _a, _b, _c;
   const assignmentLoads = /* @__PURE__ */ new Map();
   for (const source of sources) {
     assignmentLoads.set(source.id, createEmptyHarvestSourceAssignmentLoad());
   }
-  const roomName = (_a = creep.room) == null ? void 0 : _a.name;
-  if (!roomName) {
-    return assignmentLoads;
-  }
   const sourceIds = new Set(sources.map((source) => source.id));
-  const sourceRoomNamesById = new Map(
-    sources.map((source) => {
-      var _a2;
-      return [String(source.id), (_a2 = getPositionRoomName(source)) != null ? _a2 : roomName];
-    })
-  );
   for (const assignedCreep of getGameCreeps()) {
-    const task = (_b = assignedCreep.memory) == null ? void 0 : _b.task;
+    const task = (_a = assignedCreep.memory) == null ? void 0 : _a.task;
     const targetId = typeof (task == null ? void 0 : task.targetId) === "string" ? task.targetId : void 0;
-    if (((_c = assignedCreep.memory) == null ? void 0 : _c.role) !== "worker" || (task == null ? void 0 : task.type) !== "harvest" || !targetId || !sourceIds.has(targetId) || !isRelevantHarvestAssignmentRoom((_d = assignedCreep.room) == null ? void 0 : _d.name, roomName, sourceRoomNamesById.get(targetId))) {
+    if (((_b = assignedCreep.memory) == null ? void 0 : _b.role) !== "worker" || (task == null ? void 0 : task.type) !== "harvest" || !targetId || !sourceIds.has(targetId)) {
       continue;
     }
     const sourceId = targetId;
-    const currentLoad = (_e = assignmentLoads.get(sourceId)) != null ? _e : createEmptyHarvestSourceAssignmentLoad();
+    const currentLoad = (_c = assignmentLoads.get(sourceId)) != null ? _c : createEmptyHarvestSourceAssignmentLoad();
     assignmentLoads.set(sourceId, {
       assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts(assignedCreep),
       assignmentCount: currentLoad.assignmentCount + 1
     });
   }
   return assignmentLoads;
-}
-function isRelevantHarvestAssignmentRoom(assignedRoomName, workerRoomName, sourceRoomName) {
-  return assignedRoomName === workerRoomName || sourceRoomName !== void 0 && assignedRoomName === sourceRoomName;
 }
 function getGameCreeps() {
   var _a;
@@ -12813,7 +12814,7 @@ function matchesCapacityConstructionStructureType(actual, globalName, fallback) 
 function shouldReplaceTarget(creep, task, target) {
   var _a;
   if (task.type === "harvest" && isDepletedHarvestSource(target)) {
-    return !findSourceContainer(creep.room, target);
+    return !findVisibleHarvestSourceContainer(creep, target);
   }
   if (task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
     return true;
@@ -12840,7 +12841,7 @@ function executeTask(creep, task, target) {
       return toTaskExecutionResult(creep.withdraw(target, RESOURCE_ENERGY), "work");
     case "transfer":
       return toTaskExecutionResult(creep.transfer(target, RESOURCE_ENERGY), "work", {
-        containerTransfer: isContainerStructure2(target)
+        containerTransfer: isContainerStructure3(target)
       });
     case "build":
       if (!checkEnergyBufferForSpending(creep.room, getCarriedEnergy(creep))) {
@@ -12918,7 +12919,7 @@ function recordTaskBehavior(creep, task, execution) {
     recordCreepBehaviorContainerTransfer(creep);
   }
 }
-function isContainerStructure2(target) {
+function isContainerStructure3(target) {
   const structureType = target == null ? void 0 : target.structureType;
   return typeof structureType === "string" && matchesContainerStructureType(structureType);
 }
