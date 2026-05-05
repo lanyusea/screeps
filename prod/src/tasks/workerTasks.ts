@@ -76,6 +76,12 @@ const MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 const MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
 const BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY = 550;
 const BUILDER_STORAGE_ACQUISITION_SITE_RANGE = BUILDER_DROPPED_PICKUP_RANGE;
+const ROAD_TRAVEL_COST = 1;
+const PLAIN_TRAVEL_COST = 2;
+const SWAMP_TRAVEL_COST = 10;
+const HARVEST_SOURCE_RANGE = 1;
+const HARVEST_SOURCE_CONTAINER_RANGE = 0;
+const MAX_HARVEST_PATH_OPS = 2_000;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
@@ -2650,7 +2656,7 @@ function selectSpawnRecoveryHarvestCandidate(
   creep: Creep,
   energySink: FillableEnergySink
 ): SpawnRecoveryHarvestCandidate | null {
-  const sources = creep.room.find(FIND_SOURCES);
+  const sources = findVisibleHarvestSources(creep);
   if (sources.length === 0) {
     return null;
   }
@@ -2659,7 +2665,7 @@ function selectSpawnRecoveryHarvestCandidate(
     sources,
     getSpawnRecoveryHarvestEnergyTarget(creep, energySink)
   );
-  const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
+  const assignmentLoads = getWorkerHarvestLoads(creep, viableSources);
   const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
   const candidates = assignableSources
     .map((source) =>
@@ -2986,8 +2992,8 @@ function estimateHarvestDeliveryEtaFromSource(
     return null;
   }
 
-  const creepToSourceRange = getRangeBetweenRoomObjects(creep, source);
-  const sourceToSinkRange = getRangeBetweenRoomObjects(source, energySink);
+  const creepToSourceRange = getHarvestSourceTravelCost(creep, source);
+  const sourceToSinkRange = getHarvestSourceDeliveryTravelCost(creep, source, energySink);
   if (creepToSourceRange === null || sourceToSinkRange === null) {
     return null;
   }
@@ -4173,21 +4179,25 @@ function findClosestByRange<T extends RoomObject>(creep: Creep, objects: T[]): T
 function selectSourceContainerHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
   if (
     getActiveWorkParts(creep) <= 0 ||
-    typeof FIND_SOURCES !== 'number' ||
-    !hasVisiblePositionedContainer(creep.room)
+    typeof FIND_SOURCES !== 'number'
   ) {
+    return null;
+  }
+
+  const harvestRooms = findVisibleHarvestRooms(creep);
+  if (!harvestRooms.some(hasVisiblePositionedContainer)) {
     return null;
   }
 
   const source = selectBestHarvestSource(
     creep,
-    creep.room.find(FIND_SOURCES).filter((candidate) => hasNonEmptySourceContainer(creep.room, candidate))
+    findVisibleHarvestSourcesInRooms(harvestRooms).filter((candidate) => hasNonEmptyVisibleSourceContainer(creep, candidate))
   );
   return source ? { type: 'harvest', targetId: source.id } : null;
 }
 
-function hasNonEmptySourceContainer(room: Room, source: Source): boolean {
-  const sourceContainer = findSourceContainer(room, source);
+function hasNonEmptyVisibleSourceContainer(creep: Creep, source: Source): boolean {
+  const sourceContainer = findVisibleSourceContainer(creep, source);
   return sourceContainer !== null && getStoredEnergy(sourceContainer) > 0;
 }
 
@@ -4205,8 +4215,100 @@ function hasVisiblePositionedContainer(room: Room): boolean {
   });
 }
 
+function findVisibleHarvestSources(creep: Creep): Source[] {
+  return findVisibleHarvestSourcesInRooms(findVisibleHarvestRooms(creep));
+}
+
+function findVisibleHarvestSourcesInRooms(rooms: Room[]): Source[] {
+  if (typeof FIND_SOURCES !== 'number') {
+    return [];
+  }
+
+  const sourcesById = new Map<string, Source>();
+  for (const room of rooms) {
+    if (typeof room.find !== 'function') {
+      continue;
+    }
+
+    for (const source of room.find(FIND_SOURCES) as Source[]) {
+      sourcesById.set(String(source.id), source);
+    }
+  }
+
+  return [...sourcesById.values()];
+}
+
+function findVisibleHarvestRooms(creep: Creep): Room[] {
+  const rooms: Room[] = [];
+  if (creep.room) {
+    rooms.push(creep.room);
+  }
+
+  for (const room of findVisibleAdjacentClaimedRooms(creep.room)) {
+    if (rooms.some((candidate) => candidate.name === room.name)) {
+      continue;
+    }
+
+    rooms.push(room);
+  }
+
+  return rooms;
+}
+
+function findVisibleAdjacentClaimedRooms(room: Room | undefined): Room[] {
+  const roomName = room?.name;
+  if (!roomName) {
+    return [];
+  }
+
+  const game = (globalThis as unknown as { Game?: Partial<Pick<Game, 'map' | 'rooms'>> }).Game;
+  const visibleRooms = game?.rooms;
+  const adjacentRoomNames = getAdjacentRoomNames(roomName, game?.map);
+  if (!visibleRooms || adjacentRoomNames.length === 0) {
+    return [];
+  }
+
+  return adjacentRoomNames
+    .map((adjacentRoomName) => visibleRooms[adjacentRoomName])
+    .filter((candidate): candidate is Room => candidate?.controller?.my === true)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function getAdjacentRoomNames(roomName: string, gameMap: Partial<GameMap> | undefined): string[] {
+  if (typeof gameMap?.describeExits !== 'function') {
+    return [];
+  }
+
+  const exits = gameMap.describeExits(roomName) as ExitsInformation | null;
+  if (!exits || typeof exits !== 'object') {
+    return [];
+  }
+
+  return Object.values(exits)
+    .filter((adjacentRoomName): adjacentRoomName is string => typeof adjacentRoomName === 'string' && adjacentRoomName.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function findVisibleSourceContainer(creep: Creep, source: Source): StructureContainer | null {
+  const sourceRoom = findVisibleSourceRoom(creep, source);
+  return sourceRoom ? findSourceContainer(sourceRoom, source) : null;
+}
+
+function findVisibleSourceRoom(creep: Creep, source: Source): Room | null {
+  const sourceRoomName = getPositionRoomName(source) ?? creep.room?.name;
+  if (!sourceRoomName) {
+    return null;
+  }
+
+  if (creep.room?.name === sourceRoomName) {
+    return creep.room;
+  }
+
+  return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[sourceRoomName] ?? null;
+}
+
 function selectHarvestSource(creep: Creep): Source | null {
-  const sources = creep.room.find(FIND_SOURCES);
+  const sources = findVisibleHarvestSources(creep);
   if (sources.length === 0) {
     return null;
   }
@@ -4220,7 +4322,7 @@ function selectBestHarvestSource(creep: Creep, sources: Source[]): Source | null
   }
 
   const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
-  const assignmentLoads = getSameRoomWorkerHarvestLoads(creep.room.name, viableSources);
+  const assignmentLoads = getWorkerHarvestLoads(creep, viableSources);
   const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
   if (assignableSources.length === 0) {
     return null;
@@ -4255,7 +4357,7 @@ function isAssignableHarvestSource(
   source: Source,
   assignmentLoad: HarvestSourceAssignmentLoad
 ): boolean {
-  if (!findSourceContainer(creep.room, source)) {
+  if (!findVisibleSourceContainer(creep, source)) {
     return true;
   }
 
@@ -4415,9 +4517,125 @@ function getTerrainWallMask(): number {
 }
 
 function isCloserHarvestSource(creep: Creep, candidate: Source, selected: Source): boolean {
-  const candidateRange = getRangeBetweenRoomObjects(creep, candidate);
-  const selectedRange = getRangeBetweenRoomObjects(creep, selected);
+  const candidateRange = getHarvestSourceTravelCost(creep, candidate);
+  const selectedRange = getHarvestSourceTravelCost(creep, selected);
   return candidateRange !== null && selectedRange !== null && candidateRange < selectedRange;
+}
+
+function getHarvestSourceTravelCost(creep: Creep, source: Source): number | null {
+  const target = findVisibleSourceContainer(creep, source) ?? source;
+  const targetRange = target === source ? HARVEST_SOURCE_RANGE : HARVEST_SOURCE_CONTAINER_RANGE;
+  return estimateRoadAwareTravelCostBetweenRoomObjects(creep, target, targetRange);
+}
+
+function getHarvestSourceDeliveryTravelCost(
+  creep: Creep,
+  source: Source,
+  energySink: FillableEnergySink
+): number | null {
+  const harvestOrigin = findVisibleSourceContainer(creep, source) ?? source;
+  return estimateRoadAwareTravelCostBetweenRoomObjects(harvestOrigin, energySink, HARVEST_SOURCE_RANGE);
+}
+
+function estimateRoadAwareTravelCostBetweenRoomObjects(
+  origin: RoomObject,
+  target: RoomObject,
+  targetRange: number
+): number | null {
+  const originPosition = getRoomObjectPosition(origin);
+  const targetPosition = getRoomObjectPosition(target);
+  if (originPosition && targetPosition) {
+    const pathCost = findRoadAwarePathCost(originPosition, targetPosition, targetRange);
+    if (pathCost !== null) {
+      return pathCost;
+    }
+  }
+
+  const range = getRangeBetweenRoomObjects(origin, target);
+  if (range !== null) {
+    return Math.max(0, range - Math.max(0, targetRange - 1));
+  }
+
+  if (originPosition && targetPosition && isSameRoomPosition(originPosition, targetPosition)) {
+    return Math.max(
+      0,
+      Math.max(Math.abs(originPosition.x - targetPosition.x), Math.abs(originPosition.y - targetPosition.y)) -
+        Math.max(0, targetRange - 1)
+    );
+  }
+
+  return null;
+}
+
+function findRoadAwarePathCost(
+  origin: RoomPosition,
+  target: RoomPosition,
+  targetRange: number
+): number | null {
+  if (!isPathFinderAvailable()) {
+    return null;
+  }
+
+  const result = PathFinder.search(origin, { pos: target, range: Math.max(0, targetRange) }, {
+    maxOps: MAX_HARVEST_PATH_OPS,
+    maxRooms: origin.roomName === target.roomName ? 1 : 2,
+    plainCost: PLAIN_TRAVEL_COST,
+    roomCallback: createRoadAwareRoomCallback(new Set([origin.roomName, target.roomName])),
+    swampCost: SWAMP_TRAVEL_COST
+  });
+
+  if (result.incomplete) {
+    return null;
+  }
+
+  if (typeof result.cost === 'number' && Number.isFinite(result.cost)) {
+    return Math.max(0, result.cost);
+  }
+
+  return Array.isArray(result.path) ? result.path.length : null;
+}
+
+function isPathFinderAvailable(): boolean {
+  return typeof PathFinder !== 'undefined' && typeof PathFinder.search === 'function' && typeof PathFinder.CostMatrix === 'function';
+}
+
+function createRoadAwareRoomCallback(allowedRoomNames: Set<string>): (roomName: string) => boolean | CostMatrix {
+  const matricesByRoomName = new Map<string, CostMatrix | false>();
+  return (roomName: string): boolean | CostMatrix => {
+    if (!allowedRoomNames.has(roomName)) {
+      return false;
+    }
+
+    const cachedMatrix = matricesByRoomName.get(roomName);
+    if (cachedMatrix !== undefined) {
+      return cachedMatrix;
+    }
+
+    const room = (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
+    if (!room || typeof FIND_STRUCTURES !== 'number' || typeof room.find !== 'function') {
+      matricesByRoomName.set(roomName, false);
+      return false;
+    }
+
+    const matrix = new PathFinder.CostMatrix();
+    for (const structure of room.find(FIND_STRUCTURES) as Structure[]) {
+      if (!isRoadStructure(structure)) {
+        continue;
+      }
+
+      const position = getRoomObjectPosition(structure);
+      if (position) {
+        matrix.set(position.x, position.y, ROAD_TRAVEL_COST);
+      }
+    }
+
+    matricesByRoomName.set(roomName, matrix);
+    return matrix;
+  };
+}
+
+function isRoadStructure(structure: Structure): structure is StructureRoad {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road');
 }
 
 function selectViableHarvestSources(sources: Source[], harvestEnergyTarget: number): Source[] {
@@ -4450,8 +4668,8 @@ function getHarvestEnergyTarget(creep: Creep): number {
   return Math.max(1, getFreeEnergyCapacity(creep));
 }
 
-function getSameRoomWorkerHarvestLoads(
-  roomName: string | undefined,
+function getWorkerHarvestLoads(
+  creep: Creep,
   sources: Source[]
 ): Map<Id<Source>, HarvestSourceAssignmentLoad> {
   const assignmentLoads = new Map<Id<Source>, HarvestSourceAssignmentLoad>();
@@ -4459,21 +4677,25 @@ function getSameRoomWorkerHarvestLoads(
     assignmentLoads.set(source.id, createEmptyHarvestSourceAssignmentLoad());
   }
 
+  const roomName = creep.room?.name;
   if (!roomName) {
     return assignmentLoads;
   }
 
   const sourceIds = new Set(sources.map((source) => source.id as string));
+  const sourceRoomNamesById = new Map<string, string | undefined>(
+    sources.map((source) => [String(source.id), getPositionRoomName(source) ?? roomName])
+  );
   for (const assignedCreep of getGameCreeps()) {
     const task = assignedCreep.memory?.task as Partial<CreepTaskMemory> | undefined;
     const targetId = typeof task?.targetId === 'string' ? task.targetId : undefined;
 
     if (
       assignedCreep.memory?.role !== 'worker' ||
-      assignedCreep.room?.name !== roomName ||
       task?.type !== 'harvest' ||
       !targetId ||
-      !sourceIds.has(targetId)
+      !sourceIds.has(targetId) ||
+      !isRelevantHarvestAssignmentRoom(assignedCreep.room?.name, roomName, sourceRoomNamesById.get(targetId))
     ) {
       continue;
     }
@@ -4487,6 +4709,14 @@ function getSameRoomWorkerHarvestLoads(
   }
 
   return assignmentLoads;
+}
+
+function isRelevantHarvestAssignmentRoom(
+  assignedRoomName: string | undefined,
+  workerRoomName: string,
+  sourceRoomName: string | undefined
+): boolean {
+  return assignedRoomName === workerRoomName || (sourceRoomName !== undefined && assignedRoomName === sourceRoomName);
 }
 
 function getGameCreeps(): Creep[] {

@@ -195,6 +195,7 @@ function makeWorkerTaskRoom({
   hostileStructures = [],
   myCreeps = [],
   myStructures = [],
+  name = 'W1N1',
   sources = [],
   structures = []
 }: {
@@ -206,11 +207,12 @@ function makeWorkerTaskRoom({
   hostileStructures?: AnyStructure[];
   myCreeps?: Creep[];
   myStructures?: AnyOwnedStructure[];
+  name?: string;
   sources?: Source[];
   structures?: AnyStructure[];
 } = {}): Room {
   return {
-    name: 'W1N1',
+    name,
     controller,
     ...(energyAvailable === undefined ? {} : { energyAvailable }),
     ...(energyCapacityAvailable === undefined ? {} : { energyCapacityAvailable }),
@@ -341,6 +343,7 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { WORK: BodyPartConstant }).WORK = 'work';
     delete (globalThis as unknown as { FIND_MY_CREEPS?: number }).FIND_MY_CREEPS;
     delete (globalThis as unknown as { BUILD_POWER?: number }).BUILD_POWER;
+    delete (globalThis as unknown as { PathFinder?: Partial<PathFinder> }).PathFinder;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
   });
@@ -2532,6 +2535,87 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('selects an adjacent claimed-room source when it is closer than home sources', () => {
+    const homeSource = makeSource('source-home', 40, 40, 'W1N1');
+    const adjacentSource = makeSource('source-adjacent', 2, 25, 'W2N1');
+    const homeRoom = makeWorkerTaskRoom({ sources: [homeSource] });
+    const adjacentRoom = makeWorkerTaskRoom({
+      controller: { id: 'controller2', my: true, level: 2 } as StructureController,
+      name: 'W2N1',
+      sources: [adjacentSource]
+    });
+    const getRangeTo = jest.fn((target: Source) => (target.id === 'source-adjacent' ? 2 : 15));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      map: { describeExits: jest.fn().mockReturnValue({ '3': 'W2N1' }) } as unknown as GameMap,
+      rooms: { W1N1: homeRoom, W2N1: adjacentRoom }
+    };
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      pos: { getRangeTo },
+      room: homeRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-adjacent' });
+  });
+
+  it('keeps harvest source selection road-cost-aware when range favors a slower source', () => {
+    const nearPlainSource = makeSource('source-near-plain', 12, 10);
+    const farRoadSource = makeSource('source-far-road', 30, 10);
+    const road = makeStructure('road1', 'road' as StructureConstant, 5_000, 5_000, {
+      pos: makeRoomPosition(20, 10)
+    });
+    const room = makeWorkerTaskRoom({ sources: [nearPlainSource, farRoadSource], structures: [road] });
+    const pathFinderSearch = jest.fn((_origin: RoomPosition, goal: { pos: RoomPosition }) => ({
+      cost: goal.pos.x === 30 ? 4 : 20,
+      incomplete: false,
+      path: []
+    }));
+    class TestCostMatrix {
+      set(_x: number, _y: number, _cost: number): void {}
+    }
+    (globalThis as unknown as { PathFinder: Partial<PathFinder> }).PathFinder = {
+      CostMatrix: TestCostMatrix as unknown as CostMatrix,
+      search: pathFinderSearch as unknown as PathFinder['search']
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      rooms: { W1N1: room }
+    };
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      pos: makeRoomPosition(10, 10),
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-far-road' });
+    expect(pathFinderSearch).toHaveBeenCalled();
+  });
+
+  it('ignores adjacent sources in rooms that are not claimed', () => {
+    const homeSource = makeSource('source-home', 40, 40, 'W1N1');
+    const neutralSource = makeSource('source-neutral', 2, 25, 'W2N1');
+    const homeRoom = makeWorkerTaskRoom({ sources: [homeSource] });
+    const neutralRoom = makeWorkerTaskRoom({
+      controller: { id: 'controller2', my: false, level: 0 } as StructureController,
+      name: 'W2N1',
+      sources: [neutralSource]
+    });
+    const getRangeTo = jest.fn((target: Source) => (target.id === 'source-neutral' ? 2 : 15));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      map: { describeExits: jest.fn().mockReturnValue({ '3': 'W2N1' }) } as unknown as GameMap,
+      rooms: { W1N1: homeRoom, W2N1: neutralRoom }
+    };
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(0) },
+      pos: { getRangeTo },
+      room: homeRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-home' });
   });
 
   it('stands by deterministically when all sources are empty', () => {
