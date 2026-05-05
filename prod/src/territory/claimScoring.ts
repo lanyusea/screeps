@@ -15,7 +15,7 @@ const SOURCE_SCORE = 150;
 const DUAL_SOURCE_BONUS = 260;
 const HOSTILE_PENALTY = 1_200;
 const CLAIMED_PENALTY = 2_000;
-const RESERVED_PENALTY = 900;
+export const CLAIM_SCORE_RESERVED_PENALTY = 900;
 const MISSING_CONTROLLER_PENALTY = 500;
 const DISTANCE_PENALTY = 55;
 const NO_ROUTE_DISTANCE = 99;
@@ -65,7 +65,7 @@ export function scoreClaimTarget(roomName: string, homeRoom: Room): ClaimScore {
       details.push('controller already claimed');
       break;
     case 'reserved':
-      score -= RESERVED_PENALTY;
+      score -= CLAIM_SCORE_RESERVED_PENALTY;
       details.push('controller already reserved');
       break;
     case 'missing':

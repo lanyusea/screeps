@@ -110,7 +110,8 @@ function isTerritoryAutomationSource(source: unknown): source is TerritoryAutoma
   return (
     source === 'occupationRecommendation' ||
     source === 'autonomousExpansionClaim' ||
-    source === 'nextExpansionScoring'
+    source === 'nextExpansionScoring' ||
+    source === 'adjacentRoomReservation'
   );
 }
 
