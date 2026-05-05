@@ -49,6 +49,7 @@ declare global {
     workerBehavior?: WorkerTaskBehaviorSampleMemory;
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
+    crossRoomHauler?: CreepCrossRoomHaulerMemory;
   }
 
   type DefenseActionType =
@@ -119,6 +120,41 @@ declare global {
 
   interface EconomyMemory {
     sourceWorkloads?: Record<string, EconomyRoomSourceWorkloadMemory>;
+    storageBalance?: EconomyStorageBalanceMemory;
+  }
+
+  type EconomyStorageBalanceMode = 'export' | 'import' | 'balanced';
+
+  interface EconomyStorageBalanceMemory {
+    updatedAt: number;
+    rooms: Record<string, EconomyStorageBalanceRoomMemory>;
+    transfers: EconomyStorageTransferMemory[];
+  }
+
+  interface EconomyStorageBalanceRoomMemory {
+    roomName: string;
+    mode: EconomyStorageBalanceMode;
+    energy: number;
+    capacity: number;
+    ratio: number;
+    exportableEnergy: number;
+    importDemand: number;
+    updatedAt: number;
+  }
+
+  interface EconomyStorageTransferMemory {
+    sourceRoom: string;
+    targetRoom: string;
+    amount: number;
+    updatedAt: number;
+  }
+
+  interface CreepCrossRoomHaulerMemory {
+    homeRoom: string;
+    targetRoom: string;
+    sourceId: Id<AnyStoreStructure>;
+    state?: 'collecting' | 'delivering' | 'returning';
+    route?: string[];
   }
 
   interface EconomyRoomSourceWorkloadMemory {

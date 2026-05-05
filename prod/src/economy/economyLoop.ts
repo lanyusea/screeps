@@ -14,7 +14,12 @@ import { runWorker } from '../creeps/workerRunner';
 import { HAULER_ROLE, runHauler } from '../creeps/hauler';
 import { REMOTE_HARVESTER_ROLE, runRemoteHarvester } from '../creeps/remoteHarvester';
 import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
-import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
+import {
+  orderColoniesForSpawnPlanning,
+  planSpawn,
+  type SpawnPlanningOptions,
+  type SpawnRequest
+} from '../spawn/spawnPlanner';
 import {
   RUNTIME_SUMMARY_INTERVAL,
   emitRuntimeSummary,
@@ -24,6 +29,12 @@ import {
 import { recordSourceWorkloads } from './sourceWorkload';
 import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
+import { balanceStorage } from './storageBalancer';
+import {
+  CROSS_ROOM_HAULER_ROLE,
+  planCrossRoomHauler,
+  runCrossRoomHauler
+} from './crossRoomHauler';
 import {
   buildRuntimeOccupationRecommendationReport,
   clearOccupationRecommendationClaimIntent,
@@ -86,9 +97,13 @@ interface SpawnAttemptOutcome {
 
 export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): RuntimeSummary | undefined {
   const creeps = Object.values(Game.creeps);
-  const colonies = getOwnedColonies();
+  balanceStorage();
+  const colonies = orderColoniesForSpawnPlanning(getOwnedColonies());
   const telemetryEvents: RuntimeTelemetryEvent[] = [...preludeTelemetryEvents];
+  const usedSpawnsByRoom = new Map<string, Set<StructureSpawn>>();
+  const reservedSpawnEnergyByRoom = new Map<string, number>();
   clearColonySurvivalAssessmentCache();
+  attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
 
   for (const colony of colonies) {
     recordSourceWorkloads(colony.room, creeps, Game.time);
@@ -107,9 +122,9 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       roleCounts,
       Game.time
     );
-    let availableEnergy = colony.energyAvailable;
+    let availableEnergy = Math.max(0, colony.energyAvailable - (reservedSpawnEnergyByRoom.get(colony.room.name) ?? 0));
     let successfulSpawnCount = 0;
-    const usedSpawns = new Set<StructureSpawn>();
+    const usedSpawns = new Set<StructureSpawn>(usedSpawnsByRoom.get(colony.room.name) ?? []);
 
     while (true) {
       const planningColony = createSpawnPlanningColony(colony, availableEnergy, usedSpawns);
@@ -165,6 +180,8 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       runRemoteHarvester(creep);
     } else if (creep.memory.role === HAULER_ROLE) {
       runHauler(creep);
+    } else if (creep.memory.role === CROSS_ROOM_HAULER_ROLE) {
+      runCrossRoomHauler(creep);
     } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE) {
       runClaimer(creep, telemetryEvents);
     } else if (creep.memory.role === TERRITORY_SCOUT_ROLE) {
@@ -207,6 +224,37 @@ function recordStrategyRecommendationTelemetry(
 
 function shouldRecordStrategyRecommendationTelemetry(gameTime: number): boolean {
   return gameTime > 0 && gameTime % RUNTIME_SUMMARY_INTERVAL === 0;
+}
+
+function attemptCrossRoomHaulerSpawn(
+  colonies: ColonySnapshot[],
+  telemetryEvents: RuntimeTelemetryEvent[],
+  usedSpawnsByRoom: Map<string, Set<StructureSpawn>>,
+  reservedSpawnEnergyByRoom: Map<string, number>
+): void {
+  const spawnRequest = planCrossRoomHauler();
+  if (!spawnRequest) {
+    return;
+  }
+
+  const sourceRoomName = spawnRequest.spawn.room.name;
+  const sourceColony = colonies.find((colony) => colony.room.name === sourceRoomName);
+  const candidateSpawns = sourceColony?.spawns ?? [spawnRequest.spawn];
+  const outcome = attemptSpawnRequest(
+    spawnRequest,
+    sourceRoomName,
+    telemetryEvents,
+    candidateSpawns
+  );
+  if (!outcome || outcome.result !== OK_CODE) {
+    return;
+  }
+
+  recordUsedSpawn(usedSpawnsByRoom, sourceRoomName, outcome.spawn);
+  reservedSpawnEnergyByRoom.set(
+    sourceRoomName,
+    (reservedSpawnEnergyByRoom.get(sourceRoomName) ?? 0) + getBodyCost(spawnRequest.body)
+  );
 }
 
 function planCriticalConstructionSites(
@@ -586,6 +634,16 @@ function addPlannedWorker(roleCounts: RoleCounts): RoleCounts {
   }
 
   return nextRoleCounts;
+}
+
+function recordUsedSpawn(
+  usedSpawnsByRoom: Map<string, Set<StructureSpawn>>,
+  roomName: string,
+  spawn: StructureSpawn
+): void {
+  const usedSpawns = usedSpawnsByRoom.get(roomName) ?? new Set<StructureSpawn>();
+  usedSpawns.add(spawn);
+  usedSpawnsByRoom.set(roomName, usedSpawns);
 }
 
 function getSpawnAttemptOrder(spawnRequest: SpawnRequest, spawns: StructureSpawn[]): StructureSpawn[] {
