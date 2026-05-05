@@ -41,6 +41,7 @@ describe('runWorker', () => {
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
     (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
+    delete (globalThis as unknown as { PathFinder?: Partial<PathFinder> }).PathFinder;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
   });
@@ -173,6 +174,45 @@ describe('runWorker', () => {
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
     expect(creep.harvest).toHaveBeenCalledWith(source);
     expect(creep.moveTo).toHaveBeenCalledWith(source);
+  });
+
+  it('assigns and executes an adjacent claimed-room harvest when it is the closer source', () => {
+    const homeSource = { id: 'source-home', energy: 300, pos: { x: 40, y: 40, roomName: 'W1N1' } } as Source;
+    const adjacentSource = { id: 'source-adjacent', energy: 300, pos: { x: 2, y: 25, roomName: 'W2N1' } } as Source;
+    const homeRoom = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [homeSource] : []))
+    } as unknown as Room;
+    const adjacentRoom = {
+      name: 'W2N1',
+      controller: { id: 'controller2', my: true } as StructureController,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [adjacentSource] : []))
+    } as unknown as Room;
+    const creep = {
+      memory: {},
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source-adjacent' ? 2 : 15))
+      },
+      room: homeRoom,
+      harvest: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'source-adjacent' ? adjacentSource : homeSource)),
+      map: { describeExits: jest.fn().mockReturnValue({ '3': 'W2N1' }) } as unknown as GameMap,
+      rooms: { W1N1: homeRoom, W2N1: adjacentRoom }
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source-adjacent' });
+    expect(creep.harvest).toHaveBeenCalledWith(adjacentSource);
+    expect(creep.moveTo).toHaveBeenCalledWith(adjacentSource);
   });
 
   it('splits empty workers across sources as harvest assignments change', () => {
@@ -469,6 +509,53 @@ describe('runWorker', () => {
     expect(harvest).toHaveBeenCalledWith(viableSource);
     expect(harvest).not.toHaveBeenCalledWith(depletedSource);
     expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps a depleted remote harvest target when its visible source container can receive energy', () => {
+    const remoteSource = {
+      id: 'remote-source',
+      energy: 0,
+      pos: { x: 20, y: 20, roomName: 'W2N1' } as RoomPosition
+    } as Source;
+    const localSource = { id: 'local-source', energy: 300 } as Source;
+    const remoteContainer = {
+      id: 'remote-container',
+      structureType: 'container',
+      pos: { x: 20, y: 21, roomName: 'W2N1' } as RoomPosition,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureContainer;
+    const homeRoom = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [localSource] : []))
+    } as unknown as Room;
+    const remoteRoom = {
+      name: 'W2N1',
+      find: jest.fn((type: number) => (type === FIND_STRUCTURES ? [remoteContainer] : []))
+    } as unknown as Room;
+    const creep = {
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'remote-source' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(10) },
+      room: homeRoom,
+      harvest: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      rooms: { W1N1: homeRoom, W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) =>
+        id === 'remote-source' ? remoteSource : id === 'local-source' ? localSource : null
+      )
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'remote-source' });
+    expect(creep.moveTo).toHaveBeenCalledWith(remoteContainer);
+    expect(creep.harvest).not.toHaveBeenCalled();
   });
 
   it('picks up dropped energy and moves when not in range', () => {
