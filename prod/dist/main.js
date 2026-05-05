@@ -2854,7 +2854,11 @@ function planLimitedFixedStructureConstruction(colony, options) {
     if (!canPlaceFixedStructure(lookups, position)) {
       continue;
     }
-    return room.createConstructionSite(position.x, position.y, structureType);
+    const result = room.createConstructionSite(position.x, position.y, structureType);
+    if (result === getOkCode2()) {
+      return result;
+    }
+    lookups.blockingPositions.add(getPositionKey3(position));
   }
   return null;
 }
@@ -2885,7 +2889,7 @@ function createFixedStructurePlannerLookups(room, anchor, maxScanRadius) {
     ...lookForAreaPositions(room, "LOOK_STRUCTURES", anchor, maxScanRadius),
     ...lookForAreaPositions(room, "LOOK_CONSTRUCTION_SITES", anchor, maxScanRadius)
   ]) {
-    const position = getRoomObjectPosition(lookResult);
+    const position = getAreaLookPosition(lookResult);
     if (position) {
       blockingPositions.add(getPositionKey3(position));
     }
@@ -2916,6 +2920,40 @@ function lookForAreaPositions(room, lookConstantName, anchor, maxScanRadius) {
   } catch {
     return [];
   }
+}
+function getAreaLookPosition(lookResult) {
+  const coordinatePosition = getAreaLookCoordinatePosition(lookResult);
+  if (coordinatePosition !== null) {
+    return coordinatePosition;
+  }
+  const roomObjectPosition = getRoomObjectPosition(lookResult);
+  if (roomObjectPosition !== null) {
+    return roomObjectPosition;
+  }
+  if (!isRecord3(lookResult)) {
+    return null;
+  }
+  for (const value of Object.values(lookResult)) {
+    const nestedPosition = getRoomObjectPosition(value);
+    if (nestedPosition !== null) {
+      return nestedPosition;
+    }
+  }
+  return null;
+}
+function getAreaLookCoordinatePosition(lookResult) {
+  if (!isRecord3(lookResult)) {
+    return null;
+  }
+  const { x, y, roomName } = lookResult;
+  if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+  return {
+    x,
+    y,
+    ...typeof roomName === "string" ? { roomName } : {}
+  };
 }
 function getFixedStructureCandidatePositions(anchor, maxScanRadius) {
   const positions = [];
@@ -3005,6 +3043,9 @@ function getPositionKey3(position) {
 }
 function getTerrainWallMask3() {
   return typeof TERRAIN_MASK_WALL === "number" ? TERRAIN_MASK_WALL : DEFAULT_TERRAIN_WALL_MASK3;
+}
+function getOkCode2() {
+  return typeof OK === "number" ? OK : 0;
 }
 function getMissingObservations(roomState, candidate) {
   var _a;
@@ -3808,7 +3849,7 @@ function planSourceContainerConstruction(colony, options = {}) {
       continue;
     }
     const result = room.createConstructionSite(position.x, position.y, getContainerStructureType());
-    if (result === getOkCode2()) {
+    if (result === getOkCode3()) {
       lookups.blockedPositions.add(getPositionKey4(position));
       lookups.pendingContainerPositions.add(getPositionKey4(position));
     }
@@ -3940,7 +3981,7 @@ function getContainerStructureType() {
   var _a;
   return (_a = globalThis.STRUCTURE_CONTAINER) != null ? _a : "container";
 }
-function getOkCode2() {
+function getOkCode3() {
   var _a;
   return (_a = globalThis.OK) != null ? _a : 0;
 }
@@ -16030,7 +16071,7 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
     const spawnSite = toSpawnSiteMemory(existingSpawnSite);
     updatePostClaimBootstrapRecord(roomName, {
       status: "spawnSitePending",
-      updatedAt: getGameTime10(),
+      updatedAt: getGameTime11(),
       workerTarget,
       spawnSite,
       lastResult: OK_CODE5
@@ -16054,7 +16095,7 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
   const nextStatus = sitePlan.result === OK_CODE5 ? "spawnSitePending" : "spawnSiteBlocked";
   updatePostClaimBootstrapRecord(roomName, {
     status: nextStatus,
-    updatedAt: getGameTime10(),
+    updatedAt: getGameTime11(),
     workerTarget,
     ...sitePlan.position ? { spawnSite: sitePlan.position } : {},
     lastResult: sitePlan.result

@@ -618,7 +618,12 @@ function planLimitedFixedStructureConstruction(
       continue;
     }
 
-    return room.createConstructionSite(position.x, position.y, structureType);
+    const result = room.createConstructionSite(position.x, position.y, structureType);
+    if (result === getOkCode()) {
+      return result;
+    }
+
+    lookups.blockingPositions.add(getPositionKey(position));
   }
 
   return null;
@@ -673,7 +678,7 @@ function createFixedStructurePlannerLookups(
     ...lookForAreaPositions(room, 'LOOK_STRUCTURES', anchor, maxScanRadius),
     ...lookForAreaPositions(room, 'LOOK_CONSTRUCTION_SITES', anchor, maxScanRadius)
   ]) {
-    const position = getRoomObjectPosition(lookResult as RoomObject);
+    const position = getAreaLookPosition(lookResult);
     if (position) {
       blockingPositions.add(getPositionKey(position));
     }
@@ -713,6 +718,53 @@ function lookForAreaPositions(
   } catch {
     return [];
   }
+}
+
+function getAreaLookPosition(lookResult: unknown): PositionedRoomPosition | null {
+  const coordinatePosition = getAreaLookCoordinatePosition(lookResult);
+  if (coordinatePosition !== null) {
+    return coordinatePosition;
+  }
+
+  const roomObjectPosition = getRoomObjectPosition(lookResult as RoomObject | undefined);
+  if (roomObjectPosition !== null) {
+    return roomObjectPosition;
+  }
+
+  if (!isRecord(lookResult)) {
+    return null;
+  }
+
+  for (const value of Object.values(lookResult)) {
+    const nestedPosition = getRoomObjectPosition(value as RoomObject | undefined);
+    if (nestedPosition !== null) {
+      return nestedPosition;
+    }
+  }
+
+  return null;
+}
+
+function getAreaLookCoordinatePosition(lookResult: unknown): PositionedRoomPosition | null {
+  if (!isRecord(lookResult)) {
+    return null;
+  }
+
+  const { x, y, roomName } = lookResult;
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y)
+  ) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    ...(typeof roomName === 'string' ? { roomName } : {})
+  };
 }
 
 function getFixedStructureCandidatePositions(
