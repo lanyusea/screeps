@@ -1,5 +1,6 @@
 import {
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
+  buildConstructionSiteImpactPriorityContext,
   buildRuntimeConstructionPriorityReport,
   planTowerConstruction,
   selectImpactWeightedConstructionSite,
@@ -267,6 +268,39 @@ describe('impact-weighted construction site selection', () => {
     expect(selectImpactWeightedConstructionSite(origin, [roadSite, containerSite], context)?.id).toBe(
       'source-container-site'
     );
+  });
+
+  it('prioritizes controller-source lane roads as critical logistics construction', () => {
+    installTestGlobals();
+    try {
+      const source = { id: 'source1', pos: makeRoomPosition(40, 10) } as Source;
+      const controller = { my: true, pos: makeRoomPosition(40, 40) } as StructureController;
+      const spawn = makeOwnedStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 10, 10);
+      const criticalRoadSite = makeConstructionSite('controller-source-road-site', 'road', 40, 25);
+      const sourceContainerSite = makeConstructionSite('source-container-site', 'container', 41, 10);
+      const room = {
+        name: 'W1N1',
+        controller,
+        find: jest.fn((findType: number) => {
+          if (findType === TEST_GLOBALS.FIND_MY_STRUCTURES) {
+            return [spawn];
+          }
+
+          return findType === TEST_GLOBALS.FIND_SOURCES ? [source] : [];
+        })
+      } as unknown as Room;
+      const origin = makeSelectionOrigin({
+        'controller-source-road-site': 8,
+        'source-container-site': 2
+      });
+      const context = buildConstructionSiteImpactPriorityContext(room);
+
+      expect(selectImpactWeightedConstructionSite(origin, [sourceContainerSite, criticalRoadSite], context)?.id).toBe(
+        'controller-source-road-site'
+      );
+    } finally {
+      clearTestGlobals();
+    }
   });
 
   it('keeps tower and protected rampart construction above road/container logistics', () => {
