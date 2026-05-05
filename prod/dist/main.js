@@ -7497,8 +7497,9 @@ function applyOccupationRecommendationScore(candidate, recommendation, roleCount
   const intentAction = getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
   const requiresControllerPressure = isTerritoryControlAction3(intentAction) && candidate.requiresControllerPressure === true;
   const commitTarget = recommendation.evidenceStatus === "sufficient" && intentAction !== "scout" && (candidate.commitTarget || isScoutedAdjacentControlCandidate(candidate));
+  const target = getRecommendedTerritoryTarget(candidate.target, recommendation, intentAction);
   const nextSelection = {
-    target: candidate.target,
+    target,
     intentAction,
     commitTarget,
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
@@ -7514,6 +7515,7 @@ function applyOccupationRecommendationScore(candidate, recommendation, roleCount
   );
   return {
     ...candidateWithoutPressure,
+    target,
     intentAction,
     commitTarget: nextSelection.commitTarget,
     priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
@@ -7522,6 +7524,16 @@ function applyOccupationRecommendationScore(candidate, recommendation, roleCount
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...safeAdjacentControllerProgress ? { safeAdjacentControllerProgress: true } : {},
     ...renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}
+  };
+}
+function getRecommendedTerritoryTarget(candidateTarget, recommendation, intentAction) {
+  if (!isTerritoryControlAction3(intentAction)) {
+    return candidateTarget;
+  }
+  return {
+    ...candidateTarget,
+    action: intentAction,
+    ...recommendation.controllerId ? { controllerId: recommendation.controllerId } : {}
   };
 }
 function isScoutedAdjacentControlCandidate(candidate) {

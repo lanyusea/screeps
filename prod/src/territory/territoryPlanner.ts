@@ -2583,8 +2583,9 @@ function applyOccupationRecommendationScore(
     recommendation.evidenceStatus === 'sufficient' &&
     intentAction !== 'scout' &&
     (candidate.commitTarget || isScoutedAdjacentControlCandidate(candidate));
+  const target = getRecommendedTerritoryTarget(candidate.target, recommendation, intentAction);
   const nextSelection: SelectedTerritoryTarget = {
-    target: candidate.target,
+    target,
     intentAction,
     commitTarget,
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
@@ -2601,6 +2602,7 @@ function applyOccupationRecommendationScore(
 
   return {
     ...candidateWithoutPressure,
+    target,
     intentAction,
     commitTarget: nextSelection.commitTarget,
     priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
@@ -2609,6 +2611,22 @@ function applyOccupationRecommendationScore(
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(safeAdjacentControllerProgress ? { safeAdjacentControllerProgress: true } : {}),
     ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {})
+  };
+}
+
+function getRecommendedTerritoryTarget(
+  candidateTarget: TerritoryTargetMemory,
+  recommendation: OccupationRecommendationScore,
+  intentAction: TerritoryIntentAction
+): TerritoryTargetMemory {
+  if (!isTerritoryControlAction(intentAction)) {
+    return candidateTarget;
+  }
+
+  return {
+    ...candidateTarget,
+    action: intentAction,
+    ...(recommendation.controllerId ? { controllerId: recommendation.controllerId } : {})
   };
 }
 

@@ -224,13 +224,15 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W1N2',
-      action: 'reserve'
+      action: 'reserve',
+      controllerId: 'controller2'
     });
     expect(Memory.territory?.targets).toEqual([
       {
         colony: 'W1N1',
         roomName: 'W1N2',
-        action: 'reserve'
+        action: 'reserve',
+        controllerId: 'controller2'
       }
     ]);
     expect(Memory.territory?.intents).toEqual([
@@ -239,7 +241,8 @@ describe('planTerritoryIntent', () => {
         targetRoom: 'W1N2',
         action: 'reserve',
         status: 'planned',
-        updatedAt: 525
+        updatedAt: 525,
+        controllerId: 'controller2'
       }
     ]);
   });
