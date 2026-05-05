@@ -842,6 +842,13 @@ def build_reward(payload: JsonObject, room: JsonObject) -> JsonObject:
     combat = room.get("combat") if isinstance(room.get("combat"), dict) else {}
     resource_events = resources.get("events") if isinstance(resources.get("events"), dict) else {}
     combat_events = combat.get("events") if isinstance(combat.get("events"), dict) else {}
+    harvested_this_tick_value = resources.get("harvestedThisTick")
+    harvested_this_tick = number_or_zero(harvested_this_tick_value)
+    harvested_energy = (
+        harvested_this_tick
+        if is_number(harvested_this_tick_value)
+        else number_or_zero(resource_events.get("harvestedEnergy"))
+    )
 
     return {
         "status": "components-only",
@@ -863,7 +870,8 @@ def build_reward(payload: JsonObject, room: JsonObject) -> JsonObject:
                 "storedEnergy": number_or_zero(resources.get("storedEnergy")),
                 "workerCarriedEnergy": number_or_zero(resources.get("workerCarriedEnergy")),
                 "droppedEnergy": number_or_zero(resources.get("droppedEnergy")),
-                "harvestedEnergy": number_or_zero(resource_events.get("harvestedEnergy")),
+                "harvestedThisTick": harvested_this_tick,
+                "harvestedEnergy": harvested_energy,
                 "transferredEnergy": number_or_zero(resource_events.get("transferredEnergy")),
             },
             "kills": {
