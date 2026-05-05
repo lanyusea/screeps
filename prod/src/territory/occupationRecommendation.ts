@@ -55,6 +55,7 @@ export interface OccupationRecommendationCandidateInput {
   order: number;
   adjacent: boolean;
   visible: boolean;
+  scouted?: boolean;
   ignoreOwnHealthyReservation?: boolean;
   actionHint?: TerritoryControlAction;
   controllerId?: Id<StructureController>;
@@ -544,16 +545,19 @@ function scoreOccupationCandidate(
   if (candidate.routeDistance === null) {
     risks.push('no known route from colony');
     evidenceStatus = 'unavailable';
-  } else if (!candidate.visible) {
+  } else if (!hasOccupationRoomEvidence(candidate)) {
     evidence.push('room visibility missing');
     risks.push('controller, source, and hostile evidence unavailable');
     evidenceStatus = 'insufficient-evidence';
   } else if (!candidate.controller) {
-    evidence.push('room visible');
-    risks.push('visible room has no controller');
+    evidence.push(getOccupationRoomEvidenceLabel(candidate));
+    risks.push(`${getOccupationEvidenceAdjective(candidate)} room has no controller`);
     evidenceStatus = 'unavailable';
   } else {
-    evidence.push('room visible', 'controller visible');
+    evidence.push(
+      getOccupationRoomEvidenceLabel(candidate),
+      `controller ${getOccupationEvidenceAdjective(candidate)}`
+    );
     const controllerPressureEvidence = getControllerPressureEvidence(input, candidate);
     const unavailableReason = getControllerUnavailableReason(input, candidate);
     if (controllerPressureEvidence) {
@@ -564,7 +568,7 @@ function scoreOccupationCandidate(
         risks.push('source count evidence missing');
         evidenceStatus = 'insufficient-evidence';
       } else {
-        evidence.push(`${candidate.sourceCount} sources visible`);
+        evidence.push(`${candidate.sourceCount} sources ${getOccupationEvidenceAdjective(candidate)}`);
       }
     } else if (unavailableReason) {
       risks.push(unavailableReason);
@@ -582,7 +586,10 @@ function scoreOccupationCandidate(
       risks.push('source count evidence missing');
       evidenceStatus = 'insufficient-evidence';
     } else {
-      evidence.push('controller is available', `${candidate.sourceCount} sources visible`);
+      evidence.push(
+        'controller is available',
+        `${candidate.sourceCount} sources ${getOccupationEvidenceAdjective(candidate)}`
+      );
       action = candidate.actionHint === 'claim' ? 'occupy' : 'reserve';
     }
   }
@@ -612,6 +619,18 @@ function scoreOccupationCandidate(
     ...(candidate.hostileCreepCount !== undefined ? { hostileCreepCount: candidate.hostileCreepCount } : {}),
     ...(candidate.hostileStructureCount !== undefined ? { hostileStructureCount: candidate.hostileStructureCount } : {})
   };
+}
+
+function hasOccupationRoomEvidence(candidate: OccupationRecommendationCandidateInput): boolean {
+  return candidate.visible || candidate.scouted === true;
+}
+
+function getOccupationRoomEvidenceLabel(candidate: OccupationRecommendationCandidateInput): string {
+  return candidate.visible ? 'room visible' : 'room scouted';
+}
+
+function getOccupationEvidenceAdjective(candidate: OccupationRecommendationCandidateInput): string {
+  return candidate.visible ? 'visible' : 'scouted';
 }
 
 function buildOccupationRecommendationFollowUpIntent(

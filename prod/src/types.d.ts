@@ -198,6 +198,8 @@ declare global {
     | 'controllerReserved'
     | 'hostileSpawn'
     | 'sourcesMissing';
+  type TerritoryExpansionCandidateEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
+  type TerritoryExpansionCandidateRecommendedAction = 'claim' | 'scout';
   type TerritoryPostClaimBootstrapStatus =
     | 'detected'
     | 'spawnSitePending'
@@ -257,6 +259,7 @@ declare global {
     reservations?: Record<string, TerritoryReservationMemory>;
     scoutAttempts?: Record<string, TerritoryScoutAttemptMemory>;
     scoutIntel?: Record<string, TerritoryScoutIntelMemory>;
+    expansionCandidates?: TerritoryExpansionCandidateMemory[];
     routeDistancesUpdatedAt?: Record<string, number>;
     routeDistances?: Record<string, number | null>;
   }
@@ -313,6 +316,19 @@ declare global {
     density?: number;
   }
 
+  interface TerritoryTerrainQualityMemory {
+    walkableRatio: number;
+    swampRatio: number;
+    wallRatio: number;
+  }
+
+  interface TerritoryScoutSourceIntelMemory {
+    id: string;
+    x: number;
+    y: number;
+    accessPoints?: number;
+  }
+
   interface TerritoryScoutValidationMemory {
     status: TerritoryScoutValidationStatus;
     updatedAt: number;
@@ -338,11 +354,41 @@ declare global {
     controller?: TerritoryScoutControllerIntelMemory;
     sourceIds: string[];
     sourceCount: number;
+    sourcePositions?: TerritoryScoutSourceIntelMemory[];
+    sourceAccessPoints?: number;
+    controllerSourceRange?: number;
+    terrain?: TerritoryTerrainQualityMemory;
     mineral?: TerritoryScoutMineralIntelMemory;
     hostileCreepCount: number;
     hostileStructureCount: number;
     hostileSpawnCount: number;
     scoutName?: string;
+  }
+
+  interface TerritoryExpansionCandidateMemory {
+    colony: string;
+    roomName: string;
+    rank: number;
+    score: number;
+    evidenceStatus: TerritoryExpansionCandidateEvidenceStatus;
+    visible: boolean;
+    updatedAt: number;
+    adjacentToOwnedRoom: boolean;
+    recommendedAction?: TerritoryExpansionCandidateRecommendedAction;
+    routeDistance?: number;
+    nearestOwnedRoom?: string;
+    nearestOwnedRoomDistance?: number;
+    controllerId?: Id<StructureController>;
+    sourceCount?: number;
+    sourceAccessPoints?: number;
+    controllerSourceRange?: number;
+    terrain?: TerritoryTerrainQualityMemory;
+    hostileCreepCount?: number;
+    hostileStructureCount?: number;
+    requiresControllerPressure?: boolean;
+    risks?: string[];
+    preconditions?: string[];
+    rationale?: string[];
   }
 
   interface TerritoryFollowUpMemory {

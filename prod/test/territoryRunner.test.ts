@@ -14,6 +14,8 @@ describe('runTerritoryControllerCreep', () => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
     (globalThis as unknown as { RoomPosition: typeof RoomPosition }).RoomPosition = jest.fn(
       (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
@@ -35,6 +37,7 @@ describe('runTerritoryControllerCreep', () => {
     delete (globalThis as { LOOK_CONSTRUCTION_SITES?: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES;
     delete (globalThis as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN;
     delete (globalThis as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
+    delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
     delete (globalThis as { CLAIM?: BodyPartConstant }).CLAIM;
     delete (globalThis as { RoomPosition?: typeof RoomPosition }).RoomPosition;
     delete (globalThis as { Game?: Partial<Game> }).Game;
@@ -119,10 +122,18 @@ describe('runTerritoryControllerCreep', () => {
       memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } },
       room: {
         name: 'W1N2',
-        controller: { id: 'controller2' as Id<StructureController>, my: false },
+        controller: {
+          id: 'controller2' as Id<StructureController>,
+          my: false,
+          pos: { x: 25, y: 25, roomName: 'W1N2' } as RoomPosition
+        },
+        getTerrain: jest.fn(() => makeTerrain()),
         find: jest.fn((findType: number) => {
           if (findType === FIND_SOURCES) {
-            return [{ id: 'source1' }, { id: 'source2' }];
+            return [
+              { id: 'source1', pos: { x: 15, y: 25, roomName: 'W1N2' } },
+              { id: 'source2', pos: { x: 35, y: 25, roomName: 'W1N2' } }
+            ];
           }
 
           if (findType === FIND_MINERALS) {
@@ -148,6 +159,13 @@ describe('runTerritoryControllerCreep', () => {
       controller: { id: 'controller2', my: false },
       sourceIds: ['source1', 'source2'],
       sourceCount: 2,
+      sourcePositions: [
+        { id: 'source1', x: 15, y: 25, accessPoints: 0 },
+        { id: 'source2', x: 35, y: 25, accessPoints: 8 }
+      ],
+      sourceAccessPoints: 4,
+      controllerSourceRange: 10,
+      terrain: { walkableRatio: 0.5, swampRatio: 0, wallRatio: 0.5 },
       mineral: { id: 'mineral1', mineralType: 'H' },
       hostileCreepCount: 0,
       hostileStructureCount: 0,
@@ -1484,3 +1502,9 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.claimController).not.toHaveBeenCalled();
   });
 });
+
+function makeTerrain(): RoomTerrain {
+  return {
+    get: jest.fn((x: number) => (x <= 24 ? TERRAIN_MASK_WALL : 0))
+  } as unknown as RoomTerrain;
+}

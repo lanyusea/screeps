@@ -192,6 +192,58 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('uses persisted scout intel to promote an unseen adjacent room into a reserve target', () => {
+    const colony = makeSafeColony();
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W1N2': {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            updatedAt: 524,
+            controller: { id: 'controller2' as Id<StructureController>, my: false },
+            sourceIds: ['source1', 'source2'],
+            sourceCount: 2,
+            sourceAccessPoints: 7,
+            controllerSourceRange: 9,
+            terrain: { walkableRatio: 0.92, swampRatio: 0.03, wallRatio: 0.08 },
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 525)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        action: 'reserve'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 525
+      }
+    ]);
+  });
+
   it('prefers a visible adjacent reserve target before scouting an unknown exit', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));

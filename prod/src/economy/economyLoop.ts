@@ -394,7 +394,7 @@ function refreshNextExpansionTargetSelectionIfDue(
   );
   logBestClaimTarget(colony.room);
   colonyMemory.lastExpansionScoreTime = gameTime;
-  colonyMemory.cachedExpansionSelection = { ...selection, stateKey };
+  colonyMemory.cachedExpansionSelection = { ...selection, stateKey: getNextExpansionSelectionCacheStateKey(colony) };
   return selection;
 }
 
@@ -534,7 +534,8 @@ function getNextExpansionSelectionCacheStateKey(colony: ColonySnapshot): string 
     controllerLevel,
     countVisibleOwnedRooms(),
     downgradeState,
-    countActivePostClaimBootstraps()
+    countActivePostClaimBootstraps(),
+    getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join('|');
 }
 
@@ -556,6 +557,27 @@ function countActivePostClaimBootstraps(): number {
   return Object.values(records).filter(
     (record) => isRecord(record) && record.status !== 'ready'
   ).length;
+}
+
+function getLatestTerritoryScoutIntelUpdatedAt(colony: string): number {
+  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.scoutIntel;
+  if (!isRecord(records)) {
+    return 0;
+  }
+
+  let latestUpdatedAt = 0;
+  for (const record of Object.values(records)) {
+    if (
+      isRecord(record) &&
+      record.colony === colony &&
+      isFiniteNumber(record.updatedAt) &&
+      record.updatedAt > latestUpdatedAt
+    ) {
+      latestUpdatedAt = record.updatedAt;
+    }
+  }
+
+  return latestUpdatedAt;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
