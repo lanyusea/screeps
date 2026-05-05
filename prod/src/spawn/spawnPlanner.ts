@@ -571,7 +571,7 @@ function planDefenseSpawnForContext(context: SpawnPlanningContext): SpawnRequest
 
   return planDefenseSpawnForRoom(
     context.colony,
-    context.roleCounts.defender ?? 0,
+    countActiveRoomDefenders(context.colony.room.name),
     context.gameTime,
     context.options
   );

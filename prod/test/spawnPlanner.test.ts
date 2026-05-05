@@ -271,6 +271,15 @@ describe('planSpawn', () => {
     } as Creep;
   }
 
+  function makeActiveDefender(roomName = 'W1N1'): Creep {
+    return {
+      memory: { role: 'defender', colony: roomName, defense: { homeRoom: roomName } },
+      room: { name: roomName } as Room,
+      ticksToLive: 1_000,
+      getActiveBodyparts: jest.fn((bodyPart: BodyPartConstant) => (bodyPart === 'attack' ? 1 : 0))
+    } as unknown as Creep;
+  }
+
   function findMockCreepsInRoom(roomName: string): Creep[] {
     const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
     return creeps ? Object.values(creeps).filter((creep) => creep.room?.name === roomName) : [];
@@ -1140,6 +1149,9 @@ describe('planSpawn', () => {
       hostileCreeps: [hostile],
       controller: { my: true, level: 3, ticksToDowngrade: 1_500 } as StructureController
     });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Defender1: makeActiveDefender('W1N9') }
+    };
 
     expect(planSpawn(colony, { worker: 3, defender: 1 }, 151)).toBeNull();
   });
@@ -1225,12 +1237,32 @@ describe('planSpawn', () => {
     });
   });
 
+  it('plans an emergency defender replacement when defender role counts are stale', () => {
+    installHostileFindGlobals();
+    const hostile = { id: 'hostile1' } as Creep;
+    const { colony, spawn } = makeColony({ hostileCreeps: [hostile] });
+
+    expect(planSpawn(colony, { worker: 3, defender: 1 }, 161)).toEqual({
+      spawn,
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W1N1-161',
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
+    });
+  });
+
   it('does not stack emergency defenders while one defender is already active', () => {
     installHostileFindGlobals();
     const hostile = { id: 'hostile1' } as Creep;
     const { colony } = makeColony({ hostileCreeps: [hostile] });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Defender1: makeActiveDefender('W1N1') }
+    };
 
-    expect(planSpawn(colony, { worker: 3, defender: 1 }, 161)).toBeNull();
+    expect(planSpawn(colony, { worker: 3, defender: 1 }, 162)).toBeNull();
   });
 
   it('waits instead of emitting an invalid defender body when hostile defense energy is unavailable', () => {

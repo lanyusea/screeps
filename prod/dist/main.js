@@ -14374,6 +14374,36 @@ function getRoomHostileCreepCount(room) {
   const result = room.find(findHostiles);
   return Array.isArray(result) ? result.length : 0;
 }
+function countActiveRoomDefenders(roomName) {
+  const game = globalThis.Game;
+  if (!(game == null ? void 0 : game.creeps)) {
+    return 0;
+  }
+  return Object.values(game.creeps).filter((creep) => isActiveRoomDefender(creep, roomName)).length;
+}
+function isActiveRoomDefender(creep, roomName) {
+  var _a, _b;
+  return creep.memory.role === DEFENDER_ROLE && ((_a = creep.memory.defense) == null ? void 0 : _a.homeRoom) === roomName && ((_b = creep.room) == null ? void 0 : _b.name) === roomName && canSatisfyDefenderSpawnCapacity(creep);
+}
+function canSatisfyDefenderSpawnCapacity(creep) {
+  return (creep.ticksToLive === void 0 || creep.ticksToLive > 100) && hasActiveAttackPart2(creep);
+}
+function hasActiveAttackPart2(creep) {
+  var _a;
+  const attackPart = getBodyPartConstant4("ATTACK", "attack");
+  const activeParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, attackPart);
+  if (typeof activeParts === "number") {
+    return activeParts > 0;
+  }
+  if (!Array.isArray(creep.body)) {
+    return false;
+  }
+  return creep.body.some((part) => part.type === attackPart && part.hits > 0);
+}
+function getBodyPartConstant4(globalName, fallback) {
+  const value = globalThis[globalName];
+  return value != null ? value : fallback;
+}
 function hasPostClaimSustainSpawnEnergy(colony) {
   return colony.energyAvailable >= POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY && colony.energyAvailable >= colony.energyCapacityAvailable;
 }
@@ -14488,13 +14518,12 @@ function isClaimedRoomEnergyInsufficient(room) {
   return typeof energyAvailable !== "number" || energyAvailable < POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY;
 }
 function planDefenseSpawnForContext(context) {
-  var _a;
   if (!context.survival.hostilePresence || context.options.workersOnly) {
     return null;
   }
   return planDefenseSpawnForRoom(
     context.colony,
-    (_a = context.roleCounts.defender) != null ? _a : 0,
+    countActiveRoomDefenders(context.colony.room.name),
     context.gameTime,
     context.options
   );
@@ -18149,7 +18178,7 @@ function getSourceEnergyRegenTicks2() {
 }
 function getActiveWorkParts2(creep) {
   var _a;
-  const workPart = getBodyPartConstant4("WORK", "work");
+  const workPart = getBodyPartConstant5("WORK", "work");
   const activeWorkParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, workPart);
   if (typeof activeWorkParts === "number" && Number.isFinite(activeWorkParts)) {
     return Math.max(0, Math.floor(activeWorkParts));
@@ -18164,7 +18193,7 @@ function isActiveBodyPart4(part, bodyPartType) {
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant4(globalName, fallback) {
+function getBodyPartConstant5(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
@@ -19549,7 +19578,7 @@ function isForeignReservedController3(controller, colony) {
 }
 function getKnownActiveClaimPartCount(creep) {
   var _a;
-  const claimPart = getBodyPartConstant5("CLAIM", "claim");
+  const claimPart = getBodyPartConstant6("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts;
@@ -19563,7 +19592,7 @@ function isActiveBodyPart5(part, bodyPartType) {
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant5(globalName, fallback) {
+function getBodyPartConstant6(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
@@ -20821,7 +20850,7 @@ function getGameTime16() {
 }
 function isCreepKnownToHaveNoActiveClaimParts(creep) {
   var _a;
-  const claimPart = getBodyPartConstant6("CLAIM", "claim");
+  const claimPart = getBodyPartConstant7("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts <= 0;
@@ -20838,7 +20867,7 @@ function isActiveBodyPart6(part, bodyPartType) {
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant6(globalName, fallback) {
+function getBodyPartConstant7(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
