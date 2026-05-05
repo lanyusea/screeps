@@ -7951,14 +7951,13 @@ function isSourceLink(room, link) {
   return linkId !== "" && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId2(sourceLink) === linkId);
 }
 function distributeSourceLinksToController(room, network, projectedState, distributionResult, telemetryEvents) {
-  var _a, _b;
+  var _a;
   if (!network.controllerLink || !canUseControllerLinkForUpgrade(room)) {
     return false;
   }
   const controllerLinkId = getObjectId2(network.controllerLink);
   const destinationFreeCapacity = (_a = projectedState.freeCapacityById.get(controllerLinkId)) != null ? _a : 0;
-  const controllerLinkEnergy = (_b = projectedState.storedEnergyById.get(controllerLinkId)) != null ? _b : 0;
-  let handled = destinationFreeCapacity > 0 || controllerLinkEnergy > 0;
+  let handled = false;
   if (destinationFreeCapacity > 0) {
     const transferResults = transferSourceLinksToDestination(
       network.sourceLinks,
@@ -7981,6 +7980,9 @@ function distributeSourceLinksToController(room, network, projectedState, distri
         }
       );
     }
+    if (transferResults.results.length > 0) {
+      handled = true;
+    }
     if (transferResults.cooldownTicks !== null && transferResults.results.length === 0) {
       recordLinkDistributionAction(
         room.name,
@@ -7995,6 +7997,7 @@ function distributeSourceLinksToController(room, network, projectedState, distri
       handled = true;
     }
   }
+  const assignedTasksBefore = distributionResult.assignedTasks;
   assignControllerLinkUpgradeWithdrawals(
     room,
     network.controllerLink,
@@ -8002,7 +8005,7 @@ function distributeSourceLinksToController(room, network, projectedState, distri
     distributionResult,
     telemetryEvents
   );
-  return handled || distributionResult.assignedTasks > 0;
+  return handled || distributionResult.assignedTasks > assignedTasksBefore;
 }
 function distributeSourceLinksToStorageLink(room, network, projectedState, distributionResult, telemetryEvents) {
   var _a;
@@ -8084,7 +8087,7 @@ function transferSourceLinksToDestination(sourceLinks, destination, projectedSta
   return { cooldownTicks: minCooldownTicks, results };
 }
 function transferLinkEnergy(sourceLink, destinationLink, amount) {
-  return sourceLink.transfer(destinationLink, amount);
+  return sourceLink.transferEnergy(destinationLink, amount);
 }
 function assignLinkEnergyHauling(room, sourceLinks, demandTargets, projectedState, path, distributionResult, telemetryEvents) {
   var _a, _b, _c;
@@ -14256,7 +14259,7 @@ function isNonEmptyString10(value) {
 // src/territory/scoutIntel.ts
 var TERRITORY_SCOUT_MEMORY_KEY_SEPARATOR = ">";
 var TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS = 1500;
-function recordVisibleRoomScoutIntel(colony, room, gameTime = getGameTime9(), scoutName, telemetryEvents = []) {
+function recordVisibleRoomScoutIntel(colony, room, gameTime = getGameTime10(), scoutName, telemetryEvents = []) {
   var _a, _b, _c, _d;
   if (!isNonEmptyString11(colony) || !room || !isNonEmptyString11(room.name)) {
     return null;
@@ -14690,7 +14693,7 @@ function getGlobalNumber4(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
-function getGameTime9() {
+function getGameTime10() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -15692,7 +15695,7 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   if (!bootstraps) {
     return;
   }
-  const gameTime = getGameTime10();
+  const gameTime = getGameTime11();
   const existing = getPostClaimBootstrapRecord(input.roomName);
   const claimedAt = (existing == null ? void 0 : existing.status) === "ready" ? gameTime : (_a = existing == null ? void 0 : existing.claimedAt) != null ? _a : gameTime;
   bootstraps[input.roomName] = {
@@ -15816,7 +15819,7 @@ function recordPostClaimBootstrapWorkerSpawn(roomName, spawnName, creepName, res
   }
   updatePostClaimBootstrapRecord(roomName, {
     status: "spawningWorkers",
-    updatedAt: getGameTime10()
+    updatedAt: getGameTime11()
   });
   telemetryEvents.push({
     type: "postClaimBootstrap",
@@ -16101,7 +16104,7 @@ function getGlobalString(name) {
   const value = globalThis[name];
   return typeof value === "string" ? value : null;
 }
-function getGameTime10() {
+function getGameTime11() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
@@ -16140,7 +16143,7 @@ function emitRuntimeSummary(colonies, creeps, events = [], options = {}) {
   if (colonies.length === 0 && events.length === 0) {
     return void 0;
   }
-  const tick = getGameTime11();
+  const tick = getGameTime12();
   resetCachedRefillTelemetryIfTickRewound(tick);
   const emitsSummary = shouldEmitRuntimeSummary(tick, events);
   const creepsByColony = groupCreepsByColony(creeps);
@@ -16237,7 +16240,7 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
   const territoryRecommendation = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   const territoryExpansion = buildRuntimeExpansionCandidateReport(colony);
   if (persistOccupationRecommendations) {
-    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime11());
+    persistOccupationRecommendationFollowUpIntent(territoryRecommendation, getGameTime12());
   }
   return {
     roomName: colony.room.name,
@@ -16246,11 +16249,11 @@ function summarizeRoom(colony, colonyCreeps, persistOccupationRecommendations, e
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
-    ...summarizeRuntimeBehavior(colonyWorkers, getGameTime11()),
+    ...summarizeRuntimeBehavior(colonyWorkers, getGameTime12()),
     ...includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {},
-    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime11()),
-    ...summarizeRefillTelemetry(colonyWorkers, getGameTime11()),
-    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime11()),
+    ...summarizeWorkerEfficiency(colonyWorkers, getGameTime12()),
+    ...summarizeRefillTelemetry(colonyWorkers, getGameTime12()),
+    ...summarizeSpawnCriticalRefill(colonyWorkers, getGameTime12()),
     ...buildControllerSummary(colony.room),
     resources: summarizeResources(colony, colonyWorkers, eventMetrics.resources),
     combat: summarizeCombat(colony.room, eventMetrics.combat),
@@ -16270,7 +16273,7 @@ function buildPostClaimBootstrapSummary(roomName) {
 }
 function buildTerritoryIntentSummary(colonyName, roleCounts) {
   const territoryIntents = getTerritoryIntentProgressSummaries(colonyName, roleCounts);
-  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime11());
+  const suspendedTerritoryIntentCounts = getSuspendedTerritoryIntentCountsByRoom(colonyName, getGameTime12());
   const hasSuspendedTerritoryIntents = Object.keys(suspendedTerritoryIntentCounts).length > 0;
   if (territoryIntents.length === 0 && !hasSuspendedTerritoryIntents) {
     return {};
@@ -17228,7 +17231,7 @@ function buildCpuSummary() {
   }
   return Object.keys(summary).length > 0 ? { cpu: summary } : {};
 }
-function getGameTime11() {
+function getGameTime12() {
   return typeof Game.time === "number" ? Game.time : 0;
 }
 
@@ -18395,7 +18398,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
     return;
   }
   if (assignment.action === "scout") {
-    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime12(), creep.name, telemetryEvents);
+    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime13(), creep.name, telemetryEvents);
     completeTerritoryAssignment(creep);
     return;
   }
@@ -18464,7 +18467,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   if (typeof creep.reserveController !== "function" || !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
     return false;
   }
-  const gameTime = getGameTime12();
+  const gameTime = getGameTime13();
   const reserveAssignment = {
     targetRoom: assignment.targetRoom,
     action: "reserve",
@@ -18484,7 +18487,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   return true;
 }
 function suppressTerritoryAssignment(creep, assignment) {
-  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime12());
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime13());
   completeTerritoryAssignment(creep);
 }
 function completeTerritoryAssignment(creep) {
@@ -18564,7 +18567,7 @@ function selectVisibleTargetRoomController(assignment) {
   }
   return (_c = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[assignment.targetRoom]) == null ? void 0 : _b.controller) != null ? _c : null;
 }
-function getGameTime12() {
+function getGameTime13() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -18954,7 +18957,7 @@ var Kernel = class {
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
     return this.dependencies.runEconomy(
-      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime13())
+      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime14())
     );
   }
 };
@@ -19026,7 +19029,7 @@ function getDefenseEventPriority(event) {
       return 3;
   }
 }
-function getGameTime13() {
+function getGameTime14() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
 

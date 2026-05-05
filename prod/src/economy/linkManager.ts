@@ -243,8 +243,7 @@ function distributeSourceLinksToController(
 
   const controllerLinkId = getObjectId(network.controllerLink);
   const destinationFreeCapacity = projectedState.freeCapacityById.get(controllerLinkId) ?? 0;
-  const controllerLinkEnergy = projectedState.storedEnergyById.get(controllerLinkId) ?? 0;
-  let handled = destinationFreeCapacity > 0 || controllerLinkEnergy > 0;
+  let handled = false;
 
   if (destinationFreeCapacity > 0) {
     const transferResults = transferSourceLinksToDestination(
@@ -268,6 +267,9 @@ function distributeSourceLinksToController(
         }
       );
     }
+    if (transferResults.results.length > 0) {
+      handled = true;
+    }
 
     if (transferResults.cooldownTicks !== null && transferResults.results.length === 0) {
       recordLinkDistributionAction(
@@ -284,6 +286,7 @@ function distributeSourceLinksToController(
     }
   }
 
+  const assignedTasksBefore = distributionResult.assignedTasks;
   assignControllerLinkUpgradeWithdrawals(
     room,
     network.controllerLink,
@@ -291,7 +294,7 @@ function distributeSourceLinksToController(
     distributionResult,
     telemetryEvents
   );
-  return handled || distributionResult.assignedTasks > 0;
+  return handled || distributionResult.assignedTasks > assignedTasksBefore;
 }
 
 function distributeSourceLinksToStorageLink(
