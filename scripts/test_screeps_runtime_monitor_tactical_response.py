@@ -46,6 +46,41 @@ HOSTILE_ALERT_FIXTURE = {
     "rooms": ["shardX/E26S49"],
 }
 
+ROOM_DEAD_ALERT_FIXTURE = {
+    "ok": True,
+    "mode": "alert",
+    "alert": True,
+    "reasons": [
+        {
+            "kind": "room_dead",
+            "room": "shardX/E26S49",
+            "current_owned_spawns": 0,
+            "current_owned_creeps": 0,
+            "message": "room has no owned creeps and no owned spawn recovery path",
+        }
+    ],
+    "rooms": ["shardX/E26S49"],
+}
+
+HEALTHY_ALERT_FIXTURE = {
+    "ok": True,
+    "mode": "alert",
+    "alert": False,
+    "reasons": [],
+    "rooms": ["shardX/E26S49"],
+    "room_summaries": [
+        {
+            "room": "shardX/E26S49",
+            "owned_creeps": 3,
+            "owned_spawns": 1,
+            "creeps": 3,
+            "spawns": 1,
+            "owner": "owner",
+        }
+    ],
+    "warnings": [],
+}
+
 
 PRIVATE_SMOKE_PHASES = [
     "host-port-preflight",
@@ -153,6 +188,111 @@ class TacticalResponseBridgeTest(unittest.TestCase):
         self.assertTrue(report["scheduler"]["should_post"])
         self.assertEqual(report["scheduler"]["recommended_output"], "TACTICAL_EMERGENCY_REPORT")
         self.assertIn("capture_runtime_context", {action["id"] for action in report["next_actions"]})
+
+    def test_room_dead_fixture_is_p0_critical_tactical_emergency(self) -> None:
+        report = monitor.build_tactical_response_report(ROOM_DEAD_ALERT_FIXTURE)
+
+        self.assertTrue(report["emergency"])
+        self.assertFalse(report["silent"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertIn("room_dead", report["categories"])
+        self.assertIn("spawn_collapse", report["categories"])
+        self.assertTrue(report["scheduler"]["should_post"])
+        self.assertEqual(report["scheduler"]["priority"], "P0")
+        self.assertEqual(report["scheduler"]["recommended_output"], "TACTICAL_EMERGENCY_REPORT")
+        self.assertIn("start_autonomous_recovery", {action["id"] for action in report["next_actions"]})
+
+    def test_hostile_room_dead_fixture_remains_p0_critical(self) -> None:
+        fixture = copy.deepcopy(ROOM_DEAD_ALERT_FIXTURE)
+        fixture["reasons"] = [*HOSTILE_ALERT_FIXTURE["reasons"], *fixture["reasons"]]
+
+        report = monitor.build_tactical_response_report(fixture)
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertIn("hostiles", report["categories"])
+        self.assertIn("room_dead", report["categories"])
+        self.assertEqual(report["scheduler"]["recommended_output"], "TACTICAL_EMERGENCY_REPORT")
+
+    def test_healthy_room_summary_fixture_stays_silent(self) -> None:
+        report = monitor.build_tactical_response_report(HEALTHY_ALERT_FIXTURE)
+
+        self.assertFalse(report["emergency"])
+        self.assertTrue(report["silent"])
+        self.assertEqual(report["severity"], "none")
+        self.assertIsNone(report["priority"])
+        self.assertEqual(report["scheduler"]["recommended_output"], "[SILENT]")
+
+    def test_suppressed_room_dead_still_escalates(self) -> None:
+        fixture = {
+            "ok": True,
+            "mode": "alert",
+            "alert": False,
+            "reasons": [],
+            "rooms": ["shardX/E26S49"],
+            "suppressed": True,
+            "suppressed_count": 1,
+            "suppressed_reasons": ROOM_DEAD_ALERT_FIXTURE["reasons"],
+        }
+
+        report = monitor.build_tactical_response_report(fixture)
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertTrue(report["scheduler"]["should_post"])
+        self.assertTrue(any(trigger["suppressed"] for trigger in report["triggers"]))
+
+    def test_owned_spawns_zero_room_summary_is_critical(self) -> None:
+        fixture = {
+            "ok": True,
+            "mode": "alert",
+            "alert": False,
+            "reasons": [],
+            "rooms": ["shardX/E26S49"],
+            "room_summaries": [
+                {
+                    "room": "shardX/E26S49",
+                    "owned_creeps": 2,
+                    "owned_spawns": 0,
+                    "creeps": 2,
+                    "spawns": 0,
+                    "owner": "owner",
+                }
+            ],
+        }
+
+        report = monitor.build_tactical_response_report(fixture)
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertIn("spawn_collapse", report["categories"])
+
+    def test_postdeploy_no_owned_spawn_is_critical(self) -> None:
+        report = monitor.build_tactical_response_report(
+            {
+                "ok": True,
+                "mode": "health-gate",
+                "alert": False,
+                "reasons": [
+                    {
+                        "kind": "postdeploy_no_owned_spawn",
+                        "room": "shardX/E26S49",
+                        "spawns": 0,
+                        "creeps": 1,
+                        "message": "shardX/E26S49: no owned spawn recovery path is visible after deploy",
+                    }
+                ],
+            }
+        )
+
+        self.assertTrue(report["emergency"])
+        self.assertEqual(report["severity"], "critical")
+        self.assertEqual(report["priority"], "P0")
+        self.assertIn("spawn_collapse", report["categories"])
 
     def test_generated_critical_owned_structure_damage_is_critical(self) -> None:
         previous = {
