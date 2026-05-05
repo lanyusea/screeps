@@ -6,6 +6,7 @@ import {
   getEnergyResource,
   getObjectId,
   getOwnedTowers,
+  isDamagedStructure,
   recordDefenseAction,
   type DefenseTelemetryContext
 } from './defenseTelemetry';
@@ -128,7 +129,7 @@ function runTowerRepair(
     return false;
   }
 
-  const target = selectClosestTarget(tower, context.damagedCriticalStructures);
+  const target = selectClosestTarget(tower, context.damagedCriticalStructures.filter(isDamagedStructure));
   if (!target) {
     return false;
   }

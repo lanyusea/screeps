@@ -86,6 +86,37 @@ describe('automatic room defense response', () => {
     expect(events).toEqual([]);
   });
 
+  it('repairs ramparts below the critical damage ratio with available tower reserve', () => {
+    const rampart = makeRampart('rampart-low', 200_000_000, 300_000_000);
+    const tower = makeTower('tower1', { energy: 500 });
+    const room = makeRoom({ structures: [rampart, tower] });
+    attachRoom([tower], room);
+
+    const events = runTowers(room);
+
+    expect(tower.repair).toHaveBeenCalledWith(rampart);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'towerRepair',
+        targetId: 'rampart-low',
+        damagedCriticalStructureCount: 1
+      }
+    ]);
+  });
+
+  it('skips ramparts above the critical damage ratio to preserve tower energy', () => {
+    const rampart = makeRampart('rampart-high', 270_000_000, 300_000_000);
+    const tower = makeTower('tower1', { energy: 500 });
+    const room = makeRoom({ structures: [rampart, tower] });
+    attachRoom([tower], room);
+
+    const events = runTowers(room);
+
+    expect(tower.repair).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
   it('scales defender body size from room hostile count', () => {
     const oneHostileRoom = installSpawnPlanningRoom({ hostileCount: 1, energyAvailable: 600 });
     const oneHostilePlan = planDefenseSpawn(oneHostileRoom);
@@ -141,6 +172,50 @@ describe('automatic room defense response', () => {
         result: OK_CODE
       }
     ]);
+  });
+
+  it('activates safe mode before the last spawn is lost when hostiles critically damage it', () => {
+    const controller = makeController({
+      safeModeAvailable: 1,
+      activateSafeMode: jest.fn().mockReturnValue(OK_CODE)
+    });
+    const spawn = makeSpawn('spawn1', 1_000, 5_000);
+    const room = makeRoom({
+      controller,
+      hostiles: [makeHostile('hostile1')],
+      structures: [spawn]
+    });
+    attachRoom([spawn], room);
+
+    const events = runSafeMode(room);
+
+    expect(controller.activateSafeMode).toHaveBeenCalledTimes(1);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'safeMode',
+        roomName: 'W1N1',
+        hostileCreepCount: 1,
+        result: OK_CODE
+      }
+    ]);
+  });
+
+  it('keeps safe mode idle under light hostile pressure when spawn damage is not critical', () => {
+    const controller = makeController({
+      safeModeAvailable: 1,
+      activateSafeMode: jest.fn().mockReturnValue(OK_CODE)
+    });
+    const spawn = makeSpawn('spawn1', 2_000, 5_000);
+    const room = makeRoom({
+      controller,
+      hostiles: [makeHostile('hostile1')],
+      structures: [spawn]
+    });
+    attachRoom([spawn], room);
+
+    expect(runSafeMode(room)).toEqual([]);
+    expect(controller.activateSafeMode).not.toHaveBeenCalled();
   });
 
   it('does not attempt safe mode while safe mode is on cooldown', () => {
@@ -321,6 +396,17 @@ function makeSpawn(id: string, hits = 5_000, hitsMax = 5_000): StructureSpawn {
     hitsMax,
     spawning: null
   } as unknown as StructureSpawn;
+}
+
+function makeRampart(id: string, hits: number, hitsMax: number): StructureRampart {
+  return {
+    id,
+    structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+    my: true,
+    hits,
+    hitsMax,
+    pos: makePosition()
+  } as unknown as StructureRampart;
 }
 
 function attachRoom(structures: Array<StructureSpawn | StructureTower>, room: Room): void {

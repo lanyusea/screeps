@@ -14,6 +14,7 @@ export interface SafeModeRunResult {
 }
 
 export const SAFE_MODE_HOSTILE_COUNT_THRESHOLD = 2;
+export const CRITICAL_SPAWN_LOSS_HITS_RATIO = 0.25;
 
 const OK_CODE = 0 as ScreepsReturnCode;
 
@@ -108,12 +109,28 @@ function isControllerUnderAttack(controller: StructureController, hostileCreeps:
 }
 
 function isCriticalSpawnLossThreat(context: DefenseTelemetryContext): boolean {
-  return context.hostileCreeps.length > 0 && getOwnedSpawnCount(context.room) === 0;
+  if (context.hostileCreeps.length === 0) {
+    return false;
+  }
+
+  const spawns = getOwnedSpawns(context.room);
+  return spawns.length === 0 || spawns.some(isCriticallyDamagedSpawn);
 }
 
-function getOwnedSpawnCount(room: Room): number {
-  return findOwnedStructures(room).filter((structure) => {
-    const spawnType = (globalThis as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN ?? 'spawn';
-    return structure.structureType === spawnType || structure.structureType === 'spawn';
-  }).length;
+function getOwnedSpawns(room: Room): StructureSpawn[] {
+  return findOwnedStructures(room).filter(isOwnedSpawn);
+}
+
+function isOwnedSpawn(structure: AnyOwnedStructure): structure is StructureSpawn {
+  const spawnType = (globalThis as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN ?? 'spawn';
+  return structure.structureType === spawnType || structure.structureType === 'spawn';
+}
+
+function isCriticallyDamagedSpawn(spawn: StructureSpawn): boolean {
+  return (
+    typeof spawn.hits === 'number' &&
+    typeof spawn.hitsMax === 'number' &&
+    spawn.hitsMax > 0 &&
+    spawn.hits < spawn.hitsMax * CRITICAL_SPAWN_LOSS_HITS_RATIO
+  );
 }

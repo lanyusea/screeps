@@ -1,5 +1,6 @@
 import { getOwnedColonies, type ColonySnapshot } from '../colony/colonyRegistry';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import { isDamagedStructure } from './defenseTelemetry';
 import {
   hasSafeRouteAvoidingDeadZones,
   isKnownDeadZoneRoom,
@@ -11,7 +12,6 @@ import { runTowersWithResult } from './towerManager';
 export const DEFENDER_ROLE = 'defender';
 
 const MAX_RECORDED_DEFENSE_ACTIONS = 20;
-const CRITICAL_STRUCTURE_DAMAGE_RATIO = 0.85;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 
 type CriticalOwnedStructure = StructureSpawn | StructureTower;
@@ -163,7 +163,7 @@ function createDefenseContext(colony: ColonySnapshot): DefenseContext {
   const criticalStructures = getCriticalStructures(colony);
   return {
     colony,
-    damagedCriticalStructures: criticalStructures.filter(isDamagedCriticalStructure),
+    damagedCriticalStructures: criticalStructures.filter(isDamagedStructure),
     hostileCreeps: findHostileCreeps(colony.room),
     hostileStructures: findHostileStructures(colony.room)
   };
@@ -229,19 +229,6 @@ function compareRange(
   const leftRange = left.pos ? getRangeTo.call(origin.pos, left.pos) : Infinity;
   const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
-}
-
-function isDamagedCriticalStructure(structure: CriticalOwnedStructure): boolean {
-  return isStructureBelowHitsRatio(structure, CRITICAL_STRUCTURE_DAMAGE_RATIO);
-}
-
-function isStructureBelowHitsRatio(structure: CriticalOwnedStructure, ratio: number): boolean {
-  return (
-    typeof structure.hits === 'number' &&
-    typeof structure.hitsMax === 'number' &&
-    structure.hitsMax > 0 &&
-    structure.hits < structure.hitsMax * ratio
-  );
 }
 
 function hasColonyWorker(roomName: string): boolean {

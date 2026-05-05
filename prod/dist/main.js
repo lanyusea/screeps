@@ -806,10 +806,145 @@ function getOwnedColonies() {
   }));
 }
 
+// src/defense/defenseTelemetry.ts
+var MAX_RECORDED_DEFENSE_ACTIONS = 20;
+var CRITICAL_STRUCTURE_DAMAGE_RATIO = 0.85;
+function recordDefenseAction(input, telemetryEvents) {
+  const actionMemory = {
+    type: input.action,
+    roomName: input.context.room.name,
+    tick: getGameTime2(),
+    reason: input.reason,
+    hostileCreepCount: input.context.hostileCreeps.length,
+    hostileStructureCount: input.context.hostileStructures.length,
+    damagedCriticalStructureCount: input.context.damagedCriticalStructures.length,
+    ...input.structureId ? { structureId: input.structureId } : {},
+    ...input.targetId ? { targetId: input.targetId } : {},
+    ...typeof input.result === "number" ? { result: input.result } : {}
+  };
+  recordDefenseActionMemory(actionMemory);
+  telemetryEvents.push({
+    type: "defense",
+    action: actionMemory.type,
+    roomName: actionMemory.roomName,
+    reason: actionMemory.reason,
+    hostileCreepCount: actionMemory.hostileCreepCount,
+    hostileStructureCount: actionMemory.hostileStructureCount,
+    damagedCriticalStructureCount: actionMemory.damagedCriticalStructureCount,
+    ...actionMemory.structureId ? { structureId: actionMemory.structureId } : {},
+    ...actionMemory.targetId ? { targetId: actionMemory.targetId } : {},
+    ...typeof actionMemory.result === "number" ? { result: actionMemory.result } : {},
+    tick: actionMemory.tick
+  });
+}
+function buildDefenseTelemetryContext(room) {
+  const criticalStructures = getCriticalStructures(room);
+  return {
+    room,
+    hostileCreeps: findHostileCreeps(room),
+    hostileStructures: findHostileStructures(room),
+    damagedCriticalStructures: criticalStructures.filter(isDamagedStructure)
+  };
+}
+function findHostileCreeps(room) {
+  return findRoomObjects(room, "FIND_HOSTILE_CREEPS");
+}
+function findHostileStructures(room) {
+  return findRoomObjects(room, "FIND_HOSTILE_STRUCTURES");
+}
+function findOwnedStructures(room) {
+  return findRoomObjects(room, "FIND_MY_STRUCTURES");
+}
+function findMyCreeps(room) {
+  return findRoomObjects(room, "FIND_MY_CREEPS");
+}
+function getOwnedTowers(room) {
+  return findOwnedStructures(room).filter(
+    (structure) => matchesStructureType(structure.structureType, "STRUCTURE_TOWER", "tower")
+  );
+}
+function getObjectId(object) {
+  if (typeof object !== "object" || object === null) {
+    return "";
+  }
+  const candidate = object;
+  if (typeof candidate.id === "string") {
+    return candidate.id;
+  }
+  if (typeof candidate.name === "string") {
+    return candidate.name;
+  }
+  return "";
+}
+function compareObjectIds(left, right) {
+  return getObjectId(left).localeCompare(getObjectId(right));
+}
+function getEnergyResource() {
+  const value = globalThis.RESOURCE_ENERGY;
+  return typeof value === "string" ? value : "energy";
+}
+function getGameTime2() {
+  return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
+}
+function recordDefenseActionMemory(action) {
+  var _a, _b, _c;
+  const globalMemory = globalThis.Memory;
+  if (!globalMemory) {
+    return;
+  }
+  const defenseMemory = (_a = globalMemory.defense) != null ? _a : {};
+  const rooms = (_b = defenseMemory.rooms) != null ? _b : {};
+  rooms[action.roomName] = action;
+  defenseMemory.rooms = rooms;
+  defenseMemory.actions = [action, ...(_c = defenseMemory.actions) != null ? _c : []].slice(0, MAX_RECORDED_DEFENSE_ACTIONS);
+  globalMemory.defense = defenseMemory;
+}
+function getCriticalStructures(room) {
+  var _a;
+  const structuresById = /* @__PURE__ */ new Map();
+  for (const structure of findOwnedStructures(room)) {
+    if (isCriticalStructure(structure)) {
+      structuresById.set(getObjectId(structure), structure);
+    }
+  }
+  if (((_a = room.controller) == null ? void 0 : _a.my) === true) {
+    structuresById.set(getObjectId(room.controller), room.controller);
+  }
+  return [...structuresById.values()].sort(compareObjectIds);
+}
+function isCriticalStructure(structure) {
+  return matchesStructureType(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType(structure.structureType, "STRUCTURE_CONTROLLER", "controller") || matchesStructureType(structure.structureType, "STRUCTURE_TOWER", "tower") || matchesStructureType(structure.structureType, "STRUCTURE_RAMPART", "rampart");
+}
+function isDamagedStructure(structure) {
+  return typeof structure.hits === "number" && typeof structure.hitsMax === "number" && structure.hitsMax > 0 && structure.hits < structure.hitsMax * CRITICAL_STRUCTURE_DAMAGE_RATIO;
+}
+function findRoomObjects(room, constantName) {
+  const findConstant = getGlobalNumber(constantName);
+  const find = room.find;
+  if (typeof findConstant !== "number" || typeof find !== "function") {
+    return [];
+  }
+  try {
+    const result = find.call(room, findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
+}
+function matchesStructureType(value, globalName, fallback) {
+  var _a;
+  const expectedValue = (_a = globalThis[globalName]) != null ? _a : fallback;
+  return value === expectedValue;
+}
+function getGlobalNumber(name) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : void 0;
+}
+
 // src/defense/deadZone.ts
 var DEAD_ZONE_MEMORY_TTL = 250;
 var ERR_NO_PATH_CODE = -2;
-function refreshVisibleDeadZoneMemory(gameTime = getGameTime2()) {
+function refreshVisibleDeadZoneMemory(gameTime = getGameTime3()) {
   var _a;
   clearExpiredDeadZoneRooms(gameTime);
   const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
@@ -820,7 +955,7 @@ function refreshVisibleDeadZoneMemory(gameTime = getGameTime2()) {
     refreshVisibleRoomDeadZoneMemory(room, gameTime);
   }
 }
-function refreshVisibleRoomDeadZoneMemory(room, gameTime = getGameTime2()) {
+function refreshVisibleRoomDeadZoneMemory(room, gameTime = getGameTime3()) {
   var _a;
   const assessment = assessVisibleRoomDeadZone(room);
   if (!assessment.unsafe || !assessment.reason) {
@@ -916,8 +1051,8 @@ function isRouteBlockedByKnownDeadZone(fromRoom, targetRoom) {
   return touchedDeadZone && route === getNoPathResultCode();
 }
 function assessVisibleRoomDeadZone(room) {
-  const hostileCreeps = findRoomObjects(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects(room, "FIND_HOSTILE_STRUCTURES");
+  const hostileCreeps = findRoomObjects2(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects2(room, "FIND_HOSTILE_STRUCTURES");
   const hostileTowerCount = hostileStructures.filter(isTowerStructure).length;
   const hostileStructureCount = hostileStructures.length;
   const hostileCreepCount = hostileCreeps.length;
@@ -946,7 +1081,7 @@ function assessVisibleRoomDeadZone(room) {
     hostileTowerCount
   };
 }
-function findRoomObjects(room, constantName) {
+function findRoomObjects2(room, constantName) {
   const findConstant = globalThis[constantName];
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
@@ -980,7 +1115,7 @@ function isDefenseUnsafeRoomMemory(value) {
   const candidate = value;
   return typeof candidate.roomName === "string" && candidate.unsafe === true && (candidate.reason === "enemyTower" || candidate.reason === "hostilePresence") && typeof candidate.updatedAt === "number";
 }
-function isDeadZoneMemoryExpired(roomMemory, gameTime = getGameTime2()) {
+function isDeadZoneMemoryExpired(roomMemory, gameTime = getGameTime3()) {
   return gameTime >= roomMemory.updatedAt && gameTime - roomMemory.updatedAt > DEAD_ZONE_MEMORY_TTL;
 }
 function clearExpiredDeadZoneRooms(gameTime) {
@@ -1014,147 +1149,14 @@ function getNoPathResultCode() {
   const noPathCode = globalThis.ERR_NO_PATH;
   return typeof noPathCode === "number" ? noPathCode : ERR_NO_PATH_CODE;
 }
-function getGameTime2() {
+function getGameTime3() {
   var _a, _b;
   return typeof ((_a = globalThis.Game) == null ? void 0 : _a.time) === "number" ? (_b = globalThis.Game.time) != null ? _b : 0 : 0;
 }
 
-// src/defense/defenseTelemetry.ts
-var MAX_RECORDED_DEFENSE_ACTIONS = 20;
-function recordDefenseAction(input, telemetryEvents) {
-  const actionMemory = {
-    type: input.action,
-    roomName: input.context.room.name,
-    tick: getGameTime3(),
-    reason: input.reason,
-    hostileCreepCount: input.context.hostileCreeps.length,
-    hostileStructureCount: input.context.hostileStructures.length,
-    damagedCriticalStructureCount: input.context.damagedCriticalStructures.length,
-    ...input.structureId ? { structureId: input.structureId } : {},
-    ...input.targetId ? { targetId: input.targetId } : {},
-    ...typeof input.result === "number" ? { result: input.result } : {}
-  };
-  recordDefenseActionMemory(actionMemory);
-  telemetryEvents.push({
-    type: "defense",
-    action: actionMemory.type,
-    roomName: actionMemory.roomName,
-    reason: actionMemory.reason,
-    hostileCreepCount: actionMemory.hostileCreepCount,
-    hostileStructureCount: actionMemory.hostileStructureCount,
-    damagedCriticalStructureCount: actionMemory.damagedCriticalStructureCount,
-    ...actionMemory.structureId ? { structureId: actionMemory.structureId } : {},
-    ...actionMemory.targetId ? { targetId: actionMemory.targetId } : {},
-    ...typeof actionMemory.result === "number" ? { result: actionMemory.result } : {},
-    tick: actionMemory.tick
-  });
-}
-function buildDefenseTelemetryContext(room) {
-  const criticalStructures = getCriticalStructures(room);
-  return {
-    room,
-    hostileCreeps: findHostileCreeps(room),
-    hostileStructures: findHostileStructures(room),
-    damagedCriticalStructures: criticalStructures.filter(isDamagedStructure)
-  };
-}
-function findHostileCreeps(room) {
-  return findRoomObjects2(room, "FIND_HOSTILE_CREEPS");
-}
-function findHostileStructures(room) {
-  return findRoomObjects2(room, "FIND_HOSTILE_STRUCTURES");
-}
-function findOwnedStructures(room) {
-  return findRoomObjects2(room, "FIND_MY_STRUCTURES");
-}
-function findMyCreeps(room) {
-  return findRoomObjects2(room, "FIND_MY_CREEPS");
-}
-function getOwnedTowers(room) {
-  return findOwnedStructures(room).filter(
-    (structure) => matchesStructureType(structure.structureType, "STRUCTURE_TOWER", "tower")
-  );
-}
-function getObjectId(object) {
-  if (typeof object !== "object" || object === null) {
-    return "";
-  }
-  const candidate = object;
-  if (typeof candidate.id === "string") {
-    return candidate.id;
-  }
-  if (typeof candidate.name === "string") {
-    return candidate.name;
-  }
-  return "";
-}
-function compareObjectIds(left, right) {
-  return getObjectId(left).localeCompare(getObjectId(right));
-}
-function getEnergyResource() {
-  const value = globalThis.RESOURCE_ENERGY;
-  return typeof value === "string" ? value : "energy";
-}
-function getGameTime3() {
-  return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
-}
-function recordDefenseActionMemory(action) {
-  var _a, _b, _c;
-  const globalMemory = globalThis.Memory;
-  if (!globalMemory) {
-    return;
-  }
-  const defenseMemory = (_a = globalMemory.defense) != null ? _a : {};
-  const rooms = (_b = defenseMemory.rooms) != null ? _b : {};
-  rooms[action.roomName] = action;
-  defenseMemory.rooms = rooms;
-  defenseMemory.actions = [action, ...(_c = defenseMemory.actions) != null ? _c : []].slice(0, MAX_RECORDED_DEFENSE_ACTIONS);
-  globalMemory.defense = defenseMemory;
-}
-function getCriticalStructures(room) {
-  var _a;
-  const structuresById = /* @__PURE__ */ new Map();
-  for (const structure of findOwnedStructures(room)) {
-    if (isCriticalStructure(structure)) {
-      structuresById.set(getObjectId(structure), structure);
-    }
-  }
-  if (((_a = room.controller) == null ? void 0 : _a.my) === true) {
-    structuresById.set(getObjectId(room.controller), room.controller);
-  }
-  return [...structuresById.values()].sort(compareObjectIds);
-}
-function isCriticalStructure(structure) {
-  return matchesStructureType(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType(structure.structureType, "STRUCTURE_CONTROLLER", "controller") || matchesStructureType(structure.structureType, "STRUCTURE_TOWER", "tower") || matchesStructureType(structure.structureType, "STRUCTURE_RAMPART", "rampart");
-}
-function isDamagedStructure(structure) {
-  return typeof structure.hits === "number" && typeof structure.hitsMax === "number" && structure.hitsMax > 0 && structure.hits < structure.hitsMax;
-}
-function findRoomObjects2(room, constantName) {
-  const findConstant = getGlobalNumber(constantName);
-  const find = room.find;
-  if (typeof findConstant !== "number" || typeof find !== "function") {
-    return [];
-  }
-  try {
-    const result = find.call(room, findConstant);
-    return Array.isArray(result) ? result : [];
-  } catch {
-    return [];
-  }
-}
-function matchesStructureType(value, globalName, fallback) {
-  var _a;
-  const expectedValue = (_a = globalThis[globalName]) != null ? _a : fallback;
-  return value === expectedValue;
-}
-function getGlobalNumber(name) {
-  const value = globalThis[name];
-  return typeof value === "number" ? value : void 0;
-}
-
 // src/defense/safeModeManager.ts
 var SAFE_MODE_HOSTILE_COUNT_THRESHOLD = 2;
+var CRITICAL_SPAWN_LOSS_HITS_RATIO = 0.25;
 var OK_CODE = 0;
 function runSafeModeWithResult(room) {
   var _a;
@@ -1218,14 +1220,22 @@ function isControllerUnderAttack(controller, hostileCreeps) {
   });
 }
 function isCriticalSpawnLossThreat(context) {
-  return context.hostileCreeps.length > 0 && getOwnedSpawnCount(context.room) === 0;
+  if (context.hostileCreeps.length === 0) {
+    return false;
+  }
+  const spawns = getOwnedSpawns(context.room);
+  return spawns.length === 0 || spawns.some(isCriticallyDamagedSpawn);
 }
-function getOwnedSpawnCount(room) {
-  return findOwnedStructures(room).filter((structure) => {
-    var _a;
-    const spawnType = (_a = globalThis.STRUCTURE_SPAWN) != null ? _a : "spawn";
-    return structure.structureType === spawnType || structure.structureType === "spawn";
-  }).length;
+function getOwnedSpawns(room) {
+  return findOwnedStructures(room).filter(isOwnedSpawn);
+}
+function isOwnedSpawn(structure) {
+  var _a;
+  const spawnType = (_a = globalThis.STRUCTURE_SPAWN) != null ? _a : "spawn";
+  return structure.structureType === spawnType || structure.structureType === "spawn";
+}
+function isCriticallyDamagedSpawn(spawn) {
+  return typeof spawn.hits === "number" && typeof spawn.hitsMax === "number" && spawn.hitsMax > 0 && spawn.hits < spawn.hitsMax * CRITICAL_SPAWN_LOSS_HITS_RATIO;
 }
 
 // src/defense/towerManager.ts
@@ -1307,7 +1317,7 @@ function runTowerRepair(tower, context, result) {
   if (!canSpendTowerEnergyOnRecovery(tower) || typeof tower.repair !== "function") {
     return false;
   }
-  const target = selectClosestTarget(tower, context.damagedCriticalStructures);
+  const target = selectClosestTarget(tower, context.damagedCriticalStructures.filter(isDamagedStructure));
   if (!target) {
     return false;
   }
@@ -1380,7 +1390,6 @@ function isWoundedCreep(creep) {
 // src/defense/defenseLoop.ts
 var DEFENDER_ROLE = "defender";
 var MAX_RECORDED_DEFENSE_ACTIONS2 = 20;
-var CRITICAL_STRUCTURE_DAMAGE_RATIO = 0.85;
 var ERR_NOT_IN_RANGE_CODE = -9;
 function runDefense() {
   const telemetryEvents = [];
@@ -1480,7 +1489,7 @@ function createDefenseContext(colony) {
   const criticalStructures = getCriticalStructures2(colony);
   return {
     colony,
-    damagedCriticalStructures: criticalStructures.filter(isDamagedCriticalStructure),
+    damagedCriticalStructures: criticalStructures.filter(isDamagedStructure),
     hostileCreeps: findHostileCreeps2(colony.room),
     hostileStructures: findHostileStructures2(colony.room)
   };
@@ -1525,12 +1534,6 @@ function compareRange2(origin, left, right) {
   const leftRange = left.pos ? getRangeTo.call(origin.pos, left.pos) : Infinity;
   const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
-}
-function isDamagedCriticalStructure(structure) {
-  return isStructureBelowHitsRatio(structure, CRITICAL_STRUCTURE_DAMAGE_RATIO);
-}
-function isStructureBelowHitsRatio(structure, ratio) {
-  return typeof structure.hits === "number" && typeof structure.hitsMax === "number" && structure.hitsMax > 0 && structure.hits < structure.hitsMax * ratio;
 }
 function hasColonyWorker(roomName) {
   return Object.values(Game.creeps).some(

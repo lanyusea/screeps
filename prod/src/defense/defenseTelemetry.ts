@@ -1,6 +1,7 @@
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 
 export const MAX_RECORDED_DEFENSE_ACTIONS = 20;
+export const CRITICAL_STRUCTURE_DAMAGE_RATIO = 0.85;
 
 export type DefenseActionReason =
   | 'hostileVisible'
@@ -161,12 +162,12 @@ function isCriticalStructure(structure: Structure): boolean {
   );
 }
 
-function isDamagedStructure(structure: Structure): boolean {
+export function isDamagedStructure(structure: Structure): boolean {
   return (
     typeof structure.hits === 'number' &&
     typeof structure.hitsMax === 'number' &&
     structure.hitsMax > 0 &&
-    structure.hits < structure.hitsMax
+    structure.hits < structure.hitsMax * CRITICAL_STRUCTURE_DAMAGE_RATIO
   );
 }
 
