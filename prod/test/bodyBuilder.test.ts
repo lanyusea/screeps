@@ -208,8 +208,9 @@ describe('buildTerritoryReserverBody', () => {
   });
 
   it('scales to two claim parts when energy allows', () => {
-    expect(buildTerritoryReserverBody(1249)).toEqual(['claim', 'move']);
-    expect(buildTerritoryReserverBody(1250)).toEqual(['claim', 'claim', 'move']);
+    expect(buildTerritoryReserverBody(1299)).toEqual(['claim', 'move']);
+    expect(buildTerritoryReserverBody(1300)).toEqual(['claim', 'claim', 'move', 'move']);
+    expect(getBodyCost(buildTerritoryReserverBody(1300))).toBe(1300);
   });
 });
 

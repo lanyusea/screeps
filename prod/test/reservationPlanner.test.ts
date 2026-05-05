@@ -198,7 +198,7 @@ describe('adjacent room reservation planner', () => {
   });
 
   it('dispatches a scaled reserver body for a planned reservation', () => {
-    const { colony, spawn } = makeColony({ energyAvailable: 1250, energyCapacityAvailable: 1250 });
+    const { colony, spawn } = makeColony({ energyAvailable: 1300, energyCapacityAvailable: 1300 });
     installGame(colony, {
       gclLevel: 1,
       rooms: {
@@ -210,7 +210,7 @@ describe('adjacent room reservation planner', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 107)).toEqual({
       spawn,
-      body: ['claim', 'claim', 'move'],
+      body: ['claim', 'claim', 'move', 'move'],
       name: 'claimer-W1N1-W1N2-107',
       memory: {
         role: 'claimer',

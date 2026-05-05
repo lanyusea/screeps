@@ -16,8 +16,8 @@ export const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 export const TERRITORY_SCOUT_BODY_COST = 50;
 const TERRITORY_RESERVER_BODY: BodyPartConstant[] = ['claim', 'move'];
 const TERRITORY_RESERVER_BODY_COST = 650;
-const TERRITORY_RESERVER_SCALED_BODY: BodyPartConstant[] = ['claim', 'claim', 'move'];
-const TERRITORY_RESERVER_SCALED_BODY_COST = 1250;
+const TERRITORY_RESERVER_SCALED_BODY: BodyPartConstant[] = ['claim', 'claim', 'move', 'move'];
+const TERRITORY_RESERVER_SCALED_BODY_COST = 1300;
 import {
   buildTerritoryClaimerBody,
   TERRITORY_CONTROLLER_PRESSURE_BODY,
