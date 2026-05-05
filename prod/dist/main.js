@@ -2218,22 +2218,70 @@ var ROOM_EDGE_MIN2 = 1;
 var ROOM_EDGE_MAX2 = 48;
 var ROOM_CENTER = 25;
 function buildCriticalRoadLogisticsContext(room, options = {}) {
+  var _a;
   const anchorPositions = findOwnedSpawnPositions(room);
-  const targetPositions = findLogisticsTargetPositions(room);
+  const { controllerPositions, sourcePositions, targetPositions } = findLogisticsTargetPositions(room);
   const colonyAnchorPositions = anchorPositions.length === 0 ? findColonyRoomLogisticsAnchorPositions(room, options.colonyRoomName, targetPositions) : [];
+  const logisticsAnchorPositions = anchorPositions.length > 0 ? anchorPositions : colonyAnchorPositions.length > 0 ? colonyAnchorPositions : findRemoteTerritoryLogisticsAnchorPositions(room, targetPositions);
+  const controllerSourceRoutePositions = logisticsAnchorPositions.length > 0 || ((_a = room.controller) == null ? void 0 : _a.my) === true ? controllerPositions : [];
   return {
-    anchorPositions: anchorPositions.length > 0 ? anchorPositions : colonyAnchorPositions.length > 0 ? colonyAnchorPositions : findRemoteTerritoryLogisticsAnchorPositions(room, targetPositions),
+    anchorPositions: logisticsAnchorPositions,
+    routes: buildCriticalRoadLogisticsRoutes(
+      logisticsAnchorPositions,
+      sourcePositions,
+      controllerSourceRoutePositions
+    ),
     targetPositions
   };
 }
 function isCriticalRoadLogisticsWork(target, context) {
-  if (!isRoadWorkTarget(target) || !target.pos || context.anchorPositions.length === 0 || context.targetPositions.length === 0) {
+  const routes = getCriticalRoadLogisticsRoutes(context);
+  if (!isRoadWorkTarget(target) || !target.pos || routes.length === 0) {
     return false;
   }
   const position = target.pos;
-  return context.anchorPositions.some(
-    (anchor) => context.targetPositions.some((destination) => isNearLogisticsRoute(position, anchor, destination))
+  return routes.some((route) => isNearLogisticsRoute(position, route.origin, route.destination));
+}
+function buildCriticalRoadLogisticsRoutes(anchorPositions, sourcePositions, controllerPositions) {
+  return uniqueCriticalRoadLogisticsRoutes([
+    ...sourcePositions.flatMap(
+      (source) => anchorPositions.map((anchor) => ({ origin: source, destination: anchor }))
+    ),
+    ...anchorPositions.flatMap(
+      (anchor) => controllerPositions.map((controller) => ({ origin: anchor, destination: controller }))
+    ),
+    ...controllerPositions.flatMap(
+      (controller) => sourcePositions.map((source) => ({ origin: controller, destination: source }))
+    )
+  ]);
+}
+function getCriticalRoadLogisticsRoutes(context) {
+  if (context.routes && context.routes.length > 0) {
+    return context.routes;
+  }
+  return context.anchorPositions.flatMap(
+    (anchor) => context.targetPositions.map((destination) => ({ origin: anchor, destination }))
   );
+}
+function uniqueCriticalRoadLogisticsRoutes(routes) {
+  const seen = /* @__PURE__ */ new Set();
+  return routes.filter((route) => {
+    const key = getRouteKey(route);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+function getRouteKey(route) {
+  const originKey = getRoomPositionKey(route.origin);
+  const destinationKey = getRoomPositionKey(route.destination);
+  return originKey <= destinationKey ? `${originKey}->${destinationKey}` : `${destinationKey}->${originKey}`;
+}
+function getRoomPositionKey(position) {
+  var _a;
+  return `${(_a = position.roomName) != null ? _a : ""}:${position.x}:${position.y}`;
 }
 function findOwnedSpawnPositions(room) {
   return findRoomObjects3(room, "FIND_MY_STRUCTURES").filter(
@@ -2243,8 +2291,8 @@ function findOwnedSpawnPositions(room) {
 function findLogisticsTargetPositions(room) {
   var _a;
   const sourcePositions = findRoomObjects3(room, "FIND_SOURCES").map((source) => source.pos).filter((position) => isSameRoomPosition(position, room.name));
-  const controllerPosition = isSameRoomPosition((_a = room.controller) == null ? void 0 : _a.pos, room.name) ? [room.controller.pos] : [];
-  return [...sourcePositions, ...controllerPosition];
+  const controllerPositions = isSameRoomPosition((_a = room.controller) == null ? void 0 : _a.pos, room.name) ? [room.controller.pos] : [];
+  return { controllerPositions, sourcePositions, targetPositions: [...sourcePositions, ...controllerPositions] };
 }
 function findColonyRoomLogisticsAnchorPositions(room, colonyRoomName, targetPositions) {
   if (targetPositions.length === 0 || !isNonEmptyString3(room.name) || !isNonEmptyString3(colonyRoomName) || colonyRoomName === room.name) {
