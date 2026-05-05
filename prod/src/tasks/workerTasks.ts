@@ -2857,7 +2857,12 @@ function isStorageEnergySource(source: LowLoadWorkerEnergyAcquisitionSource): so
 }
 
 function isPreferredNearbyWorkerEnergySource(source: WorkerEnergyAcquisitionSource): boolean {
-  return isContainerEnergySource(source) || isStorageEnergySource(source) || isWorkerDroppedEnergySource(source);
+  return (
+    isContainerEnergySource(source) ||
+    isStorageEnergySource(source) ||
+    isWorkerDroppedEnergySource(source) ||
+    'ticksToDecay' in source
+  );
 }
 
 function isWorkerDroppedEnergySource(

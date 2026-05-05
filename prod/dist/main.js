@@ -10928,7 +10928,7 @@ function isStorageEnergySource(source) {
   return isStructureEnergySourceType(source, "STRUCTURE_STORAGE", "storage");
 }
 function isPreferredNearbyWorkerEnergySource(source) {
-  return isContainerEnergySource(source) || isStorageEnergySource(source) || isWorkerDroppedEnergySource(source);
+  return isContainerEnergySource(source) || isStorageEnergySource(source) || isWorkerDroppedEnergySource(source) || "ticksToDecay" in source;
 }
 function isWorkerDroppedEnergySource(source) {
   return "resourceType" in source && isDroppedEnergy(source, MIN_DROPPED_ENERGY_PICKUP_AMOUNT);
