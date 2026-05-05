@@ -191,7 +191,7 @@ describe('runtime telemetry summaries', () => {
             workerCapacity: 2,
             workerTarget: 4,
             survivalWorkerFloor: 3,
-            suppressionReasons: ['bootstrapWorkerFloor']
+            suppressionReasons: ['bootstrapWorkerFloor', 'spawnEnergyCritical']
           },
           territoryRecommendation: {
             candidates: [],

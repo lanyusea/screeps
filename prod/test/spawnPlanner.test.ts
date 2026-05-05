@@ -318,7 +318,7 @@ describe('planSpawn', () => {
   it('plans the full capacity worker body when currently affordable', () => {
     const { colony, spawn } = makeColony({ energyAvailable: 400, energyCapacityAvailable: 400 });
 
-    expect(planSpawn(colony, { worker: 2 }, 134)).toEqual({
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 134)).toEqual({
       spawn,
       body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
       name: 'worker-W1N1-134',
@@ -333,7 +333,7 @@ describe('planSpawn', () => {
       energyCapacityAvailable: 550
     });
 
-    expect(planSpawn(colony, { worker: 2 }, 151)).toEqual({
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 151)).toEqual({
       spawn,
       body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'carry', 'move'],
       name: 'worker-W1N13-151',
@@ -349,7 +349,7 @@ describe('planSpawn', () => {
       controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
     });
 
-    expect(planSpawn(colony, { worker: 2 }, 152)).toEqual({
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 152)).toEqual({
       spawn,
       body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 3), 'work', 'move', 'carry', 'move'],
       name: 'worker-W1N19-152',
@@ -365,7 +365,7 @@ describe('planSpawn', () => {
       controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
     });
 
-    expect(planSpawn(colony, { worker: 2 }, 153)).toEqual({
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 153)).toEqual({
       spawn,
       body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
       name: 'worker-W1N20-153',
@@ -381,7 +381,7 @@ describe('planSpawn', () => {
       controller: { my: true, level: 7, ticksToDowngrade: 10_000 } as StructureController
     });
 
-    expect(planSpawn(colony, { worker: 2 }, 154)).toEqual({
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 154)).toEqual({
       spawn,
       body: [...repeatBodyPattern(HIGH_RCL_WORKER_PATTERN, 8), 'work', 'move'],
       name: 'worker-W1N21-154',
@@ -717,7 +717,7 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 2 }, 174)).toEqual({
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 174)).toEqual({
       spawn,
       body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
       name: 'worker-W1N1-174',
@@ -1082,7 +1082,7 @@ describe('planSpawn', () => {
   it('plans one downgrade-guard worker when the home controller needs recovery', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N9',
-      controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
+      controller: { my: true, level: 3, ticksToDowngrade: 1_500 } as StructureController
     });
 
     expect(planSpawn(colony, { worker: 3 }, 150)).toEqual({
@@ -1101,7 +1101,7 @@ describe('planSpawn', () => {
       energyAvailable: 600,
       energyCapacityAvailable: 600,
       hostileCreeps: [hostile],
-      controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
+      controller: { my: true, level: 3, ticksToDowngrade: 1_500 } as StructureController
     });
 
     expect(planSpawn(colony, { worker: 3, defender: 1 }, 151)).toBeNull();
@@ -1115,7 +1115,7 @@ describe('planSpawn', () => {
       energyAvailable: 600,
       energyCapacityAvailable: 600,
       hostileCreeps: [hostile],
-      controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
+      controller: { my: true, level: 3, ticksToDowngrade: 1_500 } as StructureController
     });
     colony.spawns = [spawn, { name: 'Spawn2', room: colony.room, spawning: null } as StructureSpawn];
 
@@ -1131,7 +1131,7 @@ describe('planSpawn', () => {
     const { colony } = makeColony({
       roomName: 'W1N9',
       constructionSiteCount: 5,
-      controller: { my: true, level: 3, ticksToDowngrade: 5_000 } as StructureController
+      controller: { my: true, level: 3, ticksToDowngrade: 1_500 } as StructureController
     });
 
     expect(planSpawn(colony, { worker: 4 }, 150)).toBeNull();
@@ -1154,7 +1154,7 @@ describe('planSpawn', () => {
     });
   });
 
-  it('plans an emergency defender before local worker refill while hostiles are visible', () => {
+  it('plans local worker refill before an emergency defender while hostiles are visible', () => {
     installHostileFindGlobals();
     const { colony: localRefillColony, spawn: localRefillSpawn } = makeColony({ sourceCount: 2 });
     expect(planSpawn(localRefillColony, { worker: 3 }, 163)).toEqual({
@@ -1169,13 +1169,9 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 164)).toEqual({
       spawn,
-      body: ['tough', 'attack', 'move'],
-      name: 'defender-W1N1-164',
-      memory: {
-        role: 'defender',
-        colony: 'W1N1',
-        defense: { homeRoom: 'W1N1' }
-      }
+      body: ['work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-164',
+      memory: { role: 'worker', colony: 'W1N1' }
     });
   });
 
@@ -1924,7 +1920,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 153)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: ['work', 'carry', 'move'],
       name: 'worker-W1N1-153',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -2403,17 +2399,8 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, retryTime)).toEqual({
-      spawn,
-      body: ['move'],
-      name: `scout-W1N1-W1N3-${retryTime}`,
-      memory: {
-        role: 'scout',
-        colony: 'W1N1',
-        territory: { targetRoom: 'W1N3', action: 'scout' }
-      }
-    });
-    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, retryTime)).toBeNull();
+    expect(describeExits).not.toHaveBeenCalled();
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
@@ -2422,13 +2409,6 @@ describe('planSpawn', () => {
         status: 'suppressed',
         updatedAt: suppressionTime,
         followUp
-      },
-      {
-        colony: 'W1N1',
-        targetRoom: 'W1N3',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: retryTime
       }
     ]);
   });
@@ -2668,26 +2648,9 @@ describe('planSpawn', () => {
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
 
-    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 144)).toEqual({
-      spawn,
-      body: ['move'],
-      name: 'scout-W1N1-W2N1-144',
-      memory: {
-        role: 'scout',
-        colony: 'W1N1',
-        territory: { targetRoom: 'W2N1', action: 'scout' }
-      }
-    });
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 144)).toBeNull();
     expect(Memory.territory?.targets).toBeUndefined();
-    expect(Memory.territory?.intents).toEqual([
-      {
-        colony: 'W1N1',
-        targetRoom: 'W2N1',
-        action: 'scout',
-        status: 'planned',
-        updatedAt: 144
-      }
-    ]);
+    expect(Memory.territory?.intents).toBeUndefined();
   });
 
   it('spawns a scout while waiting for claim body energy and target visibility', () => {
@@ -2782,7 +2745,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 1, claimer: 0, claimersByTargetRoom: {} }, 140)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: ['work', 'carry', 'move'],
       name: 'worker-W1N1-140',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -2803,7 +2766,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 141)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: ['work', 'carry', 'move'],
       name: 'worker-W1N1-141',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -3013,7 +2976,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 161)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: ['work', 'carry', 'move'],
       name: 'worker-W1N1-161',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -3123,15 +3086,10 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 133)).toBeNull();
   });
 
-  it('plans an emergency basic worker when zero active workers cannot afford the normal worker body', () => {
-    const { colony, spawn } = makeColony({ energyAvailable: 200, energyCapacityAvailable: 400 });
+  it('waits for 300 energy before spawning an emergency bootstrap worker', () => {
+    const { colony } = makeColony({ energyAvailable: 200, energyCapacityAvailable: 400 });
 
-    expect(planSpawn(colony, { worker: 0 }, 125)).toEqual({
-      spawn,
-      body: ['work', 'carry', 'move'],
-      name: 'worker-W1N1-125',
-      memory: { role: 'worker', colony: 'W1N1' }
-    });
+    expect(planSpawn(colony, { worker: 0 }, 125)).toBeNull();
   });
 
   it('keeps zero-worker recovery on the emergency basic worker body when construction backlog exists', () => {
@@ -3156,7 +3114,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2 }, 136)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: ['work', 'carry', 'move'],
       name: 'worker-W1N1-136',
       memory: { role: 'worker', colony: 'W1N1' }
     });

@@ -17,6 +17,7 @@ import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import { recordVisibleRoomScoutIntel } from './scoutIntel';
 import { selectBestClaimTarget } from './claimScoring';
+import { getRecordedColonyStageAssessment, suppressesTerritoryWork } from '../colony/colonyStage';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -39,6 +40,10 @@ export function runTerritoryControllerCreep(
 ): void {
   const assignment = creep.memory.territory;
   if (!isTerritoryAssignment(assignment)) {
+    return;
+  }
+
+  if (suppressesTerritoryWork(getRecordedColonyStageAssessment(creep.memory.colony))) {
     return;
   }
 
