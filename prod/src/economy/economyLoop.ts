@@ -67,7 +67,12 @@ import {
   clearAdjacentRoomReservationIntent,
   refreshAdjacentRoomReservationIntent
 } from '../territory/reservationPlanner';
-import { logBestClaimTarget, runTerritoryControllerCreep } from '../territory/territoryRunner';
+import {
+  refreshClaimedRoomBootstrapperOwnership,
+  runClaimedRoomBootstrapperForColony,
+  logBestClaimTarget,
+  runTerritoryControllerCreep
+} from '../territory/territoryRunner';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import {
   recordPostClaimBootstrapWorkerSpawn,
@@ -103,6 +108,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   const usedSpawnsByRoom = new Map<string, Set<StructureSpawn>>();
   const reservedSpawnEnergyByRoom = new Map<string, number>();
   clearColonySurvivalAssessmentCache();
+  refreshClaimedRoomBootstrapperOwnership();
 
   for (const colony of colonies) {
     recordSourceWorkloads(colony.room, creeps, Game.time);
@@ -111,7 +117,12 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     persistColonyStageAssessment(colony, survivalAssessment, Game.time);
     const bootstrapResult = refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
-    planCriticalConstructionSites(colony, bootstrapResult.spawnConstructionPending, survivalAssessment.mode === 'BOOTSTRAP');
+    const claimedRoomBootstrapResult = runClaimedRoomBootstrapperForColony(colony);
+    planCriticalConstructionSites(
+      colony,
+      bootstrapResult.spawnConstructionPending,
+      survivalAssessment.mode === 'BOOTSTRAP' || claimedRoomBootstrapResult !== null
+    );
     if (survivalAssessment.mode === 'TERRITORY_READY') {
       refreshRemoteMiningSetup(colony, Game.time);
     }

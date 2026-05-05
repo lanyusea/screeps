@@ -254,6 +254,7 @@ declare global {
     intents?: TerritoryIntentMemory[];
     demands?: TerritoryFollowUpDemandMemory[];
     executionHints?: TerritoryExecutionHintMemory[];
+    claimedRoomBootstrapper?: TerritoryClaimedRoomBootstrapperMemory;
     postClaimBootstraps?: Record<string, TerritoryPostClaimBootstrapMemory>;
     remoteMining?: Record<string, TerritoryRemoteMiningRoomMemory>;
     reservations?: Record<string, TerritoryReservationMemory>;
@@ -434,6 +435,18 @@ declare global {
     controllerId?: Id<StructureController>;
     spawnSite?: TerritoryPostClaimBootstrapSpawnSiteMemory;
     lastResult?: ScreepsReturnCode;
+  }
+
+  interface TerritoryClaimedRoomBootstrapperMemory {
+    rooms: Record<string, TerritoryClaimedRoomBootstrapMemory>;
+  }
+
+  interface TerritoryClaimedRoomBootstrapMemory {
+    roomName: string;
+    owned: boolean;
+    updatedAt: number;
+    claimedAt?: number;
+    completedAt?: number;
   }
 
   type TerritoryRemoteMiningStatus =
