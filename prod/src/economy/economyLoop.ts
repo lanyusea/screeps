@@ -5,6 +5,7 @@ import {
   recordColonySurvivalAssessment
 } from '../colony/survivalMode';
 import { planExtensionConstruction } from '../construction/extensionPlanner';
+import { planStorageConstruction, planTowerConstruction } from '../construction/constructionPriority';
 import { planEarlyRoadConstruction } from '../construction/roadPlanner';
 import { planSourceContainerConstruction } from '../construction/sourceContainerPlanner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
@@ -77,13 +78,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = countCreepsByRole(creeps, colony.room.name);
     const bootstrapResult = refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
-    const extensionResult = bootstrapResult.spawnConstructionPending ? null : planExtensionConstruction(colony);
-    if (extensionResult === null && !bootstrapResult.spawnConstructionPending) {
-      const sourceContainerResult = planSourceContainerConstruction(colony);
-      if (sourceContainerResult === null) {
-        planEarlyRoadConstruction(colony);
-      }
-    }
+    planCriticalConstructionSites(colony, bootstrapResult.spawnConstructionPending);
     refreshRemoteMiningSetup(colony, Game.time);
 
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
@@ -159,6 +154,37 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   }
 
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+
+function planCriticalConstructionSites(
+  colony: ColonySnapshot,
+  spawnConstructionPending: boolean
+): void {
+  if (spawnConstructionPending) {
+    return;
+  }
+
+  const extensionResult = planExtensionConstruction(colony);
+  if (extensionResult !== null) {
+    return;
+  }
+
+  const towerResult = planTowerConstruction(colony);
+  if (towerResult !== null) {
+    return;
+  }
+
+  const sourceContainerResult = planSourceContainerConstruction(colony);
+  if (sourceContainerResult !== null) {
+    return;
+  }
+
+  const roadResults = planEarlyRoadConstruction(colony);
+  if (roadResults.length > 0) {
+    return;
+  }
+
+  planStorageConstruction(colony);
 }
 
 function refreshExecutableTerritoryRecommendation(

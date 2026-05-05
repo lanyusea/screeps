@@ -84,6 +84,8 @@ export function recordPostClaimBootstrapClaimSuccess(
     ...(input.controllerId ? { controllerId: input.controllerId } : {}),
     workerTarget: POST_CLAIM_BOOTSTRAP_WORKER_TARGET
   });
+
+  placePostClaimSpawnConstructionSite(input.roomName, telemetryEvents);
 }
 
 export function refreshPostClaimBootstrap(
@@ -243,6 +245,102 @@ export function getPostClaimBootstrapSummary(roomName: string): PostClaimBootstr
     ...(record.spawnSite ? { spawnSite: record.spawnSite } : {}),
     ...(record.lastResult !== undefined ? { lastResult: record.lastResult } : {})
   };
+}
+
+function placePostClaimSpawnConstructionSite(
+  roomName: string,
+  telemetryEvents: RuntimeTelemetryEvent[]
+): void {
+  const record = getPostClaimBootstrapRecord(roomName);
+  const room = getVisibleOwnedRoom(roomName);
+  if (!record || !room || !canAttemptImmediateSpawnSitePlacement(room) || hasOwnedSpawnInRoom(roomName)) {
+    return;
+  }
+
+  const workerTarget = getPostClaimBootstrapWorkerTarget(record);
+  const workerCount = countRoomWorkers(roomName);
+  const existingSpawnSite = findExistingSpawnConstructionSite(room);
+  if (existingSpawnSite) {
+    const spawnSite = toSpawnSiteMemory(existingSpawnSite);
+    updatePostClaimBootstrapRecord(roomName, {
+      status: 'spawnSitePending',
+      updatedAt: getGameTime(),
+      workerTarget,
+      spawnSite,
+      lastResult: OK_CODE
+    });
+    telemetryEvents.push({
+      type: 'postClaimBootstrap',
+      roomName,
+      colony: record.colony,
+      phase: 'spawnSite',
+      ...(record.controllerId ? { controllerId: record.controllerId } : {}),
+      result: OK_CODE,
+      spawnSite,
+      workerCount,
+      workerTarget,
+      spawnCount: 0
+    });
+    recordSpawnSitePlacedTelemetry(record, spawnSite, OK_CODE, telemetryEvents, true);
+    return;
+  }
+
+  const sitePlan = planInitialSpawnConstructionSite(room);
+  const nextStatus = sitePlan.result === OK_CODE ? 'spawnSitePending' : 'spawnSiteBlocked';
+  updatePostClaimBootstrapRecord(roomName, {
+    status: nextStatus,
+    updatedAt: getGameTime(),
+    workerTarget,
+    ...(sitePlan.position ? { spawnSite: sitePlan.position } : {}),
+    lastResult: sitePlan.result
+  });
+  telemetryEvents.push({
+    type: 'postClaimBootstrap',
+    roomName,
+    colony: record.colony,
+    phase: 'spawnSite',
+    ...(record.controllerId ? { controllerId: record.controllerId } : {}),
+    result: sitePlan.result,
+    ...(sitePlan.position ? { spawnSite: sitePlan.position } : {}),
+    workerCount,
+    workerTarget,
+    spawnCount: 0
+  });
+  if (sitePlan.result === OK_CODE && sitePlan.position) {
+    recordSpawnSitePlacedTelemetry(record, sitePlan.position, sitePlan.result, telemetryEvents);
+  }
+}
+
+function getVisibleOwnedRoom(roomName: string): Room | null {
+  const room = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[roomName];
+  return room?.controller?.my === true ? room : null;
+}
+
+function canAttemptImmediateSpawnSitePlacement(room: Room): boolean {
+  return (
+    typeof room.createConstructionSite === 'function' &&
+    getRoomObjectPosition(room.controller) !== null
+  );
+}
+
+function hasOwnedSpawnInRoom(roomName: string): boolean {
+  const spawns = (globalThis as { Game?: Partial<Game> }).Game?.spawns;
+  if (!spawns) {
+    return false;
+  }
+
+  return Object.values(spawns).some((spawn) => spawn?.room?.name === roomName);
+}
+
+function countRoomWorkers(roomName: string): number {
+  const creeps = (globalThis as { Game?: Partial<Game> }).Game?.creeps;
+  if (!creeps) {
+    return 0;
+  }
+
+  return Object.values(creeps).filter(
+    (creep) => creep?.memory?.role === 'worker' && creep.memory.colony === roomName
+  ).length;
 }
 
 function recordSpawnSitePlacedTelemetry(

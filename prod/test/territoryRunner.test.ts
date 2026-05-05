@@ -28,9 +28,13 @@ describe('runTerritoryControllerCreep', () => {
   afterEach(() => {
     delete (globalThis as { FIND_SOURCES?: number }).FIND_SOURCES;
     delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
+    delete (globalThis as { FIND_MY_CONSTRUCTION_SITES?: number }).FIND_MY_CONSTRUCTION_SITES;
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as { LOOK_STRUCTURES?: LOOK_STRUCTURES }).LOOK_STRUCTURES;
+    delete (globalThis as { LOOK_CONSTRUCTION_SITES?: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES;
     delete (globalThis as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN;
+    delete (globalThis as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
     delete (globalThis as { CLAIM?: BodyPartConstant }).CLAIM;
     delete (globalThis as { RoomPosition?: typeof RoomPosition }).RoomPosition;
     delete (globalThis as { Game?: Partial<Game> }).Game;
@@ -366,6 +370,98 @@ describe('runTerritoryControllerCreep', () => {
       controllerId: 'controller1',
       workerTarget: 2
     });
+  });
+
+  it('places the initial post-claim spawn site in the same tick when placement APIs are available', () => {
+    (globalThis as unknown as {
+      FIND_MY_CONSTRUCTION_SITES: number;
+      LOOK_STRUCTURES: LOOK_STRUCTURES;
+      LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
+      TERRAIN_MASK_WALL: number;
+    }).FIND_MY_CONSTRUCTION_SITES = 9;
+    (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+    (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES =
+      'constructionSite';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    const constructionSites: ConstructionSite[] = [];
+    const controller = {
+      id: 'controller1',
+      my: false,
+      pos: { x: 25, y: 25, roomName: 'W1N2' }
+    } as StructureController;
+    const targetRoom = {
+      name: 'W1N2',
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'source1', pos: { x: 21, y: 21, roomName: 'W1N2' } } as Source];
+        }
+
+        if (type === FIND_MY_CONSTRUCTION_SITES) {
+          return constructionSites;
+        }
+
+        return [];
+      }),
+      lookForAtArea: jest.fn().mockReturnValue([]),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'W1N2' } as RoomPosition
+        } as ConstructionSite);
+        return 0 as ScreepsReturnCode;
+      })
+    } as unknown as Room;
+    const getObjectById = jest.fn().mockReturnValue(controller);
+    const telemetryEvents: RuntimeTelemetryEvent[] = [];
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 504,
+      rooms: { W1N2: targetRoom },
+      spawns: {},
+      creeps: {},
+      getObjectById,
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+    const creep = {
+      name: 'Claimer1',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W1N2', action: 'claim', controllerId: 'controller1' as Id<StructureController> }
+      },
+      room: { name: 'W1N2', controller },
+      claimController: jest.fn(() => {
+        (controller as StructureController & { my: boolean }).my = true;
+        return 0 as ScreepsReturnCode;
+      }),
+      signController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep, telemetryEvents);
+
+    expect(targetRoom.createConstructionSite).toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
+    expect(Memory.territory?.postClaimBootstraps?.W1N2).toMatchObject({
+      status: 'spawnSitePending',
+      updatedAt: 504,
+      spawnSite: { roomName: 'W1N2', x: 23, y: 23 },
+      lastResult: 0
+    });
+    expect(telemetryEvents).toEqual(
+      expect.arrayContaining([
+        {
+          type: 'spawnSitePlaced',
+          roomName: 'W1N2',
+          colony: 'W1N1',
+          controllerId: 'controller1',
+          result: 0,
+          spawnSite: { roomName: 'W1N2', x: 23, y: 23 }
+        }
+      ])
+    );
   });
 
   it('moves a claimer into range without suppressing the target', () => {
