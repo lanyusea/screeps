@@ -18,10 +18,32 @@ describe('linkManager', () => {
     });
   });
 
+  afterEach(() => {
+    delete (globalThis as unknown as { Memory?: { rooms?: Record<string, RoomMemory> } }).Memory;
+  });
+
   it('handles rooms with no links', () => {
     const room = makeRoom({ sources: [makeSource('source1', 10, 10)] });
 
     expect(transferEnergy(room)).toEqual([]);
+  });
+
+  it('initializes missing room memory through global Memory.rooms', () => {
+    const runtime = globalThis as unknown as { Memory?: { rooms?: Record<string, RoomMemory> } };
+    runtime.Memory = { rooms: {} };
+    const room = makeRoom({ sources: [makeSource('source1', 10, 10)] });
+    Object.defineProperty(room, 'memory', {
+      configurable: true,
+      get: () => runtime.Memory?.rooms?.[room.name]
+    });
+
+    const result = distributeEnergy(room, 100, []);
+
+    expect(result.nextCheckAt).toBe(105);
+    expect(runtime.Memory.rooms?.W1N1.linkDistribution).toMatchObject({
+      lastCheckedAt: 100,
+      nextCheckAt: 105
+    });
   });
 
   it('classifies source, controller, and storage links by room-local positions', () => {
@@ -290,6 +312,102 @@ describe('linkManager', () => {
     expect(secondResult).toEqual({ actions: [], assignedTasks: 0, nextCheckAt: 203, transfers: [] });
     expect(sourceLink.transfer).not.toHaveBeenCalled();
     expect(events).toHaveLength(1);
+  });
+
+  it('wakes a sleeping scheduler when a tower needs refill energy', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const tower = makeTower('tower1', 100, 900);
+    const worker = makeWorker('Worker1', 0, 50);
+    const room = makeRoom({
+      creeps: [worker],
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      links: [sourceLink],
+      sources: [makeSource('source1', 10, 10)],
+      structures: [sourceLink, tower]
+    });
+    room.memory.linkDistribution = { nextCheckAt: 205 };
+
+    const result = distributeEnergy(room, 201, []);
+
+    expect(worker.memory.task).toEqual({ type: 'withdraw', targetId: 'source-link' });
+    expect(result.actions).toEqual([
+      {
+        action: 'workerWithdraw',
+        amount: 50,
+        path: 'source->tower',
+        sourceId: 'source-link',
+        workerName: 'Worker1'
+      }
+    ]);
+    expect(result.nextCheckAt).toBe(202);
+  });
+
+  it('routes storage fallback into the storage link before assigning worker hauling', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const storageLink = makeLink('storage-link', 20, 21, 0, 800);
+    const storage = makeStorage('storage1', 20, 20, 5_000, 1_000);
+    const loadedWorker = makeWorker('Loaded', 50, 0);
+    const room = makeRoom({
+      creeps: [loadedWorker],
+      links: [sourceLink, storageLink],
+      sources: [makeSource('source1', 10, 10)],
+      storage,
+      structures: [sourceLink, storageLink, storage]
+    });
+
+    const result = distributeEnergy(room, 300, []);
+
+    expect(result.transfers).toMatchObject([
+      {
+        amount: 400,
+        destinationId: 'storage-link',
+        destinationRole: 'storage',
+        result: OK_CODE,
+        sourceId: 'source-link'
+      }
+    ]);
+    expect(sourceLink.transfer).toHaveBeenCalledWith(storageLink, 400);
+    expect(loadedWorker.memory.task).toBeUndefined();
+    expect(result.actions).toEqual([
+      {
+        action: 'linkTransfer',
+        amount: 400,
+        destinationId: 'storage-link',
+        path: 'source->storage',
+        result: OK_CODE,
+        sourceId: 'source-link'
+      }
+    ]);
+  });
+
+  it('falls back to worker storage hauling when the storage link is full', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const storageLink = makeLink('storage-link', 20, 21, 800, 0);
+    const storage = makeStorage('storage1', 20, 20, 5_000, 1_000);
+    const loadedWorker = makeWorker('Loaded', 50, 0);
+    const room = makeRoom({
+      creeps: [loadedWorker],
+      links: [sourceLink, storageLink],
+      sources: [makeSource('source1', 10, 10)],
+      storage,
+      structures: [sourceLink, storageLink, storage]
+    });
+
+    const result = distributeEnergy(room, 300, []);
+
+    expect(result.transfers).toEqual([]);
+    expect(sourceLink.transfer).not.toHaveBeenCalled();
+    expect(loadedWorker.memory.task).toEqual({ type: 'transfer', targetId: 'storage1' });
+    expect(result.actions).toEqual([
+      {
+        action: 'workerTransfer',
+        amount: 50,
+        destinationId: 'storage1',
+        path: 'source->storage',
+        workerName: 'Loaded'
+      }
+    ]);
   });
 
   it('uses storage fallback only after spawn, tower, and controller-link priorities are unavailable', () => {

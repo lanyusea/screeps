@@ -188,7 +188,10 @@ export function distributeEnergy(
   }
 
   const storageTargets = findStorageDemandTargets(room);
-  if (storageTargets.length > 0) {
+  if (
+    storageTargets.length > 0 &&
+    !distributeSourceLinksToStorageLink(room, network, projectedState, result, telemetryEvents)
+  ) {
     assignLinkEnergyHauling(
       room,
       network.sourceLinks,
@@ -289,6 +292,50 @@ function distributeSourceLinksToController(
     telemetryEvents
   );
   return handled || distributionResult.assignedTasks > 0;
+}
+
+function distributeSourceLinksToStorageLink(
+  room: Room,
+  network: LinkNetwork,
+  projectedState: ProjectedLinkState,
+  distributionResult: LinkDistributionResult,
+  telemetryEvents: RuntimeTelemetryEvent[]
+): boolean {
+  if (!network.storageLink) {
+    return false;
+  }
+
+  const storageLinkId = getObjectId(network.storageLink);
+  if ((projectedState.freeCapacityById.get(storageLinkId) ?? 0) <= 0) {
+    return false;
+  }
+
+  const transferResults = transferSourceLinksToDestination(
+    network.sourceLinks,
+    { link: network.storageLink, role: 'storage' },
+    projectedState
+  );
+  for (const transferResult of transferResults.results) {
+    distributionResult.transfers.push(transferResult);
+    recordLinkDistributionAction(room.name, distributionResult, telemetryEvents, {
+      action: 'linkTransfer',
+      amount: transferResult.amount,
+      destinationId: transferResult.destinationId,
+      path: 'source->storage',
+      result: transferResult.result,
+      sourceId: transferResult.sourceId
+    });
+  }
+
+  if (transferResults.cooldownTicks !== null && transferResults.results.length === 0) {
+    recordLinkDistributionAction(room.name, distributionResult, telemetryEvents, {
+      action: 'cooldown',
+      cooldownTicks: transferResults.cooldownTicks,
+      path: 'source->storage'
+    });
+  }
+
+  return true;
 }
 
 function transferSourceLinksToDestination(
@@ -947,15 +994,27 @@ function getGameTime(): number {
 
 function getWritableLinkDistributionMemory(room: Room): RoomLinkDistributionMemory {
   const roomWithMemory = room as Room & { memory?: RoomMemory };
-  if (!roomWithMemory.memory) {
-    roomWithMemory.memory = {};
+  const roomMemory = roomWithMemory.memory ?? getPersistentRoomMemory(room.name);
+
+  if (!roomMemory.linkDistribution) {
+    roomMemory.linkDistribution = {};
   }
 
-  if (!roomWithMemory.memory.linkDistribution) {
-    roomWithMemory.memory.linkDistribution = {};
+  return roomMemory.linkDistribution;
+}
+
+function getPersistentRoomMemory(roomName: string): RoomMemory {
+  const memory = (globalThis as { Memory?: { rooms?: Record<string, RoomMemory> } }).Memory;
+  if (!memory) {
+    return {};
   }
 
-  return roomWithMemory.memory.linkDistribution;
+  if (!memory.rooms) {
+    memory.rooms = {};
+  }
+
+  memory.rooms[roomName] ??= {};
+  return memory.rooms[roomName];
 }
 
 function isLinkDistributionDue(
@@ -968,7 +1027,7 @@ function isLinkDistributionDue(
     return true;
   }
 
-  return hasSpawnExtensionShortfall(room);
+  return hasSpawnExtensionShortfall(room) || hasTowerRefillShortfall(room);
 }
 
 function hasSpawnExtensionShortfall(room: Room): boolean {
@@ -980,6 +1039,15 @@ function hasSpawnExtensionShortfall(room: Room): boolean {
     typeof energyCapacityAvailable === 'number' &&
     Number.isFinite(energyCapacityAvailable) &&
     energyAvailable < energyCapacityAvailable
+  );
+}
+
+function hasTowerRefillShortfall(room: Room): boolean {
+  return findOwnedStructures(room).some(
+    (structure): structure is StructureTower =>
+      matchesStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower') &&
+      getStoredEnergy(structure) < TOWER_REFILL_THRESHOLD &&
+      getFreeEnergyCapacity(structure) > 0
   );
 }
 

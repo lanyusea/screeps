@@ -7916,7 +7916,7 @@ function distributeEnergy(room, gameTime = getGameTime7(), telemetryEvents = [])
     return result;
   }
   const storageTargets = findStorageDemandTargets(room);
-  if (storageTargets.length > 0) {
+  if (storageTargets.length > 0 && !distributeSourceLinksToStorageLink(room, network, projectedState, result, telemetryEvents)) {
     assignLinkEnergyHauling(
       room,
       network.sourceLinks,
@@ -8001,6 +8001,40 @@ function distributeSourceLinksToController(room, network, projectedState, distri
     telemetryEvents
   );
   return handled || distributionResult.assignedTasks > 0;
+}
+function distributeSourceLinksToStorageLink(room, network, projectedState, distributionResult, telemetryEvents) {
+  var _a;
+  if (!network.storageLink) {
+    return false;
+  }
+  const storageLinkId = getObjectId2(network.storageLink);
+  if (((_a = projectedState.freeCapacityById.get(storageLinkId)) != null ? _a : 0) <= 0) {
+    return false;
+  }
+  const transferResults = transferSourceLinksToDestination(
+    network.sourceLinks,
+    { link: network.storageLink, role: "storage" },
+    projectedState
+  );
+  for (const transferResult of transferResults.results) {
+    distributionResult.transfers.push(transferResult);
+    recordLinkDistributionAction(room.name, distributionResult, telemetryEvents, {
+      action: "linkTransfer",
+      amount: transferResult.amount,
+      destinationId: transferResult.destinationId,
+      path: "source->storage",
+      result: transferResult.result,
+      sourceId: transferResult.sourceId
+    });
+  }
+  if (transferResults.cooldownTicks !== null && transferResults.results.length === 0) {
+    recordLinkDistributionAction(room.name, distributionResult, telemetryEvents, {
+      action: "cooldown",
+      cooldownTicks: transferResults.cooldownTicks,
+      path: "source->storage"
+    });
+  }
+  return true;
 }
 function transferSourceLinksToDestination(sourceLinks, destination, projectedState) {
   var _a, _b, _c, _d, _e;
@@ -8457,26 +8491,42 @@ function getGameTime7() {
   return typeof time === "number" && Number.isFinite(time) ? time : 0;
 }
 function getWritableLinkDistributionMemory(room) {
+  var _a;
   const roomWithMemory = room;
-  if (!roomWithMemory.memory) {
-    roomWithMemory.memory = {};
+  const roomMemory = (_a = roomWithMemory.memory) != null ? _a : getPersistentRoomMemory(room.name);
+  if (!roomMemory.linkDistribution) {
+    roomMemory.linkDistribution = {};
   }
-  if (!roomWithMemory.memory.linkDistribution) {
-    roomWithMemory.memory.linkDistribution = {};
+  return roomMemory.linkDistribution;
+}
+function getPersistentRoomMemory(roomName) {
+  var _a, _b;
+  const memory = globalThis.Memory;
+  if (!memory) {
+    return {};
   }
-  return roomWithMemory.memory.linkDistribution;
+  if (!memory.rooms) {
+    memory.rooms = {};
+  }
+  (_b = (_a = memory.rooms)[roomName]) != null ? _b : _a[roomName] = {};
+  return memory.rooms[roomName];
 }
 function isLinkDistributionDue(memory, room, gameTime) {
   const nextCheckAt = memory.nextCheckAt;
   if (typeof nextCheckAt !== "number" || !Number.isFinite(nextCheckAt) || gameTime >= nextCheckAt) {
     return true;
   }
-  return hasSpawnExtensionShortfall(room);
+  return hasSpawnExtensionShortfall(room) || hasTowerRefillShortfall(room);
 }
 function hasSpawnExtensionShortfall(room) {
   const energyAvailable = room.energyAvailable;
   const energyCapacityAvailable = room.energyCapacityAvailable;
   return typeof energyAvailable === "number" && Number.isFinite(energyAvailable) && typeof energyCapacityAvailable === "number" && Number.isFinite(energyCapacityAvailable) && energyAvailable < energyCapacityAvailable;
+}
+function hasTowerRefillShortfall(room) {
+  return findOwnedStructures2(room).some(
+    (structure) => matchesStructureType6(structure.structureType, "STRUCTURE_TOWER", "tower") && getStoredEnergy2(structure) < TOWER_REFILL_THRESHOLD && getFreeEnergyCapacity(structure) > 0
+  );
 }
 function finishLinkDistributionCheck(memory, gameTime, result) {
   const cooldownTicks = getMinimumActionCooldownTicks(result.actions);
