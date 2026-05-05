@@ -358,14 +358,12 @@ describe('cross-room energy logistics', () => {
     expect(moveTo).toHaveBeenCalledWith(sourceRoom.controller, { reusePath: 20, ignoreRoads: false });
   });
 
-  it('clears a dry assigned source before returning home', () => {
+  it('reassigns to a non-empty source when the assigned source is dry', () => {
     const sourceRoom = makeOwnedRoom({
       roomName: 'W1N1',
-      storageEnergy: 950,
-      storageCapacity: 0,
-      terminalEnergy: 0,
-      terminalCapacity: 1_000
+      storageEnergy: 950
     });
+    (sourceRoom as { terminal?: StructureTerminal }).terminal = makeTerminal('W1N1-terminal', 0, 0);
     const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
     installGame([sourceRoom, targetRoom], []);
     const creep = makeCrossRoomHauler({
@@ -376,9 +374,48 @@ describe('cross-room energy logistics', () => {
 
     runCrossRoomHauler(creep);
 
-    expect(creep.memory.crossRoomHauler?.state).toBe('returning');
-    expect(creep.memory.crossRoomHauler?.sourceId).toBeUndefined();
+    expect(creep.memory.crossRoomHauler?.state).toBe('collecting');
+    expect(creep.memory.crossRoomHauler?.sourceId).toBe('W1N1-storage');
+    expect(creep.withdraw).toHaveBeenCalledWith(sourceRoom.storage, RESOURCE_ENERGY);
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'W1N1-storage' });
+  });
+
+  it('keeps a dry hauler memory valid while waiting for a source to recover', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 0 });
+    (sourceRoom as { terminal?: StructureTerminal }).terminal = makeTerminal('W1N1-terminal', 0, 0);
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
+    installGame([sourceRoom, targetRoom], []);
+    const creep = makeCrossRoomHauler({
+      room: sourceRoom,
+      carriedEnergy: () => 0
+    });
+    creep.memory.crossRoomHauler!.sourceId = 'W1N1-terminal' as Id<AnyStoreStructure>;
+
+    runCrossRoomHauler(creep);
+
+    expect(creep.memory.crossRoomHauler).toMatchObject({
+      state: 'unassigned',
+      sourceId: null
+    });
     expect(creep.withdraw).not.toHaveBeenCalled();
+  });
+
+  it('recovers an unassigned hauler source before collecting again', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
+    installGame([sourceRoom, targetRoom], []);
+    const creep = makeCrossRoomHauler({
+      room: sourceRoom,
+      carriedEnergy: () => 0
+    });
+    delete (creep.memory.crossRoomHauler as Partial<CreepCrossRoomHaulerMemory>).sourceId;
+    creep.memory.crossRoomHauler!.state = 'returning';
+
+    runCrossRoomHauler(creep);
+
+    expect(creep.memory.crossRoomHauler?.state).toBe('collecting');
+    expect(creep.memory.crossRoomHauler?.sourceId).toBe('W1N1-storage');
+    expect(creep.withdraw).toHaveBeenCalledWith(sourceRoom.storage, RESOURCE_ENERGY);
   });
 
   function makeOwnedRoom({

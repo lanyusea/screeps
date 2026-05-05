@@ -152,8 +152,8 @@ declare global {
   interface CreepCrossRoomHaulerMemory {
     homeRoom: string;
     targetRoom: string;
-    sourceId: Id<AnyStoreStructure>;
-    state?: 'collecting' | 'delivering' | 'returning';
+    sourceId?: Id<AnyStoreStructure> | null;
+    state?: 'collecting' | 'delivering' | 'returning' | 'unassigned';
     route?: string[];
   }
 

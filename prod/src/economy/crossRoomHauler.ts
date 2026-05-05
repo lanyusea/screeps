@@ -112,7 +112,7 @@ export function runCrossRoomHauler(creep: Creep): void {
     return;
   }
 
-  if (assignment.state === 'returning') {
+  if (assignment.state === 'returning' && !isSourceUnassigned(assignment)) {
     returnHome(creep, assignment);
     return;
   }
@@ -120,6 +120,15 @@ export function runCrossRoomHauler(creep: Creep): void {
   if (getCarriedEnergy(creep) > 0) {
     assignment.state = 'delivering';
     deliverEnergy(creep, assignment);
+    return;
+  }
+
+  if (isSourceUnassigned(assignment) && !recoverSourceAssignment(creep, assignment)) {
+    return;
+  }
+
+  if (assignment.state === 'returning') {
+    returnHome(creep, assignment);
     return;
   }
 
@@ -202,18 +211,26 @@ function collectEnergy(creep: Creep, assignment: CreepCrossRoomHaulerMemory): vo
     return;
   }
 
-  const source = getObjectById<EnergySourceStructure>(assignment.sourceId);
+  let source = getAssignedSource(assignment);
   if (!source || getStoredEnergy(source) <= 0) {
+    source = selectReplacementSource(assignment, creep.room);
+  }
+
+  if (!source) {
     delete creep.memory.task;
-    delete (assignment as Partial<CreepCrossRoomHaulerMemory>).sourceId;
-    assignment.state = 'returning';
-    returnHome(creep, assignment);
+    markSourceUnassigned(assignment);
+    return;
+  }
+
+  const sourceId = assignment.sourceId;
+  if (!sourceId) {
+    markSourceUnassigned(assignment);
     return;
   }
 
   const task: Extract<CreepTaskMemory, { type: 'withdraw' }> = {
     type: 'withdraw',
-    targetId: assignment.sourceId
+    targetId: sourceId
   };
   creep.memory.task = task;
   const result = creep.withdraw?.(source, getEnergyResource());
@@ -268,7 +285,12 @@ function returnHome(creep: Creep, assignment: CreepCrossRoomHaulerMemory): void 
   }
 
   delete creep.memory.task;
-  assignment.state = hasSourceSurplusEnergy(assignment) ? 'collecting' : 'returning';
+  if (hasSourceSurplusEnergy(assignment)) {
+    assignment.state = 'collecting';
+    return;
+  }
+
+  assignment.state = isSourceUnassigned(assignment) ? 'unassigned' : 'returning';
 }
 
 function selectDeliveryTarget(room: Room): DeliveryTarget | null {
@@ -348,7 +370,55 @@ function hasSourceSurplusEnergy(assignment: CreepCrossRoomHaulerMemory): boolean
     return false;
   }
 
-  return getRoomStoredEnergyState(room).mode === 'export' && getObjectById<EnergySourceStructure>(assignment.sourceId) !== null;
+  let source = getAssignedSource(assignment);
+  if (!source || getStoredEnergy(source) <= 0) {
+    source = selectReplacementSource(assignment, room);
+  }
+
+  return getRoomStoredEnergyState(room).mode === 'export' && source !== null && getStoredEnergy(source) > 0;
+}
+
+function recoverSourceAssignment(creep: Creep, assignment: CreepCrossRoomHaulerMemory): boolean {
+  const homeRoom = getVisibleRoom(assignment.homeRoom);
+  const source = homeRoom ? selectReplacementSource(assignment, homeRoom) : null;
+  if (source) {
+    assignment.state = 'collecting';
+    return true;
+  }
+
+  delete creep.memory.task;
+  markSourceUnassigned(assignment);
+  if (creep.room?.name !== assignment.homeRoom) {
+    moveTowardRoom(creep, assignment, assignment.homeRoom);
+  }
+  return false;
+}
+
+function selectReplacementSource(
+  assignment: CreepCrossRoomHaulerMemory,
+  room: Room
+): EnergySourceStructure | null {
+  const source = selectSourceEnergyStructure(room);
+  if (!source) {
+    markSourceUnassigned(assignment);
+    return null;
+  }
+
+  assignment.sourceId = source.id as Id<AnyStoreStructure>;
+  return source;
+}
+
+function getAssignedSource(assignment: CreepCrossRoomHaulerMemory): EnergySourceStructure | null {
+  return assignment.sourceId ? getObjectById<EnergySourceStructure>(assignment.sourceId) : null;
+}
+
+function markSourceUnassigned(assignment: CreepCrossRoomHaulerMemory): void {
+  assignment.sourceId = null;
+  assignment.state = 'unassigned';
+}
+
+function isSourceUnassigned(assignment: CreepCrossRoomHaulerMemory): boolean {
+  return assignment.state === 'unassigned' || !assignment.sourceId;
 }
 
 function selectSourceRoomSpawn(roomName: string): StructureSpawn | null {
@@ -527,19 +597,32 @@ function normalizeCrossRoomHaulerMemory(value: unknown): CreepCrossRoomHaulerMem
     return null;
   }
 
-  return isNonEmptyString(value.homeRoom) &&
-    isNonEmptyString(value.targetRoom) &&
-    isNonEmptyString(value.sourceId)
-    ? {
-        homeRoom: value.homeRoom,
-        targetRoom: value.targetRoom,
-        sourceId: value.sourceId as Id<AnyStoreStructure>,
-        ...(value.state === 'collecting' || value.state === 'delivering' || value.state === 'returning'
-          ? { state: value.state }
-          : {}),
-        ...(Array.isArray(value.route) ? { route: value.route.filter(isNonEmptyString) } : {})
-      }
+  if (!isNonEmptyString(value.homeRoom) || !isNonEmptyString(value.targetRoom)) {
+    return null;
+  }
+
+  const sourceId = isNonEmptyString(value.sourceId)
+    ? (value.sourceId as Id<AnyStoreStructure>)
     : null;
+  const state =
+    value.state === 'collecting' ||
+    value.state === 'delivering' ||
+    value.state === 'returning' ||
+    value.state === 'unassigned'
+      ? value.state
+      : undefined;
+
+  return {
+    homeRoom: value.homeRoom,
+    targetRoom: value.targetRoom,
+    sourceId,
+    ...(state
+      ? { state: sourceId ? state : 'unassigned' }
+      : sourceId
+        ? {}
+        : { state: 'unassigned' }),
+    ...(Array.isArray(value.route) ? { route: value.route.filter(isNonEmptyString) } : {})
+  };
 }
 
 function getMutableCrossRoomHaulerMemory(creep: Creep): CreepCrossRoomHaulerMemory | null {

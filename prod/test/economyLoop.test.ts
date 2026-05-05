@@ -140,6 +140,114 @@ describe('runEconomy', () => {
     );
   });
 
+  it('keeps a single source-room spawn on local recovery before cross-room hauling', () => {
+    (globalThis as unknown as { FIND_SOURCES: number; RESOURCE_ENERGY: ResourceConstant }).FIND_SOURCES = 1;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const sourceRoom = makeStorageEconomyRoom({
+      roomName: 'W1N1',
+      storageEnergy: 950,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300
+    });
+    const targetRoom = makeStorageEconomyRoom({
+      roomName: 'W2N1',
+      storageEnergy: 100,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300
+    });
+    const spawn = {
+      name: 'Spawn1',
+      room: sourceRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 129,
+      rooms: { W1N1: sourceRoom, W2N1: targetRoom },
+      spawns: { Spawn1: spawn },
+      creeps: {},
+      map: {
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-129', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
+
+  it('uses spare source-room spawn capacity for cross-room hauling after local recovery', () => {
+    (globalThis as unknown as { FIND_SOURCES: number; RESOURCE_ENERGY: ResourceConstant }).FIND_SOURCES = 1;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const sourceRoom = makeStorageEconomyRoom({
+      roomName: 'W1N1',
+      storageEnergy: 950,
+      energyAvailable: 600,
+      energyCapacityAvailable: 300
+    });
+    const targetRoom = makeStorageEconomyRoom({
+      roomName: 'W2N1',
+      storageEnergy: 100,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300
+    });
+    const spawn1 = {
+      name: 'Spawn1',
+      room: sourceRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const spawn2 = {
+      name: 'Spawn2',
+      room: sourceRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(sourceRoom),
+      Worker2: makeEconomyWorker(sourceRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 130,
+      rooms: { W1N1: sourceRoom, W2N1: targetRoom },
+      spawns: { Spawn1: spawn1, Spawn2: spawn2 },
+      creeps: workers,
+      map: {
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn1.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-130', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+    expect(spawn2.spawnCreep).toHaveBeenCalledWith(
+      ['carry', 'move', 'carry', 'move', 'carry', 'move'],
+      'crossRoomHauler-W1N1-W2N1-130',
+      {
+        memory: {
+          role: 'crossRoomHauler',
+          colony: 'W1N1',
+          crossRoomHauler: {
+            homeRoom: 'W1N1',
+            targetRoom: 'W2N1',
+            sourceId: 'W1N1-storage',
+            state: 'collecting',
+            route: ['W2N1']
+          }
+        }
+      }
+    );
+  });
+
   it('keeps spawning a productive worker while baseline workers still leave refill pressure', () => {
     (globalThis as unknown as {
       FIND_MY_STRUCTURES: number;
@@ -2148,6 +2256,49 @@ function makeOwnedEconomyRoom(roomName: string): Room {
     } as StructureController,
     find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
   } as unknown as Room;
+}
+
+function makeStorageEconomyRoom({
+  roomName,
+  storageEnergy,
+  storageCapacity = 1_000,
+  energyAvailable,
+  energyCapacityAvailable
+}: {
+  roomName: string;
+  storageEnergy: number;
+  storageCapacity?: number;
+  energyAvailable: number;
+  energyCapacityAvailable: number;
+}): Room {
+  return {
+    name: roomName,
+    energyAvailable,
+    energyCapacityAvailable,
+    controller: {
+      my: true,
+      owner: { username: 'me' },
+      level: 3,
+      ticksToDowngrade: 10_000
+    } as StructureController,
+    memory: {},
+    storage: {
+      id: `${roomName}-storage`,
+      structureType: 'storage',
+      store: makeEnergyStore(storageEnergy, storageCapacity)
+    } as StructureStorage,
+    find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
+  } as unknown as Room;
+}
+
+function makeEnergyStore(energy: number, capacity: number): StoreDefinition {
+  return {
+    getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
+    getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? capacity : 0)),
+    getFreeCapacity: jest.fn((resource?: ResourceConstant) =>
+      resource === RESOURCE_ENERGY ? Math.max(0, capacity - energy) : 0
+    )
+  } as unknown as StoreDefinition;
 }
 
 function makeVisibleForeignReservedRoom(
