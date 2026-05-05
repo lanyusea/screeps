@@ -5,6 +5,9 @@ import {
 } from '../../src/territory/claimedRoomBootstrapper';
 
 const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_FULL_CODE = -8 as ScreepsReturnCode;
+const ERR_RCL_NOT_ENOUGH_CODE = -14 as ScreepsReturnCode;
+const MAX_SPAWN_SITE_SCAN_WIDTH = 17;
 
 const TEST_GLOBALS = {
   FIND_SOURCES: 1,
@@ -21,7 +24,9 @@ const TEST_GLOBALS = {
   LOOK_STRUCTURES: 'structure',
   LOOK_CONSTRUCTION_SITES: 'constructionSite',
   LOOK_MINERALS: 'mineral',
-  OK: OK_CODE
+  OK: OK_CODE,
+  ERR_FULL: ERR_FULL_CODE,
+  ERR_RCL_NOT_ENOUGH: ERR_RCL_NOT_ENOUGH_CODE
 } as const;
 
 describe('claimed room bootstrapper', () => {
@@ -79,6 +84,40 @@ describe('claimed room bootstrapper', () => {
     expect(result.planned).toEqual([{ roomName: 'W2N1', phase: 'spawn', result: OK_CODE }]);
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
     expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, TEST_GLOBALS.STRUCTURE_SPAWN);
+  });
+
+  it.each([
+    ['ERR_FULL', ERR_FULL_CODE],
+    ['ERR_RCL_NOT_ENOUGH', ERR_RCL_NOT_ENOUGH_CODE]
+  ])('stops spawn placement retries after fatal %s construction-site results', (_name, fatalResult) => {
+    const { room, colony } = makeBootstrapRoom({
+      controllerLevel: 1,
+      sources: [makeSource('source1', 21, 21)]
+    });
+    room.createConstructionSite = jest.fn().mockReturnValue(fatalResult);
+    installActiveBootstrapMemory(90, false);
+    installGame(room, 101);
+
+    const result = runClaimedRoomBootstrapper([colony]);
+
+    expect(result.planned).toEqual([{ roomName: 'W2N1', phase: 'spawn', result: fatalResult }]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds spawn placement area lookups to a local scan window', () => {
+    const { room, colony } = makeBootstrapRoom({
+      controllerLevel: 1
+    });
+    installActiveBootstrapMemory();
+    installGame(room);
+
+    runClaimedRoomBootstrapper([colony]);
+
+    expect(room.lookForAtArea).toHaveBeenCalled();
+    for (const [, top, left, bottom, right] of room.lookForAtArea.mock.calls) {
+      expect(bottom - top + 1).toBeLessThanOrEqual(MAX_SPAWN_SITE_SCAN_WIDTH);
+      expect(right - left + 1).toBeLessThanOrEqual(MAX_SPAWN_SITE_SCAN_WIDTH);
+    }
   });
 
   it('places extensions up to the current RCL limit after a spawn exists', () => {

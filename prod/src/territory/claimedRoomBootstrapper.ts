@@ -15,8 +15,11 @@ const ROOM_EDGE_MIN = 1;
 const ROOM_EDGE_MAX = 48;
 const SPAWN_EDGE_MIN = 2;
 const SPAWN_EDGE_MAX = 47;
+const MAX_SPAWN_SITE_SCAN_RADIUS = 8;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_FULL_CODE = -8 as ScreepsReturnCode;
+const ERR_RCL_NOT_ENOUGH_CODE = -14 as ScreepsReturnCode;
 
 type FindConstantGlobal =
   | 'FIND_SOURCES'
@@ -31,6 +34,7 @@ type StructureConstantGlobal =
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_ROAD'
   | 'STRUCTURE_TOWER';
+type ReturnCodeGlobal = 'ERR_FULL' | 'ERR_RCL_NOT_ENOUGH';
 
 interface CandidatePosition {
   x: number;
@@ -219,7 +223,7 @@ function placeSpawnConstructionSite(room: Room): ScreepsReturnCode | null {
   const positions = findSpawnConstructionPositions(room);
   for (const position of positions) {
     const result = room.createConstructionSite(position.x, position.y, getStructureConstant('STRUCTURE_SPAWN', 'spawn'));
-    if (result === OK_CODE) {
+    if (result === OK_CODE || isFatalConstructionSiteResult(result)) {
       return result;
     }
   }
@@ -614,11 +618,14 @@ function isTerrainWall(terrain: RoomTerrain | null, position: CandidatePosition)
 }
 
 function getMaximumSpawnSiteScanRadius(anchor: CandidatePosition): number {
-  return Math.max(
-    anchor.x - SPAWN_EDGE_MIN,
-    SPAWN_EDGE_MAX - anchor.x,
-    anchor.y - SPAWN_EDGE_MIN,
-    SPAWN_EDGE_MAX - anchor.y
+  return Math.min(
+    MAX_SPAWN_SITE_SCAN_RADIUS,
+    Math.max(
+      anchor.x - SPAWN_EDGE_MIN,
+      SPAWN_EDGE_MAX - anchor.x,
+      anchor.y - SPAWN_EDGE_MIN,
+      SPAWN_EDGE_MAX - anchor.y
+    )
   );
 }
 
@@ -695,6 +702,18 @@ function getGlobalNumber(name: FindConstantGlobal): number | null {
 function getGlobalString(name: LookConstantGlobal): string | null {
   const value = (globalThis as Record<string, unknown>)[name];
   return typeof value === 'string' ? value : null;
+}
+
+function getGlobalReturnCode(name: ReturnCodeGlobal, fallback: ScreepsReturnCode): ScreepsReturnCode {
+  const value = (globalThis as Partial<Record<ReturnCodeGlobal, ScreepsReturnCode>>)[name];
+  return typeof value === 'number' ? value : fallback;
+}
+
+function isFatalConstructionSiteResult(result: ScreepsReturnCode): boolean {
+  return (
+    result === getGlobalReturnCode('ERR_FULL', ERR_FULL_CODE) ||
+    result === getGlobalReturnCode('ERR_RCL_NOT_ENOUGH', ERR_RCL_NOT_ENOUGH_CODE)
+  );
 }
 
 function getTerrainWallMask(): number {
