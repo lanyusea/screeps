@@ -64,6 +64,7 @@ interface WorkerTaskCounts extends Record<WorkerTaskType, number> {
 export type RuntimeTelemetryEvent =
   | RuntimeSpawnTelemetryEvent
   | RuntimeDefenseTelemetryEvent
+  | RuntimeLinkDistributionTelemetryEvent
   | RuntimeTerritoryClaimTelemetryEvent
   | RuntimeTerritoryScoutTelemetryEvent
   | RuntimePostClaimBootstrapTelemetryEvent
@@ -110,6 +111,26 @@ export interface RuntimeDefenseTelemetryEvent extends Omit<DefenseActionMemory, 
   type: 'defense';
   action: DefenseActionType;
   tick?: number;
+}
+
+export type RuntimeLinkDistributionPath =
+  | 'source->spawnExtension'
+  | 'source->tower'
+  | 'source->controllerLink'
+  | 'controllerLink->upgrade'
+  | 'source->storage';
+
+export interface RuntimeLinkDistributionTelemetryEvent {
+  type: 'linkDistribution';
+  roomName: string;
+  path: RuntimeLinkDistributionPath;
+  action: 'linkTransfer' | 'workerWithdraw' | 'workerTransfer' | 'cooldown';
+  amount?: number;
+  sourceId?: string;
+  destinationId?: string;
+  workerName?: string;
+  cooldownTicks?: number;
+  result?: ScreepsReturnCode;
 }
 
 export interface RuntimeTerritoryClaimTelemetryEvent {
