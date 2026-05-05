@@ -44,8 +44,8 @@ interface CachedColonySurvivalAssessment {
   tick: number;
 }
 
-interface CachedSourceCount {
-  count: number;
+interface CachedRoomSources {
+  sources: Source[];
   room: Room;
 }
 
@@ -60,7 +60,7 @@ const MAX_WORKER_TARGET = 6;
 const BOOTSTRAP_WORKER_FLOOR = 3;
 const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 
-const sourceCountByRoomName = new Map<string, CachedSourceCount>();
+const sourcesByRoomName = new Map<string, CachedRoomSources>();
 const survivalAssessmentByColony = new Map<string, CachedColonySurvivalAssessment>();
 
 export function assessColonySurvival(input: ColonySurvivalInput): ColonySurvivalAssessment {
@@ -290,34 +290,38 @@ function getConstructionBacklogSiteCount(room: Room): number {
   return countRoomFind(room, 'FIND_MY_CONSTRUCTION_SITES');
 }
 
-function getSourceCount(room: Room): number {
+export function getSourceCount(room: Room): number {
+  return getRoomSources(room).length;
+}
+
+export function getRoomSources(room: Room): Source[] {
   const roomName = getRoomName(room);
   if (roomName) {
-    const cachedSourceCount = sourceCountByRoomName.get(roomName);
-    if (cachedSourceCount?.room === room) {
-      return cachedSourceCount.count;
+    const cachedSources = sourcesByRoomName.get(roomName);
+    if (cachedSources?.room === room) {
+      return cachedSources.sources;
     }
   }
 
-  const sourceCount = findSourceCount(room);
+  const sources = findSources(room);
   if (roomName) {
-    sourceCountByRoomName.set(roomName, { count: sourceCount, room });
+    sourcesByRoomName.set(roomName, { sources, room });
   }
 
-  return sourceCount;
+  return sources;
 }
 
-function findSourceCount(room: Room): number {
+function findSources(room: Room): Source[] {
   if (typeof room.find !== 'function') {
-    return 1;
+    return [{} as Source];
   }
 
   const sourceFindConstant = getGlobalNumber('FIND_SOURCES');
   if (sourceFindConstant === undefined) {
-    return 1;
+    return [{} as Source];
   }
 
-  return room.find(sourceFindConstant as FindConstant).length;
+  return room.find(sourceFindConstant as FindConstant) as Source[];
 }
 
 function countRoomFind(room: Room, constantName: string): number {

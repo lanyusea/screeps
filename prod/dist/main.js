@@ -1771,7 +1771,7 @@ var SPAWN_EXTENSION_REFILL_PRESSURE_RATIO = 0.75;
 var MAX_WORKER_TARGET = 6;
 var BOOTSTRAP_WORKER_FLOOR = 3;
 var CONTROLLER_DOWNGRADE_GUARD_TICKS = 5e3;
-var sourceCountByRoomName = /* @__PURE__ */ new Map();
+var sourcesByRoomName = /* @__PURE__ */ new Map();
 var survivalAssessmentByColony = /* @__PURE__ */ new Map();
 function assessColonySurvival(input) {
   var _a, _b;
@@ -1918,28 +1918,31 @@ function getConstructionBacklogSiteCount(room) {
   return countRoomFind(room, "FIND_MY_CONSTRUCTION_SITES");
 }
 function getSourceCount(room) {
+  return getRoomSources(room).length;
+}
+function getRoomSources(room) {
   const roomName = getRoomName(room);
   if (roomName) {
-    const cachedSourceCount = sourceCountByRoomName.get(roomName);
-    if ((cachedSourceCount == null ? void 0 : cachedSourceCount.room) === room) {
-      return cachedSourceCount.count;
+    const cachedSources = sourcesByRoomName.get(roomName);
+    if ((cachedSources == null ? void 0 : cachedSources.room) === room) {
+      return cachedSources.sources;
     }
   }
-  const sourceCount = findSourceCount(room);
+  const sources = findSources(room);
   if (roomName) {
-    sourceCountByRoomName.set(roomName, { count: sourceCount, room });
+    sourcesByRoomName.set(roomName, { sources, room });
   }
-  return sourceCount;
+  return sources;
 }
-function findSourceCount(room) {
+function findSources(room) {
   if (typeof room.find !== "function") {
-    return 1;
+    return [{}];
   }
   const sourceFindConstant = getGlobalNumber2("FIND_SOURCES");
   if (sourceFindConstant === void 0) {
-    return 1;
+    return [{}];
   }
-  return room.find(sourceFindConstant).length;
+  return room.find(sourceFindConstant);
 }
 function countRoomFind(room, constantName) {
   if (typeof room.find !== "function") {
@@ -8176,7 +8179,7 @@ function sortLinksByEnergy(links, projectedState) {
   );
 }
 function selectSourceLinks(room, links, destinationIds) {
-  const sources = findSources(room);
+  const sources = findSources2(room);
   if (sources.length === 0) {
     return [];
   }
@@ -8238,7 +8241,7 @@ function findStorage(room) {
     (structure) => matchesStructureType6(structure.structureType, "STRUCTURE_STORAGE", "storage")
   )[0]) != null ? _a : null;
 }
-function findSources(room) {
+function findSources2(room) {
   if (typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
     return [];
   }
@@ -13369,6 +13372,16 @@ var CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
 var CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
 var CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
 var MAX_CONTROLLER_LEVEL2 = 8;
+var SOURCE_ENERGY_CAPACITY = 3e3;
+var SOURCE_REGEN_TICKS = 300;
+var SOURCE_ENERGY_PER_TICK = SOURCE_ENERGY_CAPACITY / SOURCE_REGEN_TICKS;
+var HARVEST_POWER_PER_WORK_PART = 2;
+var HARVESTER_FULL_EXTRACTION_WORK_PARTS = Math.ceil(
+  SOURCE_ENERGY_PER_TICK / HARVEST_POWER_PER_WORK_PART
+);
+var CARRY_CAPACITY_PER_PART = 50;
+var MAX_CREEP_PARTS4 = 50;
+var LOCAL_SUPPORT_WORKER_FLOOR = 3;
 var POST_CLAIM_SUSTAIN_UPGRADER_TARGET = 1;
 var POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
 var POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
@@ -13901,6 +13914,14 @@ function appendSpawnNameSuffix(baseName, options) {
 }
 function selectWorkerBody(colony, roleCounts) {
   var _a;
+  if (shouldUseSourceHarvesterBody(colony, roleCounts)) {
+    const sourceDistance = estimateLocalSourceDistance(colony);
+    const fullCapacityBody = generateHarvesterBody(colony.energyCapacityAvailable, sourceDistance);
+    if (canAffordBody(fullCapacityBody, colony.energyAvailable)) {
+      return fullCapacityBody;
+    }
+    return generateHarvesterBody(colony.energyAvailable, sourceDistance);
+  }
   const controllerLevel = (_a = colony.room.controller) == null ? void 0 : _a.level;
   const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
   if (canAffordBody(normalBody, colony.energyAvailable)) {
@@ -13910,6 +13931,81 @@ function selectWorkerBody(colony, roleCounts) {
     return buildEmergencyWorkerBody(colony.energyAvailable);
   }
   return buildWorkerBody(colony.energyAvailable, controllerLevel);
+}
+function generateHarvesterBody(availableEnergy, sourceDistance) {
+  const energyBudget = normalizeNonNegativeInteger2(availableEnergy);
+  const workParts = selectHarvesterWorkParts(energyBudget);
+  if (workParts <= 0) {
+    return [];
+  }
+  const carryTarget = getHarvesterCarryTarget(workParts, sourceDistance);
+  const carryParts = selectHarvesterCarryParts(energyBudget, workParts, carryTarget);
+  return buildHarvesterBody(workParts, carryParts);
+}
+function selectHarvesterWorkParts(availableEnergy) {
+  for (let workParts = HARVESTER_FULL_EXTRACTION_WORK_PARTS; workParts >= 1; workParts -= 1) {
+    if (getHarvesterBodyCost(workParts, 1) <= availableEnergy) {
+      return workParts;
+    }
+  }
+  return 0;
+}
+function selectHarvesterCarryParts(availableEnergy, workParts, carryTarget) {
+  let carryParts = 1;
+  while (carryParts < carryTarget && getHarvesterBodyPartCount(workParts, carryParts + 1) <= MAX_CREEP_PARTS4 && getHarvesterBodyCost(workParts, carryParts + 1) <= availableEnergy) {
+    carryParts += 1;
+  }
+  return carryParts;
+}
+function buildHarvesterBody(workParts, carryParts) {
+  const moveParts = workParts + carryParts;
+  return [
+    ...Array.from({ length: workParts }, () => "work"),
+    ...Array.from({ length: carryParts }, () => "carry"),
+    ...Array.from({ length: moveParts }, () => "move")
+  ];
+}
+function getHarvesterCarryTarget(workParts, sourceDistance) {
+  const roundTripTicks = Math.max(1, normalizeNonNegativeInteger2(sourceDistance) * 2);
+  const harvestedEnergyBetweenTrips = workParts * HARVEST_POWER_PER_WORK_PART * roundTripTicks;
+  return Math.max(1, Math.ceil(harvestedEnergyBetweenTrips / CARRY_CAPACITY_PER_PART));
+}
+function getHarvesterBodyCost(workParts, carryParts) {
+  return getBodyCost(buildHarvesterBody(workParts, carryParts));
+}
+function getHarvesterBodyPartCount(workParts, carryParts) {
+  return workParts + carryParts + workParts + carryParts;
+}
+function shouldUseSourceHarvesterBody(colony, roleCounts) {
+  const sourceAwareWorkerTarget = getSourceAwareWorkerTarget(colony.room);
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  return sourceAwareWorkerTarget > LOCAL_SUPPORT_WORKER_FLOOR && workerCapacity >= LOCAL_SUPPORT_WORKER_FLOOR && workerCapacity < sourceAwareWorkerTarget;
+}
+function getSourceAwareWorkerTarget(room) {
+  return getSourceCount(room) * 2;
+}
+function estimateLocalSourceDistance(colony) {
+  const spawnPositions = colony.spawns.map((spawn) => spawn.pos).filter((pos) => pos !== void 0);
+  const sourcePositions = getRoomSources(colony.room).map((source) => source.pos).filter((pos) => pos !== void 0);
+  if (spawnPositions.length === 0 || sourcePositions.length === 0) {
+    return 1;
+  }
+  const distances = sourcePositions.flatMap(
+    (sourcePos) => spawnPositions.map((spawnPos) => getApproximateRange(sourcePos, spawnPos))
+  );
+  if (distances.length === 0) {
+    return 1;
+  }
+  return Math.ceil(distances.reduce((total, distance) => total + distance, 0) / distances.length);
+}
+function getApproximateRange(left, right) {
+  if (left.roomName !== right.roomName) {
+    return 50;
+  }
+  return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
+}
+function normalizeNonNegativeInteger2(value) {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 function canAffordBody(body, energyAvailable) {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
@@ -15541,7 +15637,7 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
     const spawnSite = toSpawnSiteMemory(existingSpawnSite);
     updatePostClaimBootstrapRecord(roomName, {
       status: "spawnSitePending",
-      updatedAt: getGameTime11(),
+      updatedAt: getGameTime10(),
       workerTarget,
       spawnSite,
       lastResult: OK_CODE5
@@ -15565,7 +15661,7 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
   const nextStatus = sitePlan.result === OK_CODE5 ? "spawnSitePending" : "spawnSiteBlocked";
   updatePostClaimBootstrapRecord(roomName, {
     status: nextStatus,
-    updatedAt: getGameTime11(),
+    updatedAt: getGameTime10(),
     workerTarget,
     ...sitePlan.position ? { spawnSite: sitePlan.position } : {},
     lastResult: sitePlan.result
@@ -15677,7 +15773,7 @@ function selectInitialSpawnAnchor(room) {
   if (!controllerPosition) {
     return null;
   }
-  const sources = findSources2(room).map(getRoomObjectPosition4).filter((position) => position !== null).sort((left, right) => getRange(controllerPosition, left) - getRange(controllerPosition, right));
+  const sources = findSources3(room).map(getRoomObjectPosition4).filter((position) => position !== null).sort((left, right) => getRange(controllerPosition, left) - getRange(controllerPosition, right));
   const nearestSourcePosition = sources[0];
   if (!nearestSourcePosition) {
     return clampPosition(controllerPosition);
@@ -15691,7 +15787,7 @@ function buildSpawnPlacementLookups(room, anchor, maximumScanRadius) {
   const blockingPositions = /* @__PURE__ */ new Set();
   for (const object of [
     room.controller,
-    ...findSources2(room),
+    ...findSources3(room),
     ...lookForArea(room, "LOOK_STRUCTURES", anchor, maximumScanRadius),
     ...lookForArea(room, "LOOK_CONSTRUCTION_SITES", anchor, maximumScanRadius)
   ]) {
@@ -15756,7 +15852,7 @@ function findExistingSpawnConstructionSite(room) {
   });
   return (_a = sites[0]) != null ? _a : null;
 }
-function findSources2(room) {
+function findSources3(room) {
   const findConstant = getGlobalNumber5("FIND_SOURCES");
   if (typeof room.find !== "function" || findConstant === null) {
     return [];
@@ -17016,7 +17112,7 @@ function recordSourceWorkloads(room, creeps, tick) {
   if (!memory || !roomName) {
     return;
   }
-  const sources = findSources3(room);
+  const sources = findSources4(room);
   if (sources.length === 0) {
     return;
   }
@@ -17029,7 +17125,7 @@ function recordSourceWorkloads(room, creeps, tick) {
     )
   };
 }
-function buildSourceWorkloadRecords(room, sources = findSources3(room), creeps = getGameCreeps2()) {
+function buildSourceWorkloadRecords(room, sources = findSources4(room), creeps = getGameCreeps2()) {
   const roomName = getRoomName3(room);
   const assignmentLoads = getSourceAssignmentLoads(roomName, sources, creeps);
   return sources.filter((source) => hasSourcePositionInRoom(source, room)).sort((left, right) => String(left.id).localeCompare(String(right.id))).map((source) => {
@@ -17083,7 +17179,7 @@ function getSourceAssignmentLoads(roomName, sources, creeps) {
 function createEmptySourceAssignmentLoad() {
   return { assignedHarvesters: 0, assignedWorkParts: 0 };
 }
-function findSources3(room) {
+function findSources4(room) {
   if (typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
     return [];
   }

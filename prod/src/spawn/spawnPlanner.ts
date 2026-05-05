@@ -1,6 +1,8 @@
 import { ColonySnapshot } from '../colony/colonyRegistry';
 import {
   assessColonySnapshotSurvival,
+  getRoomSources,
+  getSourceCount,
   getWorkerTarget,
   type ColonySurvivalAssessment
 } from '../colony/survivalMode';
@@ -82,6 +84,18 @@ const CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
 const CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
 const CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
 const MAX_CONTROLLER_LEVEL = 8;
+const SOURCE_ENERGY_CAPACITY = 3_000;
+const SOURCE_REGEN_TICKS = 300;
+const SOURCE_ENERGY_PER_TICK = SOURCE_ENERGY_CAPACITY / SOURCE_REGEN_TICKS;
+const HARVEST_POWER_PER_WORK_PART = 2;
+const HARVESTER_FULL_EXTRACTION_WORK_PARTS = Math.ceil(
+  SOURCE_ENERGY_PER_TICK / HARVEST_POWER_PER_WORK_PART
+);
+const CARRY_CAPACITY_PER_PART = 50;
+const MAX_CREEP_PARTS = 50;
+// Local workers still cover hauling, building, and upgrading, so keep the first
+// three bodies general-purpose before specializing source-aware extras.
+const LOCAL_SUPPORT_WORKER_FLOOR = 3;
 const POST_CLAIM_SUSTAIN_UPGRADER_TARGET = 1;
 const POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
 const POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
@@ -843,6 +857,16 @@ function appendSpawnNameSuffix(baseName: string, options: SpawnPlanningOptions):
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {
+  if (shouldUseSourceHarvesterBody(colony, roleCounts)) {
+    const sourceDistance = estimateLocalSourceDistance(colony);
+    const fullCapacityBody = generateHarvesterBody(colony.energyCapacityAvailable, sourceDistance);
+    if (canAffordBody(fullCapacityBody, colony.energyAvailable)) {
+      return fullCapacityBody;
+    }
+
+    return generateHarvesterBody(colony.energyAvailable, sourceDistance);
+  }
+
   const controllerLevel = colony.room.controller?.level;
   const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
   if (canAffordBody(normalBody, colony.energyAvailable)) {
@@ -854,6 +878,118 @@ function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyP
   }
 
   return buildWorkerBody(colony.energyAvailable, controllerLevel);
+}
+
+export function generateHarvesterBody(
+  availableEnergy: number,
+  sourceDistance: number
+): BodyPartConstant[] {
+  const energyBudget = normalizeNonNegativeInteger(availableEnergy);
+  const workParts = selectHarvesterWorkParts(energyBudget);
+  if (workParts <= 0) {
+    return [];
+  }
+
+  const carryTarget = getHarvesterCarryTarget(workParts, sourceDistance);
+  const carryParts = selectHarvesterCarryParts(energyBudget, workParts, carryTarget);
+  return buildHarvesterBody(workParts, carryParts);
+}
+
+function selectHarvesterWorkParts(availableEnergy: number): number {
+  for (let workParts = HARVESTER_FULL_EXTRACTION_WORK_PARTS; workParts >= 1; workParts -= 1) {
+    if (getHarvesterBodyCost(workParts, 1) <= availableEnergy) {
+      return workParts;
+    }
+  }
+
+  return 0;
+}
+
+function selectHarvesterCarryParts(
+  availableEnergy: number,
+  workParts: number,
+  carryTarget: number
+): number {
+  let carryParts = 1;
+  while (
+    carryParts < carryTarget &&
+    getHarvesterBodyPartCount(workParts, carryParts + 1) <= MAX_CREEP_PARTS &&
+    getHarvesterBodyCost(workParts, carryParts + 1) <= availableEnergy
+  ) {
+    carryParts += 1;
+  }
+
+  return carryParts;
+}
+
+function buildHarvesterBody(workParts: number, carryParts: number): BodyPartConstant[] {
+  const moveParts = workParts + carryParts;
+  return [
+    ...Array.from({ length: workParts }, () => 'work' as BodyPartConstant),
+    ...Array.from({ length: carryParts }, () => 'carry' as BodyPartConstant),
+    ...Array.from({ length: moveParts }, () => 'move' as BodyPartConstant)
+  ];
+}
+
+function getHarvesterCarryTarget(workParts: number, sourceDistance: number): number {
+  const roundTripTicks = Math.max(1, normalizeNonNegativeInteger(sourceDistance) * 2);
+  const harvestedEnergyBetweenTrips = workParts * HARVEST_POWER_PER_WORK_PART * roundTripTicks;
+  return Math.max(1, Math.ceil(harvestedEnergyBetweenTrips / CARRY_CAPACITY_PER_PART));
+}
+
+function getHarvesterBodyCost(workParts: number, carryParts: number): number {
+  return getBodyCost(buildHarvesterBody(workParts, carryParts));
+}
+
+function getHarvesterBodyPartCount(workParts: number, carryParts: number): number {
+  return workParts + carryParts + workParts + carryParts;
+}
+
+function shouldUseSourceHarvesterBody(colony: ColonySnapshot, roleCounts: RoleCounts): boolean {
+  const sourceAwareWorkerTarget = getSourceAwareWorkerTarget(colony.room);
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  return (
+    sourceAwareWorkerTarget > LOCAL_SUPPORT_WORKER_FLOOR &&
+    workerCapacity >= LOCAL_SUPPORT_WORKER_FLOOR &&
+    workerCapacity < sourceAwareWorkerTarget
+  );
+}
+
+function getSourceAwareWorkerTarget(room: Room): number {
+  return getSourceCount(room) * 2;
+}
+
+function estimateLocalSourceDistance(colony: ColonySnapshot): number {
+  const spawnPositions = colony.spawns
+    .map((spawn) => spawn.pos)
+    .filter((pos): pos is RoomPosition => pos !== undefined);
+  const sourcePositions = getRoomSources(colony.room)
+    .map((source) => source.pos)
+    .filter((pos): pos is RoomPosition => pos !== undefined);
+  if (spawnPositions.length === 0 || sourcePositions.length === 0) {
+    return 1;
+  }
+
+  const distances = sourcePositions.flatMap((sourcePos) =>
+    spawnPositions.map((spawnPos) => getApproximateRange(sourcePos, spawnPos))
+  );
+  if (distances.length === 0) {
+    return 1;
+  }
+
+  return Math.ceil(distances.reduce((total, distance) => total + distance, 0) / distances.length);
+}
+
+function getApproximateRange(left: RoomPosition, right: RoomPosition): number {
+  if (left.roomName !== right.roomName) {
+    return 50;
+  }
+
+  return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
+}
+
+function normalizeNonNegativeInteger(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
 function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {
