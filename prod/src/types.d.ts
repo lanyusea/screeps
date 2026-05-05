@@ -147,6 +147,7 @@ declare global {
   type TerritoryAutomationSource =
     | 'occupationRecommendation'
     | 'autonomousExpansionClaim'
+    | 'colonyExpansion'
     | 'nextExpansionScoring'
     | 'adjacentRoomReservation';
   type TerritoryIntentSuspensionReason = 'hostile_presence';

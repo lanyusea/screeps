@@ -1,0 +1,489 @@
+import type { ColonyStageAssessment } from '../colony/colonyStage';
+import type { ColonySnapshot } from '../colony/colonyRegistry';
+import {
+  CLAIM_SCORE_RESERVED_PENALTY,
+  scoreClaimTarget,
+  type ClaimScore
+} from './claimScoring';
+import {
+  MIN_ADJACENT_ROOM_RESERVATION_SCORE,
+  refreshAdjacentRoomReservationIntent,
+  type AdjacentRoomReservationEvaluation
+} from './reservationPlanner';
+import { normalizeTerritoryIntents } from './territoryMemoryUtils';
+
+export const COLONY_EXPANSION_CLAIM_TARGET_CREATOR: TerritoryAutomationSource = 'colonyExpansion';
+export const MIN_COLONY_EXPANSION_CLAIM_SCORE = MIN_ADJACENT_ROOM_RESERVATION_SCORE;
+
+export type ColonyExpansionSkipReason =
+  | 'claimBlocked'
+  | 'colonyUnstable'
+  | 'existingClaimIntent'
+  | 'noCandidate'
+  | 'scoreBelowThreshold';
+
+export interface ColonyExpansionEvaluation {
+  status: 'planned' | 'skipped';
+  colony: string;
+  reason?: ColonyExpansionSkipReason;
+  targetRoom?: string;
+  controllerId?: Id<StructureController>;
+  score?: number;
+  reservation?: AdjacentRoomReservationEvaluation;
+}
+
+interface ColonyExpansionCandidate {
+  roomName: string;
+  order: number;
+  claimScore: ClaimScore;
+  effectiveScore: number;
+  controllerState: ColonyExpansionControllerState;
+}
+
+interface ColonyExpansionControllerState {
+  kind: 'neutral' | 'ownReserved' | 'foreignReserved' | 'owned' | 'missing' | 'unknown';
+  controllerId?: Id<StructureController>;
+}
+
+const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'] as const;
+
+export function refreshColonyExpansionIntent(
+  colony: ColonySnapshot,
+  assessment: Pick<ColonyStageAssessment, 'territoryReady'>,
+  gameTime = getGameTime()
+): ColonyExpansionEvaluation {
+  const colonyName = colony.room.name;
+
+  if (assessment.territoryReady !== true) {
+    const reservation = refreshAdjacentRoomReservationIntent(colony, gameTime, {
+      claimBlocker: 'colonyUnstable'
+    });
+    clearColonyExpansionClaimIntent(colonyName);
+    return {
+      status: 'skipped',
+      colony: colonyName,
+      reason: 'colonyUnstable',
+      ...(reservation.targetRoom ? { targetRoom: reservation.targetRoom } : {}),
+      ...(reservation.score !== undefined ? { score: reservation.score } : {}),
+      reservation
+    };
+  }
+
+  const reservation = refreshAdjacentRoomReservationIntent(colony, gameTime);
+  if (reservation.status === 'planned' || reservation.claimBlocker) {
+    clearColonyExpansionClaimIntent(colonyName);
+    return {
+      status: 'skipped',
+      colony: colonyName,
+      reason: 'claimBlocked',
+      ...(reservation.targetRoom ? { targetRoom: reservation.targetRoom } : {}),
+      ...(reservation.controllerId ? { controllerId: reservation.controllerId } : {}),
+      ...(reservation.score !== undefined ? { score: reservation.score } : {}),
+      reservation
+    };
+  }
+
+  const candidate = selectColonyExpansionCandidate(colony);
+  if (!candidate) {
+    clearColonyExpansionClaimIntent(colonyName);
+    return { status: 'skipped', colony: colonyName, reason: 'noCandidate' };
+  }
+
+  const baseEvaluation = {
+    status: 'skipped' as const,
+    colony: colonyName,
+    targetRoom: candidate.roomName,
+    score: candidate.effectiveScore,
+    ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {}),
+    reservation
+  };
+
+  if (candidate.effectiveScore < MIN_COLONY_EXPANSION_CLAIM_SCORE) {
+    clearColonyExpansionClaimIntent(colonyName);
+    return { ...baseEvaluation, reason: 'scoreBelowThreshold' };
+  }
+
+  if (hasBlockingClaimIntent(colonyName, candidate.roomName)) {
+    return { ...baseEvaluation, reason: 'existingClaimIntent' };
+  }
+
+  persistColonyExpansionClaimIntent(colonyName, candidate, gameTime);
+  return {
+    status: 'planned',
+    colony: colonyName,
+    targetRoom: candidate.roomName,
+    score: candidate.effectiveScore,
+    ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {}),
+    reservation
+  };
+}
+
+export function clearColonyExpansionClaimIntent(colony: string): void {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  pruneColonyExpansionClaimTargets(colony, territoryMemory);
+}
+
+function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansionCandidate | null {
+  const ownerUsername = getControllerOwnerUsername(colony.room.controller);
+  const candidates = getAdjacentRoomNames(colony.room.name).flatMap((roomName, order) => {
+    const claimScore = scoreClaimTarget(roomName, colony.room);
+    if (claimScore.sources <= 0 || hasHostileClaimScore(claimScore)) {
+      return [];
+    }
+
+    const controllerState = getColonyExpansionControllerState(colony.room.name, roomName, ownerUsername);
+    if (controllerState.kind !== 'neutral' && controllerState.kind !== 'ownReserved') {
+      return [];
+    }
+
+    const effectiveScore =
+      controllerState.kind === 'ownReserved'
+        ? claimScore.score + CLAIM_SCORE_RESERVED_PENALTY
+        : claimScore.score;
+    return [{ roomName, order, claimScore, effectiveScore, controllerState }];
+  });
+
+  let bestCandidate: ColonyExpansionCandidate | null = null;
+  for (const candidate of candidates) {
+    if (!bestCandidate || compareColonyExpansionCandidates(candidate, bestCandidate) < 0) {
+      bestCandidate = candidate;
+    }
+  }
+
+  return bestCandidate;
+}
+
+function compareColonyExpansionCandidates(
+  left: ColonyExpansionCandidate,
+  right: ColonyExpansionCandidate
+): number {
+  return (
+    right.effectiveScore - left.effectiveScore ||
+    right.claimScore.sources - left.claimScore.sources ||
+    left.claimScore.distance - right.claimScore.distance ||
+    left.order - right.order ||
+    left.roomName.localeCompare(right.roomName)
+  );
+}
+
+function hasHostileClaimScore(score: ClaimScore): boolean {
+  return score.details.some((detail) => detail.startsWith('hostile presence '));
+}
+
+function getColonyExpansionControllerState(
+  colonyName: string,
+  roomName: string,
+  ownerUsername: string | undefined
+): ColonyExpansionControllerState {
+  const room = getVisibleRoom(roomName);
+  if (room) {
+    const controller = room.controller;
+    if (!controller) {
+      return { kind: 'missing' };
+    }
+
+    const controllerId = controller.id;
+    if (controller.my === true || isNonEmptyString(controller.owner?.username)) {
+      return { kind: 'owned', controllerId };
+    }
+
+    const reservationUsername = controller.reservation?.username;
+    if (isNonEmptyString(reservationUsername)) {
+      return reservationUsername === ownerUsername
+        ? { kind: 'ownReserved', controllerId }
+        : { kind: 'foreignReserved', controllerId };
+    }
+
+    return { kind: 'neutral', controllerId };
+  }
+
+  const scoutIntel = getScoutIntel(colonyName, roomName);
+  if (!scoutIntel) {
+    return { kind: 'unknown' };
+  }
+
+  const controller = scoutIntel.controller;
+  if (!controller) {
+    return { kind: 'missing' };
+  }
+
+  if (controller.my === true || isNonEmptyString(controller.ownerUsername)) {
+    return { kind: 'owned', ...(controller.id ? { controllerId: controller.id } : {}) };
+  }
+
+  if (isNonEmptyString(controller.reservationUsername)) {
+    return controller.reservationUsername === ownerUsername
+      ? { kind: 'ownReserved', ...(controller.id ? { controllerId: controller.id } : {}) }
+      : { kind: 'foreignReserved', ...(controller.id ? { controllerId: controller.id } : {}) };
+  }
+
+  return { kind: 'neutral', ...(controller.id ? { controllerId: controller.id } : {}) };
+}
+
+function hasBlockingClaimIntent(colony: string, targetRoom: string): boolean {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return false;
+  }
+
+  if (
+    Array.isArray(territoryMemory.targets) &&
+    territoryMemory.targets.some(
+      (target) =>
+        isRecord(target) &&
+        target.colony === colony &&
+        target.action === 'claim' &&
+        target.createdBy !== COLONY_EXPANSION_CLAIM_TARGET_CREATOR
+    )
+  ) {
+    return true;
+  }
+
+  return normalizeTerritoryIntents(territoryMemory.intents).some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.action === 'claim' &&
+      (intent.status === 'planned' || intent.status === 'active') &&
+      (intent.targetRoom !== targetRoom || intent.createdBy !== COLONY_EXPANSION_CLAIM_TARGET_CREATOR)
+  );
+}
+
+function persistColonyExpansionClaimIntent(
+  colony: string,
+  candidate: ColonyExpansionCandidate,
+  gameTime: number
+): void {
+  const territoryMemory = getWritableTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return;
+  }
+
+  const target: TerritoryTargetMemory = {
+    colony,
+    roomName: candidate.roomName,
+    action: 'claim',
+    createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
+    ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {})
+  };
+
+  pruneAdjacentReservationForTarget(colony, candidate.roomName, territoryMemory);
+  pruneColonyExpansionClaimTargets(colony, territoryMemory, target);
+  upsertTerritoryTarget(territoryMemory, target);
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  upsertTerritoryIntent(intents, {
+    colony,
+    targetRoom: candidate.roomName,
+    action: 'claim',
+    status: getExistingColonyExpansionClaimIntentStatus(intents, colony, candidate.roomName),
+    updatedAt: gameTime,
+    createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
+    ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {})
+  });
+}
+
+function getExistingColonyExpansionClaimIntentStatus(
+  intents: TerritoryIntentMemory[],
+  colony: string,
+  targetRoom: string
+): TerritoryIntentMemory['status'] {
+  return intents.some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.targetRoom === targetRoom &&
+      intent.action === 'claim' &&
+      intent.createdBy === COLONY_EXPANSION_CLAIM_TARGET_CREATOR &&
+      intent.status === 'active'
+  )
+    ? 'active'
+    : 'planned';
+}
+
+function pruneColonyExpansionClaimTargets(
+  colony: string,
+  territoryMemory: TerritoryMemory,
+  activeTarget?: TerritoryTargetMemory
+): void {
+  const removedRooms = new Set<string>();
+  if (Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = territoryMemory.targets.filter((target) => {
+      if (
+        !isRecord(target) ||
+        target.colony !== colony ||
+        target.action !== 'claim' ||
+        target.createdBy !== COLONY_EXPANSION_CLAIM_TARGET_CREATOR
+      ) {
+        return true;
+      }
+
+      if (activeTarget && isSameTarget(target, activeTarget)) {
+        return true;
+      }
+
+      if (isNonEmptyString(target.roomName)) {
+        removedRooms.add(target.roomName);
+      }
+      return false;
+    });
+  }
+
+  if (removedRooms.size === 0) {
+    return;
+  }
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
+    (intent) =>
+      intent.colony !== colony ||
+      intent.createdBy !== COLONY_EXPANSION_CLAIM_TARGET_CREATOR ||
+      intent.action !== 'claim' ||
+      !removedRooms.has(intent.targetRoom)
+  );
+  territoryMemory.intents = intents;
+}
+
+function pruneAdjacentReservationForTarget(
+  colony: string,
+  targetRoom: string,
+  territoryMemory: TerritoryMemory
+): void {
+  if (Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = territoryMemory.targets.filter(
+      (target) =>
+        !(
+          isRecord(target) &&
+          target.colony === colony &&
+          target.roomName === targetRoom &&
+          target.action === 'reserve' &&
+          target.createdBy === 'adjacentRoomReservation'
+        )
+    );
+  }
+
+  const intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
+    (intent) =>
+      !(
+        intent.colony === colony &&
+        intent.targetRoom === targetRoom &&
+        intent.action === 'reserve' &&
+        intent.createdBy === 'adjacentRoomReservation'
+      )
+  );
+  territoryMemory.intents = intents;
+}
+
+function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: TerritoryTargetMemory): void {
+  if (!Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = [];
+  }
+
+  const existingTarget = territoryMemory.targets.find((rawTarget) => isSameTarget(rawTarget, target));
+  if (!existingTarget) {
+    territoryMemory.targets.push(target);
+    return;
+  }
+
+  if (isRecord(existingTarget)) {
+    existingTarget.createdBy = COLONY_EXPANSION_CLAIM_TARGET_CREATOR;
+    existingTarget.enabled = target.enabled;
+    if (target.controllerId) {
+      existingTarget.controllerId = target.controllerId;
+    } else {
+      delete existingTarget.controllerId;
+    }
+  }
+}
+
+function upsertTerritoryIntent(
+  intents: TerritoryIntentMemory[],
+  nextIntent: TerritoryIntentMemory
+): void {
+  const existingIndex = intents.findIndex(
+    (intent) =>
+      intent.colony === nextIntent.colony &&
+      intent.targetRoom === nextIntent.targetRoom &&
+      intent.action === nextIntent.action &&
+      intent.createdBy === nextIntent.createdBy
+  );
+  if (existingIndex >= 0) {
+    intents[existingIndex] = nextIntent;
+    return;
+  }
+
+  intents.push(nextIntent);
+}
+
+function isSameTarget(left: unknown, right: TerritoryTargetMemory): boolean {
+  return (
+    isRecord(left) &&
+    left.colony === right.colony &&
+    left.roomName === right.roomName &&
+    left.action === right.action
+  );
+}
+
+function getAdjacentRoomNames(roomName: string): string[] {
+  const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map;
+  if (!gameMap || typeof gameMap.describeExits !== 'function') {
+    return [];
+  }
+
+  const exits = gameMap.describeExits(roomName) as ExitsInformation | null;
+  if (!isRecord(exits)) {
+    return [];
+  }
+
+  return EXIT_DIRECTION_ORDER.flatMap((direction) => {
+    const exitRoom = exits[direction];
+    return isNonEmptyString(exitRoom) ? [exitRoom] : [];
+  });
+}
+
+function getVisibleRoom(roomName: string): Room | undefined {
+  return (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[roomName];
+}
+
+function getScoutIntel(homeRoomName: string, roomName: string): TerritoryScoutIntelMemory | undefined {
+  return (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.scoutIntel?.[
+    `${homeRoomName}>${roomName}`
+  ];
+}
+
+function getControllerOwnerUsername(controller: StructureController | undefined): string | undefined {
+  const username = controller?.owner?.username;
+  return isNonEmptyString(username) ? username : undefined;
+}
+
+function getTerritoryMemoryRecord(): TerritoryMemory | undefined {
+  return (globalThis as { Memory?: Partial<Memory> }).Memory?.territory as TerritoryMemory | undefined;
+}
+
+function getWritableTerritoryMemoryRecord(): TerritoryMemory | null {
+  const memory = (globalThis as { Memory?: Partial<Memory> }).Memory;
+  if (!memory) {
+    return null;
+  }
+
+  if (!memory.territory) {
+    memory.territory = {};
+  }
+
+  return memory.territory as TerritoryMemory;
+}
+
+function getGameTime(): number {
+  const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
+  return typeof gameTime === 'number' && Number.isFinite(gameTime) ? gameTime : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
