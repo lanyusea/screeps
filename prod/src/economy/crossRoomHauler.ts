@@ -16,12 +16,19 @@ const CROSS_ROOM_MOVE_OPTS: MoveToOpts = { reusePath: 20, ignoreRoads: false };
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 
-type DeliveryTarget = StructureSpawn | StructureExtension | StructureContainer;
+type DeliveryTarget =
+  | StructureSpawn
+  | StructureExtension
+  | StructureContainer
+  | StructureStorage
+  | StructureTerminal;
 type EnergySourceStructure = StructureStorage | StructureTerminal;
 type LogisticsStructureGlobal =
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_EXTENSION'
-  | 'STRUCTURE_SPAWN';
+  | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_STORAGE'
+  | 'STRUCTURE_TERMINAL';
 
 interface LogisticsRoute {
   distance: number;
@@ -266,7 +273,8 @@ function returnHome(creep: Creep, assignment: CreepCrossRoomHaulerMemory): void 
 function selectDeliveryTarget(room: Room): DeliveryTarget | null {
   const targets = [
     ...findOwnedStructures(room).filter(isSpawnOrExtensionWithDemand),
-    ...findRoomStructures(room).filter(isContainerWithDemand)
+    ...findRoomStructures(room).filter(isContainerWithDemand),
+    ...[room.storage, room.terminal].filter(isStorageOrTerminalWithDemand)
   ].sort(compareDeliveryTargets);
 
   return targets[0] ?? null;
@@ -296,6 +304,10 @@ function isContainerWithDemand(structure: Structure): structure is StructureCont
   );
 }
 
+function isStorageOrTerminalWithDemand(structure: StructureStorage | StructureTerminal | undefined): structure is EnergySourceStructure {
+  return structure !== undefined && getFreeEnergyCapacity(structure) > 0;
+}
+
 function compareDeliveryTargets(left: DeliveryTarget, right: DeliveryTarget): number {
   return getDeliveryPriority(right) - getDeliveryPriority(left) || getObjectId(left).localeCompare(getObjectId(right));
 }
@@ -307,6 +319,14 @@ function getDeliveryPriority(target: DeliveryTarget): number {
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
     return 2;
+  }
+
+  if (matchesStructureType(target.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+    return 0;
+  }
+
+  if (matchesStructureType(target.structureType, 'STRUCTURE_TERMINAL', 'terminal')) {
+    return -1;
   }
 
   return 1;

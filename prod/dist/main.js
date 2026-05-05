@@ -14392,7 +14392,8 @@ function selectDeliveryTarget(room) {
   var _a;
   const targets = [
     ...findOwnedStructures3(room).filter(isSpawnOrExtensionWithDemand),
-    ...findRoomStructures2(room).filter(isContainerWithDemand)
+    ...findRoomStructures2(room).filter(isContainerWithDemand),
+    ...[room.storage, room.terminal].filter(isStorageOrTerminalWithDemand)
   ].sort(compareDeliveryTargets);
   return (_a = targets[0]) != null ? _a : null;
 }
@@ -14409,6 +14410,9 @@ function isSpawnOrExtensionWithDemand(structure) {
 function isContainerWithDemand(structure) {
   return matchesStructureType11(structure.structureType, "STRUCTURE_CONTAINER", "container") && getFreeEnergyCapacity5(structure) > 0;
 }
+function isStorageOrTerminalWithDemand(structure) {
+  return structure !== void 0 && getFreeEnergyCapacity5(structure) > 0;
+}
 function compareDeliveryTargets(left, right) {
   return getDeliveryPriority(right) - getDeliveryPriority(left) || getObjectId4(left).localeCompare(getObjectId4(right));
 }
@@ -14418,6 +14422,12 @@ function getDeliveryPriority(target) {
   }
   if (matchesStructureType11(target.structureType, "STRUCTURE_EXTENSION", "extension")) {
     return 2;
+  }
+  if (matchesStructureType11(target.structureType, "STRUCTURE_STORAGE", "storage")) {
+    return 0;
+  }
+  if (matchesStructureType11(target.structureType, "STRUCTURE_TERMINAL", "terminal")) {
+    return -1;
   }
   return 1;
 }

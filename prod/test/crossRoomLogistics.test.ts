@@ -29,6 +29,8 @@ describe('cross-room energy logistics', () => {
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
+    (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { ERR_NOT_IN_RANGE: ScreepsReturnCode }).ERR_NOT_IN_RANGE = ERR_NOT_IN_RANGE_CODE;
     (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = ERR_NO_PATH_CODE;
     (globalThis as unknown as { RoomPosition: new (x: number, y: number, roomName: string) => RoomPosition })
@@ -300,6 +302,43 @@ describe('cross-room energy logistics', () => {
 
     expect(creep.transfer).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'W2N1-container' });
+  });
+
+  it('delivers to deficit-room storage when transient sinks are unavailable', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
+    installGame([sourceRoom, targetRoom], []);
+    const creep = makeCrossRoomHauler({
+      room: targetRoom,
+      carriedEnergy: () => 100,
+      transfer: jest.fn(() => OK_CODE)
+    });
+
+    runCrossRoomHauler(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(targetRoom.storage, RESOURCE_ENERGY);
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'W2N1-storage' });
+  });
+
+  it('delivers to deficit-room terminal when storage is full', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
+    const targetRoom = makeOwnedRoom({
+      roomName: 'W2N1',
+      storageEnergy: 1_000,
+      terminalEnergy: 100,
+      terminalCapacity: 1_000
+    });
+    installGame([sourceRoom, targetRoom], []);
+    const creep = makeCrossRoomHauler({
+      room: targetRoom,
+      carriedEnergy: () => 100,
+      transfer: jest.fn(() => OK_CODE)
+    });
+
+    runCrossRoomHauler(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(targetRoom.terminal, RESOURCE_ENERGY);
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'W2N1-terminal' });
   });
 
   it('returns home when empty and the source room no longer has surplus', () => {
