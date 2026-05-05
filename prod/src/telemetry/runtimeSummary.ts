@@ -250,6 +250,7 @@ interface RuntimeResourceEventSummary {
 interface RuntimeResourceSummary {
   storedEnergy: number;
   workerCarriedEnergy: number;
+  harvestedThisTick: number;
   droppedEnergy: number;
   sourceCount: number;
   productiveEnergy: RuntimeProductiveEnergySummary;
@@ -1433,18 +1434,39 @@ function summarizeResources(
   events: RuntimeResourceEventSummary | undefined
 ): RuntimeResourceSummary {
   const roomStructures = findRoomObjects(colony.room, 'FIND_STRUCTURES') ?? colony.spawns;
+  const ownedEnergyStructures = findOwnedEnergyStoreStructures(colony.room);
+  const roomCreeps = findRoomObjects(colony.room, 'FIND_MY_CREEPS') ?? [];
   const constructionSites = findRoomObjects(colony.room, 'FIND_MY_CONSTRUCTION_SITES') ?? [];
   const droppedResources = findRoomObjects(colony.room, 'FIND_DROPPED_RESOURCES') ?? [];
   const sources = findRoomObjects(colony.room, 'FIND_SOURCES') ?? [];
 
   return {
-    storedEnergy: sumEnergyInStores(roomStructures),
-    workerCarriedEnergy: sumEnergyInStores(colonyWorkers),
+    storedEnergy: sumEnergyInStores(ownedEnergyStructures),
+    workerCarriedEnergy: sumEnergyInStores(roomCreeps),
+    harvestedThisTick: events?.harvestedEnergy ?? 0,
     droppedEnergy: sumDroppedEnergy(droppedResources),
     sourceCount: sources.length,
     productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
     ...(events ? { events } : {})
   };
+}
+
+function findOwnedEnergyStoreStructures(room: Room): unknown[] {
+  return (findRoomObjects(room, 'FIND_MY_STRUCTURES') ?? []).filter(isOwnedEnergyStoreStructure);
+}
+
+function isOwnedEnergyStoreStructure(structure: unknown): boolean {
+  if (!isRecord(structure)) {
+    return false;
+  }
+
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_LINK', 'link')
+  );
 }
 
 function summarizeProductiveEnergy(
@@ -1945,7 +1967,7 @@ function getRoomEventLog(room: Room): unknown[] | undefined {
   }
 
   try {
-    const eventLog = getEventLog.call(room);
+    const eventLog = getEventLog.call(room, getEnergyResource());
     return Array.isArray(eventLog) ? eventLog : undefined;
   } catch {
     return undefined;
@@ -1961,14 +1983,18 @@ function getEnergyInStore(object: unknown): number {
     return 0;
   }
 
+  const storedEnergy = object.store[getEnergyResource()];
+  if (typeof storedEnergy === 'number') {
+    return storedEnergy;
+  }
+
   const getUsedCapacity = object.store.getUsedCapacity;
   if (typeof getUsedCapacity === 'function') {
     const usedCapacity = getUsedCapacity.call(object.store, getEnergyResource());
     return typeof usedCapacity === 'number' ? usedCapacity : 0;
   }
 
-  const storedEnergy = object.store[getEnergyResource()];
-  return typeof storedEnergy === 'number' ? storedEnergy : 0;
+  return 0;
 }
 
 function getEnergyCapacityInStore(object: unknown): number {
@@ -2026,7 +2052,9 @@ type StructureConstantGlobal =
   | 'STRUCTURE_RAMPART'
   | 'STRUCTURE_TOWER'
   | 'STRUCTURE_SPAWN'
-  | 'STRUCTURE_EXTENSION';
+  | 'STRUCTURE_EXTENSION'
+  | 'STRUCTURE_STORAGE'
+  | 'STRUCTURE_LINK';
 
 function matchesStructureType(value: unknown, globalName: StructureConstantGlobal, fallback: string): boolean {
   const expectedValue = (globalThis as Record<string, unknown>)[globalName] ?? fallback;
