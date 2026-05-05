@@ -727,6 +727,7 @@ def run_gate(
     summary = build_summary(report)
     write_json_atomic(report_path, report)
     write_json_atomic(gate_dir / "gate_summary.json", summary)
+    dataset_export.assert_no_secret_leak(gate_dir, dataset_export.configured_secret_values())
     return report
 
 
