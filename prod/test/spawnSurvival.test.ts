@@ -34,6 +34,7 @@ describe('spawn survival integration', () => {
     });
 
     harness.runTick(101, 199);
+    expectSpawnHasEnergyOrWorker(harness);
     expect(harness.spawn.spawnCreep).not.toHaveBeenCalled();
     expect(harness.room.memory.colonyStage).toEqual({
       mode: 'BOOTSTRAP',
@@ -42,6 +43,7 @@ describe('spawn survival integration', () => {
     });
 
     harness.runTick(102, 200);
+    expectSpawnHasEnergyOrWorker(harness);
     expect(harness.spawn.spawnCreep).toHaveBeenLastCalledWith(
       ['work', 'carry', 'move'],
       'worker-W1N1-102',
@@ -56,7 +58,9 @@ describe('spawn survival integration', () => {
     });
 
     harness.runTick(103, 200);
+    expectSpawnHasEnergyOrWorker(harness);
     harness.runTick(104, 200);
+    expectSpawnHasEnergyOrWorker(harness);
     expect(harness.workerNames()).toEqual(['worker-W1N1-102', 'worker-W1N1-103', 'worker-W1N1-104']);
     expect(harness.spawnedBodies().slice(0, 3)).toEqual([
       ['work', 'carry', 'move'],
@@ -69,6 +73,7 @@ describe('spawn survival integration', () => {
     });
 
     harness.runTick(105, 300);
+    expectSpawnHasEnergyOrWorker(harness);
     expect(harness.spawnedBodies()[3]).toEqual(['work', 'carry', 'move', 'move']);
     expect(harness.room.memory.colonyStage).toMatchObject({
       mode: 'BOOTSTRAP',
@@ -77,6 +82,7 @@ describe('spawn survival integration', () => {
     });
 
     harness.runTick(106, 400);
+    expectSpawnHasEnergyOrWorker(harness);
     expect(harness.spawnedBodies()[4]).toEqual(['work', 'carry', 'move', 'work', 'carry', 'move']);
     expect(harness.workerNames()).toHaveLength(5);
     expect(harness.room.memory.colonyStage).toMatchObject({
@@ -86,6 +92,8 @@ describe('spawn survival integration', () => {
     });
 
     harness.runTick(107, 800);
+    expectSpawnHasEnergyOrWorker(harness);
+    expectTerritoryReadyKeepsWorkers(harness);
     expect(harness.workerNames()).toHaveLength(5);
     expect(harness.spawn.spawnCreep).toHaveBeenCalledTimes(5);
     expect(harness.room.memory.colonyStage).toEqual({
@@ -94,6 +102,8 @@ describe('spawn survival integration', () => {
     });
 
     harness.runTick(108, 800);
+    expectSpawnHasEnergyOrWorker(harness);
+    expectTerritoryReadyKeepsWorkers(harness);
     expect(harness.spawn.spawnCreep).toHaveBeenCalledTimes(5);
     expect(harness.workerNames()).toHaveLength(5);
     expect(harness.room.memory.colonyStage).toEqual({
@@ -106,6 +116,12 @@ describe('spawn survival integration', () => {
         .spawnedBodies()
         .every((body) => body.length > 0 && body.reduce((total, part) => total + getBodyPartCost(part), 0) <= 400)
     ).toBe(true);
+
+    for (let tick = 109; tick <= 300; tick += 1) {
+      harness.runTick(tick, 800);
+      expectSpawnHasEnergyOrWorker(harness);
+      expectTerritoryReadyKeepsWorkers(harness);
+    }
   });
 });
 
@@ -132,7 +148,18 @@ function createSpawnSurvivalHarness(): SpawnSurvivalHarness {
   ];
   const room = makeRoom(sources, creeps);
   const spawn = createLifecycleSpawn(room, creeps);
-  const ownedStructures: AnyOwnedStructure[] = [spawn as unknown as AnyOwnedStructure];
+  const storage = makeStorage('storage1', 24, 24);
+  const links = [
+    makeLink('source-link-1', 11, 10, 400, 400),
+    makeLink('source-link-2', 39, 10, 400, 400),
+    makeLink('controller-link', 25, 24, 0, 200),
+    makeLink('storage-link', 23, 24, 0, 800)
+  ];
+  const ownedStructures: AnyOwnedStructure[] = [
+    spawn as unknown as AnyOwnedStructure,
+    storage as unknown as AnyOwnedStructure,
+    ...links.map((link) => link as unknown as AnyOwnedStructure)
+  ];
   setRoomOwnedStructures(room, ownedStructures);
 
   return {
@@ -324,6 +351,11 @@ function createLifecycleSpawn(room: Room, creeps: Record<string, Creep>): Lifecy
         return ERR_BUSY_CODE;
       }
 
+      const bodyCost = body.reduce((total, part) => total + getBodyPartCost(part), 0);
+      if (bodyCost > room.energyAvailable) {
+        return ERR_NOT_ENOUGH_RESOURCES_CODE;
+      }
+
       pendingBody = [...body];
       pendingMemory = options?.memory;
       spawnedBodies.push([...body]);
@@ -385,6 +417,45 @@ function makeSource(id: string, x: number, y: number): Source {
   } as Source;
 }
 
+function makeStorage(id: string, x: number, y: number): StructureStorage {
+  return {
+    id: id as Id<StructureStorage>,
+    structureType: 'storage',
+    my: true,
+    pos: makeRoomPosition(x, y),
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(0),
+      getFreeCapacity: jest.fn().mockReturnValue(1_000_000)
+    }
+  } as unknown as StructureStorage;
+}
+
+function makeLink(
+  id: string,
+  x: number,
+  y: number,
+  energy: number,
+  freeCapacity: number
+): StructureLink {
+  return {
+    id: id as Id<StructureLink>,
+    cooldown: 0,
+    my: true,
+    structureType: 'link',
+    pos: makeRoomPosition(x, y),
+    store: {
+      getUsedCapacity: jest.fn((resource?: ResourceConstant) =>
+        resource === undefined || resource === RESOURCE_ENERGY ? energy : 0
+      ),
+      getFreeCapacity: jest.fn((resource?: ResourceConstant) =>
+        resource === undefined || resource === RESOURCE_ENERGY ? freeCapacity : 0
+      )
+    },
+    transfer: jest.fn().mockReturnValue(OK_CODE),
+    transferEnergy: jest.fn().mockReturnValue(OK_CODE)
+  } as unknown as StructureLink;
+}
+
 function makeRoomPosition(x: number, y: number): RoomPosition {
   return {
     x,
@@ -409,4 +480,15 @@ function getBodyPartCost(part: BodyPartConstant): number {
     work: 100
   };
   return costs[part];
+}
+
+function expectSpawnHasEnergyOrWorker(harness: SpawnSurvivalHarness): void {
+  const spawnEnergy = harness.spawn.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0;
+  expect(spawnEnergy > 0 || harness.workerNames().length >= 1).toBe(true);
+}
+
+function expectTerritoryReadyKeepsWorkers(harness: SpawnSurvivalHarness): void {
+  if (harness.room.memory.colonyStage?.mode === 'TERRITORY_READY') {
+    expect(harness.workerNames().length).toBeGreaterThanOrEqual(1);
+  }
 }
