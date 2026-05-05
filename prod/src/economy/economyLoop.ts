@@ -184,9 +184,14 @@ function recordStrategyRecommendationTelemetry(
     return;
   }
 
-  const recommendations = rejectUncertain(
-    generateStrategyRecommendations(buildStrategyRecommendationRoomState(colony, creeps))
-  );
+  let recommendations: import('../strategy/strategyRecommender').StrategyRecommendation[];
+  try {
+    recommendations = rejectUncertain(
+      generateStrategyRecommendations(buildStrategyRecommendationRoomState(colony, creeps))
+    );
+  } catch {
+    return;
+  }
   if (recommendations.length === 0) {
     return;
   }

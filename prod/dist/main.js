@@ -21115,9 +21115,14 @@ function recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents) 
   if (!shouldRecordStrategyRecommendationTelemetry(Game.time)) {
     return;
   }
-  const recommendations = rejectUncertain(
-    generateStrategyRecommendations(buildStrategyRecommendationRoomState(colony, creeps))
-  );
+  let recommendations;
+  try {
+    recommendations = rejectUncertain(
+      generateStrategyRecommendations(buildStrategyRecommendationRoomState(colony, creeps))
+    );
+  } catch {
+    return;
+  }
   if (recommendations.length === 0) {
     return;
   }
