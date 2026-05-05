@@ -56,14 +56,20 @@ describe('buildWorkerBody', () => {
   it('caps general-purpose worker bodies at 800 energy', () => {
     expect(buildWorkerBody(800)).toEqual(repeatWorkerPattern(4));
     expect(buildWorkerBody(10000)).toEqual(repeatWorkerPattern(4));
-    expect(buildWorkerBody(10000, 3)).toEqual(repeatWorkerPattern(4));
+    expect(buildWorkerBody(10000, 3)).toEqual([...repeatWorkerPattern(3), 'move']);
     expect(getBodyCost(buildWorkerBody(10000))).toBe(800);
   });
 
   it('keeps low RCL worker bodies compact and balanced', () => {
     expect(buildWorkerBody(300, 1)).toEqual(WORKER_PATTERN);
-    expect(buildWorkerBody(650, 2)).toEqual([...repeatWorkerPattern(3), 'move']);
-    expect(buildWorkerBody(800, 3)).toEqual(repeatWorkerPattern(4));
+    expect(buildWorkerBody(650, 2)).toEqual(repeatWorkerPattern(2));
+    expect(buildWorkerBody(800, 3)).toEqual([...repeatWorkerPattern(3), 'move']);
+  });
+
+  it('does not overbuild low-RCL worker bodies before specialized roles are available', () => {
+    expect(getBodyCost(buildWorkerBody(550, 2))).toBe(400);
+    expect(getBodyCost(buildWorkerBody(800, 3))).toBe(650);
+    expect(buildWorkerBody(800)).toEqual(repeatWorkerPattern(4));
   });
 
   it('uses mid RCL worker profiles with higher work capacity', () => {
@@ -127,8 +133,9 @@ describe('buildWorkerBody', () => {
 
   it('keeps RCL-aware worker bodies affordable within energy budgets and creep size limits', () => {
     const cases: Array<{ controllerLevel: number; maxCost: number }> = [
-      { controllerLevel: 1, maxCost: 800 },
-      { controllerLevel: 3, maxCost: 800 },
+      { controllerLevel: 1, maxCost: 200 },
+      { controllerLevel: 2, maxCost: 400 },
+      { controllerLevel: 3, maxCost: 650 },
       { controllerLevel: 4, maxCost: 1800 },
       { controllerLevel: 6, maxCost: 1800 },
       { controllerLevel: 7, maxCost: 3750 },
