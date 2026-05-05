@@ -136,18 +136,14 @@ export function validateTerritoryScoutIntelForClaim({
   colonyOwnerUsername?: string;
   gameTime: number;
 }): TerritoryScoutValidationResult {
+  const attempt = getTerritoryScoutAttempt(colony, targetRoom);
   const intel = getTerritoryScoutIntel(colony, targetRoom);
   if (!intel) {
-    const attempt = getTerritoryScoutAttempt(colony, targetRoom);
-    if (
-      attempt?.status === 'requested' &&
-      gameTime >= attempt.requestedAt &&
-      gameTime - attempt.requestedAt > TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS
-    ) {
-      return { status: 'fallback', reason: 'scoutTimeout' };
-    }
+    return getUnavailableScoutIntelValidationResult(attempt, gameTime, 'intelMissing');
+  }
 
-    return { status: 'pending', reason: attempt ? 'scoutPending' : 'intelMissing' };
+  if (!isScoutIntelUsableForClaim(intel, attempt, gameTime)) {
+    return getUnavailableScoutIntelValidationResult(attempt, gameTime, 'scoutPending');
   }
 
   const controller = intel.controller;
@@ -405,6 +401,42 @@ function getTerritoryScoutIntel(colony: string, targetRoom: string): TerritorySc
 function getTerritoryScoutAttempt(colony: string, targetRoom: string): TerritoryScoutAttemptMemory | null {
   const rawAttempt = getTerritoryMemoryRecord()?.scoutAttempts?.[getTerritoryScoutMemoryKey(colony, targetRoom)];
   return normalizeTerritoryScoutAttempt(rawAttempt);
+}
+
+function getUnavailableScoutIntelValidationResult(
+  attempt: TerritoryScoutAttemptMemory | null,
+  gameTime: number,
+  pendingReason: TerritoryScoutValidationReason
+): TerritoryScoutValidationResult {
+  if (isScoutAttemptTimedOut(attempt, gameTime)) {
+    return { status: 'fallback', reason: 'scoutTimeout' };
+  }
+
+  return { status: 'pending', reason: attempt ? 'scoutPending' : pendingReason };
+}
+
+function isScoutIntelUsableForClaim(
+  intel: TerritoryScoutIntelMemory,
+  attempt: TerritoryScoutAttemptMemory | null,
+  gameTime: number
+): boolean {
+  if (isScoutIntelExpired(intel, gameTime)) {
+    return false;
+  }
+
+  return attempt?.status !== 'requested' || intel.updatedAt >= attempt.requestedAt;
+}
+
+function isScoutIntelExpired(intel: TerritoryScoutIntelMemory, gameTime: number): boolean {
+  return gameTime >= intel.updatedAt && gameTime - intel.updatedAt > TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS;
+}
+
+function isScoutAttemptTimedOut(attempt: TerritoryScoutAttemptMemory | null, gameTime: number): boolean {
+  return (
+    attempt?.status === 'requested' &&
+    gameTime >= attempt.requestedAt &&
+    gameTime - attempt.requestedAt > TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS
+  );
 }
 
 function getMutableScoutAttemptRecords(

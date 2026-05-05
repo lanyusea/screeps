@@ -253,6 +253,10 @@ function evaluateAutonomousExpansionClaim(
 
   const room = getVisibleRoom(candidate.roomName);
   const controller = room?.controller;
+  if (room) {
+    recordVisibleRoomScoutIntel(colonyName, room, gameTime, undefined, telemetryEvents);
+  }
+
   const visibleControllerId = controller?.id;
   const visibleControllerEvaluation = {
     ...baseEvaluation,
@@ -291,10 +295,6 @@ function evaluateAutonomousExpansionClaim(
 
   if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
     return { ...visibleControllerEvaluation, reason: 'scoreBelowThreshold' };
-  }
-
-  if (room) {
-    recordVisibleRoomScoutIntel(colonyName, room, gameTime, undefined, telemetryEvents);
   }
 
   const scoutValidation = validateTerritoryScoutIntelForClaim({

@@ -13813,13 +13813,13 @@ function validateTerritoryScoutIntelForClaim({
   colonyOwnerUsername,
   gameTime
 }) {
+  const attempt = getTerritoryScoutAttempt(colony, targetRoom);
   const intel = getTerritoryScoutIntel(colony, targetRoom);
   if (!intel) {
-    const attempt = getTerritoryScoutAttempt(colony, targetRoom);
-    if ((attempt == null ? void 0 : attempt.status) === "requested" && gameTime >= attempt.requestedAt && gameTime - attempt.requestedAt > TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS) {
-      return { status: "fallback", reason: "scoutTimeout" };
-    }
-    return { status: "pending", reason: attempt ? "scoutPending" : "intelMissing" };
+    return getUnavailableScoutIntelValidationResult(attempt, gameTime, "intelMissing");
+  }
+  if (!isScoutIntelUsableForClaim(intel, attempt, gameTime)) {
+    return getUnavailableScoutIntelValidationResult(attempt, gameTime, "scoutPending");
   }
   const controller = intel.controller;
   if (!controller) {
@@ -13999,6 +13999,24 @@ function getTerritoryScoutAttempt(colony, targetRoom) {
   var _a, _b;
   const rawAttempt = (_b = (_a = getTerritoryMemoryRecord4()) == null ? void 0 : _a.scoutAttempts) == null ? void 0 : _b[getTerritoryScoutMemoryKey(colony, targetRoom)];
   return normalizeTerritoryScoutAttempt(rawAttempt);
+}
+function getUnavailableScoutIntelValidationResult(attempt, gameTime, pendingReason) {
+  if (isScoutAttemptTimedOut(attempt, gameTime)) {
+    return { status: "fallback", reason: "scoutTimeout" };
+  }
+  return { status: "pending", reason: attempt ? "scoutPending" : pendingReason };
+}
+function isScoutIntelUsableForClaim(intel, attempt, gameTime) {
+  if (isScoutIntelExpired(intel, gameTime)) {
+    return false;
+  }
+  return (attempt == null ? void 0 : attempt.status) !== "requested" || intel.updatedAt >= attempt.requestedAt;
+}
+function isScoutIntelExpired(intel, gameTime) {
+  return gameTime >= intel.updatedAt && gameTime - intel.updatedAt > TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS;
+}
+function isScoutAttemptTimedOut(attempt, gameTime) {
+  return (attempt == null ? void 0 : attempt.status) === "requested" && gameTime >= attempt.requestedAt && gameTime - attempt.requestedAt > TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS;
 }
 function getMutableScoutAttemptRecords(territoryMemory) {
   if (!isRecord11(territoryMemory.scoutAttempts) || Array.isArray(territoryMemory.scoutAttempts)) {
@@ -17334,6 +17352,9 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
   }
   const room = getVisibleRoom6(candidate.roomName);
   const controller = room == null ? void 0 : room.controller;
+  if (room) {
+    recordVisibleRoomScoutIntel(colonyName, room, gameTime, void 0, telemetryEvents);
+  }
   const visibleControllerId = controller == null ? void 0 : controller.id;
   const visibleControllerEvaluation = {
     ...baseEvaluation,
@@ -17362,9 +17383,6 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
   }
   if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
     return { ...visibleControllerEvaluation, reason: "scoreBelowThreshold" };
-  }
-  if (room) {
-    recordVisibleRoomScoutIntel(colonyName, room, gameTime, void 0, telemetryEvents);
   }
   const scoutValidation = validateTerritoryScoutIntelForClaim({
     colony: colonyName,
@@ -17845,6 +17863,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   }
   if (assignment.action === "scout") {
     recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime12(), creep.name, telemetryEvents);
+    completeTerritoryAssignment(creep);
     return;
   }
   const controller = selectTargetController(creep, assignment);

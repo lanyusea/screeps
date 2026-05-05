@@ -108,7 +108,7 @@ describe('runTerritoryControllerCreep', () => {
     ]);
   });
 
-  it('keeps scout target attribution after entering the target room', () => {
+  it('records scout intel and clears target attribution after entering the target room', () => {
     const telemetryEvents: RuntimeTelemetryEvent[] = [];
     const creep = {
       name: 'Scout1',
@@ -136,7 +136,7 @@ describe('runTerritoryControllerCreep', () => {
 
     expect(creep.moveTo).not.toHaveBeenCalled();
     expect(creep.signController).not.toHaveBeenCalled();
-    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'scout' });
+    expect(creep.memory.territory).toBeUndefined();
     expect(Memory.territory?.scoutIntel?.['W1N1>W1N2']).toEqual({
       colony: 'W1N1',
       roomName: 'W1N2',

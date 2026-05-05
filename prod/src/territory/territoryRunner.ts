@@ -62,6 +62,7 @@ export function runTerritoryControllerCreep(
 
   if (assignment.action === 'scout') {
     recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime(), creep.name, telemetryEvents);
+    completeTerritoryAssignment(creep);
     return;
   }
 
