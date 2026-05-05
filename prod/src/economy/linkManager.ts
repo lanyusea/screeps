@@ -409,9 +409,7 @@ function getDestinationLinks(
 }
 
 function transferLinkEnergy(sourceLink: StructureLink, destinationLink: StructureLink, amount: number): ScreepsReturnCode {
-  return (sourceLink as StructureLink & {
-    transfer: (target: StructureLink, amount?: number) => ScreepsReturnCode;
-  }).transfer(destinationLink, amount);
+  return sourceLink.transferEnergy(destinationLink, amount);
 }
 
 function selectDestinationLink(
