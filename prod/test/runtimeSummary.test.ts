@@ -17,6 +17,7 @@ const TEST_GLOBALS = {
   FIND_HOSTILE_STRUCTURES: 105,
   FIND_MY_STRUCTURES: 106,
   FIND_MY_CONSTRUCTION_SITES: 107,
+  FIND_MY_CREEPS: 108,
   EVENT_HARVEST: 201,
   EVENT_TRANSFER: 202,
   EVENT_BUILD: 203,
@@ -25,12 +26,14 @@ const TEST_GLOBALS = {
   EVENT_ATTACK: 206,
   EVENT_OBJECT_DESTROYED: 207,
   RESOURCE_ENERGY: 'energy',
+  STRUCTURE_SPAWN: 'spawn',
   STRUCTURE_EXTENSION: 'extension',
   STRUCTURE_TOWER: 'tower',
   STRUCTURE_RAMPART: 'rampart',
   STRUCTURE_ROAD: 'road',
   STRUCTURE_CONTAINER: 'container',
-  STRUCTURE_STORAGE: 'storage'
+  STRUCTURE_STORAGE: 'storage',
+  STRUCTURE_LINK: 'link'
 } as const;
 
 const RUNTIME_GLOBAL_KEYS = Object.keys(TEST_GLOBALS);
@@ -49,18 +52,19 @@ describe('runtime telemetry summaries', () => {
   });
 
   it('emits cadence-limited runtime summaries with room, spawn, task, CPU, and KPI fields', () => {
-    const colony = makeColony({
-      time: RUNTIME_SUMMARY_INTERVAL,
-      spawn: {
-        name: 'Spawn1',
-        spawning: { name: 'worker-W1N1-20', remainingTime: 3 }
-      }
-    });
     const creeps = [
       makeWorker({ role: 'worker', colony: 'W1N1', task: { type: 'harvest', targetId: 'source1' as Id<Source> } }, 40),
       makeWorker({ role: 'worker', colony: 'W1N1' }, 20),
       makeWorker({ role: 'worker', colony: 'W2N2', task: { type: 'transfer', targetId: 'spawn2' as Id<AnyStoreStructure> } }, 80)
     ];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      spawn: {
+        name: 'Spawn1',
+        spawning: { name: 'worker-W1N1-20', remainingTime: 3 }
+      },
+      creeps: creeps.filter((creep) => creep.memory.colony === 'W1N1')
+    });
 
     emitRuntimeSummary([colony], creeps);
 
@@ -108,6 +112,7 @@ describe('runtime telemetry summaries', () => {
           resources: {
             storedEnergy: 175,
             workerCarriedEnergy: 60,
+            harvestedThisTick: 10,
             droppedEnergy: 25,
             sourceCount: 2,
             productiveEnergy: {
@@ -604,6 +609,94 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
+  it('reports storedEnergy from owned spawn, extension, and container stores', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      structures: [
+        { id: 'spawn1', structureType: TEST_GLOBALS.STRUCTURE_SPAWN, store: makeEnergyStore(40, 300) },
+        { id: 'extension1', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, store: makeEnergyStore(20, 50) },
+        { id: 'container1', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, store: makeEnergyStore(125, 2000) },
+        { id: 'tower1', structureType: TEST_GLOBALS.STRUCTURE_TOWER, store: makeEnergyStore(900, 1000) },
+        { id: 'unknown-store', store: makeEnergyStore(500, 500) }
+      ]
+    });
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, unknown>).storedEnergy).toBe(185);
+  });
+
+  it('reports workerCarriedEnergy from owned creeps in the room', () => {
+    const roomCreeps = [
+      makeWorker({ role: 'worker', colony: 'W1N1' }, 15, 'WorkerA'),
+      makeWorker({ role: 'worker', colony: 'W1N1' }, 25, 'WorkerB'),
+      makeWorker({ role: 'claimer', colony: 'W1N1' }, 5, 'Claimer')
+    ];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      creeps: roomCreeps
+    });
+
+    emitRuntimeSummary([colony], roomCreeps);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, unknown>).workerCarriedEnergy).toBe(45);
+  });
+
+  it('reports harvestedThisTick from harvest event amounts', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false
+    });
+    const getEventLog = jest.fn(() => [
+      { event: TEST_GLOBALS.EVENT_HARVEST, data: { amount: 5, resourceType: TEST_GLOBALS.RESOURCE_ENERGY } },
+      { event: TEST_GLOBALS.EVENT_HARVEST, data: { amount: 7 } },
+      { event: TEST_GLOBALS.EVENT_HARVEST, data: { amount: 99, resourceType: 'power' } },
+      { event: TEST_GLOBALS.EVENT_TRANSFER, data: { amount: 11, resourceType: TEST_GLOBALS.RESOURCE_ENERGY } }
+    ]);
+    (colony.room as unknown as { getEventLog: jest.Mock }).getEventLog = getEventLog;
+
+    emitRuntimeSummary([colony], []);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const resources = room.resources as Record<string, unknown>;
+    expect(resources.harvestedThisTick).toBe(12);
+    expect((resources.events as Record<string, unknown>).harvestedEnergy).toBe(12);
+    expect(getEventLog).toHaveBeenCalledWith(TEST_GLOBALS.RESOURCE_ENERGY);
+  });
+
+  it('reports zero energy fields when structures and creeps have no energy', () => {
+    const roomCreeps = [
+      makeWorker({ role: 'worker', colony: 'W1N1' }, 0, 'EmptyWorker'),
+      { name: 'NoStoreWorker', memory: { role: 'worker', colony: 'W1N1' } }
+    ];
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      structures: [
+        { id: 'spawn1', structureType: TEST_GLOBALS.STRUCTURE_SPAWN, store: makeEnergyStore(0, 300) },
+        { id: 'extension1', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION }
+      ],
+      creeps: roomCreeps
+    });
+
+    emitRuntimeSummary([colony], roomCreeps as Creep[]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.resources).toMatchObject({
+      storedEnergy: 0,
+      workerCarriedEnergy: 0,
+      harvestedThisTick: 0
+    });
+  });
+
   it('reports bounded room-level worker efficiency samples', () => {
     const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
     const lowLoadReturnReasons: WorkerEfficiencyLowLoadReturnReason[] = [
@@ -920,8 +1013,9 @@ describe('runtime telemetry summaries', () => {
         ticksToDowngrade: 15000
       },
       resources: {
-        storedEnergy: 50,
-        workerCarriedEnergy: 7,
+        storedEnergy: 0,
+        workerCarriedEnergy: 0,
+        harvestedThisTick: 0,
         droppedEnergy: 0,
         sourceCount: 0
       },
@@ -1337,6 +1431,7 @@ function makeColony(options: {
   includeEventLog?: boolean;
   roomName?: string;
   structures?: unknown[];
+  creeps?: unknown[];
 }): ColonySnapshot {
   if (options.installGlobals !== false) {
     installRuntimeTelemetryGlobals();
@@ -1358,11 +1453,16 @@ function makeColony(options: {
   const spawn = {
     name: options.spawn?.name ?? (roomName === 'W1N1' ? 'Spawn1' : `Spawn-${roomName}`),
     room,
+    structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
     spawning: options.spawn?.spawning ?? null,
     store: makeEnergyStore(50)
   } as unknown as StructureSpawn;
-  const structures = options.structures ?? [spawn, { store: makeEnergyStore(125) }];
+  const structures = options.structures ?? [
+    spawn,
+    { id: 'storage1', structureType: TEST_GLOBALS.STRUCTURE_STORAGE, store: makeEnergyStore(125) }
+  ];
   const constructionSites = options.constructionSites ?? [];
+  const roomCreeps = options.creeps ?? [];
 
   if (options.includeRoomFind !== false) {
     (room as unknown as { find?: jest.Mock }).find = jest.fn((findType: number): unknown[] => {
@@ -1373,6 +1473,8 @@ function makeColony(options: {
           return structures;
         case TEST_GLOBALS.FIND_MY_CONSTRUCTION_SITES:
           return constructionSites;
+        case TEST_GLOBALS.FIND_MY_CREEPS:
+          return roomCreeps;
         case TEST_GLOBALS.FIND_DROPPED_RESOURCES:
           return [
             { resourceType: TEST_GLOBALS.RESOURCE_ENERGY, amount: 25 },
@@ -1541,12 +1643,13 @@ function makeRemoteRoom(
 function makeEnergyStore(
   energy: number,
   capacity = energy
-): {
+): Record<string, unknown> & {
   getUsedCapacity: (resource?: ResourceConstant) => number;
   getCapacity: (resource?: ResourceConstant) => number;
   getFreeCapacity: (resource?: ResourceConstant) => number;
 } {
   return {
+    [TEST_GLOBALS.RESOURCE_ENERGY]: energy,
     getUsedCapacity: (resource?: ResourceConstant) => (resource === TEST_GLOBALS.RESOURCE_ENERGY ? energy : 0),
     getCapacity: (resource?: ResourceConstant) => (resource === TEST_GLOBALS.RESOURCE_ENERGY ? capacity : 0),
     getFreeCapacity: (resource?: ResourceConstant) =>

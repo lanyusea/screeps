@@ -15541,7 +15541,7 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
     const spawnSite = toSpawnSiteMemory(existingSpawnSite);
     updatePostClaimBootstrapRecord(roomName, {
       status: "spawnSitePending",
-      updatedAt: getGameTime11(),
+      updatedAt: getGameTime10(),
       workerTarget,
       spawnSite,
       lastResult: OK_CODE5
@@ -15565,7 +15565,7 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
   const nextStatus = sitePlan.result === OK_CODE5 ? "spawnSitePending" : "spawnSiteBlocked";
   updatePostClaimBootstrapRecord(roomName, {
     status: nextStatus,
-    updatedAt: getGameTime11(),
+    updatedAt: getGameTime10(),
     workerTarget,
     ...sitePlan.position ? { spawnSite: sitePlan.position } : {},
     lastResult: sitePlan.result
@@ -16518,19 +16518,32 @@ function buildControllerSummary(room) {
   return { controller: summary };
 }
 function summarizeResources(colony, colonyWorkers, events) {
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e, _f;
   const roomStructures = (_a = findRoomObjects9(colony.room, "FIND_STRUCTURES")) != null ? _a : colony.spawns;
-  const constructionSites = (_b = findRoomObjects9(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _b : [];
-  const droppedResources = (_c = findRoomObjects9(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _c : [];
-  const sources = (_d = findRoomObjects9(colony.room, "FIND_SOURCES")) != null ? _d : [];
+  const ownedEnergyStructures = findOwnedEnergyStoreStructures(colony.room);
+  const roomCreeps = (_b = findRoomObjects9(colony.room, "FIND_MY_CREEPS")) != null ? _b : [];
+  const constructionSites = (_c = findRoomObjects9(colony.room, "FIND_MY_CONSTRUCTION_SITES")) != null ? _c : [];
+  const droppedResources = (_d = findRoomObjects9(colony.room, "FIND_DROPPED_RESOURCES")) != null ? _d : [];
+  const sources = (_e = findRoomObjects9(colony.room, "FIND_SOURCES")) != null ? _e : [];
   return {
-    storedEnergy: sumEnergyInStores(roomStructures),
-    workerCarriedEnergy: sumEnergyInStores(colonyWorkers),
+    storedEnergy: sumEnergyInStores(ownedEnergyStructures),
+    workerCarriedEnergy: sumEnergyInStores(roomCreeps),
+    harvestedThisTick: (_f = events == null ? void 0 : events.harvestedEnergy) != null ? _f : 0,
     droppedEnergy: sumDroppedEnergy2(droppedResources),
     sourceCount: sources.length,
     productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
     ...events ? { events } : {}
   };
+}
+function findOwnedEnergyStoreStructures(room) {
+  var _a;
+  return ((_a = findRoomObjects9(room, "FIND_MY_STRUCTURES")) != null ? _a : []).filter(isOwnedEnergyStoreStructure);
+}
+function isOwnedEnergyStoreStructure(structure) {
+  if (!isRecord14(structure)) {
+    return false;
+  }
+  return matchesStructureType10(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType10(structure.structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType10(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType10(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType10(structure.structureType, "STRUCTURE_LINK", "link");
 }
 function summarizeProductiveEnergy(room, colonyWorkers, constructionSites, roomStructures) {
   const productiveAssignments = summarizeProductiveWorkerAssignments(colonyWorkers);
@@ -16910,7 +16923,7 @@ function getRoomEventLog(room) {
     return void 0;
   }
   try {
-    const eventLog = getEventLog.call(room);
+    const eventLog = getEventLog.call(room, getEnergyResource6());
     return Array.isArray(eventLog) ? eventLog : void 0;
   } catch {
     return void 0;
@@ -16923,13 +16936,16 @@ function getEnergyInStore(object) {
   if (!isRecord14(object) || !isRecord14(object.store)) {
     return 0;
   }
+  const storedEnergy = object.store[getEnergyResource6()];
+  if (typeof storedEnergy === "number") {
+    return storedEnergy;
+  }
   const getUsedCapacity = object.store.getUsedCapacity;
   if (typeof getUsedCapacity === "function") {
     const usedCapacity = getUsedCapacity.call(object.store, getEnergyResource6());
     return typeof usedCapacity === "number" ? usedCapacity : 0;
   }
-  const storedEnergy = object.store[getEnergyResource6()];
-  return typeof storedEnergy === "number" ? storedEnergy : 0;
+  return 0;
 }
 function getEnergyCapacityInStore(object) {
   if (!isRecord14(object) || !isRecord14(object.store)) {
