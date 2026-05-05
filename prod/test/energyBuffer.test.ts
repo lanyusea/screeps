@@ -4,6 +4,7 @@ import {
   getRoomEnergyBufferHealth,
   getRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
+  STORAGE_EMERGENCY_RESERVE,
   withdrawFromStorage
 } from '../src/economy/energyBuffer';
 import {
@@ -50,13 +51,33 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForSpending(room, 61)).toBe(false);
   });
 
-  it('gates storage withdrawals against the room buffer threshold', () => {
+  it('gates routine storage withdrawals against the storage reserve', () => {
     const storage = makeStorage(900);
     const room = makeRoom({ level: 5, energyAvailable: 900, storage });
 
     expect(getStorageEnergyAvailableForWithdrawal(room, storage)).toBe(100);
     expect(withdrawFromStorage(room, 100)).toBe(true);
     expect(withdrawFromStorage(room, 101)).toBe(false);
+  });
+
+  it('caps the storage reserve below the survival room energy buffer', () => {
+    const storage = makeStorage(STORAGE_EMERGENCY_RESERVE + 100);
+    const room = makeRoom({ level: 8, energyAvailable: 1_200, storage });
+    recordSurvivalMode('DEFENSE');
+
+    expect(getEffectiveRoomEnergyBufferThreshold(room)).toBe(1_500);
+    expect(getStorageEnergyAvailableForWithdrawal(room, storage)).toBe(100);
+    expect(withdrawFromStorage(room, 100)).toBe(true);
+    expect(withdrawFromStorage(room, 101)).toBe(false);
+  });
+
+  it('allows storage withdrawals below the reserve while spawn and extension energy is critical', () => {
+    const storage = makeStorage(500);
+    const room = makeRoom({ level: 3, energyAvailable: 0, storage });
+
+    expect(getStorageEnergyAvailableForWithdrawal(room, storage)).toBe(500);
+    expect(withdrawFromStorage(room, 500)).toBe(true);
+    expect(withdrawFromStorage(room, 501)).toBe(false);
   });
 
   it('raises the active threshold during survival buffer mode', () => {

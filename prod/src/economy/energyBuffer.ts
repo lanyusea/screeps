@@ -12,12 +12,19 @@ export const ENERGY_BUFFER_THRESHOLDS_BY_RCL: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 |
 };
 
 export const SURVIVAL_ENERGY_BUFFER_MULTIPLIER = 1.5;
+export const STORAGE_EMERGENCY_RESERVE = 1_000;
+
+const MINIMUM_WORKER_SPAWN_ENERGY = 200;
 
 export interface EnergyBufferHealth {
   currentEnergy: number;
   threshold: number;
   room: string;
   healthy: boolean;
+}
+
+export interface StorageWithdrawalOptions {
+  allowBelowReserve?: boolean;
 }
 
 type StructureConstantGlobal = 'STRUCTURE_EXTENSION' | 'STRUCTURE_SPAWN' | 'STRUCTURE_STORAGE';
@@ -50,25 +57,42 @@ export function withdrawFromStorage(
   room: Room,
   amount: number,
   storage: StructureStorage | null = getRoomStorage(room),
-  currentStorageEnergy = storage ? getStoredEnergy(storage) : 0
+  currentStorageEnergy = storage ? getStoredEnergy(storage) : 0,
+  options: StorageWithdrawalOptions = {}
 ): boolean {
   if (!storage) {
     return false;
   }
 
-  return currentStorageEnergy - normalizeEnergyAmount(amount) >= getEffectiveRoomEnergyBufferThreshold(room);
+  const requestedEnergy = normalizeEnergyAmount(amount);
+  const storedEnergy = normalizeEnergyAmount(currentStorageEnergy);
+  if (requestedEnergy > storedEnergy) {
+    return false;
+  }
+
+  if (canWithdrawBelowStorageReserve(room, options)) {
+    return storedEnergy > 0;
+  }
+
+  return storedEnergy - requestedEnergy >= getStorageEnergyReserve(room);
 }
 
 export function getStorageEnergyAvailableForWithdrawal(
   room: Room,
   storage: StructureStorage | null = getRoomStorage(room),
-  currentStorageEnergy = storage ? getStoredEnergy(storage) : 0
+  currentStorageEnergy = storage ? getStoredEnergy(storage) : 0,
+  options: StorageWithdrawalOptions = {}
 ): number {
   if (!storage) {
     return 0;
   }
 
-  return Math.max(0, currentStorageEnergy - getEffectiveRoomEnergyBufferThreshold(room));
+  const storedEnergy = normalizeEnergyAmount(currentStorageEnergy);
+  if (canWithdrawBelowStorageReserve(room, options)) {
+    return storedEnergy;
+  }
+
+  return Math.max(0, storedEnergy - getStorageEnergyReserve(room));
 }
 
 export function getRoomEnergyBufferHealth(room: Room): EnergyBufferHealth {
@@ -95,6 +119,19 @@ function getRoomRcl(room: Room): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 {
 function isSurvivalBufferMode(room: Room): boolean {
   const mode = getRecordedColonySurvivalAssessment(getRoomName(room))?.mode;
   return mode === 'BOOTSTRAP' || mode === 'DEFENSE';
+}
+
+function getStorageEnergyReserve(room: Room): number {
+  return Math.min(getEffectiveRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
+}
+
+function canWithdrawBelowStorageReserve(room: Room, options: StorageWithdrawalOptions): boolean {
+  return options.allowBelowReserve === true || isRoomEnergyCriticalForStorageWithdrawal(room);
+}
+
+function isRoomEnergyCriticalForStorageWithdrawal(room: Room): boolean {
+  const observation = getRoomSpawnExtensionEnergyObservation(room);
+  return observation.known && observation.currentEnergy < MINIMUM_WORKER_SPAWN_ENERGY;
 }
 
 function getRoomSpawnExtensionEnergyObservation(room: Room): EnergyObservation {

@@ -3060,7 +3060,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
   });
 
-  it('skips storage withdrawal when storage is below reserve floor and transfers directly to spawn', () => {
+  it('withdraws below the storage reserve when spawn throughput refill needs energy', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 320, { my: true });
     const room = makeWorkerTaskRoom({
@@ -3082,10 +3082,10 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toBeNull();
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
   });
 
-  it('skips storage withdrawal when another worker reservation causes reserve floor violation', () => {
+  it('uses unreserved storage energy for spawn throughput refill even below the reserve floor', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 620, { my: true });
     const room = makeWorkerTaskRoom({
@@ -3122,7 +3122,7 @@ describe('selectWorkerTask', () => {
       TestStorageWorker: creep
     });
 
-    expect(selectWorkerTask(creep)).toBeNull();
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
   });
 
   it('skips storage-to-spawn refill when spawn and extensions are full', () => {

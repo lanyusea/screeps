@@ -45,8 +45,24 @@ describe('storageManager', () => {
     expect(emptyWorker.memory.task).toEqual({ type: 'withdraw', targetId: 'storage1' });
   });
 
-  it('keeps storage above the room energy buffer before assigning withdrawals', () => {
+  it('keeps routine withdrawals above the storage energy reserve', () => {
     const storage = makeStorage(520);
+    const spawn = makeSpawn('spawn1', 200);
+    const worker = makeWorker('Worker1', 0, 50);
+    const room = makeRoom({
+      creeps: [worker],
+      energyAvailable: 250,
+      energyCapacityAvailable: 300,
+      storage,
+      structures: [storage, spawn]
+    });
+
+    expect(manageStorage(room).assignedTasks).toBe(0);
+    expect(worker.memory.task).toBeUndefined();
+  });
+
+  it('allows storage withdrawals below the reserve when spawn energy is critical', () => {
+    const storage = makeStorage(320);
     const spawn = makeSpawn('spawn1', 200);
     const worker = makeWorker('Worker1', 0, 50);
     const room = makeRoom({
@@ -57,8 +73,8 @@ describe('storageManager', () => {
       structures: [storage, spawn]
     });
 
-    expect(manageStorage(room).assignedTasks).toBe(0);
-    expect(worker.memory.task).toBeUndefined();
+    expect(manageStorage(room).assignedTasks).toBe(1);
+    expect(worker.memory.task).toEqual({ type: 'withdraw', targetId: 'storage1' });
   });
 
   it('distributes storage energy to spawn and extensions when room energy is low', () => {

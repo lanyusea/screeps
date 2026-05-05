@@ -57,6 +57,7 @@ const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
 const HARVEST_ENERGY_PER_WORK_PART = 2;
 const SPAWN_EXTENSION_THROUGHPUT_STORAGE_REFILL_EMPTY_CAPACITY_RATIO = 0.2;
+const SPAWN_EXTENSION_REFILL_STORAGE_WITHDRAWAL_OPTIONS = { allowBelowReserve: true } as const;
 const DEFAULT_BUILD_POWER = 5;
 const NEARLY_COMPLETE_CONSTRUCTION_SITE_REMAINING_RATIO = 0.2;
 const NEARLY_COMPLETE_CONSTRUCTION_SITE_FINISH_PRIORITY_MULTIPLIER = 2;
@@ -916,8 +917,20 @@ function selectStorageToSpawnExtensionRefillAcquisitionTask(
   const plannedWithdrawal = Math.min(projectedStorageEnergy, creep.store.getFreeCapacity(RESOURCE_ENERGY));
   if (
     plannedWithdrawal <= 0 ||
-    plannedWithdrawal > getStorageEnergyAvailableForWithdrawal(creep.room, storage, projectedStorageEnergy) ||
-    !withdrawFromStorage(creep.room, plannedWithdrawal, storage, projectedStorageEnergy)
+    plannedWithdrawal >
+      getStorageEnergyAvailableForWithdrawal(
+        creep.room,
+        storage,
+        projectedStorageEnergy,
+        SPAWN_EXTENSION_REFILL_STORAGE_WITHDRAWAL_OPTIONS
+      ) ||
+    !withdrawFromStorage(
+      creep.room,
+      plannedWithdrawal,
+      storage,
+      projectedStorageEnergy,
+      SPAWN_EXTENSION_REFILL_STORAGE_WITHDRAWAL_OPTIONS
+    )
   ) {
     return null;
   }
@@ -949,7 +962,8 @@ function selectStorageForSpawnExtensionRefill(creep: Creep): StructureStorage | 
       getStorageEnergyAvailableForWithdrawal(
         creep.room,
         structure as StructureStorage,
-        getStoredEnergy(structure as StructureStorage)
+        getStoredEnergy(structure as StructureStorage),
+        SPAWN_EXTENSION_REFILL_STORAGE_WITHDRAWAL_OPTIONS
       ) > 0
   );
 
