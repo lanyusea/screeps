@@ -46,6 +46,10 @@ import {
   recordAutonomousExpansionClaimReserveFallbackIntent,
   refreshRemoteMiningSetup
 } from '../territory/territoryPlanner';
+import {
+  clearAdjacentRoomReservationIntent,
+  refreshAdjacentRoomReservationIntent
+} from '../territory/reservationPlanner';
 import { logBestClaimTarget, runTerritoryControllerCreep } from '../territory/territoryRunner';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import {
@@ -204,6 +208,7 @@ function refreshExecutableTerritoryRecommendation(
   if (territoryReady) {
     const expansionSelection = refreshNextExpansionTargetSelectionIfDue(colony, Game.time);
     if (expansionSelection.status === 'planned') {
+      clearAdjacentRoomReservationIntent(colony.room.name);
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
     }
@@ -214,15 +219,18 @@ function refreshExecutableTerritoryRecommendation(
       clearOccupationRecommendationClaimIntent(colonyName);
       report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
       persistOccupationRecommendationFollowUpIntent(suppressOccupationClaimRecommendation(report), Game.time);
+      refreshAdjacentRoomReservationIntent(colony, Game.time);
       return;
     }
     if (expansionSelection.reason === 'unmetPreconditions') {
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
+      refreshAdjacentRoomReservationIntent(colony, Game.time);
       return;
     }
 
     const claimEvaluation = refreshAutonomousExpansionClaimIntent(colony, report, Game.time, telemetryEvents);
     recordAutonomousExpansionClaimReserveFallbackIntent(colony.room.name, claimEvaluation, Game.time);
+    refreshAdjacentRoomReservationIntent(colony, Game.time);
     if (shouldDeferOccupationRecommendationForExpansionClaim(claimEvaluation)) {
       return;
     }
@@ -232,6 +240,9 @@ function refreshExecutableTerritoryRecommendation(
     territoryReady ? report : clearOccupationRecommendationFollowUpIntent(report),
     Game.time
   );
+  if (territoryReady) {
+    refreshAdjacentRoomReservationIntent(colony, Game.time);
+  }
 }
 
 function refreshNextExpansionTargetSelectionIfDue(

@@ -147,7 +147,8 @@ declare global {
   type TerritoryAutomationSource =
     | 'occupationRecommendation'
     | 'autonomousExpansionClaim'
-    | 'nextExpansionScoring';
+    | 'nextExpansionScoring'
+    | 'adjacentRoomReservation';
   type TerritoryIntentSuspensionReason = 'hostile_presence';
   type TerritoryScoutAttemptStatus = 'requested' | 'observed' | 'timedOut';
   type TerritoryScoutValidationStatus = 'pending' | 'passed' | 'blocked' | 'fallback';

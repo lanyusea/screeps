@@ -5,6 +5,7 @@ import {
   buildRemoteHaulerBody,
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
+  buildTerritoryReserverBody,
   buildWorkerBody,
   getBodyCost,
   TERRITORY_SCOUT_BODY,
@@ -194,6 +195,21 @@ describe('buildTerritoryControllerBody', () => {
 
     expect(nonMoveParts).toBeLessThanOrEqual(moveParts * 3);
     expect(moveParts).toBe(1 + upgradePairs);
+  });
+});
+
+describe('buildTerritoryReserverBody', () => {
+  it('returns an empty body below one claim and move part', () => {
+    expect(buildTerritoryReserverBody(649)).toEqual([]);
+  });
+
+  it('builds a cheap one-claim reserver body at 650 energy', () => {
+    expect(buildTerritoryReserverBody(650)).toEqual(['claim', 'move']);
+  });
+
+  it('scales to two claim parts when energy allows', () => {
+    expect(buildTerritoryReserverBody(1249)).toEqual(['claim', 'move']);
+    expect(buildTerritoryReserverBody(1250)).toEqual(['claim', 'claim', 'move']);
   });
 });
 
