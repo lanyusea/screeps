@@ -490,6 +490,115 @@ describe('runEconomy', () => {
     expect(worker.moveTo).not.toHaveBeenCalled();
   });
 
+  it('plans tower construction for an owned expansion room before lower-priority sites', () => {
+    (globalThis as unknown as {
+      FIND_MY_STRUCTURES: number;
+      FIND_MY_CONSTRUCTION_SITES: number;
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_SOURCES: number;
+      RESOURCE_ENERGY: ResourceConstant;
+      STRUCTURE_EXTENSION: StructureConstant;
+      STRUCTURE_TOWER: StructureConstant;
+      STRUCTURE_CONTAINER: StructureConstant;
+      LOOK_STRUCTURES: LOOK_STRUCTURES;
+      LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES;
+      TERRAIN_MASK_WALL: number;
+      Memory: Partial<Memory>;
+    }).FIND_MY_STRUCTURES = 1;
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 2;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 4;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 5;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { LOOK_STRUCTURES: LOOK_STRUCTURES }).LOOK_STRUCTURES = 'structure';
+    (globalThis as unknown as { LOOK_CONSTRUCTION_SITES: LOOK_CONSTRUCTION_SITES }).LOOK_CONSTRUCTION_SITES =
+      'constructionSite';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    const constructionSites: ConstructionSite[] = [];
+    let ownedStructures: AnyOwnedStructure[] = [];
+    const room = {
+      name: 'W2N1',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: {
+        my: true,
+        owner: { username: 'me' },
+        level: 3,
+        ticksToDowngrade: 10_000,
+        pos: { x: 25, y: 25, roomName: 'W2N1' }
+      } as StructureController,
+      find: jest.fn((type: number, options?: { filter?: (target: unknown) => boolean }) => {
+        const targets =
+          type === FIND_MY_STRUCTURES
+            ? ownedStructures
+            : type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES
+              ? constructionSites
+              : type === FIND_STRUCTURES
+                ? ownedStructures
+                : type === FIND_SOURCES
+                  ? ([{ id: 'source1', pos: { x: 10, y: 10, roomName: 'W2N1' } as RoomPosition }] as Source[])
+                  : [];
+
+        return options?.filter ? targets.filter(options.filter) : targets;
+      }),
+      lookForAtArea: jest.fn().mockReturnValue([]),
+      createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
+        constructionSites.push({
+          id: `site-${x}-${y}`,
+          structureType,
+          pos: { x, y, roomName: 'W2N1' } as RoomPosition
+        } as ConstructionSite);
+        return OK_CODE;
+      })
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn2',
+      room,
+      pos: { x: 25, y: 25, roomName: 'W2N1' },
+      structureType: 'spawn',
+      spawning: null,
+      spawnCreep: jest.fn()
+    } as unknown as StructureSpawn;
+    ownedStructures = [
+      spawn as unknown as AnyOwnedStructure,
+      ...Array.from(
+        { length: 10 },
+        (_, index) =>
+          ({
+            id: `extension-${index}`,
+            structureType: 'extension',
+            pos: { x: 35 + index, y: 35, roomName: 'W2N1' } as RoomPosition
+          }) as AnyOwnedStructure
+      )
+    ];
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 252,
+      rooms: { W2N1: room },
+      spawns: { Spawn2: spawn },
+      creeps: workers,
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_TOWER);
+    expect(room.createConstructionSite).not.toHaveBeenCalledWith(expect.any(Number), expect.any(Number), STRUCTURE_CONTAINER);
+  });
+
   it('runs existing worker creeps', () => {
     const creep = {
       memory: { role: 'worker', colony: 'W1N1' },

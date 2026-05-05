@@ -129,7 +129,9 @@ export interface ConstructionPriorityPlanningOptions {
 export interface ConstructionPriorityPlanningResult {
   sourceContainerResults: ScreepsReturnCode[];
   extensionResult: ScreepsReturnCode | null;
+  towerResult: ScreepsReturnCode | null;
   roadResults: ScreepsReturnCode[];
+  storageResult: ScreepsReturnCode | null;
 }
 
 export interface ConstructionSiteImpactPriorityContext {
@@ -156,6 +158,18 @@ interface SourceContainerPlannerLookups {
   terrain: RoomTerrain;
 }
 
+interface FixedStructurePlannerOptions {
+  fallback: string;
+  globalName: StructureConstantName;
+  limit: number;
+  maxScanRadius: number;
+}
+
+interface FixedStructurePlannerLookups {
+  blockingPositions: Set<string>;
+  terrain: RoomTerrain;
+}
+
 interface PositionedRoomPosition {
   x: number;
   y: number;
@@ -168,8 +182,11 @@ const EARLY_ENERGY_CAPACITY_TARGET = 550;
 const MIN_SAFE_WORKERS_FOR_EXPANSION = 3;
 const MIN_RCL_FOR_AUTOMATED_CONSTRUCTION = 2;
 const MIN_RCL_FOR_AUTOMATED_ROADS = 4;
+const MIN_RCL_FOR_STORAGE = 4;
+const STORAGE_STRUCTURE_LIMIT = 1;
 const DEFAULT_MAX_CONTAINER_SITES_PER_TICK = 1;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
+const MAX_CRITICAL_STRUCTURE_SCAN_RADIUS = 8;
 const TOWER_LIMITS_BY_RCL: Record<number, number> = {
   3: 1,
   4: 1,
@@ -417,25 +434,74 @@ export function planPriorityConstructionSites(
 ): ConstructionPriorityPlanningResult {
   const rcl = getOwnedRoomRcl(colony.room);
   if (rcl < MIN_RCL_FOR_AUTOMATED_CONSTRUCTION) {
+    return createEmptyConstructionPriorityPlanningResult();
+  }
+
+  const extensionResult = planExtensionConstruction(colony);
+  if (extensionResult !== null) {
     return {
-      sourceContainerResults: [],
-      extensionResult: null,
-      roadResults: []
+      ...createEmptyConstructionPriorityPlanningResult(),
+      extensionResult
+    };
+  }
+
+  const towerResult = planTowerConstruction(colony);
+  if (towerResult !== null) {
+    return {
+      ...createEmptyConstructionPriorityPlanningResult(),
+      towerResult
     };
   }
 
   const sourceContainerResults = planSourceContainerConstruction(colony, options);
-  const extensionResult = planExtensionConstruction(colony);
-  const roadResults =
-    rcl >= MIN_RCL_FOR_AUTOMATED_ROADS
-      ? planEarlyRoadConstruction(colony, options.roadOptions)
-      : [];
+  if (sourceContainerResults.length > 0) {
+    return {
+      ...createEmptyConstructionPriorityPlanningResult(),
+      sourceContainerResults
+    };
+  }
+
+  const roadResults = rcl >= MIN_RCL_FOR_AUTOMATED_ROADS ? planEarlyRoadConstruction(colony, options.roadOptions) : [];
+  if (roadResults.length > 0) {
+    return {
+      ...createEmptyConstructionPriorityPlanningResult(),
+      roadResults
+    };
+  }
+
+  const storageResult = planStorageConstruction(colony);
 
   return {
-    sourceContainerResults,
-    extensionResult,
-    roadResults
+    ...createEmptyConstructionPriorityPlanningResult(),
+    storageResult
   };
+}
+
+export function planTowerConstruction(colony: ColonySnapshot): ScreepsReturnCode | null {
+  const limit = getTowerLimitForRcl(getOwnedRoomRcl(colony.room));
+  if (limit <= 0) {
+    return null;
+  }
+
+  return planLimitedFixedStructureConstruction(colony, {
+    globalName: 'STRUCTURE_TOWER',
+    fallback: 'tower',
+    limit,
+    maxScanRadius: MAX_CRITICAL_STRUCTURE_SCAN_RADIUS
+  });
+}
+
+export function planStorageConstruction(colony: ColonySnapshot): ScreepsReturnCode | null {
+  if (getOwnedRoomRcl(colony.room) < MIN_RCL_FOR_STORAGE) {
+    return null;
+  }
+
+  return planLimitedFixedStructureConstruction(colony, {
+    globalName: 'STRUCTURE_STORAGE',
+    fallback: 'storage',
+    limit: STORAGE_STRUCTURE_LIMIT,
+    maxScanRadius: MAX_CRITICAL_STRUCTURE_SCAN_RADIUS
+  });
 }
 
 export function planSourceContainerConstruction(
@@ -510,6 +576,226 @@ export function planSourceContainerConstruction(
 function getOwnedRoomRcl(room: Room): number {
   const level = room.controller?.my === true ? room.controller.level : 0;
   return typeof level === 'number' && Number.isFinite(level) ? Math.max(0, Math.floor(level)) : 0;
+}
+
+function createEmptyConstructionPriorityPlanningResult(): ConstructionPriorityPlanningResult {
+  return {
+    sourceContainerResults: [],
+    extensionResult: null,
+    towerResult: null,
+    roadResults: [],
+    storageResult: null
+  };
+}
+
+function planLimitedFixedStructureConstruction(
+  colony: ColonySnapshot,
+  options: FixedStructurePlannerOptions
+): ScreepsReturnCode | null {
+  const room = colony.room;
+  if (!hasRequiredFixedStructurePlannerApis(room)) {
+    return null;
+  }
+
+  const plannedCount = countExistingAndPendingFixedStructures(room, options.globalName, options.fallback);
+  if (plannedCount === null || plannedCount >= options.limit) {
+    return null;
+  }
+
+  const anchor = selectFixedStructureAnchor(colony);
+  if (!anchor) {
+    return null;
+  }
+
+  const lookups = createFixedStructurePlannerLookups(room, anchor, options.maxScanRadius);
+  if (!lookups) {
+    return null;
+  }
+
+  const structureType = getBuildableStructureConstant(options.globalName, options.fallback);
+  for (const position of getFixedStructureCandidatePositions(anchor, options.maxScanRadius)) {
+    if (!canPlaceFixedStructure(lookups, position)) {
+      continue;
+    }
+
+    const result = room.createConstructionSite(position.x, position.y, structureType);
+    if (result === getOkCode()) {
+      return result;
+    }
+
+    lookups.blockingPositions.add(getPositionKey(position));
+  }
+
+  return null;
+}
+
+function hasRequiredFixedStructurePlannerApis(room: Room): boolean {
+  const partialRoom = room as Partial<Room>;
+  return (
+    typeof partialRoom.find === 'function' &&
+    typeof partialRoom.lookForAtArea === 'function' &&
+    typeof partialRoom.createConstructionSite === 'function'
+  );
+}
+
+function countExistingAndPendingFixedStructures(
+  room: Room,
+  globalName: StructureConstantName,
+  fallback: string
+): number | null {
+  const ownedStructures = findRoomObjects(room, 'FIND_MY_STRUCTURES') as AnyOwnedStructure[] | null;
+  const ownedConstructionSites = findRoomObjects(room, 'FIND_MY_CONSTRUCTION_SITES') as ConstructionSite[] | null;
+  if (ownedStructures === null || ownedConstructionSites === null) {
+    return null;
+  }
+
+  return (
+    ownedStructures.filter((structure) => matchesStructureType(structure.structureType, globalName, fallback)).length +
+    ownedConstructionSites.filter((site) => matchesStructureType(String(site.structureType), globalName, fallback)).length
+  );
+}
+
+function selectFixedStructureAnchor(colony: ColonySnapshot): PositionedRoomPosition | null {
+  const [primarySpawn] = colony.spawns
+    .filter((spawn) => getRoomObjectPosition(spawn) !== null)
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  return getRoomObjectPosition(primarySpawn) ?? getRoomObjectPosition(colony.room.controller);
+}
+
+function createFixedStructurePlannerLookups(
+  room: Room,
+  anchor: PositionedRoomPosition,
+  maxScanRadius: number
+): FixedStructurePlannerLookups | null {
+  const terrain = getRoomTerrain(room);
+  if (!terrain) {
+    return null;
+  }
+
+  const blockingPositions = new Set<string>();
+  for (const lookResult of [
+    ...lookForAreaPositions(room, 'LOOK_STRUCTURES', anchor, maxScanRadius),
+    ...lookForAreaPositions(room, 'LOOK_CONSTRUCTION_SITES', anchor, maxScanRadius)
+  ]) {
+    const position = getAreaLookPosition(lookResult);
+    if (position) {
+      blockingPositions.add(getPositionKey(position));
+    }
+  }
+
+  return { blockingPositions, terrain };
+}
+
+function lookForAreaPositions(
+  room: Room,
+  lookConstantName: LookConstantName,
+  anchor: PositionedRoomPosition,
+  maxScanRadius: number
+): unknown[] {
+  const lookConstant = getLookConstant(lookConstantName);
+  if (!lookConstant || typeof room.lookForAtArea !== 'function') {
+    return [];
+  }
+
+  const bounds = {
+    top: Math.max(ROOM_EDGE_MIN, anchor.y - maxScanRadius),
+    left: Math.max(ROOM_EDGE_MIN, anchor.x - maxScanRadius),
+    bottom: Math.min(ROOM_EDGE_MAX, anchor.y + maxScanRadius),
+    right: Math.min(ROOM_EDGE_MAX, anchor.x + maxScanRadius)
+  };
+
+  try {
+    const results = room.lookForAtArea(
+      lookConstant as LookConstant,
+      bounds.top,
+      bounds.left,
+      bounds.bottom,
+      bounds.right,
+      true
+    );
+    return Array.isArray(results) ? results : [];
+  } catch {
+    return [];
+  }
+}
+
+function getAreaLookPosition(lookResult: unknown): PositionedRoomPosition | null {
+  const coordinatePosition = getAreaLookCoordinatePosition(lookResult);
+  if (coordinatePosition !== null) {
+    return coordinatePosition;
+  }
+
+  const roomObjectPosition = getRoomObjectPosition(lookResult as RoomObject | undefined);
+  if (roomObjectPosition !== null) {
+    return roomObjectPosition;
+  }
+
+  if (!isRecord(lookResult)) {
+    return null;
+  }
+
+  for (const value of Object.values(lookResult)) {
+    const nestedPosition = getRoomObjectPosition(value as RoomObject | undefined);
+    if (nestedPosition !== null) {
+      return nestedPosition;
+    }
+  }
+
+  return null;
+}
+
+function getAreaLookCoordinatePosition(lookResult: unknown): PositionedRoomPosition | null {
+  if (!isRecord(lookResult)) {
+    return null;
+  }
+
+  const { x, y, roomName } = lookResult;
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y)
+  ) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    ...(typeof roomName === 'string' ? { roomName } : {})
+  };
+}
+
+function getFixedStructureCandidatePositions(
+  anchor: PositionedRoomPosition,
+  maxScanRadius: number
+): PositionedRoomPosition[] {
+  const positions: PositionedRoomPosition[] = [];
+  for (let radius = 1; radius <= maxScanRadius; radius += 1) {
+    for (let y = anchor.y - radius; y <= anchor.y + radius; y += 1) {
+      for (let x = anchor.x - radius; x <= anchor.x + radius; x += 1) {
+        if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) !== radius) {
+          continue;
+        }
+
+        positions.push({ x, y, roomName: anchor.roomName });
+      }
+    }
+  }
+
+  return positions;
+}
+
+function canPlaceFixedStructure(
+  lookups: FixedStructurePlannerLookups,
+  position: PositionedRoomPosition
+): boolean {
+  return (
+    isWithinBuildableRoomBounds(position) &&
+    !isTerrainWall(lookups.terrain, position) &&
+    !lookups.blockingPositions.has(getPositionKey(position))
+  );
 }
 
 function hasRequiredSourceContainerPlannerApis(room: Room): boolean {
@@ -1452,6 +1738,10 @@ function buildPlannedLocalCandidates(state: RuntimeConstructionPriorityState): C
   const rcl = state.rcl ?? 0;
   const extensionLimit = getExtensionLimitForRcl(state.rcl);
   const towerLimit = getTowerLimitForRcl(state.rcl);
+  if ((state.spawnCount ?? 1) === 0) {
+    candidates.push(createCandidateForBuildType('spawn', state));
+  }
+
   if (extensionLimit > 0 && (state.extensionCount ?? 0) < extensionLimit) {
     candidates.push(createCandidateForBuildType('extension', state));
   }
@@ -1460,20 +1750,20 @@ function buildPlannedLocalCandidates(state: RuntimeConstructionPriorityState): C
     candidates.push(createCandidateForBuildType('tower', state));
   }
 
-  if (rcl >= 2) {
-    candidates.push(createCandidateForBuildType('rampart', state));
+  if (rcl >= 2 && (state.sourceCount ?? 0) > 0) {
+    candidates.push(createCandidateForBuildType('container', state));
   }
 
   if (rcl >= MIN_RCL_FOR_AUTOMATED_ROADS && (state.sourceCount ?? 0) > 0) {
     candidates.push(createCandidateForBuildType('road', state));
   }
 
-  if (rcl >= 2 && (state.sourceCount ?? 0) > 0) {
-    candidates.push(createCandidateForBuildType('container', state));
+  if (rcl >= MIN_RCL_FOR_STORAGE && getExistingAndPendingBuildCount(state, 'STRUCTURE_STORAGE', 'storage') < STORAGE_STRUCTURE_LIMIT) {
+    candidates.push(createCandidateForBuildType('storage', state));
   }
 
-  if ((state.spawnCount ?? 1) === 0) {
-    candidates.push(createCandidateForBuildType('spawn', state));
+  if (rcl >= 2) {
+    candidates.push(createCandidateForBuildType('rampart', state));
   }
 
   return candidates;
@@ -1717,6 +2007,8 @@ type FindConstantName =
   | 'FIND_HOSTILE_STRUCTURES'
   | 'FIND_SOURCES';
 
+type LookConstantName = 'LOOK_STRUCTURES' | 'LOOK_CONSTRUCTION_SITES';
+
 type StructureConstantName =
   | 'STRUCTURE_SPAWN'
   | 'STRUCTURE_EXTENSION'
@@ -1827,4 +2119,17 @@ function matchesStructureType(
 ): boolean {
   const constants = globalThis as unknown as Partial<Record<StructureConstantName, string>>;
   return actual === (constants[globalName] ?? fallback);
+}
+
+function getLookConstant(constantName: LookConstantName): string | null {
+  const constant = (globalThis as unknown as Partial<Record<LookConstantName, string>>)[constantName];
+  return typeof constant === 'string' ? constant : null;
+}
+
+function getBuildableStructureConstant(
+  globalName: StructureConstantName,
+  fallback: string
+): BuildableStructureConstant {
+  const constants = globalThis as unknown as Partial<Record<StructureConstantName, string>>;
+  return (constants[globalName] ?? fallback) as BuildableStructureConstant;
 }

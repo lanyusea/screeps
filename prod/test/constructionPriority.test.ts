@@ -1,6 +1,7 @@
 import {
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
   buildRuntimeConstructionPriorityReport,
+  planTowerConstruction,
   selectImpactWeightedConstructionSite,
   scoreConstructionPriorities,
   type ConstructionBuildCandidate,
@@ -9,6 +10,9 @@ import {
 } from '../src/construction/constructionPriority';
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 
+const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
+
 const TEST_GLOBALS = {
   FIND_MY_CONSTRUCTION_SITES: 101,
   FIND_MY_STRUCTURES: 102,
@@ -16,6 +20,8 @@ const TEST_GLOBALS = {
   FIND_HOSTILE_CREEPS: 104,
   FIND_HOSTILE_STRUCTURES: 105,
   FIND_SOURCES: 106,
+  LOOK_STRUCTURES: 'structure',
+  LOOK_CONSTRUCTION_SITES: 'constructionSite',
   STRUCTURE_EXTENSION: 'extension',
   STRUCTURE_SPAWN: 'spawn',
   STRUCTURE_TOWER: 'tower',
@@ -23,7 +29,9 @@ const TEST_GLOBALS = {
   STRUCTURE_ROAD: 'road',
   STRUCTURE_CONTAINER: 'container',
   STRUCTURE_STORAGE: 'storage',
-  STRUCTURE_WALL: 'constructedWall'
+  STRUCTURE_WALL: 'constructedWall',
+  TERRAIN_MASK_WALL: 1,
+  OK: OK_CODE
 } as const;
 
 describe('construction priority scoring', () => {
@@ -313,19 +321,11 @@ describe('impact-weighted construction site selection', () => {
 
 describe('runtime construction priority report', () => {
   beforeEach(() => {
-    const globals = globalThis as Record<string, unknown>;
-    for (const [key, value] of Object.entries(TEST_GLOBALS)) {
-      globals[key] = value;
-    }
-    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    installTestGlobals();
   });
 
   afterEach(() => {
-    const globals = globalThis as Record<string, unknown>;
-    for (const key of Object.keys(TEST_GLOBALS)) {
-      delete globals[key];
-    }
-    delete globals.Memory;
+    clearTestGlobals();
   });
 
   it('ignores creeps with missing memory while counting runtime workers', () => {
@@ -439,6 +439,65 @@ describe('runtime construction priority report', () => {
     expect(hasBuildItem(oneTower.candidates, 'build tower defense')).toBe(true);
     expect(hasBuildItem(saturated.candidates, 'build tower defense')).toBe(false);
     expect(hasBuildItem(pendingSecondTower.candidates, 'build tower defense')).toBe(false);
+  });
+});
+
+describe('fixed structure construction planning', () => {
+  beforeEach(() => {
+    installTestGlobals();
+  });
+
+  afterEach(() => {
+    clearTestGlobals();
+  });
+
+  it('blocks candidates using lookForAtArea wrapper and nested object positions', () => {
+    const { colony, room } = makeRuntimeColony({ controllerLevel: 3 });
+    installOpenTerrain();
+    const fixedRoom = room as unknown as { createConstructionSite: jest.Mock; lookForAtArea: jest.Mock };
+    fixedRoom.lookForAtArea = jest.fn((lookType: LookConstant) => {
+      if (lookType === TEST_GLOBALS.LOOK_STRUCTURES) {
+        return [
+          {
+            x: 19,
+            y: 19,
+            structure: makeOwnedStructure('occupied-road', TEST_GLOBALS.STRUCTURE_ROAD, 19, 19)
+          }
+        ];
+      }
+
+      if (lookType === TEST_GLOBALS.LOOK_CONSTRUCTION_SITES) {
+        return [
+          {
+            constructionSite: makeConstructionSite('pending-road', TEST_GLOBALS.STRUCTURE_ROAD, 20, 19)
+          }
+        ];
+      }
+
+      return [];
+    });
+    fixedRoom.createConstructionSite = jest.fn().mockReturnValue(OK_CODE);
+
+    expect(planTowerConstruction(colony)).toBe(OK_CODE);
+
+    expect(fixedRoom.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(fixedRoom.createConstructionSite).toHaveBeenCalledWith(21, 19, TEST_GLOBALS.STRUCTURE_TOWER);
+  });
+
+  it('continues to the next candidate when fixed-structure site creation fails', () => {
+    const { colony, room } = makeRuntimeColony({ controllerLevel: 3 });
+    installOpenTerrain();
+    const fixedRoom = room as unknown as { createConstructionSite: jest.Mock; lookForAtArea: jest.Mock };
+    fixedRoom.lookForAtArea = jest.fn().mockReturnValue([]);
+    fixedRoom.createConstructionSite = jest
+      .fn()
+      .mockReturnValueOnce(ERR_INVALID_TARGET_CODE)
+      .mockReturnValueOnce(OK_CODE);
+
+    expect(planTowerConstruction(colony)).toBe(OK_CODE);
+
+    expect(fixedRoom.createConstructionSite).toHaveBeenNthCalledWith(1, 19, 19, TEST_GLOBALS.STRUCTURE_TOWER);
+    expect(fixedRoom.createConstructionSite).toHaveBeenNthCalledWith(2, 20, 19, TEST_GLOBALS.STRUCTURE_TOWER);
   });
 });
 
@@ -619,4 +678,29 @@ function scoreByName<T extends { buildItem: string }>(candidates: T[], buildItem
 
 function hasBuildItem(candidates: { buildItem: string }[], buildItem: string): boolean {
   return candidates.some((candidate) => candidate.buildItem === buildItem);
+}
+
+function installTestGlobals(): void {
+  const globals = globalThis as Record<string, unknown>;
+  for (const [key, value] of Object.entries(TEST_GLOBALS)) {
+    globals[key] = value;
+  }
+  (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+}
+
+function clearTestGlobals(): void {
+  const globals = globalThis as Record<string, unknown>;
+  for (const key of Object.keys(TEST_GLOBALS)) {
+    delete globals[key];
+  }
+  delete globals.Memory;
+  delete globals.Game;
+}
+
+function installOpenTerrain(): void {
+  (globalThis as unknown as { Game: Partial<Game> }).Game = {
+    map: {
+      getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+    } as unknown as GameMap
+  };
 }
