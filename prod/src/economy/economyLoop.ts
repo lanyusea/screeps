@@ -38,6 +38,7 @@ import {
   refreshAutonomousExpansionClaimIntent,
   shouldDeferOccupationRecommendationForExpansionClaim
 } from '../territory/claimExecutor';
+import { refreshColonyExpansionIntent } from '../territory/colonyExpansionPlanner';
 import { runClaimer } from '../creeps/claimerRunner';
 import {
   hasPendingTerritoryFollowUpIntent,
@@ -225,6 +226,12 @@ function refreshExecutableTerritoryRecommendation(
     if (expansionSelection.reason === 'unmetPreconditions') {
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       refreshAdjacentRoomReservationIntent(colony, Game.time);
+      return;
+    }
+
+    const colonyExpansionEvaluation = refreshColonyExpansionIntent(colony, { territoryReady }, Game.time);
+    if (colonyExpansionEvaluation.status === 'planned') {
+      persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
     }
 

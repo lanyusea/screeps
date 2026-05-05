@@ -3240,6 +3240,7 @@ function isTerritoryAutomationSource(source: unknown): source is TerritoryAutoma
   return (
     source === OCCUPATION_RECOMMENDATION_TARGET_CREATOR ||
     source === 'autonomousExpansionClaim' ||
+    source === 'colonyExpansion' ||
     source === 'nextExpansionScoring' ||
     source === 'adjacentRoomReservation'
   );

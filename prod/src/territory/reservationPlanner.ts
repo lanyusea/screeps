@@ -17,6 +17,7 @@ const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'] as const;
 
 export type AdjacentRoomReservationClaimBlocker =
   | 'controllerLevelLow'
+  | 'colonyUnstable'
   | 'gclInsufficient'
   | 'rclRoomLimitReached';
 
@@ -55,11 +56,16 @@ interface ReservationControllerState {
   ticksToEnd?: number;
 }
 
+export interface AdjacentRoomReservationPlanningOptions {
+  claimBlocker?: AdjacentRoomReservationClaimBlocker;
+}
+
 export function refreshAdjacentRoomReservationIntent(
   colony: ColonySnapshot,
-  gameTime = getGameTime()
+  gameTime = getGameTime(),
+  options: AdjacentRoomReservationPlanningOptions = {}
 ): AdjacentRoomReservationEvaluation {
-  const evaluation = selectAdjacentRoomReservationPlan(colony);
+  const evaluation = selectAdjacentRoomReservationPlan(colony, options);
   if (evaluation.status === 'planned' && evaluation.targetRoom) {
     persistAdjacentRoomReservationIntent(colony.room.name, evaluation, gameTime);
     return evaluation;
@@ -70,10 +76,11 @@ export function refreshAdjacentRoomReservationIntent(
 }
 
 export function selectAdjacentRoomReservationPlan(
-  colony: ColonySnapshot
+  colony: ColonySnapshot,
+  options: AdjacentRoomReservationPlanningOptions = {}
 ): AdjacentRoomReservationEvaluation {
   const colonyName = colony.room.name;
-  const claimBlocker = getAdjacentRoomClaimBlocker(colony);
+  const claimBlocker = getAdjacentRoomClaimBlocker(colony) ?? options.claimBlocker ?? null;
   if (!claimBlocker) {
     return { status: 'skipped', colony: colonyName, reason: 'claimAllowed' };
   }
