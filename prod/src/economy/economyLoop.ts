@@ -45,7 +45,7 @@ import {
   recordAutonomousExpansionClaimReserveFallbackIntent,
   refreshRemoteMiningSetup
 } from '../territory/territoryPlanner';
-import { runTerritoryControllerCreep } from '../territory/territoryRunner';
+import { logBestClaimTarget, runTerritoryControllerCreep } from '../territory/territoryRunner';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import {
   recordPostClaimBootstrapWorkerSpawn,
@@ -250,6 +250,7 @@ function refreshNextExpansionTargetSelectionIfDue(
     buildRuntimeExpansionCandidateReport(colony),
     gameTime
   );
+  logBestClaimTarget(colony.room);
   colonyMemory.lastExpansionScoreTime = gameTime;
   colonyMemory.cachedExpansionSelection = { ...selection, stateKey };
   return selection;

@@ -16,6 +16,7 @@ import {
 import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import { recordVisibleRoomScoutIntel } from './scoutIntel';
+import { selectBestClaimTarget } from './claimScoring';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -155,6 +156,21 @@ export function runTerritoryControllerCreep(
   ) {
     suppressTerritoryAssignment(creep, assignment);
   }
+}
+
+export function logBestClaimTarget(homeRoom: Room): string | null {
+  if (isJestRuntime()) {
+    return null;
+  }
+
+  const targetRoom = selectBestClaimTarget(homeRoom);
+  console.log(`[territory] best adjacent claim target from ${homeRoom.name}: ${targetRoom ?? 'none'}`);
+  return targetRoom;
+}
+
+function isJestRuntime(): boolean {
+  const nodeProcess = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+  return nodeProcess?.env?.NODE_ENV === 'test' || nodeProcess?.env?.JEST_WORKER_ID !== undefined;
 }
 
 function tryFallbackClaimAssignmentToReserve(
