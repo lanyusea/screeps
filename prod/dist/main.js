@@ -14329,6 +14329,7 @@ function collectEnergy(creep, assignment) {
   const source = getObjectById3(assignment.sourceId);
   if (!source || getStoredEnergy10(source) <= 0) {
     delete creep.memory.task;
+    delete assignment.sourceId;
     assignment.state = "returning";
     returnHome(creep, assignment);
     return;

@@ -205,6 +205,7 @@ function collectEnergy(creep: Creep, assignment: CreepCrossRoomHaulerMemory): vo
   const source = getObjectById<EnergySourceStructure>(assignment.sourceId);
   if (!source || getStoredEnergy(source) <= 0) {
     delete creep.memory.task;
+    delete (assignment as Partial<CreepCrossRoomHaulerMemory>).sourceId;
     assignment.state = 'returning';
     returnHome(creep, assignment);
     return;
