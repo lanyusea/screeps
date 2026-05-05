@@ -137,7 +137,7 @@ function selectCrossRoomEnergyTransfer(): EconomyStorageTransferMemory | null {
   );
 }
 
-function isLiveTransferCandidate(transfer: EconomyStorageTransferMemory): boolean {
+export function isLiveTransferCandidate(transfer: EconomyStorageTransferMemory): boolean {
   const sourceRoom = getVisibleRoom(transfer.sourceRoom);
   const targetRoom = getVisibleRoom(transfer.targetRoom);
   if (!sourceRoom || !targetRoom) {
@@ -368,7 +368,7 @@ function findOwnedLogisticsRoute(fromRoom: string, targetRoom: string): Logistic
   }
 
   const route = gameMap.findRoute.call(gameMap, fromRoom, targetRoom, {
-    routeCallback: (roomName: string) => (isSafeOwnedRoom(roomName) ? 1 : Infinity)
+    routeCallback: (roomName: string) => (isSafeLogisticsTransitRoom(roomName) ? 1 : Infinity)
   });
   if (route === getNoPathResultCode() || !Array.isArray(route)) {
     return null;
@@ -377,7 +377,7 @@ function findOwnedLogisticsRoute(fromRoom: string, targetRoom: string): Logistic
   const rooms = route
     .map((step) => (isRecord(step) && typeof step.room === 'string' ? step.room : null))
     .filter((roomName): roomName is string => typeof roomName === 'string');
-  if (rooms.length !== route.length || !rooms.every(isSafeOwnedRoom)) {
+  if (rooms.length !== route.length || !rooms.every(isSafeLogisticsTransitRoom)) {
     return null;
   }
 
@@ -444,6 +444,19 @@ function selectNextRouteRoom(
 function isSafeOwnedRoom(roomName: string): boolean {
   const room = getVisibleRoom(roomName);
   return room?.controller?.my === true && !hasHostilePresence(room);
+}
+
+function isSafeLogisticsTransitRoom(roomName: string): boolean {
+  const room = getVisibleRoom(roomName);
+  if (!room) {
+    return true;
+  }
+
+  if (hasHostilePresence(room)) {
+    return false;
+  }
+
+  return room.controller?.owner === undefined || room.controller.my === true;
 }
 
 function hasHostilePresence(room: Room): boolean {

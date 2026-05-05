@@ -95,6 +95,29 @@ describe('cross-room energy logistics', () => {
     expect(buildCrossRoomHaulerBody(800, 150)).toEqual(plan?.body);
   });
 
+  it('plans cross-room hauling through neutral transit rooms', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
+    const transitRoom = makeNeutralRoom('W2N1');
+    const targetRoom = makeOwnedRoom({ roomName: 'W3N1', storageEnergy: 100 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    installGame([sourceRoom, transitRoom, targetRoom], [sourceSpawn], {}, (fromRoom, toRoom, options) => {
+      const route = [
+        { exit: 1, room: 'W2N1' },
+        { exit: 1, room: toRoom }
+      ];
+      if (route.some((step) => options?.routeCallback?.(step.room, fromRoom) === Infinity)) {
+        return ERR_NO_PATH_CODE;
+      }
+
+      return route;
+    });
+    balanceStorage();
+
+    const plan = planCrossRoomHauler();
+
+    expect(plan?.memory.crossRoomHauler?.route).toEqual(['W2N1', 'W3N1']);
+  });
+
   it('does nothing when all owned rooms are balanced', () => {
     const roomA = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 500 });
     const roomB = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 400 });
@@ -151,6 +174,43 @@ describe('cross-room energy logistics', () => {
     const targetColony = makeColony(targetRoom, [targetSpawn]);
 
     expect(planSpawn(targetColony, { worker: 3, workerCapacity: 2 }, 101)).toBeNull();
+  });
+
+  it('keeps worker recovery active in importing rooms with zero worker capacity', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100, energyAvailable: 300 });
+    const targetSpawn = makeSpawn('Spawn2', targetRoom);
+    installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
+    balanceStorage();
+    const targetColony = makeColony(targetRoom, [targetSpawn]);
+
+    expect(planSpawn(targetColony, { worker: 3, workerCapacity: 0 }, 102)).toEqual({
+      spawn: targetSpawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W2N1-102',
+      memory: { role: 'worker', colony: 'W2N1' }
+    });
+  });
+
+  it('does not suppress local workers for impossible cross-room transfer lanes', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100, energyAvailable: 300 });
+    const targetSpawn = makeSpawn('Spawn2', targetRoom);
+    installGame(
+      [sourceRoom, targetRoom],
+      [makeSpawn('Spawn1', sourceRoom), targetSpawn],
+      {},
+      () => ERR_NO_PATH_CODE
+    );
+    balanceStorage();
+    const targetColony = makeColony(targetRoom, [targetSpawn]);
+
+    expect(planSpawn(targetColony, { worker: 3, workerCapacity: 2 }, 103)).toEqual({
+      spawn: targetSpawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W2N1-103',
+      memory: { role: 'worker', colony: 'W2N1' }
+    });
   });
 
   it('orders spawn planning by effective energy after planned transfers', () => {
@@ -317,6 +377,21 @@ describe('cross-room energy logistics', () => {
 
         return [];
       })
+    } as unknown as Room;
+
+    return room;
+  }
+
+  function makeNeutralRoom(roomName: string): Room {
+    const controller = { id: `${roomName}-controller`, my: false } as StructureController;
+    registerObject(controller);
+    const room = {
+      name: roomName,
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller,
+      memory: {},
+      find: jest.fn(() => [])
     } as unknown as Room;
 
     return room;

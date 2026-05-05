@@ -47,6 +47,7 @@ import {
   buildMultiRoomUpgraderMemory,
   selectMultiRoomUpgradePlans
 } from '../territory/multiRoomUpgrader';
+import { isLiveTransferCandidate } from '../economy/crossRoomHauler';
 
 type SpawnPriorityTier =
   | 'emergencyBootstrap'
@@ -195,7 +196,7 @@ export function shouldSuppressWorkerSpawnForCrossRoomImport(colony: ColonySnapsh
     (transfer) =>
       transfer.targetRoom === colony.room.name &&
       transfer.amount > 0 &&
-      isExportRoomWithSupply(balance, transfer.sourceRoom)
+      isLiveTransferCandidate(transfer)
   );
 }
 
@@ -246,7 +247,7 @@ function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | n
   if (
     context.workerCapacity >= context.workerTarget ||
     !hasRecoveryWorkerSpawnEnergy(context.colony) ||
-    shouldSuppressWorkerSpawnForCrossRoomImport(context.colony)
+    (context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony))
   ) {
     return null;
   }
@@ -764,7 +765,7 @@ function shouldSpawnControllerUpgradeSurplusWorker(context: SpawnPlanningContext
     context.territoryIntentPending ||
     context.survival.mode !== 'TERRITORY_READY' ||
     hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
-    shouldSuppressWorkerSpawnForCrossRoomImport(context.colony) ||
+    (context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony)) ||
     !hasControllerUpgradeSurplusEnergy(context.colony) ||
     !isControllerUpgradeableForSurplus(context.colony.room.controller)
   ) {
@@ -1132,14 +1133,6 @@ function compareColoniesForSpawnPlanning(left: ColonySnapshot, right: ColonySnap
     right.energyAvailable - left.energyAvailable ||
     left.room.name.localeCompare(right.room.name)
   );
-}
-
-function isExportRoomWithSupply(
-  balance: EconomyStorageBalanceMemory,
-  roomName: string
-): boolean {
-  const roomBalance = balance.rooms?.[roomName];
-  return roomBalance?.mode === 'export' && roomBalance.exportableEnergy > 0;
 }
 
 function getStorageBalanceMemory(): EconomyStorageBalanceMemory | undefined {
