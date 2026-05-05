@@ -610,7 +610,7 @@ describe('runEconomy', () => {
     expect(worker.moveTo).not.toHaveBeenCalled();
   });
 
-  it('plans tower construction for an owned expansion room before lower-priority sites', () => {
+  it('plans tower construction for an owned expansion room and still ensures missing source containers', () => {
     (globalThis as unknown as {
       FIND_MY_STRUCTURES: number;
       FIND_MY_CONSTRUCTION_SITES: number;
@@ -714,9 +714,9 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
-    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, STRUCTURE_TOWER);
-    expect(room.createConstructionSite).not.toHaveBeenCalledWith(expect.any(Number), expect.any(Number), STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(2);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 24, 24, STRUCTURE_TOWER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 11, 11, STRUCTURE_CONTAINER);
   });
 
   it('runs existing worker creeps', () => {
