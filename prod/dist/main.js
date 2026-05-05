@@ -18152,15 +18152,23 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   if (!isClaimExecutionAssignment(assignment) || !isRecommendedExpansionClaim(creep.memory.colony, assignment)) {
     return false;
   }
-  if (((_a = creep.room) == null ? void 0 : _a.name) !== assignment.targetRoom) {
-    moveTowardClaimTarget(creep, assignment);
-    return true;
-  }
   const gameTime = getGameTime12();
   const execution = assignment;
   if (typeof execution.claimStartedAt !== "number" || execution.claimStartedAt > gameTime) {
     execution.claimStartedAt = gameTime;
     execution.claimAttemptCount = 0;
+  }
+  if (((_a = creep.room) == null ? void 0 : _a.name) !== assignment.targetRoom) {
+    if (hasClaimExecutionTimedOut(execution, gameTime)) {
+      recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE3, "claimFailed", {
+        suppressIntent: true,
+        telemetryEvents
+      });
+      completeClaimAssignment(creep);
+      return true;
+    }
+    moveTowardClaimTarget(creep, assignment);
+    return true;
   }
   const controller = selectClaimTargetController(creep, assignment);
   if (!controller) {
@@ -18795,8 +18803,8 @@ function getClaimResultReason(result) {
   }
 }
 function getControllerClaimCooldown(controller) {
-  const upgradeBlocked = controller.upgradeBlocked;
-  return typeof upgradeBlocked === "number" && upgradeBlocked > 0 ? upgradeBlocked : 0;
+  const claimCooldown = controller.claimCooldown;
+  return typeof claimCooldown === "number" && claimCooldown > 0 ? claimCooldown : 0;
 }
 function isClaimExecutionAssignment(assignment) {
   return typeof (assignment == null ? void 0 : assignment.targetRoom) === "string" && assignment.targetRoom.length > 0 && assignment.action === "claim";

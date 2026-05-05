@@ -62,6 +62,10 @@ describe('runClaimer', () => {
 
     expect(creep.moveTo).toHaveBeenCalledWith(controller);
     expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toMatchObject({
+      claimStartedAt: 519,
+      claimAttemptCount: 0
+    });
   });
 
   it('claims the target controller when in the target room', () => {
@@ -246,6 +250,66 @@ describe('runClaimer', () => {
 
     runClaimer(creep);
 
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: timedOutAt,
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller1',
+        lastAttemptAt: timedOutAt
+      }
+    ]);
+    expect((colonyRoom.memory.cachedExpansionSelection as unknown as Record<string, unknown>).claimExecution).toEqual({
+      status: 'failed',
+      targetRoom: 'W2N1',
+      updatedAt: timedOutAt,
+      controllerId: 'controller1',
+      creepName: 'Claimer1',
+      result: -7,
+      reason: 'claimFailed'
+    });
+  });
+
+  it('suppresses and reports a recommended expansion claim that times out before room entry', () => {
+    const colonyRoom = makeColonyRoom();
+    const startedAt = 100;
+    const timedOutAt = startedAt + EXPANSION_CLAIM_EXECUTION_TIMEOUT_TICKS;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: timedOutAt,
+      rooms: {
+        W1N1: colonyRoom
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: makeRecommendedClaimMemory()
+    };
+
+    const creep = {
+      name: 'Claimer1',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W2N1',
+          action: 'claim',
+          controllerId: 'controller1' as Id<StructureController>,
+          claimStartedAt: startedAt
+        } as CreepTerritoryMemory & { claimStartedAt: number }
+      },
+      room: { name: 'W1N1' },
+      claimController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.moveTo).not.toHaveBeenCalled();
     expect(creep.claimController).not.toHaveBeenCalled();
     expect(creep.memory.territory).toBeUndefined();
     expect(Memory.territory?.intents).toEqual([

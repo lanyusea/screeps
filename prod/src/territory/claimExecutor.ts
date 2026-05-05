@@ -122,16 +122,25 @@ export function runRecommendedExpansionClaimExecutor(
     return false;
   }
 
-  if (creep.room?.name !== assignment.targetRoom) {
-    moveTowardClaimTarget(creep, assignment);
-    return true;
-  }
-
   const gameTime = getGameTime();
   const execution = assignment as ClaimExecutionAssignment;
   if (typeof execution.claimStartedAt !== 'number' || execution.claimStartedAt > gameTime) {
     execution.claimStartedAt = gameTime;
     execution.claimAttemptCount = 0;
+  }
+
+  if (creep.room?.name !== assignment.targetRoom) {
+    if (hasClaimExecutionTimedOut(execution, gameTime)) {
+      recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE, 'claimFailed', {
+        suppressIntent: true,
+        telemetryEvents
+      });
+      completeClaimAssignment(creep);
+      return true;
+    }
+
+    moveTowardClaimTarget(creep, assignment);
+    return true;
   }
 
   const controller = selectClaimTargetController(creep, assignment);
@@ -1029,8 +1038,8 @@ function getClaimResultReason(result: ScreepsReturnCode): RuntimeTerritoryClaimT
 }
 
 function getControllerClaimCooldown(controller: StructureController): number {
-  const upgradeBlocked = (controller as StructureController & { upgradeBlocked?: number }).upgradeBlocked;
-  return typeof upgradeBlocked === 'number' && upgradeBlocked > 0 ? upgradeBlocked : 0;
+  const claimCooldown = (controller as StructureController & { claimCooldown?: number }).claimCooldown;
+  return typeof claimCooldown === 'number' && claimCooldown > 0 ? claimCooldown : 0;
 }
 
 function isClaimExecutionAssignment(assignment: CreepTerritoryMemory | undefined): assignment is CreepTerritoryMemory {

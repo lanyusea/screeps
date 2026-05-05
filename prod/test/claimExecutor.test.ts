@@ -937,7 +937,7 @@ describe('autonomous expansion claim executor', () => {
   it('defers the reserve fallback while the target controller is on cooldown', () => {
     (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
       controllerId: 'controller2' as Id<StructureController>,
-      upgradeBlocked: 25
+      claimCooldown: 25
     });
 
     const evaluation = refreshAutonomousExpansionClaimIntent(
@@ -961,6 +961,47 @@ describe('autonomous expansion claim executor', () => {
       controller: { id: 'controller2', my: false },
       sourceCount: 1
     });
+  });
+
+  it('plans a claim when the target controller only has upgradeBlocked', () => {
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId: 'controller2' as Id<StructureController>,
+      upgradeBlocked: 25
+    });
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })]),
+      103
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2'
+    });
+    expect(shouldDeferOccupationRecommendationForExpansionClaim(evaluation)).toBe(true);
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'autonomousExpansionClaim',
+        controllerId: 'controller2'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 103,
+        createdBy: 'autonomousExpansionClaim',
+        controllerId: 'controller2'
+      }
+    ]);
   });
 
   it('marks and emits a gclInsufficient skip when GCL room cap is reached', () => {
@@ -1078,12 +1119,14 @@ function makeTargetRoom(
   roomName: string,
   {
     controllerId,
+    claimCooldown = 0,
     upgradeBlocked = 0,
     sourceCount = 1,
     hostileCreeps = [],
     hostileStructures = []
   }: {
     controllerId: Id<StructureController>;
+    claimCooldown?: number;
     upgradeBlocked?: number;
     sourceCount?: number;
     hostileCreeps?: Creep[];
@@ -1095,8 +1138,9 @@ function makeTargetRoom(
     controller: {
       id: controllerId,
       my: false,
+      ...(claimCooldown > 0 ? { claimCooldown } : {}),
       ...(upgradeBlocked > 0 ? { upgradeBlocked } : {})
-    } as StructureController,
+    } as StructureController & { claimCooldown?: number },
     find: jest.fn((type: number) => {
       if (type === FIND_HOSTILE_CREEPS) {
         return hostileCreeps;
