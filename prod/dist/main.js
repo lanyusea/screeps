@@ -18108,6 +18108,7 @@ function matchesStructureType13(actual, globalName, fallback) {
 
 // src/territory/claimExecutor.ts
 var AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR = "autonomousExpansionClaim";
+var EXPANSION_CLAIM_EXECUTION_TIMEOUT_TICKS = 1500;
 var MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE = 500;
 var MIN_AUTONOMOUS_EXPANSION_CLAIM_RCL = 2;
 var EXIT_DIRECTION_ORDER4 = ["1", "3", "5", "7"];
@@ -18116,6 +18117,11 @@ var ERR_NOT_IN_RANGE_CODE6 = -9;
 var ERR_INVALID_TARGET_CODE3 = -7;
 var ERR_NO_BODYPART_CODE = -12;
 var ERR_GCL_NOT_ENOUGH_CODE = -15;
+var RECOMMENDED_EXPANSION_CLAIM_SOURCES = /* @__PURE__ */ new Set([
+  NEXT_EXPANSION_TARGET_CREATOR,
+  AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR,
+  "colonyExpansion"
+]);
 var autonomousExpansionClaimTickContext = null;
 function refreshAutonomousExpansionClaimIntent(colony, report, gameTime, telemetryEvents = []) {
   const context = getAutonomousExpansionClaimTickContext(gameTime);
@@ -18139,6 +18145,127 @@ function shouldDeferOccupationRecommendationForExpansionClaim(evaluation) {
 function clearAutonomousExpansionClaimIntent(colony) {
   pruneAutonomousExpansionClaimTargets(colony);
   autonomousExpansionClaimTickContext = null;
+}
+function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
+  var _a, _b, _c, _d;
+  const assignment = creep.memory.territory;
+  if (!isClaimExecutionAssignment(assignment) || !isRecommendedExpansionClaim(creep.memory.colony, assignment)) {
+    return false;
+  }
+  if (((_a = creep.room) == null ? void 0 : _a.name) !== assignment.targetRoom) {
+    moveTowardClaimTarget(creep, assignment);
+    return true;
+  }
+  const gameTime = getGameTime12();
+  const execution = assignment;
+  if (typeof execution.claimStartedAt !== "number" || execution.claimStartedAt > gameTime) {
+    execution.claimStartedAt = gameTime;
+    execution.claimAttemptCount = 0;
+  }
+  const controller = selectClaimTargetController(creep, assignment);
+  if (!controller) {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE3, "controllerMissing", {
+      suppressIntent: true,
+      telemetryEvents
+    });
+    completeClaimAssignment(creep);
+    return true;
+  }
+  if (controller.my === true) {
+    recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
+    completeClaimAssignment(creep);
+    return true;
+  }
+  if (hasClaimExecutionTimedOut(execution, gameTime)) {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE3, "claimFailed", {
+      controllerId: controller.id,
+      suppressIntent: true,
+      telemetryEvents
+    });
+    completeClaimAssignment(creep);
+    return true;
+  }
+  if (isForeignOwnedController(controller)) {
+    recordRecommendedClaimTerminalFailure(creep, assignment, ERR_INVALID_TARGET_CODE3, "controllerOwned", {
+      controllerId: controller.id,
+      suppressIntent: true,
+      telemetryEvents
+    });
+    completeClaimAssignment(creep);
+    return true;
+  }
+  if (isExpansionClaimControllerOnCooldown(controller)) {
+    recordExpansionClaimSkipTelemetry(creep, controller, "controllerCooldown", telemetryEvents);
+    moveTowardController(creep, controller);
+    return true;
+  }
+  if (tryPressureForeignClaimBlocker(creep, assignment, controller, telemetryEvents)) {
+    return true;
+  }
+  if (getKnownActiveClaimPartCount(creep) === 0) {
+    recordRecommendedClaimRetry(creep, assignment, ERR_NO_BODYPART_CODE, "missingClaimPart", {
+      controllerId: controller.id,
+      releaseAssignment: true,
+      telemetryEvents
+    });
+    completeClaimAssignment(creep);
+    return true;
+  }
+  const result = executeExpansionClaim(creep, controller, telemetryEvents);
+  execution.lastClaimAttemptAt = gameTime;
+  execution.claimAttemptCount = ((_b = execution.claimAttemptCount) != null ? _b : 0) + 1;
+  if (result === OK_CODE6 && isClaimVerified(assignment.targetRoom, controller)) {
+    recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
+    completeClaimAssignment(creep);
+    return true;
+  }
+  if (result === ERR_NOT_IN_RANGE_CODE6) {
+    moveTowardController(creep, controller);
+    return true;
+  }
+  if (hasClaimExecutionTimedOut(execution, gameTime)) {
+    recordRecommendedClaimTerminalFailure(creep, assignment, result, "claimFailed", {
+      controllerId: controller.id,
+      suppressIntent: true
+    });
+    completeClaimAssignment(creep);
+    return true;
+  }
+  if (result === ERR_INVALID_TARGET_CODE3 && isForeignReservedController3(controller, creep.memory.colony)) {
+    const activeClaimParts = getKnownActiveClaimPartCount(creep);
+    const needsPressureCreep = activeClaimParts !== null && activeClaimParts < TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
+    recordRecommendedClaimRetry(creep, assignment, result, "controllerReserved", {
+      controllerId: controller.id,
+      releaseAssignment: needsPressureCreep,
+      requiresControllerPressure: true
+    });
+    if (needsPressureCreep) {
+      completeClaimAssignment(creep);
+    }
+    return true;
+  }
+  if (result === ERR_INVALID_TARGET_CODE3 || result === ERR_NO_BODYPART_CODE) {
+    recordRecommendedClaimRetry(creep, assignment, result, (_c = getClaimResultReason(result)) != null ? _c : "claimFailed", {
+      controllerId: controller.id,
+      releaseAssignment: result === ERR_NO_BODYPART_CODE
+    });
+    if (result === ERR_NO_BODYPART_CODE) {
+      completeClaimAssignment(creep);
+    }
+    return true;
+  }
+  if (result === ERR_GCL_NOT_ENOUGH_CODE) {
+    recordRecommendedClaimTerminalFailure(creep, assignment, result, "gclUnavailable", {
+      controllerId: controller.id,
+      suppressIntent: true
+    });
+    completeClaimAssignment(creep);
+    return true;
+  }
+  recordRecommendedClaimRetry(creep, assignment, result, (_d = getClaimResultReason(result)) != null ? _d : "claimFailed", {
+    controllerId: controller.id
+  });
+  return true;
 }
 function shouldPruneAutonomousExpansionClaimTargets(reason) {
   return reason === "noAdjacentCandidate" || reason === "scoreBelowThreshold" || reason === "hostilePresence" || reason === "controllerMissing" || reason === "controllerOwned" || reason === "controllerReserved" || reason === "sourcesMissing";
@@ -18671,6 +18798,311 @@ function getControllerClaimCooldown(controller) {
   const upgradeBlocked = controller.upgradeBlocked;
   return typeof upgradeBlocked === "number" && upgradeBlocked > 0 ? upgradeBlocked : 0;
 }
+function isClaimExecutionAssignment(assignment) {
+  return typeof (assignment == null ? void 0 : assignment.targetRoom) === "string" && assignment.targetRoom.length > 0 && assignment.action === "claim";
+}
+function isRecommendedExpansionClaim(colony, assignment) {
+  if (!isNonEmptyString14(colony)) {
+    return false;
+  }
+  const territoryMemory = getTerritoryMemoryRecord6();
+  if (!territoryMemory) {
+    return false;
+  }
+  if (normalizeTerritoryIntents(territoryMemory.intents).some(
+    (intent) => intent.colony === colony && intent.targetRoom === assignment.targetRoom && intent.action === "claim" && intent.createdBy !== void 0 && RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(intent.createdBy)
+  )) {
+    return true;
+  }
+  return Array.isArray(territoryMemory.targets) ? territoryMemory.targets.some(
+    (target) => isRecord15(target) && target.colony === colony && target.roomName === assignment.targetRoom && target.action === "claim" && isTerritoryAutomationSource3(target.createdBy) && RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(target.createdBy)
+  ) : false;
+}
+function selectClaimTargetController(creep, assignment) {
+  var _a, _b, _c, _d;
+  if (assignment.controllerId) {
+    const game = globalThis.Game;
+    if (typeof (game == null ? void 0 : game.getObjectById) === "function") {
+      const controller = game.getObjectById.call(game, assignment.controllerId);
+      if (controller) {
+        return controller;
+      }
+    }
+  }
+  return (_d = (_c = (_a = creep.room) == null ? void 0 : _a.controller) != null ? _c : (_b = getVisibleRoom6(assignment.targetRoom)) == null ? void 0 : _b.controller) != null ? _d : null;
+}
+function moveTowardClaimTarget(creep, assignment) {
+  const visibleController = selectVisibleClaimTargetController(assignment);
+  if (visibleController) {
+    moveTowardController(creep, visibleController);
+    return;
+  }
+  if (typeof creep.moveTo !== "function") {
+    return;
+  }
+  const RoomPositionCtor = globalThis.RoomPosition;
+  if (typeof RoomPositionCtor === "function") {
+    creep.moveTo(new RoomPositionCtor(25, 25, assignment.targetRoom));
+  }
+}
+function selectVisibleClaimTargetController(assignment) {
+  var _a, _b, _c;
+  const game = globalThis.Game;
+  if (assignment.controllerId && typeof (game == null ? void 0 : game.getObjectById) === "function") {
+    const controller = game.getObjectById.call(game, assignment.controllerId);
+    if (controller) {
+      return controller;
+    }
+  }
+  return (_c = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[assignment.targetRoom]) == null ? void 0 : _b.controller) != null ? _c : null;
+}
+function moveTowardController(creep, controller) {
+  if (typeof creep.moveTo === "function") {
+    creep.moveTo(controller);
+  }
+}
+function hasClaimExecutionTimedOut(assignment, gameTime) {
+  return typeof assignment.claimStartedAt === "number" && gameTime >= assignment.claimStartedAt && gameTime - assignment.claimStartedAt >= EXPANSION_CLAIM_EXECUTION_TIMEOUT_TICKS;
+}
+function tryPressureForeignClaimBlocker(creep, assignment, controller, telemetryEvents) {
+  if (!isForeignReservedController3(controller, creep.memory.colony)) {
+    return false;
+  }
+  const activeClaimParts = getKnownActiveClaimPartCount(creep);
+  if (activeClaimParts !== null && activeClaimParts < TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS) {
+    recordRecommendedClaimRetry(creep, assignment, ERR_INVALID_TARGET_CODE3, "controllerReserved", {
+      controllerId: controller.id,
+      releaseAssignment: true,
+      requiresControllerPressure: true,
+      telemetryEvents
+    });
+    completeClaimAssignment(creep);
+    return true;
+  }
+  if (typeof creep.attackController !== "function") {
+    return false;
+  }
+  const result = creep.attackController(controller);
+  if (result === ERR_NOT_IN_RANGE_CODE6) {
+    moveTowardController(creep, controller);
+    return true;
+  }
+  if (result === ERR_NO_BODYPART_CODE) {
+    recordRecommendedClaimRetry(creep, assignment, result, "missingClaimPart", {
+      controllerId: controller.id,
+      releaseAssignment: true,
+      requiresControllerPressure: true,
+      telemetryEvents
+    });
+    completeClaimAssignment(creep);
+    return true;
+  }
+  return result !== ERR_INVALID_TARGET_CODE3;
+}
+function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents) {
+  const colony = getClaimColony(creep, controller);
+  const targetRoom = assignment.targetRoom;
+  recordPostClaimBootstrapClaimSuccess(
+    {
+      colony,
+      roomName: targetRoom,
+      controllerId: controller.id
+    },
+    telemetryEvents
+  );
+  completeRecommendedClaimIntent(colony, targetRoom, controller.id);
+  recordColonyExpansionClaimVerification({
+    colony,
+    targetRoom,
+    status: "claimed",
+    controllerId: controller.id,
+    creepName: creep.name,
+    updatedAt: getGameTime12()
+  });
+}
+function recordRecommendedClaimTerminalFailure(creep, assignment, result, reason, options) {
+  var _a, _b, _c, _d, _e;
+  const colony = getClaimColony(creep);
+  recordTerritoryClaimTelemetry((_a = options.telemetryEvents) != null ? _a : [], {
+    colony,
+    targetRoom: assignment.targetRoom,
+    ...((_b = options.controllerId) != null ? _b : assignment.controllerId) ? { controllerId: (_c = options.controllerId) != null ? _c : assignment.controllerId } : {},
+    creepName: creep.name,
+    phase: "claim",
+    result,
+    reason
+  });
+  if (options.suppressIntent) {
+    suppressRecommendedClaimIntent(colony, assignment, getGameTime12(), options.controllerId, reason);
+  }
+  recordColonyExpansionClaimVerification({
+    colony,
+    targetRoom: assignment.targetRoom,
+    status: "failed",
+    ...((_d = options.controllerId) != null ? _d : assignment.controllerId) ? { controllerId: (_e = options.controllerId) != null ? _e : assignment.controllerId } : {},
+    creepName: creep.name,
+    result,
+    reason,
+    updatedAt: getGameTime12()
+  });
+}
+function recordRecommendedClaimRetry(creep, assignment, result, reason, options = {}) {
+  var _a, _b, _c;
+  const colony = getClaimColony(creep);
+  recordTerritoryClaimTelemetry((_a = options.telemetryEvents) != null ? _a : [], {
+    colony,
+    targetRoom: assignment.targetRoom,
+    ...((_b = options.controllerId) != null ? _b : assignment.controllerId) ? { controllerId: (_c = options.controllerId) != null ? _c : assignment.controllerId } : {},
+    creepName: creep.name,
+    phase: "claim",
+    result,
+    reason
+  });
+  updateRecommendedClaimIntentForRetry(colony, assignment, getGameTime12(), options);
+}
+function updateRecommendedClaimIntentForRetry(colony, assignment, gameTime, options) {
+  var _a, _b;
+  const territoryMemory = getWritableTerritoryMemoryRecord5();
+  if (!territoryMemory) {
+    return;
+  }
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
+  for (let i = 0; i < intents.length; i += 1) {
+    const intent = intents[i];
+    if (!isMatchingRecommendedClaimIntent(intent, colony, assignment.targetRoom, void 0, allowUnscopedIntent)) {
+      continue;
+    }
+    intents[i] = {
+      ...intent,
+      status: options.releaseAssignment ? "planned" : "active",
+      updatedAt: gameTime,
+      lastAttemptAt: gameTime,
+      ...((_a = options.controllerId) != null ? _a : assignment.controllerId) ? { controllerId: (_b = options.controllerId) != null ? _b : assignment.controllerId } : {},
+      ...options.requiresControllerPressure || intent.requiresControllerPressure ? { requiresControllerPressure: true } : {}
+    };
+  }
+}
+function suppressRecommendedClaimIntent(colony, assignment, gameTime, controllerId, reason) {
+  const territoryMemory = getWritableTerritoryMemoryRecord5();
+  if (!territoryMemory) {
+    return;
+  }
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  territoryMemory.intents = intents;
+  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
+  for (let i = 0; i < intents.length; i += 1) {
+    const intent = intents[i];
+    if (!isMatchingRecommendedClaimIntent(intent, colony, assignment.targetRoom, void 0, allowUnscopedIntent)) {
+      continue;
+    }
+    intents[i] = {
+      ...intent,
+      status: "suppressed",
+      updatedAt: gameTime,
+      lastAttemptAt: gameTime,
+      ...(controllerId != null ? controllerId : assignment.controllerId) ? { controllerId: controllerId != null ? controllerId : assignment.controllerId } : {},
+      ...reason === "controllerReserved" || intent.requiresControllerPressure ? { requiresControllerPressure: true } : {}
+    };
+  }
+}
+function completeRecommendedClaimIntent(colony, targetRoom, controllerId) {
+  const territoryMemory = getWritableTerritoryMemoryRecord5();
+  if (!territoryMemory) {
+    return;
+  }
+  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, targetRoom);
+  territoryMemory.intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
+    (intent) => !isMatchingRecommendedClaimIntent(intent, colony, targetRoom, controllerId, allowUnscopedIntent)
+  );
+  if (Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = territoryMemory.targets.filter(
+      (target) => !isMatchingRecommendedClaimTarget(target, colony, targetRoom)
+    );
+  }
+}
+function isMatchingRecommendedClaimIntent(intent, colony, targetRoom, controllerId, allowUnscopedIntent = false) {
+  return intent.colony === colony && intent.targetRoom === targetRoom && intent.action === "claim" && (intent.createdBy !== void 0 && RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(intent.createdBy) || allowUnscopedIntent && intent.createdBy === void 0) && (!controllerId || !intent.controllerId || intent.controllerId === controllerId);
+}
+function hasRecommendedClaimTarget(territoryMemory, colony, targetRoom) {
+  return Array.isArray(territoryMemory.targets) ? territoryMemory.targets.some((target) => isMatchingRecommendedClaimTarget(target, colony, targetRoom)) : false;
+}
+function isMatchingRecommendedClaimTarget(target, colony, targetRoom) {
+  return isRecord15(target) && target.colony === colony && target.roomName === targetRoom && target.action === "claim" && isTerritoryAutomationSource3(target.createdBy) && RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(target.createdBy);
+}
+function recordColonyExpansionClaimVerification(input) {
+  var _a;
+  const colonyRoom = getVisibleRoom6(input.colony);
+  const selection = (_a = colonyRoom == null ? void 0 : colonyRoom.memory) == null ? void 0 : _a.cachedExpansionSelection;
+  if (!isRecord15(selection) || selection.targetRoom !== input.targetRoom) {
+    return;
+  }
+  selection.claimExecution = {
+    status: input.status,
+    targetRoom: input.targetRoom,
+    updatedAt: input.updatedAt,
+    ...input.controllerId ? { controllerId: input.controllerId } : {},
+    ...input.creepName ? { creepName: input.creepName } : {},
+    ...input.result !== void 0 ? { result: input.result } : {},
+    ...input.reason ? { reason: input.reason } : {}
+  };
+}
+function isClaimVerified(targetRoom, controller) {
+  var _a, _b;
+  return ((_b = (_a = getVisibleClaimedRoom(targetRoom, controller)) == null ? void 0 : _a.controller) == null ? void 0 : _b.my) === true;
+}
+function getVisibleClaimedRoom(targetRoom, controller) {
+  var _a, _b;
+  const controllerRoom = controller.room;
+  if (((_a = controllerRoom == null ? void 0 : controllerRoom.controller) == null ? void 0 : _a.my) === true) {
+    return controllerRoom;
+  }
+  const gameRoom = getVisibleRoom6(targetRoom);
+  return ((_b = gameRoom == null ? void 0 : gameRoom.controller) == null ? void 0 : _b.my) === true ? gameRoom : null;
+}
+function completeClaimAssignment(creep) {
+  delete creep.memory.territory;
+}
+function getClaimColony(creep, controller) {
+  var _a, _b, _c, _d, _e;
+  return (_e = (_d = (_b = creep.memory.colony) != null ? _b : (_a = creep.room) == null ? void 0 : _a.name) != null ? _d : (_c = controller == null ? void 0 : controller.room) == null ? void 0 : _c.name) != null ? _e : "unknown";
+}
+function isForeignOwnedController(controller) {
+  return controller.my !== true && isNonEmptyString14(getControllerOwnerUsername7(controller));
+}
+function isForeignReservedController3(controller, colony) {
+  var _a, _b;
+  const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
+  if (!isNonEmptyString14(reservationUsername)) {
+    return false;
+  }
+  return reservationUsername !== getControllerOwnerUsername7((_b = getVisibleRoom6(colony != null ? colony : "")) == null ? void 0 : _b.controller);
+}
+function getKnownActiveClaimPartCount(creep) {
+  var _a;
+  const claimPart = getBodyPartConstant5("CLAIM", "claim");
+  const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
+  if (typeof activeClaimParts === "number") {
+    return activeClaimParts;
+  }
+  return Array.isArray(creep.body) ? creep.body.filter((part) => isActiveBodyPart5(part, claimPart)).length : null;
+}
+function isActiveBodyPart5(part, bodyPartType) {
+  if (typeof part !== "object" || part === null) {
+    return false;
+  }
+  const bodyPart = part;
+  return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
+}
+function getBodyPartConstant5(globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return (_a = constants[globalName]) != null ? _a : fallback;
+}
+function isTerritoryAutomationSource3(source) {
+  return source === "occupationRecommendation" || source === "autonomousExpansionClaim" || source === "colonyExpansion" || source === "nextExpansionScoring" || source === "adjacentRoomReservation";
+}
 function isAutonomousExpansionClaimTarget(target, colony) {
   return isRecord15(target) && target.colony === colony && target.action === "claim" && target.createdBy === AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR;
 }
@@ -18683,6 +19115,11 @@ function getTargetKey2(roomName, action) {
 function getVisibleRoom6(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
+}
+function getGameTime12() {
+  var _a;
+  const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
+  return typeof gameTime === "number" ? gameTime : 0;
 }
 function getTerritoryMemoryRecord6() {
   var _a;
@@ -18990,7 +19427,7 @@ var MIN_ADJACENT_ROOM_RESERVATION_SCORE = 500;
 var ADJACENT_ROOM_RESERVATION_RENEWAL_TICKS_PER_CLAIM_PART = 600;
 var MAX_ADJACENT_ROOM_RESERVATION_RENEWAL_TICKS = 1e3;
 var EXIT_DIRECTION_ORDER6 = ["1", "3", "5", "7"];
-function refreshAdjacentRoomReservationIntent(colony, gameTime = getGameTime12(), options = {}) {
+function refreshAdjacentRoomReservationIntent(colony, gameTime = getGameTime13(), options = {}) {
   const evaluation = selectAdjacentRoomReservationPlan(colony, options);
   if (evaluation.status === "planned" && evaluation.targetRoom) {
     persistAdjacentRoomReservationIntent(colony.room.name, evaluation, gameTime);
@@ -19378,7 +19815,7 @@ function getWritableTerritoryMemoryRecord6() {
   }
   return root.Memory.territory;
 }
-function getGameTime12() {
+function getGameTime13() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
@@ -19394,7 +19831,7 @@ function isRecord17(value) {
 var COLONY_EXPANSION_CLAIM_TARGET_CREATOR = "colonyExpansion";
 var MIN_COLONY_EXPANSION_CLAIM_SCORE = MIN_ADJACENT_ROOM_RESERVATION_SCORE;
 var EXIT_DIRECTION_ORDER7 = ["1", "3", "5", "7"];
-function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime13()) {
+function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime14()) {
   const colonyName = colony.room.name;
   if (assessment.territoryReady !== true) {
     const reservation2 = refreshAdjacentRoomReservationIntent(colony, gameTime, {
@@ -19677,7 +20114,7 @@ function getWritableTerritoryMemoryRecord7() {
   }
   return memory.territory;
 }
-function getGameTime13() {
+function getGameTime14() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
@@ -19727,7 +20164,7 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
     return;
   }
   if (assignment.action === "scout") {
-    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime14(), creep.name, telemetryEvents);
+    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime15(), creep.name, telemetryEvents);
     completeTerritoryAssignment(creep);
     return;
   }
@@ -19809,7 +20246,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   if (typeof creep.reserveController !== "function" || !canCreepReserveTerritoryController(creep, controller, creep.memory.colony)) {
     return false;
   }
-  const gameTime = getGameTime14();
+  const gameTime = getGameTime15();
   const reserveAssignment = {
     targetRoom: assignment.targetRoom,
     action: "reserve",
@@ -19829,7 +20266,7 @@ function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   return true;
 }
 function suppressTerritoryAssignment(creep, assignment) {
-  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime14());
+  suppressTerritoryIntent(creep.memory.colony, assignment, getGameTime15());
   completeTerritoryAssignment(creep);
 }
 function completeTerritoryAssignment(creep) {
@@ -19837,7 +20274,7 @@ function completeTerritoryAssignment(creep) {
 }
 function recordPostClaimBootstrapIfOwned(creep, assignment, controller, telemetryEvents) {
   var _a, _b;
-  const room = getVisibleClaimedRoom(assignment.targetRoom, controller);
+  const room = getVisibleClaimedRoom2(assignment.targetRoom, controller);
   if (!((_a = room == null ? void 0 : room.controller) == null ? void 0 : _a.my)) {
     return;
   }
@@ -19850,7 +20287,7 @@ function recordPostClaimBootstrapIfOwned(creep, assignment, controller, telemetr
     telemetryEvents
   );
 }
-function getVisibleClaimedRoom(targetRoom, controller) {
+function getVisibleClaimedRoom2(targetRoom, controller) {
   var _a, _b, _c, _d;
   const controllerRoom = controller.room;
   if (((_a = controllerRoom == null ? void 0 : controllerRoom.controller) == null ? void 0 : _a.my) === true) {
@@ -19909,14 +20346,14 @@ function selectVisibleTargetRoomController(assignment) {
   }
   return (_c = (_b = (_a = game == null ? void 0 : game.rooms) == null ? void 0 : _a[assignment.targetRoom]) == null ? void 0 : _b.controller) != null ? _c : null;
 }
-function getGameTime14() {
+function getGameTime15() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
 }
 function isCreepKnownToHaveNoActiveClaimParts(creep) {
   var _a;
-  const claimPart = getBodyPartConstant5("CLAIM", "claim");
+  const claimPart = getBodyPartConstant6("CLAIM", "claim");
   const activeClaimParts = (_a = creep.getActiveBodyparts) == null ? void 0 : _a.call(creep, claimPart);
   if (typeof activeClaimParts === "number") {
     return activeClaimParts <= 0;
@@ -19924,16 +20361,16 @@ function isCreepKnownToHaveNoActiveClaimParts(creep) {
   if (!Array.isArray(creep.body)) {
     return false;
   }
-  return !creep.body.some((part) => isActiveBodyPart5(part, claimPart));
+  return !creep.body.some((part) => isActiveBodyPart6(part, claimPart));
 }
-function isActiveBodyPart5(part, bodyPartType) {
+function isActiveBodyPart6(part, bodyPartType) {
   if (typeof part !== "object" || part === null) {
     return false;
   }
   const bodyPart = part;
   return bodyPart.type === bodyPartType && typeof bodyPart.hits === "number" && bodyPart.hits > 0;
 }
-function getBodyPartConstant5(globalName, fallback) {
+function getBodyPartConstant6(globalName, fallback) {
   var _a;
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
@@ -19947,6 +20384,9 @@ function isTerritoryAssignment(assignment) {
 
 // src/creeps/claimerRunner.ts
 function runClaimer(creep, telemetryEvents = []) {
+  if (runRecommendedExpansionClaimExecutor(creep, telemetryEvents)) {
+    return;
+  }
   runTerritoryControllerCreep(creep, telemetryEvents);
 }
 
@@ -20331,7 +20771,7 @@ var Kernel = class {
     this.dependencies.cleanupDeadCreepMemory();
     const defenseEvents = this.dependencies.runDefense();
     return this.dependencies.runEconomy(
-      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime15())
+      selectForwardedDefenseEvents(defenseEvents, this.lastForwardedDefenseEventTick, getGameTime16())
     );
   }
 };
@@ -20403,7 +20843,7 @@ function getDefenseEventPriority(event) {
       return 3;
   }
 }
-function getGameTime15() {
+function getGameTime16() {
   return typeof Game !== "undefined" && typeof Game.time === "number" ? Game.time : 0;
 }
 
