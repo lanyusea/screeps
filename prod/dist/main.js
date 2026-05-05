@@ -18238,6 +18238,263 @@ function isNonEmptyString14(value) {
   return typeof value === "string" && value.length > 0;
 }
 
+// src/territory/claimScoring.ts
+var EXIT_DIRECTION_ORDER5 = ["1", "3", "5", "7"];
+var TERRAIN_SCAN_MIN2 = 2;
+var TERRAIN_SCAN_MAX2 = 47;
+var DEFAULT_TERRAIN_WALL_MASK8 = 1;
+var DEFAULT_TERRAIN_SWAMP_MASK2 = 2;
+var SOURCE_SCORE = 150;
+var DUAL_SOURCE_BONUS2 = 260;
+var HOSTILE_PENALTY = 1200;
+var CLAIMED_PENALTY = 2e3;
+var RESERVED_PENALTY = 900;
+var MISSING_CONTROLLER_PENALTY = 500;
+var DISTANCE_PENALTY = 55;
+var NO_ROUTE_DISTANCE = 99;
+function scoreClaimTarget(roomName, homeRoom) {
+  const details = [];
+  const room = getVisibleRoom7(roomName);
+  const scoutIntel = getScoutIntel(homeRoom.name, roomName);
+  const sources = countSources(room, scoutIntel);
+  const distance = getRoomDistance(homeRoom.name, roomName);
+  let score = 0;
+  if (sources >= 2) {
+    score += sources * SOURCE_SCORE + DUAL_SOURCE_BONUS2;
+    details.push(`${sources} sources preferred`);
+  } else if (sources === 1) {
+    score += SOURCE_SCORE;
+    details.push("1 source visible");
+  } else {
+    details.push("sources unknown or missing");
+  }
+  score += scoreControllerDistance(room, details);
+  score += scoreTerrain(roomName, details);
+  if (distance === NO_ROUTE_DISTANCE) {
+    score -= DISTANCE_PENALTY * 4;
+    details.push("home route unavailable");
+  } else {
+    score -= distance * DISTANCE_PENALTY;
+    details.push(`home route distance ${distance}`);
+  }
+  const hostileCount = countHostiles(room, scoutIntel);
+  if (hostileCount > 0) {
+    score -= HOSTILE_PENALTY;
+    details.push(`hostile presence ${hostileCount}`);
+  }
+  const controllerStatus = getControllerStatus2(room, scoutIntel);
+  switch (controllerStatus) {
+    case "owned":
+      score -= CLAIMED_PENALTY;
+      details.push("controller already claimed");
+      break;
+    case "reserved":
+      score -= RESERVED_PENALTY;
+      details.push("controller already reserved");
+      break;
+    case "missing":
+      score -= MISSING_CONTROLLER_PENALTY;
+      details.push("controller missing");
+      break;
+    case "neutral":
+      details.push("controller unclaimed");
+      break;
+    case "unknown":
+      details.push("controller status unknown");
+      break;
+  }
+  return {
+    roomName,
+    score: Math.round(score),
+    sources,
+    distance,
+    details
+  };
+}
+function selectBestClaimTarget(homeRoom) {
+  var _a, _b;
+  const adjacentRooms = getAdjacentRoomNames5(homeRoom.name);
+  const candidates = adjacentRooms.map((roomName) => scoreClaimTarget(roomName, homeRoom)).filter((candidate) => candidate.sources > 0 && candidate.score > 0 && !hasUnclaimableController(candidate));
+  candidates.sort(compareClaimScores);
+  return (_b = (_a = candidates[0]) == null ? void 0 : _a.roomName) != null ? _b : null;
+}
+function compareClaimScores(left, right) {
+  return right.score - left.score || right.sources - left.sources || left.distance - right.distance || left.roomName.localeCompare(right.roomName);
+}
+function hasUnclaimableController(score) {
+  return score.details.some(
+    (detail) => detail === "controller already claimed" || detail === "controller already reserved" || detail === "controller missing"
+  );
+}
+function getVisibleRoom7(roomName) {
+  var _a, _b;
+  return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
+}
+function getScoutIntel(homeRoomName, roomName) {
+  var _a, _b, _c;
+  return (_c = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.scoutIntel) == null ? void 0 : _c[`${homeRoomName}>${roomName}`];
+}
+function countSources(room, scoutIntel) {
+  if (room) {
+    return findRoomObjects10(room, "FIND_SOURCES").length;
+  }
+  return typeof (scoutIntel == null ? void 0 : scoutIntel.sourceCount) === "number" ? scoutIntel.sourceCount : 0;
+}
+function countHostiles(room, scoutIntel) {
+  var _a, _b, _c;
+  if (room) {
+    return findRoomObjects10(room, "FIND_HOSTILE_CREEPS").length + findRoomObjects10(room, "FIND_HOSTILE_STRUCTURES").length;
+  }
+  return ((_a = scoutIntel == null ? void 0 : scoutIntel.hostileCreepCount) != null ? _a : 0) + ((_b = scoutIntel == null ? void 0 : scoutIntel.hostileStructureCount) != null ? _b : 0) + ((_c = scoutIntel == null ? void 0 : scoutIntel.hostileSpawnCount) != null ? _c : 0);
+}
+function scoreControllerDistance(room, details) {
+  const controller = room == null ? void 0 : room.controller;
+  const controllerPos = controller == null ? void 0 : controller.pos;
+  if (!controllerPos) {
+    details.push("controller distance unknown");
+    return 0;
+  }
+  const ranges = findRoomObjects10(room, "FIND_SOURCES").map((source) => getRange2(controllerPos, source.pos)).filter((range) => typeof range === "number" && Number.isFinite(range));
+  if (ranges.length === 0) {
+    details.push("controller distance unknown");
+    return 0;
+  }
+  const closestRange = Math.min(...ranges);
+  details.push(`controller-source range ${closestRange}`);
+  return Math.max(0, 120 - closestRange * 6);
+}
+function scoreTerrain(roomName, details) {
+  var _a, _b;
+  const terrain = getRoomTerrain8(roomName);
+  if (!terrain) {
+    details.push("terrain unknown");
+    return 0;
+  }
+  const wallMask = (_a = getGlobalNumber7("TERRAIN_MASK_WALL")) != null ? _a : DEFAULT_TERRAIN_WALL_MASK8;
+  const swampMask = (_b = getGlobalNumber7("TERRAIN_MASK_SWAMP")) != null ? _b : DEFAULT_TERRAIN_SWAMP_MASK2;
+  let total = 0;
+  let walls = 0;
+  let swamps = 0;
+  for (let x = TERRAIN_SCAN_MIN2; x <= TERRAIN_SCAN_MAX2; x += 1) {
+    for (let y = TERRAIN_SCAN_MIN2; y <= TERRAIN_SCAN_MAX2; y += 1) {
+      total += 1;
+      const terrainMask = terrain.get(x, y);
+      if ((terrainMask & wallMask) !== 0) {
+        walls += 1;
+      } else if ((terrainMask & swampMask) !== 0) {
+        swamps += 1;
+      }
+    }
+  }
+  const walkableRatio = (total - walls) / total;
+  const swampRatio = swamps / total;
+  details.push(`terrain walkable ${Math.round(walkableRatio * 100)}%`);
+  return Math.round(walkableRatio * 120 - swampRatio * 45);
+}
+function getControllerStatus2(room, scoutIntel) {
+  var _a, _b;
+  if (room) {
+    const controller = room.controller;
+    if (!controller) {
+      return "missing";
+    }
+    if (controller.my === true || isNonEmptyString15((_a = controller.owner) == null ? void 0 : _a.username)) {
+      return "owned";
+    }
+    if (isNonEmptyString15((_b = controller.reservation) == null ? void 0 : _b.username)) {
+      return "reserved";
+    }
+    return "neutral";
+  }
+  if (scoutIntel == null ? void 0 : scoutIntel.controller) {
+    const controller = scoutIntel.controller;
+    if (controller.my === true || isNonEmptyString15(controller.ownerUsername)) {
+      return "owned";
+    }
+    if (isNonEmptyString15(controller.reservationUsername)) {
+      return "reserved";
+    }
+    return "neutral";
+  }
+  return scoutIntel ? "missing" : "unknown";
+}
+function getRoomDistance(homeRoomName, roomName) {
+  var _a;
+  if (homeRoomName === roomName) {
+    return 0;
+  }
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (!gameMap) {
+    return NO_ROUTE_DISTANCE;
+  }
+  if (typeof gameMap.findRoute === "function") {
+    const route = gameMap.findRoute(homeRoomName, roomName);
+    if (Array.isArray(route)) {
+      return route.length;
+    }
+    return NO_ROUTE_DISTANCE;
+  }
+  if (typeof gameMap.getRoomLinearDistance === "function") {
+    const linearDistance = gameMap.getRoomLinearDistance(homeRoomName, roomName);
+    if (typeof linearDistance === "number" && Number.isFinite(linearDistance)) {
+      return linearDistance;
+    }
+  }
+  return NO_ROUTE_DISTANCE;
+}
+function getAdjacentRoomNames5(roomName) {
+  var _a;
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (!gameMap || typeof gameMap.describeExits !== "function") {
+    return [];
+  }
+  const exits = gameMap.describeExits(roomName);
+  if (!isRecord16(exits)) {
+    return [];
+  }
+  return EXIT_DIRECTION_ORDER5.flatMap((direction) => {
+    const adjacentRoom = exits[direction];
+    return isNonEmptyString15(adjacentRoom) ? [adjacentRoom] : [];
+  });
+}
+function getRoomTerrain8(roomName) {
+  var _a;
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (!gameMap || typeof gameMap.getRoomTerrain !== "function") {
+    return null;
+  }
+  return gameMap.getRoomTerrain(roomName);
+}
+function findRoomObjects10(room, constantName) {
+  const findConstant = getGlobalNumber7(constantName);
+  if (!room || typeof room.find !== "function" || typeof findConstant !== "number") {
+    return [];
+  }
+  return room.find(findConstant);
+}
+function getRange2(origin, target) {
+  if (!origin || !target) {
+    return null;
+  }
+  if (typeof origin.getRangeTo === "function") {
+    return origin.getRangeTo(target);
+  }
+  if (typeof origin.x === "number" && typeof origin.y === "number" && typeof target.x === "number" && typeof target.y === "number") {
+    return Math.max(Math.abs(origin.x - target.x), Math.abs(origin.y - target.y));
+  }
+  return null;
+}
+function getGlobalNumber7(name) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : void 0;
+}
+function isRecord16(value) {
+  return typeof value === "object" && value !== null;
+}
+function isNonEmptyString15(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
 // src/territory/territoryRunner.ts
 var ERR_NOT_IN_RANGE_CODE6 = -9;
 var ERR_INVALID_TARGET_CODE3 = -7;
@@ -18336,6 +18593,19 @@ function runTerritoryControllerCreep(creep, telemetryEvents = []) {
   if (assignment.action === "claim" && CLAIM_FATAL_RESULT_CODES.has(result) || assignment.action === "reserve" && RESERVE_FATAL_RESULT_CODES.has(result)) {
     suppressTerritoryAssignment(creep, assignment);
   }
+}
+function logBestClaimTarget(homeRoom) {
+  if (isJestRuntime()) {
+    return null;
+  }
+  const targetRoom = selectBestClaimTarget(homeRoom);
+  console.log(`[territory] best adjacent claim target from ${homeRoom.name}: ${targetRoom != null ? targetRoom : "none"}`);
+  return targetRoom;
+}
+function isJestRuntime() {
+  var _a, _b;
+  const nodeProcess = globalThis.process;
+  return ((_a = nodeProcess == null ? void 0 : nodeProcess.env) == null ? void 0 : _a.NODE_ENV) === "test" || ((_b = nodeProcess == null ? void 0 : nodeProcess.env) == null ? void 0 : _b.JEST_WORKER_ID) !== void 0;
 }
 function tryFallbackClaimAssignmentToReserve(creep, assignment, controller) {
   var _a;
@@ -18633,6 +18903,7 @@ function refreshNextExpansionTargetSelectionIfDue(colony, gameTime) {
     buildRuntimeExpansionCandidateReport(colony),
     gameTime
   );
+  logBestClaimTarget(colony.room);
   colonyMemory.lastExpansionScoreTime = gameTime;
   colonyMemory.cachedExpansionSelection = { ...selection, stateKey };
   return selection;
@@ -18653,17 +18924,17 @@ function getCachedNextExpansionTargetSelection(colonyMemory, colonyName) {
   const refreshedAt = colonyMemory.lastExpansionScoreTime;
   const rawSelection = colonyMemory.cachedExpansionSelection;
   const selection = normalizeNextExpansionTargetSelection(rawSelection, colonyName);
-  if (!isFiniteNumber8(refreshedAt) || !isRecord16(rawSelection) || !isNonEmptyString15(rawSelection.stateKey) || !selection) {
+  if (!isFiniteNumber8(refreshedAt) || !isRecord17(rawSelection) || !isNonEmptyString16(rawSelection.stateKey) || !selection) {
     return null;
   }
   return { refreshedAt, stateKey: rawSelection.stateKey, selection };
 }
 function normalizeNextExpansionTargetSelection(rawSelection, colonyName) {
-  if (!isRecord16(rawSelection) || rawSelection.colony !== colonyName || rawSelection.status !== "planned" && rawSelection.status !== "skipped") {
+  if (!isRecord17(rawSelection) || rawSelection.colony !== colonyName || rawSelection.status !== "planned" && rawSelection.status !== "skipped") {
     return null;
   }
   if (rawSelection.status === "planned") {
-    if (!isNonEmptyString15(rawSelection.targetRoom)) {
+    if (!isNonEmptyString16(rawSelection.targetRoom)) {
       return null;
     }
     return {
@@ -18700,7 +18971,7 @@ function hasNextExpansionTarget(colony, targetRoom) {
   }
   const targets = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.targets;
   return Array.isArray(targets) ? targets.some(
-    (target) => isRecord16(target) && target.colony === colony && target.roomName === targetRoom && target.action === "claim" && target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
+    (target) => isRecord17(target) && target.colony === colony && target.roomName === targetRoom && target.action === "claim" && target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
   ) : false;
 }
 function getNextExpansionSelectionCacheStateKey(colony) {
@@ -18730,17 +19001,17 @@ function countVisibleOwnedRooms2() {
 function countActivePostClaimBootstraps3() {
   var _a, _b;
   const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
-  if (!isRecord16(records)) {
+  if (!isRecord17(records)) {
     return 0;
   }
   return Object.values(records).filter(
-    (record) => isRecord16(record) && record.status !== "ready"
+    (record) => isRecord17(record) && record.status !== "ready"
   ).length;
 }
-function isRecord16(value) {
+function isRecord17(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString15(value) {
+function isNonEmptyString16(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isFiniteNumber8(value) {
@@ -19750,10 +20021,10 @@ function getLatestFiniteScore(scores) {
   return void 0;
 }
 function normalizeHistoricalReplay(rawReplay) {
-  if (!isRecord17(rawReplay)) {
+  if (!isRecord18(rawReplay)) {
     return null;
   }
-  if (!isNonEmptyString16(rawReplay.replayId) || !isNonEmptyString16(rawReplay.room) || !isFiniteNumber9(rawReplay.startTick) || !isFiniteNumber9(rawReplay.endTick) || !isFiniteNumber9(rawReplay.finalScore) || !isRecord17(rawReplay.kpiHistory)) {
+  if (!isNonEmptyString17(rawReplay.replayId) || !isNonEmptyString17(rawReplay.room) || !isFiniteNumber9(rawReplay.startTick) || !isFiniteNumber9(rawReplay.endTick) || !isFiniteNumber9(rawReplay.finalScore) || !isRecord18(rawReplay.kpiHistory)) {
     return null;
   }
   const kpiHistory = Object.entries(rawReplay.kpiHistory).reduce(
@@ -19778,10 +20049,10 @@ function normalizeHistoricalReplay(rawReplay) {
 function formatCorrelation(correlation) {
   return correlation.toFixed(3);
 }
-function isRecord17(value) {
+function isRecord18(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString16(value) {
+function isNonEmptyString17(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isFiniteNumber9(value) {
