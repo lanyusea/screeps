@@ -556,7 +556,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
-  it('selects the richest dropped energy before harvesting when worker has free capacity', () => {
+  it('selects nearby dropped energy before farther dropped energy or harvesting', () => {
     const lowValueDroppedEnergy = { id: 'drop-low', resourceType: 'energy', amount: 24 } as Resource<ResourceConstant>;
     const farDroppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
     const nearDroppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
@@ -584,7 +584,7 @@ describe('selectWorkerTask', () => {
       room: { find: roomFind }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-far' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
     expect(getRangeTo).not.toHaveBeenCalledWith(lowValueDroppedEnergy);
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
@@ -1923,7 +1923,7 @@ describe('selectWorkerTask', () => {
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
-  it('prefers the richest recoverable source before durable storage', () => {
+  it('prefers nearby recoverable energy before farther dropped energy or durable storage', () => {
     const droppedEnergy = { id: 'drop-far', resourceType: 'energy', amount: 500 } as Resource<ResourceConstant>;
     const container = makeStoredEnergyStructure('container-far', 'container' as StructureConstant, 400);
     const tombstone = makeSalvageEnergySource('tombstone-near', 260);
@@ -1970,7 +1970,7 @@ describe('selectWorkerTask', () => {
       room: { controller: { my: true }, find: roomFind }
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-far' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'tombstone-near' });
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
@@ -8936,6 +8936,77 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ LaneWorker: creep });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near' });
+  });
+
+  it('picks up nearby dropped energy before direct source2/controller lane harvesting', () => {
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 23);
+    const droppedEnergy = { id: 'drop-near', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ controller, sources: [source1, source2] });
+    const creep = {
+      name: 'LaneWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'drop-near' ? 2 : 1)),
+        findPathTo: jest.fn((target: { id?: string }) => (target.id === 'drop-near' ? [{}] : []))
+      },
+      room: {
+        ...room,
+        find: jest.fn((type: number) => {
+          if (type === FIND_DROPPED_RESOURCES) {
+            return [droppedEnergy];
+          }
+
+          return (room.find as unknown as (findType: number) => unknown[])(type);
+        })
+      }
+    } as unknown as Creep;
+    setGameCreeps({ LaneWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-near' });
+  });
+
+  it('withdraws from nearby storage before direct source2/controller lane harvesting', () => {
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 23);
+    const storage = makeStoredEnergyStructure('storage-near', 'storage' as StructureConstant, 2_000, {
+      my: true,
+      pos: makeRoomPosition(8, 9)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ controller, sources: [source1, source2], structures: [storage] });
+    const creep = {
+      name: 'LaneWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'storage-near' ? 2 : 1))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LaneWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-near' });
   });
 
   it('routes an empty worker to the fastest spawn recovery harvest before the source2/controller lane', () => {

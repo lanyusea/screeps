@@ -350,6 +350,50 @@ describe('planSpawn', () => {
     });
   });
 
+  it('keeps low-RCL worker replacements below oversized room capacity bodies', () => {
+    const { colony: rcl2Colony, spawn: rcl2Spawn } = makeColony({
+      roomName: 'W1N22',
+      energyAvailable: 550,
+      energyCapacityAvailable: 550,
+      controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController
+    });
+    const { colony: rcl3Colony, spawn: rcl3Spawn } = makeColony({
+      roomName: 'W1N23',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(rcl2Colony, { worker: 3, workerCapacity: 2 }, 155)).toEqual({
+      spawn: rcl2Spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N22-155',
+      memory: { role: 'worker', colony: 'W1N22' }
+    });
+    expect(planSpawn(rcl3Colony, { worker: 3, workerCapacity: 2 }, 156)).toEqual({
+      spawn: rcl3Spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N23-156',
+      memory: { role: 'worker', colony: 'W1N23' }
+    });
+  });
+
+  it('still spawns an affordable low-RCL recovery worker when room energy is constrained', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N24',
+      energyAvailable: 200,
+      energyCapacityAvailable: 550,
+      controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 157)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N24-157',
+      memory: { role: 'worker', colony: 'W1N24' }
+    });
+  });
+
   it('uses the RCL4 medium worker profile when full capacity is affordable', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N19',

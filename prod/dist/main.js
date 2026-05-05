@@ -1806,6 +1806,9 @@ var MAX_REMOTE_HARVESTER_WORK_PARTS = 5;
 var MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS = 10;
 var MIN_REMOTE_HAULER_CARRY_MOVE_PAIRS = 6;
 var MAX_WORKER_PATTERN_COUNT = 4;
+var RCL1_WORKER_MAX_COST = 200;
+var RCL2_WORKER_MAX_COST = 400;
+var RCL3_WORKER_MAX_COST = 650;
 var MIN_MID_RCL = 4;
 var MIN_HIGH_RCL = 7;
 var MAX_MID_RCL_WORKER_PATTERN_COUNT = 5;
@@ -1841,20 +1844,21 @@ function buildWorkerBody(energyAvailable, controllerLevel) {
   if (isMidRcl(controllerLevel)) {
     return buildProfileWorkerBody(energyAvailable, MID_RCL_WORKER_PROFILE);
   }
-  return buildLowRclWorkerBody(energyAvailable);
+  return buildLowRclWorkerBody(energyAvailable, controllerLevel);
 }
-function buildLowRclWorkerBody(energyAvailable) {
+function buildLowRclWorkerBody(energyAvailable, controllerLevel) {
   if (energyAvailable < WORKER_PATTERN_COST) {
     return [];
   }
-  const maxPatternCountByEnergy = Math.floor(energyAvailable / WORKER_PATTERN_COST);
+  const energyBudget = getLowRclWorkerEnergyBudget(energyAvailable, controllerLevel);
+  const maxPatternCountByEnergy = Math.floor(energyBudget / WORKER_PATTERN_COST);
   const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS2 / WORKER_PATTERN.length);
   const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize, MAX_WORKER_PATTERN_COUNT);
   const body = Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
-  if (shouldAddWorkerLogisticsPair(energyAvailable, patternCount, body.length)) {
+  if (shouldAddWorkerLogisticsPair(energyBudget, patternCount, body.length)) {
     return [...body, ...WORKER_LOGISTICS_PAIR];
   }
-  if (shouldAddWorkerSurplusMove(energyAvailable, patternCount, body.length)) {
+  if (shouldAddWorkerSurplusMove(energyBudget, patternCount, body.length)) {
     return [...body, ...WORKER_SURPLUS_MOVE];
   }
   return body;
@@ -1873,6 +1877,18 @@ function buildProfileWorkerBody(energyAvailable, profile) {
   );
   const body = Array.from({ length: patternCount }).flatMap(() => profile.pattern);
   return addProfileWorkerRemainderParts(body, energyBudget, patternCount * profile.patternCost);
+}
+function getLowRclWorkerEnergyBudget(energyAvailable, controllerLevel) {
+  if (typeof controllerLevel !== "number" || !Number.isFinite(controllerLevel)) {
+    return energyAvailable;
+  }
+  if (controllerLevel <= 1) {
+    return Math.min(energyAvailable, RCL1_WORKER_MAX_COST);
+  }
+  if (controllerLevel === 2) {
+    return Math.min(energyAvailable, RCL2_WORKER_MAX_COST);
+  }
+  return Math.min(energyAvailable, RCL3_WORKER_MAX_COST);
 }
 function addProfileWorkerRemainderParts(body, energyBudget, bodyCost) {
   const additions = [
@@ -9219,9 +9235,9 @@ function selectHeuristicWorkerTask(creep) {
       if (builderEnergyAcquisitionTask) {
         return builderEnergyAcquisitionTask;
       }
-      const nearbyContainerEnergyAcquisitionTask = selectNearbyContainerWorkerEnergyAcquisitionTask(creep);
-      if (nearbyContainerEnergyAcquisitionTask) {
-        return nearbyContainerEnergyAcquisitionTask;
+      const nearbyWorkerEnergyAcquisitionTask = selectNearbyWorkerEnergyAcquisitionTask(creep);
+      if (nearbyWorkerEnergyAcquisitionTask) {
+        return nearbyWorkerEnergyAcquisitionTask;
       }
       const storageRefillAcquisitionTask = selectStorageToSpawnExtensionRefillAcquisitionTask(creep);
       if (storageRefillAcquisitionTask) {
@@ -10612,14 +10628,14 @@ function selectWorkerPreHarvestTask(creep) {
   const source = selectHarvestSource(creep);
   return source ? { type: "harvest", targetId: source.id } : null;
 }
-function selectNearbyContainerWorkerEnergyAcquisitionTask(creep) {
+function selectNearbyWorkerEnergyAcquisitionTask(creep) {
   const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
     maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE
-  }).filter((candidate) => isContainerEnergySource(candidate.source));
+  }).filter((candidate) => isPreferredNearbyWorkerEnergySource(candidate.source));
   if (candidates.length === 0) {
     return null;
   }
-  return candidates.sort(compareWorkerEnergyAcquisitionCandidates)[0].task;
+  return candidates.sort(compareNearbyWorkerEnergyAcquisitionCandidates)[0].task;
 }
 function selectLowLoadWorkerEnergyAcquisitionCandidate(creep) {
   if (!shouldKeepLowLoadWorkerAcquiringEnergy(creep)) {
@@ -10907,6 +10923,12 @@ function isContainerEnergySource(source) {
 function isStorageEnergySource(source) {
   return isStructureEnergySourceType(source, "STRUCTURE_STORAGE", "storage");
 }
+function isPreferredNearbyWorkerEnergySource(source) {
+  return isContainerEnergySource(source) || isStorageEnergySource(source) || isWorkerDroppedEnergySource(source);
+}
+function isWorkerDroppedEnergySource(source) {
+  return "resourceType" in source && isDroppedEnergy(source, MIN_DROPPED_ENERGY_PICKUP_AMOUNT);
+}
 function isDurableStoredEnergySource(source) {
   return isStructureEnergySourceType(source, "STRUCTURE_STORAGE", "storage") || isStructureEnergySourceType(source, "STRUCTURE_TERMINAL", "terminal");
 }
@@ -11086,9 +11108,12 @@ function compareWorkerEnergyAcquisitionCandidates(left, right) {
     return compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
   }
   if (left.priority === 1) {
-    return right.energy - left.energy || compareOptionalRanges(left.range, right.range) || right.score - left.score || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+    return compareOptionalRanges(left.range, right.range) || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
   }
   return right.score - left.score || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+}
+function compareNearbyWorkerEnergyAcquisitionCandidates(left, right) {
+  return compareOptionalRanges(left.range, right.range) || left.priority - right.priority || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
 }
 function compareDroppedEnergyReachabilityPriority(left, right) {
   return compareOptionalRanges(left.range, right.range) || right.energy - left.energy || right.score - left.score || String(left.source.id).localeCompare(String(right.source.id));

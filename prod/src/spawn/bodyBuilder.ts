@@ -38,6 +38,11 @@ const MIN_REMOTE_HAULER_CARRY_MOVE_PAIRS = 6;
 // four 200-energy patterns (800 energy) so early rooms do not sink capacity into
 // oversized unspecialized bodies before dedicated roles exist.
 const MAX_WORKER_PATTERN_COUNT = 4;
+// Keep low-RCL rooms spawning more frequent utility workers instead of tying up
+// energy in oversized bodies before roads, containers, and role specialization.
+const RCL1_WORKER_MAX_COST = 200;
+const RCL2_WORKER_MAX_COST = 400;
+const RCL3_WORKER_MAX_COST = 650;
 const MIN_MID_RCL = 4;
 const MIN_HIGH_RCL = 7;
 const MAX_MID_RCL_WORKER_PATTERN_COUNT = 5;
@@ -88,24 +93,28 @@ export function buildWorkerBody(
     return buildProfileWorkerBody(energyAvailable, MID_RCL_WORKER_PROFILE);
   }
 
-  return buildLowRclWorkerBody(energyAvailable);
+  return buildLowRclWorkerBody(energyAvailable, controllerLevel);
 }
 
-function buildLowRclWorkerBody(energyAvailable: number): BodyPartConstant[] {
+function buildLowRclWorkerBody(
+  energyAvailable: number,
+  controllerLevel?: number
+): BodyPartConstant[] {
   if (energyAvailable < WORKER_PATTERN_COST) {
     return [];
   }
 
-  const maxPatternCountByEnergy = Math.floor(energyAvailable / WORKER_PATTERN_COST);
+  const energyBudget = getLowRclWorkerEnergyBudget(energyAvailable, controllerLevel);
+  const maxPatternCountByEnergy = Math.floor(energyBudget / WORKER_PATTERN_COST);
   const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / WORKER_PATTERN.length);
   const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize, MAX_WORKER_PATTERN_COUNT);
   const body = Array.from({ length: patternCount }).flatMap(() => WORKER_PATTERN);
 
-  if (shouldAddWorkerLogisticsPair(energyAvailable, patternCount, body.length)) {
+  if (shouldAddWorkerLogisticsPair(energyBudget, patternCount, body.length)) {
     return [...body, ...WORKER_LOGISTICS_PAIR];
   }
 
-  if (shouldAddWorkerSurplusMove(energyAvailable, patternCount, body.length)) {
+  if (shouldAddWorkerSurplusMove(energyBudget, patternCount, body.length)) {
     return [...body, ...WORKER_SURPLUS_MOVE];
   }
 
@@ -131,6 +140,22 @@ function buildProfileWorkerBody(
   const body = Array.from({ length: patternCount }).flatMap(() => profile.pattern);
 
   return addProfileWorkerRemainderParts(body, energyBudget, patternCount * profile.patternCost);
+}
+
+function getLowRclWorkerEnergyBudget(energyAvailable: number, controllerLevel: number | undefined): number {
+  if (typeof controllerLevel !== 'number' || !Number.isFinite(controllerLevel)) {
+    return energyAvailable;
+  }
+
+  if (controllerLevel <= 1) {
+    return Math.min(energyAvailable, RCL1_WORKER_MAX_COST);
+  }
+
+  if (controllerLevel === 2) {
+    return Math.min(energyAvailable, RCL2_WORKER_MAX_COST);
+  }
+
+  return Math.min(energyAvailable, RCL3_WORKER_MAX_COST);
 }
 
 function addProfileWorkerRemainderParts(
