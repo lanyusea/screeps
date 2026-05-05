@@ -7938,7 +7938,7 @@ function getDestinationLinks(network) {
   return destinations;
 }
 function transferLinkEnergy(sourceLink, destinationLink, amount) {
-  return sourceLink.transfer(destinationLink, amount);
+  return sourceLink.transferEnergy(destinationLink, amount);
 }
 function selectDestinationLink(sourceLink, destinationLinks, projectedState) {
   var _a;
