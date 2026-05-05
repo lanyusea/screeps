@@ -15,7 +15,7 @@ import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn
 import { planSpawn, type SpawnPlanningOptions, type SpawnRequest } from '../spawn/spawnPlanner';
 import { emitRuntimeSummary, type RuntimeSummary, type RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import { recordSourceWorkloads } from './sourceWorkload';
-import { transferEnergy as transferLinkEnergy } from './linkManager';
+import { distributeEnergy as distributeLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
 import {
   buildRuntimeOccupationRecommendationReport,
@@ -140,7 +140,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       roleCounts = addPlannedWorker(roleCounts);
     }
 
-    transferLinkEnergy(colony.room);
+    distributeLinkEnergy(colony.room, Game.time, telemetryEvents);
     manageStorage(colony.room);
   }
 

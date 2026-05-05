@@ -1,4 +1,4 @@
-import { classifyLinks, transferEnergy } from '../src/economy/linkManager';
+import { classifyLinks, distributeEnergy, transferEnergy } from '../src/economy/linkManager';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 type TestStructureLink = StructureLink & { transfer: jest.Mock };
@@ -8,9 +8,13 @@ describe('linkManager', () => {
     Object.assign(globalThis, {
       FIND_MY_STRUCTURES: 1,
       FIND_SOURCES: 2,
+      FIND_MY_CREEPS: 3,
       RESOURCE_ENERGY: 'energy',
+      STRUCTURE_EXTENSION: 'extension',
       STRUCTURE_LINK: 'link',
-      STRUCTURE_STORAGE: 'storage'
+      STRUCTURE_SPAWN: 'spawn',
+      STRUCTURE_STORAGE: 'storage',
+      STRUCTURE_TOWER: 'tower'
     });
   });
 
@@ -113,31 +117,248 @@ describe('linkManager', () => {
     expect(sourceLinkA.transfer).toHaveBeenCalledWith(controllerLink, 400);
     expect(sourceLinkB.transfer).toHaveBeenCalledWith(controllerLink, 100);
   });
+
+  it('keeps source-link energy available for spawn refill before controller upgrade transfer', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 400);
+    const spawn = makeSpawn('spawn1', 100, 200);
+    const worker = makeWorker('Worker1', 0, 50);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      creeps: [worker],
+      energyAvailable: 100,
+      energyCapacityAvailable: 300,
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)],
+      structures: [sourceLink, controllerLink, spawn]
+    });
+    const events: Parameters<typeof distributeEnergy>[2] = [];
+
+    const result = distributeEnergy(room, 100, events);
+
+    expect(result.transfers).toEqual([]);
+    expect(sourceLink.transfer).not.toHaveBeenCalled();
+    expect(worker.memory.task).toEqual({ type: 'withdraw', targetId: 'source-link' });
+    expect(result.actions).toEqual([
+      {
+        action: 'workerWithdraw',
+        amount: 50,
+        path: 'source->spawnExtension',
+        sourceId: 'source-link',
+        workerName: 'Worker1'
+      }
+    ]);
+    expect(events).toMatchObject([
+      {
+        type: 'linkDistribution',
+        roomName: 'W1N1',
+        action: 'workerWithdraw',
+        amount: 50,
+        path: 'source->spawnExtension',
+        sourceId: 'source-link',
+        workerName: 'Worker1'
+      }
+    ]);
+  });
+
+  it('keeps source-link energy available for tower refill before controller upgrade transfer', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 400);
+    const tower = makeTower('tower1', 100, 900);
+    const worker = makeWorker('Worker1', 0, 50);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      creeps: [worker],
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)],
+      structures: [sourceLink, controllerLink, tower]
+    });
+
+    const result = distributeEnergy(room, 100, []);
+
+    expect(result.transfers).toEqual([]);
+    expect(sourceLink.transfer).not.toHaveBeenCalled();
+    expect(worker.memory.task).toEqual({ type: 'withdraw', targetId: 'source-link' });
+    expect(result.actions).toEqual([
+      {
+        action: 'workerWithdraw',
+        amount: 50,
+        path: 'source->tower',
+        sourceId: 'source-link',
+        workerName: 'Worker1'
+      }
+    ]);
+  });
+
+  it('does not overwrite existing non-link worker tasks while preserving source-link refill priority', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 400);
+    const spawn = makeSpawn('spawn1', 100, 200);
+    const worker = makeWorker('Builder1', 0, 50, {
+      task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> }
+    });
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      creeps: [worker],
+      energyAvailable: 100,
+      energyCapacityAvailable: 300,
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)],
+      structures: [sourceLink, controllerLink, spawn]
+    });
+
+    const result = distributeEnergy(room, 110, []);
+
+    expect(result.assignedTasks).toBe(0);
+    expect(result.transfers).toEqual([]);
+    expect(sourceLink.transfer).not.toHaveBeenCalled();
+    expect(worker.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+  });
+
+  it('routes source-link energy through a controller link and assigns upgrade withdrawal', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 300);
+    const worker = makeWorker('Upgrader1', 0, 50, {
+      task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+    });
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      creeps: [worker],
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)]
+    });
+    const events: Parameters<typeof distributeEnergy>[2] = [];
+
+    const result = distributeEnergy(room, 101, events);
+
+    expect(result.transfers).toMatchObject([
+      {
+        amount: 300,
+        destinationId: 'controller-link',
+        destinationRole: 'controller',
+        result: OK_CODE,
+        sourceId: 'source-link'
+      }
+    ]);
+    expect(sourceLink.transfer).toHaveBeenCalledWith(controllerLink, 300);
+    expect(worker.memory.task).toEqual({ type: 'withdraw', targetId: 'controller-link' });
+    expect(result.actions).toEqual([
+      {
+        action: 'linkTransfer',
+        amount: 300,
+        destinationId: 'controller-link',
+        path: 'source->controllerLink',
+        result: OK_CODE,
+        sourceId: 'source-link'
+      },
+      {
+        action: 'workerWithdraw',
+        amount: 50,
+        path: 'controllerLink->upgrade',
+        sourceId: 'controller-link',
+        workerName: 'Upgrader1'
+      }
+    ]);
+  });
+
+  it('does not retry source-link transfers while cooldown scheduling is active', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400, 3);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 300);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)]
+    });
+    const events: Parameters<typeof distributeEnergy>[2] = [];
+
+    const firstResult = distributeEnergy(room, 200, events);
+    const secondResult = distributeEnergy(room, 201, events);
+
+    expect(firstResult.transfers).toEqual([]);
+    expect(firstResult.nextCheckAt).toBe(203);
+    expect(firstResult.actions).toEqual([
+      {
+        action: 'cooldown',
+        cooldownTicks: 3,
+        path: 'source->controllerLink'
+      }
+    ]);
+    expect(secondResult).toEqual({ actions: [], assignedTasks: 0, nextCheckAt: 203, transfers: [] });
+    expect(sourceLink.transfer).not.toHaveBeenCalled();
+    expect(events).toHaveLength(1);
+  });
+
+  it('uses storage fallback only after spawn, tower, and controller-link priorities are unavailable', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const storage = makeStorage('storage1', 20, 20, 5_000, 1_000);
+    const loadedWorker = makeWorker('Loaded', 50, 0);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      creeps: [loadedWorker],
+      links: [sourceLink],
+      sources: [makeSource('source1', 10, 10)],
+      storage,
+      structures: [sourceLink, storage]
+    });
+
+    const result = distributeEnergy(room, 300, []);
+
+    expect(result.transfers).toEqual([]);
+    expect(loadedWorker.memory.task).toEqual({ type: 'transfer', targetId: 'storage1' });
+    expect(result.actions).toEqual([
+      {
+        action: 'workerTransfer',
+        amount: 50,
+        destinationId: 'storage1',
+        path: 'source->storage',
+        workerName: 'Loaded'
+      }
+    ]);
+  });
 });
 
 function makeRoom({
   controller = makeController(25, 25),
+  creeps = [],
+  energyAvailable,
+  energyCapacityAvailable,
   links = [],
   sources = [],
-  storage
+  storage,
+  structures
 }: {
   controller?: StructureController;
+  creeps?: Creep[];
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
   links?: TestStructureLink[];
   sources?: Source[];
   storage?: StructureStorage;
+  structures?: AnyOwnedStructure[];
 }): Room {
-  const structures = storage ? [...links, storage] : links;
+  const ownedStructures = structures ?? (storage ? [...links, storage] : links);
   return {
     name: 'W1N1',
     controller,
+    memory: {},
+    ...(energyAvailable === undefined ? {} : { energyAvailable }),
+    ...(energyCapacityAvailable === undefined ? {} : { energyCapacityAvailable }),
     ...(storage ? { storage } : {}),
     find: jest.fn((type: number) => {
       if (type === FIND_MY_STRUCTURES) {
-        return structures;
+        return ownedStructures;
       }
 
       if (type === FIND_SOURCES) {
         return sources;
+      }
+
+      if (type === FIND_MY_CREEPS) {
+        return creeps;
       }
 
       return [];
@@ -166,13 +387,58 @@ function makeLink(
   } as unknown as TestStructureLink;
 }
 
-function makeStorage(id: string, x: number, y: number, energy: number): StructureStorage {
+function makeStorage(id: string, x: number, y: number, energy: number, freeCapacity = 0): StructureStorage {
   return {
     id,
     structureType: 'storage',
     pos: makeRoomPosition(x, y),
-    store: { getUsedCapacity: jest.fn().mockReturnValue(energy) }
+    store: {
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+      getUsedCapacity: jest.fn().mockReturnValue(energy)
+    }
   } as unknown as StructureStorage;
+}
+
+function makeSpawn(id: string, energy: number, freeCapacity: number): StructureSpawn {
+  return {
+    id,
+    structureType: 'spawn',
+    pos: makeRoomPosition(20, 20),
+    store: {
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+      getUsedCapacity: jest.fn().mockReturnValue(energy)
+    }
+  } as unknown as StructureSpawn;
+}
+
+function makeTower(id: string, energy: number, freeCapacity: number): StructureTower {
+  return {
+    id,
+    structureType: 'tower',
+    pos: makeRoomPosition(20, 20),
+    store: {
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+      getUsedCapacity: jest.fn().mockReturnValue(energy)
+    }
+  } as unknown as StructureTower;
+}
+
+function makeWorker(
+  name: string,
+  carriedEnergy: number,
+  freeCapacity: number,
+  memory: Partial<CreepMemory> = {}
+): Creep {
+  return {
+    name,
+    memory: { role: 'worker', colony: 'W1N1', ...memory },
+    pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+    room: { name: 'W1N1' } as Room,
+    store: {
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+      getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy)
+    }
+  } as unknown as Creep;
 }
 
 function makeSource(id: string, x: number, y: number): Source {
