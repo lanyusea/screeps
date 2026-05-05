@@ -36,6 +36,57 @@ The exporter does not call live APIs, does not require Screeps or Steam credenti
 
 The output location is gitignored by the repository-level `runtime-artifacts/` ignore rule.
 
+## Dataset/Evaluation Gate
+
+Issue #409 is implemented by a stdlib-only orchestration entrypoint that makes the first RL flywheel gate executable:
+
+```bash
+python3 scripts/screeps_rl_dataset_gate.py run \
+  --out-dir runtime-artifacts/rl-dataset-gates
+```
+
+With no positional paths, it uses the same safe local roots as the dataset exporter. The command:
+
+- optionally generates a bounded strategy-shadow report from saved artifacts;
+- exports a standardized dataset under `runtime-artifacts/rl-datasets/<run-id>/`;
+- validates the dataset manifest, sample count, split, KPI window, and safety flags;
+- optionally validates a shadow-safe candidate config through `scripts/screeps_rl_mmo_validator.py`;
+- optionally evaluates the generated/current KPI window against predefined metric floors;
+- always persists the `scripts/screeps_rl_rollout_manager.py` contract and, when `--baseline-kpi` is supplied, writes a rollout-manager dry-run decision.
+
+Machine-readable contract:
+
+```bash
+python3 scripts/screeps_rl_dataset_gate.py contract
+```
+
+Candidate and KPI-gated example:
+
+```bash
+python3 scripts/screeps_rl_dataset_gate.py run \
+  runtime-artifacts/official-screeps-deploy \
+  --candidate-config runtime-artifacts/rl-candidates/<candidate>.json \
+  --baseline-kpi runtime-artifacts/rl-rollout/<candidate>/baseline.json \
+  --candidate-id <candidate-id> \
+  --deploy-ref <commit-or-bundle-ref> \
+  --min-reliability 0.98 \
+  --min-owned-rooms 1 \
+  --out-dir runtime-artifacts/rl-dataset-gates
+```
+
+Each run writes:
+
+```text
+runtime-artifacts/rl-dataset-gates/<gate-id>/
+  gate_report.json
+  gate_summary.json
+  rollout_gate_contract.json
+  rollout_decision.json        # only when --baseline-kpi is supplied
+  <gate-id>-historical.json    # only when --candidate-config is supplied
+```
+
+The compact summary is printed on stdout. Exit code `0` means every configured gate passed; `1` means the command ran and one or more configured gates failed; `2` means unsafe or invalid input prevented execution.
+
 ## Strategy-Shadow Report Generation
 
 Generate bounded offline strategy-shadow reports from saved local runtime artifacts:
