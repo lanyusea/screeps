@@ -205,9 +205,9 @@ Default capacity targets:
 
 | Lane | Default cap | Notes |
 | --- | ---: | --- |
-| Active dev/Codex agents | 6 | 1.5x scaled capacity from the prior 4-lane cap; may include code and docs workers. Do not exceed if PR review backlog is unhealthy. |
-| Active QA agents | 3 | 1.5x scaled support capacity for the 6-lane dev cap. QA is on-demand and short-lived; never persistent. |
-| Open PRs waiting for review/merge gate | 9 | 1.5x scaled backlog ceiling. If exceeded, drain PRs before dispatching lower-priority new work. |
+| Active dev/Codex agents | 8 | 2.0x scaled capacity from the prior 4-lane cap (2026-05-05: 1.33x expansion from 6-lane). May include code and docs workers. Do not exceed if PR review backlog is unhealthy. |
+| Active QA agents | 4 | 2.0x scaled support capacity for the 8-lane dev cap. QA is on-demand and short-lived; never persistent. |
+| Open PRs waiting for review/merge gate | 12 | 2.0x scaled backlog ceiling. If exceeded, drain PRs before dispatching lower-priority new work. |
 | Same roadmap submodule | 1 by default | Allow more only when file scopes are explicitly disjoint. |
 
 Conflict rules:
