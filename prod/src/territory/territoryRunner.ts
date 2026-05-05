@@ -15,6 +15,7 @@ import {
 } from './claimExecutor';
 import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import { recordVisibleRoomScoutIntel } from './scoutIntel';
 
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
@@ -60,6 +61,8 @@ export function runTerritoryControllerCreep(
   }
 
   if (assignment.action === 'scout') {
+    recordVisibleRoomScoutIntel(creep.memory.colony, creep.room, getGameTime(), creep.name, telemetryEvents);
+    completeTerritoryAssignment(creep);
     return;
   }
 

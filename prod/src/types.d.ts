@@ -149,6 +149,17 @@ declare global {
     | 'autonomousExpansionClaim'
     | 'nextExpansionScoring';
   type TerritoryIntentSuspensionReason = 'hostile_presence';
+  type TerritoryScoutAttemptStatus = 'requested' | 'observed' | 'timedOut';
+  type TerritoryScoutValidationStatus = 'pending' | 'passed' | 'blocked' | 'fallback';
+  type TerritoryScoutValidationReason =
+    | 'intelMissing'
+    | 'scoutPending'
+    | 'scoutTimeout'
+    | 'controllerMissing'
+    | 'controllerOwned'
+    | 'controllerReserved'
+    | 'hostileSpawn'
+    | 'sourcesMissing';
   type TerritoryPostClaimBootstrapStatus =
     | 'detected'
     | 'spawnSitePending'
@@ -199,6 +210,8 @@ declare global {
     postClaimBootstraps?: Record<string, TerritoryPostClaimBootstrapMemory>;
     remoteMining?: Record<string, TerritoryRemoteMiningRoomMemory>;
     reservations?: Record<string, TerritoryReservationMemory>;
+    scoutAttempts?: Record<string, TerritoryScoutAttemptMemory>;
+    scoutIntel?: Record<string, TerritoryScoutIntelMemory>;
     routeDistancesUpdatedAt?: Record<string, number>;
     routeDistances?: Record<string, number | null>;
   }
@@ -239,6 +252,52 @@ declare global {
     ticksToEnd: number;
     updatedAt: number;
     controllerId?: Id<StructureController>;
+  }
+
+  interface TerritoryScoutControllerIntelMemory {
+    id?: Id<StructureController>;
+    my?: boolean;
+    ownerUsername?: string;
+    reservationUsername?: string;
+    reservationTicksToEnd?: number;
+  }
+
+  interface TerritoryScoutMineralIntelMemory {
+    id: string;
+    mineralType?: string;
+    density?: number;
+  }
+
+  interface TerritoryScoutValidationMemory {
+    status: TerritoryScoutValidationStatus;
+    updatedAt: number;
+    reason?: TerritoryScoutValidationReason;
+  }
+
+  interface TerritoryScoutAttemptMemory {
+    colony: string;
+    roomName: string;
+    status: TerritoryScoutAttemptStatus;
+    requestedAt: number;
+    updatedAt: number;
+    attemptCount: number;
+    controllerId?: Id<StructureController>;
+    scoutName?: string;
+    lastValidation?: TerritoryScoutValidationMemory;
+  }
+
+  interface TerritoryScoutIntelMemory {
+    colony: string;
+    roomName: string;
+    updatedAt: number;
+    controller?: TerritoryScoutControllerIntelMemory;
+    sourceIds: string[];
+    sourceCount: number;
+    mineral?: TerritoryScoutMineralIntelMemory;
+    hostileCreepCount: number;
+    hostileStructureCount: number;
+    hostileSpawnCount: number;
+    scoutName?: string;
   }
 
   interface TerritoryFollowUpMemory {

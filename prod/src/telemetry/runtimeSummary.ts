@@ -28,6 +28,7 @@ import {
   type TerritoryIntentProgressSummary
 } from '../territory/territoryPlanner';
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
+import { getTerritoryScoutSummary } from '../territory/scoutIntel';
 import {
   summarizeAndResetCreepBehaviorTelemetry,
   type RuntimeBehaviorSummary as LegacyRuntimeBehaviorSummary
@@ -65,6 +66,7 @@ export type RuntimeTelemetryEvent =
   | RuntimeDefenseTelemetryEvent
   | RuntimeLinkDistributionTelemetryEvent
   | RuntimeTerritoryClaimTelemetryEvent
+  | RuntimeTerritoryScoutTelemetryEvent
   | RuntimePostClaimBootstrapTelemetryEvent
   | RuntimeSpawnSitePlacedTelemetryEvent;
 
@@ -79,11 +81,22 @@ export type RuntimeTerritoryClaimTelemetryReason =
   | 'controllerCooldown'
   | 'gclInsufficient'
   | 'suppressed'
+  | 'scoutPending'
+  | 'sourcesMissing'
   | 'notInRange'
   | 'invalidTarget'
   | 'missingClaimPart'
   | 'gclUnavailable'
   | 'claimFailed';
+
+export type RuntimeTerritoryScoutTelemetryReason = TerritoryScoutValidationReason;
+export type RuntimeTerritoryScoutTelemetryResult =
+  | 'requested'
+  | 'recorded'
+  | 'pending'
+  | 'passed'
+  | 'blocked'
+  | 'fallback';
 
 export interface RuntimeSpawnTelemetryEvent {
   type: 'spawn';
@@ -130,6 +143,23 @@ export interface RuntimeTerritoryClaimTelemetryEvent {
   creepName?: string;
   result?: ScreepsReturnCode;
   reason?: RuntimeTerritoryClaimTelemetryReason;
+  score?: number;
+}
+
+export interface RuntimeTerritoryScoutTelemetryEvent {
+  type: 'territoryScout';
+  roomName: string;
+  colony: string;
+  targetRoom: string;
+  phase: 'attempt' | 'intel' | 'validation';
+  result: RuntimeTerritoryScoutTelemetryResult;
+  reason?: RuntimeTerritoryScoutTelemetryReason;
+  controllerId?: Id<StructureController>;
+  scoutName?: string;
+  sourceCount?: number;
+  hostileCreepCount?: number;
+  hostileStructureCount?: number;
+  hostileSpawnCount?: number;
   score?: number;
 }
 
@@ -189,7 +219,13 @@ interface RuntimeRoomSummary {
   omittedTerritoryIntentCount?: number;
   suspendedTerritoryIntentCounts?: Record<string, number>;
   territoryExecutionHints?: TerritoryExecutionHintMemory[];
+  territoryScout?: RuntimeTerritoryScoutSummary;
   postClaimBootstrap?: PostClaimBootstrapSummary;
+}
+
+interface RuntimeTerritoryScoutSummary {
+  attempts?: TerritoryScoutAttemptMemory[];
+  intel?: TerritoryScoutIntelMemory[];
 }
 
 interface RuntimeControllerSummary {
@@ -606,6 +642,7 @@ function summarizeRoom(
     ...(territoryExpansion.candidates.length > 0 ? { territoryExpansion } : {}),
     ...buildTerritoryIntentSummary(colony.room.name, roleCounts),
     ...buildTerritoryExecutionHintSummary(colony.room.name),
+    ...buildTerritoryScoutSummary(colony.room.name),
     ...buildPostClaimBootstrapSummary(colony.room.name)
   };
 }
@@ -647,6 +684,20 @@ function buildTerritoryExecutionHintSummary(
 ): { territoryExecutionHints?: TerritoryExecutionHintMemory[] } {
   const territoryExecutionHints = getActiveTerritoryFollowUpExecutionHints(colonyName);
   return territoryExecutionHints.length > 0 ? { territoryExecutionHints } : {};
+}
+
+function buildTerritoryScoutSummary(colonyName: string): { territoryScout?: RuntimeTerritoryScoutSummary } {
+  const summary = getTerritoryScoutSummary(colonyName);
+  if (!summary) {
+    return {};
+  }
+
+  return {
+    territoryScout: {
+      ...(summary.attempts.length > 0 ? { attempts: summary.attempts } : {}),
+      ...(summary.intel.length > 0 ? { intel: summary.intel } : {})
+    }
+  };
 }
 
 function summarizeSpawn(spawn: StructureSpawn): RuntimeSpawnStatus {

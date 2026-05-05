@@ -17,6 +17,9 @@ describe('autonomous expansion claim executor', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 1;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 2;
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 3;
+    (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 4;
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: {},
@@ -33,6 +36,9 @@ describe('autonomous expansion claim executor', () => {
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as { FIND_SOURCES?: number }).FIND_SOURCES;
+    delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
+    delete (globalThis as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN;
   });
 
   it('records a claim intent for the best expansion-scored adjacent room above threshold', () => {
@@ -88,6 +94,33 @@ describe('autonomous expansion claim executor', () => {
     ]);
     expect(events).toEqual([
       {
+        type: 'territoryScout',
+        roomName: 'W1N1',
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        phase: 'intel',
+        result: 'recorded',
+        controllerId: 'controller12',
+        sourceCount: 1,
+        hostileCreepCount: 0,
+        hostileStructureCount: 0,
+        hostileSpawnCount: 0
+      },
+      {
+        type: 'territoryScout',
+        roomName: 'W1N1',
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        phase: 'validation',
+        result: 'passed',
+        controllerId: 'controller12',
+        sourceCount: 1,
+        hostileCreepCount: 0,
+        hostileStructureCount: 0,
+        hostileSpawnCount: 0,
+        score: evaluation.score
+      },
+      {
         type: 'territoryClaim',
         roomName: 'W1N1',
         colony: 'W1N1',
@@ -126,8 +159,31 @@ describe('autonomous expansion claim executor', () => {
       reason: 'scoreBelowThreshold'
     });
     expect(evaluation.score).toBeLessThanOrEqual(500);
-    expect(Memory.territory).toBeUndefined();
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.scoutIntel?.['W1N1>W2N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      updatedAt: 101,
+      controller: { id: 'controller2', my: false },
+      sourceCount: 1,
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      hostileSpawnCount: 0
+    });
     expect(events).toEqual([
+      {
+        type: 'territoryScout',
+        roomName: 'W1N1',
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        phase: 'intel',
+        result: 'recorded',
+        controllerId: 'controller2',
+        sourceCount: 1,
+        hostileCreepCount: 0,
+        hostileStructureCount: 0,
+        hostileSpawnCount: 0
+      },
       {
         type: 'territoryClaim',
         roomName: 'W1N1',
@@ -161,7 +217,13 @@ describe('autonomous expansion claim executor', () => {
 
     const evaluation = refreshAutonomousExpansionClaimIntent(
       makeColony(),
-      makeReport([makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })]),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
       nextTick()
     );
 
@@ -340,6 +402,413 @@ describe('autonomous expansion claim executor', () => {
     expect(events).toEqual([]);
   });
 
+  it('creates a scout intent for an unvalidated adjacent claim candidate', () => {
+    const events: RuntimeTelemetryEvent[] = [];
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
+      120,
+      events
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      reason: 'scoutPending'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 120,
+        controllerId: 'controller2'
+      }
+    ]);
+    expect(Memory.territory?.scoutAttempts?.['W1N1>W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'requested',
+      requestedAt: 120,
+      updatedAt: 120,
+      attemptCount: 1,
+      controllerId: 'controller2',
+      lastValidation: {
+        status: 'pending',
+        reason: 'intelMissing',
+        updatedAt: 120
+      }
+    });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'territoryScout',
+        phase: 'validation',
+        result: 'pending',
+        reason: 'intelMissing',
+        targetRoom: 'W2N1',
+        score: evaluation.score
+      }),
+      expect.objectContaining({
+        type: 'territoryScout',
+        phase: 'attempt',
+        result: 'requested',
+        targetRoom: 'W2N1',
+        controllerId: 'controller2'
+      }),
+      expect.objectContaining({
+        type: 'territoryClaim',
+        phase: 'skip',
+        reason: 'scoutPending',
+        targetRoom: 'W2N1'
+      })
+    ]);
+  });
+
+  it('passes claim validation from positive scout intel even when the room is no longer visible', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: 130,
+            controller: { id: 'controller2' as Id<StructureController>, my: false },
+            sourceIds: ['source1', 'source2'],
+            sourceCount: 2,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
+      131
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'autonomousExpansionClaim',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('requests a fresh scout instead of claiming from expired positive scout intel', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: 100,
+            controller: { id: 'controller2' as Id<StructureController>, my: false },
+            sourceIds: ['source1', 'source2'],
+            sourceCount: 2,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
+      1_601
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2',
+      reason: 'scoutPending'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.scoutAttempts?.['W1N1>W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'requested',
+      requestedAt: 1_601,
+      updatedAt: 1_601,
+      attemptCount: 1,
+      controllerId: 'controller2',
+      lastValidation: {
+        status: 'pending',
+        reason: 'scoutPending',
+        updatedAt: 1_601
+      }
+    });
+  });
+
+  it('waits for the active scout request when existing intel predates it', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutAttempts: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'requested',
+            requestedAt: 140,
+            updatedAt: 140,
+            attemptCount: 1,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        },
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: 130,
+            controller: { id: 'controller2' as Id<StructureController>, my: false },
+            sourceIds: ['source1', 'source2'],
+            sourceCount: 2,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
+      141
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2',
+      reason: 'scoutPending'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.scoutAttempts?.['W1N1>W2N1']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'requested',
+      requestedAt: 140,
+      updatedAt: 141,
+      attemptCount: 1,
+      controllerId: 'controller2',
+      lastValidation: {
+        status: 'pending',
+        reason: 'scoutPending',
+        updatedAt: 141
+      }
+    });
+  });
+
+  it('persists visible negative scout intel before returning a controller-owned skip', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: 130,
+            controller: { id: 'controller2' as Id<StructureController>, my: false },
+            sourceIds: ['source1', 'source2'],
+            sourceCount: 2,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+    const visibleRoom = makeTargetRoom('W2N1', {
+      controllerId: 'controller2' as Id<StructureController>,
+      sourceCount: 1
+    });
+    const visibleController = visibleRoom.controller as StructureController & { owner?: { username: string } };
+    visibleController.owner = { username: 'enemy' };
+    (Game.rooms as Record<string, Room>).W2N1 = visibleRoom;
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
+      150
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2',
+      reason: 'controllerOwned'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.scoutIntel?.['W1N1>W2N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      updatedAt: 150,
+      controller: {
+        id: 'controller2',
+        my: false,
+        ownerUsername: 'enemy'
+      },
+      sourceCount: 1,
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      hostileSpawnCount: 0
+    });
+  });
+
+  it('blocks claim validation when scout intel sees a hostile controller', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: 140,
+            controller: {
+              id: 'controller2' as Id<StructureController>,
+              my: false,
+              ownerUsername: 'enemy'
+            },
+            sourceIds: ['source1'],
+            sourceCount: 1,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
+      141
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2',
+      reason: 'controllerOwned'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.scoutAttempts?.['W1N1>W2N1']?.lastValidation).toEqual({
+      status: 'blocked',
+      reason: 'controllerOwned',
+      updatedAt: 141
+    });
+  });
+
+  it('falls back to a best-effort claim after the scout validation timeout', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutAttempts: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'requested',
+            requestedAt: 100,
+            updatedAt: 100,
+            attemptCount: 1,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        })
+      ]),
+      1_701
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'autonomousExpansionClaim',
+        controllerId: 'controller2'
+      }
+    ]);
+    expect(Memory.territory?.scoutAttempts?.['W1N1>W2N1']).toMatchObject({
+      status: 'timedOut',
+      lastValidation: {
+        status: 'fallback',
+        reason: 'scoutTimeout',
+        updatedAt: 1_701
+      }
+    });
+  });
+
   it('keeps an existing autonomous claim target when scoring reports it as configured', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -484,7 +953,14 @@ describe('autonomous expansion claim executor', () => {
       reason: 'controllerCooldown'
     });
     expect(shouldDeferOccupationRecommendationForExpansionClaim(evaluation)).toBe(true);
-    expect(Memory.territory).toBeUndefined();
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.scoutIntel?.['W1N1>W2N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      updatedAt: 103,
+      controller: { id: 'controller2', my: false },
+      sourceCount: 1
+    });
   });
 
   it('marks and emits a gclInsufficient skip when GCL room cap is reached', () => {
@@ -524,7 +1000,14 @@ describe('autonomous expansion claim executor', () => {
       reason: 'gclInsufficient'
     });
     expect(shouldDeferOccupationRecommendationForExpansionClaim(evaluation)).toBe(false);
-    expect(Memory.territory).toBeUndefined();
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.scoutIntel?.['W1N1>W2N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      updatedAt: 104,
+      controller: { id: 'controller2', my: false },
+      sourceCount: 1
+    });
   });
 });
 
@@ -596,11 +1079,13 @@ function makeTargetRoom(
   {
     controllerId,
     upgradeBlocked = 0,
+    sourceCount = 1,
     hostileCreeps = [],
     hostileStructures = []
   }: {
     controllerId: Id<StructureController>;
     upgradeBlocked?: number;
+    sourceCount?: number;
     hostileCreeps?: Creep[];
     hostileStructures?: AnyStructure[];
   }
@@ -619,6 +1104,14 @@ function makeTargetRoom(
 
       if (type === FIND_HOSTILE_STRUCTURES) {
         return hostileStructures;
+      }
+
+      if (type === FIND_SOURCES) {
+        return Array.from({ length: sourceCount }, (_value, index) => ({ id: `${roomName}-source${index}` }));
+      }
+
+      if (type === FIND_MINERALS) {
+        return [{ id: `${roomName}-mineral`, mineralType: 'H' }];
       }
 
       return [];

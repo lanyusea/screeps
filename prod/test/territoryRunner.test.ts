@@ -9,8 +9,11 @@ import type { RuntimeTelemetryEvent } from '../src/telemetry/runtimeSummary';
 
 describe('runTerritoryControllerCreep', () => {
   beforeEach(() => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 5;
+    (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 8;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
     (globalThis as unknown as { RoomPosition: typeof RoomPosition }).RoomPosition = jest.fn(
       (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
@@ -20,6 +23,18 @@ describe('runTerritoryControllerCreep', () => {
       getObjectById: jest.fn().mockReturnValue(null)
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+  });
+
+  afterEach(() => {
+    delete (globalThis as { FIND_SOURCES?: number }).FIND_SOURCES;
+    delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
+    delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
+    delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as { STRUCTURE_SPAWN?: StructureConstant }).STRUCTURE_SPAWN;
+    delete (globalThis as { CLAIM?: BodyPartConstant }).CLAIM;
+    delete (globalThis as { RoomPosition?: typeof RoomPosition }).RoomPosition;
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+    delete (globalThis as { Memory?: Partial<Memory> }).Memory;
   });
 
   it('moves toward the target room before touching the controller', () => {
@@ -93,20 +108,64 @@ describe('runTerritoryControllerCreep', () => {
     ]);
   });
 
-  it('keeps scout target attribution after entering the target room', () => {
+  it('records scout intel and clears target attribution after entering the target room', () => {
+    const telemetryEvents: RuntimeTelemetryEvent[] = [];
     const creep = {
+      name: 'Scout1',
       memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } },
-      room: { name: 'W1N2' },
+      room: {
+        name: 'W1N2',
+        controller: { id: 'controller2' as Id<StructureController>, my: false },
+        find: jest.fn((findType: number) => {
+          if (findType === FIND_SOURCES) {
+            return [{ id: 'source1' }, { id: 'source2' }];
+          }
+
+          if (findType === FIND_MINERALS) {
+            return [{ id: 'mineral1', mineralType: 'H' }];
+          }
+
+          return [];
+        })
+      },
       moveTo: jest.fn(),
       signController: jest.fn()
     } as unknown as Creep;
 
-    runTerritoryControllerCreep(creep);
+    runTerritoryControllerCreep(creep, telemetryEvents);
 
     expect(creep.moveTo).not.toHaveBeenCalled();
     expect(creep.signController).not.toHaveBeenCalled();
-    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'scout' });
-    expect(Memory.territory).toBeUndefined();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.scoutIntel?.['W1N1>W1N2']).toEqual({
+      colony: 'W1N1',
+      roomName: 'W1N2',
+      updatedAt: 500,
+      controller: { id: 'controller2', my: false },
+      sourceIds: ['source1', 'source2'],
+      sourceCount: 2,
+      mineral: { id: 'mineral1', mineralType: 'H' },
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      hostileSpawnCount: 0,
+      scoutName: 'Scout1'
+    });
+    expect(telemetryEvents).toEqual([
+      {
+        type: 'territoryScout',
+        roomName: 'W1N1',
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        phase: 'intel',
+        result: 'recorded',
+        controllerId: 'controller2',
+        scoutName: 'Scout1',
+        sourceCount: 2,
+        hostileCreepCount: 0,
+        hostileStructureCount: 0,
+        hostileSpawnCount: 0
+      }
+    ]);
   });
 
   it('reserves the target room controller and moves into range when needed', () => {

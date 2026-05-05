@@ -1189,6 +1189,81 @@ describe('runtime telemetry summaries', () => {
     expect(room.territoryIntents).toBeUndefined();
   });
 
+  it('emits territory scout attempts and intel in room telemetry', () => {
+    const colony = makeColony({ time: RUNTIME_SUMMARY_INTERVAL });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutAttempts: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'observed',
+            requestedAt: RUNTIME_SUMMARY_INTERVAL - 3,
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1,
+            attemptCount: 1,
+            scoutName: 'Scout1',
+            lastValidation: {
+              status: 'passed',
+              updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+            }
+          }
+        },
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1,
+            controller: { id: 'controller2' as Id<StructureController>, my: false },
+            sourceIds: ['source1', 'source2'],
+            sourceCount: 2,
+            mineral: { id: 'mineral1', mineralType: 'H' },
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0,
+            scoutName: 'Scout1'
+          }
+        }
+      }
+    };
+
+    emitRuntimeSummary([colony], [], [], { persistOccupationRecommendations: false });
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect(room.territoryScout).toEqual({
+      attempts: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          status: 'observed',
+          requestedAt: RUNTIME_SUMMARY_INTERVAL - 3,
+          updatedAt: RUNTIME_SUMMARY_INTERVAL - 1,
+          attemptCount: 1,
+          scoutName: 'Scout1',
+          lastValidation: {
+            status: 'passed',
+            updatedAt: RUNTIME_SUMMARY_INTERVAL - 1
+          }
+        }
+      ],
+      intel: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          updatedAt: RUNTIME_SUMMARY_INTERVAL - 1,
+          controller: { id: 'controller2', my: false },
+          sourceIds: ['source1', 'source2'],
+          sourceCount: 2,
+          mineral: { id: 'mineral1', mineralType: 'H' },
+          hostileCreepCount: 0,
+          hostileStructureCount: 0,
+          hostileSpawnCount: 0,
+          scoutName: 'Scout1'
+        }
+      ]
+    });
+  });
+
   it('keeps emission gating deterministic', () => {
     expect(shouldEmitRuntimeSummary(1, [])).toBe(false);
     expect(shouldEmitRuntimeSummary(RUNTIME_SUMMARY_INTERVAL, [])).toBe(true);

@@ -12,6 +12,13 @@ import {
 import type { OccupationRecommendationReport, OccupationRecommendationScore } from './occupationRecommendation';
 import { TERRITORY_SUPPRESSION_RETRY_TICKS } from './territoryPlanner';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
+import {
+  ensureTerritoryScoutAttempt,
+  recordTerritoryScoutValidation,
+  recordVisibleRoomScoutIntel,
+  validateTerritoryScoutIntelForClaim,
+  type TerritoryScoutValidationResult
+} from './scoutIntel';
 
 export const AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR: TerritoryAutomationSource =
   'autonomousExpansionClaim';
@@ -57,7 +64,7 @@ export function refreshAutonomousExpansionClaimIntent(
   telemetryEvents: RuntimeTelemetryEvent[] = []
 ): AutonomousExpansionClaimEvaluation {
   const context = getAutonomousExpansionClaimTickContext(gameTime);
-  const evaluation = evaluateAutonomousExpansionClaim(colony, report, gameTime, context);
+  const evaluation = evaluateAutonomousExpansionClaim(colony, report, gameTime, context, telemetryEvents);
   if (evaluation.status === 'planned' && evaluation.targetRoom) {
     persistAutonomousExpansionClaimIntent(colony.room.name, evaluation, gameTime, context);
     recordAutonomousExpansionClaimTelemetry(telemetryEvents, evaluation, 'intent');
@@ -77,7 +84,11 @@ export function refreshAutonomousExpansionClaimIntent(
 export function shouldDeferOccupationRecommendationForExpansionClaim(
   evaluation: AutonomousExpansionClaimEvaluation
 ): boolean {
-  return evaluation.status === 'planned' || evaluation.reason === 'controllerCooldown';
+  return (
+    evaluation.status === 'planned' ||
+    evaluation.reason === 'controllerCooldown' ||
+    evaluation.reason === 'scoutPending'
+  );
 }
 
 export function clearAutonomousExpansionClaimIntent(colony: string): void {
@@ -94,7 +105,8 @@ function shouldPruneAutonomousExpansionClaimTargets(
     reason === 'hostilePresence' ||
     reason === 'controllerMissing' ||
     reason === 'controllerOwned' ||
-    reason === 'controllerReserved'
+    reason === 'controllerReserved' ||
+    reason === 'sourcesMissing'
   );
 }
 
@@ -199,7 +211,8 @@ function evaluateAutonomousExpansionClaim(
   colony: ColonySnapshot,
   report: OccupationRecommendationReport,
   gameTime: number,
-  context: AutonomousExpansionClaimTickContext
+  context: AutonomousExpansionClaimTickContext,
+  telemetryEvents: RuntimeTelemetryEvent[]
 ): AutonomousExpansionClaimEvaluation {
   const colonyName = colony.room.name;
   const expansionReport = scoreExpansionCandidates(buildAutonomousExpansionScoringInput(colony, report, context));
@@ -239,47 +252,89 @@ function evaluateAutonomousExpansionClaim(
   }
 
   const room = getVisibleRoom(candidate.roomName);
-  if (!room) {
-    return { ...baseEvaluation, reason: 'roomNotVisible' };
+  const controller = room?.controller;
+  if (room) {
+    recordVisibleRoomScoutIntel(colonyName, room, gameTime, undefined, telemetryEvents);
   }
 
-  if (isVisibleRoomHostile(room)) {
-    return { ...baseEvaluation, reason: 'hostilePresence' };
+  const visibleControllerId = controller?.id;
+  const visibleControllerEvaluation = {
+    ...baseEvaluation,
+    ...(typeof visibleControllerId === 'string'
+      ? { controllerId: visibleControllerId as Id<StructureController> }
+      : {})
+  };
+
+  if (room && isVisibleRoomHostile(room)) {
+    return { ...visibleControllerEvaluation, reason: 'hostilePresence' };
   }
 
-  const controller = room.controller;
-  if (!controller) {
-    return { ...baseEvaluation, reason: 'controllerMissing' };
+  if (room && !controller) {
+    return { ...visibleControllerEvaluation, reason: 'controllerMissing' };
   }
 
-  const controllerId = controller.id;
+  if (controller && isControllerOwned(controller)) {
+    return { ...visibleControllerEvaluation, reason: 'controllerOwned' };
+  }
+
+  if (controller && isControllerReserved(controller, getControllerOwnerUsername(colony.room.controller))) {
+    return { ...visibleControllerEvaluation, reason: 'controllerReserved' };
+  }
+
+  if (isAutonomousExpansionClaimGclInsufficient()) {
+    return { ...visibleControllerEvaluation, reason: 'gclInsufficient' };
+  }
+
+  if (controller && isExpansionClaimControllerOnCooldown(controller)) {
+    return { ...visibleControllerEvaluation, reason: 'controllerCooldown' };
+  }
+
+  if (isAutonomousClaimSuppressed(colonyName, candidate.roomName, gameTime, context.territoryIntents)) {
+    return { ...visibleControllerEvaluation, reason: 'suppressed' };
+  }
+
+  if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
+    return { ...visibleControllerEvaluation, reason: 'scoreBelowThreshold' };
+  }
+
+  const scoutValidation = validateTerritoryScoutIntelForClaim({
+    colony: colonyName,
+    targetRoom: candidate.roomName,
+    colonyOwnerUsername: getControllerOwnerUsername(colony.room.controller),
+    gameTime
+  });
+  const scoutControllerId = getScoutValidationControllerId(scoutValidation);
+  const controllerId = controller?.id ?? scoutControllerId ?? candidate.controllerId;
   const controllerEvaluation = {
     ...baseEvaluation,
     ...(typeof controllerId === 'string' ? { controllerId: controllerId as Id<StructureController> } : {})
   };
+  recordTerritoryScoutValidation(
+    colonyName,
+    candidate.roomName,
+    scoutValidation,
+    gameTime,
+    telemetryEvents,
+    controllerEvaluation.controllerId,
+    candidate.score
+  );
 
-  if (isControllerOwned(controller)) {
-    return { ...controllerEvaluation, reason: 'controllerOwned' };
+  if (scoutValidation.status === 'pending') {
+    ensureTerritoryScoutAttempt(
+      colonyName,
+      candidate.roomName,
+      gameTime,
+      telemetryEvents,
+      controllerEvaluation.controllerId
+    );
+    return { ...controllerEvaluation, reason: 'scoutPending' };
   }
 
-  if (isControllerReserved(controller, getControllerOwnerUsername(colony.room.controller))) {
-    return { ...controllerEvaluation, reason: 'controllerReserved' };
-  }
-
-  if (isAutonomousExpansionClaimGclInsufficient()) {
-    return { ...controllerEvaluation, reason: 'gclInsufficient' };
-  }
-
-  if (isExpansionClaimControllerOnCooldown(controller)) {
-    return { ...controllerEvaluation, reason: 'controllerCooldown' };
-  }
-
-  if (isAutonomousClaimSuppressed(colonyName, candidate.roomName, gameTime, context.territoryIntents)) {
-    return { ...controllerEvaluation, reason: 'suppressed' };
-  }
-
-  if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
-    return { ...controllerEvaluation, reason: 'scoreBelowThreshold' };
+  if (scoutValidation.status === 'blocked') {
+    return {
+      ...controllerEvaluation,
+      reason: getScoutValidationClaimSkipReason(scoutValidation)
+    };
   }
 
   return {
@@ -289,6 +344,34 @@ function evaluateAutonomousExpansionClaim(
     score: candidate.score,
     ...(typeof controllerId === 'string' ? { controllerId: controllerId as Id<StructureController> } : {})
   };
+}
+
+function getScoutValidationControllerId(
+  validation: TerritoryScoutValidationResult
+): Id<StructureController> | undefined {
+  return validation.intel?.controller?.id;
+}
+
+function getScoutValidationClaimSkipReason(
+  validation: TerritoryScoutValidationResult
+): RuntimeTerritoryClaimTelemetryReason {
+  switch (validation.reason) {
+    case 'controllerMissing':
+      return 'controllerMissing';
+    case 'controllerOwned':
+      return 'controllerOwned';
+    case 'controllerReserved':
+      return 'controllerReserved';
+    case 'hostileSpawn':
+      return 'hostilePresence';
+    case 'sourcesMissing':
+      return 'sourcesMissing';
+    case 'intelMissing':
+    case 'scoutPending':
+    case 'scoutTimeout':
+    default:
+      return 'scoutPending';
+  }
 }
 
 function buildAutonomousExpansionScoringInput(
