@@ -8,7 +8,6 @@ import {
 import { planExtensionConstruction } from '../construction/extensionPlanner';
 import { planStorageConstruction, planTowerConstruction } from '../construction/constructionPriority';
 import { planEarlyRoadConstruction } from '../construction/roadPlanner';
-import { planSourceContainerConstruction } from '../construction/sourceContainerPlanner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import { HAULER_ROLE, runHauler } from '../creeps/hauler';
@@ -27,6 +26,7 @@ import {
   type RuntimeTelemetryEvent
 } from '../telemetry/runtimeSummary';
 import { recordSourceWorkloads } from './sourceWorkload';
+import { ensureSourceContainersForOwnedRooms } from './sourceContainerPlanner';
 import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
 import { balanceStorage } from './storageBalancer';
@@ -186,6 +186,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
 
+  ensureSourceContainersForOwnedRooms(colonies.map((colony) => colony.room));
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
 
   for (const creep of creeps) {
@@ -311,11 +312,6 @@ function planCriticalConstructionSites(
 
   const towerResult = planTowerConstruction(colony);
   if (towerResult !== null) {
-    return;
-  }
-
-  const sourceContainerResult = planSourceContainerConstruction(colony);
-  if (sourceContainerResult !== null) {
     return;
   }
 
