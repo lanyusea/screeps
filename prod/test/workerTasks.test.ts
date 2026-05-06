@@ -2,6 +2,7 @@ import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO,
+  CRITICAL_SPAWN_REPAIR_HITS_RATIO,
   IDLE_RAMPART_REPAIR_HITS_CEILING,
   BUILDER_DROPPED_PICKUP_RANGE,
   BUILDER_STORAGE_WITHDRAW_MIN,
@@ -33,6 +34,8 @@ import {
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
   TERRITORY_RESERVATION_RENEWAL_TICKS
 } from '../src/territory/territoryPlanner';
+
+const TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25 as const;
 
 type TestEnergySink = StructureSpawn | StructureExtension | StructureTower;
 
@@ -116,6 +119,19 @@ function makeSpawn(id: string, x: number, y: number, roomName = 'W1N1'): Structu
     pos: makeRoomPosition(x, y, roomName),
     store: { getFreeCapacity: jest.fn().mockReturnValue(0) }
   } as unknown as StructureSpawn;
+}
+
+function makeRepairSpawn(
+  id: string,
+  hits: number,
+  hitsMax = 5_000,
+  extra: Record<string, unknown> = {}
+): StructureSpawn {
+  return makeStructure(id, 'spawn' as StructureConstant, hits, hitsMax, {
+    my: true,
+    store: { getFreeCapacity: jest.fn().mockReturnValue(0) },
+    ...extra
+  }) as StructureSpawn;
 }
 
 function makeTowerEnergySink(id: string, usedEnergy: number, freeCapacity: number): StructureTower {
@@ -346,6 +362,10 @@ describe('selectWorkerTask', () => {
     delete (globalThis as unknown as { PathFinder?: Partial<PathFinder> }).PathFinder;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
+  });
+
+  it('pins the critical spawn repair threshold at 25 percent', () => {
+    expect(CRITICAL_SPAWN_REPAIR_HITS_RATIO).toBe(TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO);
   });
 
   it('selects harvest when worker has no energy', () => {
@@ -6403,6 +6423,63 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: `${structureType}-critical` });
   });
 
+  it('repairs a critically damaged owned spawn before roads, containers, and ramparts', () => {
+    const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
+    const spawn = makeRepairSpawn(
+      'spawn-critical',
+      Math.floor(5_000 * TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO),
+      5_000,
+      { pos: makeRoomPosition(10, 10) }
+    );
+    const source = makeSource('source1', 20, 10);
+    const road = makeStructure('road-critical', 'road' as StructureConstant, 1_000, 5_000, {
+      pos: makeRoomPosition(12, 10)
+    });
+    const container = makeStructure('container-critical', 'container' as StructureConstant, 100, 2_000);
+    const rampart = makeStructure('rampart-low', 'rampart' as StructureConstant, 1, 300_000_000, {
+      my: true
+    });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        constructionSites: [site],
+        myStructures: [spawn as AnyOwnedStructure],
+        sources: [source],
+        structures: [road, container, rampart, spawn]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'spawn-critical' });
+  });
+
+  it('keeps healthy damaged spawns behind critical infrastructure repair', () => {
+    const spawn = makeRepairSpawn(
+      'spawn-damaged',
+      Math.floor(5_000 * TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO) + 1
+    );
+    const container = makeStructure('container-critical', 'container' as StructureConstant, 100, 2_000);
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({
+        myStructures: [spawn as AnyOwnedStructure],
+        structures: [spawn, container]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'container-critical' });
+  });
+
+  it('skips non-owned spawns as repair targets', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const spawn = makeRepairSpawn('spawn-hostile', 100, 5_000, { my: false });
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: makeWorkerTaskRoom({ controller, structures: [spawn] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
   it('keeps non-critical road and container repair behind generic construction', () => {
     const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
     const road = makeStructure(
@@ -9700,6 +9777,47 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ LaneWorker: creep });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('routes a loaded source2/controller lane worker to critical spawn repair before upgrading', () => {
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 23);
+    const spawn = makeRepairSpawn(
+      'spawn-critical',
+      Math.floor(5_000 * TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO),
+      5_000,
+      { pos: makeRoomPosition(10, 10) }
+    );
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({
+      controller,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source1, source2],
+      structures: [spawn]
+    });
+    const getRangeTo = jest.fn((target: RoomObject) => {
+      const ranges: Record<string, number> = {
+        'spawn-critical': 8,
+        controller1: 1
+      };
+      return ranges[String((target as { id?: string }).id)] ?? 99;
+    });
+    const creep = {
+      name: 'LaneWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: { ...makeRoomPosition(25, 24), getRangeTo } as unknown as RoomPosition,
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LaneWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'spawn-critical' });
   });
 
   it('uses nearby generic construction before source2/controller lane upgrade', () => {
