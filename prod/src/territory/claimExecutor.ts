@@ -498,10 +498,6 @@ function evaluateAutonomousExpansionClaim(
     return { ...visibleControllerEvaluation, reason: 'suppressed' };
   }
 
-  if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
-    return { ...visibleControllerEvaluation, reason: 'scoreBelowThreshold' };
-  }
-
   const scoutValidation = validateTerritoryScoutIntelForClaim({
     colony: colonyName,
     targetRoom: candidate.roomName,
@@ -514,6 +510,27 @@ function evaluateAutonomousExpansionClaim(
     ...baseEvaluation,
     ...(typeof controllerId === 'string' ? { controllerId: controllerId as Id<StructureController> } : {})
   };
+
+  if (scoutValidation.status === 'blocked') {
+    recordTerritoryScoutValidation(
+      colonyName,
+      candidate.roomName,
+      scoutValidation,
+      gameTime,
+      telemetryEvents,
+      controllerEvaluation.controllerId,
+      candidate.score
+    );
+    return {
+      ...controllerEvaluation,
+      reason: getScoutValidationClaimSkipReason(scoutValidation)
+    };
+  }
+
+  if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
+    return { ...visibleControllerEvaluation, reason: 'scoreBelowThreshold' };
+  }
+
   recordTerritoryScoutValidation(
     colonyName,
     candidate.roomName,
@@ -533,13 +550,6 @@ function evaluateAutonomousExpansionClaim(
       controllerEvaluation.controllerId
     );
     return { ...controllerEvaluation, reason: 'scoutPending' };
-  }
-
-  if (scoutValidation.status === 'blocked') {
-    return {
-      ...controllerEvaluation,
-      reason: getScoutValidationClaimSkipReason(scoutValidation)
-    };
   }
 
   return {

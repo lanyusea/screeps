@@ -534,6 +534,101 @@ describe('next expansion scoring', () => {
     expect(Memory.territory?.targets).toBeUndefined();
   });
 
+  it('uses persisted scout intel to rank two-source neutral rooms above one-source owned rooms', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': makeScoutIntel('W2N1', { sourceCount: 2 }),
+          'W1N1>W3N1': makeScoutIntel('W3N1', {
+            sourceCount: 1,
+            controller: {
+              id: 'controller-W3N1' as Id<StructureController>,
+              ownerUsername: 'enemy'
+            }
+          })
+        }
+      }
+    };
+
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeUnscoredCandidate('W2N1', 0),
+        makeUnscoredCandidate('W3N1', 1)
+      ])
+    );
+    const neutral = getCandidate(report, 'W2N1');
+    const owned = getCandidate(report, 'W3N1');
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      visible: false,
+      evidenceStatus: 'sufficient',
+      sourceCount: 2
+    });
+    expect(neutral.rationale).toEqual(expect.arrayContaining(['controller unreserved', '2 sources scouted']));
+    expect(owned).toMatchObject({
+      visible: false,
+      evidenceStatus: 'unavailable',
+      sourceCount: 1,
+      risks: ['enemy-owned controller cannot be claimed safely']
+    });
+    expect(neutral.score).toBeGreaterThan(owned.score);
+  });
+
+  it('downgrades persisted scout-intel candidates when hostiles are present', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': makeScoutIntel('W2N1', { sourceCount: 2 }),
+          'W1N1>W3N1': makeScoutIntel('W3N1', {
+            sourceCount: 2,
+            hostileCreepCount: 1
+          })
+        }
+      }
+    };
+
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeUnscoredCandidate('W2N1', 0),
+        makeUnscoredCandidate('W3N1', 1)
+      ])
+    );
+    const safe = getCandidate(report, 'W2N1');
+    const hostile = getCandidate(report, 'W3N1');
+
+    expect(report.next).toMatchObject({ roomName: 'W2N1', evidenceStatus: 'sufficient' });
+    expect(hostile).toMatchObject({
+      evidenceStatus: 'unavailable',
+      hostileCreepCount: 1,
+      risks: ['hostile presence scouted']
+    });
+    expect(safe.score).toBeGreaterThan(hostile.score);
+  });
+
+  it('falls back gracefully when persisted scout intel is missing', () => {
+    const report = scoreExpansionCandidates(
+      makeInput([
+        {
+          ...makeUnscoredCandidate('W2N1', 0),
+          visible: false
+        }
+      ])
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W2N1',
+      visible: false,
+      evidenceStatus: 'insufficient-evidence',
+      risks: expect.arrayContaining([
+        'controller evidence missing until scout',
+        'source count evidence missing until scout',
+        'hostile evidence missing until scout'
+      ])
+    });
+    expect(Number.isFinite(report.next?.score)).toBe(true);
+  });
+
   it('records terrain-based source accessibility for visible expansion candidates', () => {
     const colony = makeSafeColony();
     const terrain = {
@@ -1053,6 +1148,42 @@ function makeCandidate(overrides: Partial<ExpansionCandidateInput> = {}): Expans
     terrain: { walkableRatio: 0.85, swampRatio: 0.1, wallRatio: 0.15 },
     hostileCreepCount: 0,
     hostileStructureCount: 0,
+    ...overrides
+  };
+}
+
+function makeUnscoredCandidate(roomName: string, order: number): ExpansionCandidateInput {
+  return {
+    roomName,
+    order,
+    adjacentToOwnedRoom: true,
+    routeDistance: 1,
+    nearestOwnedRoom: 'W1N1',
+    nearestOwnedRoomDistance: 1
+  };
+}
+
+function makeScoutIntel(
+  roomName: string,
+  overrides: Partial<TerritoryScoutIntelMemory> = {}
+): TerritoryScoutIntelMemory {
+  const sourceCount = overrides.sourceCount ?? 1;
+  return {
+    colony: 'W1N1',
+    roomName,
+    updatedAt: 100,
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: false
+    },
+    sourceIds: Array.from({ length: sourceCount }, (_value, index) => `${roomName}-source${index}`),
+    sourceCount,
+    sourceAccessPoints: 6,
+    controllerSourceRange: 8,
+    terrain: { walkableRatio: 0.85, swampRatio: 0.1, wallRatio: 0.15 },
+    hostileCreepCount: 0,
+    hostileStructureCount: 0,
+    hostileSpawnCount: 0,
     ...overrides
   };
 }

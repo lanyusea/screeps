@@ -25,6 +25,7 @@ import {
   type ExpansionClaimedRoomInput,
   type ExpansionCandidateInput
 } from './expansionScoring';
+import { getTerritoryScoutIntel } from './scoutIntel';
 
 export const COLONY_EXPANSION_CLAIM_TARGET_CREATOR: TerritoryAutomationSource = 'colonyExpansion';
 export const MIN_COLONY_EXPANSION_CLAIM_SCORE = MIN_ADJACENT_ROOM_RESERVATION_SCORE;
@@ -164,7 +165,8 @@ function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansion
   const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, ownerUsername);
   const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString(room.mineralType));
   const candidates = getAdjacentRoomNames(colony.room.name).flatMap((roomName, order) => {
-    if (!getVisibleRoom(roomName)) {
+    const room = getVisibleRoom(roomName);
+    if (!room && !getScoutIntel(colony.room.name, roomName)) {
       return [];
     }
 
@@ -214,7 +216,7 @@ function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansion
     (candidate) => candidate.effectiveScore >= MIN_COLONY_EXPANSION_CLAIM_SCORE
   );
   if (claimableCandidates.length > 0) {
-    applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, claimableCandidates);
+    applyColonyExpansionRankingScores(colony, ownerUsername, claimedRooms, claimableCandidates);
     return selectBestColonyExpansionCandidate(claimableCandidates, compareColonyExpansionCandidates);
   }
 
@@ -262,7 +264,7 @@ function compareColonyExpansionCandidatesByEffectiveScore(
   );
 }
 
-function applyColonyExpansionSynergyScores(
+function applyColonyExpansionRankingScores(
   colony: ColonySnapshot,
   ownerUsername: string | undefined,
   claimedRooms: ExpansionClaimedRoomInput[],
@@ -284,13 +286,17 @@ function applyColonyExpansionSynergyScores(
     claimedRooms,
     candidates: candidates.map((candidate) => candidate.expansionCandidate)
   });
-  const synergyScoresByRoom = new Map(
-    report.candidates.map((candidate) => [candidate.roomName, candidate.synergyScore])
+  const expansionScoresByRoom = new Map(
+    report.candidates.map((candidate) => [
+      candidate.roomName,
+      { score: candidate.score, synergyScore: candidate.synergyScore }
+    ])
   );
 
   for (const candidate of candidates) {
-    candidate.synergyScore = synergyScoresByRoom.get(candidate.roomName) ?? 0;
-    candidate.rankingScore = candidate.effectiveScore + candidate.synergyScore;
+    const expansionScore = expansionScoresByRoom.get(candidate.roomName);
+    candidate.synergyScore = expansionScore?.synergyScore ?? 0;
+    candidate.rankingScore = expansionScore?.score ?? candidate.effectiveScore + candidate.synergyScore;
   }
 }
 
@@ -673,9 +679,7 @@ function getVisibleRoom(roomName: string): Room | undefined {
 }
 
 function getScoutIntel(homeRoomName: string, roomName: string): TerritoryScoutIntelMemory | undefined {
-  return (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.scoutIntel?.[
-    `${homeRoomName}>${roomName}`
-  ];
+  return getTerritoryScoutIntel(homeRoomName, roomName) ?? undefined;
 }
 
 function countVisibleOwnedRooms(colonyName: string, ownerUsername: string | undefined): number {

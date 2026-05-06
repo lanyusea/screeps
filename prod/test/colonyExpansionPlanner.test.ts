@@ -88,6 +88,50 @@ describe('colony expansion planner', () => {
     });
   });
 
+  it('uses persisted scout intel when ranking adjacent expansion claim candidates', () => {
+    const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
+    installGame(colony, {
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 1 })
+      },
+      exits: { W1N1: { '1': 'W1N2', '3': 'W2N1' } }
+    });
+    Memory.territory = {
+      scoutIntel: {
+        'W1N1>W1N2': makeScoutIntel('W1N2', { sourceCount: 2 })
+      }
+    };
+    const stableAssessment = assessColonyStage({
+      roomName: 'W1N1',
+      totalCreeps: 5,
+      workerCapacity: 3,
+      workerTarget: 3,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+    });
+    const selectedScore = scoreClaimTarget('W1N2', colony.room).score;
+
+    const evaluation = refreshColonyExpansionIntent(colony, stableAssessment, 205);
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      controllerId: 'controller-W1N2',
+      score: selectedScore
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        action: 'claim',
+        createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
+        controllerId: 'controller-W1N2'
+      }
+    ]);
+  });
+
   it('reserves high-score adjacent rooms but suppresses auto-claim during bootstrap', () => {
     const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     installGame(colony, {
@@ -420,4 +464,33 @@ function makeMap(exits: Record<string, Partial<Record<'1' | '3' | '5' | '7', str
     getRoomLinearDistance: jest.fn((_fromRoom: string, _toRoom: string) => 1),
     getRoomTerrain: jest.fn(() => ({ get: jest.fn(() => 0) } as unknown as RoomTerrain))
   } as unknown as GameMap;
+}
+
+function makeScoutIntel(
+  roomName: string,
+  overrides: Partial<TerritoryScoutIntelMemory> = {}
+): TerritoryScoutIntelMemory {
+  const sourceCount = overrides.sourceCount ?? 1;
+  return {
+    colony: 'W1N1',
+    roomName,
+    updatedAt: 200,
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: false
+    },
+    sourceIds: Array.from({ length: sourceCount }, (_value, index) => `source-${roomName}-${index}`),
+    sourceCount,
+    sourceAccessPoints: 7,
+    controllerSourceRange: 8,
+    terrain: {
+      walkableRatio: 1,
+      swampRatio: 0,
+      wallRatio: 0
+    },
+    hostileCreepCount: 0,
+    hostileStructureCount: 0,
+    hostileSpawnCount: 0,
+    ...overrides
+  };
 }
