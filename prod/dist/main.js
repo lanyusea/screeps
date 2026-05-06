@@ -5802,6 +5802,7 @@ var SYNERGY_SOURCE_DUPLICATE_PENALTY_PER_SOURCE = 40;
 var SYNERGY_DUAL_SOURCE_DUPLICATE_PENALTY = 80;
 var FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = "foreign reservation requires controller pressure";
 var ROOM_LIMIT_PRECONDITION_PREFIX = "limit expansion to ";
+var GCL_LIMIT_PRECONDITION = "wait for GCL capacity to claim another room";
 var MAX_ROOM_COUNT_BY_RCL = {
   1: 1,
   2: 1,
@@ -5887,10 +5888,12 @@ function validateVisibleNextExpansionScoutIntel(colony, candidate, gameTime, tel
 }
 function buildRuntimeExpansionScoringInput(colony) {
   var _a, _b;
+  const gclLevel = getGclLevel();
   return {
     colonyName: colony.room.name,
     ...getControllerOwnerUsername2(colony.room.controller) ? { colonyOwnerUsername: getControllerOwnerUsername2(colony.room.controller) } : {},
     energyCapacityAvailable: colony.energyCapacityAvailable,
+    ...gclLevel !== null ? { gclLevel } : {},
     ...typeof ((_a = colony.room.controller) == null ? void 0 : _a.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
     ownedRoomCount: countVisibleOwnedRooms(colony.room.name, getControllerOwnerUsername2(colony.room.controller)),
     ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
@@ -6319,6 +6322,10 @@ function getExpansionPreconditions(input) {
     preconditions.push("reach controller level 2 before expansion");
   }
   const ownedRoomCount = getOwnedRoomCount(input);
+  const gclRoomCapacity = getGclClaimRoomCapacity(input);
+  if (gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity) {
+    preconditions.push(GCL_LIMIT_PRECONDITION);
+  }
   const maxRoomCount = maxRoomsForRcl(input.controllerLevel);
   if (ownedRoomCount >= maxRoomCount) {
     preconditions.push(`limit expansion to ${maxRoomCount} owned rooms for current controller level`);
@@ -6330,6 +6337,13 @@ function getExpansionPreconditions(input) {
     preconditions.push("finish active post-claim bootstrap before next expansion");
   }
   return preconditions;
+}
+function getGclClaimRoomCapacity(input) {
+  const level = input.gclLevel;
+  if (typeof level !== "number" || !Number.isFinite(level) || level <= 0) {
+    return null;
+  }
+  return Math.max(0, Math.floor(level));
 }
 function getOwnedRoomCount(input) {
   if (typeof input.ownedRoomCount !== "number" || !Number.isFinite(input.ownedRoomCount)) {
@@ -6365,6 +6379,9 @@ function getSelectionSkipReason(report) {
   if (report.candidates.length === 0) {
     return "noCandidate";
   }
+  if (report.candidates.some(hasGclLimitPrecondition)) {
+    return "gclInsufficient";
+  }
   if (report.candidates.some(hasRoomLimitPrecondition)) {
     return "roomLimitReached";
   }
@@ -6375,6 +6392,9 @@ function getSelectionSkipReason(report) {
     return "insufficientEvidence";
   }
   return "unavailable";
+}
+function hasGclLimitPrecondition(candidate) {
+  return candidate.preconditions.includes(GCL_LIMIT_PRECONDITION);
 }
 function hasRoomLimitPrecondition(candidate) {
   return candidate.preconditions.some(
@@ -6911,6 +6931,11 @@ function getGameTime7() {
   var _a;
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
+}
+function getGclLevel() {
+  var _a, _b;
+  const level = (_b = (_a = globalThis.Game) == null ? void 0 : _a.gcl) == null ? void 0 : _b.level;
+  return typeof level === "number" && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
 }
 function getTerritoryMemoryRecord3() {
   var _a;
@@ -9082,7 +9107,7 @@ function isColonyReadyForAdjacentReservationAutoClaim(colony) {
   if (ownedRoomCount >= maxRoomsForRcl(controllerLevel)) {
     return false;
   }
-  const gclLevel = getGclLevel();
+  const gclLevel = getGclLevel2();
   return typeof gclLevel !== "number" || ownedRoomCount < gclLevel;
 }
 function hasActivePostClaimBootstrap(colonyName) {
@@ -9145,7 +9170,7 @@ function isPostClaimClaimRefreshRecord(record, colonyName) {
 function comparePostClaimClaimRefreshRecords(left, right) {
   return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
 }
-function getGclLevel() {
+function getGclLevel2() {
   var _a, _b;
   const level = (_b = (_a = globalThis.Game) == null ? void 0 : _a.gcl) == null ? void 0 : _b.level;
   return typeof level === "number" && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
@@ -24938,7 +24963,7 @@ function getAdjacentRoomClaimBlocker(colony) {
   }
   const ownerUsername = getControllerOwnerUsername7(controller);
   const ownedRoomCount = countVisibleOwnedRooms2(colony.room.name, ownerUsername);
-  const gclLevel = getGclLevel2();
+  const gclLevel = getGclLevel3();
   if (typeof gclLevel === "number" && ownedRoomCount >= gclLevel) {
     return "gclInsufficient";
   }
@@ -25168,7 +25193,7 @@ function countVisibleOwnedRooms2(colonyName, ownerUsername) {
   }
   return Math.max(1, ownedRoomCount || (((_d = (_c = rooms[colonyName]) == null ? void 0 : _c.controller) == null ? void 0 : _d.my) === true ? 1 : 0));
 }
-function getGclLevel2() {
+function getGclLevel3() {
   var _a, _b;
   const level = (_b = (_a = globalThis.Game) == null ? void 0 : _a.gcl) == null ? void 0 : _b.level;
   if (typeof level !== "number" || !Number.isFinite(level) || level <= 0) {
@@ -25467,7 +25492,7 @@ function isColonyReadyToClaimMatureReservation(colony, controllerState) {
   if (ownedRoomCount >= maxRoomsForRcl(controllerLevel)) {
     return false;
   }
-  const gclLevel = getGclLevel3();
+  const gclLevel = getGclLevel4();
   return typeof gclLevel !== "number" || ownedRoomCount < gclLevel;
 }
 function getColonyExpansionControllerState(colonyName, roomName, ownerUsername) {
@@ -25669,7 +25694,7 @@ function countVisibleOwnedRooms3(colonyName, ownerUsername) {
   }
   return Math.max(1, ownedRoomCount || (((_d = (_c = rooms[colonyName]) == null ? void 0 : _c.controller) == null ? void 0 : _d.my) === true ? 1 : 0));
 }
-function getGclLevel3() {
+function getGclLevel4() {
   var _a, _b;
   const level = (_b = (_a = globalThis.Game) == null ? void 0 : _a.gcl) == null ? void 0 : _b.level;
   return typeof level === "number" && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
@@ -26631,7 +26656,7 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
     }
-    if (expansionSelection.reason === "roomLimitReached") {
+    if (expansionSelection.reason === "roomLimitReached" || expansionSelection.reason === "gclInsufficient") {
       const colonyName = colony.room.name;
       clearNextExpansionTargetIntent(colonyName);
       clearAutonomousExpansionClaimIntent(colonyName);
@@ -26732,7 +26757,7 @@ function normalizeNextExpansionTargetSelection(rawSelection, colonyName) {
   };
 }
 function normalizeNextExpansionTargetSelectionReason(reason) {
-  return reason === "noCandidate" || reason === "roomLimitReached" || reason === "unmetPreconditions" || reason === "insufficientEvidence" || reason === "unavailable" ? reason : void 0;
+  return reason === "noCandidate" || reason === "gclInsufficient" || reason === "roomLimitReached" || reason === "unmetPreconditions" || reason === "insufficientEvidence" || reason === "unavailable" ? reason : void 0;
 }
 function isNextExpansionTargetSelectionCacheReusable(cachedSelection, colony, gameTime, stateKey) {
   if (cachedSelection.stateKey !== stateKey || gameTime < cachedSelection.refreshedAt || gameTime - cachedSelection.refreshedAt >= NEXT_EXPANSION_SCORING_REFRESH_INTERVAL) {
@@ -26751,6 +26776,7 @@ function hasNextExpansionTarget(colony, targetRoom) {
   ) : false;
 }
 function getNextExpansionSelectionCacheStateKey(colony) {
+  var _a;
   const controller = colony.room.controller;
   const controllerLevel = isFiniteNumber9(controller == null ? void 0 : controller.level) ? controller.level : "unknown";
   const downgradeState = isFiniteNumber9(controller == null ? void 0 : controller.ticksToDowngrade) && controller.ticksToDowngrade < NEXT_EXPANSION_SCORING_DOWNGRADE_GUARD_TICKS ? "guarded" : "stable";
@@ -26758,6 +26784,7 @@ function getNextExpansionSelectionCacheStateKey(colony) {
     colony.room.name,
     colony.energyCapacityAvailable,
     controllerLevel,
+    (_a = getGclLevel5()) != null ? _a : "unknown",
     countVisibleOwnedRooms5(),
     downgradeState,
     countActivePostClaimBootstraps3(),
@@ -26774,6 +26801,11 @@ function countVisibleOwnedRooms5() {
     var _a2;
     return ((_a2 = room == null ? void 0 : room.controller) == null ? void 0 : _a2.my) === true;
   }).length;
+}
+function getGclLevel5() {
+  var _a, _b;
+  const level = (_b = (_a = globalThis.Game) == null ? void 0 : _a.gcl) == null ? void 0 : _b.level;
+  return typeof level === "number" && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
 }
 function countActivePostClaimBootstraps3() {
   var _a, _b;

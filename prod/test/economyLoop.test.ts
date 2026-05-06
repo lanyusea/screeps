@@ -1426,6 +1426,70 @@ describe('runEconomy', () => {
     ]);
   });
 
+  it('keeps next expansion claims reserved while GCL capacity is full', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_HOSTILE_CREEPS: number;
+      FIND_HOSTILE_STRUCTURES: number;
+      TERRAIN_MASK_WALL: number;
+      TERRAIN_MASK_SWAMP: number;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 2;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 3;
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const room = makeTerritoryReadyEconomyRoom();
+    const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 506,
+      gcl: { level: 1 } as GlobalControlLevel,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: {},
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null),
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' })),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => ({ get: jest.fn().mockReturnValue(0) } as unknown as RoomTerrain))
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(room.memory.cachedExpansionSelection).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'gclInsufficient'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller2'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 506,
+        createdBy: 'occupationRecommendation',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
   it('refreshes recommendation reserve targets when the RCL room limit caps expansion claims', () => {
     (globalThis as unknown as {
       FIND_SOURCES: number;

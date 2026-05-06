@@ -406,7 +406,7 @@ function refreshExecutableTerritoryRecommendation(
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
       return;
     }
-    if (expansionSelection.reason === 'roomLimitReached') {
+    if (expansionSelection.reason === 'roomLimitReached' || expansionSelection.reason === 'gclInsufficient') {
       const colonyName = colony.room.name;
       clearNextExpansionTargetIntent(colonyName);
       clearAutonomousExpansionClaimIntent(colonyName);
@@ -546,6 +546,7 @@ function normalizeNextExpansionTargetSelectionReason(
   reason: unknown
 ): NextExpansionTargetSelection['reason'] | undefined {
   return reason === 'noCandidate' ||
+    reason === 'gclInsufficient' ||
     reason === 'roomLimitReached' ||
     reason === 'unmetPreconditions' ||
     reason === 'insufficientEvidence' ||
@@ -605,6 +606,7 @@ function getNextExpansionSelectionCacheStateKey(colony: ColonySnapshot): string 
     colony.room.name,
     colony.energyCapacityAvailable,
     controllerLevel,
+    getGclLevel() ?? 'unknown',
     countVisibleOwnedRooms(),
     downgradeState,
     countActivePostClaimBootstraps(),
@@ -619,6 +621,11 @@ function countVisibleOwnedRooms(): number {
   }
 
   return Object.values(rooms).filter((room) => room?.controller?.my === true).length;
+}
+
+function getGclLevel(): number | null {
+  const level = (globalThis as { Game?: Partial<Game> & { gcl?: { level?: number } } }).Game?.gcl?.level;
+  return typeof level === 'number' && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
 }
 
 function countActivePostClaimBootstraps(): number {

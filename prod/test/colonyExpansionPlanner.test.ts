@@ -187,6 +187,51 @@ describe('colony expansion planner', () => {
     expect(Memory.territory?.targets?.some((target) => target.action === 'claim')).toBe(false);
   });
 
+  it('reserves adjacent rooms instead of claiming when GCL capacity is full', () => {
+    const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
+    installGame(colony, {
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 1 }),
+        W1N2: makeExpansionRoom('W1N2', { sourceCount: 2 })
+      },
+      exits: { W1N1: { '1': 'W1N2', '3': 'W2N1' } }
+    });
+    (Game as { gcl: GlobalControlLevel }).gcl = { level: 1, progress: 0, progressTotal: 0 } as GlobalControlLevel;
+    const stableAssessment = assessColonyStage({
+      roomName: 'W1N1',
+      totalCreeps: 5,
+      workerCapacity: 3,
+      workerTarget: 3,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+    });
+
+    const evaluation = refreshColonyExpansionIntent(colony, stableAssessment, 215);
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'claimBlocked',
+      targetRoom: 'W1N2',
+      reservation: {
+        status: 'planned',
+        claimBlocker: 'gclInsufficient',
+        targetRoom: 'W1N2'
+      }
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        action: 'reserve',
+        createdBy: 'adjacentRoomReservation',
+        controllerId: 'controller-W1N2'
+      }
+    ]);
+    expect(Memory.territory?.targets?.some((target) => target.action === 'claim')).toBe(false);
+  });
+
   it('uses resource synergy to rank otherwise equal expansion claim candidates', () => {
     const { colony } = makeColony({
       energyAvailable: 1_000,
