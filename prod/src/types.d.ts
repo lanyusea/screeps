@@ -51,6 +51,7 @@ declare global {
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
     crossRoomHauler?: CreepCrossRoomHaulerMemory;
     spawnSupport?: CreepSpawnSupportMemory;
+    mineralHarvester?: CreepMineralHarvesterMemory;
   }
 
   type DefenseActionType =
@@ -161,6 +162,13 @@ declare global {
   interface CreepSpawnSupportMemory {
     originRoom: string;
     targetRoom: string;
+  }
+
+  interface CreepMineralHarvesterMemory {
+    homeRoom: string;
+    mineralId: Id<Mineral>;
+    mineralType?: ResourceConstant;
+    targetId: Id<AnyStoreStructure>;
   }
 
   interface EconomyRoomSourceWorkloadMemory {

@@ -39,6 +39,11 @@ import {
   runCrossRoomHauler
 } from './crossRoomHauler';
 import {
+  MINERAL_HARVESTER_ROLE,
+  planMineralHarvesterSpawn,
+  runMineralHarvester
+} from './mineral-harvesting';
+import {
   buildRuntimeOccupationRecommendationReport,
   clearOccupationRecommendationClaimIntent,
   clearOccupationRecommendationFollowUpIntent,
@@ -208,6 +213,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
 
   ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
 
   for (const creep of creeps) {
     if (creep.memory.role === 'worker') {
@@ -218,6 +224,8 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       runHauler(creep);
     } else if (creep.memory.role === CROSS_ROOM_HAULER_ROLE) {
       runCrossRoomHauler(creep);
+    } else if (creep.memory.role === MINERAL_HARVESTER_ROLE) {
+      runMineralHarvester(creep);
     } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE) {
       runClaimer(creep, telemetryEvents);
     } else if (creep.memory.role === TERRITORY_SCOUT_ROLE) {
@@ -323,6 +331,42 @@ function getAvailableSpawnEnergyAfterReservations(
   const sourceRoomName = spawnRequest.spawn.room.name;
   const roomEnergy = sourceColony?.energyAvailable ?? spawnRequest.spawn.room.energyAvailable;
   return Math.max(0, roomEnergy - (reservedSpawnEnergyByRoom.get(sourceRoomName) ?? 0));
+}
+
+function attemptMineralHarvesterSpawns(
+  colonies: ColonySnapshot[],
+  creeps: Creep[],
+  telemetryEvents: RuntimeTelemetryEvent[],
+  usedSpawnsByRoom: Map<string, Set<StructureSpawn>>,
+  reservedSpawnEnergyByRoom: Map<string, number>
+): void {
+  for (const colony of colonies) {
+    const roomName = colony.room.name;
+    const usedSpawns = usedSpawnsByRoom.get(roomName) ?? new Set<StructureSpawn>();
+    const candidateSpawns = colony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn));
+    if (candidateSpawns.length === 0) {
+      continue;
+    }
+
+    const availableEnergy = getAvailableSpawnEnergy(colony, reservedSpawnEnergyByRoom);
+    const spawnRequest = planMineralHarvesterSpawn(colony, creeps, Game.time, {
+      energyAvailable: availableEnergy,
+      bodyEnergyBudget: getBufferedSpawnEnergyBudget(availableEnergy),
+      usedSpawns
+    });
+    if (!spawnRequest) {
+      continue;
+    }
+
+    const bodyCost = getBodyCost(spawnRequest.body);
+    const outcome = attemptSpawnRequest(spawnRequest, roomName, telemetryEvents, candidateSpawns);
+    if (!outcome || outcome.result !== OK_CODE) {
+      continue;
+    }
+
+    recordUsedSpawn(usedSpawnsByRoom, roomName, outcome.spawn);
+    recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, roomName, bodyCost);
+  }
 }
 
 function refreshExecutableTerritoryRecommendation(
