@@ -2405,6 +2405,39 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('withdraws from a stocked source container before assigning a distant dedicated harvester', () => {
+    const openSource = makeSource('source-open', 5, 5);
+    const bufferedSource = makeSource('source-buffered', 30, 30);
+    const bufferedContainer = makeStoredEnergyStructure('container-buffered', 'container' as StructureConstant, 200, {
+      pos: makeRoomPosition(30, 31)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [openSource, bufferedSource],
+      structures: [bufferedContainer]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'container-buffered': 5,
+            'source-buffered': 12,
+            'source-open': 1
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-buffered' });
+  });
+
   it('skips depleted source containers when assigning dedicated harvesters', () => {
     const emptyContainerSource = makeSource('source-empty-container', 10, 10);
     const chargedContainerSource = makeSource('source-charged-container', 30, 30);
@@ -9106,6 +9139,80 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ LaneWorker: creep });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near' });
+  });
+
+  it('withdraws from a stocked container before distant source2/controller lane harvesting', () => {
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 23);
+    const container = makeStoredEnergyStructure('container-buffered', 'container' as StructureConstant, 200, {
+      pos: makeRoomPosition(18, 18)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ controller, sources: [source1, source2], structures: [container] });
+    const creep = {
+      name: 'LaneWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'container-buffered': 6,
+            source2: 12
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LaneWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-buffered' });
+  });
+
+  it('keeps close source2/controller lane harvesting before a very distant stocked container', () => {
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 23);
+    const container = makeStoredEnergyStructure('container-distant', 'container' as StructureConstant, 500, {
+      pos: makeRoomPosition(5, 5)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ controller, sources: [source1, source2], structures: [container] });
+    const creep = {
+      name: 'LaneWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'container-distant': 20,
+            source2: 2
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LaneWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source2' });
   });
 
   it('picks up nearby dropped energy before direct source2/controller lane harvesting', () => {
