@@ -18,7 +18,11 @@ import {
   HAULER_ROLE,
   selectRemoteHaulerAssignment
 } from '../creeps/hauler';
-import { DEFENDER_ROLE } from '../defense/defenseLoop';
+import {
+  DEFENDER_ROLE,
+  getDesiredDefenderCount,
+  planDefenderSpawn
+} from '../defense/defensePlanner';
 import {
   buildEmergencyWorkerBody,
   buildRemoteHarvesterBody,
@@ -126,10 +130,6 @@ const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'multiRoomControllerUpgrade',
   'controllerUpgradeSurplus'
 ];
-const DEFENDER_BODY_PATTERN: BodyPartConstant[] = ['tough', 'attack', 'move'];
-const DEFENDER_BODY_PATTERN_COST = 140;
-const MAX_DEFENDER_BODY_PATTERN_COUNT = 5;
-const HOSTILES_PER_DEFENDER = 3;
 
 export function planSpawn(
   colony: ColonySnapshot,
@@ -337,26 +337,6 @@ function planPostClaimControllerSustainSpawn(context: SpawnPlanningContext): Spa
       }
     }
   };
-}
-
-function buildDefenseBody(energyAvailable: number, hostileCount: number): BodyPartConstant[] {
-  const desiredPatternCount = Math.max(1, Math.min(hostileCount, MAX_DEFENDER_BODY_PATTERN_COUNT));
-  const affordablePatternCount = Math.floor(normalizeNonNegativeInteger(energyAvailable) / DEFENDER_BODY_PATTERN_COST);
-  const patternCount = Math.min(
-    desiredPatternCount,
-    affordablePatternCount,
-    Math.floor(MAX_CREEP_PARTS / DEFENDER_BODY_PATTERN.length)
-  );
-
-  if (patternCount <= 0) {
-    return [];
-  }
-
-  return Array.from({ length: patternCount }).flatMap(() => DEFENDER_BODY_PATTERN);
-}
-
-function getDesiredDefenderCount(hostileCount: number): number {
-  return Math.max(1, Math.ceil(hostileCount / HOSTILES_PER_DEFENDER));
 }
 
 function getRoomHostileCreepCount(room: Room): number {
@@ -646,21 +626,21 @@ function planDefenseSpawnForRoom(
     return null;
   }
 
-  const body = buildDefenseBody(getSpawnEnergyBudget(colony), hostileCount);
-  if (body.length === 0) {
+  const defenderPlan = planDefenderSpawn({
+    roomName: colony.room.name,
+    hostileCreepCount: hostileCount,
+    activeDefenderCount,
+    energyAvailable: getSpawnEnergyBudget(colony),
+    gameTime,
+    nameSuffix: options.nameSuffix
+  });
+  if (!defenderPlan) {
     return null;
   }
 
-  const roomName = colony.room.name;
   return {
     spawn,
-    body,
-    name: appendSpawnNameSuffix(`${DEFENDER_ROLE}-${roomName}-${gameTime}`, options),
-    memory: {
-      role: DEFENDER_ROLE,
-      colony: roomName,
-      defense: { homeRoom: roomName }
-    }
+    ...defenderPlan
   };
 }
 
