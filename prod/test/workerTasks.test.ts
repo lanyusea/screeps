@@ -66,6 +66,22 @@ function setGameSpawns(spawns: Record<string, StructureSpawn>): void {
   globalScope.Game = { ...(globalScope.Game ?? {}), spawns };
 }
 
+function setSourceContainerHarvester(room: Room, sourceId: string): void {
+  setGameCreeps({
+    SourceHarvester: {
+      memory: {
+        role: 'worker',
+        task: {
+          type: 'harvest',
+          targetId: sourceId as Id<Source>,
+          sourceContainerAssigned: true
+        }
+      },
+      room
+    } as unknown as Creep
+  });
+}
+
 function makeStructure(
   id: string,
   structureType: StructureConstant,
@@ -1685,6 +1701,29 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
   });
 
+  it('withdraws from a nearby source link before a distant ordinary container', () => {
+    const emptySource = makeSource('source-empty', 10, 10, 0);
+    const distantContainer = makeStoredEnergyStructure('container-distant', 'container' as StructureConstant, 200);
+    const sourceLink = makeStoredEnergyLink('link-source', 10, 12, 25);
+    const room = makeWorkerTaskRoom({
+      myStructures: [sourceLink],
+      sources: [emptySource],
+      structures: [distantContainer]
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'link-source' ? 1 : 12))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-source' });
+  });
+
   it('withdraws from the closest owned link when containers and sources are empty', () => {
     const emptySource = makeSource('source-empty', 10, 10, 0);
     const closeLink = makeStoredEnergyLink('link-close', 11, 10, 100);
@@ -2825,6 +2864,88 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
+  });
+
+  it('falls back to a source container when the saturated source has no link', () => {
+    const source = makeSource('source1', 10, 10);
+    const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 200, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [source],
+      structures: [container]
+    });
+    setSourceContainerHarvester(room, 'source1');
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'container1' ? 12 : 99))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
+  });
+
+  it('falls back to a source container when the nearby source link is empty', () => {
+    const source = makeSource('source1', 10, 10);
+    const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 200, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const link = makeStoredEnergyLink('link-empty', 10, 12, 0);
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      myStructures: [link],
+      sources: [source],
+      structures: [container]
+    });
+    setSourceContainerHarvester(room, 'source1');
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'link-empty' ? 1 : 12))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
+  });
+
+  it('withdraws from a same-source link before walking to a distant source container', () => {
+    const source = makeSource('source1', 10, 10);
+    const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 200, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const link = makeStoredEnergyLink('link-source', 10, 12, 25);
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      myStructures: [link],
+      sources: [source],
+      structures: [container]
+    });
+    setSourceContainerHarvester(room, 'source1');
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'link-source' ? 1 : 12))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-source' });
   });
 
   it('withdraws from a saturated local source container before traveling to an adjacent assignable source', () => {

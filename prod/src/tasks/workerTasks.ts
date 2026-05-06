@@ -29,7 +29,7 @@ import {
   withdrawFromStorage
 } from '../economy/energyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
-import { isSourceLink } from '../economy/linkManager';
+import { isSourceLink, SOURCE_LINK_RANGE } from '../economy/linkManager';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 
@@ -2924,8 +2924,13 @@ function findWorkerEnergyAcquisitionCandidates(
     })
     .filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options));
   const droppedEnergyCandidates = findDroppedEnergyAcquisitionCandidates(creep, reservationContext, options);
+  const sourceLinkEnergyCandidates = findWorkerSourceLinkEnergyAcquisitionCandidates(
+    creep,
+    reservationContext,
+    options
+  );
 
-  return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
+  return [...sourceLinkEnergyCandidates, ...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
 
 function selectWorkerLinkEnergyFallbackTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
@@ -2983,6 +2988,12 @@ function findOwnedWorkerEnergyLinks(room: Room): StructureLink[] {
     filter: (structure) => isLinkEnergySource(structure) && getStoredEnergy(structure) > 0
   });
   return Array.isArray(structures) ? (structures as StructureLink[]) : [];
+}
+
+function findOwnedSourceWorkerEnergyLinks(room: Room): StructureLink[] {
+  return findOwnedWorkerEnergyLinks(room)
+    .filter((link) => isSourceLink(room, link))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
 
 function getMinimumWorkerLinkWithdrawalEnergy(creep: Creep): number {
@@ -3055,6 +3066,19 @@ function findDroppedEnergyAcquisitionCandidates(
     .sort(compareDroppedEnergyReachabilityPriority)
     .slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS)
     .filter((candidate) => isReachable(creep, candidate.source));
+}
+
+function findWorkerSourceLinkEnergyAcquisitionCandidates(
+  creep: Creep,
+  reservationContext: WorkerEnergyAcquisitionReservationContext,
+  options: WorkerEnergyAcquisitionSearchOptions = {}
+): WorkerEnergyAcquisitionCandidate[] {
+  return findOwnedSourceWorkerEnergyLinks(creep.room)
+    .flatMap((link) => {
+      const candidate = createSourceLinkEnergyAcquisitionCandidate(creep, link, reservationContext);
+      return candidate ? [candidate] : [];
+    })
+    .filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options));
 }
 
 function isWorkerEnergyAcquisitionCandidateWithinSearchRange(
@@ -4574,6 +4598,7 @@ function findSourceContainerWithdrawCandidates(creep: Creep): WorkerEnergyAcquis
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
   const candidates: WorkerEnergyAcquisitionCandidate[] = [];
   const seenContainerIds = new Set<string>();
+  const seenLinkIds = new Set<string>();
 
   for (const source of context.sources) {
     const sourceContainer = findVisibleSourceContainer(creep, source);
@@ -4598,6 +4623,19 @@ function findSourceContainerWithdrawCandidates(creep: Creep): WorkerEnergyAcquis
       )
     ) {
       continue;
+    }
+
+    const sourceLink = findVisibleSourceLink(creep, source);
+    if (sourceLink && !seenLinkIds.has(String(sourceLink.id))) {
+      const sourceLinkCandidate = createSourceLinkEnergyAcquisitionCandidate(
+        creep,
+        sourceLink,
+        reservationContext
+      );
+      if (sourceLinkCandidate) {
+        candidates.push(sourceLinkCandidate);
+        seenLinkIds.add(String(sourceLink.id));
+      }
     }
 
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
@@ -4625,6 +4663,25 @@ function findSourceContainerWithdrawCandidates(creep: Creep): WorkerEnergyAcquis
   }
 
   return candidates;
+}
+
+function createSourceLinkEnergyAcquisitionCandidate(
+  creep: Creep,
+  sourceLink: StructureLink,
+  reservationContext: WorkerEnergyAcquisitionReservationContext
+): WorkerEnergyAcquisitionCandidate | null {
+  const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+    creep,
+    sourceLink,
+    getStoredEnergy(sourceLink),
+    {
+      type: 'withdraw',
+      targetId: sourceLink.id as Id<AnyStoreStructure>
+    },
+    reservationContext
+  );
+
+  return candidate && candidate.range !== null ? { ...candidate, priority: 1 } : null;
 }
 
 function selectSourceContainerHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
@@ -4748,6 +4805,31 @@ function getAdjacentRoomNames(roomName: string, gameMap: Partial<GameMap> | unde
 function findVisibleSourceContainer(creep: Creep, source: Source): StructureContainer | null {
   const sourceRoom = findVisibleSourceRoom(creep, source);
   return sourceRoom ? findSourceContainer(sourceRoom, source) : null;
+}
+
+function findVisibleSourceLink(creep: Creep, source: Source): StructureLink | null {
+  const sourceRoom = findVisibleSourceRoom(creep, source);
+  if (!sourceRoom) {
+    return null;
+  }
+
+  return (
+    findOwnedSourceWorkerEnergyLinks(sourceRoom)
+      .filter((link) => isSourceLinkNearSource(source, link))
+      .sort((left, right) => compareSourceLinksForSource(source, left, right))[0] ?? null
+  );
+}
+
+function isSourceLinkNearSource(source: Source, link: StructureLink): boolean {
+  const range = getRangeBetweenRoomObjectPositions(source, link);
+  return range !== null && range <= SOURCE_LINK_RANGE;
+}
+
+function compareSourceLinksForSource(source: Source, left: StructureLink, right: StructureLink): number {
+  return (
+    compareOptionalRanges(getRangeBetweenRoomObjectPositions(source, left), getRangeBetweenRoomObjectPositions(source, right)) ||
+    String(left.id).localeCompare(String(right.id))
+  );
 }
 
 function createSourceContainerWithdrawalContext(
