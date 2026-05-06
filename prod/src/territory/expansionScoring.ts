@@ -26,6 +26,14 @@ const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
 const MAX_PERSISTED_EXPANSION_CANDIDATES = 5;
 const EXPANSION_SCOUT_INTEL_TTL = 10_000;
+const EXPANSION_SOURCE_COVERAGE_TARGET_PER_ROOM = 2;
+const EXPANSION_ENERGY_CAPACITY_CONSTRAINED_THRESHOLD = 800;
+const SYNERGY_MINERAL_GAP_BONUS = 220;
+const SYNERGY_MINERAL_DUPLICATE_PENALTY = 120;
+const SYNERGY_SOURCE_GAP_BONUS_PER_SOURCE = 70;
+const SYNERGY_DUAL_SOURCE_GAP_BONUS = 80;
+const SYNERGY_SOURCE_DUPLICATE_PENALTY_PER_SOURCE = 40;
+const SYNERGY_DUAL_SOURCE_DUPLICATE_PENALTY = 80;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
@@ -64,6 +72,7 @@ export interface ExpansionCandidateScore {
   sourceAccessPoints?: number;
   controllerSourceRange?: number;
   terrain?: ExpansionTerrainQuality;
+  mineral?: ExpansionMineralEvidence;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
   reservation?: ExpansionReservationEvidence;
@@ -78,7 +87,14 @@ export interface ExpansionScoringInput {
   ownedRoomCount?: number;
   ticksToDowngrade?: number;
   activePostClaimBootstrapCount?: number;
+  claimedRooms?: ExpansionClaimedRoomInput[];
   candidates: ExpansionCandidateInput[];
+}
+
+export interface ExpansionClaimedRoomInput {
+  roomName: string;
+  sourceCount?: number;
+  mineralType?: string;
 }
 
 export interface ExpansionCandidateInput {
@@ -96,8 +112,14 @@ export interface ExpansionCandidateInput {
   sourceAccessPoints?: number;
   controllerSourceRange?: number;
   terrain?: ExpansionTerrainQuality;
+  mineral?: ExpansionMineralEvidence;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
+}
+
+export interface ExpansionMineralEvidence {
+  mineralType?: string;
+  density?: number;
 }
 
 export interface ExpansionControllerEvidence {
@@ -247,6 +269,10 @@ function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionSco
       ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
       : {}),
     activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
+    claimedRooms: buildRuntimeClaimedRoomSynergyEvidence(
+      colony.room,
+      getControllerOwnerUsername(colony.room.controller)
+    ),
     candidates: buildRuntimeExpansionCandidates(colony)
   };
 }
@@ -352,6 +378,7 @@ function buildVisibleExpansionCandidateEvidence(
 ): Omit<ExpansionCandidateInput, 'roomName' | 'order' | 'adjacentToOwnedRoom'> {
   const controller = room.controller;
   const sources = findRoomObjects<Source>(room, getFindConstant('FIND_SOURCES'));
+  const mineral = findRoomObjects<Mineral>(room, getFindConstant('FIND_MINERALS'))[0];
   const controllerSourceRange = calculateAverageControllerSourceRange(controller, sources);
   const roomTerrain = getRoomTerrain(room);
   const terrain = summarizeRoomTerrainFromTerrain(roomTerrain);
@@ -370,6 +397,7 @@ function buildVisibleExpansionCandidateEvidence(
     ...(typeof sourceAccessPoints === 'number' ? { sourceAccessPoints } : {}),
     ...(typeof controllerSourceRange === 'number' ? { controllerSourceRange } : {}),
     ...(terrain ? { terrain } : {}),
+    ...(mineral ? { mineral: summarizeExpansionMineral(mineral) } : {}),
     hostileCreepCount,
     hostileStructureCount
   };
@@ -387,6 +415,7 @@ function buildScoutedExpansionCandidateEvidence(
     ...(intel.sourceAccessPoints !== undefined ? { sourceAccessPoints: intel.sourceAccessPoints } : {}),
     ...(intel.controllerSourceRange !== undefined ? { controllerSourceRange: intel.controllerSourceRange } : {}),
     ...(intel.terrain ? { terrain: intel.terrain } : {}),
+    ...(intel.mineral ? { mineral: summarizeExpansionScoutMineral(intel.mineral) } : {}),
     hostileCreepCount: intel.hostileCreepCount,
     hostileStructureCount: intel.hostileStructureCount + (intel.hostileSpawnCount ?? 0)
   };
@@ -461,6 +490,10 @@ function scoreExpansionCandidate(
     evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
   }
 
+  if (candidate.mineral?.mineralType) {
+    rationale.push(`${candidate.mineral.mineralType} mineral ${evidenceAdjective}`);
+  }
+
   const hostileCreepCount = candidate.hostileCreepCount ?? 0;
   const hostileStructureCount = candidate.hostileStructureCount ?? 0;
   if (
@@ -486,7 +519,10 @@ function scoreExpansionCandidate(
     rationale.push('adjacent to owned territory');
   }
 
-  const score = calculateExpansionScore(input, candidate, evidenceStatus);
+  const synergy = calculateExpansionSynergy(input, candidate);
+  rationale.push(...synergy.rationale);
+
+  const score = calculateExpansionScore(input, candidate, evidenceStatus, synergy.score);
   const reservation = getReservationEvidence(input, candidate.controller);
   const requiresControllerPressure = reservation?.relation === 'foreign';
   return {
@@ -508,6 +544,7 @@ function scoreExpansionCandidate(
       ? { controllerSourceRange: candidate.controllerSourceRange }
       : {}),
     ...(candidate.terrain ? { terrain: candidate.terrain } : {}),
+    ...(candidate.mineral ? { mineral: candidate.mineral } : {}),
     ...(candidate.hostileCreepCount !== undefined ? { hostileCreepCount: candidate.hostileCreepCount } : {}),
     ...(candidate.hostileStructureCount !== undefined
       ? { hostileStructureCount: candidate.hostileStructureCount }
@@ -520,7 +557,8 @@ function scoreExpansionCandidate(
 function calculateExpansionScore(
   input: ExpansionScoringInput,
   candidate: ExpansionCandidateInput,
-  evidenceStatus: ExpansionCandidateEvidenceStatus
+  evidenceStatus: ExpansionCandidateEvidenceStatus,
+  synergyScore = 0
 ): number {
   const sourceScore = typeof candidate.sourceCount === 'number'
     ? Math.min(candidate.sourceCount, 2) * 120 + Math.max(0, candidate.sourceCount - 2) * 20
@@ -559,8 +597,96 @@ function calculateExpansionScore(
       hostilePenalty -
       unavailablePenalty -
       insufficientEvidencePenalty -
-      preconditionPenalty
+      preconditionPenalty +
+      synergyScore
   );
+}
+
+function calculateExpansionSynergy(
+  input: ExpansionScoringInput,
+  candidate: ExpansionCandidateInput
+): { score: number; rationale: string[] } {
+  const coverage = getClaimedRoomCoverage(input);
+  if (!coverage) {
+    return { score: 0, rationale: [] };
+  }
+
+  let score = 0;
+  const rationale: string[] = [];
+  const mineralType = normalizeMineralType(candidate.mineral?.mineralType);
+  if (mineralType) {
+    if (coverage.mineralTypes.has(mineralType)) {
+      score -= SYNERGY_MINERAL_DUPLICATE_PENALTY;
+      rationale.push(`synergy duplicates ${mineralType} mineral coverage`);
+    } else {
+      score += SYNERGY_MINERAL_GAP_BONUS;
+      rationale.push(`synergy adds ${mineralType} mineral coverage`);
+    }
+  }
+
+  if (typeof candidate.sourceCount === 'number' && coverage.hasSourceEvidence) {
+    const sourceCount = Math.max(0, Math.floor(candidate.sourceCount));
+    if (sourceCount > 0) {
+      if (isExpansionEnergyCoverageConstrained(input, coverage)) {
+        const sourceGap = Math.max(1, getExpansionSourceCoverageTarget(input) - coverage.sourceCount);
+        const gapBonus =
+          Math.min(sourceCount, sourceGap) * SYNERGY_SOURCE_GAP_BONUS_PER_SOURCE +
+          (sourceCount >= 2 ? SYNERGY_DUAL_SOURCE_GAP_BONUS : 0);
+        score += gapBonus;
+        rationale.push(`synergy fills energy source coverage gap`);
+      } else {
+        const duplicatePenalty = Math.min(
+          SYNERGY_SOURCE_DUPLICATE_PENALTY_PER_SOURCE * sourceCount +
+            (sourceCount >= 2 ? SYNERGY_DUAL_SOURCE_DUPLICATE_PENALTY : 0),
+          SYNERGY_SOURCE_DUPLICATE_PENALTY_PER_SOURCE * EXPANSION_SOURCE_COVERAGE_TARGET_PER_ROOM +
+            SYNERGY_DUAL_SOURCE_DUPLICATE_PENALTY
+        );
+        score -= duplicatePenalty;
+        rationale.push('synergy duplicates served energy source coverage');
+      }
+    }
+  }
+
+  return { score, rationale };
+}
+
+function getClaimedRoomCoverage(
+  input: ExpansionScoringInput
+): { sourceCount: number; hasSourceEvidence: boolean; mineralTypes: Set<string> } | null {
+  if (!Array.isArray(input.claimedRooms) || input.claimedRooms.length === 0) {
+    return null;
+  }
+
+  let sourceCount = 0;
+  let hasSourceEvidence = false;
+  const mineralTypes = new Set<string>();
+  for (const room of input.claimedRooms) {
+    if (typeof room.sourceCount === 'number' && Number.isFinite(room.sourceCount)) {
+      sourceCount += Math.max(0, Math.floor(room.sourceCount));
+      hasSourceEvidence = true;
+    }
+
+    const mineralType = normalizeMineralType(room.mineralType);
+    if (mineralType) {
+      mineralTypes.add(mineralType);
+    }
+  }
+
+  return { sourceCount, hasSourceEvidence, mineralTypes };
+}
+
+function isExpansionEnergyCoverageConstrained(
+  input: ExpansionScoringInput,
+  coverage: { sourceCount: number }
+): boolean {
+  return (
+    input.energyCapacityAvailable < EXPANSION_ENERGY_CAPACITY_CONSTRAINED_THRESHOLD ||
+    coverage.sourceCount < getExpansionSourceCoverageTarget(input)
+  );
+}
+
+function getExpansionSourceCoverageTarget(input: ExpansionScoringInput): number {
+  return Math.max(1, getOwnedRoomCount(input)) * EXPANSION_SOURCE_COVERAGE_TARGET_PER_ROOM;
 }
 
 function getExpansionEvidenceAdjective(visible: boolean, scouted: boolean): 'visible' | 'scouted' {
@@ -807,6 +933,7 @@ function toPersistedExpansionCandidateMemory(
       ? { controllerSourceRange: candidate.controllerSourceRange }
       : {}),
     ...(candidate.terrain ? { terrain: candidate.terrain } : {}),
+    ...(candidate.mineral ? { mineral: candidate.mineral } : {}),
     ...(candidate.hostileCreepCount !== undefined ? { hostileCreepCount: candidate.hostileCreepCount } : {}),
     ...(candidate.hostileStructureCount !== undefined
       ? { hostileStructureCount: candidate.hostileStructureCount }
@@ -1041,6 +1168,36 @@ function countVisibleOwnedRooms(colonyName: string, ownerUsername: string | unde
   return getVisibleOwnedRoomNames(colonyName, ownerUsername).size;
 }
 
+function buildRuntimeClaimedRoomSynergyEvidence(
+  colonyRoom: Room,
+  ownerUsername: string | undefined
+): ExpansionClaimedRoomInput[] {
+  const rooms = getGameRooms() ?? {};
+  const ownedRoomNames = getVisibleOwnedRoomNames(colonyRoom.name, ownerUsername);
+  return Array.from(ownedRoomNames).flatMap((roomName) => {
+    const room = roomName === colonyRoom.name ? colonyRoom : rooms[roomName];
+    return room ? [buildClaimedRoomSynergyEvidence(room)] : [];
+  });
+}
+
+function buildClaimedRoomSynergyEvidence(room: Room): ExpansionClaimedRoomInput {
+  const sourceFindConstant = getFindConstant('FIND_SOURCES');
+  const mineralFindConstant = getFindConstant('FIND_MINERALS');
+  const sources = typeof sourceFindConstant === 'number' && typeof room.find === 'function'
+    ? findRoomObjects<Source>(room, sourceFindConstant)
+    : undefined;
+  const mineral = typeof mineralFindConstant === 'number' && typeof room.find === 'function'
+    ? findRoomObjects<Mineral>(room, mineralFindConstant)[0]
+    : undefined;
+  const mineralType = normalizeMineralType(mineral ? summarizeExpansionMineral(mineral).mineralType : undefined);
+
+  return {
+    roomName: room.name,
+    ...(sources ? { sourceCount: sources.length } : {}),
+    ...(mineralType ? { mineralType } : {})
+  };
+}
+
 function getAdjacentRoomNamesByOwnedRoom(ownedRoomNames: Set<string>): Map<string, Set<string>> {
   const adjacentRoomNames = new Map<string, Set<string>>();
   for (const roomName of ownedRoomNames) {
@@ -1246,6 +1403,21 @@ function summarizeExpansionScoutController(
     ...(typeof controller.reservationTicksToEnd === 'number'
       ? { reservationTicksToEnd: controller.reservationTicksToEnd }
       : {})
+  };
+}
+
+function summarizeExpansionMineral(mineral: Mineral): ExpansionMineralEvidence {
+  const rawMineral = mineral as Mineral & { mineralType?: unknown; density?: unknown };
+  return {
+    ...(typeof rawMineral.mineralType === 'string' ? { mineralType: rawMineral.mineralType } : {}),
+    ...(typeof rawMineral.density === 'number' ? { density: rawMineral.density } : {})
+  };
+}
+
+function summarizeExpansionScoutMineral(mineral: TerritoryScoutMineralIntelMemory): ExpansionMineralEvidence {
+  return {
+    ...(mineral.mineralType ? { mineralType: mineral.mineralType } : {}),
+    ...(typeof mineral.density === 'number' ? { density: mineral.density } : {})
   };
 }
 
@@ -1460,6 +1632,10 @@ function toPercent(value: number): string {
 
 function formatSourceAccessPoints(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function normalizeMineralType(value: unknown): string | null {
+  return isNonEmptyString(value) ? value : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
