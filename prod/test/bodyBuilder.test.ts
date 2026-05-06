@@ -214,10 +214,26 @@ describe('buildTerritoryReserverBody', () => {
     expect(buildTerritoryReserverBody(650)).toEqual(['claim', 'move']);
   });
 
-  it('scales to two claim parts when energy allows', () => {
+  it('scales claim and move pairs with available energy', () => {
     expect(buildTerritoryReserverBody(1299)).toEqual(['claim', 'move']);
     expect(buildTerritoryReserverBody(1300)).toEqual(['claim', 'claim', 'move', 'move']);
     expect(getBodyCost(buildTerritoryReserverBody(1300))).toBe(1300);
+    expect(buildTerritoryReserverBody(1950)).toEqual([
+      'claim',
+      'claim',
+      'claim',
+      'move',
+      'move',
+      'move'
+    ]);
+  });
+
+  it('caps high-energy reserver bodies at the creep size limit', () => {
+    const body = buildTerritoryReserverBody(20_000);
+
+    expect(body).toHaveLength(50);
+    expect(body.filter((part) => part === 'claim')).toHaveLength(25);
+    expect(body.filter((part) => part === 'move')).toHaveLength(25);
   });
 });
 

@@ -1797,10 +1797,7 @@ var HIGH_RCL_WORKER_PATTERN = ["work", "work", "work", "carry", "move", "move"];
 var HIGH_RCL_WORKER_PATTERN_COST = 450;
 var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST = 50;
-var TERRITORY_RESERVER_BODY = ["claim", "move"];
-var TERRITORY_RESERVER_BODY_COST = 650;
-var TERRITORY_RESERVER_SCALED_BODY = ["claim", "claim", "move", "move"];
-var TERRITORY_RESERVER_SCALED_BODY_COST = 1300;
+var TERRITORY_RESERVER_PAIR_COST = 650;
 var MAX_CREEP_PARTS2 = 50;
 var MAX_REMOTE_HARVESTER_WORK_PARTS = 5;
 var MAX_REMOTE_HAULER_CARRY_MOVE_PAIRS = 10;
@@ -1930,13 +1927,17 @@ function buildTerritoryControllerBody(energyAvailable) {
   return buildTerritoryClaimerBody(energyAvailable);
 }
 function buildTerritoryReserverBody(energyAvailable) {
-  if (energyAvailable >= TERRITORY_RESERVER_SCALED_BODY_COST) {
-    return [...TERRITORY_RESERVER_SCALED_BODY];
+  const pairCount = Math.min(
+    Math.floor(energyAvailable / TERRITORY_RESERVER_PAIR_COST),
+    Math.floor(MAX_CREEP_PARTS2 / 2)
+  );
+  if (pairCount <= 0) {
+    return [];
   }
-  if (energyAvailable >= TERRITORY_RESERVER_BODY_COST) {
-    return [...TERRITORY_RESERVER_BODY];
-  }
-  return [];
+  return [
+    ...Array.from({ length: pairCount }, () => "claim"),
+    ...Array.from({ length: pairCount }, () => "move")
+  ];
 }
 function buildTerritoryControllerPressureBody(energyAvailable) {
   if (energyAvailable < TERRITORY_CONTROLLER_PRESSURE_BODY_COST) {

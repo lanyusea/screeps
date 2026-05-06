@@ -33,6 +33,24 @@ describe('runClaimer', () => {
     expect(creep.claimController).not.toHaveBeenCalled();
   });
 
+  it('moves to the target room before reserving', () => {
+    const creep = {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve', controllerId: 'controller1' as Id<StructureController> }
+      },
+      room: { name: 'W1N1' },
+      moveTo: jest.fn(),
+      reserveController: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W2N1' });
+    expect(creep.reserveController).not.toHaveBeenCalled();
+  });
+
   it('routes recommended expansion claimers toward the visible target controller', () => {
     const colonyRoom = makeColonyRoom();
     const controller = { id: 'controller1', my: false } as StructureController;

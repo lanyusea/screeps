@@ -14,10 +14,7 @@ const EMERGENCY_DEFENDER_BODY: BodyPartConstant[] = ['tough', 'attack', 'move'];
 const EMERGENCY_DEFENDER_BODY_COST = 140;
 export const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
 export const TERRITORY_SCOUT_BODY_COST = 50;
-const TERRITORY_RESERVER_BODY: BodyPartConstant[] = ['claim', 'move'];
-const TERRITORY_RESERVER_BODY_COST = 650;
-const TERRITORY_RESERVER_SCALED_BODY: BodyPartConstant[] = ['claim', 'claim', 'move', 'move'];
-const TERRITORY_RESERVER_SCALED_BODY_COST = 1300;
+const TERRITORY_RESERVER_PAIR_COST = 650;
 import {
   buildTerritoryClaimerBody,
   TERRITORY_CONTROLLER_PRESSURE_BODY,
@@ -243,15 +240,18 @@ export function buildTerritoryControllerBody(energyAvailable: number): BodyPartC
 }
 
 export function buildTerritoryReserverBody(energyAvailable: number): BodyPartConstant[] {
-  if (energyAvailable >= TERRITORY_RESERVER_SCALED_BODY_COST) {
-    return [...TERRITORY_RESERVER_SCALED_BODY];
+  const pairCount = Math.min(
+    Math.floor(energyAvailable / TERRITORY_RESERVER_PAIR_COST),
+    Math.floor(MAX_CREEP_PARTS / 2)
+  );
+  if (pairCount <= 0) {
+    return [];
   }
 
-  if (energyAvailable >= TERRITORY_RESERVER_BODY_COST) {
-    return [...TERRITORY_RESERVER_BODY];
-  }
-
-  return [];
+  return [
+    ...Array.from({ length: pairCount }, () => 'claim' as BodyPartConstant),
+    ...Array.from({ length: pairCount }, () => 'move' as BodyPartConstant)
+  ];
 }
 
 export function buildTerritoryControllerPressureBody(energyAvailable: number): BodyPartConstant[] {
