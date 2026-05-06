@@ -16413,6 +16413,9 @@ function isNonEmptyString10(value) {
   return typeof value === "string" && value.length > 0;
 }
 
+// src/spawn/spawnConfig.ts
+var MIN_SPAWN_ENERGY_BUFFER = 50;
+
 // src/territory/multiRoomUpgrader.ts
 var MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 var MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
@@ -24629,6 +24632,11 @@ function runEconomy(preludeTelemetryEvents = []) {
       if (successfulSpawnCount > 0 && !isAllowedPostSpawnRequest(spawnRequest)) {
         break;
       }
+      const bodyCost = getBodyCost(spawnRequest.body);
+      if (isSpawnEnergyBufferViolated(availableEnergy, bodyCost)) {
+        logSpawnEnergyBufferWarning(spawnRequest, colony.room.name, availableEnergy, bodyCost);
+        break;
+      }
       const outcome = attemptSpawnRequest(
         spawnRequest,
         colony.room.name,
@@ -24639,7 +24647,6 @@ function runEconomy(preludeTelemetryEvents = []) {
         break;
       }
       usedSpawns.add(outcome.spawn);
-      const bodyCost = getBodyCost(spawnRequest.body);
       recordUsedSpawn(usedSpawnsByRoom, colony.room.name, outcome.spawn);
       recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, colony.room.name, bodyCost);
       availableEnergy = Math.max(0, availableEnergy - bodyCost);
@@ -24716,7 +24723,13 @@ function attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom
   if (candidateSpawns.length === 0) {
     return;
   }
-  if (getBodyCost(spawnRequest.body) > getAvailableSpawnEnergyAfterReservations(sourceColony, spawnRequest, reservedSpawnEnergyByRoom)) {
+  const bodyCost = getBodyCost(spawnRequest.body);
+  const availableEnergy = getAvailableSpawnEnergyAfterReservations(sourceColony, spawnRequest, reservedSpawnEnergyByRoom);
+  if (bodyCost > availableEnergy) {
+    return;
+  }
+  if (isSpawnEnergyBufferViolated(availableEnergy, bodyCost)) {
+    logSpawnEnergyBufferWarning(spawnRequest, sourceRoomName, availableEnergy, bodyCost);
     return;
   }
   const request = candidateSpawns.includes(spawnRequest.spawn) ? spawnRequest : { ...spawnRequest, spawn: candidateSpawns[0] };
@@ -24730,7 +24743,7 @@ function attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom
     return;
   }
   recordUsedSpawn(usedSpawnsByRoom, sourceRoomName, outcome.spawn);
-  recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, sourceRoomName, getBodyCost(spawnRequest.body));
+  recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, sourceRoomName, bodyCost);
 }
 function getAvailableSpawnEnergyAfterReservations(sourceColony, spawnRequest, reservedSpawnEnergyByRoom) {
   var _a, _b;
@@ -24988,6 +25001,14 @@ function attemptSpawnRequest(spawnRequest, roomName, telemetryEvents, spawns) {
     }
   }
   return lastOutcome;
+}
+function isSpawnEnergyBufferViolated(availableEnergy, bodyCost) {
+  return availableEnergy - bodyCost < MIN_SPAWN_ENERGY_BUFFER;
+}
+function logSpawnEnergyBufferWarning(spawnRequest, roomName, availableEnergy, bodyCost) {
+  console.log(
+    `[spawn] warning: deferred ${spawnRequest.name} in ${roomName}; available energy ${availableEnergy}, body cost ${bodyCost}, required buffer ${MIN_SPAWN_ENERGY_BUFFER}`
+  );
 }
 function addPlannedWorker(roleCounts) {
   const nextRoleCounts = {

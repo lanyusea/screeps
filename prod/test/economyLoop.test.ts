@@ -1,4 +1,5 @@
 import { runEconomy } from '../src/economy/economyLoop';
+import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
 import { RUNTIME_SUMMARY_PREFIX } from '../src/telemetry/runtimeSummary';
 
@@ -41,10 +42,38 @@ describe('runEconomy', () => {
     });
   });
 
-  it('spawns an emergency bootstrap worker at the minimum body cost', () => {
+  it('defers an emergency bootstrap worker when spawning would violate the energy buffer', () => {
     const room = {
       name: 'W1N1',
       energyAvailable: 200,
+      energyCapacityAvailable: 400,
+      controller: { my: true } as StructureController
+    } as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 125,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      `[spawn] warning: deferred worker-W1N1-125 in W1N1; available energy 200, body cost 200, required buffer ${MIN_SPAWN_ENERGY_BUFFER}`
+    );
+  });
+
+  it('spawns an emergency bootstrap worker when the energy buffer is satisfied', () => {
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 200 + MIN_SPAWN_ENERGY_BUFFER,
       energyCapacityAvailable: 400,
       controller: { my: true } as StructureController
     } as Room;
@@ -264,7 +293,7 @@ describe('runEconomy', () => {
     );
     const room = {
       name: 'W1N1',
-      energyAvailable: 400,
+      energyAvailable: 400 + MIN_SPAWN_ENERGY_BUFFER,
       energyCapacityAvailable: 650,
       controller: { my: true, level: 2, ticksToDowngrade: 10_000 } as StructureController,
       find: jest.fn((type: number, options?: { filter?: (structure: StructureExtension) => boolean }) => {
@@ -2225,7 +2254,7 @@ function createLifecycleSpawn(room: Room, creeps: Record<string, Creep>, spawnTi
 }
 
 function makeTerritoryReadyEconomyRoom({
-  energyAvailable = 650,
+  energyAvailable = 650 + MIN_SPAWN_ENERGY_BUFFER,
   energyCapacityAvailable = 650
 }: {
   energyAvailable?: number;
