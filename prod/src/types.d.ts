@@ -620,16 +620,18 @@ declare global {
     stuckTicks?: number;
     repairTargetId?: string;
     containerTransfers?: number;
+    sourceContainerWithdrawals?: number;
     pathLength?: number;
     lastPosition?: CreepBehaviorPositionMemory;
     lastMoveTick?: number;
     lastWorkTick?: number;
     lastObservedTick?: number;
     lastIdleTick?: number;
+    lastSourceContainerWithdrawalTick?: number;
   }
 
   type CreepTaskMemory =
-    | { type: 'harvest'; targetId: Id<Source> }
+    | { type: 'harvest'; targetId: Id<Source>; sourceContainerAssigned?: true }
     | { type: 'pickup'; targetId: Id<Resource<ResourceConstant>> }
     | { type: 'withdraw'; targetId: Id<AnyStoreStructure> }
     | { type: 'transfer'; targetId: Id<AnyStoreStructure> }

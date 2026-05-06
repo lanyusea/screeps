@@ -241,6 +241,7 @@ describe('runtime telemetry summaries', () => {
           workTicks: 2,
           stuckTicks: 1,
           containerTransfers: 1,
+          sourceContainerWithdrawals: 2,
           pathLength: 2,
           repairTargetId: 'road-damaged',
           lastPosition: { x: 10, y: 12, roomName: 'W1N1' },
@@ -265,6 +266,7 @@ describe('runtime telemetry summaries', () => {
           workTicks: 2,
           stuckTicks: 1,
           containerTransfers: 1,
+          sourceContainerWithdrawals: 2,
           pathLength: 2,
           repairTargetId: 'road-damaged'
         }
@@ -275,6 +277,7 @@ describe('runtime telemetry summaries', () => {
         workTicks: 2,
         stuckTicks: 1,
         containerTransfers: 1,
+        sourceContainerWithdrawals: 2,
         pathLength: 2
       },
       topIdleWorkers: [
@@ -285,6 +288,7 @@ describe('runtime telemetry summaries', () => {
           workTicks: 2,
           stuckTicks: 1,
           containerTransfers: 1,
+          sourceContainerWithdrawals: 2,
           pathLength: 2,
           repairTargetId: 'road-damaged'
         }
@@ -328,6 +332,7 @@ describe('runtime telemetry summaries', () => {
         workTicks: 0,
         stuckTicks: 0,
         containerTransfers: 0,
+        sourceContainerWithdrawals: 0,
         pathLength: 0
       },
       topIdleWorkers: [
@@ -1450,6 +1455,7 @@ function makeIdleBehaviorSummary(creepName: string, idleTicks: number): Record<s
     workTicks: 0,
     stuckTicks: 0,
     containerTransfers: 0,
+    sourceContainerWithdrawals: 0,
     pathLength: 0
   };
 }

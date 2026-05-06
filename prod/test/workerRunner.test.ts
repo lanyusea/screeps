@@ -620,6 +620,52 @@ describe('runWorker', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(container);
   });
 
+  it('records source container withdrawal telemetry on successful source-container withdraw', () => {
+    const source = {
+      id: 'source1',
+      pos: { x: 10, y: 10, roomName: 'W1N1' } as RoomPosition
+    } as Source;
+    const container = {
+      id: 'container1',
+      structureType: 'container',
+      pos: { x: 10, y: 11, roomName: 'W1N1' } as RoomPosition,
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureContainer;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        return type === FIND_STRUCTURES ? [container] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: { task: { type: 'withdraw', targetId: 'container1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      withdraw: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 42,
+      getObjectById: jest.fn().mockReturnValue(container)
+    };
+
+    runWorker(creep);
+
+    expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy');
+    expect(creep.memory.behaviorTelemetry).toMatchObject({
+      workTicks: 1,
+      sourceContainerWithdrawals: 1,
+      lastSourceContainerWithdrawalTick: 42
+    });
+  });
+
   it('reselects and executes when a withdraw target is drained before action', () => {
     const drainedContainer = {
       id: 'container-drained',
