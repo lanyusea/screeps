@@ -2376,14 +2376,13 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
-      'worker-W1N1-W2N1-upgrader-414',
+      ['work', 'carry', 'move'],
+      'worker-W2N1-414',
       {
         memory: {
           role: 'worker',
           colony: 'W2N1',
-          territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' },
-          controllerSustain: { homeRoom: 'W1N1', targetRoom: 'W2N1', role: 'upgrader' }
+          spawnSupport: { originRoom: 'W1N1', targetRoom: 'W2N1' }
         }
       }
     );
@@ -2396,6 +2395,7 @@ describe('runEconomy', () => {
       FIND_CONSTRUCTION_SITES: number;
       FIND_MY_CREEPS: number;
       STRUCTURE_CONTAINER: StructureConstant;
+      STRUCTURE_SPAWN: StructureConstant;
       TERRAIN_MASK_WALL: number;
       OK: ScreepsReturnCode;
       Memory: Partial<Memory>;
@@ -2404,6 +2404,7 @@ describe('runEconomy', () => {
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
     (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 4;
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { OK: ScreepsReturnCode }).OK = OK_CODE;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
@@ -2469,15 +2470,15 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(18, 18, STRUCTURE_SPAWN);
     expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toMatchObject({
       colony: 'W1N1',
       roomName: 'W2N1',
-      status: 'containerPending',
+      status: 'suspended',
       sources: {
         'remote-source': {
           sourceId: 'remote-source',
-          containerSitePending: true
+          containerSitePending: false
         }
       }
     });
