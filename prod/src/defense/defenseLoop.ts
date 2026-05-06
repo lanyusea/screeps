@@ -6,10 +6,15 @@ import {
   isKnownDeadZoneRoom,
   refreshVisibleDeadZoneMemory
 } from './deadZone';
+import {
+  DEFENDER_ROLE,
+  hasDefensePressure,
+  selectDefenderAttackTarget
+} from './defensePlanner';
 import { runSafeModeWithResult } from './safeModeManager';
 import { runTowersWithResult } from './towerManager';
 
-export const DEFENDER_ROLE = 'defender';
+export { DEFENDER_ROLE } from './defensePlanner';
 
 const MAX_RECORDED_DEFENSE_ACTIONS = 20;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
@@ -73,7 +78,14 @@ function recordWorkerFallbackIfNeeded(
   context: DefenseContext,
   telemetryEvents: RuntimeTelemetryEvent[]
 ): void {
-  if (!hasDefensePressure(context) || !hasColonyWorker(context.colony.room.name)) {
+  if (
+    !hasDefensePressure({
+      hostileCreepCount: context.hostileCreeps.length,
+      hostileStructureCount: context.hostileStructures.length,
+      damagedCriticalStructureCount: context.damagedCriticalStructures.length
+    }) ||
+    !hasColonyWorker(context.colony.room.name)
+  ) {
     return;
   }
 
@@ -169,14 +181,6 @@ function createDefenseContext(colony: ColonySnapshot): DefenseContext {
   };
 }
 
-function hasDefensePressure(context: DefenseContext): boolean {
-  return (
-    context.hostileCreeps.length > 0 ||
-    context.hostileStructures.length > 0 ||
-    context.damagedCriticalStructures.length > 0
-  );
-}
-
 function getCriticalStructures(colony: ColonySnapshot): CriticalOwnedStructure[] {
   const structuresById = new Map<string, CriticalOwnedStructure>();
   for (const spawn of colony.spawns) {
@@ -197,38 +201,7 @@ function getOwnedTowers(room: Room): StructureTower[] {
 }
 
 function selectDefenderTarget(creep: Creep): HostileTarget | null {
-  const hostileCreep = selectClosestTarget(creep, findHostileCreeps(creep.room));
-  if (hostileCreep) {
-    return hostileCreep;
-  }
-
-  return selectClosestTarget(creep, findHostileStructures(creep.room));
-}
-
-function selectClosestTarget<T extends { pos?: RoomPosition }>(
-  origin: { pos?: RoomPosition },
-  targets: T[]
-): T | null {
-  if (targets.length === 0) {
-    return null;
-  }
-
-  return [...targets].sort((left, right) => compareRange(origin, left, right) || compareObjectIds(left, right))[0];
-}
-
-function compareRange(
-  origin: { pos?: RoomPosition },
-  left: { pos?: RoomPosition },
-  right: { pos?: RoomPosition }
-): number {
-  const getRangeTo = origin.pos?.getRangeTo;
-  if (typeof getRangeTo !== 'function') {
-    return 0;
-  }
-
-  const leftRange = left.pos ? getRangeTo.call(origin.pos, left.pos) : Infinity;
-  const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
-  return leftRange - rightRange;
+  return selectDefenderAttackTarget(creep, findHostileCreeps(creep.room), findHostileStructures(creep.room));
 }
 
 function hasColonyWorker(roomName: string): boolean {
