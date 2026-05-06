@@ -14,11 +14,13 @@ import { findSourceContainer } from '../economy/sourceContainers';
 import {
   observeCreepBehaviorTick,
   recordCreepBehaviorContainerTransfer,
+  recordCreepBehaviorEnergyAcquisition,
   recordCreepBehaviorIdle,
   recordCreepBehaviorMove,
   recordCreepBehaviorRepairTarget,
   recordCreepBehaviorSourceContainerWithdrawal,
-  recordCreepBehaviorWork
+  recordCreepBehaviorWork,
+  type RuntimeEnergyAcquisitionMethod
 } from '../telemetry/behaviorTelemetry';
 
 type TransferSinkStructureConstantGlobal =
@@ -50,6 +52,7 @@ interface TaskExecutionResult {
   result: ScreepsReturnCode;
   action?: 'move' | 'work';
   containerTransfer?: boolean;
+  energyAcquisitionMethod?: RuntimeEnergyAcquisitionMethod;
   sourceContainerWithdrawal?: boolean;
 }
 
@@ -276,8 +279,8 @@ function getVisibleRoomController(roomName: string): StructureController | null 
 
 function selectControllerSustainHaulerEnergyTask(creep: Creep): CreepTaskMemory | null {
   return (
-    selectControllerSustainStoredEnergyTask(creep) ??
     selectControllerSustainDroppedEnergyTask(creep) ??
+    selectControllerSustainStoredEnergyTask(creep) ??
     selectControllerSustainHarvestTask(creep)
   );
 }
@@ -292,9 +295,17 @@ function selectControllerSustainStoredEnergyTask(
   const structures = creep.room.find(FIND_STRUCTURES) as Structure[];
   const source = structures
     .filter(isControllerSustainStoredEnergySource)
-    .sort((left, right) => compareRoomObjectsByRangeAndId(creep, left, right))[0];
+    .sort((left, right) => compareControllerSustainStoredEnergySources(creep, left, right))[0];
 
   return source ? { type: 'withdraw', targetId: source.id as Id<AnyStoreStructure> } : null;
+}
+
+function compareControllerSustainStoredEnergySources(
+  creep: Creep,
+  left: AnyStoreStructure,
+  right: AnyStoreStructure
+): number {
+  return getStoredEnergy(right) - getStoredEnergy(left) || compareRoomObjectsByRangeAndId(creep, left, right);
 }
 
 function selectControllerSustainDroppedEnergyTask(
@@ -1053,10 +1064,13 @@ function executeTask(
     case 'harvest':
       return executeHarvestTask(creep, target as Source);
     case 'pickup':
-      return toTaskExecutionResult(creep.pickup(target as Resource<ResourceConstant>), 'work');
+      return toTaskExecutionResult(creep.pickup(target as Resource<ResourceConstant>), 'work', {
+        energyAcquisitionMethod: 'pickedUp'
+      });
     case 'withdraw': {
       const withdrawTarget = target as AnyStoreStructure;
       return toTaskExecutionResult(creep.withdraw(withdrawTarget, RESOURCE_ENERGY), 'work', {
+        energyAcquisitionMethod: 'withdrawn',
         sourceContainerWithdrawal: isVisibleSourceContainer(creep, withdrawTarget)
       });
     }
@@ -1099,7 +1113,7 @@ function executeTask(
 function executeHarvestTask(creep: Creep, source: Source): TaskExecutionResult {
   const sourceContainer = findVisibleHarvestSourceContainer(creep, source);
   if (!sourceContainer) {
-    return toTaskExecutionResult(creep.harvest(source), 'work');
+    return toTaskExecutionResult(creep.harvest(source), 'work', { energyAcquisitionMethod: 'harvested' });
   }
 
   if (!isInRangeToRoomObject(creep, source, 1)) {
@@ -1125,7 +1139,9 @@ function executeHarvestTask(creep: Creep, source: Source): TaskExecutionResult {
     return transferDedicatedHarvestEnergy(creep, sourceContainer);
   }
 
-  return toTaskExecutionResult(result === ERR_NOT_ENOUGH_RESOURCES_CODE ? OK_CODE : result, 'work');
+  return toTaskExecutionResult(result === ERR_NOT_ENOUGH_RESOURCES_CODE ? OK_CODE : result, 'work', {
+    ...(result === OK_CODE ? { energyAcquisitionMethod: 'harvested' as const } : {})
+  });
 }
 
 function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: StructureContainer): TaskExecutionResult {
@@ -1145,12 +1161,19 @@ function transferDedicatedHarvestEnergy(creep: Creep, sourceContainer: Structure
 function toTaskExecutionResult(
   result: ScreepsReturnCode,
   successAction: 'move' | 'work',
-  options: { containerTransfer?: boolean; sourceContainerWithdrawal?: boolean } = {}
+  options: {
+    containerTransfer?: boolean;
+    energyAcquisitionMethod?: RuntimeEnergyAcquisitionMethod;
+    sourceContainerWithdrawal?: boolean;
+  } = {}
 ): TaskExecutionResult {
   return {
     result,
     ...(result === OK_CODE ? { action: successAction } : {}),
     ...(result === OK_CODE && options.containerTransfer ? { containerTransfer: true } : {}),
+    ...(result === OK_CODE && options.energyAcquisitionMethod
+      ? { energyAcquisitionMethod: options.energyAcquisitionMethod }
+      : {}),
     ...(result === OK_CODE && options.sourceContainerWithdrawal ? { sourceContainerWithdrawal: true } : {})
   };
 }
@@ -1174,6 +1197,10 @@ function recordTaskBehavior(
 
   if (execution.containerTransfer) {
     recordCreepBehaviorContainerTransfer(creep);
+  }
+
+  if (execution.energyAcquisitionMethod) {
+    recordCreepBehaviorEnergyAcquisition(creep, execution.energyAcquisitionMethod);
   }
 
   if (execution.sourceContainerWithdrawal) {

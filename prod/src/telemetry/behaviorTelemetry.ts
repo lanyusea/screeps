@@ -7,6 +7,7 @@ export interface RuntimeCreepBehaviorSummary {
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
+  energyAcquisition?: RuntimeEnergyAcquisitionMethodDistribution;
   repairTargetId?: string;
 }
 
@@ -24,6 +25,15 @@ interface RuntimeBehaviorTotals {
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
+  energyAcquisition?: RuntimeEnergyAcquisitionMethodDistribution;
+}
+
+export type RuntimeEnergyAcquisitionMethod = 'harvested' | 'pickedUp' | 'withdrawn';
+
+export interface RuntimeEnergyAcquisitionMethodDistribution {
+  harvested: number;
+  pickedUp: number;
+  withdrawn: number;
 }
 
 interface CreepBehaviorCounterKey {
@@ -35,6 +45,9 @@ interface CreepBehaviorCounterKey {
     | 'stuckTicks'
     | 'containerTransfers'
     | 'sourceContainerWithdrawals'
+    | 'energyAcquisitionHarvested'
+    | 'energyAcquisitionPickedUp'
+    | 'energyAcquisitionWithdrawn'
     | 'pathLength'
   >;
 }
@@ -46,6 +59,9 @@ const BEHAVIOR_COUNTER_KEYS: CreepBehaviorCounterKey[] = [
   { key: 'stuckTicks' },
   { key: 'containerTransfers' },
   { key: 'sourceContainerWithdrawals' },
+  { key: 'energyAcquisitionHarvested' },
+  { key: 'energyAcquisitionPickedUp' },
+  { key: 'energyAcquisitionWithdrawn' },
   { key: 'pathLength' }
 ];
 const TOP_IDLE_WORKER_COUNT = 3;
@@ -121,6 +137,15 @@ export function recordCreepBehaviorSourceContainerWithdrawal(creep: Creep, tick:
   telemetry.lastSourceContainerWithdrawalTick = tick;
 }
 
+export function recordCreepBehaviorEnergyAcquisition(
+  creep: Creep,
+  method: RuntimeEnergyAcquisitionMethod
+): void {
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  const key = getEnergyAcquisitionCounterKey(method);
+  telemetry[key] = (telemetry[key] ?? 0) + 1;
+}
+
 export function summarizeAndResetCreepBehaviorTelemetry(workers: Creep[]): { behavior?: RuntimeBehaviorSummary } {
   const creepSummaries = workers
     .map(toRuntimeCreepBehaviorSummary)
@@ -167,6 +192,7 @@ function toRuntimeCreepBehaviorSummary(creep: Creep): RuntimeCreepBehaviorSummar
     containerTransfers: getNonNegativeCounter(telemetry.containerTransfers),
     sourceContainerWithdrawals: getNonNegativeCounter(telemetry.sourceContainerWithdrawals),
     pathLength: getNonNegativeCounter(telemetry.pathLength),
+    ...summarizeEnergyAcquisitionMethods(telemetry),
     ...(typeof telemetry.repairTargetId === 'string' && telemetry.repairTargetId.length > 0
       ? { repairTargetId: telemetry.repairTargetId }
       : {})
@@ -208,7 +234,8 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
       stuckTicks: totals.stuckTicks + creep.stuckTicks,
       containerTransfers: totals.containerTransfers + creep.containerTransfers,
       sourceContainerWithdrawals: totals.sourceContainerWithdrawals + creep.sourceContainerWithdrawals,
-      pathLength: totals.pathLength + creep.pathLength
+      pathLength: totals.pathLength + creep.pathLength,
+      ...mergeEnergyAcquisitionTotals(totals.energyAcquisition, creep.energyAcquisition)
     }),
     {
       idleTicks: 0,
@@ -220,6 +247,55 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
       pathLength: 0
     }
   );
+}
+
+function summarizeEnergyAcquisitionMethods(
+  telemetry: CreepBehaviorTelemetryMemory
+): { energyAcquisition?: RuntimeEnergyAcquisitionMethodDistribution } {
+  const distribution = {
+    harvested: getNonNegativeCounter(telemetry.energyAcquisitionHarvested),
+    pickedUp: getNonNegativeCounter(telemetry.energyAcquisitionPickedUp),
+    withdrawn: getNonNegativeCounter(telemetry.energyAcquisitionWithdrawn)
+  };
+
+  return hasEnergyAcquisitionDistribution(distribution) ? { energyAcquisition: distribution } : {};
+}
+
+function mergeEnergyAcquisitionTotals(
+  left: RuntimeEnergyAcquisitionMethodDistribution | undefined,
+  right: RuntimeEnergyAcquisitionMethodDistribution | undefined
+): { energyAcquisition?: RuntimeEnergyAcquisitionMethodDistribution } {
+  if (!left && !right) {
+    return {};
+  }
+
+  const distribution = {
+    harvested: (left?.harvested ?? 0) + (right?.harvested ?? 0),
+    pickedUp: (left?.pickedUp ?? 0) + (right?.pickedUp ?? 0),
+    withdrawn: (left?.withdrawn ?? 0) + (right?.withdrawn ?? 0)
+  };
+
+  return hasEnergyAcquisitionDistribution(distribution) ? { energyAcquisition: distribution } : {};
+}
+
+function hasEnergyAcquisitionDistribution(distribution: RuntimeEnergyAcquisitionMethodDistribution): boolean {
+  return distribution.harvested > 0 || distribution.pickedUp > 0 || distribution.withdrawn > 0;
+}
+
+function getEnergyAcquisitionCounterKey(
+  method: RuntimeEnergyAcquisitionMethod
+): keyof Pick<
+  CreepBehaviorTelemetryMemory,
+  'energyAcquisitionHarvested' | 'energyAcquisitionPickedUp' | 'energyAcquisitionWithdrawn'
+> {
+  switch (method) {
+    case 'harvested':
+      return 'energyAcquisitionHarvested';
+    case 'pickedUp':
+      return 'energyAcquisitionPickedUp';
+    case 'withdrawn':
+      return 'energyAcquisitionWithdrawn';
+  }
 }
 
 function summarizeTopIdleWorkers(

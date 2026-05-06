@@ -344,6 +344,50 @@ describe('runtime telemetry summaries', () => {
     expect(workers.map((worker) => worker.memory.behaviorTelemetry)).toEqual([undefined, undefined, undefined, undefined]);
   });
 
+  it('reports energy acquisition method distribution across workers and haulers', () => {
+    const worker = makeWorker(
+      {
+        role: 'worker',
+        colony: 'W1N1',
+        behaviorTelemetry: {
+          energyAcquisitionHarvested: 1,
+          energyAcquisitionPickedUp: 2
+        }
+      },
+      0,
+      'AcquireWorker'
+    );
+    const hauler = makeWorker(
+      {
+        role: 'hauler',
+        colony: 'W1N1',
+        behaviorTelemetry: {
+          energyAcquisitionWithdrawn: 3
+        }
+      },
+      0,
+      'AcquireHauler'
+    );
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      creeps: [worker, hauler]
+    });
+
+    emitRuntimeSummary([colony], [worker, hauler]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    const behavior = room.behavior as Record<string, unknown>;
+    const totals = behavior.totals as Record<string, unknown>;
+    expect(totals.energyAcquisition).toEqual({ harvested: 1, pickedUp: 2, withdrawn: 3 });
+    expect((behavior.creeps as Array<Record<string, unknown>>).map((creep) => creep.creepName)).toEqual([
+      'AcquireHauler',
+      'AcquireWorker'
+    ]);
+    expect(worker.memory.behaviorTelemetry).toBeUndefined();
+    expect(hauler.memory.behaviorTelemetry).toBeUndefined();
+  });
+
   it('reports cadence structure snapshots with defenses, containers, repairs, and road coverage', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,

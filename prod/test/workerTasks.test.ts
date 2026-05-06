@@ -1589,6 +1589,40 @@ describe('selectWorkerTask', () => {
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
+  it('prefers same-range dropped energy before container and storage withdrawals', () => {
+    const droppedEnergy = { id: 'drop-priority', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const container = makeStoredEnergyStructure('container-priority', 'container' as StructureConstant, 500);
+    const storage = makeStoredEnergyStructure('storage-priority', 'storage' as StructureConstant, 1_000, { my: true });
+    const source = { id: 'source1' } as Source;
+    const getRangeTo = jest.fn().mockReturnValue(3);
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [storage, container];
+      }
+
+      if (type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-priority' });
+    expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
   it('prefers nearby container energy over much richer durable storage', () => {
     const nearbyTinyContainer = makeStoredEnergyStructure('container-tiny', 'container' as StructureConstant, 25);
     const richStorage = makeStoredEnergyStructure('storage-rich', 'storage' as StructureConstant, 1_000, { my: true });

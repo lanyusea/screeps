@@ -113,14 +113,14 @@ type WorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'pickup' | '
 type LowLoadWorkerEnergyAcquisitionSource = WorkerEnergyAcquisitionSource | Source;
 type LowLoadWorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>;
 type ProductiveEnergySinkTask = Extract<CreepTaskMemory, { type: 'build' | 'repair' }>;
-type WorkerEnergyAcquisitionPriority = 0 | 1 | 2;
+type WorkerEnergyAcquisitionPriority = 0 | 1 | 2 | 3;
 type WorkerEnergySpendingTask =
   | Extract<CreepTaskMemory, { type: 'transfer' }>
   | Extract<CreepTaskMemory, { type: 'build' }>
   | Extract<CreepTaskMemory, { type: 'repair' }>
   | Extract<CreepTaskMemory, { type: 'upgrade' }>;
 type BuilderEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>;
-type BuilderEnergyAcquisitionPriority = 0 | 1 | 2;
+type BuilderEnergyAcquisitionPriority = WorkerEnergyAcquisitionPriority;
 
 interface BuilderEnergyAcquisitionCandidate {
   energy: number;
@@ -2356,7 +2356,7 @@ export function findBuilderEnergyAcquisitionCandidates(
         BUILDER_STORAGE_WITHDRAW_MIN
       );
 
-      return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate, 0)] : [];
+      return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate)] : [];
     });
 
   const droppedEnergyCandidates = findDroppedResources(creep.room)
@@ -2377,7 +2377,7 @@ export function findBuilderEnergyAcquisitionCandidates(
         MIN_DROPPED_ENERGY_PICKUP_AMOUNT
       );
 
-      return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate, 1)] : [];
+      return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate)] : [];
     })
     .sort(compareBuilderEnergyAcquisitionCandidates)
     .slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS)
@@ -2387,14 +2387,12 @@ export function findBuilderEnergyAcquisitionCandidates(
 }
 
 function toBuilderEnergyAcquisitionCandidate(
-  candidate: WorkerEnergyAcquisitionCandidate | LowLoadWorkerEnergyAcquisitionCandidate,
-  priority: BuilderEnergyAcquisitionPriority
+  candidate: WorkerEnergyAcquisitionCandidate | LowLoadWorkerEnergyAcquisitionCandidate
 ): BuilderEnergyAcquisitionCandidate {
   return {
     ...candidate,
     source: candidate.source as BuilderEnergyAcquisitionCandidate['source'],
-    task: candidate.task as BuilderEnergyAcquisitionCandidate['task'],
-    priority
+    task: candidate.task as BuilderEnergyAcquisitionCandidate['task']
   };
 }
 
@@ -2411,13 +2409,9 @@ function compareBuilderEnergyAcquisitionCandidates(
   left: BuilderEnergyAcquisitionCandidate,
   right: BuilderEnergyAcquisitionCandidate
 ): number {
-  const priorityComparison = left.priority - right.priority;
-  if (priorityComparison !== 0) {
-    return priorityComparison;
-  }
-
   return (
     compareOptionalRanges(left.range, right.range) ||
+    left.priority - right.priority ||
     right.score - left.score ||
     right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id)) ||
@@ -2543,6 +2537,19 @@ function isWorkerEnergyAcquisitionCandidateCompetitiveWithHarvest(
     return false;
   }
 
+  const harvestSource = harvestCandidate.source;
+  if (isDroppedEnergySourceObject(candidate.source) && isHarvestSourceObject(harvestSource)) {
+    const availabilityDelay = estimateHarvestSourceAvailabilityDelay(harvestSource);
+    const candidateEta = candidate.range + ENERGY_ACQUISITION_ACTION_TICKS;
+    const harvestEta =
+      harvestCandidate.range +
+      (availabilityDelay ?? 0) +
+      estimateHarvestEnergyAcquisitionTicks(creep, harvestSource);
+    if (candidateEta <= harvestEta) {
+      return true;
+    }
+  }
+
   return (
     candidate.range < harvestCandidate.range ||
     isBufferedSourceContainerForHarvestCandidate(creep, candidate, harvestCandidate)
@@ -2602,15 +2609,19 @@ function compareWorkerEnergyAcquisitionSourceTypePriority(
 }
 
 function getWorkerEnergyAcquisitionSourceTypePriority(source: WorkerEnergyAcquisitionSource): number {
-  if (isContainerEnergySource(source)) {
+  if (isWorkerDroppedEnergySource(source)) {
     return 0;
   }
 
-  if (isStorageEnergySource(source)) {
+  if (isContainerEnergySource(source)) {
     return 1;
   }
 
-  return isWorkerDroppedEnergySource(source) ? 2 : 3;
+  if (isStorageEnergySource(source)) {
+    return 2;
+  }
+
+  return 0;
 }
 
 function selectLowLoadWorkerEnergyAcquisitionCandidate(
@@ -3244,21 +3255,24 @@ function createWorkerEnergyAcquisitionCandidate(
 }
 
 function getWorkerEnergyAcquisitionPriority(
-  creep: Creep,
+  _creep: Creep,
   source: LowLoadWorkerEnergyAcquisitionSource,
-  energy: number,
-  range: number | null
+  _energy: number,
+  _range: number | null
 ): WorkerEnergyAcquisitionPriority {
-  if (
-    isContainerEnergySource(source) &&
-    range !== null &&
-    range <= LOW_LOAD_NEARBY_ENERGY_RANGE &&
-    energy >= Math.max(1, getFreeEnergyCapacity(creep))
-  ) {
+  if (isDroppedEnergySourceObject(source)) {
     return 0;
   }
 
-  return isDurableStoredEnergySource(source) || isLinkEnergySource(source) ? 2 : 1;
+  if (isContainerEnergySource(source) || isLinkEnergySource(source)) {
+    return 1;
+  }
+
+  if (isDurableStoredEnergySource(source)) {
+    return 2;
+  }
+
+  return isHarvestSourceObject(source) ? 3 : 0;
 }
 
 function isContainerEnergySource(source: LowLoadWorkerEnergyAcquisitionSource): source is StructureContainer {
@@ -3286,7 +3300,13 @@ function isPreferredNearbyWorkerEnergySource(source: WorkerEnergyAcquisitionSour
 function isWorkerDroppedEnergySource(
   source: WorkerEnergyAcquisitionSource
 ): source is Resource<ResourceConstant> {
-  return 'resourceType' in source && isDroppedEnergy(source, MIN_DROPPED_ENERGY_PICKUP_AMOUNT);
+  return isDroppedEnergySourceObject(source) && isDroppedEnergy(source, MIN_DROPPED_ENERGY_PICKUP_AMOUNT);
+}
+
+function isDroppedEnergySourceObject(
+  source: LowLoadWorkerEnergyAcquisitionSource
+): source is Resource<ResourceConstant> {
+  return 'resourceType' in source && source.resourceType === getWorkerEnergyResource();
 }
 
 function isDurableStoredEnergySource(

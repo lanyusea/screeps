@@ -643,6 +643,9 @@ declare global {
     repairTargetId?: string;
     containerTransfers?: number;
     sourceContainerWithdrawals?: number;
+    energyAcquisitionHarvested?: number;
+    energyAcquisitionPickedUp?: number;
+    energyAcquisitionWithdrawn?: number;
     pathLength?: number;
     lastPosition?: CreepBehaviorPositionMemory;
     lastMoveTick?: number;

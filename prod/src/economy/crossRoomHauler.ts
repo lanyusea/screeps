@@ -1,4 +1,5 @@
 import type { SpawnRequest } from '../spawn/spawnPlanner';
+import { recordCreepBehaviorEnergyAcquisition } from '../telemetry/behaviorTelemetry';
 import {
   getRoomStoredEnergyState,
   getStorageBalanceState
@@ -14,6 +15,7 @@ const MAX_CARRY_MOVE_PAIRS = 25;
 const MIN_CARRY_MOVE_PAIRS = 1;
 const CROSS_ROOM_HAULER_REPLACEMENT_TICKS = 100;
 const CROSS_ROOM_MOVE_OPTS: MoveToOpts = { reusePath: 20, ignoreRoads: false };
+const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 
@@ -187,11 +189,21 @@ function compareTransfers(
   const leftRouteDistance = findOwnedLogisticsRoute(left.sourceRoom, left.targetRoom)?.distance ?? Number.POSITIVE_INFINITY;
   const rightRouteDistance = findOwnedLogisticsRoute(right.sourceRoom, right.targetRoom)?.distance ?? Number.POSITIVE_INFINITY;
   return (
+    getTransferRoundTripEfficiency(right, rightRouteDistance) -
+      getTransferRoundTripEfficiency(left, leftRouteDistance) ||
     right.amount - left.amount ||
     leftRouteDistance - rightRouteDistance ||
     left.sourceRoom.localeCompare(right.sourceRoom) ||
     left.targetRoom.localeCompare(right.targetRoom)
   );
+}
+
+function getTransferRoundTripEfficiency(transfer: EconomyStorageTransferMemory, routeDistance: number): number {
+  if (!Number.isFinite(routeDistance)) {
+    return 0;
+  }
+
+  return transfer.amount / Math.max(1, routeDistance * 2);
 }
 
 function hasActiveCrossRoomHauler(transfer: EconomyStorageTransferMemory): boolean {
@@ -241,6 +253,9 @@ function collectEnergy(creep: Creep, assignment: CreepCrossRoomHaulerMemory): vo
   };
   creep.memory.task = task;
   const result = creep.withdraw?.(source, getEnergyResource());
+  if (result === OK_CODE) {
+    recordCreepBehaviorEnergyAcquisition(creep, 'withdrawn');
+  }
   if (result === getErrNotInRangeCode()) {
     moveTo(creep, source);
   }

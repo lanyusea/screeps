@@ -120,6 +120,25 @@ describe('cross-room energy logistics', () => {
     expect(plan?.memory.crossRoomHauler?.route).toEqual(['W2N1', 'W3N1']);
   });
 
+  it('prioritizes cross-room transfers by round-trip energy efficiency', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 1_600, energyAvailable: 800 });
+    const nearTargetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 0, storageCapacity: 1_000 });
+    const farTargetRoom = makeOwnedRoom({ roomName: 'W3N1', storageEnergy: 0, storageCapacity: 2_000 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    installGame([sourceRoom, nearTargetRoom, farTargetRoom], [sourceSpawn], {}, (_fromRoom, toRoom) => {
+      const routeRooms = toRoom === 'W3N1' ? ['Transit0', 'Transit1', 'Transit2', toRoom] : [toRoom];
+      return routeRooms.map((room) => ({ exit: 1, room }));
+    });
+    balanceStorage();
+
+    const plan = planCrossRoomHauler();
+
+    expect(plan?.memory.crossRoomHauler).toMatchObject({
+      targetRoom: 'W2N1',
+      route: ['W2N1']
+    });
+  });
+
   it('does nothing when all owned rooms are balanced', () => {
     const roomA = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 500 });
     const roomB = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 400 });

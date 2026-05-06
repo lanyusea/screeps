@@ -36,7 +36,8 @@ import {
 } from '../economy/sourceContainerPlanner';
 import {
   summarizeAndResetCreepBehaviorTelemetry,
-  type RuntimeBehaviorSummary as LegacyRuntimeBehaviorSummary
+  type RuntimeBehaviorSummary as LegacyRuntimeBehaviorSummary,
+  type RuntimeEnergyAcquisitionMethodDistribution
 } from './behaviorTelemetry';
 
 type BehaviorTelemetrySummary = { behavior?: LegacyRuntimeBehaviorSummary };
@@ -319,6 +320,7 @@ interface RuntimeCreepBehaviorSummary {
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
+  energyAcquisition?: RuntimeEnergyAcquisitionMethodDistribution;
   repairTargetId?: string;
 }
 
@@ -330,6 +332,7 @@ interface RuntimeBehaviorTotals {
   containerTransfers: number;
   sourceContainerWithdrawals: number;
   pathLength: number;
+  energyAcquisition?: RuntimeEnergyAcquisitionMethodDistribution;
 }
 
 interface RuntimeWorkerTaskBehaviorSummary {
@@ -636,7 +639,7 @@ function summarizeRoom(
     workerCount: colonyWorkers.length,
     spawnStatus: colony.spawns.map(summarizeSpawn),
     taskCounts: countWorkerTasks(colonyWorkers),
-    ...summarizeRuntimeBehavior(colonyWorkers, getGameTime()),
+    ...summarizeRuntimeBehavior(colonyWorkers, colonyCreeps, getGameTime()),
     ...(includeStructureSnapshot ? { structures: summarizeStructures(colony, colonyWorkers) } : {}),
     ...summarizeWorkerEfficiency(colonyWorkers, getGameTime()),
     ...summarizeRefillTelemetry(colonyWorkers, getGameTime()),
@@ -783,9 +786,13 @@ function summarizeBehavior(workers: Creep[], tick: number): { behavior?: Runtime
   };
 }
 
-function summarizeRuntimeBehavior(workers: Creep[], tick: number): { behavior?: RuntimeBehaviorSummary } {
+function summarizeRuntimeBehavior(
+  workers: Creep[],
+  behaviorCreeps: Creep[],
+  tick: number
+): { behavior?: RuntimeBehaviorSummary } {
   const workerTaskPolicySummary = summarizeBehavior(workers, tick);
-  const legacySummary: BehaviorTelemetrySummary = summarizeAndResetCreepBehaviorTelemetry(workers);
+  const legacySummary: BehaviorTelemetrySummary = summarizeAndResetCreepBehaviorTelemetry(behaviorCreeps);
 
   if (!workerTaskPolicySummary.behavior && !legacySummary.behavior) {
     return {};
