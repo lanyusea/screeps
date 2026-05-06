@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { planConstructionForColony } from '../construction/planner';
 import type { RoleCounts } from '../creeps/roleCounts';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 
@@ -75,6 +76,7 @@ export function recordPostClaimBootstrapClaimSuccess(
     workerTarget: existing?.workerTarget ?? POST_CLAIM_BOOTSTRAP_WORKER_TARGET,
     ...(input.controllerId ? { controllerId: input.controllerId } : {})
   };
+  recordClaimedRoomOccupation(input.roomName, claimedAt, gameTime);
 
   telemetryEvents.push({
     type: 'postClaimBootstrap',
@@ -86,6 +88,31 @@ export function recordPostClaimBootstrapClaimSuccess(
   });
 
   placePostClaimSpawnConstructionSite(input.roomName, telemetryEvents);
+}
+
+function recordClaimedRoomOccupation(roomName: string, claimedAt: number, gameTime: number): void {
+  const memory = (globalThis as { Memory?: Partial<Memory> }).Memory;
+  if (!memory) {
+    return;
+  }
+
+  if (!memory.territory) {
+    memory.territory = {};
+  }
+
+  if (!memory.territory.claimedRoomBootstrapper) {
+    memory.territory.claimedRoomBootstrapper = { rooms: {} };
+  }
+
+  memory.territory.claimedRoomBootstrapper.rooms[roomName] = {
+    roomName,
+    owned: true,
+    claimedAt,
+    updatedAt: gameTime,
+    ...(memory.territory.claimedRoomBootstrapper.rooms[roomName]?.completedAt !== undefined
+      ? { completedAt: memory.territory.claimedRoomBootstrapper.rooms[roomName].completedAt }
+      : {})
+  };
 }
 
 export function refreshPostClaimBootstrap(
@@ -366,6 +393,11 @@ function planInitialSpawnConstructionSite(room: Room): SpawnSitePlanResult {
     return { result: ERR_INVALID_TARGET_CODE };
   }
 
+  const plannerResult = planInitialSpawnConstructionSiteWithPlanner(room);
+  if (plannerResult) {
+    return plannerResult;
+  }
+
   const positions = findInitialSpawnConstructionPositions(room);
   if (positions.length === 0) {
     return { result: ERR_INVALID_TARGET_CODE };
@@ -383,6 +415,49 @@ function planInitialSpawnConstructionSite(room: Room): SpawnSitePlanResult {
   }
 
   return { result: lastResult };
+}
+
+function planInitialSpawnConstructionSiteWithPlanner(room: Room): SpawnSitePlanResult | null {
+  const result = planConstructionForColony({
+    room,
+    spawns: getRoomSpawns(room.name),
+    energyAvailable: getRoomEnergyAvailable(room),
+    energyCapacityAvailable: getRoomEnergyCapacityAvailable(room)
+  });
+  const spawnPlacement = result.placements.find((placement) => placement.priority === 'spawn');
+  if (!spawnPlacement) {
+    return null;
+  }
+
+  return {
+    result: spawnPlacement.result,
+    ...(spawnPlacement.result === OK_CODE &&
+    typeof spawnPlacement.x === 'number' &&
+    typeof spawnPlacement.y === 'number'
+      ? { position: { roomName: room.name, x: spawnPlacement.x, y: spawnPlacement.y } }
+      : {})
+  };
+}
+
+function getRoomSpawns(roomName: string): StructureSpawn[] {
+  const spawns = (globalThis as { Game?: Partial<Game> }).Game?.spawns;
+  if (!spawns) {
+    return [];
+  }
+
+  return Object.values(spawns).filter((spawn) => spawn?.room?.name === roomName);
+}
+
+function getRoomEnergyAvailable(room: Room): number {
+  return typeof room.energyAvailable === 'number' && Number.isFinite(room.energyAvailable)
+    ? Math.max(0, room.energyAvailable)
+    : 0;
+}
+
+function getRoomEnergyCapacityAvailable(room: Room): number {
+  return typeof room.energyCapacityAvailable === 'number' && Number.isFinite(room.energyCapacityAvailable)
+    ? Math.max(0, room.energyCapacityAvailable)
+    : getRoomEnergyAvailable(room);
 }
 
 function findInitialSpawnConstructionPositions(room: Room): CandidatePosition[] {
