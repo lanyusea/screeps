@@ -146,6 +146,30 @@ describe('automatic room defense response', () => {
     expect(planDefenseSpawn(installSpawnPlanningRoom({ hostileCount: 1, energyAvailable: 139 }))).toBeNull();
   });
 
+  it('plans a defender when a claimed room controller is attack-blocked without visible hostiles', () => {
+    const controller = makeController({ upgradeBlocked: 12 });
+    const spawn = makeSpawn('spawn1');
+    const room = makeRoom({
+      controller,
+      structures: [spawn],
+      energyAvailable: 300,
+      energyCapacityAvailable: 300
+    });
+    attachRoom([spawn], room);
+    installGame(room, spawn);
+
+    expect(planDefenseSpawn(room)).toMatchObject({
+      spawn,
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W1N1-200',
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
+    });
+  });
+
   it('activates safe mode when hostile pressure exceeds threshold and the controller is under attack', () => {
     const controller = makeController({
       safeModeAvailable: 1,
@@ -240,7 +264,6 @@ describe('automatic room defense response', () => {
   it('no-ops across towers, defender spawning, and safe mode when no hostiles are present', () => {
     const controller = makeController({
       safeModeAvailable: 1,
-      upgradeBlocked: 10,
       activateSafeMode: jest.fn().mockReturnValue(OK_CODE)
     });
     const spawn = makeSpawn('spawn1');

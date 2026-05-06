@@ -849,7 +849,7 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 173)).toBeNull();
   });
 
-  it('does not sustain a stale post-claim record after target room ownership is lost', () => {
+  it('reissues a claim instead of worker sustain after target room ownership is lost', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
       energyCapacityAvailable: 650,
@@ -883,7 +883,101 @@ describe('planSpawn', () => {
       }
     };
 
-    expect(planSpawn(colony, { worker: 4 }, 174)).toBeNull();
+    expect(planSpawn(colony, { worker: 4 }, 174)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-174',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' }
+      }
+    });
+  });
+
+  it('uses the home spawn for a post-claim room defender when the target controller is attack-blocked', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2',
+          my: true,
+          level: 1,
+          upgradeBlocked: 20
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'ready',
+            claimedAt: 174,
+            updatedAt: 175,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 176)).toEqual({
+      spawn,
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W2N1-176',
+      memory: {
+        role: 'defender',
+        colony: 'W2N1',
+        defense: { homeRoom: 'W2N1' }
+      }
+    });
+  });
+
+  it('suppresses post-claim room defenders while the home colony is in bootstrap recovery', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 140,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2',
+          my: true,
+          level: 1,
+          upgradeBlocked: 20
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'ready',
+            claimedAt: 174,
+            updatedAt: 175,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 177)).toBeNull();
   });
 
   it('keeps home worker recovery ahead of post-claim controller sustain', () => {
@@ -1325,6 +1419,25 @@ describe('planSpawn', () => {
       body: ['work', 'carry', 'move'],
       name: 'worker-W1N9-150',
       memory: { role: 'worker', colony: 'W1N9' }
+    });
+  });
+
+  it('plans a downgrade-guard worker for a non-primary claimed room through an available remote spawn', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W2N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 1_500 } as StructureController
+    });
+    const homeRoom = { name: 'W1N1' } as Room;
+    const homeSpawn = { ...spawn, room: homeRoom } as StructureSpawn;
+    colony.spawns = [homeSpawn];
+
+    expect(planSpawn(colony, { worker: 3 }, 151)).toEqual({
+      spawn: homeSpawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W2N1-151',
+      memory: { role: 'worker', colony: 'W2N1' }
     });
   });
 

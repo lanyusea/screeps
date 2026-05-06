@@ -1076,6 +1076,15 @@ function selectTerritoryTarget(
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord();
   let intents = normalizeTerritoryIntents(territoryMemory?.intents);
+  const refreshedExpiredClaims = refreshExpiredPostClaimClaimIntents(
+    territoryMemory,
+    intents,
+    colonyName,
+    gameTime
+  );
+  if (refreshedExpiredClaims.changed) {
+    intents = refreshedExpiredClaims.intents;
+  }
   const refreshedHostileSuspensions = refreshHostileTerritoryIntentSuspensions(
     territoryMemory,
     intents,
@@ -1728,6 +1737,94 @@ function hasActivePostClaimBootstrap(colonyName: string): boolean {
       record.colony === colonyName &&
       record.status !== 'ready'
   );
+}
+
+function refreshExpiredPostClaimClaimIntents(
+  territoryMemory: Record<string, unknown> | null,
+  intents: TerritoryIntentMemory[],
+  colonyName: string,
+  gameTime: number
+): { intents: TerritoryIntentMemory[]; changed: boolean } {
+  if (!territoryMemory || !isRecord(territoryMemory.postClaimBootstraps)) {
+    return { intents, changed: false };
+  }
+
+  let changed = false;
+  const nextIntents = intents;
+  for (const record of getExpiredPostClaimClaimRefreshRecords(territoryMemory, colonyName)) {
+    const controller = getVisibleController(record.roomName, record.controllerId);
+    if (!controller || controller.my === true || isControllerOwned(controller)) {
+      continue;
+    }
+
+    if (
+      isSuppressedTerritoryIntentForAction(nextIntents, colonyName, record.roomName, 'claim', gameTime) ||
+      isTerritoryIntentSuspendedForAction(nextIntents, colonyName, record.roomName, 'claim', gameTime)
+    ) {
+      continue;
+    }
+
+    const controllerId = isNonEmptyString(controller.id)
+      ? (controller.id as Id<StructureController>)
+      : record.controllerId;
+    const claimTarget: TerritoryTargetMemory = {
+      colony: colonyName,
+      roomName: record.roomName,
+      action: 'claim',
+      ...(controllerId ? { controllerId } : {})
+    };
+    appendTerritoryTargetIfMissing(territoryMemory as TerritoryMemory, claimTarget);
+    territoryMemory.intents = nextIntents;
+    upsertTerritoryIntent(nextIntents, {
+      colony: colonyName,
+      targetRoom: record.roomName,
+      action: 'claim',
+      status: 'planned',
+      updatedAt: gameTime,
+      ...(controllerId ? { controllerId } : {})
+    });
+    changed = true;
+  }
+
+  return { intents: nextIntents, changed };
+}
+
+function getExpiredPostClaimClaimRefreshRecords(
+  territoryMemory: Record<string, unknown>,
+  colonyName: string
+): TerritoryPostClaimBootstrapMemory[] {
+  const records = territoryMemory.postClaimBootstraps;
+  if (!isRecord(records)) {
+    return [];
+  }
+
+  return Object.values(records)
+    .filter((record): record is TerritoryPostClaimBootstrapMemory =>
+      isPostClaimClaimRefreshRecord(record, colonyName)
+    )
+    .sort(comparePostClaimClaimRefreshRecords);
+}
+
+function isPostClaimClaimRefreshRecord(
+  record: unknown,
+  colonyName: string
+): record is TerritoryPostClaimBootstrapMemory {
+  return (
+    isRecord(record) &&
+    record.colony === colonyName &&
+    isNonEmptyString(record.roomName) &&
+    record.roomName !== colonyName &&
+    isFiniteNumber(record.claimedAt) &&
+    isFiniteNumber(record.updatedAt) &&
+    isPostClaimRemoteMiningStatus(record.status)
+  );
+}
+
+function comparePostClaimClaimRefreshRecords(
+  left: TerritoryPostClaimBootstrapMemory,
+  right: TerritoryPostClaimBootstrapMemory
+): number {
+  return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
 }
 
 function getGclLevel(): number | null {

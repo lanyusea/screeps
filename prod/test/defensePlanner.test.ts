@@ -99,6 +99,27 @@ describe('defensePlanner', () => {
     ).toBeNull();
   });
 
+  it('plans a defender when an owned controller is attack-blocked even after hostiles leave vision', () => {
+    expect(
+      planDefenderSpawn({
+        roomName: 'W1N1',
+        hostileCreepCount: 0,
+        controllerUnderAttack: true,
+        activeDefenderCount: 0,
+        energyAvailable: 300,
+        gameTime: 124
+      })
+    ).toEqual({
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W1N1-124',
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
+    });
+  });
+
   it('selects tower attack targets by hostile creep priority, range, and tower room', () => {
     const tower = { pos: makePosition(25, 25, 'W1N1') };
     const farHostile = makeCreep('hostile-z', 40, 25, 'W1N1');

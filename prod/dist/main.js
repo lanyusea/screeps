@@ -1199,11 +1199,12 @@ function getDesiredDefenderCount(hostileCount) {
 }
 function planDefenderSpawn(input) {
   const hostileCreepCount = normalizeNonNegativeInteger(input.hostileCreepCount);
+  const pressureCount = Math.max(hostileCreepCount, input.controllerUnderAttack === true ? 1 : 0);
   const activeDefenderCount = normalizeNonNegativeInteger(input.activeDefenderCount);
-  if (hostileCreepCount <= 0 || activeDefenderCount >= getDesiredDefenderCount(hostileCreepCount)) {
+  if (pressureCount <= 0 || activeDefenderCount >= getDesiredDefenderCount(pressureCount)) {
     return null;
   }
-  const body = buildDefenderBody(input.energyAvailable, hostileCreepCount);
+  const body = buildDefenderBody(input.energyAvailable, pressureCount);
   if (body.length === 0) {
     return null;
   }
@@ -1235,6 +1236,9 @@ function shouldActivateSafeMode(input) {
     return true;
   }
   return input.hostileCreeps.length > SAFE_MODE_HOSTILE_COUNT_THRESHOLD && isControllerUnderAttack(controller, input.hostileCreeps);
+}
+function hasControllerAttackPressure(controller) {
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.upgradeBlocked === "number" && controller.upgradeBlocked > 0;
 }
 function selectClosestTarget(origin, targets, options = {}) {
   const eligibleTargets = options.sameRoomOnly ? targets.filter((target) => isTargetInOriginRoom(origin, target)) : targets;
@@ -1296,7 +1300,7 @@ function isCriticalSpawnLossThreat(ownedSpawns, hostileCreeps) {
   return ownedSpawns.length === 0 || ownedSpawns.some(isCriticallyDamagedSpawn);
 }
 function isControllerUnderAttack(controller, hostileCreeps) {
-  if (typeof controller.upgradeBlocked === "number" && controller.upgradeBlocked > 0) {
+  if (hasControllerAttackPressure(controller)) {
     return true;
   }
   if (!controller.pos) {
@@ -1562,6 +1566,9 @@ function runDefender(creep, telemetryEvents) {
     return;
   }
   const target = selectDefenderTarget(creep);
+  if (!target && moveTowardAssignedDefenseRoom(creep)) {
+    return;
+  }
   if (target && typeof creep.attack === "function") {
     const attackResult = creep.attack(target);
     if (attackResult === ERR_NOT_IN_RANGE_CODE) {
@@ -1576,6 +1583,24 @@ function runDefender(creep, telemetryEvents) {
     }
     recordDefenderAction(creep, "defenderAttack", target, attackResult, telemetryEvents);
   }
+}
+function moveTowardAssignedDefenseRoom(creep) {
+  var _a, _b, _c, _d;
+  const defenseRoom = (_a = creep.memory.defense) == null ? void 0 : _a.homeRoom;
+  if (!defenseRoom || ((_b = creep.room) == null ? void 0 : _b.name) === defenseRoom || typeof creep.moveTo !== "function") {
+    return false;
+  }
+  const visibleRoom = (_d = (_c = globalThis.Game) == null ? void 0 : _c.rooms) == null ? void 0 : _d[defenseRoom];
+  if (visibleRoom == null ? void 0 : visibleRoom.controller) {
+    creep.moveTo(visibleRoom.controller);
+    return true;
+  }
+  const RoomPositionCtor = globalThis.RoomPosition;
+  if (typeof RoomPositionCtor !== "function") {
+    return false;
+  }
+  creep.moveTo(new RoomPositionCtor(25, 25, defenseRoom));
+  return true;
 }
 function shouldSuppressDefenderMove(creep, target) {
   var _a;
@@ -8607,6 +8632,15 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
   const colonyOwnerUsername = getControllerOwnerUsername4(colony.room.controller);
   const territoryMemory = getTerritoryMemoryRecord5();
   let intents = normalizeTerritoryIntents(territoryMemory == null ? void 0 : territoryMemory.intents);
+  const refreshedExpiredClaims = refreshExpiredPostClaimClaimIntents(
+    territoryMemory,
+    intents,
+    colonyName,
+    gameTime
+  );
+  if (refreshedExpiredClaims.changed) {
+    intents = refreshedExpiredClaims.intents;
+  }
   const refreshedHostileSuspensions = refreshHostileTerritoryIntentSuspensions(
     territoryMemory,
     intents,
@@ -9060,6 +9094,56 @@ function hasActivePostClaimBootstrap(colonyName) {
   return Object.values(records).some(
     (record) => isRecord9(record) && record.colony === colonyName && record.status !== "ready"
   );
+}
+function refreshExpiredPostClaimClaimIntents(territoryMemory, intents, colonyName, gameTime) {
+  if (!territoryMemory || !isRecord9(territoryMemory.postClaimBootstraps)) {
+    return { intents, changed: false };
+  }
+  let changed = false;
+  const nextIntents = intents;
+  for (const record of getExpiredPostClaimClaimRefreshRecords(territoryMemory, colonyName)) {
+    const controller = getVisibleController2(record.roomName, record.controllerId);
+    if (!controller || controller.my === true || isControllerOwned(controller)) {
+      continue;
+    }
+    if (isSuppressedTerritoryIntentForAction(nextIntents, colonyName, record.roomName, "claim", gameTime) || isTerritoryIntentSuspendedForAction(nextIntents, colonyName, record.roomName, "claim", gameTime)) {
+      continue;
+    }
+    const controllerId = isNonEmptyString8(controller.id) ? controller.id : record.controllerId;
+    const claimTarget = {
+      colony: colonyName,
+      roomName: record.roomName,
+      action: "claim",
+      ...controllerId ? { controllerId } : {}
+    };
+    appendTerritoryTargetIfMissing(territoryMemory, claimTarget);
+    territoryMemory.intents = nextIntents;
+    upsertTerritoryIntent3(nextIntents, {
+      colony: colonyName,
+      targetRoom: record.roomName,
+      action: "claim",
+      status: "planned",
+      updatedAt: gameTime,
+      ...controllerId ? { controllerId } : {}
+    });
+    changed = true;
+  }
+  return { intents: nextIntents, changed };
+}
+function getExpiredPostClaimClaimRefreshRecords(territoryMemory, colonyName) {
+  const records = territoryMemory.postClaimBootstraps;
+  if (!isRecord9(records)) {
+    return [];
+  }
+  return Object.values(records).filter(
+    (record) => isPostClaimClaimRefreshRecord(record, colonyName)
+  ).sort(comparePostClaimClaimRefreshRecords);
+}
+function isPostClaimClaimRefreshRecord(record, colonyName) {
+  return isRecord9(record) && record.colony === colonyName && isNonEmptyString8(record.roomName) && record.roomName !== colonyName && isFiniteNumber7(record.claimedAt) && isFiniteNumber7(record.updatedAt) && isPostClaimRemoteMiningStatus(record.status);
+}
+function comparePostClaimClaimRefreshRecords(left, right) {
+  return left.claimedAt - right.claimedAt || left.roomName.localeCompare(right.roomName);
 }
 function getGclLevel() {
   var _a, _b;
@@ -18939,9 +19023,21 @@ function countActiveRoomDefenders(roomName) {
   }
   return Object.values(game.creeps).filter((creep) => isActiveRoomDefender(creep, roomName)).length;
 }
+function countAssignedRoomDefenders(roomName) {
+  const game = globalThis.Game;
+  if (!(game == null ? void 0 : game.creeps)) {
+    return 0;
+  }
+  return Object.values(game.creeps).filter((creep) => isAssignedRoomDefender(creep, roomName)).length;
+}
 function isActiveRoomDefender(creep, roomName) {
+  var _a;
+  return isAssignedRoomDefender(creep, roomName) && ((_a = creep.room) == null ? void 0 : _a.name) === roomName && canSatisfyDefenderSpawnCapacity(creep);
+}
+function isAssignedRoomDefender(creep, roomName) {
   var _a, _b;
-  return creep.memory.role === DEFENDER_ROLE && ((_a = creep.memory.defense) == null ? void 0 : _a.homeRoom) === roomName && ((_b = creep.room) == null ? void 0 : _b.name) === roomName && canSatisfyDefenderSpawnCapacity(creep);
+  const assignedRoom = (_b = (_a = creep.memory.defense) == null ? void 0 : _a.homeRoom) != null ? _b : creep.memory.colony;
+  return creep.memory.role === DEFENDER_ROLE && assignedRoom === roomName && canSatisfyDefenderSpawnCapacity(creep);
 }
 function canSatisfyDefenderSpawnCapacity(creep) {
   return (creep.ticksToLive === void 0 || creep.ticksToLive > 100) && hasActiveAttackPart2(creep);
@@ -19076,19 +19172,27 @@ function isClaimedRoomEnergyInsufficient(room) {
   return typeof energyAvailable !== "number" || energyAvailable < POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY;
 }
 function planDefenseSpawnForContext(context) {
-  if (!context.survival.hostilePresence || context.options.workersOnly) {
+  if (context.options.workersOnly) {
     return null;
   }
-  return planDefenseSpawnForRoom(
-    context.colony,
-    countActiveRoomDefenders(context.colony.room.name),
-    context.gameTime,
-    context.options
-  );
+  if (context.survival.hostilePresence || hasControllerAttackPressure(context.colony.room.controller)) {
+    const localDefenseSpawn = planDefenseSpawnForRoom(
+      context.colony,
+      countActiveRoomDefenders(context.colony.room.name),
+      context.gameTime,
+      context.options
+    );
+    if (localDefenseSpawn) {
+      return localDefenseSpawn;
+    }
+  }
+  return planPostClaimControllerDefenseSpawn(context);
 }
 function planDefenseSpawnForRoom(colony, activeDefenderCount, gameTime, options) {
   const hostileCount = getRoomHostileCreepCount(colony.room);
-  if (hostileCount === 0 || activeDefenderCount >= getDesiredDefenderCount(hostileCount)) {
+  const controllerUnderAttack = hasControllerAttackPressure(colony.room.controller);
+  const pressureCount = Math.max(hostileCount, controllerUnderAttack ? 1 : 0);
+  if (pressureCount === 0 || activeDefenderCount >= getDesiredDefenderCount(pressureCount)) {
     return null;
   }
   const spawn = colony.spawns.find((candidate) => !candidate.spawning);
@@ -19098,6 +19202,7 @@ function planDefenseSpawnForRoom(colony, activeDefenderCount, gameTime, options)
   const defenderPlan = planDefenderSpawn({
     roomName: colony.room.name,
     hostileCreepCount: hostileCount,
+    controllerUnderAttack,
     activeDefenderCount,
     energyAvailable: getSpawnEnergyBudget(colony),
     gameTime,
@@ -19110,6 +19215,51 @@ function planDefenseSpawnForRoom(colony, activeDefenderCount, gameTime, options)
     spawn,
     ...defenderPlan
   };
+}
+function planPostClaimControllerDefenseSpawn(context) {
+  if (context.survival.mode !== "TERRITORY_READY") {
+    return null;
+  }
+  const defensePlan = selectPostClaimControllerDefensePlan(context.colony);
+  if (!defensePlan) {
+    return null;
+  }
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+  const defenderPlan = planDefenderSpawn({
+    roomName: defensePlan.targetRoom,
+    hostileCreepCount: defensePlan.hostileCreepCount,
+    controllerUnderAttack: defensePlan.controllerUnderAttack,
+    activeDefenderCount: countAssignedRoomDefenders(defensePlan.targetRoom),
+    energyAvailable: getSpawnEnergyBudget(context.colony),
+    gameTime: context.gameTime,
+    nameSuffix: context.options.nameSuffix
+  });
+  if (!defenderPlan) {
+    return null;
+  }
+  return {
+    spawn,
+    ...defenderPlan
+  };
+}
+function selectPostClaimControllerDefensePlan(colony) {
+  var _a;
+  for (const record of getPostClaimControllerSustainRecords(colony.room.name)) {
+    const targetRoom = getVisibleRoom6(record.roomName);
+    const controllerUnderAttack = hasControllerAttackPressure(targetRoom == null ? void 0 : targetRoom.controller);
+    if (((_a = targetRoom == null ? void 0 : targetRoom.controller) == null ? void 0 : _a.my) !== true || !controllerUnderAttack) {
+      continue;
+    }
+    return {
+      targetRoom: record.roomName,
+      hostileCreepCount: getRoomHostileCreepCount(targetRoom),
+      controllerUnderAttack
+    };
+  }
+  return null;
 }
 function planRemoteEconomySpawn(context) {
   if (context.options.workersOnly || context.survival.mode !== "TERRITORY_READY" || context.workerCapacity < context.workerTarget || context.colony.energyAvailable < context.colony.energyCapacityAvailable) {
