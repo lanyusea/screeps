@@ -56,6 +56,15 @@ export const TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS = 1_500;
 export const TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS = 50;
 export const TERRITORY_RECOVERED_INTENT_SPAWN_PRIORITY = 1_000;
 export const TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND = 1;
+const GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS = (globalThis as {
+  TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS?: number;
+}).TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS;
+export const TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS =
+  typeof GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS === 'number' &&
+  Number.isFinite(GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS) &&
+  GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS > 0
+    ? Math.floor(GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS)
+    : 1_500;
 // TERRITORY_READY already proves local worker recovery; use that floor for adjacent visible controller progress.
 export const TERRITORY_ADJACENT_CONTROLLER_PROGRESS_WORKER_SURPLUS = 0;
 
@@ -1102,7 +1111,8 @@ function selectTerritoryTarget(
       gameTime,
       roleCounts,
       routeDistanceLookupContext
-    )
+    ),
+    gameTime
   );
   const persistedIntentCandidates = applyOccupationRecommendationScores(
     colony,
@@ -1115,7 +1125,8 @@ function selectTerritoryTarget(
       intents,
       gameTime,
       routeDistanceLookupContext
-    )
+    ),
+    gameTime
   );
   const primaryCandidates = getSpawnCapableTerritoryCandidates(
     filterTerritoryCandidatesForPlanningOptions(
@@ -1169,7 +1180,8 @@ function selectTerritoryTarget(
                 routeDistanceLookupContext
               )
             : [])
-        ]
+        ],
+        gameTime
       ),
       options
     );
@@ -1190,30 +1202,36 @@ function selectTerritoryTarget(
   }
 
   const adjacentCandidates = filterTerritoryCandidatesForPlanningOptions(
-    applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
-      ...getAdjacentReserveCandidates(
-        colonyName,
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        !hasBlockingConfiguredTarget,
-        'adjacent',
-        0,
-        routeDistanceLookupContext
-      ),
-      ...getAdjacentFollowUpReserveCandidates(
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        roleCounts,
-        !hasBlockingConfiguredTarget,
-        routeDistanceLookupContext
-      )
-    ]),
+    applyOccupationRecommendationScores(
+      colony,
+      roleCounts,
+      workerTarget,
+      [
+        ...getAdjacentReserveCandidates(
+          colonyName,
+          colonyName,
+          colonyOwnerUsername,
+          territoryMemory,
+          intents,
+          gameTime,
+          !hasBlockingConfiguredTarget,
+          'adjacent',
+          0,
+          routeDistanceLookupContext
+        ),
+        ...getAdjacentFollowUpReserveCandidates(
+          colonyName,
+          colonyOwnerUsername,
+          territoryMemory,
+          intents,
+          gameTime,
+          roleCounts,
+          !hasBlockingConfiguredTarget,
+          routeDistanceLookupContext
+        )
+      ],
+      gameTime
+    ),
     options
   );
   const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
@@ -2536,7 +2554,8 @@ function applyOccupationRecommendationScores(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
   workerTarget: number,
-  candidates: ScoredTerritoryTarget[]
+  candidates: ScoredTerritoryTarget[],
+  gameTime: number
 ): ScoredTerritoryTarget[] {
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller) ?? undefined;
   const adjacentControllerProgressReady = isTerritoryHomeReadyForAdjacentControllerProgress(
@@ -2554,14 +2573,14 @@ function applyOccupationRecommendationScores(
       ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
         ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
         : {}),
-      candidates: [buildOccupationRecommendationCandidate(candidate)]
+      candidates: [buildOccupationRecommendationCandidate(candidate, gameTime)]
     }).candidates[0];
 
     if (!recommendation || recommendation.evidenceStatus === 'unavailable') {
       return [];
     }
 
-    const adjacentExpansionClaimDecision = getAdjacentExpansionClaimDecision(candidate, roleCounts);
+    const adjacentExpansionClaimDecision = getAdjacentExpansionClaimDecision(candidate, roleCounts, gameTime);
 
     return [
       applyOccupationRecommendationScore(
@@ -2628,16 +2647,28 @@ type AdjacentExpansionClaimDecision = 'claim' | 'defer' | 'ignore';
 
 function getAdjacentExpansionClaimDecision(
   candidate: ScoredTerritoryTarget,
-  roleCounts: RoleCounts
+  roleCounts: RoleCounts,
+  gameTime: number
 ): AdjacentExpansionClaimDecision {
   if (!isAdjacentExpansionClaimDecisionCandidate(candidate)) {
+    return 'ignore';
+  }
+
+  if (
+    shouldRefreshExpansionCandidateScoutIntel(
+      candidate.target.colony,
+      candidate.target.roomName,
+      getTerritoryMemoryRecord(),
+      gameTime
+    )
+  ) {
     return 'ignore';
   }
 
   const scoutIntel = getFreshTerritoryScoutIntel(
     candidate.target.colony,
     candidate.target.roomName,
-    getGameTime()
+    gameTime
   );
   if (!isViableAdjacentExpansionClaimScoutIntel(scoutIntel)) {
     return 'ignore';
@@ -2815,12 +2846,20 @@ function isRecoveredTerritoryFollowUpControlCandidate(candidate: ScoredTerritory
 }
 
 function buildOccupationRecommendationCandidate(
-  candidate: ScoredTerritoryTarget
+  candidate: ScoredTerritoryTarget,
+  gameTime: number
 ): OccupationRecommendationCandidateInput {
   const room = getVisibleRoom(candidate.target.roomName);
-  const scoutIntel = room
-    ? null
-    : getFreshTerritoryScoutIntel(candidate.target.colony, candidate.target.roomName, getGameTime());
+  const scoutIntel =
+    room ||
+    shouldRefreshExpansionCandidateScoutIntel(
+      candidate.target.colony,
+      candidate.target.roomName,
+      getTerritoryMemoryRecord(),
+      gameTime
+    )
+      ? null
+      : getFreshTerritoryScoutIntel(candidate.target.colony, candidate.target.roomName, gameTime);
   return {
     roomName: candidate.target.roomName,
     source: candidate.source === 'configured' ? 'configured' : 'adjacent',
@@ -2837,6 +2876,59 @@ function buildOccupationRecommendationCandidate(
         ? buildScoutedOccupationRecommendationEvidence(scoutIntel)
         : {})
   };
+}
+
+function shouldRefreshExpansionCandidateScoutIntel(
+  colonyName: string,
+  roomName: string,
+  territoryMemory: Record<string, unknown> | null,
+  gameTime: number
+): boolean {
+  if (isVisibleRoomKnown(roomName) || !hasPersistedAdjacentExpansionCandidate(colonyName, roomName, territoryMemory)) {
+    return false;
+  }
+
+  const scoutIntel = getTerritoryScoutIntel(colonyName, roomName);
+  if (!scoutIntel) {
+    return true;
+  }
+
+  return isTerritoryScoutIntelStaleForExpansionCandidate(scoutIntel, gameTime);
+}
+
+function hasPersistedAdjacentExpansionCandidate(
+  colonyName: string,
+  roomName: string,
+  territoryMemory: Record<string, unknown> | null
+): boolean {
+  if (!territoryMemory || !Array.isArray(territoryMemory.expansionCandidates)) {
+    return false;
+  }
+
+  return territoryMemory.expansionCandidates.some((rawCandidate) => {
+    if (!isRecord(rawCandidate)) {
+      return false;
+    }
+
+    return (
+      rawCandidate.colony === colonyName &&
+      rawCandidate.roomName === roomName &&
+      rawCandidate.adjacentToOwnedRoom === true &&
+      rawCandidate.evidenceStatus !== 'unavailable' &&
+      (rawCandidate.recommendedAction === 'claim' || rawCandidate.recommendedAction === 'scout')
+    );
+  });
+}
+
+function isTerritoryScoutIntelStaleForExpansionCandidate(
+  scoutIntel: TerritoryScoutIntelMemory,
+  gameTime: number
+): boolean {
+  if (gameTime < scoutIntel.updatedAt) {
+    return false;
+  }
+
+  return gameTime - scoutIntel.updatedAt > TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS;
 }
 
 function getFreshTerritoryScoutIntel(
