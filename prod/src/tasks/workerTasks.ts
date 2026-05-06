@@ -59,6 +59,7 @@ const MIN_LOADED_WORKERS_FOR_TERRITORY_PRESSURE = 1;
 const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 const MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT = 10;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
+const MIN_NEARBY_LINK_REFILL_ENERGY = 1;
 const COMPETITIVE_CONTAINER_WITHDRAW_MIN_ENERGY = 200;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
@@ -264,6 +265,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       const competitiveContainerEnergyAcquisitionTask = selectCompetitiveContainerEnergyAcquisitionTask(creep);
       if (competitiveContainerEnergyAcquisitionTask) {
         return competitiveContainerEnergyAcquisitionTask;
+      }
+
+      const nearbyLinkRefillTask = selectNearbyWorkerLinkRefillTask(creep);
+      if (nearbyLinkRefillTask) {
+        return nearbyLinkRefillTask;
       }
 
       const source2ControllerLaneHarvestTask = selectSource2ControllerLaneHarvestTask(creep);
@@ -2292,6 +2298,7 @@ interface WorkerEnergyAcquisitionReservationContext {
 interface WorkerEnergyAcquisitionSearchOptions {
   maximumRange?: number;
   minimumDroppedEnergy?: number;
+  minimumLinkEnergy?: number;
 }
 
 function selectWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
@@ -2446,6 +2453,11 @@ export function selectWorkerEnergyFallbackTask(creep: Creep): CreepTaskMemory | 
     return linkEnergyAcquisitionTask;
   }
 
+  const nearbyLinkRefillTask = selectNearbyWorkerLinkRefillTask(creep);
+  if (nearbyLinkRefillTask) {
+    return nearbyLinkRefillTask;
+  }
+
   const source = selectHarvestSource(creep);
   if (source) {
     return { type: 'harvest', targetId: source.id };
@@ -2468,6 +2480,10 @@ function selectNearbyWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcqu
   }
 
   return candidates.sort(compareNearbyWorkerEnergyAcquisitionCandidates)[0].task;
+}
+
+function selectNearbyWorkerLinkRefillTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
+  return findNearestNearbyWorkerLinkRefillCandidate(creep)?.task ?? null;
 }
 
 function selectCompetitiveContainerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
@@ -2621,11 +2637,13 @@ function findLowLoadWorkerEnergyContinuationCandidates(
   creep: Creep
 ): LowLoadWorkerEnergyAcquisitionCandidate[] {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const nearbyLinkRefillCandidate = findNearestNearbyWorkerLinkRefillCandidate(creep, reservationContext);
   // Use the normal candidate set so continuation can take close energy beyond the nearby-only fast path.
   return [
     ...findWorkerEnergyAcquisitionCandidates(creep, {
       maximumRange: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
     }).map(toLowLoadWorkerEnergyAcquisitionCandidate),
+    ...(nearbyLinkRefillCandidate ? [toNearbyWorkerLinkRefillCandidate(nearbyLinkRefillCandidate)] : []),
     ...findLowLoadHarvestEnergyAcquisitionCandidates(creep),
     ...findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext, {
       maximumRange: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
@@ -2635,11 +2653,13 @@ function findLowLoadWorkerEnergyContinuationCandidates(
 
 function findLowLoadWorkerEnergyAcquisitionCandidates(creep: Creep): LowLoadWorkerEnergyAcquisitionCandidate[] {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const nearbyLinkRefillCandidate = findNearestNearbyWorkerLinkRefillCandidate(creep, reservationContext);
 
   return [
     ...findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep, reservationContext),
     ...findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep, reservationContext),
     ...findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep, reservationContext),
+    ...(nearbyLinkRefillCandidate ? [toNearbyWorkerLinkRefillCandidate(nearbyLinkRefillCandidate)] : []),
     ...findLowLoadHarvestEnergyAcquisitionCandidates(creep),
     ...findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext, {
       maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE
@@ -2746,6 +2766,15 @@ function toLowLoadWorkerEnergyAcquisitionCandidate(
   candidate: WorkerEnergyAcquisitionCandidate
 ): LowLoadWorkerEnergyAcquisitionCandidate {
   return candidate;
+}
+
+function toNearbyWorkerLinkRefillCandidate(
+  candidate: WorkerEnergyAcquisitionCandidate
+): LowLoadWorkerEnergyAcquisitionCandidate {
+  return {
+    ...candidate,
+    priority: 1
+  };
 }
 
 function findLowLoadHarvestEnergyAcquisitionCandidates(creep: Creep): LowLoadWorkerEnergyAcquisitionCandidate[] {
@@ -2964,7 +2993,7 @@ function findWorkerLinkEnergyAcquisitionCandidates(
   reservationContext = createWorkerEnergyAcquisitionReservationContext(creep),
   options: WorkerEnergyAcquisitionSearchOptions = {}
 ): WorkerEnergyAcquisitionCandidate[] {
-  const minimumLinkEnergy = getMinimumWorkerLinkWithdrawalEnergy(creep);
+  const minimumLinkEnergy = options.minimumLinkEnergy ?? getMinimumWorkerLinkWithdrawalEnergy(creep);
   const workerLinks = findOwnedWorkerEnergyLinks(creep.room);
   if (workerLinks.length === 0) {
     return [];
@@ -2990,6 +3019,29 @@ function findWorkerLinkEnergyAcquisitionCandidates(
     })
     .filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options))
     .sort(compareWorkerLinkEnergyAcquisitionCandidates);
+}
+
+function findNearestNearbyWorkerLinkRefillCandidate(
+  creep: Creep,
+  reservationContext = createWorkerEnergyAcquisitionReservationContext(creep)
+): WorkerEnergyAcquisitionCandidate | null {
+  if (!hasLowEnergyForNearbyLinkRefill(creep)) {
+    return null;
+  }
+
+  return (
+    findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext, {
+      maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE,
+      minimumLinkEnergy: MIN_NEARBY_LINK_REFILL_ENERGY
+    })[0] ?? null
+  );
+}
+
+function hasLowEnergyForNearbyLinkRefill(creep: Creep): boolean {
+  const carriedEnergy = getUsedEnergy(creep);
+  const freeCapacity = getFreeEnergyCapacity(creep);
+  const capacity = getEnergyCapacity(creep, carriedEnergy, freeCapacity);
+  return freeCapacity > 0 && capacity > 0 && carriedEnergy < capacity * MINIMUM_USEFUL_LOAD_RATIO;
 }
 
 function findOwnedWorkerEnergyLinks(room: Room): StructureLink[] {

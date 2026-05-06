@@ -1663,7 +1663,7 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-near' });
   });
 
-  it('keeps harvesting when a nearby link cannot fill the worker load', () => {
+  it('withdraws from a nearby link with available energy before harvesting', () => {
     const source = makeSource('source-far', 30, 30, 300);
     const link = makeStoredEnergyLink('link-low', 11, 10, 49);
     const room = makeWorkerTaskRoom({
@@ -1681,7 +1681,7 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-far' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-low' });
   });
 
   it('withdraws from containers before falling back to link energy', () => {
@@ -4448,6 +4448,98 @@ describe('selectWorkerTask', () => {
       range: 2
     });
     expect(findPathTo).not.toHaveBeenCalled();
+  });
+
+  it('refills a low-load worker from a nearby link before a distant harvest source', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const source = { id: 'source1', energy: 300 } as Source;
+    const link = makeStoredEnergyLink('link-near', 11, 10, 20);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'link-near': 2,
+        source1: 6
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      controller,
+      myStructures: [link as AnyOwnedStructure],
+      sources: [source]
+    });
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getCapacity: jest.fn().mockReturnValue(50),
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 337 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-near' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 337,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'withdraw',
+      targetId: 'link-near',
+      energy: 20,
+      range: 2
+    });
+  });
+
+  it('ignores low-load link refill options beyond nearby range', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const source = { id: 'source1', energy: 300 } as Source;
+    const link = makeStoredEnergyLink('link-mid', 11, 10, 20);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'link-mid': LOW_LOAD_NEARBY_ENERGY_RANGE + 1,
+        source1: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      controller,
+      myStructures: [link as AnyOwnedStructure],
+      sources: [source]
+    });
+    const creep = {
+      memory: { role: 'worker' },
+      store: {
+        getCapacity: jest.fn().mockReturnValue(50),
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 338 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 338,
+      carriedEnergy: 10,
+      freeCapacity: 40,
+      selectedTask: 'harvest',
+      targetId: 'source1',
+      energy: 300,
+      range: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+    });
   });
 
   it('lets emergency spawn refill preempt the minimum useful load requirement', () => {
