@@ -7,7 +7,7 @@ import {
   selectWorkerTask,
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
 } from '../tasks/workerTasks';
-import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
+import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
@@ -1105,8 +1105,7 @@ function executeTask(
 
       return toTaskExecutionResult(creep.reserveController(target as StructureController), 'work');
     case 'upgrade':
-      signOccupiedControllerIfNeeded(creep, target as StructureController);
-      return toTaskExecutionResult(creep.upgradeController(target as StructureController), 'work');
+      return toTaskExecutionResult(runUpgrader(creep, target as StructureController), 'work');
   }
 }
 

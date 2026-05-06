@@ -50,6 +50,10 @@ import {
   buildMultiRoomUpgraderMemory,
   selectMultiRoomUpgradePlans
 } from '../territory/multiRoomUpgrader';
+import {
+  buildControllerUpgradeCreepMemory,
+  selectControllerUpgradeSpawnDemand
+} from '../territory/controllerManager';
 import { isLiveTransferCandidate } from '../economy/crossRoomHauler';
 
 type SpawnPriorityTier =
@@ -60,6 +64,7 @@ type SpawnPriorityTier =
   | 'postClaimControllerSustain'
   | 'remoteEconomy'
   | 'territoryRemote'
+  | 'controllerUpgradeDemand'
   | 'multiRoomControllerUpgrade'
   | 'controllerUpgradeSurplus';
 
@@ -127,6 +132,7 @@ const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'postClaimControllerSustain',
   'remoteEconomy',
   'territoryRemote',
+  'controllerUpgradeDemand',
   'multiRoomControllerUpgrade',
   'controllerUpgradeSurplus'
 ];
@@ -222,6 +228,8 @@ function planSpawnForPriorityTier(
       return planDefenseSpawnForContext(context);
     case 'territoryRemote':
       return planTerritoryRemoteSpawn(context);
+    case 'controllerUpgradeDemand':
+      return planControllerUpgradeDemandSpawn(context);
     case 'multiRoomControllerUpgrade':
       return planMultiRoomControllerUpgradeSpawn(context);
     case 'controllerUpgradeSurplus':
@@ -792,6 +800,48 @@ function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): Spawn
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
 }
 
+function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.territoryIntentPending ||
+    context.survival.mode !== 'TERRITORY_READY' ||
+    hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
+    (context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony))
+  ) {
+    return null;
+  }
+
+  const demand = selectControllerUpgradeSpawnDemand(
+    context.colony,
+    context.roleCounts,
+    context.workerTarget,
+    context.gameTime,
+    { allowReservedSpawnEnergy: isWorkerOnlyFollowUpPass(context.options) }
+  );
+  if (!demand) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const body = selectWorkerBody(context.colony, context.roleCounts);
+  if (body.length === 0) {
+    return null;
+  }
+
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(
+      `worker-${context.colony.room.name}-controller-upgrader-${context.gameTime}`,
+      context.options
+    ),
+    memory: buildControllerUpgradeCreepMemory(demand, context.gameTime)
+  };
+}
+
 function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.options.workersOnly ||
@@ -1038,6 +1088,10 @@ function planWorkerSpawnWithBody(
 
 function appendSpawnNameSuffix(baseName: string, options: SpawnPlanningOptions): string {
   return options.nameSuffix ? `${baseName}-${options.nameSuffix}` : baseName;
+}
+
+function isWorkerOnlyFollowUpPass(options: SpawnPlanningOptions): boolean {
+  return options.workersOnly === true && isNonEmptyString(options.nameSuffix);
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {

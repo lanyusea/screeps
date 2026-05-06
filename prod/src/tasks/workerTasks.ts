@@ -4,6 +4,9 @@ import {
   selectVisibleTerritoryControllerTask
 } from '../territory/territoryPlanner';
 import {
+  getControllerUpgradePriority
+} from '../creeps/upgraderRunner';
+import {
   getRecordedColonySurvivalAssessment,
   suppressesBootstrapNonCriticalWork,
   suppressesTerritoryWork,
@@ -380,6 +383,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulLoadPolicy(creep, controllerSustainUpgradeTask);
   }
 
+  const managedControllerUpgradeTask = selectManagedControllerUpgradeTask(creep, controller, carriedEnergy);
+  if (managedControllerUpgradeTask) {
+    return applyMinimumUsefulLoadPolicy(creep, managedControllerUpgradeTask);
+  }
+
   const constructionSites = creep.room.find(FIND_CONSTRUCTION_SITES);
   const constructionReservationContext =
     constructionSites.length > 0
@@ -604,6 +612,26 @@ function selectControllerSustainUpgradeTask(
   return { type: 'upgrade', targetId: controller.id };
 }
 
+function selectManagedControllerUpgradeTask(
+  creep: Creep,
+  controller: StructureController | undefined,
+  carriedEnergy: number
+): Extract<CreepTaskMemory, { type: 'upgrade' }> | null {
+  const upgrade = creep.memory?.controllerUpgrade;
+  if (
+    carriedEnergy <= 0 ||
+    !upgrade ||
+    upgrade.roomName !== creep.room?.name ||
+    controller?.my !== true ||
+    controller.id !== upgrade.controllerId ||
+    !canUpgradeController(controller)
+  ) {
+    return null;
+  }
+
+  return { type: 'upgrade', targetId: controller.id };
+}
+
 function selectUpgraderBoostUpgradeTask(
   creep: Creep,
   controller: StructureController | undefined,
@@ -669,7 +697,11 @@ export function isUpgraderBoostActive(
 }
 
 function isUpgraderCreep(creep: Creep): boolean {
-  return creep.memory?.role === 'upgrader' || creep.memory?.controllerSustain?.role === 'upgrader';
+  return (
+    creep.memory?.role === 'upgrader' ||
+    creep.memory?.controllerSustain?.role === 'upgrader' ||
+    creep.memory?.controllerUpgrade !== undefined
+  );
 }
 
 function isControllerNearLevelUp(controller: StructureController | undefined): controller is StructureController {
@@ -4204,7 +4236,17 @@ function shouldUseSurplusForControllerProgress(creep: Creep, controller: Structu
     return true;
   }
 
-  if (controller.my === true && controller.level >= 2 && hasRecoverableSurplusEnergy(creep)) {
+  const hasRecoverableEnergySurplus = hasRecoverableSurplusEnergy(creep);
+  const upgradePriority = getControllerUpgradePriority(controller, {
+    energyAvailable: getRoomEnergyAvailable(creep.room) ?? undefined,
+    energyCapacityAvailable: getRoomEnergyCapacityAvailable(creep.room) ?? undefined,
+    hasEnergySurplus: hasRecoverableEnergySurplus
+  });
+  if (
+    controller.my === true &&
+    controller.level >= 2 &&
+    (upgradePriority === 'rclProgress' || upgradePriority === 'energySurplus')
+  ) {
     return true;
   }
 
