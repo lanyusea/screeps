@@ -4895,7 +4895,10 @@ function buildRuntimeExpansionCandidateReport(colony) {
 }
 function scoreExpansionCandidates(input) {
   var _a;
-  const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map((candidate) => scoreExpansionCandidate(input, candidate)).sort(compareExpansionCandidates);
+  const gameTime = getGameTime7();
+  const candidates = input.candidates.filter((candidate) => candidate.roomName !== input.colonyName).map(
+    (candidate) => scoreExpansionCandidate(input, applyScoutIntelToExpansionCandidate(input, candidate, gameTime))
+  ).sort(compareExpansionCandidates);
   const next = (_a = candidates.find((candidate) => candidate.evidenceStatus !== "unavailable")) != null ? _a : null;
   return attachExpansionCandidateReportColony({ candidates, next }, input.colonyName);
 }
@@ -5095,6 +5098,33 @@ function buildScoutedExpansionCandidateEvidence(intel) {
     hostileStructureCount: intel.hostileStructureCount + ((_b = intel.hostileSpawnCount) != null ? _b : 0)
   };
 }
+function applyScoutIntelToExpansionCandidate(input, candidate, gameTime) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+  const intel = getFreshExpansionScoutIntel(input.colonyName, candidate.roomName, gameTime);
+  if (!intel) {
+    return candidate;
+  }
+  const scoutEvidence = buildScoutedExpansionCandidateEvidence(intel);
+  const controller = hasExpansionControllerEvidence(candidate.controller) ? candidate.controller : scoutEvidence.controller;
+  const sourceCount = candidate.sourceCount === 0 ? scoutEvidence.sourceCount : (_a = candidate.sourceCount) != null ? _a : scoutEvidence.sourceCount;
+  return {
+    ...candidate,
+    visible: (_b = candidate.visible) != null ? _b : scoutEvidence.visible,
+    scouted: (_c = candidate.scouted) != null ? _c : scoutEvidence.scouted,
+    controller,
+    controllerId: (_d = candidate.controllerId) != null ? _d : scoutEvidence.controllerId,
+    sourceCount,
+    sourceAccessPoints: (_e = candidate.sourceAccessPoints) != null ? _e : scoutEvidence.sourceAccessPoints,
+    controllerSourceRange: (_f = candidate.controllerSourceRange) != null ? _f : scoutEvidence.controllerSourceRange,
+    terrain: (_g = candidate.terrain) != null ? _g : scoutEvidence.terrain,
+    mineral: (_h = candidate.mineral) != null ? _h : scoutEvidence.mineral,
+    hostileCreepCount: (_i = candidate.hostileCreepCount) != null ? _i : scoutEvidence.hostileCreepCount,
+    hostileStructureCount: (_j = candidate.hostileStructureCount) != null ? _j : scoutEvidence.hostileStructureCount
+  };
+}
+function hasExpansionControllerEvidence(controller) {
+  return controller !== void 0 && Object.keys(controller).length > 0;
+}
 function scoreExpansionCandidate(input, candidate) {
   var _a, _b, _c;
   const rationale = [];
@@ -5162,7 +5192,7 @@ function scoreExpansionCandidate(input, candidate) {
     evidenceStatus = downgradeEvidenceStatus(evidenceStatus, "insufficient-evidence");
   }
   if (hostileCreepCount > 0 || hostileStructureCount > 0) {
-    risks.push("hostile presence visible");
+    risks.push(`hostile presence ${evidenceAdjective}`);
     evidenceStatus = "unavailable";
   }
   if (typeof routeDistance === "number") {
@@ -21333,9 +21363,6 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
   if (isAutonomousClaimSuppressed(colonyName, candidate.roomName, gameTime, context.territoryIntents)) {
     return { ...visibleControllerEvaluation, reason: "suppressed" };
   }
-  if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
-    return { ...visibleControllerEvaluation, reason: "scoreBelowThreshold" };
-  }
   const scoutValidation = validateTerritoryScoutIntelForClaim({
     colony: colonyName,
     targetRoom: candidate.roomName,
@@ -21348,6 +21375,24 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
     ...baseEvaluation,
     ...typeof controllerId === "string" ? { controllerId } : {}
   };
+  if (scoutValidation.status === "blocked") {
+    recordTerritoryScoutValidation(
+      colonyName,
+      candidate.roomName,
+      scoutValidation,
+      gameTime,
+      telemetryEvents,
+      controllerEvaluation.controllerId,
+      candidate.score
+    );
+    return {
+      ...controllerEvaluation,
+      reason: getScoutValidationClaimSkipReason(scoutValidation)
+    };
+  }
+  if (candidate.score <= MIN_AUTONOMOUS_EXPANSION_CLAIM_SCORE) {
+    return { ...visibleControllerEvaluation, reason: "scoreBelowThreshold" };
+  }
   recordTerritoryScoutValidation(
     colonyName,
     candidate.roomName,
@@ -21366,12 +21411,6 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
       controllerEvaluation.controllerId
     );
     return { ...controllerEvaluation, reason: "scoutPending" };
-  }
-  if (scoutValidation.status === "blocked") {
-    return {
-      ...controllerEvaluation,
-      reason: getScoutValidationClaimSkipReason(scoutValidation)
-    };
   }
   return {
     status: "planned",
@@ -23002,7 +23041,8 @@ function selectColonyExpansionCandidate(colony) {
   const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, ownerUsername);
   const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString18(room.mineralType));
   const candidates = getAdjacentRoomNames8(colony.room.name).flatMap((roomName, order) => {
-    if (!getVisibleRoom11(roomName)) {
+    const room = getVisibleRoom11(roomName);
+    if (!room && !getScoutIntel3(colony.room.name, roomName)) {
       return [];
     }
     const claimScore = scoreClaimTarget(roomName, colony.room);
@@ -23042,7 +23082,7 @@ function selectColonyExpansionCandidate(colony) {
     (candidate) => candidate.effectiveScore >= MIN_COLONY_EXPANSION_CLAIM_SCORE
   );
   if (claimableCandidates.length > 0) {
-    applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, claimableCandidates);
+    applyColonyExpansionRankingScores(colony, ownerUsername, claimedRooms, claimableCandidates);
     return selectBestColonyExpansionCandidate(claimableCandidates, compareColonyExpansionCandidates);
   }
   return selectBestColonyExpansionCandidate(candidates, compareColonyExpansionCandidatesByEffectiveScore);
@@ -23062,8 +23102,8 @@ function compareColonyExpansionCandidates(left, right) {
 function compareColonyExpansionCandidatesByEffectiveScore(left, right) {
   return right.effectiveScore - left.effectiveScore || right.claimScore.sources - left.claimScore.sources || left.claimScore.distance - right.claimScore.distance || left.order - right.order || left.roomName.localeCompare(right.roomName);
 }
-function applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, candidates) {
-  var _a, _b, _c;
+function applyColonyExpansionRankingScores(colony, ownerUsername, claimedRooms, candidates) {
+  var _a, _b, _c, _d;
   if (candidates.length === 0) {
     return;
   }
@@ -23077,12 +23117,16 @@ function applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, 
     claimedRooms,
     candidates: candidates.map((candidate) => candidate.expansionCandidate)
   });
-  const synergyScoresByRoom = new Map(
-    report.candidates.map((candidate) => [candidate.roomName, candidate.synergyScore])
+  const expansionScoresByRoom = new Map(
+    report.candidates.map((candidate) => [
+      candidate.roomName,
+      { score: candidate.score, synergyScore: candidate.synergyScore }
+    ])
   );
   for (const candidate of candidates) {
-    candidate.synergyScore = (_c = synergyScoresByRoom.get(candidate.roomName)) != null ? _c : 0;
-    candidate.rankingScore = candidate.effectiveScore + candidate.synergyScore;
+    const expansionScore = expansionScoresByRoom.get(candidate.roomName);
+    candidate.synergyScore = (_c = expansionScore == null ? void 0 : expansionScore.synergyScore) != null ? _c : 0;
+    candidate.rankingScore = (_d = expansionScore == null ? void 0 : expansionScore.score) != null ? _d : candidate.effectiveScore + candidate.synergyScore;
   }
 }
 function toColonyExpansionCandidateInput(colonyName, roomName, order, claimScore, controllerState, ownerUsername, includeMineralSynergyEvidence) {
@@ -23319,8 +23363,8 @@ function getVisibleRoom11(roomName) {
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
 function getScoutIntel3(homeRoomName, roomName) {
-  var _a, _b, _c;
-  return (_c = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.scoutIntel) == null ? void 0 : _c[`${homeRoomName}>${roomName}`];
+  var _a;
+  return (_a = getTerritoryScoutIntel(homeRoomName, roomName)) != null ? _a : void 0;
 }
 function countVisibleOwnedRooms3(colonyName, ownerUsername) {
   var _a, _b, _c, _d;

@@ -172,9 +172,12 @@ export function buildRuntimeExpansionCandidateReport(colony: ColonySnapshot): Ex
 }
 
 export function scoreExpansionCandidates(input: ExpansionScoringInput): ExpansionCandidateReport {
+  const gameTime = getGameTime();
   const candidates = input.candidates
     .filter((candidate) => candidate.roomName !== input.colonyName)
-    .map((candidate) => scoreExpansionCandidate(input, candidate))
+    .map((candidate) =>
+      scoreExpansionCandidate(input, applyScoutIntelToExpansionCandidate(input, candidate, gameTime))
+    )
     .sort(compareExpansionCandidates);
   const next = candidates.find((candidate) => candidate.evidenceStatus !== 'unavailable') ?? null;
 
@@ -422,6 +425,46 @@ function buildScoutedExpansionCandidateEvidence(
   };
 }
 
+function applyScoutIntelToExpansionCandidate(
+  input: ExpansionScoringInput,
+  candidate: ExpansionCandidateInput,
+  gameTime: number
+): ExpansionCandidateInput {
+  const intel = getFreshExpansionScoutIntel(input.colonyName, candidate.roomName, gameTime);
+  if (!intel) {
+    return candidate;
+  }
+
+  const scoutEvidence = buildScoutedExpansionCandidateEvidence(intel);
+  const controller = hasExpansionControllerEvidence(candidate.controller)
+    ? candidate.controller
+    : scoutEvidence.controller;
+  const sourceCount = candidate.sourceCount === 0
+    ? scoutEvidence.sourceCount
+    : candidate.sourceCount ?? scoutEvidence.sourceCount;
+
+  return {
+    ...candidate,
+    visible: candidate.visible ?? scoutEvidence.visible,
+    scouted: candidate.scouted ?? scoutEvidence.scouted,
+    controller,
+    controllerId: candidate.controllerId ?? scoutEvidence.controllerId,
+    sourceCount,
+    sourceAccessPoints: candidate.sourceAccessPoints ?? scoutEvidence.sourceAccessPoints,
+    controllerSourceRange: candidate.controllerSourceRange ?? scoutEvidence.controllerSourceRange,
+    terrain: candidate.terrain ?? scoutEvidence.terrain,
+    mineral: candidate.mineral ?? scoutEvidence.mineral,
+    hostileCreepCount: candidate.hostileCreepCount ?? scoutEvidence.hostileCreepCount,
+    hostileStructureCount: candidate.hostileStructureCount ?? scoutEvidence.hostileStructureCount
+  };
+}
+
+function hasExpansionControllerEvidence(
+  controller: ExpansionControllerEvidence | undefined
+): controller is ExpansionControllerEvidence {
+  return controller !== undefined && Object.keys(controller).length > 0;
+}
+
 function scoreExpansionCandidate(
   input: ExpansionScoringInput,
   candidate: ExpansionCandidateInput
@@ -506,7 +549,7 @@ function scoreExpansionCandidate(
     evidenceStatus = downgradeEvidenceStatus(evidenceStatus, 'insufficient-evidence');
   }
   if (hostileCreepCount > 0 || hostileStructureCount > 0) {
-    risks.push('hostile presence visible');
+    risks.push(`hostile presence ${evidenceAdjective}`);
     evidenceStatus = 'unavailable';
   }
 
