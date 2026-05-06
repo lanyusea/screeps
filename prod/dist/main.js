@@ -10015,7 +10015,13 @@ function selectHeuristicWorkerTask(creep) {
       }
     }
     const source = selectHarvestSource(creep);
-    return source ? { type: "harvest", targetId: source.id } : null;
+    if (source) {
+      return { type: "harvest", targetId: source.id };
+    }
+    if (getFreeEnergyCapacity3(creep) > 0) {
+      return selectWorkerLinkEnergyFallbackTask(creep);
+    }
+    return null;
   }
   if (urgentReservationRenewalTask) {
     return urgentReservationRenewalTask;
@@ -11497,11 +11503,15 @@ function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
   return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence(creep.room);
 }
 function findLowLoadWorkerEnergyContinuationCandidates(creep) {
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
   return [
     ...findWorkerEnergyAcquisitionCandidates(creep, {
       maximumRange: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
     }).map(toLowLoadWorkerEnergyAcquisitionCandidate),
-    ...findLowLoadHarvestEnergyAcquisitionCandidates(creep)
+    ...findLowLoadHarvestEnergyAcquisitionCandidates(creep),
+    ...findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext, {
+      maximumRange: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+    }).map(toLowLoadWorkerEnergyAcquisitionCandidate)
   ];
 }
 function findLowLoadWorkerEnergyAcquisitionCandidates(creep) {
@@ -11510,7 +11520,10 @@ function findLowLoadWorkerEnergyAcquisitionCandidates(creep) {
     ...findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep, reservationContext),
     ...findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep, reservationContext),
     ...findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep, reservationContext),
-    ...findLowLoadHarvestEnergyAcquisitionCandidates(creep)
+    ...findLowLoadHarvestEnergyAcquisitionCandidates(creep),
+    ...findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext, {
+      maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE
+    }).map(toLowLoadWorkerEnergyAcquisitionCandidate)
   ];
 }
 function findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep, reservationContext) {
@@ -11519,7 +11532,9 @@ function findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep, reservationCo
     hasHostilePresence: hasVisibleHostilePresence(creep.room),
     room: creep.room
   };
-  return findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).flatMap((source) => {
+  return findVisibleRoomStructures(creep.room).filter(
+    (structure) => isSafeStoredEnergySource(structure, context) && !isLinkEnergySource(structure)
+  ).filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source)).flatMap((source) => {
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
       creep,
       source,
@@ -11660,7 +11675,9 @@ function findWorkerEnergyAcquisitionCandidates(creep, options = {}) {
     room: creep.room
   };
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
-  const storedEnergyCandidates = findVisibleRoomStructures(creep.room).filter((structure) => isSafeStoredEnergySource(structure, context)).flatMap((source) => {
+  const storedEnergyCandidates = findVisibleRoomStructures(creep.room).filter(
+    (structure) => isSafeStoredEnergySource(structure, context) && !isLinkEnergySource(structure)
+  ).flatMap((source) => {
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
       creep,
       source,
@@ -11689,6 +11706,34 @@ function findWorkerEnergyAcquisitionCandidates(creep, options = {}) {
   }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options));
   const droppedEnergyCandidates = findDroppedEnergyAcquisitionCandidates(creep, reservationContext, options);
   return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
+}
+function selectWorkerLinkEnergyFallbackTask(creep) {
+  var _a, _b;
+  return (_b = (_a = findWorkerLinkEnergyAcquisitionCandidates(creep)[0]) == null ? void 0 : _a.task) != null ? _b : null;
+}
+function findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext = createWorkerEnergyAcquisitionReservationContext(creep), options = {}) {
+  return findOwnedWorkerEnergyLinks(creep.room).flatMap((source) => {
+    const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getStoredEnergy4(source),
+      {
+        type: "withdraw",
+        targetId: source.id
+      },
+      reservationContext
+    );
+    return candidate ? [candidate] : [];
+  }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options)).sort(compareWorkerLinkEnergyAcquisitionCandidates);
+}
+function findOwnedWorkerEnergyLinks(room) {
+  if (typeof FIND_MY_STRUCTURES !== "number" || typeof room.find !== "function") {
+    return [];
+  }
+  const structures = room.find(FIND_MY_STRUCTURES, {
+    filter: (structure) => isLinkEnergySource(structure) && getStoredEnergy4(structure) > 0
+  });
+  return Array.isArray(structures) ? structures : [];
 }
 function findDroppedEnergyAcquisitionCandidates(creep, reservationContext, options = {}) {
   var _a;
@@ -11739,13 +11784,17 @@ function getWorkerEnergyAcquisitionPriority(creep, source, energy, range) {
   if (isContainerEnergySource(source) && range !== null && range <= LOW_LOAD_NEARBY_ENERGY_RANGE && energy >= Math.max(1, getFreeEnergyCapacity3(creep))) {
     return 0;
   }
-  return isDurableStoredEnergySource(source) ? 2 : 1;
+  return isDurableStoredEnergySource(source) || isLinkEnergySource(source) ? 2 : 1;
 }
 function isContainerEnergySource(source) {
   return isStructureEnergySourceType(source, "STRUCTURE_CONTAINER", "container");
 }
 function isStorageEnergySource(source) {
   return isStructureEnergySourceType(source, "STRUCTURE_STORAGE", "storage");
+}
+function isLinkEnergySource(source) {
+  const structureType = source == null ? void 0 : source.structureType;
+  return matchesStructureType9(typeof structureType === "string" ? structureType : void 0, "STRUCTURE_LINK", "link");
 }
 function isPreferredNearbyWorkerEnergySource(source) {
   return isContainerEnergySource(source) || isStorageEnergySource(source) || isWorkerDroppedEnergySource(source) || "ticksToDecay" in source;
@@ -11941,6 +11990,9 @@ function compareNearbyWorkerEnergyAcquisitionCandidates(left, right) {
 }
 function compareDroppedEnergyReachabilityPriority(left, right) {
   return compareOptionalRanges(left.range, right.range) || right.energy - left.energy || right.score - left.score || String(left.source.id).localeCompare(String(right.source.id));
+}
+function compareWorkerLinkEnergyAcquisitionCandidates(left, right) {
+  return right.energy - left.energy || compareOptionalRanges(left.range, right.range) || String(left.source.id).localeCompare(String(right.source.id));
 }
 function compareSpawnRecoveryEnergyAcquisitionCandidates(left, right) {
   return left.deliveryEta - right.deliveryEta || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
