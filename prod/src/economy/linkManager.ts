@@ -18,6 +18,7 @@ export interface LinkNetwork {
   sourceLinks: StructureLink[];
   controllerLink: StructureLink | null;
   storageLink: StructureLink | null;
+  storage: StructureStorage | null;
 }
 
 export interface LinkTransferResult {
@@ -39,26 +40,81 @@ export function transferEnergy(room: Room): LinkTransferResult[] {
     return [];
   }
 
-  const destinationLinks = getDestinationLinks(network);
-  if (destinationLinks.length === 0) {
-    return [];
-  }
-
   const projectedState = createProjectedLinkState(network.links);
   const results: LinkTransferResult[] = [];
+  const spentSourceIds = new Set<string>();
 
-  for (const sourceLink of sortLinksByEnergy(network.sourceLinks, projectedState)) {
-    if (!canLinkSendEnergy(sourceLink, projectedState)) {
-      continue;
-    }
+  if (shouldControllerLinkReceiveEnergy(room, network.controllerLink, projectedState)) {
+    transferSourceLinksToDestination(
+      sortSourceLinksByDistanceToDestination(network.sourceLinks, network.controllerLink),
+      { link: network.controllerLink, role: 'controller' },
+      projectedState,
+      spentSourceIds,
+      results
+    );
+  }
 
-    const destination = selectDestinationLink(sourceLink, destinationLinks, projectedState);
-    if (!destination) {
-      continue;
-    }
+  if (shouldStorageLinkReceiveSurplus(network, projectedState)) {
+    transferSourceLinksToDestination(
+      sortSourceLinksBySurplusPriority(network.sourceLinks, network.storageLink, projectedState),
+      { link: network.storageLink, role: 'storage' },
+      projectedState,
+      spentSourceIds,
+      results
+    );
+  }
 
+  return results;
+}
+
+export function classifyLinks(room: Room): LinkNetwork {
+  const links = findOwnedLinks(room);
+  const controllerLink = selectControllerLink(room, links);
+  const storage = room.storage ?? findStorage(room);
+  const storageLink = selectStorageLink(room, links, controllerLink, storage);
+  const destinationIds = new Set(
+    [controllerLink, storageLink]
+      .filter((link): link is StructureLink => link !== null)
+      .map((link) => getObjectId(link))
+  );
+
+  return {
+    links,
+    sourceLinks: selectSourceLinks(room, links, destinationIds),
+    controllerLink,
+    storageLink,
+    storage
+  };
+}
+
+export function isSourceLink(room: Room, link: StructureLink): boolean {
+  const linkId = getObjectId(link);
+  return linkId !== '' && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId(sourceLink) === linkId);
+}
+
+function transferLinkEnergy(sourceLink: StructureLink, destinationLink: StructureLink, amount: number): ScreepsReturnCode {
+  return sourceLink.transferEnergy(destinationLink, amount);
+}
+
+function transferSourceLinksToDestination(
+  sourceLinks: StructureLink[],
+  destination: { link: StructureLink; role: LinkDestinationRole },
+  projectedState: ProjectedLinkState,
+  spentSourceIds: Set<string>,
+  results: LinkTransferResult[]
+): void {
+  const destinationId = getObjectId(destination.link);
+
+  for (const sourceLink of sourceLinks) {
     const sourceId = getObjectId(sourceLink);
-    const destinationId = getObjectId(destination.link);
+    if (spentSourceIds.has(sourceId) || !canLinkSendEnergy(sourceLink, projectedState)) {
+      continue;
+    }
+
+    if (destinationId === sourceId || (projectedState.freeCapacityById.get(destinationId) ?? 0) <= 0) {
+      continue;
+    }
+
     const amount = Math.min(
       projectedState.storedEnergyById.get(sourceId) ?? 0,
       projectedState.freeCapacityById.get(destinationId) ?? 0
@@ -76,70 +132,84 @@ export function transferEnergy(room: Room): LinkTransferResult[] {
       sourceId
     });
 
+    spentSourceIds.add(sourceId);
     if (result === OK_CODE) {
-      projectedState.storedEnergyById.set(sourceId, Math.max(0, (projectedState.storedEnergyById.get(sourceId) ?? 0) - amount));
+      projectedState.storedEnergyById.set(
+        sourceId,
+        Math.max(0, (projectedState.storedEnergyById.get(sourceId) ?? 0) - amount)
+      );
       projectedState.freeCapacityById.set(
         destinationId,
         Math.max(0, (projectedState.freeCapacityById.get(destinationId) ?? 0) - amount)
       );
     }
   }
-
-  return results;
 }
 
-export function classifyLinks(room: Room): LinkNetwork {
-  const links = findOwnedLinks(room);
-  const controllerLink = selectControllerLink(room, links);
-  const storageLink = selectStorageLink(room, links, controllerLink);
-  const destinationIds = new Set(
-    [controllerLink, storageLink]
-      .filter((link): link is StructureLink => link !== null)
-      .map((link) => getObjectId(link))
-  );
-
-  return {
-    links,
-    sourceLinks: selectSourceLinks(room, links, destinationIds),
-    controllerLink,
-    storageLink
-  };
-}
-
-export function isSourceLink(room: Room, link: StructureLink): boolean {
-  const linkId = getObjectId(link);
-  return linkId !== '' && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId(sourceLink) === linkId);
-}
-
-function getDestinationLinks(
-  network: LinkNetwork
-): Array<{ link: StructureLink; role: LinkDestinationRole }> {
-  const destinations: Array<{ link: StructureLink; role: LinkDestinationRole }> = [];
-  if (network.controllerLink) {
-    destinations.push({ link: network.controllerLink, role: 'controller' });
-  }
-  if (network.storageLink && getObjectId(network.storageLink) !== getObjectId(network.controllerLink)) {
-    destinations.push({ link: network.storageLink, role: 'storage' });
-  }
-
-  return destinations;
-}
-
-function transferLinkEnergy(sourceLink: StructureLink, destinationLink: StructureLink, amount: number): ScreepsReturnCode {
-  return sourceLink.transferEnergy(destinationLink, amount);
-}
-
-function selectDestinationLink(
-  sourceLink: StructureLink,
-  destinationLinks: Array<{ link: StructureLink; role: LinkDestinationRole }>,
+function shouldControllerLinkReceiveEnergy(
+  room: Room,
+  controllerLink: StructureLink | null,
   projectedState: ProjectedLinkState
-): { link: StructureLink; role: LinkDestinationRole } | null {
-  const sourceId = getObjectId(sourceLink);
+): controllerLink is StructureLink {
+  if (!controllerLink || room.controller?.my !== true) {
+    return false;
+  }
+
+  return (projectedState.freeCapacityById.get(getObjectId(controllerLink)) ?? 0) > 0;
+}
+
+function shouldStorageLinkReceiveSurplus(
+  network: LinkNetwork,
+  projectedState: ProjectedLinkState
+): network is LinkNetwork & { storageLink: StructureLink } {
+  if (!network.storageLink || getObjectId(network.storageLink) === getObjectId(network.controllerLink)) {
+    return false;
+  }
+
   return (
-    destinationLinks.find((destination) => {
-      const destinationId = getObjectId(destination.link);
-      return destinationId !== sourceId && (projectedState.freeCapacityById.get(destinationId) ?? 0) > 0;
-    }) ?? null
+    (projectedState.freeCapacityById.get(getObjectId(network.storageLink)) ?? 0) > 0 &&
+    hasStorageFreeCapacity(network.storage)
+  );
+}
+
+function hasStorageFreeCapacity(storage: StructureStorage | null): boolean {
+  if (!storage) {
+    return false;
+  }
+
+  const freeCapacity = getKnownFreeEnergyCapacity(storage);
+  return freeCapacity === null || freeCapacity > 0;
+}
+
+function getKnownFreeEnergyCapacity(structure: StructureLink | StructureStorage): number | null {
+  const freeCapacity = structure.store?.getFreeCapacity?.(getEnergyResource());
+  return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : null;
+}
+
+function sortSourceLinksByDistanceToDestination(
+  links: StructureLink[],
+  destinationLink: StructureLink
+): StructureLink[] {
+  const destinationPosition = getRoomObjectPosition(destinationLink);
+  return [...links].sort(
+    (left, right) =>
+      compareRangeToPosition(destinationPosition, left, right) ||
+      getObjectId(left).localeCompare(getObjectId(right))
+  );
+}
+
+function sortSourceLinksBySurplusPriority(
+  links: StructureLink[],
+  destinationLink: StructureLink,
+  projectedState: ProjectedLinkState
+): StructureLink[] {
+  const destinationPosition = getRoomObjectPosition(destinationLink);
+  return [...links].sort(
+    (left, right) =>
+      compareRangeToPosition(destinationPosition, left, right) ||
+      (projectedState.storedEnergyById.get(getObjectId(right)) ?? 0) -
+        (projectedState.storedEnergyById.get(getObjectId(left)) ?? 0) ||
+      getObjectId(left).localeCompare(getObjectId(right))
   );
 }
 
@@ -152,15 +222,6 @@ function createProjectedLinkState(links: StructureLink[]): ProjectedLinkState {
     freeCapacityById: new Map(links.map((link) => [getObjectId(link), getFreeEnergyCapacity(link)])),
     storedEnergyById: new Map(links.map((link) => [getObjectId(link), getStoredEnergy(link)]))
   };
-}
-
-function sortLinksByEnergy(links: StructureLink[], projectedState: ProjectedLinkState): StructureLink[] {
-  return [...links].sort(
-    (left, right) =>
-      (projectedState.storedEnergyById.get(getObjectId(right)) ?? 0) -
-        (projectedState.storedEnergyById.get(getObjectId(left)) ?? 0) ||
-      getObjectId(left).localeCompare(getObjectId(right))
-  );
 }
 
 function selectSourceLinks(room: Room, links: StructureLink[], destinationIds: Set<string>): StructureLink[] {
@@ -187,9 +248,9 @@ function selectControllerLink(room: Room, links: StructureLink[]): StructureLink
 function selectStorageLink(
   room: Room,
   links: StructureLink[],
-  controllerLink: StructureLink | null
+  controllerLink: StructureLink | null,
+  storage: StructureStorage | null
 ): StructureLink | null {
-  const storage = room.storage ?? findStorage(room);
   if (!storage) {
     return null;
   }
@@ -235,7 +296,11 @@ function isNearRoomObject(left: RoomObject, right: RoomObject, roomName: string,
   );
 }
 
-function compareRangeToPosition(position: RoomPosition, left: RoomObject, right: RoomObject): number {
+function compareRangeToPosition(position: RoomPosition | null, left: RoomObject, right: RoomObject): number {
+  if (!position) {
+    return 0;
+  }
+
   const leftPosition = getRoomObjectPosition(left);
   const rightPosition = getRoomObjectPosition(right);
   return (

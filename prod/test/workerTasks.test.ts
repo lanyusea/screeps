@@ -1623,6 +1623,48 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
   });
 
+  it('withdraws from a full nearby link before an inefficient harvest trip', () => {
+    const source = makeSource('source-far', 30, 30, 300);
+    const link = makeStoredEnergyLink('link-near', 11, 10, 800);
+    const room = makeWorkerTaskRoom({
+      myStructures: [link],
+      sources: [source]
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'link-near' ? 1 : 12))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-near' });
+  });
+
+  it('keeps harvesting when a nearby link cannot fill the worker load', () => {
+    const source = makeSource('source-far', 30, 30, 300);
+    const link = makeStoredEnergyLink('link-low', 11, 10, 49);
+    const room = makeWorkerTaskRoom({
+      myStructures: [link],
+      sources: [source]
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'link-low' ? 1 : 12))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-far' });
+  });
+
   it('withdraws from containers before falling back to link energy', () => {
     const emptySource = makeSource('source-empty', 10, 10, 0);
     const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 50);

@@ -38,13 +38,15 @@ describe('linkManager', () => {
     });
   });
 
-  it('transfers source link energy to the controller link first', () => {
+  it('transfers source link energy to the controller link before storage surplus', () => {
     const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const storageLink = makeLink('storage-link', 20, 21, 0, 800);
     const controllerLink = makeLink('controller-link', 25, 23, 0, 300);
     const room = makeRoom({
       controller: makeController(25, 25),
-      links: [sourceLink, controllerLink],
-      sources: [makeSource('source1', 10, 10)]
+      links: [sourceLink, controllerLink, storageLink],
+      sources: [makeSource('source1', 10, 10)],
+      storage: makeStorage('storage1', 20, 20, 5_000)
     });
 
     expect(transferEnergy(room)).toEqual([
@@ -57,6 +59,7 @@ describe('linkManager', () => {
       }
     ]);
     expect(sourceLink.transferEnergy).toHaveBeenCalledWith(controllerLink, 300);
+    expect(sourceLink.transferEnergy).not.toHaveBeenCalledWith(storageLink, expect.any(Number));
   });
 
   it('falls back to the storage link when the controller link is full', () => {
@@ -96,7 +99,7 @@ describe('linkManager', () => {
     expect(emptySourceLink.transferEnergy).not.toHaveBeenCalled();
   });
 
-  it('tracks projected destination capacity across multiple source links', () => {
+  it('prioritizes the closest source links when filling controller capacity', () => {
     const sourceLinkA = makeLink('source-a', 11, 10, 400, 400);
     const sourceLinkB = makeLink('source-b', 13, 10, 400, 400);
     const controllerLink = makeLink('controller-link', 25, 23, 0, 500);
@@ -107,11 +110,56 @@ describe('linkManager', () => {
     });
 
     expect(transferEnergy(room)).toMatchObject([
-      { amount: 400, sourceId: 'source-a', destinationId: 'controller-link' },
-      { amount: 100, sourceId: 'source-b', destinationId: 'controller-link' }
+      { amount: 400, sourceId: 'source-b', destinationId: 'controller-link' },
+      { amount: 100, sourceId: 'source-a', destinationId: 'controller-link' }
     ]);
-    expect(sourceLinkA.transferEnergy).toHaveBeenCalledWith(controllerLink, 400);
-    expect(sourceLinkB.transferEnergy).toHaveBeenCalledWith(controllerLink, 100);
+    expect(sourceLinkB.transferEnergy).toHaveBeenCalledWith(controllerLink, 400);
+    expect(sourceLinkA.transferEnergy).toHaveBeenCalledWith(controllerLink, 100);
+  });
+
+  it('sends surplus source link energy to storage after controller demand is covered', () => {
+    const controllerSourceLink = makeLink('source-controller', 23, 22, 100, 700);
+    const surplusSourceLink = makeLink('source-surplus', 11, 10, 800, 0);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 100);
+    const storageLink = makeLink('storage-link', 20, 21, 0, 800);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [surplusSourceLink, storageLink, controllerSourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10), makeSource('source2', 23, 21)],
+      storage: makeStorage('storage1', 20, 20, 5_000, 10_000)
+    });
+
+    expect(transferEnergy(room)).toMatchObject([
+      {
+        amount: 100,
+        destinationId: 'controller-link',
+        destinationRole: 'controller',
+        sourceId: 'source-controller'
+      },
+      {
+        amount: 800,
+        destinationId: 'storage-link',
+        destinationRole: 'storage',
+        sourceId: 'source-surplus'
+      }
+    ]);
+    expect(controllerSourceLink.transferEnergy).toHaveBeenCalledWith(controllerLink, 100);
+    expect(surplusSourceLink.transferEnergy).toHaveBeenCalledWith(storageLink, 800);
+  });
+
+  it('does not send surplus to the storage link when storage is full', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 250, 550);
+    const controllerLink = makeLink('controller-link', 25, 23, 800, 0);
+    const storageLink = makeLink('storage-link', 20, 21, 0, 800);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [sourceLink, controllerLink, storageLink],
+      sources: [makeSource('source1', 10, 10)],
+      storage: makeStorage('storage1', 20, 20, 1_000_000, 0)
+    });
+
+    expect(transferEnergy(room)).toEqual([]);
+    expect(sourceLink.transferEnergy).not.toHaveBeenCalled();
   });
 });
 
@@ -166,12 +214,15 @@ function makeLink(
   } as unknown as TestStructureLink;
 }
 
-function makeStorage(id: string, x: number, y: number, energy: number): StructureStorage {
+function makeStorage(id: string, x: number, y: number, energy: number, freeCapacity = 100_000): StructureStorage {
   return {
     id,
     structureType: 'storage',
     pos: makeRoomPosition(x, y),
-    store: { getUsedCapacity: jest.fn().mockReturnValue(energy) }
+    store: {
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+      getUsedCapacity: jest.fn().mockReturnValue(energy)
+    }
   } as unknown as StructureStorage;
 }
 
