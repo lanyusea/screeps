@@ -794,10 +794,20 @@ function cleanupDeadCreepMemory() {
 
 // src/colony/colonyRegistry.ts
 function getOwnedColonies() {
-  return Object.values(Game.rooms).filter((room) => {
-    var _a;
-    return (_a = room.controller) == null ? void 0 : _a.my;
-  }).map((room) => ({
+  var _a, _b;
+  const ownedRoomsByName = /* @__PURE__ */ new Map();
+  for (const room of Object.values(Game.rooms)) {
+    if ((_a = room.controller) == null ? void 0 : _a.my) {
+      ownedRoomsByName.set(room.name, room);
+    }
+  }
+  for (const spawn of Object.values(Game.spawns)) {
+    const room = spawn.room;
+    if (room && ((_b = room.controller) == null ? void 0 : _b.my) && !ownedRoomsByName.has(room.name)) {
+      ownedRoomsByName.set(room.name, room);
+    }
+  }
+  return [...ownedRoomsByName.values()].map((room) => ({
     room,
     memory: room.memory,
     spawns: Object.values(Game.spawns).filter((spawn) => spawn.room.name === room.name),
@@ -14998,6 +15008,9 @@ function runWorker(creep) {
   if (runControllerSustainMovement(creep)) {
     return;
   }
+  if (runSpawnSupportMovement(creep)) {
+    return;
+  }
   observeCreepBehaviorTick(creep);
   const selectedTask = selectWorkerTaskForRunner(creep);
   const currentTask = creep.memory.task;
@@ -15116,6 +15129,23 @@ function selectControllerSustainDestinationRoom(creep, sustain, roomName) {
     return sustain.targetRoom;
   }
   return roomName === sustain.homeRoom ? sustain.targetRoom : sustain.homeRoom;
+}
+function runSpawnSupportMovement(creep) {
+  var _a;
+  const support = creep.memory.spawnSupport;
+  if (!isSpawnSupportMemory(support)) {
+    return false;
+  }
+  if (((_a = creep.room) == null ? void 0 : _a.name) === support.targetRoom) {
+    return false;
+  }
+  clearAssignedTask(creep);
+  moveTowardRoom(creep, support.targetRoom);
+  return true;
+}
+function isSpawnSupportMemory(value) {
+  const support = value;
+  return typeof value === "object" && value !== null && typeof support.originRoom === "string" && typeof support.targetRoom === "string" && support.originRoom.length > 0 && support.targetRoom.length > 0;
 }
 function clearAssignedTask(creep) {
   delete creep.memory.task;
@@ -16413,9 +16443,6 @@ function isNonEmptyString10(value) {
   return typeof value === "string" && value.length > 0;
 }
 
-// src/spawn/spawnConfig.ts
-var MIN_SPAWN_ENERGY_BUFFER = 50;
-
 // src/territory/multiRoomUpgrader.ts
 var MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 var MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
@@ -17031,7 +17058,7 @@ var CROSS_ROOM_HAULER_REPLACEMENT_TICKS = 100;
 var CROSS_ROOM_MOVE_OPTS = { reusePath: 20, ignoreRoads: false };
 var ERR_NO_PATH_CODE6 = -2;
 var ERR_NOT_IN_RANGE_CODE6 = -9;
-function planCrossRoomHauler(getEnergyBudget = getDefaultCrossRoomHaulerEnergyBudget) {
+function planCrossRoomHauler() {
   const transfer = selectCrossRoomEnergyTransfer();
   if (!transfer) {
     return null;
@@ -17051,7 +17078,7 @@ function planCrossRoomHauler(getEnergyBudget = getDefaultCrossRoomHaulerEnergyBu
   }
   const sourceState = getRoomStoredEnergyState(sourceRoom);
   const transferableEnergy = Math.min(transfer.amount, sourceState.exportableEnergy);
-  const body = buildCrossRoomHaulerBody(getEnergyBudget(sourceRoom.name), transferableEnergy);
+  const body = buildCrossRoomHaulerBody(sourceRoom.energyAvailable, transferableEnergy);
   if (body.length === 0) {
     return null;
   }
@@ -17075,10 +17102,6 @@ function planCrossRoomHauler(getEnergyBudget = getDefaultCrossRoomHaulerEnergyBu
       }
     }
   };
-}
-function getDefaultCrossRoomHaulerEnergyBudget(sourceRoomName) {
-  var _a, _b;
-  return (_b = (_a = getVisibleRoom5(sourceRoomName)) == null ? void 0 : _a.energyAvailable) != null ? _b : 0;
 }
 function buildCrossRoomHaulerBody(energyAvailable, transferableEnergy) {
   const energyBudget = Math.max(0, Math.floor(energyAvailable));
@@ -17705,7 +17728,7 @@ function hasControllerDowngradeGuardSpawnCapacity(context) {
   return context.colony.spawns.filter((spawn) => !spawn.spawning).length > 1;
 }
 function hasRecoveryWorkerSpawnEnergy(colony) {
-  return getSpawnEnergyBudget(colony) >= MINIMUM_EMERGENCY_WORKER_BODY_COST;
+  return colony.energyAvailable >= MINIMUM_EMERGENCY_WORKER_BODY_COST;
 }
 function planPostClaimControllerSustainSpawn(context) {
   if (context.survival.mode !== "TERRITORY_READY" || !hasPostClaimSustainSpawnEnergy(context.colony)) {
@@ -17933,7 +17956,7 @@ function planDefenseSpawnForRoom(colony, activeDefenderCount, gameTime, options)
   if (!spawn) {
     return null;
   }
-  const body = buildDefenseBody(getSpawnEnergyBudget(colony), hostileCount);
+  const body = buildDefenseBody(colony.energyAvailable, hostileCount);
   if (body.length === 0) {
     return null;
   }
@@ -17959,7 +17982,7 @@ function planRemoteEconomySpawn(context) {
   }
   const remoteHarvesterAssignment = selectRemoteHarvesterAssignment(context.colony.room.name);
   if (remoteHarvesterAssignment) {
-    const body2 = buildRemoteHarvesterBody(getSpawnEnergyBudget(context.colony));
+    const body2 = buildRemoteHarvesterBody(context.colony.energyAvailable);
     if (body2.length > 0) {
       return {
         spawn,
@@ -17985,7 +18008,7 @@ function planRemoteEconomySpawn(context) {
   if (!remoteHaulerAssignment) {
     return null;
   }
-  const body = buildRemoteHaulerBody(getSpawnEnergyBudget(context.colony), remoteHaulerAssignment.routeDistance);
+  const body = buildRemoteHaulerBody(context.colony.energyAvailable, remoteHaulerAssignment.routeDistance);
   if (body.length === 0) {
     return null;
   }
@@ -18083,7 +18106,7 @@ function planMultiRoomControllerUpgradeSpawn(context) {
     return null;
   }
   for (const upgradePlan of upgradePlans) {
-    const body = buildMultiRoomUpgraderBody(getSpawnEnergyBudget(context.colony), upgradePlan);
+    const body = buildMultiRoomUpgraderBody(context.colony.energyAvailable, upgradePlan);
     if (body.length === 0) {
       continue;
     }
@@ -18183,7 +18206,7 @@ function planTerritorySpawn(colony, roleCounts, territoryIntent, gameTime, optio
   if (!spawn) {
     return null;
   }
-  const body = buildTerritorySpawnBody(getSpawnEnergyBudget(colony), territoryIntent);
+  const body = buildTerritorySpawnBody(colony.energyAvailable, territoryIntent);
   if (body.length === 0) {
     return null;
   }
@@ -18222,28 +18245,23 @@ function appendSpawnNameSuffix(baseName, options) {
 }
 function selectWorkerBody(colony, roleCounts) {
   var _a;
-  const spawnEnergyBudget = getSpawnEnergyBudget(colony);
   if (shouldUseSourceHarvesterBody(colony, roleCounts)) {
     const sourceDistance = estimateLocalSourceDistance(colony);
     const fullCapacityBody = generateHarvesterBody(colony.energyCapacityAvailable, sourceDistance);
-    if (canAffordBody(fullCapacityBody, spawnEnergyBudget)) {
+    if (canAffordBody(fullCapacityBody, colony.energyAvailable)) {
       return fullCapacityBody;
     }
-    return generateHarvesterBody(spawnEnergyBudget, sourceDistance);
+    return generateHarvesterBody(colony.energyAvailable, sourceDistance);
   }
   const controllerLevel = (_a = colony.room.controller) == null ? void 0 : _a.level;
   const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
-  if (canAffordBody(normalBody, spawnEnergyBudget)) {
+  if (canAffordBody(normalBody, colony.energyAvailable)) {
     return normalBody;
   }
   if (roleCounts.worker === 0) {
-    return buildEmergencyWorkerBody(spawnEnergyBudget);
+    return buildEmergencyWorkerBody(colony.energyAvailable);
   }
-  return buildWorkerBody(spawnEnergyBudget, controllerLevel);
-}
-function getSpawnEnergyBudget(colony) {
-  var _a;
-  return normalizeNonNegativeInteger2((_a = colony.spawnEnergyBudget) != null ? _a : colony.energyAvailable);
+  return buildWorkerBody(colony.energyAvailable, controllerLevel);
 }
 function generateHarvesterBody(availableEnergy, sourceDistance) {
   const energyBudget = normalizeNonNegativeInteger2(availableEnergy);
@@ -24600,11 +24618,13 @@ function runEconomy(preludeTelemetryEvents = []) {
   const telemetryEvents = [...preludeTelemetryEvents];
   const usedSpawnsByRoom = /* @__PURE__ */ new Map();
   const reservedSpawnEnergyByRoom = /* @__PURE__ */ new Map();
+  const plannedRoleCountsByRoom = /* @__PURE__ */ new Map();
   clearColonySurvivalAssessmentCache();
   refreshClaimedRoomBootstrapperOwnership();
   for (const colony of colonies) {
     recordSourceWorkloads(colony.room, creeps, Game.time);
-    let roleCounts = countCreepsByRole(creeps, colony.room.name);
+    let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
+    plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     persistColonyStageAssessment(colony, survivalAssessment, Game.time);
@@ -24624,38 +24644,39 @@ function runEconomy(preludeTelemetryEvents = []) {
       roleCounts,
       Game.time
     );
-    let availableEnergy = Math.max(0, colony.energyAvailable - ((_a = reservedSpawnEnergyByRoom.get(colony.room.name)) != null ? _a : 0));
     let successfulSpawnCount = 0;
-    const usedSpawns = new Set((_b = usedSpawnsByRoom.get(colony.room.name)) != null ? _b : []);
     while (true) {
-      const spawnPlan = selectSpawnPlanWithinEnergyBuffer(
+      const coordinatedPlan = planCoordinatedSpawn(
         colony,
-        availableEnergy,
-        usedSpawns,
         roleCounts,
         Game.time,
-        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp)
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp),
+        colonies,
+        creeps,
+        usedSpawnsByRoom,
+        reservedSpawnEnergyByRoom,
+        plannedRoleCountsByRoom
       );
-      if (!spawnPlan) {
+      if (!coordinatedPlan) {
         break;
       }
-      const { planningColony, spawnRequest, bodyCost } = spawnPlan;
+      const spawnRequest = coordinatedPlan.spawnRequest;
       if (successfulSpawnCount > 0 && !isAllowedPostSpawnRequest(spawnRequest)) {
         break;
       }
       const outcome = attemptSpawnRequest(
         spawnRequest,
-        colony.room.name,
+        coordinatedPlan.sourceRoomName,
         telemetryEvents,
-        planningColony.spawns
+        coordinatedPlan.spawns
       );
       if (!outcome || outcome.result !== OK_CODE10) {
         break;
       }
-      usedSpawns.add(outcome.spawn);
-      recordUsedSpawn(usedSpawnsByRoom, colony.room.name, outcome.spawn);
-      recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, colony.room.name, bodyCost);
-      availableEnergy = Math.max(0, availableEnergy - bodyCost);
+      const spawnRoomName = (_b = (_a = outcome.spawn.room) == null ? void 0 : _a.name) != null ? _b : "unknown";
+      const bodyCost = getBodyCost(spawnRequest.body);
+      recordUsedSpawn(usedSpawnsByRoom, spawnRoomName, outcome.spawn);
+      recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, spawnRoomName, bodyCost);
       successfulSpawnCount += 1;
       recordPlannedMultiRoomUpgraderSpawn(spawnRequest.memory);
       if (spawnRequest.memory.role !== "worker") {
@@ -24665,6 +24686,7 @@ function runEconomy(preludeTelemetryEvents = []) {
         continue;
       }
       roleCounts = addPlannedWorker(roleCounts);
+      plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
     }
     transferEnergy(colony.room);
     manageStorage(colony.room);
@@ -24729,21 +24751,10 @@ function attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom
   if (candidateSpawns.length === 0) {
     return;
   }
-  const availableEnergy = getAvailableSpawnEnergyAfterReservations(sourceColony, spawnRequest, reservedSpawnEnergyByRoom);
-  const spawnPlan = selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(spawnRequest, availableEnergy);
-  if (!spawnPlan) {
-    const originalBodyCost = getBodyCost(spawnRequest.body);
-    if (originalBodyCost <= availableEnergy && isSpawnEnergyBufferViolated(availableEnergy, originalBodyCost)) {
-      logSpawnEnergyBufferWarning(spawnRequest, sourceRoomName, availableEnergy, originalBodyCost);
-    }
+  if (getBodyCost(spawnRequest.body) > getAvailableSpawnEnergyAfterReservations(sourceColony, spawnRequest, reservedSpawnEnergyByRoom)) {
     return;
   }
-  const { spawnRequest: bufferedSpawnRequest, bodyCost } = spawnPlan;
-  if (isSpawnEnergyBufferViolated(availableEnergy, bodyCost)) {
-    logSpawnEnergyBufferWarning(spawnRequest, sourceRoomName, availableEnergy, bodyCost);
-    return;
-  }
-  const request = candidateSpawns.includes(bufferedSpawnRequest.spawn) ? bufferedSpawnRequest : { ...bufferedSpawnRequest, spawn: candidateSpawns[0] };
+  const request = candidateSpawns.includes(spawnRequest.spawn) ? spawnRequest : { ...spawnRequest, spawn: candidateSpawns[0] };
   const outcome = attemptSpawnRequest(
     request,
     sourceRoomName,
@@ -24754,7 +24765,7 @@ function attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom
     return;
   }
   recordUsedSpawn(usedSpawnsByRoom, sourceRoomName, outcome.spawn);
-  recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, sourceRoomName, bodyCost);
+  recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, sourceRoomName, getBodyCost(spawnRequest.body));
 }
 function getAvailableSpawnEnergyAfterReservations(sourceColony, spawnRequest, reservedSpawnEnergyByRoom) {
   var _a, _b;
@@ -24969,93 +24980,140 @@ function isNonEmptyString19(value) {
 function isFiniteNumber9(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
-function createSpawnPlanningColony(colony, energyAvailable, usedSpawns) {
-  return {
-    ...colony,
-    energyAvailable,
-    spawns: colony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn))
-  };
+function normalizeNonNegativeInteger3(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
-function selectSpawnPlanWithinEnergyBuffer(colony, availableEnergy, usedSpawns, roleCounts, gameTime, options) {
-  const spawnPlan = planSpawnWithEnergyBudget(
+function planCoordinatedSpawn(colony, roleCounts, gameTime, options, colonies, creeps, usedSpawnsByRoom, reservedSpawnEnergyByRoom, plannedRoleCountsByRoom) {
+  for (const sourceColony of getCoordinatedSpawnSourceColonies(
     colony,
-    availableEnergy,
-    usedSpawns,
-    roleCounts,
-    gameTime,
-    options
-  );
-  if (!spawnPlan) {
-    return null;
-  }
-  if (roleCounts.worker === 0 || !isSpawnEnergyBufferViolated(availableEnergy, spawnPlan.bodyCost)) {
-    return spawnPlan;
-  }
-  const fallbackSpawnPlan = planSpawnWithEnergyBudget(
-    colony,
-    getBufferedSpawnEnergyBudget(availableEnergy),
-    usedSpawns,
-    roleCounts,
-    gameTime,
-    options
-  );
-  if (fallbackSpawnPlan && !isSpawnEnergyBufferViolated(availableEnergy, fallbackSpawnPlan.bodyCost)) {
-    return fallbackSpawnPlan;
-  }
-  logSpawnEnergyBufferWarning(spawnPlan.spawnRequest, colony.room.name, availableEnergy, spawnPlan.bodyCost);
-  return null;
-}
-function planSpawnWithEnergyBudget(colony, energyBudget, usedSpawns, roleCounts, gameTime, options) {
-  const planningColony = createSpawnPlanningColony(colony, energyBudget, usedSpawns);
-  const spawnRequest = planSpawn(planningColony, roleCounts, gameTime, options);
-  if (!spawnRequest) {
-    return null;
-  }
-  return {
-    planningColony,
-    spawnRequest,
-    bodyCost: getBodyCost(spawnRequest.body)
-  };
-}
-function getBufferedSpawnEnergyBudget(availableEnergy) {
-  return Math.max(0, availableEnergy - MIN_SPAWN_ENERGY_BUFFER);
-}
-function selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(spawnRequest, availableEnergy) {
-  const bodyCost = getBodyCost(spawnRequest.body);
-  if (bodyCost <= getBufferedSpawnEnergyBudget(availableEnergy)) {
+    colonies,
+    creeps,
+    usedSpawnsByRoom,
+    reservedSpawnEnergyByRoom,
+    plannedRoleCountsByRoom
+  )) {
+    const planningColony = createSpawnPlanningColony(
+      colony,
+      sourceColony,
+      usedSpawnsByRoom,
+      reservedSpawnEnergyByRoom
+    );
+    if (planningColony.spawns.length === 0) {
+      continue;
+    }
+    const spawnRequest = planSpawn(planningColony, roleCounts, gameTime, options);
+    if (!spawnRequest) {
+      continue;
+    }
+    const sourceRoomName = sourceColony.room.name;
+    if (sourceRoomName !== colony.room.name && !isAllowedCrossRoomSpawnRequest(spawnRequest, colony.room.name)) {
+      continue;
+    }
     return {
-      spawnRequest,
-      bodyCost
+      spawnRequest: withCrossRoomSpawnSupportMemory(spawnRequest, sourceRoomName, colony.room.name),
+      spawns: planningColony.spawns,
+      sourceRoomName
     };
   }
-  const fallbackBody = buildAffordableCrossRoomHaulerBody(
-    spawnRequest.body,
-    getBufferedSpawnEnergyBudget(availableEnergy)
-  );
-  if (fallbackBody.length === 0) {
-    return null;
-  }
+  return null;
+}
+function createSpawnPlanningColony(colony, sourceColony, usedSpawnsByRoom, reservedSpawnEnergyByRoom) {
+  var _a;
+  const sourceRoomName = sourceColony.room.name;
+  const usedSpawns = (_a = usedSpawnsByRoom.get(sourceRoomName)) != null ? _a : /* @__PURE__ */ new Set();
   return {
-    spawnRequest: { ...spawnRequest, body: fallbackBody },
-    bodyCost: getBodyCost(fallbackBody)
+    ...colony,
+    energyAvailable: getAvailableSpawnEnergy(sourceColony, reservedSpawnEnergyByRoom),
+    energyCapacityAvailable: normalizeNonNegativeInteger3(sourceColony.energyCapacityAvailable),
+    spawns: sourceColony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn))
   };
 }
-function buildAffordableCrossRoomHaulerBody(body, energyBudget) {
-  const affordableBody = [];
-  let bodyCost = 0;
-  for (let index = 0; index + 1 < body.length; index += 2) {
-    const pair = body.slice(index, index + 2);
-    if (pair[0] !== "carry" || pair[1] !== "move") {
-      return [];
-    }
-    const pairCost = getBodyCost(pair);
-    if (bodyCost + pairCost > energyBudget) {
-      break;
-    }
-    affordableBody.push(...pair);
-    bodyCost += pairCost;
+function getCoordinatedSpawnSourceColonies(targetColony, colonies, creeps, usedSpawnsByRoom, reservedSpawnEnergyByRoom, plannedRoleCountsByRoom) {
+  const localSource = colonies.find((colony) => colony.room.name === targetColony.room.name);
+  const remoteSources = colonies.filter((colony) => colony.room.name !== targetColony.room.name).filter(
+    (sourceColony) => canUseCrossRoomSpawnSource(
+      sourceColony,
+      creeps,
+      usedSpawnsByRoom,
+      reservedSpawnEnergyByRoom,
+      plannedRoleCountsByRoom
+    )
+  ).sort(
+    (left, right) => compareCoordinatedSpawnSources(left, right, reservedSpawnEnergyByRoom)
+  );
+  return localSource ? [localSource, ...remoteSources] : remoteSources;
+}
+function canUseCrossRoomSpawnSource(sourceColony, creeps, usedSpawnsByRoom, reservedSpawnEnergyByRoom, plannedRoleCountsByRoom) {
+  if (getUnusedSpawnCount(sourceColony, usedSpawnsByRoom) === 0) {
+    return false;
   }
-  return affordableBody;
+  if (!hasFullSpawnEnergyAfterReservations(sourceColony, reservedSpawnEnergyByRoom)) {
+    return false;
+  }
+  const roleCounts = getPlannedOrCurrentRoleCounts(
+    creeps,
+    sourceColony.room.name,
+    plannedRoleCountsByRoom
+  );
+  const workerTarget = getWorkerTarget(sourceColony, roleCounts);
+  if (getWorkerCapacity(roleCounts) < workerTarget) {
+    return false;
+  }
+  if (shouldSuppressWorkerSpawnForCrossRoomImport(sourceColony)) {
+    return false;
+  }
+  const survival = assessColonySnapshotSurvival(sourceColony, roleCounts);
+  return survival.mode === "TERRITORY_READY" && !survival.controllerDowngradeGuard && !survival.hostilePresence;
+}
+function compareCoordinatedSpawnSources(left, right, reservedSpawnEnergyByRoom) {
+  return getAvailableSpawnEnergy(right, reservedSpawnEnergyByRoom) - getAvailableSpawnEnergy(left, reservedSpawnEnergyByRoom) || normalizeNonNegativeInteger3(right.energyCapacityAvailable) - normalizeNonNegativeInteger3(left.energyCapacityAvailable) || left.room.name.localeCompare(right.room.name);
+}
+function getUnusedSpawnCount(colony, usedSpawnsByRoom) {
+  var _a;
+  const usedSpawns = (_a = usedSpawnsByRoom.get(colony.room.name)) != null ? _a : /* @__PURE__ */ new Set();
+  return colony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn)).length;
+}
+function hasFullSpawnEnergyAfterReservations(colony, reservedSpawnEnergyByRoom) {
+  const energyCapacity = normalizeNonNegativeInteger3(colony.energyCapacityAvailable);
+  return energyCapacity > 0 && getAvailableSpawnEnergy(colony, reservedSpawnEnergyByRoom) >= energyCapacity;
+}
+function getAvailableSpawnEnergy(colony, reservedSpawnEnergyByRoom) {
+  var _a;
+  if (!colony) {
+    return 0;
+  }
+  return Math.max(
+    0,
+    normalizeNonNegativeInteger3(colony.energyAvailable) - ((_a = reservedSpawnEnergyByRoom.get(colony.room.name)) != null ? _a : 0)
+  );
+}
+function getPlannedOrCurrentRoleCounts(creeps, roomName, plannedRoleCountsByRoom) {
+  var _a;
+  return (_a = plannedRoleCountsByRoom.get(roomName)) != null ? _a : countCreepsByRole(creeps, roomName);
+}
+function isAllowedCrossRoomSpawnRequest(spawnRequest, targetRoomName) {
+  if (spawnRequest.memory.colony !== targetRoomName) {
+    return false;
+  }
+  if (spawnRequest.memory.role === "worker") {
+    return !spawnRequest.memory.controllerSustain;
+  }
+  return spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE || spawnRequest.memory.role === TERRITORY_SCOUT_ROLE;
+}
+function withCrossRoomSpawnSupportMemory(spawnRequest, sourceRoomName, targetRoomName) {
+  if (sourceRoomName === targetRoomName || spawnRequest.memory.role !== "worker" || spawnRequest.memory.controllerSustain) {
+    return spawnRequest;
+  }
+  return {
+    ...spawnRequest,
+    memory: {
+      ...spawnRequest.memory,
+      spawnSupport: {
+        originRoom: sourceRoomName,
+        targetRoom: targetRoomName
+      }
+    }
+  };
 }
 function getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp) {
   const allowTerritoryFollowUp = successfulSpawnCount > 0 || hasPendingTerritoryFollowUp;
@@ -25093,14 +25151,6 @@ function attemptSpawnRequest(spawnRequest, roomName, telemetryEvents, spawns) {
     }
   }
   return lastOutcome;
-}
-function isSpawnEnergyBufferViolated(availableEnergy, bodyCost) {
-  return availableEnergy - bodyCost < MIN_SPAWN_ENERGY_BUFFER;
-}
-function logSpawnEnergyBufferWarning(spawnRequest, roomName, availableEnergy, bodyCost) {
-  console.log(
-    `[spawn] warning: deferred ${spawnRequest.name} in ${roomName}; available energy ${availableEnergy}, body cost ${bodyCost}, required buffer ${MIN_SPAWN_ENERGY_BUFFER}`
-  );
 }
 function addPlannedWorker(roleCounts) {
   const nextRoleCounts = {

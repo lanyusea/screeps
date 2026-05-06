@@ -89,4 +89,30 @@ describe('getOwnedColonies', () => {
       }
     ]);
   });
+
+  it('discovers owned spawn rooms from Game.spawns even when the room map is incomplete', () => {
+    const spawnedRoom = {
+      name: 'W4N4',
+      controller: { my: true },
+      energyAvailable: 300,
+      energyCapacityAvailable: 300
+    } as Room;
+    const spawn = { name: 'Spawn4', room: spawnedRoom, spawning: null } as StructureSpawn;
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {},
+      spawns: {
+        Spawn4: spawn
+      }
+    };
+
+    expect(getOwnedColonies()).toEqual([
+      {
+        room: spawnedRoom,
+        spawns: [spawn],
+        energyAvailable: 300,
+        energyCapacityAvailable: 300
+      }
+    ]);
+  });
 });
