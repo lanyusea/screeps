@@ -19,6 +19,7 @@ export interface DefensePressureSummary {
 export interface DefenderSpawnPlanInput {
   roomName: string;
   hostileCreepCount: number;
+  controllerUnderAttack?: boolean;
   activeDefenderCount: number;
   energyAvailable: number;
   gameTime: number;
@@ -72,13 +73,14 @@ export function getDesiredDefenderCount(hostileCount: number): number {
 
 export function planDefenderSpawn(input: DefenderSpawnPlanInput): DefenderSpawnPlan | null {
   const hostileCreepCount = normalizeNonNegativeInteger(input.hostileCreepCount);
+  const pressureCount = Math.max(hostileCreepCount, input.controllerUnderAttack === true ? 1 : 0);
   const activeDefenderCount = normalizeNonNegativeInteger(input.activeDefenderCount);
 
-  if (hostileCreepCount <= 0 || activeDefenderCount >= getDesiredDefenderCount(hostileCreepCount)) {
+  if (pressureCount <= 0 || activeDefenderCount >= getDesiredDefenderCount(pressureCount)) {
     return null;
   }
 
-  const body = buildDefenderBody(input.energyAvailable, hostileCreepCount);
+  const body = buildDefenderBody(input.energyAvailable, pressureCount);
   if (body.length === 0) {
     return null;
   }
@@ -132,6 +134,14 @@ export function shouldActivateSafeMode(input: SafeModePlanInput): boolean {
   return (
     input.hostileCreeps.length > SAFE_MODE_HOSTILE_COUNT_THRESHOLD &&
     isControllerUnderAttack(controller, input.hostileCreeps)
+  );
+}
+
+export function hasControllerAttackPressure(controller: StructureController | undefined): boolean {
+  return (
+    controller?.my === true &&
+    typeof controller.upgradeBlocked === 'number' &&
+    controller.upgradeBlocked > 0
   );
 }
 
@@ -226,7 +236,7 @@ function isCriticalSpawnLossThreat(ownedSpawns: StructureSpawn[], hostileCreeps:
 }
 
 function isControllerUnderAttack(controller: StructureController, hostileCreeps: Creep[]): boolean {
-  if (typeof controller.upgradeBlocked === 'number' && controller.upgradeBlocked > 0) {
+  if (hasControllerAttackPressure(controller)) {
     return true;
   }
 

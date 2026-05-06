@@ -21,6 +21,7 @@ import {
 import {
   DEFENDER_ROLE,
   getDesiredDefenderCount,
+  hasControllerAttackPressure,
   planDefenderSpawn
 } from '../defense/defensePlanner';
 import {
@@ -375,11 +376,27 @@ function countActiveRoomDefenders(roomName: string): number {
   return Object.values(game.creeps).filter((creep) => isActiveRoomDefender(creep, roomName)).length;
 }
 
+function countAssignedRoomDefenders(roomName: string): number {
+  const game = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game;
+  if (!game?.creeps) {
+    return 0;
+  }
+
+  return Object.values(game.creeps).filter((creep) => isAssignedRoomDefender(creep, roomName)).length;
+}
+
 function isActiveRoomDefender(creep: Creep, roomName: string): boolean {
+  return (
+    isAssignedRoomDefender(creep, roomName) &&
+    creep.room?.name === roomName &&
+    canSatisfyDefenderSpawnCapacity(creep)
+  );
+}
+
+function isAssignedRoomDefender(creep: Creep, roomName: string): boolean {
   return (
     creep.memory.role === DEFENDER_ROLE &&
     creep.memory.defense?.homeRoom === roomName &&
-    creep.room?.name === roomName &&
     canSatisfyDefenderSpawnCapacity(creep)
   );
 }
@@ -606,16 +623,23 @@ export function planDefenseSpawn(room: Room): SpawnPlan | null {
 }
 
 function planDefenseSpawnForContext(context: SpawnPlanningContext): SpawnRequest | null {
-  if (!context.survival.hostilePresence || context.options.workersOnly) {
+  if (context.options.workersOnly) {
     return null;
   }
 
-  return planDefenseSpawnForRoom(
-    context.colony,
-    countActiveRoomDefenders(context.colony.room.name),
-    context.gameTime,
-    context.options
-  );
+  if (context.survival.hostilePresence || hasControllerAttackPressure(context.colony.room.controller)) {
+    const localDefenseSpawn = planDefenseSpawnForRoom(
+      context.colony,
+      countActiveRoomDefenders(context.colony.room.name),
+      context.gameTime,
+      context.options
+    );
+    if (localDefenseSpawn) {
+      return localDefenseSpawn;
+    }
+  }
+
+  return planPostClaimControllerDefenseSpawn(context);
 }
 
 function planDefenseSpawnForRoom(
@@ -625,7 +649,9 @@ function planDefenseSpawnForRoom(
   options: SpawnPlanningOptions
 ): SpawnRequest | null {
   const hostileCount = getRoomHostileCreepCount(colony.room);
-  if (hostileCount === 0 || activeDefenderCount >= getDesiredDefenderCount(hostileCount)) {
+  const controllerUnderAttack = hasControllerAttackPressure(colony.room.controller);
+  const pressureCount = Math.max(hostileCount, controllerUnderAttack ? 1 : 0);
+  if (pressureCount === 0 || activeDefenderCount >= getDesiredDefenderCount(pressureCount)) {
     return null;
   }
 
@@ -637,6 +663,7 @@ function planDefenseSpawnForRoom(
   const defenderPlan = planDefenderSpawn({
     roomName: colony.room.name,
     hostileCreepCount: hostileCount,
+    controllerUnderAttack,
     activeDefenderCount,
     energyAvailable: getSpawnEnergyBudget(colony),
     gameTime,
@@ -650,6 +677,60 @@ function planDefenseSpawnForRoom(
     spawn,
     ...defenderPlan
   };
+}
+
+interface PostClaimControllerDefensePlan {
+  targetRoom: string;
+  hostileCreepCount: number;
+  controllerUnderAttack: boolean;
+}
+
+function planPostClaimControllerDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  const defensePlan = selectPostClaimControllerDefensePlan(context.colony);
+  if (!defensePlan) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const defenderPlan = planDefenderSpawn({
+    roomName: defensePlan.targetRoom,
+    hostileCreepCount: defensePlan.hostileCreepCount,
+    controllerUnderAttack: defensePlan.controllerUnderAttack,
+    activeDefenderCount: countAssignedRoomDefenders(defensePlan.targetRoom),
+    energyAvailable: getSpawnEnergyBudget(context.colony),
+    gameTime: context.gameTime,
+    nameSuffix: context.options.nameSuffix
+  });
+  if (!defenderPlan) {
+    return null;
+  }
+
+  return {
+    spawn,
+    ...defenderPlan
+  };
+}
+
+function selectPostClaimControllerDefensePlan(colony: ColonySnapshot): PostClaimControllerDefensePlan | null {
+  for (const record of getPostClaimControllerSustainRecords(colony.room.name)) {
+    const targetRoom = getVisibleRoom(record.roomName);
+    const controllerUnderAttack = hasControllerAttackPressure(targetRoom?.controller);
+    if (targetRoom?.controller?.my !== true || !controllerUnderAttack) {
+      continue;
+    }
+
+    return {
+      targetRoom: record.roomName,
+      hostileCreepCount: getRoomHostileCreepCount(targetRoom),
+      controllerUnderAttack
+    };
+  }
+
+  return null;
 }
 
 function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | null {
