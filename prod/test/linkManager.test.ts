@@ -1,4 +1,9 @@
-import { classifyLinks, transferEnergy } from '../src/economy/linkManager';
+import {
+  classifyLinks,
+  getSourceLinkWorkerEnergyAvailable,
+  STORAGE_LINK_ROUTING_TARGET_RATIO,
+  transferEnergy
+} from '../src/economy/linkManager';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 type TestStructureLink = StructureLink & { transferEnergy: jest.Mock };
@@ -161,6 +166,92 @@ describe('linkManager', () => {
     expect(transferEnergy(room)).toEqual([]);
     expect(sourceLink.transferEnergy).not.toHaveBeenCalled();
   });
+
+  it('routes source energy to storage while known storage is below the link routing target', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 250, 550);
+    const controllerLink = makeLink('controller-link', 25, 23, 800, 0);
+    const storageLink = makeLink('storage-link', 20, 21, 0, 200);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [sourceLink, controllerLink, storageLink],
+      sources: [makeSource('source1', 10, 10)],
+      storage: makeStorage('storage1', 20, 20, 2_000, 8_000, 10_000)
+    });
+
+    expect(transferEnergy(room)).toMatchObject([
+      {
+        amount: 200,
+        destinationId: 'storage-link',
+        destinationRole: 'storage',
+        sourceId: 'source-link'
+      }
+    ]);
+    expect(sourceLink.transferEnergy).toHaveBeenCalledWith(storageLink, 200);
+  });
+
+  it('does not route source energy to storage when known storage is above the link routing target', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 250, 550);
+    const controllerLink = makeLink('controller-link', 25, 23, 800, 0);
+    const storageLink = makeLink('storage-link', 20, 21, 0, 200);
+    const capacity = 10_000;
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [sourceLink, controllerLink, storageLink],
+      sources: [makeSource('source1', 10, 10)],
+      storage: makeStorage(
+        'storage1',
+        20,
+        20,
+        Math.ceil(capacity * STORAGE_LINK_ROUTING_TARGET_RATIO),
+        7_000,
+        capacity
+      )
+    });
+
+    expect(transferEnergy(room)).toEqual([]);
+    expect(sourceLink.transferEnergy).not.toHaveBeenCalled();
+  });
+
+  it('does not double-reserve one source link for controller and storage routing demand', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 800, 0);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 100);
+    const storageLink = makeLink('storage-link', 20, 21, 0, 400);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [sourceLink, controllerLink, storageLink],
+      sources: [makeSource('source1', 10, 10)],
+      storage: makeStorage('storage1', 20, 20, 2_000, 8_000, 10_000)
+    });
+
+    expect(getSourceLinkWorkerEnergyAvailable(room, sourceLink)).toBe(700);
+  });
+
+  it('does not reserve worker-withdrawable energy from cooling source links', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 800, 0, 3);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 500);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)]
+    });
+
+    expect(getSourceLinkWorkerEnergyAvailable(room, sourceLink)).toBe(800);
+  });
+
+  it('uses a precomputed link network for worker availability without finding links again', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 800, 0);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 500);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)]
+    });
+    const network = classifyLinks(room);
+    (room.find as jest.Mock).mockClear();
+
+    expect(getSourceLinkWorkerEnergyAvailable(room, sourceLink, network)).toBe(300);
+    expect(room.find).not.toHaveBeenCalled();
+  });
 });
 
 function makeRoom({
@@ -214,13 +305,21 @@ function makeLink(
   } as unknown as TestStructureLink;
 }
 
-function makeStorage(id: string, x: number, y: number, energy: number, freeCapacity = 100_000): StructureStorage {
+function makeStorage(
+  id: string,
+  x: number,
+  y: number,
+  energy: number,
+  freeCapacity = 100_000,
+  capacity?: number
+): StructureStorage {
   return {
     id,
     structureType: 'storage',
     pos: makeRoomPosition(x, y),
     store: {
       getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+      ...(capacity === undefined ? {} : { getCapacity: jest.fn().mockReturnValue(capacity) }),
       getUsedCapacity: jest.fn().mockReturnValue(energy)
     }
   } as unknown as StructureStorage;
