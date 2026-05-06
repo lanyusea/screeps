@@ -323,6 +323,15 @@ function removeStaleOccupationRecommendationTargets(
 
   territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
     const target = normalizeTerritoryTarget(rawTarget);
+    if (
+      target?.colony === colony &&
+      activeTarget?.roomName === target.roomName &&
+      activeTarget.action === 'reserve' &&
+      target.action === 'claim'
+    ) {
+      return true;
+    }
+
     return !(
       target?.colony === colony &&
       target.enabled !== false &&

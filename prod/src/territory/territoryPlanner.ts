@@ -76,6 +76,8 @@ const TERRITORY_SCOUT_INTEL_PLANNING_TTL = 10_000;
 const OCCUPATION_RECOMMENDATION_TARGET_CREATOR: TerritoryTargetMemory['createdBy'] = 'occupationRecommendation';
 const REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
 const MAX_CONTROLLER_LEVEL = 8;
+const ADJACENT_EXPANSION_CLAIM_SOURCE_COUNT = 2;
+const ADJACENT_EXPANSION_CLAIM_MIN_WORKERS = 3;
 
 export interface TerritoryIntentPlan {
   colony: string;
@@ -2559,12 +2561,18 @@ function applyOccupationRecommendationScores(
       return [];
     }
 
+    const adjacentExpansionClaimDecision = getAdjacentExpansionClaimDecision(candidate, roleCounts);
+    if (adjacentExpansionClaimDecision === 'defer') {
+      return [];
+    }
+
     return [
       applyOccupationRecommendationScore(
         candidate,
         recommendation,
         roleCounts,
-        adjacentControllerProgressReady
+        adjacentControllerProgressReady,
+        adjacentExpansionClaimDecision === 'claim'
       )
     ];
   });
@@ -2574,9 +2582,12 @@ function applyOccupationRecommendationScore(
   candidate: ScoredTerritoryTarget,
   recommendation: OccupationRecommendationScore,
   roleCounts: RoleCounts,
-  adjacentControllerProgressReady: boolean
+  adjacentControllerProgressReady: boolean,
+  claimAdjacentExpansion = false
 ): ScoredTerritoryTarget {
-  const intentAction = getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
+  const intentAction = claimAdjacentExpansion
+    ? 'claim'
+    : getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
   const requiresControllerPressure =
     isTerritoryControlAction(intentAction) && candidate.requiresControllerPressure === true;
   const commitTarget =
@@ -2605,13 +2616,93 @@ function applyOccupationRecommendationScore(
     target,
     intentAction,
     commitTarget: nextSelection.commitTarget,
-    priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
+    priority: claimAdjacentExpansion
+      ? TERRITORY_CANDIDATE_PRIORITY_VISIBLE_CLAIM
+      : getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
     recommendationScore: getTerritoryCandidateRecommendationScore(candidate, recommendation),
     recommendationEvidenceStatus: recommendation.evidenceStatus,
     ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(safeAdjacentControllerProgress ? { safeAdjacentControllerProgress: true } : {}),
     ...(renewalTicksToEnd !== null ? { renewalTicksToEnd } : {})
   };
+}
+
+type AdjacentExpansionClaimDecision = 'claim' | 'defer' | 'ignore';
+
+function getAdjacentExpansionClaimDecision(
+  candidate: ScoredTerritoryTarget,
+  roleCounts: RoleCounts
+): AdjacentExpansionClaimDecision {
+  if (!isAdjacentExpansionClaimDecisionCandidate(candidate)) {
+    return 'ignore';
+  }
+
+  const scoutIntel = getFreshTerritoryScoutIntel(
+    candidate.target.colony,
+    candidate.target.roomName,
+    getGameTime()
+  );
+  if (!isViableAdjacentExpansionClaimScoutIntel(scoutIntel)) {
+    return 'ignore';
+  }
+
+  if (
+    getWorkerCapacity(roleCounts) < ADJACENT_EXPANSION_CLAIM_MIN_WORKERS ||
+    hasActiveClaimCreepForColony(roleCounts)
+  ) {
+    return 'defer';
+  }
+
+  return 'claim';
+}
+
+function isAdjacentExpansionClaimDecisionCandidate(candidate: ScoredTerritoryTarget): boolean {
+  if (candidate.target.action !== 'reserve') {
+    return false;
+  }
+
+  if (candidate.source === 'adjacent') {
+    return true;
+  }
+
+  return (
+    candidate.source === 'configured' &&
+    candidate.target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR &&
+    isRoomAdjacentToColony(candidate.target.colony, candidate.target.roomName)
+  );
+}
+
+function isViableAdjacentExpansionClaimScoutIntel(
+  intel: TerritoryScoutIntelMemory | null
+): intel is TerritoryScoutIntelMemory {
+  if (!intel || intel.sourceCount !== ADJACENT_EXPANSION_CLAIM_SOURCE_COUNT) {
+    return false;
+  }
+
+  const controller = intel.controller;
+  if (
+    !controller ||
+    controller.my === true ||
+    isNonEmptyString(controller.ownerUsername) ||
+    isNonEmptyString(controller.reservationUsername)
+  ) {
+    return false;
+  }
+
+  return (
+    intel.hostileCreepCount <= 0 &&
+    intel.hostileStructureCount <= 0 &&
+    intel.hostileSpawnCount <= 0
+  );
+}
+
+function hasActiveClaimCreepForColony(roleCounts: RoleCounts): boolean {
+  const claimersByClaimTarget = roleCounts.claimersByTargetRoomAction?.claim;
+  if (claimersByClaimTarget) {
+    return Object.values(claimersByClaimTarget).some((count) => count > 0);
+  }
+
+  return (roleCounts.claimer ?? 0) > 0;
 }
 
 function getRecommendedTerritoryTarget(
