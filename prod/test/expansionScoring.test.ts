@@ -12,6 +12,7 @@ import { planTerritoryIntent } from '../src/territory/territoryPlanner';
 describe('next expansion scoring', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 5;
+    (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 10;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 6;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 7;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 8;
@@ -26,6 +27,7 @@ describe('next expansion scoring', () => {
     delete (globalThis as { Game?: Partial<Game> }).Game;
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
     delete (globalThis as { FIND_SOURCES?: number }).FIND_SOURCES;
+    delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
     delete (globalThis as { FIND_MY_STRUCTURES?: number }).FIND_MY_STRUCTURES;
@@ -48,6 +50,88 @@ describe('next expansion scoring', () => {
     expect(singleSource).toBeDefined();
     expect(dualSource).toBeDefined();
     expect((dualSource?.score ?? 0) - (singleSource?.score ?? 0)).toBeGreaterThanOrEqual(250);
+  });
+
+  it('de-prioritizes duplicate-resource rooms through synergy scoring', () => {
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [
+          makeCandidate({ roomName: 'W2N1', order: 0, mineral: { mineralType: 'H' } }),
+          makeCandidate({ roomName: 'W3N1', order: 1, mineral: { mineralType: 'O' } })
+        ],
+        {
+          energyCapacityAvailable: 1_000,
+          claimedRooms: [{ roomName: 'W1N1', sourceCount: 2, mineralType: 'H' }]
+        }
+      )
+    );
+    const duplicate = getCandidate(report, 'W2N1');
+    const complementary = getCandidate(report, 'W3N1');
+
+    expect(report.next).toMatchObject({ roomName: 'W3N1', mineral: { mineralType: 'O' } });
+    expect(complementary.score).toBeGreaterThan(duplicate.score);
+    expect(duplicate.rationale).toContain('synergy duplicates H mineral coverage');
+    expect(complementary.rationale).toContain('synergy adds O mineral coverage');
+  });
+
+  it('promotes complementary mineral rooms over higher-base duplicate energy rooms', () => {
+    const report = scoreExpansionCandidates(
+      makeInput(
+        [
+          makeCandidate({ roomName: 'W2N1', order: 0, sourceCount: 2, mineral: { mineralType: 'H' } }),
+          makeCandidate({ roomName: 'W3N1', order: 1, sourceCount: 1, mineral: { mineralType: 'O' } })
+        ],
+        {
+          energyCapacityAvailable: 1_000,
+          claimedRooms: [{ roomName: 'W1N1', sourceCount: 2, mineralType: 'H' }]
+        }
+      )
+    );
+
+    expect(report.next).toMatchObject({ roomName: 'W3N1', sourceCount: 1, mineral: { mineralType: 'O' } });
+    expect(getCandidate(report, 'W3N1').score).toBeGreaterThan(getCandidate(report, 'W2N1').score);
+  });
+
+  it('keeps synergy scoring additive to existing expansion factors', () => {
+    const baseInput = makeInput(
+      [
+        makeCandidate({
+          roomName: 'W2N1',
+          order: 0,
+          routeDistance: 1,
+          nearestOwnedRoomDistance: 1,
+          terrain: { walkableRatio: 0.9, swampRatio: 0.02, wallRatio: 0.1 }
+        }),
+        makeCandidate({
+          roomName: 'W3N1',
+          order: 1,
+          routeDistance: 2,
+          nearestOwnedRoomDistance: 2,
+          terrain: { walkableRatio: 0.75, swampRatio: 0.18, wallRatio: 0.25 }
+        })
+      ],
+      { energyCapacityAvailable: 1_000 }
+    );
+    const baseline = scoreExpansionCandidates(baseInput);
+    const synergized = scoreExpansionCandidates({
+      ...baseInput,
+      claimedRooms: [{ roomName: 'W1N1', sourceCount: 2, mineralType: 'H' }],
+      candidates: baseInput.candidates.map((candidate) => ({
+        ...candidate,
+        mineral: { mineralType: 'O' }
+      }))
+    });
+
+    expect(synergized.candidates.map((candidate) => candidate.roomName)).toEqual(
+      baseline.candidates.map((candidate) => candidate.roomName)
+    );
+    expect(getScore(synergized, 'W2N1') - getScore(synergized, 'W3N1')).toBe(
+      getScore(baseline, 'W2N1') - getScore(baseline, 'W3N1')
+    );
+    expect(getScore(synergized, 'W2N1') - getScore(baseline, 'W2N1')).toBe(
+      getScore(synergized, 'W3N1') - getScore(baseline, 'W3N1')
+    );
+    expect(getScore(synergized, 'W2N1')).toBeGreaterThan(getScore(baseline, 'W2N1'));
   });
 
   it('penalizes foreign-owned and foreign-reserved controller presence', () => {
@@ -1020,11 +1104,13 @@ function makeVisibleExpansionRoom(
       pos: { x: 25, y: 25, roomName }
     } as StructureController,
     sourceCount = 1,
+    mineralType,
     hostileCreepCount = 0,
     hostileStructureCount = 0
   }: {
     controller?: StructureController;
     sourceCount?: number;
+    mineralType?: string;
     hostileCreepCount?: number;
     hostileStructureCount?: number;
   } = {}
@@ -1039,6 +1125,17 @@ function makeVisibleExpansionRoom(
             id: `${roomName}-source${index}`,
             pos: { x: 15 + index * 20, y: 25, roomName }
           }));
+        case FIND_MINERALS:
+          return mineralType
+            ? [
+                {
+                  id: `${roomName}-mineral`,
+                  mineralType,
+                  density: 1,
+                  pos: { x: 10, y: 10, roomName }
+                }
+              ]
+            : [];
         case FIND_HOSTILE_CREEPS:
           return Array.from({ length: hostileCreepCount }, (_value, index) => ({ id: `hostile${index}` }));
         case FIND_HOSTILE_STRUCTURES:
@@ -1069,4 +1166,20 @@ function getExpansionCandidateMemory(): Array<Record<string, unknown>> {
     ((Memory.territory ?? {}) as unknown as { expansionCandidates?: Array<Record<string, unknown>> })
       .expansionCandidates ?? []
   );
+}
+
+function getCandidate(
+  report: ReturnType<typeof scoreExpansionCandidates>,
+  roomName: string
+): ReturnType<typeof scoreExpansionCandidates>['candidates'][number] {
+  const candidate = report.candidates.find((entry) => entry.roomName === roomName);
+  if (!candidate) {
+    throw new Error(`Missing expansion candidate ${roomName}`);
+  }
+
+  return candidate;
+}
+
+function getScore(report: ReturnType<typeof scoreExpansionCandidates>, roomName: string): number {
+  return getCandidate(report, roomName).score;
 }

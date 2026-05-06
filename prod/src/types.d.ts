@@ -319,6 +319,11 @@ declare global {
     density?: number;
   }
 
+  interface TerritoryExpansionMineralEvidenceMemory {
+    mineralType?: string;
+    density?: number;
+  }
+
   interface TerritoryTerrainQualityMemory {
     walkableRatio: number;
     swampRatio: number;
@@ -386,6 +391,7 @@ declare global {
     sourceAccessPoints?: number;
     controllerSourceRange?: number;
     terrain?: TerritoryTerrainQualityMemory;
+    mineral?: TerritoryExpansionMineralEvidenceMemory;
     hostileCreepCount?: number;
     hostileStructureCount?: number;
     requiresControllerPressure?: boolean;
