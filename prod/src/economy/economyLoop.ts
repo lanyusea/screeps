@@ -352,7 +352,7 @@ function refreshExecutableTerritoryRecommendation(
     }
     if (expansionSelection.reason === 'unmetPreconditions') {
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
-      refreshAdjacentRoomReservationIntent(colony, Game.time);
+      refreshAdjacentRoomReservationIntent(colony, Game.time, { claimBlocker: 'colonyUnstable' });
       return;
     }
 
@@ -364,7 +364,7 @@ function refreshExecutableTerritoryRecommendation(
 
     const claimEvaluation = refreshAutonomousExpansionClaimIntent(colony, report, Game.time, telemetryEvents);
     recordAutonomousExpansionClaimReserveFallbackIntent(colony.room.name, claimEvaluation, Game.time);
-    refreshAdjacentRoomReservationIntent(colony, Game.time);
+    refreshAdjacentRoomReservationIntent(colony, Game.time, { reserveWhenClaimAllowed: true });
     if (shouldDeferOccupationRecommendationForExpansionClaim(claimEvaluation)) {
       return;
     }

@@ -85,8 +85,19 @@ export function refreshColonyExpansionIntent(
 
   const candidate = selectColonyExpansionCandidate(colony);
   if (!candidate) {
+    const fallbackReservation = refreshAdjacentRoomReservationIntent(colony, gameTime, {
+      reserveWhenClaimAllowed: true
+    });
     clearColonyExpansionClaimIntent(colonyName);
-    return { status: 'skipped', colony: colonyName, reason: 'noCandidate' };
+    return {
+      status: 'skipped',
+      colony: colonyName,
+      reason: 'noCandidate',
+      ...(fallbackReservation.targetRoom ? { targetRoom: fallbackReservation.targetRoom } : {}),
+      ...(fallbackReservation.controllerId ? { controllerId: fallbackReservation.controllerId } : {}),
+      ...(fallbackReservation.score !== undefined ? { score: fallbackReservation.score } : {}),
+      reservation: fallbackReservation
+    };
   }
 
   const baseEvaluation = {
@@ -99,8 +110,11 @@ export function refreshColonyExpansionIntent(
   };
 
   if (candidate.effectiveScore < MIN_COLONY_EXPANSION_CLAIM_SCORE) {
+    const fallbackReservation = refreshAdjacentRoomReservationIntent(colony, gameTime, {
+      reserveWhenClaimAllowed: true
+    });
     clearColonyExpansionClaimIntent(colonyName);
-    return { ...baseEvaluation, reason: 'scoreBelowThreshold' };
+    return { ...baseEvaluation, reason: 'scoreBelowThreshold', reservation: fallbackReservation };
   }
 
   if (hasBlockingClaimIntent(colonyName, candidate.roomName)) {

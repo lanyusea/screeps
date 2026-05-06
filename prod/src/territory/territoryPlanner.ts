@@ -2767,6 +2767,10 @@ function getRecommendedTerritoryIntentAction(
       return candidate.intentAction;
     }
 
+    if (isUnscoutedAdjacentReservationCandidate(candidate)) {
+      return candidate.intentAction;
+    }
+
     if (isTerritoryControlAction(candidate.intentAction) && candidate.requiresControllerPressure === true) {
       return candidate.intentAction;
     }
@@ -2786,6 +2790,20 @@ function getRecommendedTerritoryIntentAction(
   }
 
   return recommendation.action === 'reserve' ? 'reserve' : candidate.intentAction;
+}
+
+function isUnscoutedAdjacentReservationCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return isAdjacentRoomReservationReserveSelection(candidate);
+}
+
+function isAdjacentRoomReservationReserveSelection(
+  selection: Pick<SelectedTerritoryTarget, 'intentAction' | 'target'>
+): boolean {
+  return (
+    selection.intentAction === 'reserve' &&
+    selection.target.action === 'reserve' &&
+    selection.target.createdBy === 'adjacentRoomReservation'
+  );
 }
 
 function isRecoveredTerritoryFollowUpControlCandidate(candidate: ScoredTerritoryTarget): boolean {
@@ -2977,6 +2995,10 @@ function getTerritoryCandidatePriority(
 ): number {
   if (renewalTicksToEnd !== null) {
     return TERRITORY_CANDIDATE_PRIORITY_URGENT_RENEWAL;
+  }
+
+  if (isAdjacentRoomReservationReserveSelection(selection)) {
+    return TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
   }
 
   if (selection.intentAction === 'scout') {
