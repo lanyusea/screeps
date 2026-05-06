@@ -18,7 +18,8 @@ import {
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
   TERRITORY_RESERVATION_RENEWAL_TICKS,
   TERRITORY_CLAIM_READY_TICKS,
-  TERRITORY_SUPPRESSION_RETRY_TICKS
+  TERRITORY_SUPPRESSION_RETRY_TICKS,
+  TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS
 } from '../src/territory/territoryPlanner';
 import type { AutonomousExpansionClaimEvaluation } from '../src/territory/claimExecutor';
 
@@ -242,6 +243,93 @@ describe('planTerritoryIntent', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 525,
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
+  it('refreshes stale expansion candidate scout intel before generic adjacent scouting', () => {
+    const colony = makeSafeColony();
+    const gameTime = 2_000;
+    const staleIntelUpdatedAt = gameTime - TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS - 1;
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionCandidates: [
+          makeExpansionCandidateMemory('W2N1', {
+            recommendedAction: 'claim',
+            evidenceStatus: 'sufficient',
+            controllerId: 'controller2' as Id<StructureController>,
+            sourceCount: 2
+          })
+        ],
+        scoutIntel: {
+          'W1N1>W2N1': makeScoutIntel('W2N1', staleIntelUpdatedAt)
+        }
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, gameTime)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'scout'
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: gameTime
+      }
+    ]);
+  });
+
+  it('uses fresh expansion candidate scout intel without creating a refresh scout intent', () => {
+    const colony = makeSafeColony();
+    const gameTime = 2_000;
+    const freshIntelUpdatedAt = gameTime - TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS;
+    const describeExits = jest.fn(() => ({ '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionCandidates: [
+          makeExpansionCandidateMemory('W2N1', {
+            recommendedAction: 'claim',
+            evidenceStatus: 'sufficient',
+            controllerId: 'controller2' as Id<StructureController>,
+            sourceCount: 2
+          })
+        ],
+        scoutIntel: {
+          'W1N1>W2N1': makeScoutIntel('W2N1', freshIntelUpdatedAt)
+        }
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, gameTime)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: gameTime,
         controllerId: 'controller2'
       }
     ]);
@@ -6548,6 +6636,46 @@ function makeAssignedRemoteMiningCreep(role: 'remoteHarvester' | 'hauler', roomN
           })
     }
   } as Creep;
+}
+
+function makeExpansionCandidateMemory(
+  roomName: string,
+  overrides: Partial<TerritoryExpansionCandidateMemory> = {}
+): TerritoryExpansionCandidateMemory {
+  return {
+    colony: 'W1N1',
+    roomName,
+    rank: 1,
+    score: 900,
+    evidenceStatus: 'insufficient-evidence',
+    visible: false,
+    updatedAt: 1_999,
+    adjacentToOwnedRoom: true,
+    recommendedAction: 'scout',
+    ...overrides
+  };
+}
+
+function makeScoutIntel(
+  roomName: string,
+  updatedAt: number,
+  overrides: Partial<TerritoryScoutIntelMemory> = {}
+): TerritoryScoutIntelMemory {
+  return {
+    colony: 'W1N1',
+    roomName,
+    updatedAt,
+    controller: { id: 'controller2' as Id<StructureController>, my: false },
+    sourceIds: ['source1', 'source2'],
+    sourceCount: 2,
+    sourceAccessPoints: 7,
+    controllerSourceRange: 9,
+    terrain: { walkableRatio: 0.92, swampRatio: 0.03, wallRatio: 0.08 },
+    hostileCreepCount: 0,
+    hostileStructureCount: 0,
+    hostileSpawnCount: 0,
+    ...overrides
+  };
 }
 
 function makeSafeColony({
