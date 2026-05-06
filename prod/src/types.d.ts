@@ -140,6 +140,33 @@ declare global {
     sourceWorkloads?: Record<string, EconomyRoomSourceWorkloadMemory>;
     storageBalance?: EconomyStorageBalanceMemory;
     energySurplus?: EconomyEnergySurplusMemory;
+    spawnEnergyBuffer?: EconomySpawnEnergyBufferMemory;
+  }
+
+  interface EconomySpawnEnergyBufferMemory {
+    updatedAt: number;
+    rooms: Record<string, EconomySpawnEnergyBufferRoomMemory>;
+  }
+
+  interface EconomySpawnEnergyBufferRoomMemory {
+    currentEnergy: number;
+    healthy: boolean;
+    minimumEnergyPerSpawn?: number;
+    rcl: number;
+    roomName: string;
+    spawnCount: number;
+    spawns: Record<string, EconomySpawnEnergyBufferSpawnMemory>;
+    threshold: number;
+    thresholdPerSpawn: number;
+    updatedAt: number;
+  }
+
+  interface EconomySpawnEnergyBufferSpawnMemory {
+    energy: number;
+    id: string;
+    name: string;
+    threshold: number;
+    withdrawableEnergy: number;
   }
 
   type EconomyStorageBalanceMode = 'export' | 'import' | 'balanced';
@@ -288,6 +315,11 @@ declare global {
     lastExpansionScoreTime?: number;
     cachedExpansionSelection?: RoomExpansionSelectionMemory;
     colonyStage?: RoomColonyStageMemory;
+    spawnEnergyBuffer?: RoomSpawnEnergyBufferConfigMemory;
+  }
+
+  interface RoomSpawnEnergyBufferConfigMemory {
+    minimumEnergyPerSpawn?: number;
   }
 
   interface RoomColonyStageMemory {

@@ -233,7 +233,7 @@ describe('MVP economy lifecycle', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      ['work', 'carry', 'move'],
       'worker-W1N1-10',
       {
         memory: { role: 'worker', colony: 'W1N1' }

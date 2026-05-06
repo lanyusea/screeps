@@ -476,7 +476,7 @@ describe('runEconomy', () => {
     });
   });
 
-  it('uses spare source-room spawn capacity for cross-room hauling after local recovery', () => {
+  it('preserves source-room spawn buffer after local recovery before cross-room hauling', () => {
     (globalThis as unknown as { FIND_SOURCES: number; RESOURCE_ENERGY: ResourceConstant }).FIND_SOURCES = 1;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
@@ -521,27 +521,16 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
-    expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn2.spawnCreep).not.toHaveBeenCalled();
     expect(spawn1.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-130', {
       memory: { role: 'worker', colony: 'W1N1' }
     });
-    expect(spawn2.spawnCreep).toHaveBeenCalledWith(
-      ['carry', 'move', 'carry', 'move', 'carry', 'move'],
-      'crossRoomHauler-W1N1-W2N1-130',
-      {
-        memory: {
-          role: 'crossRoomHauler',
-          colony: 'W1N1',
-          crossRoomHauler: {
-            homeRoom: 'W1N1',
-            targetRoom: 'W2N1',
-            sourceId: 'W1N1-storage',
-            state: 'collecting',
-            route: ['W2N1']
-          }
-        }
-      }
-    );
+    expect(Memory.economy?.spawnEnergyBuffer?.rooms.W1N1).toMatchObject({
+      currentEnergy: 400,
+      healthy: false,
+      spawnCount: 2,
+      threshold: 800
+    });
   });
 
   it('keeps spawning a productive worker while baseline workers still leave refill pressure', () => {
@@ -595,16 +584,15 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move'],
-      'worker-W1N1-127',
-      {
-        memory: { role: 'worker', colony: 'W1N1' }
-      }
-    );
+    expect(spawn.spawnCreep).not.toHaveBeenCalled();
+    expect(Memory.economy?.spawnEnergyBuffer?.rooms.W1N1).toMatchObject({
+      currentEnergy: 450,
+      healthy: true,
+      threshold: 300
+    });
   });
 
-  it('sizes a refill worker against buffered energy when raw room energy would consume the buffer', () => {
+  it('defers a refill worker when raw room energy would consume the spawn buffer', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 4;
     const room = {
       name: 'W1N1',
@@ -633,13 +621,12 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move'],
-      'worker-W1N1-128',
-      {
-        memory: { role: 'worker', colony: 'W1N1' }
-      }
-    );
+    expect(spawn.spawnCreep).not.toHaveBeenCalled();
+    expect(Memory.economy?.spawnEnergyBuffer?.rooms.W1N1).toMatchObject({
+      currentEnergy: 400,
+      healthy: true,
+      threshold: 400
+    });
   });
 
   it('waits through critical energy without invalid spawn attempts and recovers when an emergency body is affordable', () => {

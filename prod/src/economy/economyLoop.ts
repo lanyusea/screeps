@@ -12,7 +12,6 @@ import { runWorker } from '../creeps/workerRunner';
 import { HAULER_ROLE, runHauler } from '../creeps/hauler';
 import { REMOTE_HARVESTER_ROLE, runRemoteHarvester } from '../creeps/remoteHarvester';
 import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
-import { MIN_SPAWN_ENERGY_BUFFER } from '../spawn/spawnConfig';
 import {
   orderColoniesForSpawnPlanning,
   planSpawn,
@@ -33,6 +32,12 @@ import {
 import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
 import { balanceStorage } from './storageBalancer';
+import {
+  getBufferedSpawnEnergyBudget,
+  getSpawnEnergyBufferRequirement,
+  isSpawnEnergyBufferViolated,
+  refreshSpawnEnergyBufferState
+} from './spawnEnergyBuffer';
 import {
   CROSS_ROOM_HAULER_ROLE,
   planCrossRoomHauler,
@@ -95,6 +100,7 @@ import {
 
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
+const BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 const NEXT_EXPANSION_SCORING_REFRESH_INTERVAL = 50;
 const NEXT_EXPANSION_SCORING_DOWNGRADE_GUARD_TICKS = 5_000;
 
@@ -185,7 +191,8 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         creeps,
         usedSpawnsByRoom,
         reservedSpawnEnergyByRoom,
-        plannedRoleCountsByRoom
+        plannedRoleCountsByRoom,
+        survivalAssessment
       );
       if (!coordinatedPlan) {
         break;
@@ -234,6 +241,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
 
   for (const creep of creeps) {
     if (creep.memory.role === 'worker') {
@@ -311,18 +319,22 @@ function attemptCrossRoomHaulerSpawn(
   }
 
   const availableEnergy = getAvailableSpawnEnergyAfterReservations(sourceColony, spawnRequest, reservedSpawnEnergyByRoom);
-  const spawnPlan = selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(spawnRequest, availableEnergy);
+  const bufferSpawns = sourceColony?.spawns ?? [spawnRequest.spawn];
+  const spawnPlan = selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(spawnRequest, availableEnergy, bufferSpawns);
   if (!spawnPlan) {
     const originalBodyCost = getBodyCost(spawnRequest.body);
-    if (originalBodyCost <= availableEnergy && isSpawnEnergyBufferViolated(availableEnergy, originalBodyCost)) {
-      logSpawnEnergyBufferWarning(spawnRequest, sourceRoomName, availableEnergy, originalBodyCost);
+    if (
+      originalBodyCost <= availableEnergy &&
+      isSpawnEnergyBufferViolated(spawnRequest.spawn.room, bufferSpawns, availableEnergy, originalBodyCost)
+    ) {
+      logSpawnEnergyBufferWarning(spawnRequest, spawnRequest.spawn.room, bufferSpawns, availableEnergy, originalBodyCost);
     }
     return;
   }
 
   const { spawnRequest: bufferedSpawnRequest, bodyCost } = spawnPlan;
-  if (isSpawnEnergyBufferViolated(availableEnergy, bodyCost)) {
-    logSpawnEnergyBufferWarning(spawnRequest, sourceRoomName, availableEnergy, bodyCost);
+  if (isSpawnEnergyBufferViolated(spawnRequest.spawn.room, bufferSpawns, availableEnergy, bodyCost)) {
+    logSpawnEnergyBufferWarning(spawnRequest, spawnRequest.spawn.room, bufferSpawns, availableEnergy, bodyCost);
     return;
   }
 
@@ -371,7 +383,7 @@ function attemptMineralHarvesterSpawns(
     const availableEnergy = getAvailableSpawnEnergy(colony, reservedSpawnEnergyByRoom);
     const spawnRequest = planMineralHarvesterSpawn(colony, creeps, Game.time, {
       energyAvailable: availableEnergy,
-      bodyEnergyBudget: getBufferedSpawnEnergyBudget(availableEnergy),
+      bodyEnergyBudget: getBufferedSpawnEnergyBudget(colony.room, colony.spawns, availableEnergy),
       usedSpawns
     });
     if (!spawnRequest) {
@@ -685,7 +697,8 @@ function planCoordinatedSpawn(
   creeps: Creep[],
   usedSpawnsByRoom: Map<string, Set<StructureSpawn>>,
   reservedSpawnEnergyByRoom: Map<string, number>,
-  plannedRoleCountsByRoom: Map<string, RoleCounts>
+  plannedRoleCountsByRoom: Map<string, RoleCounts>,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
 ): CoordinatedSpawnPlan | null {
   for (const sourceColony of getCoordinatedSpawnSourceColonies(
     colony,
@@ -705,7 +718,8 @@ function planCoordinatedSpawn(
       usedSpawns,
       roleCounts,
       gameTime,
-      options
+      options,
+      survivalAssessment
     );
     if (!spawnPlan) {
       continue;
@@ -864,6 +878,17 @@ function getAvailableSpawnEnergy(
   );
 }
 
+function refreshSpawnEnergyBufferStates(
+  colonies: ColonySnapshot[],
+  reservedSpawnEnergyByRoom: Map<string, number>
+): void {
+  for (const colony of colonies) {
+    refreshSpawnEnergyBufferState(colony.room, colony.spawns, Game.time, {
+      currentEnergy: getAvailableSpawnEnergy(colony, reservedSpawnEnergyByRoom)
+    });
+  }
+}
+
 function getPlannedOrCurrentRoleCounts(
   creeps: Creep[],
   roomName: string,
@@ -919,7 +944,8 @@ function selectSpawnPlanWithinEnergyBuffer(
   usedSpawns: Set<StructureSpawn>,
   roleCounts: RoleCounts,
   gameTime: number,
-  options: SpawnPlanningOptions
+  options: SpawnPlanningOptions,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
 ): SpawnPlanSelection | null {
   const spawnPlan = planSpawnWithEnergyBudget(
     colony,
@@ -935,8 +961,8 @@ function selectSpawnPlanWithinEnergyBuffer(
   }
 
   if (
-    shouldBypassSpawnEnergyBuffer(spawnPlan.spawnRequest, roleCounts) ||
-    !isSpawnEnergyBufferViolated(availableEnergy, spawnPlan.bodyCost)
+    shouldBypassSpawnEnergyBuffer(spawnPlan.spawnRequest, roleCounts, availableEnergy, survivalAssessment) ||
+    !isSpawnEnergyBufferViolated(sourceColony.room, sourceColony.spawns, availableEnergy, spawnPlan.bodyCost)
   ) {
     return spawnPlan;
   }
@@ -944,17 +970,26 @@ function selectSpawnPlanWithinEnergyBuffer(
   const fallbackSpawnPlan = planSpawnWithEnergyBudget(
     colony,
     sourceColony,
-    getBufferedSpawnEnergyBudget(availableEnergy),
+    getBufferedSpawnEnergyBudget(sourceColony.room, sourceColony.spawns, availableEnergy),
     usedSpawns,
     roleCounts,
     gameTime,
     options
   );
-  if (fallbackSpawnPlan && !isSpawnEnergyBufferViolated(availableEnergy, fallbackSpawnPlan.bodyCost)) {
+  if (
+    fallbackSpawnPlan &&
+    !isSpawnEnergyBufferViolated(sourceColony.room, sourceColony.spawns, availableEnergy, fallbackSpawnPlan.bodyCost)
+  ) {
     return fallbackSpawnPlan;
   }
 
-  logSpawnEnergyBufferWarning(spawnPlan.spawnRequest, sourceColony.room.name, availableEnergy, spawnPlan.bodyCost);
+  logSpawnEnergyBufferWarning(
+    spawnPlan.spawnRequest,
+    sourceColony.room,
+    sourceColony.spawns,
+    availableEnergy,
+    spawnPlan.bodyCost
+  );
   return null;
 }
 
@@ -980,12 +1015,31 @@ function planSpawnWithEnergyBudget(
   };
 }
 
-function getBufferedSpawnEnergyBudget(availableEnergy: number): number {
-  return Math.max(0, availableEnergy - MIN_SPAWN_ENERGY_BUFFER);
+function shouldBypassSpawnEnergyBuffer(
+  spawnRequest: SpawnRequest,
+  roleCounts: RoleCounts,
+  availableEnergy: number,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
+  return (
+    roleCounts.worker === 0 ||
+    isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) ||
+    isTerritoryControllerSpawnRequest(spawnRequest)
+  );
 }
 
-function shouldBypassSpawnEnergyBuffer(spawnRequest: SpawnRequest, roleCounts: RoleCounts): boolean {
-  return roleCounts.worker === 0 || isTerritoryControllerSpawnRequest(spawnRequest);
+function isBootstrapWorkerRecoverySpawnRequest(
+  spawnRequest: SpawnRequest,
+  roleCounts: RoleCounts,
+  availableEnergy: number,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
+  return (
+    spawnRequest.memory.role === 'worker' &&
+    survivalAssessment.mode === 'BOOTSTRAP' &&
+    (roleCounts.worker < survivalAssessment.survivalWorkerFloor ||
+      availableEnergy >= BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY)
+  );
 }
 
 function isTerritoryControllerSpawnRequest(spawnRequest: SpawnRequest): boolean {
@@ -994,10 +1048,11 @@ function isTerritoryControllerSpawnRequest(spawnRequest: SpawnRequest): boolean 
 
 function selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(
   spawnRequest: SpawnRequest,
-  availableEnergy: number
+  availableEnergy: number,
+  spawns: StructureSpawn[]
 ): SpawnRequestSelection | null {
   const bodyCost = getBodyCost(spawnRequest.body);
-  if (bodyCost <= getBufferedSpawnEnergyBudget(availableEnergy)) {
+  if (bodyCost <= getBufferedSpawnEnergyBudget(spawnRequest.spawn.room, spawns, availableEnergy)) {
     return {
       spawnRequest,
       bodyCost
@@ -1006,7 +1061,7 @@ function selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(
 
   const fallbackBody = buildAffordableCrossRoomHaulerBody(
     spawnRequest.body,
-    getBufferedSpawnEnergyBudget(availableEnergy)
+    getBufferedSpawnEnergyBudget(spawnRequest.spawn.room, spawns, availableEnergy)
   );
   if (fallbackBody.length === 0) {
     return null;
@@ -1112,18 +1167,17 @@ function attemptSpawnRequest(
   return lastOutcome;
 }
 
-function isSpawnEnergyBufferViolated(availableEnergy: number, bodyCost: number): boolean {
-  return availableEnergy - bodyCost < MIN_SPAWN_ENERGY_BUFFER;
-}
-
 function logSpawnEnergyBufferWarning(
   spawnRequest: SpawnRequest,
-  roomName: string,
+  room: Room,
+  spawns: StructureSpawn[],
   availableEnergy: number,
   bodyCost: number
 ): void {
+  const roomName = room.name;
+  const requiredBuffer = getSpawnEnergyBufferRequirement(room, spawns);
   console.log(
-    `[spawn] warning: deferred ${spawnRequest.name} in ${roomName}; available energy ${availableEnergy}, body cost ${bodyCost}, required buffer ${MIN_SPAWN_ENERGY_BUFFER}`
+    `[spawn] warning: deferred ${spawnRequest.name} in ${roomName}; available energy ${availableEnergy}, body cost ${bodyCost}, required buffer ${requiredBuffer}`
   );
 }
 

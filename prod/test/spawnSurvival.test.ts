@@ -106,7 +106,7 @@ describe('spawn survival integration', () => {
 
     harness.runTick(107, 500);
     expectSpawnHasEnergyOrWorker(harness);
-    expect(harness.spawnedBodies()[4]).toEqual(['work', 'work', 'work', 'carry', 'move', 'move']);
+    expect(harness.spawnedBodies()[4]).toEqual(['work', 'work', 'work', 'carry', 'move', 'move', 'move']);
     expect(harness.workerNames()).toHaveLength(5);
     expect(harness.room.memory.colonyStage).toMatchObject({
       mode: 'BOOTSTRAP',
