@@ -277,12 +277,14 @@ function getKnownStoredEnergy(structure: StructureLink | StructureStorage): numb
 }
 
 function getKnownFreeEnergyCapacity(structure: StructureLink | StructureStorage): number | null {
-  const freeCapacity = structure.store?.getFreeCapacity?.(getEnergyResource());
+  const freeCapacity =
+    structure.store?.getFreeCapacity?.(getEnergyResource()) ?? structure.store?.getFreeCapacity?.();
   return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : null;
 }
 
 function getKnownEnergyCapacity(structure: StructureLink | StructureStorage): number | null {
-  const capacity = structure.store?.getCapacity?.(getEnergyResource());
+  const capacity =
+    structure.store?.getCapacity?.(getEnergyResource()) ?? structure.store?.getCapacity?.();
   return typeof capacity === 'number' && Number.isFinite(capacity) ? Math.max(0, capacity) : null;
 }
 
