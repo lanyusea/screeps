@@ -19035,8 +19035,9 @@ function isActiveRoomDefender(creep, roomName) {
   return isAssignedRoomDefender(creep, roomName) && ((_a = creep.room) == null ? void 0 : _a.name) === roomName && canSatisfyDefenderSpawnCapacity(creep);
 }
 function isAssignedRoomDefender(creep, roomName) {
-  var _a;
-  return creep.memory.role === DEFENDER_ROLE && ((_a = creep.memory.defense) == null ? void 0 : _a.homeRoom) === roomName && canSatisfyDefenderSpawnCapacity(creep);
+  var _a, _b;
+  const assignedRoom = (_b = (_a = creep.memory.defense) == null ? void 0 : _a.homeRoom) != null ? _b : creep.memory.colony;
+  return creep.memory.role === DEFENDER_ROLE && assignedRoom === roomName && canSatisfyDefenderSpawnCapacity(creep);
 }
 function canSatisfyDefenderSpawnCapacity(creep) {
   return (creep.ticksToLive === void 0 || creep.ticksToLive > 100) && hasActiveAttackPart2(creep);

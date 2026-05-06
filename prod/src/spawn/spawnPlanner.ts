@@ -394,9 +394,11 @@ function isActiveRoomDefender(creep: Creep, roomName: string): boolean {
 }
 
 function isAssignedRoomDefender(creep: Creep, roomName: string): boolean {
+  const assignedRoom = creep.memory.defense?.homeRoom ?? creep.memory.colony;
+
   return (
     creep.memory.role === DEFENDER_ROLE &&
-    creep.memory.defense?.homeRoom === roomName &&
+    assignedRoom === roomName &&
     canSatisfyDefenderSpawnCapacity(creep)
   );
 }
