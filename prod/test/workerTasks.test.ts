@@ -184,13 +184,16 @@ function makeStoredEnergyStructure(
   } as unknown as StructureContainer | StructureStorage | StructureTerminal;
 }
 
-function makeStoredEnergyLink(id: string, x: number, y: number, energy: number): StructureLink {
+function makeStoredEnergyLink(id: string, x: number, y: number, energy: number, freeCapacity = 0): StructureLink {
   return {
     id,
     my: true,
     structureType: 'link',
     pos: makeRoomPosition(x, y),
-    store: { getUsedCapacity: jest.fn().mockReturnValue(energy) }
+    store: {
+      getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
+      getUsedCapacity: jest.fn().mockReturnValue(energy)
+    }
   } as unknown as StructureLink;
 }
 
@@ -2946,6 +2949,37 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-source' });
+  });
+
+  it('does not withdraw source-link energy reserved for controller link routing', () => {
+    const emptySource = makeSource('source-empty', 10, 10, 0);
+    const distantContainer = makeStoredEnergyStructure('container-distant', 'container' as StructureConstant, 200);
+    const sourceLink = makeStoredEnergyLink('link-source', 10, 12, 50);
+    const controllerLink = makeStoredEnergyLink('link-controller', 25, 23, 0, 300);
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1',
+        my: true,
+        level: 3,
+        pos: makeRoomPosition(25, 25)
+      } as StructureController,
+      myStructures: [sourceLink as AnyOwnedStructure, controllerLink as AnyOwnedStructure],
+      sources: [emptySource],
+      structures: [distantContainer]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'link-source' ? 1 : 12))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-distant' });
   });
 
   it('withdraws from a saturated local source container before traveling to an adjacent assignable source', () => {
