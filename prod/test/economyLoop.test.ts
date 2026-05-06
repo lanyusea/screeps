@@ -222,6 +222,57 @@ describe('runEconomy', () => {
     });
   });
 
+  it('keeps primary worker recovery ahead of secondary surplus production', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const primaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controllerLevel: 1
+    });
+    const secondaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W2N1',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    });
+    const primarySpawn = {
+      name: 'Spawn1',
+      room: primaryRoom,
+      spawning: { name: 'busy-worker' } as Spawning,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondarySpawn = {
+      name: 'Spawn2',
+      room: secondaryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondaryWorkers = {
+      Worker1: makeEconomyWorker(secondaryRoom),
+      Worker2: makeEconomyWorker(secondaryRoom),
+      Worker3: makeEconomyWorker(secondaryRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 132,
+      rooms: { W1N1: primaryRoom, W2N1: secondaryRoom },
+      spawns: { Spawn1: primarySpawn, Spawn2: secondarySpawn },
+      creeps: secondaryWorkers
+    };
+
+    runEconomy();
+
+    expect(primarySpawn.spawnCreep).not.toHaveBeenCalled();
+    expect(secondarySpawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(secondarySpawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-132', {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        spawnSupport: { originRoom: 'W2N1', targetRoom: 'W1N1' }
+      }
+    });
+  });
+
   it('keeps secondary bootstrap energy local instead of borrowing it for primary territory control', () => {
     installSpawnCoordinationGlobals();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {

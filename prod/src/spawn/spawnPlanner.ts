@@ -9,7 +9,7 @@ import {
   hasEmergencyBootstrapCreepShortfall,
   type ColonySurvivalAssessment
 } from '../colony/colonyStage';
-import { getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
+import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import {
   REMOTE_HARVESTER_ROLE,
   selectRemoteHarvesterAssignment
@@ -103,6 +103,35 @@ export interface SpawnEnergyForecast {
   effectiveEnergyAvailable: number;
 }
 
+export type SpawnPlanningEnergyGate = 'critical' | 'recovery' | 'ready' | 'full';
+
+export type SpawnPlanningRoomPriority =
+  | 'emergencyBootstrap'
+  | 'defense'
+  | 'controllerDowngradeGuard'
+  | 'localWorkerRecovery'
+  | 'stableWork'
+  | 'surplusWork';
+
+export interface RoomCreepBudget {
+  roomName: string;
+  controllerLevel: number;
+  energyAvailable: number;
+  energyCapacityAvailable: number;
+  effectiveEnergyAvailable: number;
+  energyGate: SpawnPlanningEnergyGate;
+  ownedSpawnCount: number;
+  idleSpawnCount: number;
+  workerCapacity: number;
+  workerTarget: number;
+  workerDeficit: number;
+  priority: SpawnPlanningRoomPriority;
+}
+
+export type SpawnPlanningRoleCountsByRoom =
+  | ReadonlyMap<string, RoleCounts>
+  | Readonly<Record<string, RoleCounts>>;
+
 const CONTROLLER_UPGRADE_SURPLUS_WORKER_BONUS = 1;
 const CONTROLLER_UPGRADE_SURPLUS_MIN_ENERGY_CAPACITY = 650;
 const CONTROLLER_UPGRADE_SURPLUS_MAX_WORKER_TARGET = 6;
@@ -167,8 +196,13 @@ export function planSpawn(
   return null;
 }
 
-export function orderColoniesForSpawnPlanning(colonies: ColonySnapshot[]): ColonySnapshot[] {
-  return [...colonies].sort(compareColoniesForSpawnPlanning);
+export function orderColoniesForSpawnPlanning(
+  colonies: ColonySnapshot[],
+  roleCountsByRoom?: SpawnPlanningRoleCountsByRoom
+): ColonySnapshot[] {
+  return [...colonies].sort((left, right) =>
+    compareColoniesForSpawnPlanning(left, right, roleCountsByRoom)
+  );
 }
 
 export function getSpawnEnergyForecast(colony: ColonySnapshot): SpawnEnergyForecast {
@@ -208,6 +242,32 @@ export function shouldSuppressWorkerSpawnForCrossRoomImport(colony: ColonySnapsh
       transfer.amount > 0 &&
       isLiveTransferCandidate(transfer)
   );
+}
+
+export function getRoomCreepBudget(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts
+): RoomCreepBudget {
+  const forecast = getSpawnEnergyForecast(colony);
+  const survival = assessColonySnapshotSurvival(colony, roleCounts);
+  const workerTarget = getWorkerTarget(colony, roleCounts);
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  const workerDeficit = Math.max(0, workerTarget - workerCapacity);
+
+  return {
+    roomName: colony.room.name,
+    controllerLevel: getControllerLevel(colony.room.controller),
+    energyAvailable: normalizeNonNegativeInteger(colony.energyAvailable),
+    energyCapacityAvailable: normalizeNonNegativeInteger(colony.energyCapacityAvailable),
+    effectiveEnergyAvailable: forecast.effectiveEnergyAvailable,
+    energyGate: getSpawnPlanningEnergyGate(forecast.effectiveEnergyAvailable, colony.energyCapacityAvailable),
+    ownedSpawnCount: colony.spawns.length,
+    idleSpawnCount: colony.spawns.filter((spawn) => !spawn.spawning).length,
+    workerCapacity,
+    workerTarget,
+    workerDeficit,
+    priority: selectRoomSpawnPriority(survival, workerDeficit)
+  };
 }
 
 function planSpawnForPriorityTier(
@@ -1360,14 +1420,154 @@ function getVisibleRoom(roomName: string): Room | undefined {
   return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
 }
 
-function compareColoniesForSpawnPlanning(left: ColonySnapshot, right: ColonySnapshot): number {
-  const leftForecast = getSpawnEnergyForecast(left);
-  const rightForecast = getSpawnEnergyForecast(right);
+function compareColoniesForSpawnPlanning(
+  left: ColonySnapshot,
+  right: ColonySnapshot,
+  roleCountsByRoom?: SpawnPlanningRoleCountsByRoom
+): number {
+  const leftBudget = getRoomCreepBudget(left, getRoleCountsForSpawnPlanning(left, roleCountsByRoom));
+  const rightBudget = getRoomCreepBudget(right, getRoleCountsForSpawnPlanning(right, roleCountsByRoom));
+  const operationalSpawnRankDelta = getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget);
+  if (operationalSpawnRankDelta !== 0) {
+    return operationalSpawnRankDelta;
+  }
+
   return (
-    rightForecast.effectiveEnergyAvailable - leftForecast.effectiveEnergyAvailable ||
+    getNoSpawnRoomOrdering(leftBudget, rightBudget) ||
+    getRoomSpawnPriorityRank(leftBudget.priority) - getRoomSpawnPriorityRank(rightBudget.priority) ||
+    rightBudget.workerDeficit - leftBudget.workerDeficit ||
+    leftBudget.controllerLevel - rightBudget.controllerLevel ||
+    getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) ||
+    rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable ||
     right.energyAvailable - left.energyAvailable ||
     left.room.name.localeCompare(right.room.name)
   );
+}
+
+function getOperationalSpawnRank(budget: RoomCreepBudget): number {
+  return budget.ownedSpawnCount > 0 ? 1 : 0;
+}
+
+function getNoSpawnRoomOrdering(left: RoomCreepBudget, right: RoomCreepBudget): number {
+  if (left.ownedSpawnCount > 0 || right.ownedSpawnCount > 0) {
+    return 0;
+  }
+
+  return (
+    right.effectiveEnergyAvailable - left.effectiveEnergyAvailable ||
+    right.energyAvailable - left.energyAvailable
+  );
+}
+
+function getRoleCountsForSpawnPlanning(
+  colony: ColonySnapshot,
+  roleCountsByRoom: SpawnPlanningRoleCountsByRoom | undefined
+): RoleCounts {
+  const roomName = colony.room.name;
+  const mappedCounts = getMappedRoleCounts(roleCountsByRoom, roomName);
+  if (mappedCounts) {
+    return mappedCounts;
+  }
+
+  const creeps = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
+  return countCreepsByRole(creeps ? Object.values(creeps) : [], roomName);
+}
+
+function getMappedRoleCounts(
+  roleCountsByRoom: SpawnPlanningRoleCountsByRoom | undefined,
+  roomName: string
+): RoleCounts | undefined {
+  if (!roleCountsByRoom) {
+    return undefined;
+  }
+
+  if (isRoleCountsMap(roleCountsByRoom)) {
+    return roleCountsByRoom.get(roomName);
+  }
+
+  return roleCountsByRoom[roomName];
+}
+
+function isRoleCountsMap(value: SpawnPlanningRoleCountsByRoom): value is ReadonlyMap<string, RoleCounts> {
+  return typeof (value as ReadonlyMap<string, RoleCounts>).get === 'function';
+}
+
+function selectRoomSpawnPriority(
+  survival: ColonySurvivalAssessment,
+  workerDeficit: number
+): SpawnPlanningRoomPriority {
+  if (survival.mode === 'BOOTSTRAP' && hasEmergencyBootstrapCreepShortfall(survival)) {
+    return 'emergencyBootstrap';
+  }
+
+  if (survival.hostilePresence) {
+    return 'defense';
+  }
+
+  if (survival.controllerDowngradeGuard) {
+    return 'controllerDowngradeGuard';
+  }
+
+  if (workerDeficit > 0) {
+    return 'localWorkerRecovery';
+  }
+
+  return survival.mode === 'TERRITORY_READY' ? 'stableWork' : 'surplusWork';
+}
+
+function getRoomSpawnPriorityRank(priority: SpawnPlanningRoomPriority): number {
+  switch (priority) {
+    case 'emergencyBootstrap':
+      return 0;
+    case 'defense':
+      return 1;
+    case 'controllerDowngradeGuard':
+      return 2;
+    case 'localWorkerRecovery':
+      return 3;
+    case 'stableWork':
+      return 4;
+    case 'surplusWork':
+      return 5;
+  }
+}
+
+function getSpawnPlanningEnergyGate(
+  energyAvailable: number,
+  energyCapacityAvailable: number
+): SpawnPlanningEnergyGate {
+  const energy = normalizeNonNegativeInteger(energyAvailable);
+  const capacity = normalizeNonNegativeInteger(energyCapacityAvailable);
+  if (energy < MINIMUM_EMERGENCY_WORKER_BODY_COST) {
+    return 'critical';
+  }
+
+  if (energy < BOOTSTRAP_MIN_SPAWN_ENERGY) {
+    return 'recovery';
+  }
+
+  if (capacity > 0 && energy >= capacity) {
+    return 'full';
+  }
+
+  return 'ready';
+}
+
+function getEnergyGateRank(gate: SpawnPlanningEnergyGate): number {
+  switch (gate) {
+    case 'critical':
+      return 0;
+    case 'recovery':
+      return 1;
+    case 'ready':
+      return 2;
+    case 'full':
+      return 3;
+  }
+}
+
+function getControllerLevel(controller: StructureController | undefined): number {
+  return typeof controller?.level === 'number' ? controller.level : MAX_CONTROLLER_LEVEL;
 }
 
 function getStorageBalanceMemory(): EconomyStorageBalanceMemory | undefined {
