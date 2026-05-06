@@ -212,7 +212,7 @@ export const CONSTRUCTION_SITE_IMPACT_PRIORITY = {
   claimedRoomSpawn: 110,
   extension: 100,
   spawn: 95,
-  tower: 90,
+  tower: 92,
   protectedRampart: 90,
   rampart: 85,
   sourceContainer: 70,

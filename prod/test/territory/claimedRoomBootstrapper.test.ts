@@ -183,7 +183,7 @@ describe('claimed room bootstrapper', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(11, 10, TEST_GLOBALS.STRUCTURE_ROAD);
   });
 
-  it('gates tower placement until RCL3', () => {
+  it('gates tower placement until RCL3 and places it between controller and spawn anchors', () => {
     const rcl2 = makeTowerReadyRoom(2);
     installActiveBootstrapMemory();
     installGame(rcl2.room);
@@ -198,7 +198,44 @@ describe('claimed room bootstrapper', () => {
     expect(runClaimedRoomBootstrapper([rcl3.colony]).planned).toEqual([
       { roomName: 'W2N1', phase: 'tower', result: OK_CODE }
     ]);
-    expect(rcl3.room.createConstructionSite).toHaveBeenCalledWith(19, 19, TEST_GLOBALS.STRUCTURE_TOWER);
+    expect(rcl3.room.createConstructionSite).toHaveBeenCalledWith(23, 23, TEST_GLOBALS.STRUCTURE_TOWER);
+  });
+
+  it('plans RCL3 claimed-room tower defense before adding more early roads', () => {
+    const spawn = makeStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 10, 10);
+    const source = makeSource('source-a', 20, 10);
+    const container = makeStructure('container-a', TEST_GLOBALS.STRUCTURE_CONTAINER, 20, 11);
+    const { room, colony } = makeBootstrapRoom({
+      controllerLevel: 3,
+      controllerPosition: { x: 10, y: 20 },
+      sources: [source],
+      structures: [spawn, container, ...makeExtensions(10)],
+      spawns: [spawn as StructureSpawn],
+      pathsByTarget: {
+        '20,10': [{ x: 11, y: 10 }],
+        '10,20': [{ x: 10, y: 11 }]
+      }
+    });
+    installActiveBootstrapMemory();
+    installGame(room);
+    installPathFinder(room);
+
+    const result = runClaimedRoomBootstrapper([colony]);
+
+    expect(result.planned).toEqual([{ roomName: 'W2N1', phase: 'tower', result: OK_CODE }]);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(15, 15, TEST_GLOBALS.STRUCTURE_TOWER);
+  });
+
+  it('skips blocked strategic tower positions when selecting claimed-room tower sites', () => {
+    const rcl3 = makeTowerReadyRoom(3, new Set(['23,23']));
+    installActiveBootstrapMemory();
+    installGame(rcl3.room);
+
+    const result = runClaimedRoomBootstrapper([rcl3.colony]);
+
+    expect(result.planned).toEqual([{ roomName: 'W2N1', phase: 'tower', result: OK_CODE }]);
+    expect(rcl3.room.createConstructionSite).toHaveBeenCalledWith(22, 22, TEST_GLOBALS.STRUCTURE_TOWER);
   });
 
   it('does not re-place construction sites that already exist', () => {
@@ -310,8 +347,12 @@ function makeBootstrapRoom(options: BootstrapRoomOptions): { room: MockRoom; col
       constructionSites.push(makeConstructionSite(`site-${x}-${y}`, structureType, x, y));
       return OK_CODE;
     }),
-    __pathsByTarget: options.pathsByTarget ?? {}
-  } as unknown as MockRoom & { __pathsByTarget: Record<string, TestPosition[]> };
+    __pathsByTarget: options.pathsByTarget ?? {},
+    __wallPositions: options.wallPositions ?? new Set<string>()
+  } as unknown as MockRoom & {
+    __pathsByTarget: Record<string, TestPosition[]>;
+    __wallPositions: Set<string>;
+  };
 
   for (const structure of structures) {
     (structure as Structure & { room?: Room }).room = room;
@@ -328,7 +369,10 @@ function makeBootstrapRoom(options: BootstrapRoomOptions): { room: MockRoom; col
   };
 }
 
-function makeTowerReadyRoom(controllerLevel: number): { room: MockRoom; colony: ColonySnapshot } {
+function makeTowerReadyRoom(
+  controllerLevel: number,
+  wallPositions: Set<string> = new Set()
+): { room: MockRoom; colony: ColonySnapshot } {
   const spawn = makeStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20);
   return makeBootstrapRoom({
     controllerLevel,
@@ -337,7 +381,8 @@ function makeTowerReadyRoom(controllerLevel: number): { room: MockRoom; colony: 
       spawn,
       ...makeExtensions(controllerLevel >= 3 ? 10 : 5)
     ],
-    spawns: [spawn as StructureSpawn]
+    spawns: [spawn as StructureSpawn],
+    wallPositions
   });
 }
 
@@ -357,12 +402,15 @@ function installActiveBootstrapMemory(updatedAt = 90, owned = true): void {
 }
 
 function installGame(room: Room, time = 100): void {
+  const wallPositions = (room as Room & { __wallPositions?: Set<string> }).__wallPositions ?? new Set<string>();
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
     time,
     rooms: { [room.name]: room },
     map: {
       getRoomTerrain: jest.fn().mockReturnValue({
-        get: jest.fn().mockReturnValue(0)
+        get: jest.fn((x: number, y: number) =>
+          wallPositions.has(`${x},${y}`) ? TEST_GLOBALS.TERRAIN_MASK_WALL : 0
+        )
       })
     } as unknown as GameMap
   };
