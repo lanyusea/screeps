@@ -3,6 +3,7 @@ import { assessColonyStage } from '../src/colony/colonyStage';
 import { scoreClaimTarget } from '../src/territory/claimScoring';
 import {
   COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
+  MIN_COLONY_EXPANSION_CLAIM_SCORE,
   refreshColonyExpansionIntent
 } from '../src/territory/colonyExpansionPlanner';
 import { planTerritoryIntent } from '../src/territory/territoryPlanner';
@@ -185,6 +186,55 @@ describe('colony expansion planner', () => {
         action: 'claim',
         createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
         controllerId: 'controller-W1N2'
+      }
+    ]);
+  });
+
+  it('ignores sub-threshold rooms when applying synergy to expansion claim ranking', () => {
+    const { colony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      sourceCount: 1,
+      mineralType: 'H'
+    });
+    installGame(colony, {
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 2, mineralType: 'H' }),
+        W1N2: makeExpansionRoom('W1N2', { sourceCount: 1, mineralType: 'O' })
+      },
+      exits: { W1N1: { '1': 'W2N1', '3': 'W1N2' } }
+    });
+    const stableAssessment = assessColonyStage({
+      roomName: 'W1N1',
+      totalCreeps: 5,
+      workerCapacity: 3,
+      workerTarget: 3,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+    });
+    const eligibleScore = scoreClaimTarget('W2N1', colony.room).score;
+    const subThresholdScore = scoreClaimTarget('W1N2', colony.room).score;
+
+    expect(eligibleScore).toBeGreaterThanOrEqual(MIN_COLONY_EXPANSION_CLAIM_SCORE);
+    expect(subThresholdScore).toBeLessThan(MIN_COLONY_EXPANSION_CLAIM_SCORE);
+
+    const evaluation = refreshColonyExpansionIntent(colony, stableAssessment, 240);
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller-W2N1',
+      score: eligibleScore
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
+        controllerId: 'controller-W2N1'
       }
     ]);
   });

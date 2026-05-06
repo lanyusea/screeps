@@ -210,11 +210,24 @@ function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansion
       }
     ];
   });
-  applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, candidates);
+  const claimableCandidates = candidates.filter(
+    (candidate) => candidate.effectiveScore >= MIN_COLONY_EXPANSION_CLAIM_SCORE
+  );
+  if (claimableCandidates.length > 0) {
+    applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, claimableCandidates);
+    return selectBestColonyExpansionCandidate(claimableCandidates, compareColonyExpansionCandidates);
+  }
 
+  return selectBestColonyExpansionCandidate(candidates, compareColonyExpansionCandidatesByEffectiveScore);
+}
+
+function selectBestColonyExpansionCandidate(
+  candidates: ColonyExpansionCandidate[],
+  compareCandidates: (left: ColonyExpansionCandidate, right: ColonyExpansionCandidate) => number
+): ColonyExpansionCandidate | null {
   let bestCandidate: ColonyExpansionCandidate | null = null;
   for (const candidate of candidates) {
-    if (!bestCandidate || compareColonyExpansionCandidates(candidate, bestCandidate) < 0) {
+    if (!bestCandidate || compareCandidates(candidate, bestCandidate) < 0) {
       bestCandidate = candidate;
     }
   }
@@ -228,6 +241,19 @@ function compareColonyExpansionCandidates(
 ): number {
   return (
     right.rankingScore - left.rankingScore ||
+    right.effectiveScore - left.effectiveScore ||
+    right.claimScore.sources - left.claimScore.sources ||
+    left.claimScore.distance - right.claimScore.distance ||
+    left.order - right.order ||
+    left.roomName.localeCompare(right.roomName)
+  );
+}
+
+function compareColonyExpansionCandidatesByEffectiveScore(
+  left: ColonyExpansionCandidate,
+  right: ColonyExpansionCandidate
+): number {
+  return (
     right.effectiveScore - left.effectiveScore ||
     right.claimScore.sources - left.claimScore.sources ||
     left.claimScore.distance - right.claimScore.distance ||
