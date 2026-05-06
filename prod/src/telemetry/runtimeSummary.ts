@@ -30,6 +30,7 @@ import {
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
 import { getTerritoryScoutSummary } from '../territory/scoutIntel';
 import { getRoomEnergyBufferHealth, type EnergyBufferHealth } from '../economy/energyBuffer';
+import { getRoomEnergySurplusState, type RoomEnergySurplusState } from '../economy/energySurplus';
 import {
   summarizeSourceContainerCoverage,
   type SourceContainerCoverageSummary
@@ -281,7 +282,28 @@ interface RuntimeResourceSummary {
   sourceCount: number;
   sourceContainers: SourceContainerCoverageSummary;
   productiveEnergy: RuntimeProductiveEnergySummary;
+  energySurplus: RuntimeEnergySurplusSummary;
   events?: RuntimeResourceEventSummary;
+}
+
+interface RuntimeEnergySurplusSummary {
+  surplus: boolean;
+  spawnExtensionsFull: boolean;
+  containersFull: boolean;
+  spawnExtensionFreeCapacity: number;
+  containerFreeCapacity: number;
+  durableFreeCapacity: number;
+  storageEnergy: number;
+  storageFreeCapacity: number;
+  terminalEnergy: number;
+  terminalFreeCapacity: number;
+  terminalTargetEnergy: number;
+  terminalEnergyDeficit: number;
+  terminalEnergySurplus: number;
+  routedWorkerCount: number;
+  routedCarriedEnergy: number;
+  selectedSinkId?: string;
+  selectedSinkType?: 'storage' | 'terminal';
 }
 
 interface RuntimeProductiveEnergySummary {
@@ -1533,6 +1555,7 @@ function summarizeResources(
     sourceCount: sourceContainerCoverage.sourceCount,
     sourceContainers: sourceContainerCoverage,
     productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
+    energySurplus: summarizeEnergySurplus(colony.room, colonyWorkers),
     ...(events ? { events } : {})
   };
 }
@@ -1551,8 +1574,47 @@ function isOwnedEnergyStoreStructure(structure: unknown): boolean {
     matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
-    matchesStructureType(structure.structureType, 'STRUCTURE_LINK', 'link')
+    matchesStructureType(structure.structureType, 'STRUCTURE_LINK', 'link') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')
   );
+}
+
+function summarizeEnergySurplus(room: Room, colonyWorkers: Creep[]): RuntimeEnergySurplusSummary {
+  const state = getRoomEnergySurplusState(room);
+  const surplusSinkIds = getEnergySurplusSinkIds(state);
+  const routedWorkers = colonyWorkers.filter((worker) => {
+    const task = worker.memory.task;
+    return task?.type === 'transfer' && surplusSinkIds.has(String(task.targetId));
+  });
+
+  return {
+    surplus: state.surplus,
+    spawnExtensionsFull: state.spawnExtensionsFull,
+    containersFull: state.containersFull,
+    spawnExtensionFreeCapacity: state.spawnExtensionFreeCapacity,
+    containerFreeCapacity: state.containerFreeCapacity,
+    durableFreeCapacity: state.durableFreeCapacity,
+    storageEnergy: state.storageEnergy,
+    storageFreeCapacity: state.storageFreeCapacity,
+    terminalEnergy: state.terminalEnergy,
+    terminalFreeCapacity: state.terminalFreeCapacity,
+    terminalTargetEnergy: state.terminalTargetEnergy,
+    terminalEnergyDeficit: state.terminalEnergyDeficit,
+    terminalEnergySurplus: state.terminalEnergySurplus,
+    routedWorkerCount: routedWorkers.length,
+    routedCarriedEnergy: sumEnergyInStores(routedWorkers),
+    ...(state.selectedSinkId ? { selectedSinkId: state.selectedSinkId } : {}),
+    ...(state.selectedSinkType ? { selectedSinkType: state.selectedSinkType } : {})
+  };
+}
+
+function getEnergySurplusSinkIds(state: RoomEnergySurplusState): Set<string> {
+  const ids = new Set<string>();
+  if (state.selectedSinkId) {
+    ids.add(state.selectedSinkId);
+  }
+
+  return ids;
 }
 
 function summarizeProductiveEnergy(
@@ -2140,6 +2202,7 @@ type StructureConstantGlobal =
   | 'STRUCTURE_SPAWN'
   | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_STORAGE'
+  | 'STRUCTURE_TERMINAL'
   | 'STRUCTURE_LINK';
 
 function matchesStructureType(value: unknown, globalName: StructureConstantGlobal, fallback: string): boolean {

@@ -69,6 +69,32 @@ describe('cross-room energy logistics', () => {
     ]);
   });
 
+  it('records terminal energy balance fields with storage balance state', () => {
+    const room = makeOwnedRoom({
+      roomName: 'W1N1',
+      storageEnergy: 900,
+      terminalEnergy: 100,
+      terminalCapacity: 1_000
+    });
+    installGame([room], []);
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.W1N1).toMatchObject({
+      energy: 1_000,
+      capacity: 2_000,
+      storageEnergy: 900,
+      storageCapacity: 1_000,
+      storageFreeCapacity: 100,
+      terminalEnergy: 100,
+      terminalCapacity: 1_000,
+      terminalFreeCapacity: 900,
+      terminalTargetEnergy: 1_000,
+      terminalEnergyDeficit: 900,
+      terminalEnergySurplus: 0
+    });
+  });
+
   it('plans a proportional CARRY/MOVE hauler from a surplus room to a deficit room', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
     const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });

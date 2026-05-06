@@ -1,3 +1,5 @@
+import { getTerminalEnergyTarget } from './energySurplus';
+
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 export const STORAGE_BALANCE_IMPORT_RATIO = 0.3;
 export const STORAGE_BALANCE_REFRESH_INTERVAL = 25;
@@ -9,6 +11,15 @@ export interface RoomStoredEnergyState {
   ratio: number;
   exportableEnergy: number;
   importDemand: number;
+  storageEnergy: number;
+  storageCapacity: number;
+  storageFreeCapacity: number;
+  terminalEnergy: number;
+  terminalCapacity: number;
+  terminalFreeCapacity: number;
+  terminalTargetEnergy: number;
+  terminalEnergyDeficit: number;
+  terminalEnergySurplus: number;
   mode: EconomyStorageBalanceMode;
 }
 
@@ -47,6 +58,17 @@ export function getStorageBalanceState(): EconomyStorageBalanceMemory {
 
 export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
   const stores = getRoomEnergyStores(room);
+  const storage = room.storage as unknown as RoomEnergyStore | undefined;
+  const terminal = room.terminal as unknown as RoomEnergyStore | undefined;
+  const storageEnergy = storage ? getStoredEnergy(storage) : 0;
+  const storageCapacity = storage ? getEnergyCapacity(storage) : 0;
+  const storageFreeCapacity = storage ? getEnergyFreeCapacity(storage) : 0;
+  const terminalEnergy = terminal ? getStoredEnergy(terminal) : 0;
+  const terminalCapacity = terminal ? getEnergyCapacity(terminal) : 0;
+  const terminalFreeCapacity = terminal ? getEnergyFreeCapacity(terminal) : 0;
+  const terminalTargetEnergy = getTerminalEnergyTarget(room.terminal);
+  const terminalEnergyDeficit = Math.max(0, terminalTargetEnergy - terminalEnergy);
+  const terminalEnergySurplus = Math.max(0, terminalEnergy - terminalTargetEnergy);
   const energy = stores.reduce((total, structure) => total + getStoredEnergy(structure), 0);
   const capacity = stores.reduce((total, structure) => total + getEnergyCapacity(structure), 0);
   const ratio = capacity > 0 ? energy / capacity : 0;
@@ -66,6 +88,15 @@ export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
     ratio,
     exportableEnergy: Math.max(0, exportableEnergy),
     importDemand: Math.max(0, importDemand),
+    storageEnergy,
+    storageCapacity,
+    storageFreeCapacity,
+    terminalEnergy,
+    terminalCapacity,
+    terminalFreeCapacity,
+    terminalTargetEnergy,
+    terminalEnergyDeficit,
+    terminalEnergySurplus,
     mode: selectStorageBalanceMode(capacity, ratio)
   };
 }
@@ -88,6 +119,15 @@ function buildStorageBalanceState(gameTime: number): EconomyStorageBalanceMemory
           ratio: state.ratio,
           exportableEnergy: state.exportableEnergy,
           importDemand: state.importDemand,
+          storageEnergy: state.storageEnergy,
+          storageCapacity: state.storageCapacity,
+          storageFreeCapacity: state.storageFreeCapacity,
+          terminalEnergy: state.terminalEnergy,
+          terminalCapacity: state.terminalCapacity,
+          terminalFreeCapacity: state.terminalFreeCapacity,
+          terminalTargetEnergy: state.terminalTargetEnergy,
+          terminalEnergyDeficit: state.terminalEnergyDeficit,
+          terminalEnergySurplus: state.terminalEnergySurplus,
           updatedAt: gameTime
         }
       ])
@@ -213,6 +253,18 @@ function getEnergyCapacity(target: RoomEnergyStore): number {
   return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity)
     ? getStoredEnergy(target) + Math.max(0, freeCapacity)
     : 0;
+}
+
+function getEnergyFreeCapacity(target: RoomEnergyStore): number {
+  const store = target.store;
+  const resource = getEnergyResource();
+  const freeCapacity = store?.getFreeCapacity?.(resource);
+  if (typeof freeCapacity === 'number' && Number.isFinite(freeCapacity)) {
+    return Math.max(0, freeCapacity);
+  }
+
+  const capacity = getEnergyCapacity(target);
+  return capacity > 0 ? Math.max(0, capacity - getStoredEnergy(target)) : 0;
 }
 
 function isStorageBalanceFresh(

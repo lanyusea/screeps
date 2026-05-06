@@ -43,6 +43,7 @@ import {
   planMineralHarvesterSpawn,
   runMineralHarvester
 } from './mineral-harvesting';
+import { routeEnergySurplus } from './energySurplus';
 import {
   buildRuntimeOccupationRecommendationReport,
   clearOccupationRecommendationClaimIntent,
@@ -222,6 +223,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
 
     transferLinkEnergy(colony.room);
     manageStorage(colony.room);
+    routeEnergySurplus(colony.room);
     recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
 

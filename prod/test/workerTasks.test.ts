@@ -3747,6 +3747,39 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: id });
   });
 
+  it('routes carried surplus energy to storage when spawn extensions and containers are full', () => {
+    const storage = makeEnergySinkWithEnergy(
+      'storage1',
+      STRUCTURE_STORAGE,
+      0,
+      1_000
+    ) as unknown as StructureStorage;
+    const container = makeEnergySinkWithEnergy(
+      'container1',
+      STRUCTURE_CONTAINER,
+      2_000,
+      0
+    ) as unknown as StructureContainer;
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 8 } as StructureController,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      myStructures: [storage as unknown as AnyOwnedStructure],
+      structures: [container, storage as unknown as AnyStructure]
+    });
+    (room as { storage?: StructureStorage }).storage = storage;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(100),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'storage1' });
+  });
+
   it('clears stale worker efficiency telemetry when selecting a normal refill task', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const creep = {

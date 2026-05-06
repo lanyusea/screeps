@@ -31,6 +31,7 @@ import {
   getStorageEnergyAvailableForWithdrawal,
   withdrawFromStorage
 } from '../economy/energyBuffer';
+import { selectEnergySurplusDeliverySink } from '../economy/energySurplus';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
   classifyLinks,
@@ -518,6 +519,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
+  }
+
+  const energySurplusStorageTask = selectEnergySurplusStorageTask(creep, carriedEnergy);
+  if (energySurplusStorageTask) {
+    return energySurplusStorageTask;
   }
 
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
@@ -1266,6 +1272,18 @@ function selectPriorityTowerEnergySink(creep: Creep): StructureTower | null {
     ),
     creep
   );
+}
+
+function selectEnergySurplusStorageTask(
+  creep: Creep,
+  carriedEnergy: number
+): Extract<CreepTaskMemory, { type: 'transfer' }> | null {
+  if (carriedEnergy <= 0 || creep.memory?.controllerSustain || creep.memory?.territory) {
+    return null;
+  }
+
+  const sink = selectEnergySurplusDeliverySink(creep.room, carriedEnergy);
+  return sink ? { type: 'transfer', targetId: sink.id as Id<AnyStoreStructure> } : null;
 }
 
 function hasUnreservedEnergySinkCapacity(
