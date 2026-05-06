@@ -17028,7 +17028,7 @@ function buildVisibleExpansionCandidateEvidence(room) {
   };
 }
 function buildScoutedExpansionCandidateEvidence(intel) {
-  var _a;
+  var _a, _b;
   return {
     visible: false,
     scouted: true,
@@ -17039,7 +17039,7 @@ function buildScoutedExpansionCandidateEvidence(intel) {
     ...intel.controllerSourceRange !== void 0 ? { controllerSourceRange: intel.controllerSourceRange } : {},
     ...intel.terrain ? { terrain: intel.terrain } : {},
     hostileCreepCount: intel.hostileCreepCount,
-    hostileStructureCount: intel.hostileStructureCount + intel.hostileSpawnCount
+    hostileStructureCount: intel.hostileStructureCount + ((_b = intel.hostileSpawnCount) != null ? _b : 0)
   };
 }
 function scoreExpansionCandidate(input, candidate) {
@@ -22371,7 +22371,7 @@ function clearColonyExpansionClaimIntent(colony) {
 function selectColonyExpansionCandidate(colony) {
   const ownerUsername = getControllerOwnerUsername8(colony.room.controller);
   const candidates = getAdjacentRoomNames8(colony.room.name).flatMap((roomName, order) => {
-    if (!getVisibleRoom10(roomName)) {
+    if (!getVisibleRoom11(roomName)) {
       return [];
     }
     const claimScore = scoreClaimTarget(roomName, colony.room);

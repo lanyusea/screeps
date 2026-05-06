@@ -388,7 +388,7 @@ function buildScoutedExpansionCandidateEvidence(
     ...(intel.controllerSourceRange !== undefined ? { controllerSourceRange: intel.controllerSourceRange } : {}),
     ...(intel.terrain ? { terrain: intel.terrain } : {}),
     hostileCreepCount: intel.hostileCreepCount,
-    hostileStructureCount: intel.hostileStructureCount + intel.hostileSpawnCount
+    hostileStructureCount: intel.hostileStructureCount + (intel.hostileSpawnCount ?? 0)
   };
 }
 
