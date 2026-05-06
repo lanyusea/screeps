@@ -12942,7 +12942,11 @@ function findOwnedWorkerEnergyLinks(room) {
   return Array.isArray(structures) ? structures : [];
 }
 function findOwnedSourceWorkerEnergyLinks(room) {
-  return findOwnedWorkerEnergyLinks(room).filter((link) => isSourceLink(room, link)).sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  const workerLinkIds = new Set(findOwnedWorkerEnergyLinks(room).map((link) => String(link.id)));
+  if (workerLinkIds.size === 0) {
+    return [];
+  }
+  return classifyLinks(room).sourceLinks.filter((link) => workerLinkIds.has(String(link.id)));
 }
 function getMinimumWorkerLinkWithdrawalEnergy(creep) {
   return Math.max(1, getFreeEnergyCapacity3(creep));

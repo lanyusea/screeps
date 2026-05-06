@@ -29,7 +29,7 @@ import {
   withdrawFromStorage
 } from '../economy/energyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
-import { isSourceLink, SOURCE_LINK_RANGE } from '../economy/linkManager';
+import { classifyLinks, isSourceLink, SOURCE_LINK_RANGE } from '../economy/linkManager';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 
@@ -2991,9 +2991,12 @@ function findOwnedWorkerEnergyLinks(room: Room): StructureLink[] {
 }
 
 function findOwnedSourceWorkerEnergyLinks(room: Room): StructureLink[] {
-  return findOwnedWorkerEnergyLinks(room)
-    .filter((link) => isSourceLink(room, link))
-    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  const workerLinkIds = new Set(findOwnedWorkerEnergyLinks(room).map((link) => String(link.id)));
+  if (workerLinkIds.size === 0) {
+    return [];
+  }
+
+  return classifyLinks(room).sourceLinks.filter((link) => workerLinkIds.has(String(link.id)));
 }
 
 function getMinimumWorkerLinkWithdrawalEnergy(creep: Creep): number {
