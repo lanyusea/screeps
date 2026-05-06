@@ -8,6 +8,7 @@ import {
   validateTerritoryScoutIntelForClaim,
   type TerritoryScoutValidationResult
 } from './scoutIntel';
+import { collectVisibleRoomScoutingSnapshot, type RoomScoutingTarget } from './roomScouting';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
@@ -170,6 +171,28 @@ export interface NextExpansionTargetSelection {
   targetRoom?: string;
   controllerId?: Id<StructureController>;
   score?: number;
+}
+
+export function selectExpansionScoutTargets(
+  report: ExpansionCandidateReport,
+  limit = 1
+): RoomScoutingTarget[] {
+  const boundedLimit = Math.max(0, Math.floor(limit));
+  if (boundedLimit <= 0) {
+    return [];
+  }
+
+  return report.candidates
+    .filter((candidate) =>
+      candidate.evidenceStatus === 'insufficient-evidence' &&
+      candidate.adjacentToOwnedRoom &&
+      candidate.visible === false
+    )
+    .slice(0, boundedLimit)
+    .map((candidate) => ({
+      roomName: candidate.roomName,
+      ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
+    }));
 }
 
 export function buildRuntimeExpansionCandidateReport(colony: ColonySnapshot): ExpansionCandidateReport {
@@ -387,13 +410,12 @@ function buildUnseenExpansionCandidateEvidence(
 function buildVisibleExpansionCandidateEvidence(
   room: Room
 ): Omit<ExpansionCandidateInput, 'roomName' | 'order' | 'adjacentToOwnedRoom'> {
-  const controller = room.controller;
-  const sources = findRoomObjects<Source>(room, getFindConstant('FIND_SOURCES'));
+  const scouting = collectVisibleRoomScoutingSnapshot(room);
+  const controller = scouting.controller;
+  const sources = scouting.sources;
   const mineral = findRoomObjects<Mineral>(room, getFindConstant('FIND_MINERALS'))[0];
   const controllerSourceRange = calculateAverageControllerSourceRange(controller, sources);
-  const roomTerrain = getRoomTerrain(room);
-  const terrain = summarizeRoomTerrainFromTerrain(roomTerrain);
-  const sourceAccessPoints = calculateAverageSourceAccessPoints(roomTerrain, sources);
+  const sourceAccessPoints = calculateAverageSourceAccessPoints(scouting.terrain, sources);
   const hostileCreepCount = findRoomObjects<Creep>(room, getFindConstant('FIND_HOSTILE_CREEPS')).length;
   const hostileStructureCount = findRoomObjects<AnyStructure>(
     room,
@@ -407,7 +429,7 @@ function buildVisibleExpansionCandidateEvidence(
     sourceCount: sources.length,
     ...(typeof sourceAccessPoints === 'number' ? { sourceAccessPoints } : {}),
     ...(typeof controllerSourceRange === 'number' ? { controllerSourceRange } : {}),
-    ...(terrain ? { terrain } : {}),
+    ...(scouting.terrainQuality ? { terrain: scouting.terrainQuality } : {}),
     ...(mineral ? { mineral: summarizeExpansionMineral(mineral) } : {}),
     hostileCreepCount,
     hostileStructureCount
