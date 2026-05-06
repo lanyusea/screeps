@@ -319,11 +319,11 @@ function compareReservationCandidates(
   }
 
   return (
-    compareOptionalNumbersDescending(left.expansionRank, right.expansionRank) ||
-    compareOptionalNumbers(left.expansionScore, right.expansionScore) ||
-    left.effectiveScore - right.effectiveScore ||
-    left.score.sources - right.score.sources ||
-    right.score.distance - left.score.distance ||
+    compareOptionalNumbers(left.expansionRank, right.expansionRank) ||
+    compareOptionalNumbersDescending(left.expansionScore, right.expansionScore) ||
+    right.effectiveScore - left.effectiveScore ||
+    right.score.sources - left.score.sources ||
+    left.score.distance - right.score.distance ||
     left.order - right.order ||
     left.roomName.localeCompare(right.roomName)
   );

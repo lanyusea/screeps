@@ -32,7 +32,7 @@ describe('adjacent room reservation planner', () => {
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
   });
 
-  it('selects the lowest-priority scouted adjacent room when GCL blocks claiming', () => {
+  it('selects the highest-priority scouted adjacent room when GCL blocks claiming', () => {
     const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     installGame(colony, {
       gclLevel: 1,
@@ -49,26 +49,26 @@ describe('adjacent room reservation planner', () => {
       status: 'planned',
       colony: 'W1N1',
       claimBlocker: 'gclInsufficient',
-      targetRoom: 'W2N1'
+      targetRoom: 'W1N2'
     });
     expect(Memory.territory?.targets).toEqual([
       {
         colony: 'W1N1',
-        roomName: 'W2N1',
+        roomName: 'W1N2',
         action: 'reserve',
         createdBy: ADJACENT_ROOM_RESERVATION_TARGET_CREATOR,
-        controllerId: 'controller-W2N1'
+        controllerId: 'controller-W1N2'
       }
     ]);
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
-        targetRoom: 'W2N1',
+        targetRoom: 'W1N2',
         action: 'reserve',
         status: 'planned',
         updatedAt: 100,
         createdBy: ADJACENT_ROOM_RESERVATION_TARGET_CREATOR,
-        controllerId: 'controller-W2N1'
+        controllerId: 'controller-W1N2'
       }
     ]);
   });
@@ -111,7 +111,7 @@ describe('adjacent room reservation planner', () => {
     ]);
   });
 
-  it('uses persisted expansion ranking to choose the lowest-priority scouted room', () => {
+  it('uses persisted expansion ranking to choose the top-ranked scouted room', () => {
     const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     installGame(colony, {
       gclLevel: 1,
@@ -137,6 +137,47 @@ describe('adjacent room reservation planner', () => {
           colony: 'W1N1',
           roomName: 'W2N1',
           rank: 2,
+          score: 600,
+          evidenceStatus: 'sufficient',
+          visible: true,
+          updatedAt: 99,
+          adjacentToOwnedRoom: true
+        }
+      ]
+    };
+
+    expect(refreshAdjacentRoomReservationIntent(colony, 100)).toMatchObject({
+      status: 'planned',
+      targetRoom: 'W1N2'
+    });
+  });
+
+  it('uses persisted expansion score when scouted expansion ranks tie', () => {
+    const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
+    installGame(colony, {
+      gclLevel: 1,
+      rooms: {
+        W1N2: makeReservationRoom('W1N2', { sourceCount: 2 }),
+        W2N1: makeReservationRoom('W2N1', { sourceCount: 1 })
+      },
+      exits: { W1N1: { '1': 'W1N2', '3': 'W2N1' } }
+    });
+    Memory.territory = {
+      expansionCandidates: [
+        {
+          colony: 'W1N1',
+          roomName: 'W1N2',
+          rank: 1,
+          score: 150,
+          evidenceStatus: 'sufficient',
+          visible: true,
+          updatedAt: 99,
+          adjacentToOwnedRoom: true
+        },
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          rank: 1,
           score: 600,
           evidenceStatus: 'sufficient',
           visible: true,

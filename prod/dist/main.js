@@ -21717,7 +21717,7 @@ function compareReservationCandidates(left, right) {
   if (left.selectionKind === "unscouted") {
     return compareOptionalNumbers6(left.expansionRank, right.expansionRank) || compareOptionalNumbersDescending2(left.expansionScore, right.expansionScore) || left.order - right.order || left.roomName.localeCompare(right.roomName);
   }
-  return compareOptionalNumbersDescending2(left.expansionRank, right.expansionRank) || compareOptionalNumbers6(left.expansionScore, right.expansionScore) || left.effectiveScore - right.effectiveScore || left.score.sources - right.score.sources || right.score.distance - left.score.distance || left.order - right.order || left.roomName.localeCompare(right.roomName);
+  return compareOptionalNumbers6(left.expansionRank, right.expansionRank) || compareOptionalNumbersDescending2(left.expansionScore, right.expansionScore) || right.effectiveScore - left.effectiveScore || right.score.sources - left.score.sources || left.score.distance - right.score.distance || left.order - right.order || left.roomName.localeCompare(right.roomName);
 }
 function getReservationSelectionKindPriority(candidate) {
   switch (candidate.selectionKind) {

@@ -110,31 +110,31 @@ describe('colony expansion planner', () => {
       status: 'skipped',
       colony: 'W1N1',
       reason: 'colonyUnstable',
-      targetRoom: 'W2N1',
+      targetRoom: 'W1N2',
       reservation: {
         status: 'planned',
         claimBlocker: 'colonyUnstable',
-        targetRoom: 'W2N1'
+        targetRoom: 'W1N2'
       }
     });
     expect(Memory.territory?.targets).toEqual([
       {
         colony: 'W1N1',
-        roomName: 'W2N1',
+        roomName: 'W1N2',
         action: 'reserve',
         createdBy: 'adjacentRoomReservation',
-        controllerId: 'controller-W2N1'
+        controllerId: 'controller-W1N2'
       }
     ]);
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
-        targetRoom: 'W2N1',
+        targetRoom: 'W1N2',
         action: 'reserve',
         status: 'planned',
         updatedAt: 210,
         createdBy: 'adjacentRoomReservation',
-        controllerId: 'controller-W2N1'
+        controllerId: 'controller-W1N2'
       }
     ]);
     expect(Memory.territory?.targets?.some((target) => target.action === 'claim')).toBe(false);
