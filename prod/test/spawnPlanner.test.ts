@@ -538,6 +538,38 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 127)).toBeNull();
   });
 
+  it('plans a dedicated local controller upgrader when RCL progress is near completion', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N19',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller1' as Id<StructureController>,
+        progress: 900,
+        progressTotal: 1_000
+      } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    expect(planSpawn(colony, { worker: 3 }, 129)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N19-controller-upgrader-129',
+      memory: {
+        role: 'worker',
+        colony: 'W1N19',
+        controllerUpgrade: {
+          roomName: 'W1N19',
+          controllerId: 'controller1',
+          priority: 'rclProgress',
+          assignedAt: 129
+        }
+      }
+    });
+  });
+
   it('waits on surplus controller workers until spawn energy is full', () => {
     const { colony } = makeColony({
       roomName: 'W1N18',

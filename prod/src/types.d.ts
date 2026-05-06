@@ -41,6 +41,7 @@ declare global {
     defense?: CreepDefenseMemory;
     territory?: CreepTerritoryMemory;
     controllerSustain?: CreepControllerSustainMemory;
+    controllerUpgrade?: CreepControllerUpgradeMemory;
     remoteHarvester?: CreepRemoteHarvesterMemory;
     remoteHauler?: CreepRemoteHaulerMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
@@ -99,11 +100,25 @@ declare global {
   }
 
   type CreepControllerSustainRole = 'upgrader' | 'hauler';
+  type ControllerUpgradePriority =
+    | 'none'
+    | 'downgradeGuard'
+    | 'rcl1Rush'
+    | 'rclProgress'
+    | 'energySurplus'
+    | 'fallback';
 
   interface CreepControllerSustainMemory {
     homeRoom: string;
     targetRoom: string;
     role: CreepControllerSustainRole;
+  }
+
+  interface CreepControllerUpgradeMemory {
+    roomName: string;
+    controllerId: Id<StructureController>;
+    priority: ControllerUpgradePriority;
+    assignedAt?: number;
   }
 
   interface CreepRemoteHarvesterMemory {
@@ -272,6 +287,7 @@ declare global {
     postClaimBootstraps?: Record<string, TerritoryPostClaimBootstrapMemory>;
     remoteMining?: Record<string, TerritoryRemoteMiningRoomMemory>;
     reservations?: Record<string, TerritoryReservationMemory>;
+    controllers?: Record<string, TerritoryControllerManagementMemory>;
     scoutAttempts?: Record<string, TerritoryScoutAttemptMemory>;
     scoutIntel?: Record<string, TerritoryScoutIntelMemory>;
     expansionCandidates?: TerritoryExpansionCandidateMemory[];
@@ -317,6 +333,26 @@ declare global {
     ticksToEnd: number;
     updatedAt: number;
     controllerId?: Id<StructureController>;
+  }
+
+  interface TerritoryControllerManagementMemory {
+    roomName: string;
+    controllerId: Id<StructureController>;
+    signNeeded: boolean;
+    upgradePriority: ControllerUpgradePriority;
+    desiredUpgraderCount: number;
+    activeUpgraderCount: number;
+    updatedAt: number;
+    progressRatio?: number;
+    ticksToDowngrade?: number;
+    spawnDemand?: TerritoryControllerUpgradeDemandMemory;
+  }
+
+  interface TerritoryControllerUpgradeDemandMemory {
+    controllerId: Id<StructureController>;
+    priority: ControllerUpgradePriority;
+    desiredUpgraderCount: number;
+    activeUpgraderCount: number;
   }
 
   interface TerritoryScoutControllerIntelMemory {

@@ -81,6 +81,7 @@ import {
   runTerritoryControllerCreep
 } from '../territory/territoryRunner';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
+import { refreshControllerManagement } from '../territory/controllerManager';
 import {
   recordPostClaimBootstrapWorkerSpawn,
   refreshPostClaimBootstrap
@@ -140,9 +141,22 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
     plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
+    const workerTarget = getWorkerTarget(colony, roleCounts);
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     persistColonyStageAssessment(colony, survivalAssessment, Game.time);
+    refreshControllerManagement(
+      colony,
+      roleCounts,
+      workerTarget,
+      Game.time,
+      {
+        competingSpawnDemand:
+          survivalAssessment.mode !== 'TERRITORY_READY' ||
+          survivalAssessment.hostilePresence ||
+          survivalAssessment.controllerDowngradeGuard
+      }
+    );
     refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
     planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
     if (survivalAssessment.mode === 'TERRITORY_READY') {
