@@ -15,8 +15,9 @@ export function getOwnedColonies(): ColonySnapshot[] {
   }
 
   for (const spawn of Object.values(Game.spawns)) {
-    if (spawn.room.controller?.my && !ownedRoomsByName.has(spawn.room.name)) {
-      ownedRoomsByName.set(spawn.room.name, spawn.room);
+    const room = spawn.room;
+    if (room && room.controller?.my && !ownedRoomsByName.has(room.name)) {
+      ownedRoomsByName.set(room.name, room);
     }
   }
 

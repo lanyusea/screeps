@@ -802,8 +802,9 @@ function getOwnedColonies() {
     }
   }
   for (const spawn of Object.values(Game.spawns)) {
-    if (((_b = spawn.room.controller) == null ? void 0 : _b.my) && !ownedRoomsByName.has(spawn.room.name)) {
-      ownedRoomsByName.set(spawn.room.name, spawn.room);
+    const room = spawn.room;
+    if (room && ((_b = room.controller) == null ? void 0 : _b.my) && !ownedRoomsByName.has(room.name)) {
+      ownedRoomsByName.set(room.name, room);
     }
   }
   return [...ownedRoomsByName.values()].map((room) => ({
@@ -24610,6 +24611,7 @@ var OK_CODE10 = 0;
 var NEXT_EXPANSION_SCORING_REFRESH_INTERVAL = 50;
 var NEXT_EXPANSION_SCORING_DOWNGRADE_GUARD_TICKS = 5e3;
 function runEconomy(preludeTelemetryEvents = []) {
+  var _a, _b;
   const creeps = Object.values(Game.creeps);
   balanceStorage();
   const colonies = orderColoniesForSpawnPlanning(getOwnedColonies());
@@ -24671,7 +24673,7 @@ function runEconomy(preludeTelemetryEvents = []) {
       if (!outcome || outcome.result !== OK_CODE10) {
         break;
       }
-      const spawnRoomName = outcome.spawn.room.name;
+      const spawnRoomName = (_b = (_a = outcome.spawn.room) == null ? void 0 : _a.name) != null ? _b : "unknown";
       const bodyCost = getBodyCost(spawnRequest.body);
       recordUsedSpawn(usedSpawnsByRoom, spawnRoomName, outcome.spawn);
       recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, spawnRoomName, bodyCost);

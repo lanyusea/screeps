@@ -178,7 +178,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         break;
       }
 
-      const spawnRoomName = outcome.spawn.room.name;
+      const spawnRoomName = outcome.spawn.room?.name ?? 'unknown';
       const bodyCost = getBodyCost(spawnRequest.body);
       recordUsedSpawn(usedSpawnsByRoom, spawnRoomName, outcome.spawn);
       recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, spawnRoomName, bodyCost);
