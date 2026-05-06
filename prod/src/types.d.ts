@@ -199,7 +199,7 @@ declare global {
     | 'hostileSpawn'
     | 'sourcesMissing';
   type TerritoryExpansionCandidateEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
-  type TerritoryExpansionCandidateRecommendedAction = 'claim' | 'scout';
+  type TerritoryExpansionCandidateRecommendedAction = 'claim' | 'reserve' | 'scout';
   type TerritoryPostClaimBootstrapStatus =
     | 'detected'
     | 'spawnSitePending'

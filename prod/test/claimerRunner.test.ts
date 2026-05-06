@@ -1,6 +1,7 @@
 import { runClaimer } from '../src/creeps/claimerRunner';
 import { buildTerritoryControllerBody } from '../src/spawn/bodyBuilder';
 import { EXPANSION_CLAIM_EXECUTION_TIMEOUT_TICKS } from '../src/territory/claimExecutor';
+import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
 describe('runClaimer', () => {
   beforeEach(() => {
@@ -414,6 +415,76 @@ describe('runClaimer', () => {
 
     expect(creep.moveTo).toHaveBeenCalledWith(controller);
     expect(creep.claimController).toHaveBeenCalledWith(controller);
+  });
+
+  it('reserves the target controller when in the target room', () => {
+    const controller = { id: 'controller1', my: false } as StructureController;
+    const getObjectById = jest.fn().mockReturnValue(controller);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 511,
+      rooms: {
+        W2N1: { name: 'W2N1', controller } as unknown as Room
+      },
+      getObjectById
+    };
+
+    const creep = {
+      name: 'Claimer1',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve', controllerId: 'controller1' as Id<StructureController> }
+      },
+      room: { name: 'W2N1', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      reserveController: jest.fn().mockReturnValue(-9),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(getObjectById).toHaveBeenCalledWith('controller1');
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+  });
+
+  it('renews an own reservation when it reaches the renewal window', () => {
+    const controller = {
+      id: 'controller1',
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_RESERVATION_RENEWAL_TICKS }
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 512,
+      rooms: {
+        W2N1: { name: 'W2N1', controller } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+
+    const creep = {
+      name: 'Claimer1',
+      owner: { username: 'me' },
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'reserve', controllerId: 'controller1' as Id<StructureController> }
+      },
+      room: { name: 'W2N1', controller },
+      getActiveBodyparts: jest.fn().mockReturnValue(1),
+      reserveController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.reserveController).toHaveBeenCalledWith(controller);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toEqual({
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller1'
+    });
   });
 
   it('suppresses the claim assignment after a fatal claim result', () => {

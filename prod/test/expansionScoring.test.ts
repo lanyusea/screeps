@@ -433,22 +433,21 @@ describe('next expansion scoring', () => {
     });
     expect(report.next?.rationale).toEqual(expect.arrayContaining(['2 sources scouted']));
 
-    expect(refreshNextExpansionTargetSelection(colony, report, 451)).toMatchObject({
-      status: 'planned',
+    expect(refreshNextExpansionTargetSelection(colony, report, 451)).toEqual({
+      status: 'skipped',
       colony: 'W1N1',
-      targetRoom: 'W2N1',
-      controllerId: 'controller2',
-      score: report.next?.score
+      reason: 'unavailable'
     });
     expect(getExpansionCandidateMemory()[0]).toMatchObject({
       colony: 'W1N1',
       roomName: 'W2N1',
       rank: 1,
       evidenceStatus: 'sufficient',
-      recommendedAction: 'claim',
+      recommendedAction: 'reserve',
       visible: false,
       updatedAt: 451
     });
+    expect(Memory.territory?.targets).toBeUndefined();
   });
 
   it('records terrain-based source accessibility for visible expansion candidates', () => {
