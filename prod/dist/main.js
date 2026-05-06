@@ -7603,6 +7603,9 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
     if (isRecoveredTerritoryFollowUpControlCandidate(candidate)) {
       return candidate.intentAction;
     }
+    if (isUnscoutedAdjacentReservationCandidate(candidate)) {
+      return candidate.intentAction;
+    }
     if (isTerritoryControlAction3(candidate.intentAction) && candidate.requiresControllerPressure === true) {
       return candidate.intentAction;
     }
@@ -7615,6 +7618,12 @@ function getRecommendedTerritoryIntentAction(candidate, recommendation, roleCoun
     return "claim";
   }
   return recommendation.action === "reserve" ? "reserve" : candidate.intentAction;
+}
+function isUnscoutedAdjacentReservationCandidate(candidate) {
+  return isAdjacentRoomReservationReserveSelection(candidate);
+}
+function isAdjacentRoomReservationReserveSelection(selection) {
+  return selection.intentAction === "reserve" && selection.target.action === "reserve" && selection.target.createdBy === "adjacentRoomReservation";
 }
 function isRecoveredTerritoryFollowUpControlCandidate(candidate) {
   return candidate.recoveredFollowUp === true && candidate.followUp !== void 0 && isTerritoryControlAction3(candidate.intentAction);
@@ -7740,6 +7749,9 @@ function getFindConstant2(name) {
 function getTerritoryCandidatePriority(selection, renewalTicksToEnd) {
   if (renewalTicksToEnd !== null) {
     return TERRITORY_CANDIDATE_PRIORITY_URGENT_RENEWAL;
+  }
+  if (isAdjacentRoomReservationReserveSelection(selection)) {
+    return TERRITORY_CANDIDATE_PRIORITY_VISIBLE_RESERVE;
   }
   if (selection.intentAction === "scout") {
     return TERRITORY_CANDIDATE_PRIORITY_SCOUT;
@@ -21545,20 +21557,38 @@ function selectAdjacentRoomReservationPlan(colony, options = {}) {
   var _a, _b;
   const colonyName = colony.room.name;
   const claimBlocker = (_b = (_a = getAdjacentRoomClaimBlocker(colony)) != null ? _a : options.claimBlocker) != null ? _b : null;
-  if (!claimBlocker) {
+  if (!claimBlocker && options.reserveWhenClaimAllowed !== true) {
     return { status: "skipped", colony: colonyName, reason: "claimAllowed" };
   }
   if (hasBlockingTerritoryPlan(colonyName)) {
-    return { status: "skipped", colony: colonyName, reason: "existingTerritoryPlan", claimBlocker };
+    return {
+      status: "skipped",
+      colony: colonyName,
+      reason: "existingTerritoryPlan",
+      ...claimBlocker ? { claimBlocker } : {}
+    };
   }
   const claimPartCount = getReservationClaimPartCount(colony.energyCapacityAvailable);
   if (claimPartCount <= 0) {
-    return { status: "skipped", colony: colonyName, reason: "energyCapacityLow", claimBlocker };
+    return {
+      status: "skipped",
+      colony: colonyName,
+      reason: "energyCapacityLow",
+      ...claimBlocker ? { claimBlocker } : {}
+    };
   }
   const renewalThresholdTicks = getAdjacentRoomReservationRenewalThreshold(claimPartCount);
   const ownerUsername = getControllerOwnerUsername7(colony.room.controller);
+  const expansionPriorities = getPersistedExpansionCandidatePriorities(colonyName);
   const candidates = getAdjacentRoomNames7(colonyName).flatMap(
-    (roomName, order) => buildReservationCandidate(colony.room, roomName, order, ownerUsername, renewalThresholdTicks)
+    (roomName, order) => buildReservationCandidate(
+      colony.room,
+      roomName,
+      order,
+      ownerUsername,
+      renewalThresholdTicks,
+      expansionPriorities.get(roomName)
+    )
   );
   const actionableCandidate = selectBestReservationCandidate(
     candidates.filter((candidate) => candidate.actionable)
@@ -21574,7 +21604,7 @@ function selectAdjacentRoomReservationPlan(colony, options = {}) {
       status: "skipped",
       colony: colonyName,
       reason: "reservationHealthy",
-      claimBlocker,
+      ...claimBlocker ? { claimBlocker } : {},
       targetRoom: healthyReservation.roomName,
       score: healthyReservation.effectiveScore,
       renewalThresholdTicks,
@@ -21582,7 +21612,12 @@ function selectAdjacentRoomReservationPlan(colony, options = {}) {
       ...typeof healthyReservation.controllerState.ticksToEnd === "number" ? { reservationTicksToEnd: healthyReservation.controllerState.ticksToEnd } : {}
     };
   }
-  return { status: "skipped", colony: colonyName, reason: "noCandidate", claimBlocker };
+  return {
+    status: "skipped",
+    colony: colonyName,
+    reason: "noCandidate",
+    ...claimBlocker ? { claimBlocker } : {}
+  };
 }
 function clearAdjacentRoomReservationIntent(colony) {
   const territoryMemory = getTerritoryMemoryRecord7();
@@ -21601,12 +21636,31 @@ function getAdjacentRoomReservationRenewalThreshold(claimPartCount) {
     MAX_ADJACENT_ROOM_RESERVATION_RENEWAL_TICKS
   );
 }
-function buildReservationCandidate(homeRoom, roomName, order, ownerUsername, renewalThresholdTicks) {
+function buildReservationCandidate(homeRoom, roomName, order, ownerUsername, renewalThresholdTicks, expansionPriority) {
   const score = scoreClaimTarget(roomName, homeRoom);
+  const controllerState = getReservationControllerState(homeRoom.name, roomName, ownerUsername);
+  if (controllerState.kind === "unknown") {
+    if (hasHostilePresence2(homeRoom.name, roomName)) {
+      return [];
+    }
+    return [
+      {
+        roomName,
+        order,
+        score,
+        effectiveScore: score.score,
+        controllerState,
+        renewalThresholdTicks,
+        actionable: true,
+        selectionKind: "unscouted",
+        ...(expansionPriority == null ? void 0 : expansionPriority.rank) !== void 0 ? { expansionRank: expansionPriority.rank } : {},
+        ...(expansionPriority == null ? void 0 : expansionPriority.score) !== void 0 ? { expansionScore: expansionPriority.score } : {}
+      }
+    ];
+  }
   if (score.sources <= 0) {
     return [];
   }
-  const controllerState = getReservationControllerState(homeRoom.name, roomName, ownerUsername);
   if (controllerState.kind !== "neutral" && controllerState.kind !== "ownReserved") {
     return [];
   }
@@ -21614,10 +21668,8 @@ function buildReservationCandidate(homeRoom, roomName, order, ownerUsername, ren
     return [];
   }
   const effectiveScore = controllerState.kind === "ownReserved" ? score.score + CLAIM_SCORE_RESERVED_PENALTY : score.score;
-  if (effectiveScore < MIN_ADJACENT_ROOM_RESERVATION_SCORE) {
-    return [];
-  }
   const actionable = controllerState.kind === "neutral" || typeof controllerState.ticksToEnd !== "number" || controllerState.ticksToEnd <= renewalThresholdTicks;
+  const selectionKind = controllerState.kind === "ownReserved" ? "renewal" : "scouted";
   return [
     {
       roomName,
@@ -21626,7 +21678,10 @@ function buildReservationCandidate(homeRoom, roomName, order, ownerUsername, ren
       effectiveScore,
       controllerState,
       renewalThresholdTicks,
-      actionable
+      actionable,
+      selectionKind,
+      ...(expansionPriority == null ? void 0 : expansionPriority.rank) !== void 0 ? { expansionRank: expansionPriority.rank } : {},
+      ...(expansionPriority == null ? void 0 : expansionPriority.score) !== void 0 ? { expansionScore: expansionPriority.score } : {}
     }
   ];
 }
@@ -21634,7 +21689,7 @@ function toPlannedEvaluation(colony, claimBlocker, candidate) {
   return {
     status: "planned",
     colony,
-    claimBlocker,
+    ...claimBlocker ? { claimBlocker } : {},
     targetRoom: candidate.roomName,
     score: candidate.effectiveScore,
     renewalThresholdTicks: candidate.renewalThresholdTicks,
@@ -21652,7 +21707,27 @@ function selectBestReservationCandidate(candidates) {
   return bestCandidate;
 }
 function compareReservationCandidates(left, right) {
-  return right.effectiveScore - left.effectiveScore || right.score.sources - left.score.sources || left.score.distance - right.score.distance || left.order - right.order || left.roomName.localeCompare(right.roomName);
+  const kindPriority = getReservationSelectionKindPriority(left) - getReservationSelectionKindPriority(right);
+  if (kindPriority !== 0) {
+    return kindPriority;
+  }
+  if (left.selectionKind === "renewal") {
+    return compareOptionalNumbers6(left.controllerState.ticksToEnd, right.controllerState.ticksToEnd) || compareOptionalNumbers6(left.expansionRank, right.expansionRank) || right.effectiveScore - left.effectiveScore || left.order - right.order || left.roomName.localeCompare(right.roomName);
+  }
+  if (left.selectionKind === "unscouted") {
+    return compareOptionalNumbers6(left.expansionRank, right.expansionRank) || compareOptionalNumbersDescending2(left.expansionScore, right.expansionScore) || left.order - right.order || left.roomName.localeCompare(right.roomName);
+  }
+  return compareOptionalNumbersDescending2(left.expansionRank, right.expansionRank) || compareOptionalNumbers6(left.expansionScore, right.expansionScore) || left.effectiveScore - right.effectiveScore || left.score.sources - right.score.sources || right.score.distance - left.score.distance || left.order - right.order || left.roomName.localeCompare(right.roomName);
+}
+function getReservationSelectionKindPriority(candidate) {
+  switch (candidate.selectionKind) {
+    case "renewal":
+      return 0;
+    case "unscouted":
+      return 1;
+    case "scouted":
+      return 2;
+  }
 }
 function getAdjacentRoomClaimBlocker(colony) {
   const controller = colony.room.controller;
@@ -21860,6 +21935,24 @@ function getAdjacentRoomNames7(roomName) {
     return isNonEmptyString17(exitRoom) ? [exitRoom] : [];
   });
 }
+function getPersistedExpansionCandidatePriorities(colony) {
+  var _a;
+  const rawCandidates = (_a = getTerritoryMemoryRecord7()) == null ? void 0 : _a.expansionCandidates;
+  if (!Array.isArray(rawCandidates)) {
+    return /* @__PURE__ */ new Map();
+  }
+  const priorities = /* @__PURE__ */ new Map();
+  for (const [index, rawCandidate] of rawCandidates.entries()) {
+    if (!isRecord18(rawCandidate) || rawCandidate.colony !== colony || !isNonEmptyString17(rawCandidate.roomName) || rawCandidate.evidenceStatus === "unavailable" || priorities.has(rawCandidate.roomName)) {
+      continue;
+    }
+    priorities.set(rawCandidate.roomName, {
+      rank: typeof rawCandidate.rank === "number" && Number.isFinite(rawCandidate.rank) && rawCandidate.rank > 0 ? Math.floor(rawCandidate.rank) : index + 1,
+      ...typeof rawCandidate.score === "number" && Number.isFinite(rawCandidate.score) ? { score: rawCandidate.score } : {}
+    });
+  }
+  return priorities;
+}
 function countVisibleOwnedRooms2(colonyName, ownerUsername) {
   var _a, _b, _c, _d;
   const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
@@ -21905,6 +21998,21 @@ function getControllerOwnerUsername7(controller) {
   var _a;
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
   return isNonEmptyString17(username) ? username : void 0;
+}
+function compareOptionalNumbers6(left, right) {
+  return (left != null ? left : Number.POSITIVE_INFINITY) - (right != null ? right : Number.POSITIVE_INFINITY);
+}
+function compareOptionalNumbersDescending2(left, right) {
+  if (left === void 0 && right === void 0) {
+    return 0;
+  }
+  if (left === void 0) {
+    return 1;
+  }
+  if (right === void 0) {
+    return -1;
+  }
+  return right - left;
 }
 function getTerritoryMemoryRecord7() {
   var _a;
@@ -21967,8 +22075,19 @@ function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime
   }
   const candidate = selectColonyExpansionCandidate(colony);
   if (!candidate) {
+    const fallbackReservation = refreshAdjacentRoomReservationIntent(colony, gameTime, {
+      reserveWhenClaimAllowed: true
+    });
     clearColonyExpansionClaimIntent(colonyName);
-    return { status: "skipped", colony: colonyName, reason: "noCandidate" };
+    return {
+      status: "skipped",
+      colony: colonyName,
+      reason: "noCandidate",
+      ...fallbackReservation.targetRoom ? { targetRoom: fallbackReservation.targetRoom } : {},
+      ...fallbackReservation.controllerId ? { controllerId: fallbackReservation.controllerId } : {},
+      ...fallbackReservation.score !== void 0 ? { score: fallbackReservation.score } : {},
+      reservation: fallbackReservation
+    };
   }
   const baseEvaluation = {
     status: "skipped",
@@ -21979,8 +22098,11 @@ function refreshColonyExpansionIntent(colony, assessment, gameTime = getGameTime
     reservation
   };
   if (candidate.effectiveScore < MIN_COLONY_EXPANSION_CLAIM_SCORE) {
+    const fallbackReservation = refreshAdjacentRoomReservationIntent(colony, gameTime, {
+      reserveWhenClaimAllowed: true
+    });
     clearColonyExpansionClaimIntent(colonyName);
-    return { ...baseEvaluation, reason: "scoreBelowThreshold" };
+    return { ...baseEvaluation, reason: "scoreBelowThreshold", reservation: fallbackReservation };
   }
   if (hasBlockingClaimIntent(colonyName, candidate.roomName)) {
     return { ...baseEvaluation, reason: "existingClaimIntent" };
@@ -23684,7 +23806,7 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
     }
     if (expansionSelection.reason === "unmetPreconditions") {
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
-      refreshAdjacentRoomReservationIntent(colony, Game.time);
+      refreshAdjacentRoomReservationIntent(colony, Game.time, { claimBlocker: "colonyUnstable" });
       return;
     }
     const colonyExpansionEvaluation = refreshColonyExpansionIntent(colony, { territoryReady }, Game.time);
@@ -23694,7 +23816,7 @@ function refreshExecutableTerritoryRecommendation(colony, creeps, territoryReady
     }
     const claimEvaluation = refreshAutonomousExpansionClaimIntent(colony, report, Game.time, telemetryEvents);
     recordAutonomousExpansionClaimReserveFallbackIntent(colony.room.name, claimEvaluation, Game.time);
-    refreshAdjacentRoomReservationIntent(colony, Game.time);
+    refreshAdjacentRoomReservationIntent(colony, Game.time, { reserveWhenClaimAllowed: true });
     if (shouldDeferOccupationRecommendationForExpansionClaim(claimEvaluation)) {
       return;
     }

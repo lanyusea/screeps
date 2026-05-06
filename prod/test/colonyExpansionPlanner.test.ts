@@ -110,34 +110,74 @@ describe('colony expansion planner', () => {
       status: 'skipped',
       colony: 'W1N1',
       reason: 'colonyUnstable',
-      targetRoom: 'W1N2',
+      targetRoom: 'W2N1',
       reservation: {
         status: 'planned',
         claimBlocker: 'colonyUnstable',
-        targetRoom: 'W1N2'
+        targetRoom: 'W2N1'
       }
     });
     expect(Memory.territory?.targets).toEqual([
       {
         colony: 'W1N1',
-        roomName: 'W1N2',
+        roomName: 'W2N1',
         action: 'reserve',
         createdBy: 'adjacentRoomReservation',
-        controllerId: 'controller-W1N2'
+        controllerId: 'controller-W2N1'
       }
     ]);
     expect(Memory.territory?.intents).toEqual([
       {
         colony: 'W1N1',
-        targetRoom: 'W1N2',
+        targetRoom: 'W2N1',
         action: 'reserve',
         status: 'planned',
         updatedAt: 210,
         createdBy: 'adjacentRoomReservation',
-        controllerId: 'controller-W1N2'
+        controllerId: 'controller-W2N1'
       }
     ]);
     expect(Memory.territory?.targets?.some((target) => target.action === 'claim')).toBe(false);
+  });
+
+  it('reserves a low-priority adjacent room when it is below the claim threshold', () => {
+    const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
+    installGame(colony, {
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 1 })
+      },
+      exits: { W1N1: { '3': 'W2N1' } }
+    });
+    const stableAssessment = assessColonyStage({
+      roomName: 'W1N1',
+      totalCreeps: 5,
+      workerCapacity: 3,
+      workerTarget: 3,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+    });
+
+    const evaluation = refreshColonyExpansionIntent(colony, stableAssessment, 220);
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'scoreBelowThreshold',
+      reservation: {
+        status: 'planned',
+        targetRoom: 'W2N1'
+      }
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        createdBy: 'adjacentRoomReservation',
+        controllerId: 'controller-W2N1'
+      }
+    ]);
   });
 });
 
