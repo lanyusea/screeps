@@ -129,7 +129,9 @@ export function routeEnergySurplus(room: Room): EnergySurplusRoutingResult {
   let routedEnergy = 0;
   const sinkId = getObjectId(sink);
 
-  for (const worker of findMyCreeps(room).filter(isEligibleSurplusWorker).sort(compareCreepsByStableId)) {
+  for (const worker of findMyCreeps(room)
+    .filter((creep) => isEligibleSurplusWorker(creep, room.name))
+    .sort(compareCreepsByStableId)) {
     const carriedEnergy = getStoredEnergy(worker);
     if (carriedEnergy <= 0) {
       continue;
@@ -287,8 +289,13 @@ function getRoomTerminal(room: Room, ownedStructures: AnyOwnedStructure[]): Stru
   return room.terminal ?? ownedStructures.find(isTerminal) ?? null;
 }
 
-function isEligibleSurplusWorker(creep: Creep): boolean {
-  return creep.memory?.role === 'worker' && !creep.memory.controllerSustain && !creep.memory.territory;
+function isEligibleSurplusWorker(creep: Creep, colonyName: string): boolean {
+  return (
+    creep.memory?.role === 'worker' &&
+    creep.memory?.colony === colonyName &&
+    !creep.memory?.controllerSustain &&
+    !creep.memory?.territory
+  );
 }
 
 function isAssignableSurplusWorker(creep: Creep): boolean {

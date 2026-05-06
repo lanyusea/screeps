@@ -1278,7 +1278,12 @@ function selectEnergySurplusStorageTask(
   creep: Creep,
   carriedEnergy: number
 ): Extract<CreepTaskMemory, { type: 'transfer' }> | null {
-  if (carriedEnergy <= 0 || creep.memory?.controllerSustain || creep.memory?.territory) {
+  if (
+    carriedEnergy <= 0 ||
+    !isWorkerInColonyRoom(creep) ||
+    creep.memory?.controllerSustain ||
+    creep.memory?.territory
+  ) {
     return null;
   }
 
