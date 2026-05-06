@@ -1082,6 +1082,27 @@ describe('next expansion scoring', () => {
     expect(Memory.territory?.intents).toBeUndefined();
   });
 
+  it('does not persist next expansion claim intents when GCL capacity is already full', () => {
+    const colony = makeSafeColony({ controllerLevel: 3 });
+    const report = scoreExpansionCandidates(
+      makeInput([makeCandidate({ roomName: 'W3N1', sourceCount: 2 })], {
+        controllerLevel: 3,
+        ownedRoomCount: 1,
+        gclLevel: 1
+      })
+    );
+
+    expect(report.next?.preconditions).toContain('wait for GCL capacity to claim another room');
+    expect(refreshNextExpansionTargetSelection(colony, report, 214)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'gclInsufficient'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
+  });
+
   it('reports the RCL room limit even when another expansion precondition is also unmet', () => {
     const colony = makeSafeColony({ controllerLevel: 3 });
     const report = scoreExpansionCandidates(
