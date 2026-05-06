@@ -5099,26 +5099,31 @@ function buildScoutedExpansionCandidateEvidence(intel) {
   };
 }
 function applyScoutIntelToExpansionCandidate(input, candidate, gameTime) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
   const intel = getFreshExpansionScoutIntel(input.colonyName, candidate.roomName, gameTime);
   if (!intel) {
     return candidate;
   }
   const scoutEvidence = buildScoutedExpansionCandidateEvidence(intel);
+  const controller = hasExpansionControllerEvidence(candidate.controller) ? candidate.controller : scoutEvidence.controller;
+  const sourceCount = candidate.sourceCount === 0 ? scoutEvidence.sourceCount : (_a = candidate.sourceCount) != null ? _a : scoutEvidence.sourceCount;
   return {
     ...candidate,
-    visible: (_a = candidate.visible) != null ? _a : scoutEvidence.visible,
-    scouted: (_b = candidate.scouted) != null ? _b : scoutEvidence.scouted,
-    controller: (_c = candidate.controller) != null ? _c : scoutEvidence.controller,
+    visible: (_b = candidate.visible) != null ? _b : scoutEvidence.visible,
+    scouted: (_c = candidate.scouted) != null ? _c : scoutEvidence.scouted,
+    controller,
     controllerId: (_d = candidate.controllerId) != null ? _d : scoutEvidence.controllerId,
-    sourceCount: (_e = candidate.sourceCount) != null ? _e : scoutEvidence.sourceCount,
-    sourceAccessPoints: (_f = candidate.sourceAccessPoints) != null ? _f : scoutEvidence.sourceAccessPoints,
-    controllerSourceRange: (_g = candidate.controllerSourceRange) != null ? _g : scoutEvidence.controllerSourceRange,
-    terrain: (_h = candidate.terrain) != null ? _h : scoutEvidence.terrain,
-    mineral: (_i = candidate.mineral) != null ? _i : scoutEvidence.mineral,
-    hostileCreepCount: (_j = candidate.hostileCreepCount) != null ? _j : scoutEvidence.hostileCreepCount,
-    hostileStructureCount: (_k = candidate.hostileStructureCount) != null ? _k : scoutEvidence.hostileStructureCount
+    sourceCount,
+    sourceAccessPoints: (_e = candidate.sourceAccessPoints) != null ? _e : scoutEvidence.sourceAccessPoints,
+    controllerSourceRange: (_f = candidate.controllerSourceRange) != null ? _f : scoutEvidence.controllerSourceRange,
+    terrain: (_g = candidate.terrain) != null ? _g : scoutEvidence.terrain,
+    mineral: (_h = candidate.mineral) != null ? _h : scoutEvidence.mineral,
+    hostileCreepCount: (_i = candidate.hostileCreepCount) != null ? _i : scoutEvidence.hostileCreepCount,
+    hostileStructureCount: (_j = candidate.hostileStructureCount) != null ? _j : scoutEvidence.hostileStructureCount
   };
+}
+function hasExpansionControllerEvidence(controller) {
+  return controller !== void 0 && Object.keys(controller).length > 0;
 }
 function scoreExpansionCandidate(input, candidate) {
   var _a, _b, _c;

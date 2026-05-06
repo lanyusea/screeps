@@ -436,13 +436,20 @@ function applyScoutIntelToExpansionCandidate(
   }
 
   const scoutEvidence = buildScoutedExpansionCandidateEvidence(intel);
+  const controller = hasExpansionControllerEvidence(candidate.controller)
+    ? candidate.controller
+    : scoutEvidence.controller;
+  const sourceCount = candidate.sourceCount === 0
+    ? scoutEvidence.sourceCount
+    : candidate.sourceCount ?? scoutEvidence.sourceCount;
+
   return {
     ...candidate,
     visible: candidate.visible ?? scoutEvidence.visible,
     scouted: candidate.scouted ?? scoutEvidence.scouted,
-    controller: candidate.controller ?? scoutEvidence.controller,
+    controller,
     controllerId: candidate.controllerId ?? scoutEvidence.controllerId,
-    sourceCount: candidate.sourceCount ?? scoutEvidence.sourceCount,
+    sourceCount,
     sourceAccessPoints: candidate.sourceAccessPoints ?? scoutEvidence.sourceAccessPoints,
     controllerSourceRange: candidate.controllerSourceRange ?? scoutEvidence.controllerSourceRange,
     terrain: candidate.terrain ?? scoutEvidence.terrain,
@@ -450,6 +457,12 @@ function applyScoutIntelToExpansionCandidate(
     hostileCreepCount: candidate.hostileCreepCount ?? scoutEvidence.hostileCreepCount,
     hostileStructureCount: candidate.hostileStructureCount ?? scoutEvidence.hostileStructureCount
   };
+}
+
+function hasExpansionControllerEvidence(
+  controller: ExpansionControllerEvidence | undefined
+): controller is ExpansionControllerEvidence {
+  return controller !== undefined && Object.keys(controller).length > 0;
 }
 
 function scoreExpansionCandidate(

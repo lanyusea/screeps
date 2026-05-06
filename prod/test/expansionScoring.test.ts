@@ -575,6 +575,43 @@ describe('next expansion scoring', () => {
     expect(neutral.score).toBeGreaterThan(owned.score);
   });
 
+  it('uses scout intel when candidate source count is zero and controller evidence is empty', () => {
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': makeScoutIntel('W2N1', {
+            sourceCount: 2,
+            controller: {
+              id: 'controller-W2N1' as Id<StructureController>,
+              ownerUsername: 'enemy'
+            }
+          })
+        }
+      }
+    };
+
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W2N1',
+          controller: {},
+          sourceCount: 0
+        })
+      ])
+    );
+    const candidate = getCandidate(report, 'W2N1');
+
+    expect(candidate).toMatchObject({
+      controllerId: 'controller-W2N1',
+      evidenceStatus: 'unavailable',
+      sourceCount: 2,
+      risks: ['enemy-owned controller cannot be claimed safely']
+    });
+    expect(candidate.rationale).toEqual(
+      expect.arrayContaining(['controller owned by another account', '2 sources scouted'])
+    );
+  });
+
   it('downgrades persisted scout-intel candidates when hostiles are present', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
