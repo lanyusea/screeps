@@ -10,6 +10,7 @@ import {
   recordDefenseAction,
   type DefenseTelemetryContext
 } from './defenseTelemetry';
+import { selectTowerAttackTarget } from './defensePlanner';
 
 export interface TowerRunResult {
   events: RuntimeTelemetryEvent[];
@@ -37,7 +38,7 @@ export function runTowersWithResult(room: Room): TowerRunResult {
   };
 
   for (const tower of getUsableTowers(room)) {
-    if (hasHostileTarget(context) && runTowerAttack(tower, context, result)) {
+    if (runTowerAttack(tower, context, result)) {
       continue;
     }
 
@@ -90,9 +91,7 @@ function runTowerAttack(
     return false;
   }
 
-  const target =
-    selectClosestTarget(tower, context.hostileCreeps) ??
-    selectClosestTarget(tower, context.hostileStructures);
+  const target = selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures);
   if (!target) {
     return false;
   }
@@ -148,10 +147,6 @@ function runTowerRepair(
   );
   result.actedTowerIds.add(getObjectId(tower));
   return repairResult === OK_CODE;
-}
-
-function hasHostileTarget(context: DefenseTelemetryContext): boolean {
-  return context.hostileCreeps.length > 0 || context.hostileStructures.length > 0;
 }
 
 function getUsableTowers(room: Room): StructureTower[] {
