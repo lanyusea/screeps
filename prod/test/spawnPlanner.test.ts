@@ -1,4 +1,9 @@
-import { generateHarvesterBody, planSpawn } from '../src/spawn/spawnPlanner';
+import {
+  generateHarvesterBody,
+  getRoomCreepBudget,
+  orderColoniesForSpawnPlanning,
+  planSpawn
+} from '../src/spawn/spawnPlanner';
 import { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   persistOccupationRecommendationFollowUpIntent,
@@ -519,6 +524,81 @@ describe('planSpawn', () => {
     const { colony } = makeColony();
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 3 }, 124)).toBeNull();
+  });
+
+  it('reports room creep budget pressure from controller and energy state', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N16',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(getRoomCreepBudget(colony, { worker: 3, workerCapacity: 2 })).toMatchObject({
+      roomName: 'W1N16',
+      controllerLevel: 3,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      effectiveEnergyAvailable: 650,
+      energyGate: 'full',
+      ownedSpawnCount: 1,
+      idleSpawnCount: 1,
+      workerCapacity: 2,
+      workerTarget: 3,
+      workerDeficit: 1,
+      priority: 'localWorkerRecovery'
+    });
+  });
+
+  it('orders worker recovery ahead of higher-energy surplus rooms', () => {
+    const { colony: primaryColony } = makeColony({
+      roomName: 'W1N16',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true, level: 1, ticksToDowngrade: 10_000 } as StructureController
+    });
+    const { colony: secondaryColony } = makeColony({
+      roomName: 'W2N16',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(
+      orderColoniesForSpawnPlanning(
+        [secondaryColony, primaryColony],
+        new Map([
+          ['W1N16', { worker: 0 }],
+          ['W2N16', { worker: 3 }]
+        ])
+      ).map((colony) => colony.room.name)
+    ).toEqual(['W1N16', 'W2N16']);
+  });
+
+  it('orders spawnless worker recovery ahead of stable rooms with spawns', () => {
+    const { colony: recoveryColony } = makeColony({
+      roomName: 'W1N17',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true, level: 1, ticksToDowngrade: 10_000 } as StructureController
+    });
+    const { colony: stableColony } = makeColony({
+      roomName: 'W2N17',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    recoveryColony.spawns = [];
+
+    expect(
+      orderColoniesForSpawnPlanning(
+        [stableColony, recoveryColony],
+        new Map([
+          ['W1N17', { worker: 0 }],
+          ['W2N17', { worker: 3 }]
+        ])
+      ).map((colony) => colony.room.name)
+    ).toEqual(['W1N17', 'W2N17']);
   });
 
   it('plans one surplus worker for controller progress when stable room energy is full', () => {
