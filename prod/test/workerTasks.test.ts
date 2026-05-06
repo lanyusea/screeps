@@ -7397,6 +7397,41 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'container-site1' });
   });
 
+  it('prioritizes source container construction over closer generic container construction', () => {
+    const source = makeSource('source1', 10, 10);
+    const sourceContainerSite = {
+      id: 'source-container-site1',
+      structureType: 'container',
+      pos: makeRoomPosition(11, 10)
+    } as ConstructionSite;
+    const genericContainerSite = {
+      id: 'generic-container-site1',
+      structureType: 'container',
+      pos: makeRoomPosition(30, 30)
+    } as ConstructionSite;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      pos: {
+        getRangeTo: jest.fn((target: ConstructionSite) =>
+          String(target.id) === 'generic-container-site1' ? 2 : 12
+        )
+      },
+      room: makeWorkerTaskRoom({
+        constructionSites: [genericContainerSite, sourceContainerSite],
+        controller,
+        sources: [source]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'source-container-site1' });
+  });
+
   it('builds critical source route roads before additional extensions once baseline worker capacity is online', () => {
     const roadSite = {
       id: 'road-critical-site1',

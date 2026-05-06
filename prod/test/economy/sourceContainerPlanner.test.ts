@@ -1,4 +1,5 @@
 import {
+  ensureRemoteSourceContainersForAssignedHarvesters,
   ensureSourceContainersForOwnedRooms,
   summarizeSourceContainerCoverage
 } from '../../src/economy/sourceContainerPlanner';
@@ -10,6 +11,8 @@ describe('economy source container planner', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 2;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 3;
+    (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
+    (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { OK: ScreepsReturnCode }).OK = OK_CODE;
@@ -20,6 +23,8 @@ describe('economy source container planner', () => {
     delete (globalThis as unknown as { FIND_SOURCES?: number }).FIND_SOURCES;
     delete (globalThis as unknown as { FIND_STRUCTURES?: number }).FIND_STRUCTURES;
     delete (globalThis as unknown as { FIND_CONSTRUCTION_SITES?: number }).FIND_CONSTRUCTION_SITES;
+    delete (globalThis as unknown as { FIND_DROPPED_RESOURCES?: number }).FIND_DROPPED_RESOURCES;
+    delete (globalThis as unknown as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY;
     delete (globalThis as unknown as { STRUCTURE_CONTAINER?: StructureConstant }).STRUCTURE_CONTAINER;
     delete (globalThis as unknown as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
     delete (globalThis as unknown as { OK?: ScreepsReturnCode }).OK;
@@ -131,6 +136,49 @@ describe('economy source container planner', () => {
     expect(ensureSourceContainersForOwnedRooms([room]).placedSiteCount).toBe(0);
     expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
+
+  it('plans a remote source container when an assigned remote harvester is filling up without storage', () => {
+    const room = makeRoom({
+      roomName: 'W2N1',
+      sources: [makeSource('remote-source', 10, 10, 'W2N1')]
+    });
+    installGame([room]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {
+      RemoteHarvester: makeRemoteHarvester(room, 'remote-source' as Id<Source>, {
+        usedEnergy: 50,
+        freeEnergy: 0
+      })
+    };
+
+    const result = ensureRemoteSourceContainersForAssignedHarvesters();
+
+    expect(result).toMatchObject({
+      placedSiteCount: 1,
+      sourceCount: 1,
+      sourcesMissingContainers: 1
+    });
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+  });
+
+  it('uses dropped energy decay at an assigned remote source as a container planning signal', () => {
+    const room = makeRoom({
+      roomName: 'W2N1',
+      sources: [makeSource('remote-source', 10, 10, 'W2N1')],
+      droppedResources: [makeDroppedEnergy('dropped-energy', 9, 9, 'W2N1')]
+    });
+    installGame([room]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {
+      RemoteHarvester: makeRemoteHarvester(room, 'remote-source' as Id<Source>, {
+        usedEnergy: 0,
+        freeEnergy: 50
+      })
+    };
+
+    const result = ensureRemoteSourceContainersForAssignedHarvesters();
+
+    expect(result.placedSiteCount).toBe(1);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+  });
 });
 
 interface MockRoom extends Room {
@@ -144,6 +192,7 @@ interface MakeRoomOptions {
   sources: Source[];
   structures?: AnyStructure[];
   constructionSites?: ConstructionSite[];
+  droppedResources?: Resource<ResourceConstant>[];
   wallPositions?: Set<string>;
   spawnPosition?: { x: number; y: number };
 }
@@ -154,6 +203,7 @@ function makeRoom({
   sources,
   structures = [],
   constructionSites = [],
+  droppedResources = [],
   wallPositions = new Set<string>(),
   spawnPosition = { x: 25, y: 25 }
 }: MakeRoomOptions): MockRoom {
@@ -175,7 +225,11 @@ function makeRoom({
         return structures;
       }
 
-      return type === FIND_CONSTRUCTION_SITES ? constructionSites : [];
+      if (type === FIND_CONSTRUCTION_SITES) {
+        return constructionSites;
+      }
+
+      return type === FIND_DROPPED_RESOURCES ? droppedResources : [];
     }),
     createConstructionSite: jest.fn((x: number, y: number, structureType: StructureConstant) => {
       constructionSites.push(makeConstructionSite(`site-${roomName}-${x}-${y}`, structureType, x, y, roomName));
@@ -263,4 +317,48 @@ function makeConstructionSite(
     structureType,
     pos: { x, y, roomName } as RoomPosition
   } as ConstructionSite;
+}
+
+function makeDroppedEnergy(
+  id: string,
+  x: number,
+  y: number,
+  roomName: string
+): Resource<ResourceConstant> {
+  return {
+    id,
+    resourceType: 'energy',
+    amount: 50,
+    ticksToDecay: 100,
+    pos: { x, y, roomName } as RoomPosition
+  } as unknown as Resource<ResourceConstant>;
+}
+
+function makeRemoteHarvester(
+  room: Room,
+  sourceId: Id<Source>,
+  {
+    usedEnergy,
+    freeEnergy
+  }: {
+    usedEnergy: number;
+    freeEnergy: number;
+  }
+): Creep {
+  return {
+    memory: {
+      role: 'remoteHarvester',
+      colony: 'W1N1',
+      remoteHarvester: {
+        homeRoom: 'W1N1',
+        targetRoom: room.name,
+        sourceId
+      }
+    },
+    room,
+    store: {
+      getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? usedEnergy : 0)),
+      getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeEnergy : 0))
+    }
+  } as unknown as Creep;
 }
