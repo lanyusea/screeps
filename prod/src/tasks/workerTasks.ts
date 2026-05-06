@@ -281,6 +281,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
           return energyAcquisitionTask;
         }
       }
+
+      const linkEnergyAcquisitionTask = selectEfficientWorkerLinkEnergyAcquisitionTask(creep);
+      if (linkEnergyAcquisitionTask) {
+        return linkEnergyAcquisitionTask;
+      }
     }
 
     const source = selectHarvestSource(creep);
@@ -2430,6 +2435,11 @@ export function selectWorkerEnergyFallbackTask(creep: Creep): CreepTaskMemory | 
     return energyAcquisitionTask;
   }
 
+  const linkEnergyAcquisitionTask = selectEfficientWorkerLinkEnergyAcquisitionTask(creep);
+  if (linkEnergyAcquisitionTask) {
+    return linkEnergyAcquisitionTask;
+  }
+
   const source = selectHarvestSource(creep);
   if (source) {
     return { type: 'harvest', targetId: source.id };
@@ -2795,9 +2805,14 @@ function selectSpawnRecoveryEnergyAcquisitionTask(
   energySink: FillableEnergySink,
   harvestEta: number | null = estimateHarvestDeliveryEta(creep, energySink)
 ): WorkerEnergyAcquisitionTask | null {
-  const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
-    minimumDroppedEnergy: MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT
-  })
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const recoverableEnergyCandidates = [
+    ...findWorkerEnergyAcquisitionCandidates(creep, {
+      minimumDroppedEnergy: MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT
+    }),
+    ...findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext)
+  ];
+  const candidates = recoverableEnergyCandidates
     .map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink))
     .filter((candidate): candidate is SpawnRecoveryEnergyAcquisitionCandidate => candidate !== null)
     .filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
@@ -2917,11 +2932,28 @@ function selectWorkerLinkEnergyFallbackTask(creep: Creep): WorkerEnergyAcquisiti
   return findWorkerLinkEnergyAcquisitionCandidates(creep)[0]?.task ?? null;
 }
 
+function selectEfficientWorkerLinkEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
+  const linkCandidate = findWorkerLinkEnergyAcquisitionCandidates(creep)[0];
+  if (!linkCandidate) {
+    return null;
+  }
+
+  const harvestSource = selectHarvestSource(creep);
+  if (!harvestSource) {
+    return linkCandidate.task;
+  }
+
+  return isWorkerLinkEnergyMoreEfficientThanHarvest(creep, linkCandidate, harvestSource)
+    ? linkCandidate.task
+    : null;
+}
+
 function findWorkerLinkEnergyAcquisitionCandidates(
   creep: Creep,
   reservationContext = createWorkerEnergyAcquisitionReservationContext(creep),
   options: WorkerEnergyAcquisitionSearchOptions = {}
 ): WorkerEnergyAcquisitionCandidate[] {
+  const minimumLinkEnergy = getMinimumWorkerLinkWithdrawalEnergy(creep);
   return findOwnedWorkerEnergyLinks(creep.room)
     .flatMap((source) => {
       const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
@@ -2932,7 +2964,8 @@ function findWorkerLinkEnergyAcquisitionCandidates(
           type: 'withdraw',
           targetId: source.id as Id<AnyStoreStructure>
         },
-        reservationContext
+        reservationContext,
+        minimumLinkEnergy
       );
 
       return candidate ? [candidate] : [];
@@ -2950,6 +2983,48 @@ function findOwnedWorkerEnergyLinks(room: Room): StructureLink[] {
     filter: (structure) => isLinkEnergySource(structure) && getStoredEnergy(structure) > 0
   });
   return Array.isArray(structures) ? (structures as StructureLink[]) : [];
+}
+
+function getMinimumWorkerLinkWithdrawalEnergy(creep: Creep): number {
+  return Math.max(1, getFreeEnergyCapacity(creep));
+}
+
+function isWorkerLinkEnergyMoreEfficientThanHarvest(
+  creep: Creep,
+  linkCandidate: WorkerEnergyAcquisitionCandidate,
+  harvestSource: Source
+): boolean {
+  const linkEta = estimateWorkerLinkEnergyAcquisitionEta(linkCandidate);
+  const harvestEta = estimateHarvestEnergyAcquisitionEta(creep, harvestSource);
+  return linkEta !== null && harvestEta !== null && linkEta < harvestEta;
+}
+
+function estimateWorkerLinkEnergyAcquisitionEta(candidate: WorkerEnergyAcquisitionCandidate): number | null {
+  return candidate.range === null ? null : candidate.range + ENERGY_ACQUISITION_ACTION_TICKS;
+}
+
+function estimateHarvestEnergyAcquisitionEta(creep: Creep, source: Source): number | null {
+  const sourceAvailabilityDelay = estimateHarvestSourceAvailabilityDelay(source);
+  const range = getHarvestSourceTravelCost(creep, source);
+  if (sourceAvailabilityDelay === null || range === null) {
+    return null;
+  }
+
+  return range + sourceAvailabilityDelay + estimateHarvestEnergyAcquisitionTicks(creep, source);
+}
+
+function estimateHarvestEnergyAcquisitionTicks(creep: Creep, source: Source): number {
+  const energy = Math.min(getHarvestSourceAvailableEnergy(source), getHarvestEnergyTarget(creep));
+  if (energy <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const workParts = getActiveWorkParts(creep);
+  if (workParts <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.ceil(energy / Math.max(HARVEST_ENERGY_PER_WORK_PART, workParts * HARVEST_ENERGY_PER_WORK_PART));
 }
 
 function findDroppedEnergyAcquisitionCandidates(

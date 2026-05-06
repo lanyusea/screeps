@@ -9364,30 +9364,71 @@ var CONTROLLER_LINK_RANGE = 3;
 var STORAGE_LINK_RANGE = 2;
 var OK_CODE4 = 0;
 function transferEnergy(room) {
-  var _a, _b, _c, _d;
   const network = classifyLinks(room);
   if (network.sourceLinks.length === 0) {
     return [];
   }
-  const destinationLinks = getDestinationLinks(network);
-  if (destinationLinks.length === 0) {
-    return [];
-  }
   const projectedState = createProjectedLinkState(network.links);
   const results = [];
-  for (const sourceLink of sortLinksByEnergy(network.sourceLinks, projectedState)) {
-    if (!canLinkSendEnergy(sourceLink, projectedState)) {
-      continue;
-    }
-    const destination = selectDestinationLink(sourceLink, destinationLinks, projectedState);
-    if (!destination) {
-      continue;
-    }
+  const spentSourceIds = /* @__PURE__ */ new Set();
+  if (shouldControllerLinkReceiveEnergy(room, network.controllerLink, projectedState)) {
+    transferSourceLinksToDestination(
+      sortSourceLinksByDistanceToDestination(network.sourceLinks, network.controllerLink),
+      { link: network.controllerLink, role: "controller" },
+      projectedState,
+      spentSourceIds,
+      results
+    );
+  }
+  if (shouldStorageLinkReceiveSurplus(network, projectedState)) {
+    transferSourceLinksToDestination(
+      sortSourceLinksBySurplusPriority(network.sourceLinks, network.storageLink, projectedState),
+      { link: network.storageLink, role: "storage" },
+      projectedState,
+      spentSourceIds,
+      results
+    );
+  }
+  return results;
+}
+function classifyLinks(room) {
+  var _a;
+  const links = findOwnedLinks(room);
+  const controllerLink = selectControllerLink(room, links);
+  const storage = (_a = room.storage) != null ? _a : findStorage(room);
+  const storageLink = selectStorageLink(room, links, controllerLink, storage);
+  const destinationIds = new Set(
+    [controllerLink, storageLink].filter((link) => link !== null).map((link) => getObjectId4(link))
+  );
+  return {
+    links,
+    sourceLinks: selectSourceLinks(room, links, destinationIds),
+    controllerLink,
+    storageLink,
+    storage
+  };
+}
+function isSourceLink(room, link) {
+  const linkId = getObjectId4(link);
+  return linkId !== "" && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId4(sourceLink) === linkId);
+}
+function transferLinkEnergy(sourceLink, destinationLink, amount) {
+  return sourceLink.transferEnergy(destinationLink, amount);
+}
+function transferSourceLinksToDestination(sourceLinks, destination, projectedState, spentSourceIds, results) {
+  var _a, _b, _c, _d, _e;
+  const destinationId = getObjectId4(destination.link);
+  for (const sourceLink of sourceLinks) {
     const sourceId = getObjectId4(sourceLink);
-    const destinationId = getObjectId4(destination.link);
+    if (spentSourceIds.has(sourceId) || !canLinkSendEnergy(sourceLink, projectedState)) {
+      continue;
+    }
+    if (destinationId === sourceId || ((_a = projectedState.freeCapacityById.get(destinationId)) != null ? _a : 0) <= 0) {
+      continue;
+    }
     const amount = Math.min(
-      (_a = projectedState.storedEnergyById.get(sourceId)) != null ? _a : 0,
-      (_b = projectedState.freeCapacityById.get(destinationId)) != null ? _b : 0
+      (_b = projectedState.storedEnergyById.get(sourceId)) != null ? _b : 0,
+      (_c = projectedState.freeCapacityById.get(destinationId)) != null ? _c : 0
     );
     if (amount <= 0) {
       continue;
@@ -9400,55 +9441,59 @@ function transferEnergy(room) {
       result,
       sourceId
     });
+    spentSourceIds.add(sourceId);
     if (result === OK_CODE4) {
-      projectedState.storedEnergyById.set(sourceId, Math.max(0, ((_c = projectedState.storedEnergyById.get(sourceId)) != null ? _c : 0) - amount));
+      projectedState.storedEnergyById.set(
+        sourceId,
+        Math.max(0, ((_d = projectedState.storedEnergyById.get(sourceId)) != null ? _d : 0) - amount)
+      );
       projectedState.freeCapacityById.set(
         destinationId,
-        Math.max(0, ((_d = projectedState.freeCapacityById.get(destinationId)) != null ? _d : 0) - amount)
+        Math.max(0, ((_e = projectedState.freeCapacityById.get(destinationId)) != null ? _e : 0) - amount)
       );
     }
   }
-  return results;
 }
-function classifyLinks(room) {
-  const links = findOwnedLinks(room);
-  const controllerLink = selectControllerLink(room, links);
-  const storageLink = selectStorageLink(room, links, controllerLink);
-  const destinationIds = new Set(
-    [controllerLink, storageLink].filter((link) => link !== null).map((link) => getObjectId4(link))
-  );
-  return {
-    links,
-    sourceLinks: selectSourceLinks(room, links, destinationIds),
-    controllerLink,
-    storageLink
-  };
-}
-function isSourceLink(room, link) {
-  const linkId = getObjectId4(link);
-  return linkId !== "" && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId4(sourceLink) === linkId);
-}
-function getDestinationLinks(network) {
-  const destinations = [];
-  if (network.controllerLink) {
-    destinations.push({ link: network.controllerLink, role: "controller" });
+function shouldControllerLinkReceiveEnergy(room, controllerLink, projectedState) {
+  var _a, _b;
+  if (!controllerLink || ((_a = room.controller) == null ? void 0 : _a.my) !== true) {
+    return false;
   }
-  if (network.storageLink && getObjectId4(network.storageLink) !== getObjectId4(network.controllerLink)) {
-    destinations.push({ link: network.storageLink, role: "storage" });
-  }
-  return destinations;
+  return ((_b = projectedState.freeCapacityById.get(getObjectId4(controllerLink))) != null ? _b : 0) > 0;
 }
-function transferLinkEnergy(sourceLink, destinationLink, amount) {
-  return sourceLink.transferEnergy(destinationLink, amount);
-}
-function selectDestinationLink(sourceLink, destinationLinks, projectedState) {
+function shouldStorageLinkReceiveSurplus(network, projectedState) {
   var _a;
-  const sourceId = getObjectId4(sourceLink);
-  return (_a = destinationLinks.find((destination) => {
-    var _a2;
-    const destinationId = getObjectId4(destination.link);
-    return destinationId !== sourceId && ((_a2 = projectedState.freeCapacityById.get(destinationId)) != null ? _a2 : 0) > 0;
-  })) != null ? _a : null;
+  if (!network.storageLink || getObjectId4(network.storageLink) === getObjectId4(network.controllerLink)) {
+    return false;
+  }
+  return ((_a = projectedState.freeCapacityById.get(getObjectId4(network.storageLink))) != null ? _a : 0) > 0 && hasStorageFreeCapacity(network.storage);
+}
+function hasStorageFreeCapacity(storage) {
+  if (!storage) {
+    return false;
+  }
+  const freeCapacity = getKnownFreeEnergyCapacity(storage);
+  return freeCapacity === null || freeCapacity > 0;
+}
+function getKnownFreeEnergyCapacity(structure) {
+  var _a, _b;
+  const freeCapacity = (_b = (_a = structure.store) == null ? void 0 : _a.getFreeCapacity) == null ? void 0 : _b.call(_a, getEnergyResource4());
+  return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : null;
+}
+function sortSourceLinksByDistanceToDestination(links, destinationLink) {
+  const destinationPosition = getRoomObjectPosition2(destinationLink);
+  return [...links].sort(
+    (left, right) => compareRangeToPosition(destinationPosition, left, right) || getObjectId4(left).localeCompare(getObjectId4(right))
+  );
+}
+function sortSourceLinksBySurplusPriority(links, destinationLink, projectedState) {
+  const destinationPosition = getRoomObjectPosition2(destinationLink);
+  return [...links].sort(
+    (left, right) => {
+      var _a, _b;
+      return compareRangeToPosition(destinationPosition, left, right) || ((_a = projectedState.storedEnergyById.get(getObjectId4(right))) != null ? _a : 0) - ((_b = projectedState.storedEnergyById.get(getObjectId4(left))) != null ? _b : 0) || getObjectId4(left).localeCompare(getObjectId4(right));
+    }
+  );
 }
 function canLinkSendEnergy(link, projectedState) {
   var _a;
@@ -9459,14 +9504,6 @@ function createProjectedLinkState(links) {
     freeCapacityById: new Map(links.map((link) => [getObjectId4(link), getFreeEnergyCapacity(link)])),
     storedEnergyById: new Map(links.map((link) => [getObjectId4(link), getStoredEnergy3(link)]))
   };
-}
-function sortLinksByEnergy(links, projectedState) {
-  return [...links].sort(
-    (left, right) => {
-      var _a, _b;
-      return ((_a = projectedState.storedEnergyById.get(getObjectId4(right))) != null ? _a : 0) - ((_b = projectedState.storedEnergyById.get(getObjectId4(left))) != null ? _b : 0) || getObjectId4(left).localeCompare(getObjectId4(right));
-    }
-  );
 }
 function selectSourceLinks(room, links, destinationIds) {
   const sources = findSources2(room);
@@ -9482,9 +9519,7 @@ function selectControllerLink(room, links) {
   }
   return selectClosestLink(links, controller, room.name, CONTROLLER_LINK_RANGE);
 }
-function selectStorageLink(room, links, controllerLink) {
-  var _a;
-  const storage = (_a = room.storage) != null ? _a : findStorage(room);
+function selectStorageLink(room, links, controllerLink, storage) {
   if (!storage) {
     return null;
   }
@@ -9511,6 +9546,9 @@ function isNearRoomObject2(left, right, roomName, range) {
   return leftPosition !== null && rightPosition !== null && isSameRoomPosition4(leftPosition, roomName) && isSameRoomPosition4(rightPosition, roomName) && getRangeBetweenPositions3(leftPosition, rightPosition) <= range;
 }
 function compareRangeToPosition(position, left, right) {
+  if (!position) {
+    return 0;
+  }
   const leftPosition = getRoomObjectPosition2(left);
   const rightPosition = getRoomObjectPosition2(right);
   return (leftPosition ? getRangeBetweenPositions3(position, leftPosition) : Number.POSITIVE_INFINITY) - (rightPosition ? getRangeBetweenPositions3(position, rightPosition) : Number.POSITIVE_INFINITY);
@@ -10024,6 +10062,10 @@ function selectHeuristicWorkerTask(creep) {
         if (energyAcquisitionTask) {
           return energyAcquisitionTask;
         }
+      }
+      const linkEnergyAcquisitionTask = selectEfficientWorkerLinkEnergyAcquisitionTask(creep);
+      if (linkEnergyAcquisitionTask) {
+        return linkEnergyAcquisitionTask;
       }
     }
     const source = selectHarvestSource(creep);
@@ -11648,9 +11690,14 @@ function compareLowLoadWorkerEnergyAcquisitionCandidates(left, right) {
   return left.priority - right.priority || compareOptionalRanges(left.range, right.range) || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
 }
 function selectSpawnRecoveryEnergyAcquisitionTask(creep, energySink, harvestEta = estimateHarvestDeliveryEta(creep, energySink)) {
-  const candidates = findWorkerEnergyAcquisitionCandidates(creep, {
-    minimumDroppedEnergy: MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT
-  }).map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
+  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+  const recoverableEnergyCandidates = [
+    ...findWorkerEnergyAcquisitionCandidates(creep, {
+      minimumDroppedEnergy: MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT
+    }),
+    ...findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext)
+  ];
+  const candidates = recoverableEnergyCandidates.map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink)).filter((candidate) => candidate !== null).filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
   if (candidates.length === 0) {
     return null;
   }
@@ -11734,7 +11781,19 @@ function selectWorkerLinkEnergyFallbackTask(creep) {
   var _a, _b;
   return (_b = (_a = findWorkerLinkEnergyAcquisitionCandidates(creep)[0]) == null ? void 0 : _a.task) != null ? _b : null;
 }
+function selectEfficientWorkerLinkEnergyAcquisitionTask(creep) {
+  const linkCandidate = findWorkerLinkEnergyAcquisitionCandidates(creep)[0];
+  if (!linkCandidate) {
+    return null;
+  }
+  const harvestSource = selectHarvestSource(creep);
+  if (!harvestSource) {
+    return linkCandidate.task;
+  }
+  return isWorkerLinkEnergyMoreEfficientThanHarvest(creep, linkCandidate, harvestSource) ? linkCandidate.task : null;
+}
 function findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext = createWorkerEnergyAcquisitionReservationContext(creep), options = {}) {
+  const minimumLinkEnergy = getMinimumWorkerLinkWithdrawalEnergy(creep);
   return findOwnedWorkerEnergyLinks(creep.room).flatMap((source) => {
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
       creep,
@@ -11744,7 +11803,8 @@ function findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext = c
         type: "withdraw",
         targetId: source.id
       },
-      reservationContext
+      reservationContext,
+      minimumLinkEnergy
     );
     return candidate ? [candidate] : [];
   }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options)).sort(compareWorkerLinkEnergyAcquisitionCandidates);
@@ -11757,6 +11817,36 @@ function findOwnedWorkerEnergyLinks(room) {
     filter: (structure) => isLinkEnergySource(structure) && getStoredEnergy4(structure) > 0
   });
   return Array.isArray(structures) ? structures : [];
+}
+function getMinimumWorkerLinkWithdrawalEnergy(creep) {
+  return Math.max(1, getFreeEnergyCapacity3(creep));
+}
+function isWorkerLinkEnergyMoreEfficientThanHarvest(creep, linkCandidate, harvestSource) {
+  const linkEta = estimateWorkerLinkEnergyAcquisitionEta(linkCandidate);
+  const harvestEta = estimateHarvestEnergyAcquisitionEta(creep, harvestSource);
+  return linkEta !== null && harvestEta !== null && linkEta < harvestEta;
+}
+function estimateWorkerLinkEnergyAcquisitionEta(candidate) {
+  return candidate.range === null ? null : candidate.range + ENERGY_ACQUISITION_ACTION_TICKS;
+}
+function estimateHarvestEnergyAcquisitionEta(creep, source) {
+  const sourceAvailabilityDelay = estimateHarvestSourceAvailabilityDelay(source);
+  const range = getHarvestSourceTravelCost(creep, source);
+  if (sourceAvailabilityDelay === null || range === null) {
+    return null;
+  }
+  return range + sourceAvailabilityDelay + estimateHarvestEnergyAcquisitionTicks(creep, source);
+}
+function estimateHarvestEnergyAcquisitionTicks(creep, source) {
+  const energy = Math.min(getHarvestSourceAvailableEnergy(source), getHarvestEnergyTarget(creep));
+  if (energy <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const workParts = getActiveWorkParts(creep);
+  if (workParts <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.ceil(energy / Math.max(HARVEST_ENERGY_PER_WORK_PART, workParts * HARVEST_ENERGY_PER_WORK_PART));
 }
 function findDroppedEnergyAcquisitionCandidates(creep, reservationContext, options = {}) {
   var _a;
