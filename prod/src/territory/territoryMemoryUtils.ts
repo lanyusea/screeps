@@ -38,6 +38,9 @@ export function normalizeTerritoryIntent(rawIntent: unknown): TerritoryIntentMem
       : {}),
     ...(rawIntent.requiresControllerPressure === true ? { requiresControllerPressure: true } : {}),
     ...(followUp ? { followUp } : {}),
+    ...(isPositiveFiniteNumber(rawIntent.postClaimBootstrapReserveEnergy)
+      ? { postClaimBootstrapReserveEnergy: Math.floor(rawIntent.postClaimBootstrapReserveEnergy) }
+      : {}),
     ...(suspended ? { suspended } : {})
   };
 }
@@ -118,6 +121,10 @@ function isTerritoryAutomationSource(source: unknown): source is TerritoryAutoma
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0;
 }
 
 function isNonEmptyString(value: unknown): value is string {

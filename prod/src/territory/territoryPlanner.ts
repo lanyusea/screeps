@@ -5,7 +5,14 @@ import {
   TERRITORY_CONTROLLER_PRESSURE_BODY_COST,
   TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
 } from '../spawn/bodyBuilder';
+import {
+  TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY,
+  TERRITORY_AUTO_CLAIM_MIN_RCL,
+  TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+  isTerritoryAutoClaimReservationMature
+} from './autoClaim';
 import type { AutonomousExpansionClaimEvaluation } from './claimExecutor';
+import { maxRoomsForRcl } from './expansionScoring';
 import {
   scoreOccupationRecommendations,
   type OccupationControllerEvidence,
@@ -94,6 +101,7 @@ export interface TerritoryIntentPlan {
   createdBy?: TerritoryAutomationSource;
   requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
+  postClaimBootstrapReserveEnergy?: number;
 }
 
 export interface TerritoryIntentProgressSummary {
@@ -107,6 +115,7 @@ export interface TerritoryIntentProgressSummary {
   controllerId?: Id<StructureController>;
   requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
+  postClaimBootstrapReserveEnergy?: number;
 }
 
 export interface TerritoryIntentPlanningOptions {
@@ -127,8 +136,10 @@ interface SelectedTerritoryTarget {
   target: TerritoryTargetMemory;
   intentAction: TerritoryIntentAction;
   commitTarget: boolean;
+  autoClaimApproved?: boolean;
   requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
+  postClaimBootstrapReserveEnergy?: number;
   persistedFollowUp?: boolean;
   recoveredFollowUp?: boolean;
   recoveredFollowUpSuppressedAt?: number;
@@ -207,7 +218,10 @@ export function planTerritoryIntent(
     ...(target.controllerId ? { controllerId: target.controllerId } : {}),
     ...(target.createdBy ? { createdBy: target.createdBy } : {}),
     ...(selection.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
-    ...(selection.followUp ? { followUp: selection.followUp } : {})
+    ...(selection.followUp ? { followUp: selection.followUp } : {}),
+    ...(selection.postClaimBootstrapReserveEnergy
+      ? { postClaimBootstrapReserveEnergy: selection.postClaimBootstrapReserveEnergy }
+      : {})
   };
 
   if (selection.recoveredFollowUp === true && typeof selection.recoveredFollowUpSuppressedAt === 'number') {
@@ -322,6 +336,20 @@ export function requiresTerritoryControllerPressure(plan: TerritoryIntentPlan): 
 }
 
 function isTerritoryIntentPlanSpawnCapable(plan: TerritoryIntentPlan): boolean {
+  const reserveEnergy =
+    plan.action === 'claim' && isPositiveFiniteNumber(plan.postClaimBootstrapReserveEnergy)
+      ? Math.floor(plan.postClaimBootstrapReserveEnergy)
+      : 0;
+  if (reserveEnergy > 0) {
+    const energyCapacityAvailable = getVisibleRoom(plan.colony)?.energyCapacityAvailable;
+    if (
+      typeof energyCapacityAvailable === 'number' &&
+      energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST + reserveEnergy
+    ) {
+      return false;
+    }
+  }
+
   if (!requiresTerritoryControllerPressure(plan)) {
     return true;
   }
@@ -457,7 +485,10 @@ export function getTerritoryIntentProgressSummaries(
         adjacentToColony: isRoomAdjacentToColony(intent.colony, intent.targetRoom),
         ...(intent.controllerId ? { controllerId: intent.controllerId } : {}),
         ...(intent.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
-        ...(intent.followUp ? { followUp: intent.followUp } : {})
+        ...(intent.followUp ? { followUp: intent.followUp } : {}),
+        ...(intent.postClaimBootstrapReserveEnergy
+          ? { postClaimBootstrapReserveEnergy: intent.postClaimBootstrapReserveEnergy }
+          : {})
       };
     })
     .sort(compareTerritoryIntentProgressSummaries);
@@ -1102,6 +1133,7 @@ function selectTerritoryTarget(
     roleCounts,
     workerTarget,
     getConfiguredTerritoryCandidates(
+      colony,
       colonyName,
       colonyOwnerUsername,
       territoryMemory,
@@ -1290,6 +1322,9 @@ function toSelectedTerritoryTarget(
         commitTarget: candidate.commitTarget,
         ...(candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
         ...(candidate.followUp ? { followUp: candidate.followUp } : {}),
+        ...(candidate.postClaimBootstrapReserveEnergy
+          ? { postClaimBootstrapReserveEnergy: candidate.postClaimBootstrapReserveEnergy }
+          : {}),
         ...(candidate.recoveredFollowUp ? { recoveredFollowUp: true } : {}),
         ...(typeof candidate.recoveredFollowUpSuppressedAt === 'number'
           ? { recoveredFollowUpSuppressedAt: candidate.recoveredFollowUpSuppressedAt }
@@ -1401,7 +1436,11 @@ function isTerritoryCandidateSpawnRequired(candidate: ScoredTerritoryTarget, rol
 
 function isTerritoryCandidateSpawnReady(candidate: ScoredTerritoryTarget, colony: ColonySnapshot): boolean {
   const bodyCost = getTerritoryCandidateBodyCost(candidate);
-  return colony.energyCapacityAvailable >= bodyCost && colony.energyAvailable >= bodyCost;
+  const reserveEnergy = getTerritoryCandidatePostClaimReserveEnergy(candidate);
+  return (
+    colony.energyCapacityAvailable >= bodyCost + reserveEnergy &&
+    colony.energyAvailable >= bodyCost + reserveEnergy
+  );
 }
 
 function isTerritoryIntentActionSpawnReady(
@@ -1414,7 +1453,16 @@ function isTerritoryIntentActionSpawnReady(
 }
 
 function isTerritoryCandidateSpawnCapable(candidate: ScoredTerritoryTarget, colony: ColonySnapshot): boolean {
-  return colony.energyCapacityAvailable >= getTerritoryCandidateBodyCost(candidate);
+  return (
+    colony.energyCapacityAvailable >=
+    getTerritoryCandidateBodyCost(candidate) + getTerritoryCandidatePostClaimReserveEnergy(candidate)
+  );
+}
+
+function getTerritoryCandidatePostClaimReserveEnergy(candidate: ScoredTerritoryTarget): number {
+  return candidate.intentAction === 'claim' && isPositiveFiniteNumber(candidate.postClaimBootstrapReserveEnergy)
+    ? Math.floor(candidate.postClaimBootstrapReserveEnergy)
+    : 0;
 }
 
 function getTerritoryCandidateBodyCost(candidate: ScoredTerritoryTarget): number {
@@ -1448,6 +1496,7 @@ function shouldSpawnEmergencyReservationRenewalCandidate(
 }
 
 function getConfiguredTerritoryCandidates(
+  colony: ColonySnapshot,
   colonyName: string,
   colonyOwnerUsername: string | null,
   territoryMemory: Record<string, unknown> | null,
@@ -1466,8 +1515,25 @@ function getConfiguredTerritoryCandidates(
       return [];
     }
 
-    const actionForTarget = getConfiguredTerritoryCandidateAction(target, colonyOwnerUsername, territoryMemory, gameTime);
-    const actionableTarget = actionForTarget === target.action ? target : { ...target, action: actionForTarget };
+    const actionForTarget = getConfiguredTerritoryCandidateAction(
+      target,
+      colony,
+      colonyOwnerUsername,
+      territoryMemory,
+      gameTime
+    );
+    const autoClaimApproved =
+      actionForTarget !== target.action && isAdjacentReservationAutoClaimTarget(target, actionForTarget);
+    const actionableTarget =
+      actionForTarget === target.action
+        ? target
+        : {
+            ...target,
+            action: actionForTarget,
+            ...(autoClaimApproved
+              ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
+              : {})
+          };
     const ignoreOwnHealthyReservation = actionableTarget.action === 'claim';
     const isConfiguredTerritoryTargetActionable = isVisibleTerritoryIntentActionable(
       actionableTarget.roomName,
@@ -1529,9 +1595,13 @@ function getConfiguredTerritoryCandidates(
         target: actionableTarget,
         intentAction: actionableTarget.action,
         commitTarget: false,
+        ...(autoClaimApproved ? { autoClaimApproved: true } : {}),
         ...(ignoreOwnHealthyReservation ? { ignoreOwnHealthyReservation: true } : {}),
         ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
         ...(persistedFollowUp ? { followUp: persistedFollowUp.followUp } : {}),
+        ...(actionableTarget.postClaimBootstrapReserveEnergy
+          ? { postClaimBootstrapReserveEnergy: actionableTarget.postClaimBootstrapReserveEnergy }
+          : {}),
         ...(persistedFollowUp ? { persistedFollowUp: true } : {}),
         ...(persistedFollowUp?.recovered ? { recoveredFollowUp: true } : {}),
         ...(typeof persistedFollowUp?.suppressedAt === 'number'
@@ -1550,12 +1620,19 @@ function getConfiguredTerritoryCandidates(
 
 function getConfiguredTerritoryCandidateAction(
   target: TerritoryTargetMemory,
+  colony: ColonySnapshot,
   colonyOwnerUsername: string | null,
   territoryMemory: Record<string, unknown> | null,
   gameTime: number
 ): TerritoryControlAction {
   if (target.action !== 'reserve' || !isNonEmptyString(colonyOwnerUsername)) {
     return target.action;
+  }
+
+  if (target.createdBy === 'adjacentRoomReservation') {
+    return shouldAutoClaimAdjacentReservationTarget(target, colony, colonyOwnerUsername)
+      ? 'claim'
+      : target.action;
   }
 
   const controller = getVisibleController(target.roomName, target.controllerId);
@@ -1572,6 +1649,90 @@ function getConfiguredTerritoryCandidateAction(
   return getEstimatedTerritoryReservationTicksToEnd(storedReservation, gameTime) <= TERRITORY_CLAIM_READY_TICKS
     ? 'claim'
     : target.action;
+}
+
+function shouldAutoClaimAdjacentReservationTarget(
+  target: TerritoryTargetMemory,
+  colony: ColonySnapshot,
+  colonyOwnerUsername: string
+): boolean {
+  if (
+    target.action !== 'reserve' ||
+    target.createdBy !== 'adjacentRoomReservation' ||
+    !isRoomAdjacentToColony(target.colony, target.roomName) ||
+    !isColonyReadyForAdjacentReservationAutoClaim(colony)
+  ) {
+    return false;
+  }
+
+  const controller = getVisibleController(target.roomName, target.controllerId);
+  if (!controller || isControllerOwned(controller)) {
+    return false;
+  }
+
+  return isTerritoryAutoClaimReservationMature(
+    getOwnReservationTicksToEnd(controller, colonyOwnerUsername) ?? undefined
+  );
+}
+
+function isAdjacentReservationAutoClaimTarget(
+  target: TerritoryTargetMemory,
+  action: TerritoryIntentAction
+): boolean {
+  return action === 'claim' && target.createdBy === 'adjacentRoomReservation';
+}
+
+function isColonyReadyForAdjacentReservationAutoClaim(colony: ColonySnapshot): boolean {
+  const controller = colony.room.controller;
+  const controllerLevel = controller?.level;
+  if (typeof controllerLevel !== 'number' || controllerLevel < TERRITORY_AUTO_CLAIM_MIN_RCL) {
+    return false;
+  }
+
+  if (
+    typeof controller?.ticksToDowngrade === 'number' &&
+    controller.ticksToDowngrade <= TERRITORY_DOWNGRADE_GUARD_TICKS
+  ) {
+    return false;
+  }
+
+  if (
+    colony.energyCapacityAvailable < TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY ||
+    colony.energyAvailable < TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+  ) {
+    return false;
+  }
+
+  if (hasActivePostClaimBootstrap(colony.room.name)) {
+    return false;
+  }
+
+  const ownedRoomCount = getVisibleOwnedRoomNames(colony.room.name).length;
+  if (ownedRoomCount >= maxRoomsForRcl(controllerLevel)) {
+    return false;
+  }
+
+  const gclLevel = getGclLevel();
+  return typeof gclLevel !== 'number' || ownedRoomCount < gclLevel;
+}
+
+function hasActivePostClaimBootstrap(colonyName: string): boolean {
+  const records = getTerritoryMemoryRecord()?.postClaimBootstraps;
+  if (!isRecord(records)) {
+    return false;
+  }
+
+  return Object.values(records).some(
+    (record) =>
+      isRecord(record) &&
+      record.colony === colonyName &&
+      record.status !== 'ready'
+  );
+}
+
+function getGclLevel(): number | null {
+  const level = (globalThis as { Game?: Partial<Game> & { gcl?: { level?: number } } }).Game?.gcl?.level;
+  return typeof level === 'number' && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
 }
 
 function getPersistedTerritoryIntentCandidates(
@@ -1611,7 +1772,10 @@ function getPersistedTerritoryIntentCandidates(
       colony: intent.colony,
       roomName: intent.targetRoom,
       action: intent.action,
-      ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+      ...(intent.controllerId ? { controllerId: intent.controllerId } : {}),
+      ...(intent.postClaimBootstrapReserveEnergy
+        ? { postClaimBootstrapReserveEnergy: intent.postClaimBootstrapReserveEnergy }
+        : {})
     };
     const requiresControllerPressure = shouldPreservePersistedTerritoryIntentPressureRequirement(intent);
     const candidate = scoreTerritoryCandidate(
@@ -1621,6 +1785,9 @@ function getPersistedTerritoryIntentCandidates(
         commitTarget: false,
         ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
         ...(intent.followUp ? { followUp: intent.followUp } : {}),
+        ...(intent.postClaimBootstrapReserveEnergy
+          ? { postClaimBootstrapReserveEnergy: intent.postClaimBootstrapReserveEnergy }
+          : {}),
         ...(intent.followUp ? { persistedFollowUp: true } : {}),
         ...(recoveredFollowUp ? { recoveredFollowUp: true, recoveredFollowUpSuppressedAt: intent.updatedAt } : {})
       },
@@ -2562,6 +2729,10 @@ function applyOccupationRecommendationScores(
     workerTarget
   );
   return candidates.flatMap((candidate) => {
+    if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
+      return [candidate];
+    }
+
     const recommendation = scoreOccupationRecommendations({
       colonyName: colony.room.name,
       ...(colonyOwnerUsername ? { colonyOwnerUsername } : {}),
@@ -2690,6 +2861,10 @@ function getRecommendedTerritoryIntentAction(
   recommendation: OccupationRecommendationScore,
   roleCounts: RoleCounts
 ): TerritoryIntentAction {
+  if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
+    return candidate.intentAction;
+  }
+
   if (candidate.source === 'occupationIntent' && isPersistedControllerFollowUpCandidate(candidate)) {
     return candidate.intentAction;
   }
@@ -2726,6 +2901,15 @@ function getRecommendedTerritoryIntentAction(
 
 function isUnscoutedAdjacentReservationCandidate(candidate: ScoredTerritoryTarget): boolean {
   return isAdjacentRoomReservationReserveSelection(candidate);
+}
+
+function isAutoClaimApprovedTerritoryCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return (
+    candidate.autoClaimApproved === true &&
+    candidate.intentAction === 'claim' &&
+    candidate.target.action === 'claim' &&
+    candidate.target.createdBy === 'adjacentRoomReservation'
+  );
 }
 
 function isAdjacentRoomReservationReserveSelection(
@@ -3440,7 +3624,10 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
       ? { controllerId: rawTarget.controllerId as Id<StructureController> }
       : {}),
     ...(rawTarget.enabled === false ? { enabled: false } : {}),
-    ...(isTerritoryAutomationSource(rawTarget.createdBy) ? { createdBy: rawTarget.createdBy } : {})
+    ...(isTerritoryAutomationSource(rawTarget.createdBy) ? { createdBy: rawTarget.createdBy } : {}),
+    ...(isPositiveFiniteNumber(rawTarget.postClaimBootstrapReserveEnergy)
+      ? { postClaimBootstrapReserveEnergy: Math.floor(rawTarget.postClaimBootstrapReserveEnergy) }
+      : {})
   };
 }
 
@@ -3481,7 +3668,10 @@ function recordTerritoryIntent(
     ...(plan.createdBy ? { createdBy: plan.createdBy } : {}),
     ...(plan.controllerId ? { controllerId: plan.controllerId } : {}),
     ...(plan.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
-    ...(plan.followUp ? { followUp: plan.followUp } : {})
+    ...(plan.followUp ? { followUp: plan.followUp } : {}),
+    ...(plan.postClaimBootstrapReserveEnergy
+      ? { postClaimBootstrapReserveEnergy: plan.postClaimBootstrapReserveEnergy }
+      : {})
   };
 
   upsertTerritoryIntent(intents, nextIntent);
@@ -3505,7 +3695,10 @@ function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: Ter
       ...nextIntent,
       ...(createdBy ? { createdBy } : {}),
       ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
-      ...(!nextIntent.followUp && existingIntent.followUp ? { followUp: existingIntent.followUp } : {})
+      ...(!nextIntent.followUp && existingIntent.followUp ? { followUp: existingIntent.followUp } : {}),
+      ...(!nextIntent.postClaimBootstrapReserveEnergy && existingIntent.postClaimBootstrapReserveEnergy
+        ? { postClaimBootstrapReserveEnergy: existingIntent.postClaimBootstrapReserveEnergy }
+        : {})
     };
     return;
   }
@@ -5362,6 +5555,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

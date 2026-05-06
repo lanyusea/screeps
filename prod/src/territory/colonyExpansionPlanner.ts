@@ -11,6 +11,13 @@ import {
   type AdjacentRoomReservationEvaluation
 } from './reservationPlanner';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
+import {
+  TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY,
+  TERRITORY_AUTO_CLAIM_MIN_RCL,
+  TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+  isTerritoryAutoClaimReservationMature
+} from './autoClaim';
+import { maxRoomsForRcl } from './expansionScoring';
 
 export const COLONY_EXPANSION_CLAIM_TARGET_CREATOR: TerritoryAutomationSource = 'colonyExpansion';
 export const MIN_COLONY_EXPANSION_CLAIM_SCORE = MIN_ADJACENT_ROOM_RESERVATION_SCORE;
@@ -43,6 +50,7 @@ interface ColonyExpansionCandidate {
 interface ColonyExpansionControllerState {
   kind: 'neutral' | 'ownReserved' | 'foreignReserved' | 'owned' | 'missing' | 'unknown';
   controllerId?: Id<StructureController>;
+  ticksToEnd?: number;
 }
 
 const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'] as const;
@@ -158,6 +166,13 @@ function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansion
       return [];
     }
 
+    if (
+      controllerState.kind === 'ownReserved' &&
+      !isColonyReadyToClaimMatureReservation(colony, controllerState)
+    ) {
+      return [];
+    }
+
     const effectiveScore =
       controllerState.kind === 'ownReserved'
         ? claimScore.score + CLAIM_SCORE_RESERVED_PENALTY
@@ -192,6 +207,42 @@ function hasHostileClaimScore(score: ClaimScore): boolean {
   return score.details.some((detail) => detail.startsWith('hostile presence '));
 }
 
+function isColonyReadyToClaimMatureReservation(
+  colony: ColonySnapshot,
+  controllerState: ColonyExpansionControllerState
+): boolean {
+  const controller = colony.room.controller;
+  const controllerLevel = controller?.level;
+  if (
+    typeof controllerLevel !== 'number' ||
+    controllerLevel < TERRITORY_AUTO_CLAIM_MIN_RCL ||
+    !isTerritoryAutoClaimReservationMature(controllerState.ticksToEnd)
+  ) {
+    return false;
+  }
+
+  if (colony.energyCapacityAvailable < TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY) {
+    return false;
+  }
+
+  if (colony.energyAvailable < TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY) {
+    return false;
+  }
+
+  if (hasActivePostClaimBootstrap(colony.room.name)) {
+    return false;
+  }
+
+  const ownerUsername = getControllerOwnerUsername(controller);
+  const ownedRoomCount = countVisibleOwnedRooms(colony.room.name, ownerUsername);
+  if (ownedRoomCount >= maxRoomsForRcl(controllerLevel)) {
+    return false;
+  }
+
+  const gclLevel = getGclLevel();
+  return typeof gclLevel !== 'number' || ownedRoomCount < gclLevel;
+}
+
 function getColonyExpansionControllerState(
   colonyName: string,
   roomName: string,
@@ -212,7 +263,13 @@ function getColonyExpansionControllerState(
     const reservationUsername = controller.reservation?.username;
     if (isNonEmptyString(reservationUsername)) {
       return reservationUsername === ownerUsername
-        ? { kind: 'ownReserved', controllerId }
+        ? {
+            kind: 'ownReserved',
+            controllerId,
+            ...(typeof controller.reservation?.ticksToEnd === 'number'
+              ? { ticksToEnd: controller.reservation.ticksToEnd }
+              : {})
+          }
         : { kind: 'foreignReserved', controllerId };
     }
 
@@ -235,7 +292,13 @@ function getColonyExpansionControllerState(
 
   if (isNonEmptyString(controller.reservationUsername)) {
     return controller.reservationUsername === ownerUsername
-      ? { kind: 'ownReserved', ...(controller.id ? { controllerId: controller.id } : {}) }
+      ? {
+          kind: 'ownReserved',
+          ...(controller.id ? { controllerId: controller.id } : {}),
+          ...(typeof controller.reservationTicksToEnd === 'number'
+            ? { ticksToEnd: controller.reservationTicksToEnd }
+            : {})
+        }
       : { kind: 'foreignReserved', ...(controller.id ? { controllerId: controller.id } : {}) };
   }
 
@@ -285,7 +348,10 @@ function persistColonyExpansionClaimIntent(
     roomName: candidate.roomName,
     action: 'claim',
     createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
-    ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {})
+    ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {}),
+    ...(candidate.controllerState.kind === 'ownReserved'
+      ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
+      : {})
   };
 
   pruneAdjacentReservationForTarget(colony, candidate.roomName, territoryMemory);
@@ -301,7 +367,10 @@ function persistColonyExpansionClaimIntent(
     status: getExistingColonyExpansionClaimIntentStatus(intents, colony, candidate.roomName),
     updatedAt: gameTime,
     createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
-    ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {})
+    ...(candidate.controllerState.controllerId ? { controllerId: candidate.controllerState.controllerId } : {}),
+    ...(candidate.controllerState.kind === 'ownReserved'
+      ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
+      : {})
   });
 }
 
@@ -408,6 +477,11 @@ function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: Territo
   if (isRecord(existingTarget)) {
     existingTarget.createdBy = COLONY_EXPANSION_CLAIM_TARGET_CREATOR;
     existingTarget.enabled = target.enabled;
+    if (target.postClaimBootstrapReserveEnergy) {
+      existingTarget.postClaimBootstrapReserveEnergy = target.postClaimBootstrapReserveEnergy;
+    } else {
+      delete existingTarget.postClaimBootstrapReserveEnergy;
+    }
     if (target.controllerId) {
       existingTarget.controllerId = target.controllerId;
     } else {
@@ -469,6 +543,45 @@ function getScoutIntel(homeRoomName: string, roomName: string): TerritoryScoutIn
   return (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.scoutIntel?.[
     `${homeRoomName}>${roomName}`
   ];
+}
+
+function countVisibleOwnedRooms(colonyName: string, ownerUsername: string | undefined): number {
+  const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
+  if (!rooms) {
+    return 1;
+  }
+
+  let ownedRoomCount = 0;
+  for (const room of Object.values(rooms)) {
+    if (
+      room?.controller?.my === true &&
+      isNonEmptyString(room.name) &&
+      (!ownerUsername || getControllerOwnerUsername(room.controller) === ownerUsername)
+    ) {
+      ownedRoomCount += 1;
+    }
+  }
+
+  return Math.max(1, ownedRoomCount || (rooms[colonyName]?.controller?.my === true ? 1 : 0));
+}
+
+function getGclLevel(): number | null {
+  const level = (globalThis as { Game?: Partial<Game> & { gcl?: { level?: number } } }).Game?.gcl?.level;
+  return typeof level === 'number' && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
+}
+
+function hasActivePostClaimBootstrap(colonyName: string): boolean {
+  const records = getTerritoryMemoryRecord()?.postClaimBootstraps;
+  if (!isRecord(records)) {
+    return false;
+  }
+
+  return Object.values(records).some(
+    (record) =>
+      isRecord(record) &&
+      record.colony === colonyName &&
+      record.status !== 'ready'
+  );
 }
 
 function getControllerOwnerUsername(controller: StructureController | undefined): string | undefined {

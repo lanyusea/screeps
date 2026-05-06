@@ -473,7 +473,12 @@ function evaluateAutonomousExpansionClaim(
     return { ...visibleControllerEvaluation, reason: 'controllerOwned' };
   }
 
-  if (controller && isControllerReserved(controller, getControllerOwnerUsername(colony.room.controller))) {
+  const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
+  if (controller && isOwnReservedController(controller, colonyOwnerUsername)) {
+    return { ...visibleControllerEvaluation, reason: 'controllerReserved' };
+  }
+
+  if (controller && isControllerReserved(controller, colonyOwnerUsername)) {
     return { ...visibleControllerEvaluation, reason: 'controllerReserved' };
   }
 
@@ -1658,6 +1663,14 @@ function isControllerReserved(
 ): boolean {
   const reservationUsername = controller.reservation?.username;
   return isNonEmptyString(reservationUsername) && reservationUsername !== colonyOwnerUsername;
+}
+
+function isOwnReservedController(
+  controller: StructureController,
+  colonyOwnerUsername: string | undefined
+): boolean {
+  const reservationUsername = controller.reservation?.username;
+  return isNonEmptyString(colonyOwnerUsername) && reservationUsername === colonyOwnerUsername;
 }
 
 function getControllerOwnerUsername(controller: StructureController | undefined): string | undefined {

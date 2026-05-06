@@ -10,6 +10,11 @@ import {
   TERRITORY_RESERVATION_EMERGENCY_RENEWAL_TICKS,
   TERRITORY_SUPPRESSION_RETRY_TICKS
 } from '../src/territory/territoryPlanner';
+import {
+  TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY,
+  TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+  TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS
+} from '../src/territory/autoClaim';
 
 describe('planSpawn', () => {
   const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
@@ -1509,6 +1514,107 @@ describe('planSpawn', () => {
         territory: { targetRoom: 'W2N1', action: 'claim' }
       }
     });
+  });
+
+  it('budgets mature adjacent reservation auto-claim bodies around post-claim bootstrap energy', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '3': 'W2N1' })) } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom(
+          'W2N1',
+          {
+            id: 'controller2' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'player', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+          } as StructureController,
+          2
+        )
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'reserve',
+            createdBy: 'adjacentRoomReservation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 143)).toEqual({
+      spawn,
+      body: ['claim', 'move', 'work', 'carry', 'move'],
+      name: 'claimer-W1N1-W2N1-143',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller2' }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 143,
+        createdBy: 'adjacentRoomReservation',
+        controllerId: 'controller2',
+        postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+      }
+    ]);
+    expect(1_300 - getBodyCost(['claim', 'move', 'work', 'carry', 'move'])).toBeGreaterThanOrEqual(
+      TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+    );
+  });
+
+  it('waits to spawn mature adjacent reservation auto-claims until bootstrap reserve energy is ready', () => {
+    const { colony } = makeColony({
+      energyAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY - 1,
+      energyCapacityAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '3': 'W2N1' })) } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom(
+          'W2N1',
+          {
+            id: 'controller2' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'player', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+          } as StructureController,
+          2
+        )
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'reserve',
+            createdBy: 'adjacentRoomReservation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 144)).toBeNull();
+    expect(Memory.territory?.intents).toBeUndefined();
   });
 
   it('does not spawn a one-CLAIM reserver for foreign reservation pressure', () => {

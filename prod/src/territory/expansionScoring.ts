@@ -720,7 +720,8 @@ function isViableExpansionCandidate(candidate: ExpansionCandidateScore): boolean
   return (
     candidate.evidenceStatus === 'sufficient' &&
     candidate.preconditions.length === 0 &&
-    candidate.sourceCount === 2
+    candidate.sourceCount === 2 &&
+    candidate.reservation?.relation !== 'own'
   );
 }
 

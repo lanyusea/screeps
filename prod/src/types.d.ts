@@ -272,6 +272,7 @@ declare global {
     controllerId?: Id<StructureController>;
     enabled?: boolean;
     createdBy?: TerritoryAutomationSource;
+    postClaimBootstrapReserveEnergy?: number;
   }
 
   interface TerritoryIntentMemory {
@@ -286,6 +287,7 @@ declare global {
     controllerId?: Id<StructureController>;
     requiresControllerPressure?: boolean;
     followUp?: TerritoryFollowUpMemory;
+    postClaimBootstrapReserveEnergy?: number;
     suspended?: TerritoryIntentSuspensionMemory;
   }
 

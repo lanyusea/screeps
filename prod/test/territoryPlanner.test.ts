@@ -21,6 +21,11 @@ import {
   TERRITORY_SUPPRESSION_RETRY_TICKS,
   TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS
 } from '../src/territory/territoryPlanner';
+import {
+  TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY,
+  TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+  TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS
+} from '../src/territory/autoClaim';
 import type { AutonomousExpansionClaimEvaluation } from '../src/territory/claimExecutor';
 
 describe('planTerritoryIntent', () => {
@@ -902,6 +907,199 @@ describe('planTerritoryIntent', () => {
         updatedAt: 1000
       }
     ]);
+  });
+
+  it('upgrades a mature adjacent reservation target to claim with post-claim bootstrap reserve', () => {
+    const colony = makeSafeColony({
+      energyAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+      energyCapacityAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room,
+        W1N2: makeRecommendationRoom('W1N2', {
+          sourceCount: 2,
+          controller: {
+            id: 'controller2' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'me', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+          } as StructureController
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            action: 'reserve',
+            createdBy: 'adjacentRoomReservation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1001)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'claim',
+      createdBy: 'adjacentRoomReservation',
+      controllerId: 'controller2',
+      postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 1001,
+        createdBy: 'adjacentRoomReservation',
+        controllerId: 'controller2',
+        postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+      }
+    ]);
+  });
+
+  it('keeps an approved adjacent auto-claim when occupation evidence is unavailable', () => {
+    const colony = makeSafeColony({
+      energyAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+      energyCapacityAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+    });
+    const targetController = {
+      id: 'controller2' as Id<StructureController>,
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      },
+      getObjectById: jest.fn((id: Id<StructureController>) => (id === 'controller2' ? targetController : null))
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            action: 'reserve',
+            createdBy: 'adjacentRoomReservation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1002)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'claim',
+      createdBy: 'adjacentRoomReservation',
+      controllerId: 'controller2',
+      postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 1002,
+        createdBy: 'adjacentRoomReservation',
+        controllerId: 'controller2',
+        postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+      }
+    ]);
+  });
+
+  it('holds adjacent reservations until auto-claim gates are satisfied', () => {
+    const scenarios = [
+      {
+        name: 'low RCL',
+        colony: makeSafeColony({
+          energyAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+          energyCapacityAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+          controller: {
+            my: true,
+            owner: { username: 'me' },
+            level: 2,
+            ticksToDowngrade: 10_000
+          } as StructureController
+        })
+      },
+      {
+        name: 'bootstrap energy unavailable',
+        colony: makeSafeColony({
+          energyAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY - 1,
+          energyCapacityAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+        })
+      },
+      {
+        name: 'hostile target room',
+        colony: makeSafeColony({
+          energyAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+          energyCapacityAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+        }),
+        hostileCreepCount: 1
+      },
+      {
+        name: 'RCL room limit reached',
+        colony: makeSafeColony({
+          energyAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+          energyCapacityAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+        }),
+        ownedRoom: true
+      }
+    ];
+
+    for (const scenario of scenarios) {
+      (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+        territory: {
+          targets: [
+            {
+              colony: 'W1N1',
+              roomName: 'W1N2',
+              action: 'reserve',
+              createdBy: 'adjacentRoomReservation',
+              controllerId: 'controller2' as Id<StructureController>
+            }
+          ]
+        }
+      };
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap,
+        rooms: {
+          W1N1: scenario.colony.room,
+          ...(scenario.ownedRoom
+            ? { W9N9: { name: 'W9N9', controller: { my: true, owner: { username: 'me' } } } as Room }
+            : {}),
+          W1N2: makeRecommendationRoom('W1N2', {
+            sourceCount: 2,
+            hostileCreepCount: scenario.hostileCreepCount ?? 0,
+            controller: {
+              id: 'controller2' as Id<StructureController>,
+              my: false,
+              reservation: { username: 'me', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+            } as StructureController
+          })
+        }
+      };
+
+      expect(
+        planTerritoryIntent(
+          scenario.colony,
+          { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+          3,
+          1002
+        )
+      ).toBeNull();
+      expect(Memory.territory?.intents).toBeUndefined();
+    }
   });
 
   it('prefers a visible adjacent reserve target over an unknown configured target', () => {
