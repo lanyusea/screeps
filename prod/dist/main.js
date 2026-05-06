@@ -19923,11 +19923,7 @@ function getVisibleRoom6(roomName) {
 function compareColoniesForSpawnPlanning(left, right, roleCountsByRoom) {
   const leftBudget = getRoomCreepBudget(left, getRoleCountsForSpawnPlanning(left, roleCountsByRoom));
   const rightBudget = getRoomCreepBudget(right, getRoleCountsForSpawnPlanning(right, roleCountsByRoom));
-  const operationalSpawnRankDelta = getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget);
-  if (operationalSpawnRankDelta !== 0) {
-    return operationalSpawnRankDelta;
-  }
-  return getNoSpawnRoomOrdering(leftBudget, rightBudget) || getRoomSpawnPriorityRank(leftBudget.priority) - getRoomSpawnPriorityRank(rightBudget.priority) || rightBudget.workerDeficit - leftBudget.workerDeficit || leftBudget.controllerLevel - rightBudget.controllerLevel || getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) || rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable || right.energyAvailable - left.energyAvailable || left.room.name.localeCompare(right.room.name);
+  return getRoomSpawnPriorityRank(leftBudget.priority) - getRoomSpawnPriorityRank(rightBudget.priority) || rightBudget.workerDeficit - leftBudget.workerDeficit || getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget) || getNoSpawnRoomOrdering(leftBudget, rightBudget) || leftBudget.controllerLevel - rightBudget.controllerLevel || getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) || rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable || right.energyAvailable - left.energyAvailable || left.room.name.localeCompare(right.room.name);
 }
 function getOperationalSpawnRank(budget) {
   return budget.ownedSpawnCount > 0 ? 1 : 0;
