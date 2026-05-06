@@ -6,9 +6,7 @@ import {
   persistColonyStageAssessment,
   recordColonySurvivalAssessment
 } from '../colony/colonyStage';
-import { planExtensionConstruction } from '../construction/extensionPlanner';
-import { planStorageConstruction, planTowerConstruction } from '../construction/constructionPriority';
-import { planEarlyRoadConstruction } from '../construction/roadPlanner';
+import { planConstructionForColony } from '../construction/planner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import { HAULER_ROLE, runHauler } from '../creeps/hauler';
@@ -30,8 +28,7 @@ import {
 } from '../telemetry/runtimeSummary';
 import { recordSourceWorkloads } from './sourceWorkload';
 import {
-  ensureRemoteSourceContainersForAssignedHarvesters,
-  ensureSourceContainersForOwnedRooms
+  ensureRemoteSourceContainersForAssignedHarvesters
 } from './sourceContainerPlanner';
 import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
@@ -75,7 +72,6 @@ import {
 } from '../territory/reservationPlanner';
 import {
   refreshClaimedRoomBootstrapperOwnership,
-  runClaimedRoomBootstrapperForColony,
   logBestClaimTarget,
   runTerritoryControllerCreep
 } from '../territory/territoryRunner';
@@ -142,13 +138,8 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     const survivalAssessment = assessColonySnapshotSurvival(colony, roleCounts);
     recordColonySurvivalAssessment(colony.room.name, survivalAssessment, Game.time);
     persistColonyStageAssessment(colony, survivalAssessment, Game.time);
-    const bootstrapResult = refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
-    const claimedRoomBootstrapResult = runClaimedRoomBootstrapperForColony(colony);
-    planCriticalConstructionSites(
-      colony,
-      bootstrapResult.spawnConstructionPending,
-      survivalAssessment.mode === 'BOOTSTRAP' || claimedRoomBootstrapResult !== null
-    );
+    refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
+    planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
     if (survivalAssessment.mode === 'TERRITORY_READY') {
       refreshRemoteMiningSetup(colony, Game.time);
     }
@@ -215,7 +206,6 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
 
-  ensureSourceContainersForOwnedRooms(colonies.map((colony) => colony.room));
   ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
 
@@ -333,33 +323,6 @@ function getAvailableSpawnEnergyAfterReservations(
   const sourceRoomName = spawnRequest.spawn.room.name;
   const roomEnergy = sourceColony?.energyAvailable ?? spawnRequest.spawn.room.energyAvailable;
   return Math.max(0, roomEnergy - (reservedSpawnEnergyByRoom.get(sourceRoomName) ?? 0));
-}
-
-function planCriticalConstructionSites(
-  colony: ColonySnapshot,
-  spawnConstructionPending: boolean,
-  bootstrapNonCriticalConstructionSuppressed = false
-): void {
-  if (spawnConstructionPending || bootstrapNonCriticalConstructionSuppressed) {
-    return;
-  }
-
-  const extensionResult = planExtensionConstruction(colony);
-  if (extensionResult !== null) {
-    return;
-  }
-
-  const towerResult = planTowerConstruction(colony);
-  if (towerResult !== null) {
-    return;
-  }
-
-  const roadResults = planEarlyRoadConstruction(colony);
-  if (roadResults.length > 0) {
-    return;
-  }
-
-  planStorageConstruction(colony);
 }
 
 function refreshExecutableTerritoryRecommendation(
