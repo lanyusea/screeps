@@ -17,7 +17,14 @@ import {
   TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
   isTerritoryAutoClaimReservationMature
 } from './autoClaim';
-import { maxRoomsForRcl } from './expansionScoring';
+import {
+  buildRuntimeClaimedRoomSynergyEvidence,
+  buildVisibleExpansionMineralEvidence,
+  maxRoomsForRcl,
+  scoreExpansionCandidates,
+  type ExpansionClaimedRoomInput,
+  type ExpansionCandidateInput
+} from './expansionScoring';
 
 export const COLONY_EXPANSION_CLAIM_TARGET_CREATOR: TerritoryAutomationSource = 'colonyExpansion';
 export const MIN_COLONY_EXPANSION_CLAIM_SCORE = MIN_ADJACENT_ROOM_RESERVATION_SCORE;
@@ -44,7 +51,10 @@ interface ColonyExpansionCandidate {
   order: number;
   claimScore: ClaimScore;
   effectiveScore: number;
+  rankingScore: number;
+  synergyScore: number;
   controllerState: ColonyExpansionControllerState;
+  expansionCandidate: ExpansionCandidateInput;
 }
 
 interface ColonyExpansionControllerState {
@@ -151,6 +161,8 @@ export function clearColonyExpansionClaimIntent(colony: string): void {
 
 function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansionCandidate | null {
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
+  const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, ownerUsername);
+  const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString(room.mineralType));
   const candidates = getAdjacentRoomNames(colony.room.name).flatMap((roomName, order) => {
     if (!getVisibleRoom(roomName)) {
       return [];
@@ -177,8 +189,28 @@ function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansion
       controllerState.kind === 'ownReserved'
         ? claimScore.score + CLAIM_SCORE_RESERVED_PENALTY
         : claimScore.score;
-    return [{ roomName, order, claimScore, effectiveScore, controllerState }];
+    return [
+      {
+        roomName,
+        order,
+        claimScore,
+        effectiveScore,
+        rankingScore: effectiveScore,
+        synergyScore: 0,
+        controllerState,
+        expansionCandidate: toColonyExpansionCandidateInput(
+          colony.room.name,
+          roomName,
+          order,
+          claimScore,
+          controllerState,
+          ownerUsername,
+          includeMineralSynergyEvidence
+        )
+      }
+    ];
   });
+  applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, candidates);
 
   let bestCandidate: ColonyExpansionCandidate | null = null;
   for (const candidate of candidates) {
@@ -195,12 +227,87 @@ function compareColonyExpansionCandidates(
   right: ColonyExpansionCandidate
 ): number {
   return (
+    right.rankingScore - left.rankingScore ||
     right.effectiveScore - left.effectiveScore ||
     right.claimScore.sources - left.claimScore.sources ||
     left.claimScore.distance - right.claimScore.distance ||
     left.order - right.order ||
     left.roomName.localeCompare(right.roomName)
   );
+}
+
+function applyColonyExpansionSynergyScores(
+  colony: ColonySnapshot,
+  ownerUsername: string | undefined,
+  claimedRooms: ExpansionClaimedRoomInput[],
+  candidates: ColonyExpansionCandidate[]
+): void {
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const report = scoreExpansionCandidates({
+    colonyName: colony.room.name,
+    ...(ownerUsername ? { colonyOwnerUsername: ownerUsername } : {}),
+    energyCapacityAvailable: colony.energyCapacityAvailable,
+    ...(typeof colony.room.controller?.level === 'number' ? { controllerLevel: colony.room.controller.level } : {}),
+    ownedRoomCount: countVisibleOwnedRooms(colony.room.name, ownerUsername),
+    ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
+      ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
+      : {}),
+    claimedRooms,
+    candidates: candidates.map((candidate) => candidate.expansionCandidate)
+  });
+  const synergyScoresByRoom = new Map(
+    report.candidates.map((candidate) => [candidate.roomName, candidate.synergyScore])
+  );
+
+  for (const candidate of candidates) {
+    candidate.synergyScore = synergyScoresByRoom.get(candidate.roomName) ?? 0;
+    candidate.rankingScore = candidate.effectiveScore + candidate.synergyScore;
+  }
+}
+
+function toColonyExpansionCandidateInput(
+  colonyName: string,
+  roomName: string,
+  order: number,
+  claimScore: ClaimScore,
+  controllerState: ColonyExpansionControllerState,
+  ownerUsername: string | undefined,
+  includeMineralSynergyEvidence: boolean
+): ExpansionCandidateInput {
+  const room = getVisibleRoom(roomName);
+  const mineral = includeMineralSynergyEvidence && room ? buildVisibleExpansionMineralEvidence(room) : undefined;
+  return {
+    roomName,
+    order,
+    adjacentToOwnedRoom: true,
+    visible: room != null,
+    routeDistance: claimScore.distance,
+    nearestOwnedRoom: colonyName,
+    nearestOwnedRoomDistance: 1,
+    controller: getColonyExpansionControllerEvidence(controllerState, ownerUsername),
+    ...(controllerState.controllerId ? { controllerId: controllerState.controllerId } : {}),
+    sourceCount: claimScore.sources,
+    ...(mineral ? { mineral } : {})
+  };
+}
+
+function getColonyExpansionControllerEvidence(
+  controllerState: ColonyExpansionControllerState,
+  ownerUsername: string | undefined
+): ExpansionCandidateInput['controller'] {
+  if (controllerState.kind === 'ownReserved') {
+    return {
+      ...(ownerUsername ? { reservationUsername: ownerUsername } : {}),
+      ...(typeof controllerState.ticksToEnd === 'number'
+        ? { reservationTicksToEnd: controllerState.ticksToEnd }
+        : {})
+    };
+  }
+
+  return {};
 }
 
 function hasHostileClaimScore(score: ClaimScore): boolean {
