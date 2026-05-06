@@ -29,7 +29,12 @@ import {
   withdrawFromStorage
 } from '../economy/energyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
-import { classifyLinks, isSourceLink, SOURCE_LINK_RANGE } from '../economy/linkManager';
+import {
+  classifyLinks,
+  getSourceLinkWorkerEnergyAvailable,
+  isSourceLink,
+  SOURCE_LINK_RANGE
+} from '../economy/linkManager';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 
@@ -2961,10 +2966,11 @@ function findWorkerLinkEnergyAcquisitionCandidates(
   const minimumLinkEnergy = getMinimumWorkerLinkWithdrawalEnergy(creep);
   return findOwnedWorkerEnergyLinks(creep.room)
     .flatMap((source) => {
+      const availableEnergy = getWorkerLinkEnergyAvailable(creep.room, source);
       const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
         creep,
         source,
-        getStoredEnergy(source),
+        availableEnergy,
         {
           type: 'withdraw',
           targetId: source.id as Id<AnyStoreStructure>
@@ -3001,6 +3007,10 @@ function findOwnedSourceWorkerEnergyLinks(room: Room): StructureLink[] {
 
 function getMinimumWorkerLinkWithdrawalEnergy(creep: Creep): number {
   return Math.max(1, getFreeEnergyCapacity(creep));
+}
+
+function getWorkerLinkEnergyAvailable(room: Room, link: StructureLink): number {
+  return getSourceLinkWorkerEnergyAvailable(room, link);
 }
 
 function isWorkerLinkEnergyMoreEfficientThanHarvest(
@@ -4673,10 +4683,11 @@ function createSourceLinkEnergyAcquisitionCandidate(
   sourceLink: StructureLink,
   reservationContext: WorkerEnergyAcquisitionReservationContext
 ): WorkerEnergyAcquisitionCandidate | null {
+  const availableEnergy = getSourceLinkWorkerEnergyAvailable(creep.room, sourceLink);
   const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
     creep,
     sourceLink,
-    getStoredEnergy(sourceLink),
+    availableEnergy,
     {
       type: 'withdraw',
       targetId: sourceLink.id as Id<AnyStoreStructure>

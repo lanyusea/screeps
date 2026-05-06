@@ -10602,6 +10602,7 @@ function matchesStructureType7(actual, globalName, fallback) {
 var SOURCE_LINK_RANGE = 2;
 var CONTROLLER_LINK_RANGE = 3;
 var STORAGE_LINK_RANGE = 2;
+var STORAGE_LINK_ROUTING_TARGET_RATIO = 0.3;
 var OK_CODE4 = 0;
 function transferEnergy(room) {
   const network = classifyLinks(room);
@@ -10651,6 +10652,18 @@ function classifyLinks(room) {
 function isSourceLink(room, link) {
   const linkId = getObjectId4(link);
   return linkId !== "" && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId4(sourceLink) === linkId);
+}
+function getSourceLinkWorkerEnergyAvailable(room, link) {
+  var _a;
+  const linkId = getObjectId4(link);
+  const network = classifyLinks(room);
+  const sourceLink = network.sourceLinks.find((candidate) => getObjectId4(candidate) === linkId);
+  if (!sourceLink) {
+    return getStoredEnergy3(link);
+  }
+  const projectedState = createProjectedLinkState(network.links);
+  const routingReserve = (_a = createSourceLinkRoutingReserve(room, network, projectedState).get(linkId)) != null ? _a : 0;
+  return Math.max(0, getStoredEnergy3(sourceLink) - routingReserve);
 }
 function transferLinkEnergy(sourceLink, destinationLink, amount) {
   return sourceLink.transferEnergy(destinationLink, amount);
@@ -10706,19 +10719,76 @@ function shouldStorageLinkReceiveSurplus(network, projectedState) {
   if (!network.storageLink || getObjectId4(network.storageLink) === getObjectId4(network.controllerLink)) {
     return false;
   }
-  return ((_a = projectedState.freeCapacityById.get(getObjectId4(network.storageLink))) != null ? _a : 0) > 0 && hasStorageFreeCapacity(network.storage);
+  return ((_a = projectedState.freeCapacityById.get(getObjectId4(network.storageLink))) != null ? _a : 0) > 0 && shouldStorageReceiveLinkEnergy(network.storage);
 }
-function hasStorageFreeCapacity(storage) {
+function shouldStorageReceiveLinkEnergy(storage) {
   if (!storage) {
     return false;
   }
   const freeCapacity = getKnownFreeEnergyCapacity(storage);
-  return freeCapacity === null || freeCapacity > 0;
+  if (freeCapacity !== null && freeCapacity <= 0) {
+    return false;
+  }
+  const capacity = getKnownEnergyCapacity(storage);
+  const storedEnergy = getKnownStoredEnergy(storage);
+  if (capacity !== null && storedEnergy !== null && capacity > 0) {
+    return storedEnergy < Math.ceil(capacity * STORAGE_LINK_ROUTING_TARGET_RATIO);
+  }
+  return true;
+}
+function createSourceLinkRoutingReserve(room, network, projectedState) {
+  const reserveById = /* @__PURE__ */ new Map();
+  if (shouldControllerLinkReceiveEnergy(room, network.controllerLink, projectedState)) {
+    reserveSourceLinksForDestination(
+      sortSourceLinksByDistanceToDestination(network.sourceLinks, network.controllerLink),
+      network.controllerLink,
+      projectedState,
+      reserveById
+    );
+  }
+  if (shouldStorageLinkReceiveSurplus(network, projectedState)) {
+    reserveSourceLinksForDestination(
+      sortSourceLinksBySurplusPriority(network.sourceLinks, network.storageLink, projectedState),
+      network.storageLink,
+      projectedState,
+      reserveById
+    );
+  }
+  return reserveById;
+}
+function reserveSourceLinksForDestination(sourceLinks, destinationLink, projectedState, reserveById) {
+  var _a, _b, _c;
+  const destinationId = getObjectId4(destinationLink);
+  for (const sourceLink of sourceLinks) {
+    const sourceId = getObjectId4(sourceLink);
+    const destinationFreeCapacity = (_a = projectedState.freeCapacityById.get(destinationId)) != null ? _a : 0;
+    const sourceEnergy = (_b = projectedState.storedEnergyById.get(sourceId)) != null ? _b : 0;
+    if (destinationId === sourceId || destinationFreeCapacity <= 0 || sourceEnergy <= 0) {
+      continue;
+    }
+    const amount = Math.min(sourceEnergy, destinationFreeCapacity);
+    if (amount <= 0) {
+      continue;
+    }
+    reserveById.set(sourceId, ((_c = reserveById.get(sourceId)) != null ? _c : 0) + amount);
+    projectedState.storedEnergyById.set(sourceId, sourceEnergy - amount);
+    projectedState.freeCapacityById.set(destinationId, destinationFreeCapacity - amount);
+  }
+}
+function getKnownStoredEnergy(structure) {
+  var _a, _b;
+  const storedEnergy = (_b = (_a = structure.store) == null ? void 0 : _a.getUsedCapacity) == null ? void 0 : _b.call(_a, getEnergyResource4());
+  return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : null;
 }
 function getKnownFreeEnergyCapacity(structure) {
   var _a, _b;
   const freeCapacity = (_b = (_a = structure.store) == null ? void 0 : _a.getFreeCapacity) == null ? void 0 : _b.call(_a, getEnergyResource4());
   return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : null;
+}
+function getKnownEnergyCapacity(structure) {
+  var _a, _b;
+  const capacity = (_b = (_a = structure.store) == null ? void 0 : _a.getCapacity) == null ? void 0 : _b.call(_a, getEnergyResource4());
+  return typeof capacity === "number" && Number.isFinite(capacity) ? Math.max(0, capacity) : null;
 }
 function sortSourceLinksByDistanceToDestination(links, destinationLink) {
   const destinationPosition = getRoomObjectPosition2(destinationLink);
@@ -10817,9 +10887,8 @@ function findSources2(room) {
   return Array.isArray(result) ? result : [];
 }
 function getStoredEnergy3(structure) {
-  var _a, _b;
-  const storedEnergy = (_b = (_a = structure.store) == null ? void 0 : _a.getUsedCapacity) == null ? void 0 : _b.call(_a, getEnergyResource4());
-  return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+  var _a;
+  return (_a = getKnownStoredEnergy(structure)) != null ? _a : 0;
 }
 function getFreeEnergyCapacity(structure) {
   var _a, _b;
@@ -11711,7 +11780,7 @@ function recordSpawnCriticalRefillTelemetry(creep, spawn) {
     tick: (_a = getGameTick3()) != null ? _a : 0,
     targetId: String(spawn.id),
     carriedEnergy: getUsedEnergy2(creep),
-    spawnEnergy: (_b = getKnownStoredEnergy(spawn)) != null ? _b : 0,
+    spawnEnergy: (_b = getKnownStoredEnergy2(spawn)) != null ? _b : 0,
     freeCapacity: getFreeStoredEnergyCapacity(spawn),
     threshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD
   };
@@ -11879,7 +11948,7 @@ function isLowEnergySpawn(structure) {
   return isSpawnEnergySink(structure) && getStoredEnergy4(structure) < getSpawnEnergyCapacity();
 }
 function isCriticalSpawnEnergySink(structure) {
-  const storedEnergy = getKnownStoredEnergy(structure);
+  const storedEnergy = getKnownStoredEnergy2(structure);
   return isSpawnEnergySink(structure) && storedEnergy !== null && storedEnergy < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
 }
 function getSpawnEnergyCapacity() {
@@ -13040,10 +13109,11 @@ function selectEfficientWorkerLinkEnergyAcquisitionTask(creep) {
 function findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext = createWorkerEnergyAcquisitionReservationContext(creep), options = {}) {
   const minimumLinkEnergy = getMinimumWorkerLinkWithdrawalEnergy(creep);
   return findOwnedWorkerEnergyLinks(creep.room).flatMap((source) => {
+    const availableEnergy = getWorkerLinkEnergyAvailable(creep.room, source);
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
       creep,
       source,
-      getStoredEnergy4(source),
+      availableEnergy,
       {
         type: "withdraw",
         targetId: source.id
@@ -13072,6 +13142,9 @@ function findOwnedSourceWorkerEnergyLinks(room) {
 }
 function getMinimumWorkerLinkWithdrawalEnergy(creep) {
   return Math.max(1, getFreeEnergyCapacity3(creep));
+}
+function getWorkerLinkEnergyAvailable(room, link) {
+  return getSourceLinkWorkerEnergyAvailable(room, link);
 }
 function isWorkerLinkEnergyMoreEfficientThanHarvest(creep, linkCandidate, harvestSource) {
   const linkEta = estimateWorkerLinkEnergyAcquisitionEta(linkCandidate);
@@ -14001,9 +14074,9 @@ function getFreeEnergyCapacity3(creep) {
 }
 function getStoredEnergy4(object) {
   var _a;
-  return (_a = getKnownStoredEnergy(object)) != null ? _a : 0;
+  return (_a = getKnownStoredEnergy2(object)) != null ? _a : 0;
 }
-function getKnownStoredEnergy(object) {
+function getKnownStoredEnergy2(object) {
   var _a;
   const store = getStore(object);
   if (store) {
@@ -14155,10 +14228,11 @@ function findSourceContainerWithdrawCandidates(creep) {
   return candidates;
 }
 function createSourceLinkEnergyAcquisitionCandidate(creep, sourceLink, reservationContext) {
+  const availableEnergy = getSourceLinkWorkerEnergyAvailable(creep.room, sourceLink);
   const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
     creep,
     sourceLink,
-    getStoredEnergy4(sourceLink),
+    availableEnergy,
     {
       type: "withdraw",
       targetId: sourceLink.id

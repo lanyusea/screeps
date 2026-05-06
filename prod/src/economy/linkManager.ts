@@ -9,6 +9,7 @@ type LinkStructureConstantGlobal = 'STRUCTURE_LINK' | 'STRUCTURE_STORAGE';
 export const SOURCE_LINK_RANGE = 2;
 export const CONTROLLER_LINK_RANGE = 3;
 export const STORAGE_LINK_RANGE = 2;
+export const STORAGE_LINK_ROUTING_TARGET_RATIO = 0.3;
 const OK_CODE = 0 as ScreepsReturnCode;
 
 export type LinkDestinationRole = 'controller' | 'storage';
@@ -92,6 +93,19 @@ export function isSourceLink(room: Room, link: StructureLink): boolean {
   return linkId !== '' && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId(sourceLink) === linkId);
 }
 
+export function getSourceLinkWorkerEnergyAvailable(room: Room, link: StructureLink): number {
+  const linkId = getObjectId(link);
+  const network = classifyLinks(room);
+  const sourceLink = network.sourceLinks.find((candidate) => getObjectId(candidate) === linkId);
+  if (!sourceLink) {
+    return getStoredEnergy(link);
+  }
+
+  const projectedState = createProjectedLinkState(network.links);
+  const routingReserve = createSourceLinkRoutingReserve(room, network, projectedState).get(linkId) ?? 0;
+  return Math.max(0, getStoredEnergy(sourceLink) - routingReserve);
+}
+
 function transferLinkEnergy(sourceLink: StructureLink, destinationLink: StructureLink, amount: number): ScreepsReturnCode {
   return sourceLink.transferEnergy(destinationLink, amount);
 }
@@ -168,22 +182,97 @@ function shouldStorageLinkReceiveSurplus(
 
   return (
     (projectedState.freeCapacityById.get(getObjectId(network.storageLink)) ?? 0) > 0 &&
-    hasStorageFreeCapacity(network.storage)
+    shouldStorageReceiveLinkEnergy(network.storage)
   );
 }
 
-function hasStorageFreeCapacity(storage: StructureStorage | null): boolean {
+function shouldStorageReceiveLinkEnergy(storage: StructureStorage | null): boolean {
   if (!storage) {
     return false;
   }
 
   const freeCapacity = getKnownFreeEnergyCapacity(storage);
-  return freeCapacity === null || freeCapacity > 0;
+  if (freeCapacity !== null && freeCapacity <= 0) {
+    return false;
+  }
+
+  const capacity = getKnownEnergyCapacity(storage);
+  const storedEnergy = getKnownStoredEnergy(storage);
+  if (capacity !== null && storedEnergy !== null && capacity > 0) {
+    return storedEnergy < Math.ceil(capacity * STORAGE_LINK_ROUTING_TARGET_RATIO);
+  }
+
+  return true;
+}
+
+function createSourceLinkRoutingReserve(
+  room: Room,
+  network: LinkNetwork,
+  projectedState: ProjectedLinkState
+): Map<string, number> {
+  const reserveById = new Map<string, number>();
+
+  if (shouldControllerLinkReceiveEnergy(room, network.controllerLink, projectedState)) {
+    reserveSourceLinksForDestination(
+      sortSourceLinksByDistanceToDestination(network.sourceLinks, network.controllerLink),
+      network.controllerLink,
+      projectedState,
+      reserveById
+    );
+  }
+
+  if (shouldStorageLinkReceiveSurplus(network, projectedState)) {
+    reserveSourceLinksForDestination(
+      sortSourceLinksBySurplusPriority(network.sourceLinks, network.storageLink, projectedState),
+      network.storageLink,
+      projectedState,
+      reserveById
+    );
+  }
+
+  return reserveById;
+}
+
+function reserveSourceLinksForDestination(
+  sourceLinks: StructureLink[],
+  destinationLink: StructureLink,
+  projectedState: ProjectedLinkState,
+  reserveById: Map<string, number>
+): void {
+  const destinationId = getObjectId(destinationLink);
+
+  for (const sourceLink of sourceLinks) {
+    const sourceId = getObjectId(sourceLink);
+    const destinationFreeCapacity = projectedState.freeCapacityById.get(destinationId) ?? 0;
+    const sourceEnergy = projectedState.storedEnergyById.get(sourceId) ?? 0;
+    if (destinationId === sourceId || destinationFreeCapacity <= 0 || sourceEnergy <= 0) {
+      continue;
+    }
+
+    const amount = Math.min(sourceEnergy, destinationFreeCapacity);
+    if (amount <= 0) {
+      continue;
+    }
+
+    reserveById.set(sourceId, (reserveById.get(sourceId) ?? 0) + amount);
+    projectedState.storedEnergyById.set(sourceId, sourceEnergy - amount);
+    projectedState.freeCapacityById.set(destinationId, destinationFreeCapacity - amount);
+  }
+}
+
+function getKnownStoredEnergy(structure: StructureLink | StructureStorage): number | null {
+  const storedEnergy = structure.store?.getUsedCapacity?.(getEnergyResource());
+  return typeof storedEnergy === 'number' && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : null;
 }
 
 function getKnownFreeEnergyCapacity(structure: StructureLink | StructureStorage): number | null {
   const freeCapacity = structure.store?.getFreeCapacity?.(getEnergyResource());
   return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : null;
+}
+
+function getKnownEnergyCapacity(structure: StructureLink | StructureStorage): number | null {
+  const capacity = structure.store?.getCapacity?.(getEnergyResource());
+  return typeof capacity === 'number' && Number.isFinite(capacity) ? Math.max(0, capacity) : null;
 }
 
 function sortSourceLinksByDistanceToDestination(
@@ -342,8 +431,7 @@ function findSources(room: Room): Source[] {
 }
 
 function getStoredEnergy(structure: StructureLink): number {
-  const storedEnergy = structure.store?.getUsedCapacity?.(getEnergyResource());
-  return typeof storedEnergy === 'number' && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
+  return getKnownStoredEnergy(structure) ?? 0;
 }
 
 function getFreeEnergyCapacity(structure: StructureLink): number {
