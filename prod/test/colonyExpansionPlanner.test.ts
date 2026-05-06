@@ -3,6 +3,7 @@ import { assessColonyStage } from '../src/colony/colonyStage';
 import { scoreClaimTarget } from '../src/territory/claimScoring';
 import {
   COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
+  MIN_COLONY_EXPANSION_CLAIM_SCORE,
   refreshColonyExpansionIntent
 } from '../src/territory/colonyExpansionPlanner';
 import { planTerritoryIntent } from '../src/territory/territoryPlanner';
@@ -12,6 +13,7 @@ describe('colony expansion planner', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 2;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 4;
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
@@ -23,6 +25,7 @@ describe('colony expansion planner', () => {
     delete (globalThis as { FIND_SOURCES?: number }).FIND_SOURCES;
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    delete (globalThis as { FIND_MINERALS?: number }).FIND_MINERALS;
     delete (globalThis as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
   });
@@ -140,6 +143,102 @@ describe('colony expansion planner', () => {
     expect(Memory.territory?.targets?.some((target) => target.action === 'claim')).toBe(false);
   });
 
+  it('uses resource synergy to rank otherwise equal expansion claim candidates', () => {
+    const { colony } = makeColony({
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_000,
+      sourceCount: 2,
+      mineralType: 'H'
+    });
+    installGame(colony, {
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 2, mineralType: 'H' }),
+        W1N2: makeExpansionRoom('W1N2', { sourceCount: 2, mineralType: 'O' })
+      },
+      exits: { W1N1: { '1': 'W2N1', '3': 'W1N2' } }
+    });
+    const stableAssessment = assessColonyStage({
+      roomName: 'W1N1',
+      totalCreeps: 5,
+      workerCapacity: 3,
+      workerTarget: 3,
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_000,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+    });
+    const duplicateScore = scoreClaimTarget('W2N1', colony.room).score;
+
+    expect(scoreClaimTarget('W1N2', colony.room).score).toBe(duplicateScore);
+
+    const evaluation = refreshColonyExpansionIntent(colony, stableAssessment, 230);
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      controllerId: 'controller-W1N2',
+      score: duplicateScore
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        action: 'claim',
+        createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
+        controllerId: 'controller-W1N2'
+      }
+    ]);
+  });
+
+  it('ignores sub-threshold rooms when applying synergy to expansion claim ranking', () => {
+    const { colony } = makeColony({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      sourceCount: 1,
+      mineralType: 'H'
+    });
+    installGame(colony, {
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 2, mineralType: 'H' }),
+        W1N2: makeExpansionRoom('W1N2', { sourceCount: 1, mineralType: 'O' })
+      },
+      exits: { W1N1: { '1': 'W2N1', '3': 'W1N2' } }
+    });
+    const stableAssessment = assessColonyStage({
+      roomName: 'W1N1',
+      totalCreeps: 5,
+      workerCapacity: 3,
+      workerTarget: 3,
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 }
+    });
+    const eligibleScore = scoreClaimTarget('W2N1', colony.room).score;
+    const subThresholdScore = scoreClaimTarget('W1N2', colony.room).score;
+
+    expect(eligibleScore).toBeGreaterThanOrEqual(MIN_COLONY_EXPANSION_CLAIM_SCORE);
+    expect(subThresholdScore).toBeLessThan(MIN_COLONY_EXPANSION_CLAIM_SCORE);
+
+    const evaluation = refreshColonyExpansionIntent(colony, stableAssessment, 240);
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller-W2N1',
+      score: eligibleScore
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: COLONY_EXPANSION_CLAIM_TARGET_CREATOR,
+        controllerId: 'controller-W2N1'
+      }
+    ]);
+  });
+
   it('reserves a low-priority adjacent room when it is below the claim threshold', () => {
     const { colony } = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
     installGame(colony, {
@@ -184,14 +283,19 @@ describe('colony expansion planner', () => {
 function makeColony({
   roomName = 'W1N1',
   energyAvailable,
-  energyCapacityAvailable
+  energyCapacityAvailable,
+  sourceCount = 1,
+  mineralType
 }: {
   roomName?: string;
   energyAvailable: number;
   energyCapacityAvailable: number;
+  sourceCount?: number;
+  mineralType?: string;
 }): { colony: ColonySnapshot } {
   const room = makeExpansionRoom(roomName, {
-    sourceCount: 1,
+    sourceCount,
+    mineralType,
     controller: {
       my: true,
       level: 3,
@@ -234,6 +338,7 @@ function makeExpansionRoom(
     sourceCount: number;
     hostileCreepCount?: number;
     hostileStructureCount?: number;
+    mineralType?: string;
     controller?: Partial<StructureController> | null;
   }
 ): Room {
@@ -261,6 +366,18 @@ function makeExpansionRoom(
 
       if (findType === FIND_HOSTILE_STRUCTURES) {
         return hostileStructures;
+      }
+
+      if (findType === FIND_MINERALS) {
+        return options.mineralType
+          ? [
+              {
+                id: `mineral-${roomName}`,
+                mineralType: options.mineralType,
+                density: 1
+              }
+            ]
+          : [];
       }
 
       return [];

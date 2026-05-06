@@ -5171,6 +5171,7 @@ function scoreExpansionCandidate(input, candidate) {
   return {
     roomName: candidate.roomName,
     score,
+    synergyScore: synergy.score,
     evidenceStatus,
     visible,
     rationale,
@@ -5600,11 +5601,10 @@ function buildRuntimeClaimedRoomSynergyEvidence(colonyRoom, ownerUsername) {
   });
 }
 function buildClaimedRoomSynergyEvidence(room) {
+  var _a;
   const sourceFindConstant = getFindConstant2("FIND_SOURCES");
-  const mineralFindConstant = getFindConstant2("FIND_MINERALS");
   const sources = typeof sourceFindConstant === "number" && typeof room.find === "function" ? findRoomObjects7(room, sourceFindConstant) : void 0;
-  const mineral = typeof mineralFindConstant === "number" && typeof room.find === "function" ? findRoomObjects7(room, mineralFindConstant)[0] : void 0;
-  const mineralType = normalizeMineralType(mineral ? summarizeExpansionMineral(mineral).mineralType : void 0);
+  const mineralType = normalizeMineralType((_a = buildVisibleExpansionMineralEvidence(room)) == null ? void 0 : _a.mineralType);
   return {
     roomName: room.name,
     ...sources ? { sourceCount: sources.length } : {},
@@ -5764,6 +5764,11 @@ function summarizeExpansionScoutController(controller) {
     ...controller.reservationUsername ? { reservationUsername: controller.reservationUsername } : {},
     ...typeof controller.reservationTicksToEnd === "number" ? { reservationTicksToEnd: controller.reservationTicksToEnd } : {}
   };
+}
+function buildVisibleExpansionMineralEvidence(room) {
+  const mineralFindConstant = getFindConstant2("FIND_MINERALS");
+  const mineral = typeof mineralFindConstant === "number" && typeof room.find === "function" ? findRoomObjects7(room, mineralFindConstant)[0] : void 0;
+  return mineral ? summarizeExpansionMineral(mineral) : void 0;
 }
 function summarizeExpansionMineral(mineral) {
   const rawMineral = mineral;
@@ -21212,6 +21217,8 @@ function buildAutonomousExpansionScoringInput(colony, report, context) {
   const colonyOwnerUsername = getControllerOwnerUsername6(colony.room.controller);
   const ownedRoomNames = getVisibleOwnedRoomNames4(colonyName, colonyOwnerUsername);
   const adjacentRoomNamesByOwnedRoom = getAdjacentRoomNamesByOwnedRoom2(ownedRoomNames, context);
+  const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, colonyOwnerUsername);
+  const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString15(room.mineralType));
   const seenRooms = /* @__PURE__ */ new Set();
   const candidates = [];
   report.candidates.forEach((candidate, order) => {
@@ -21220,7 +21227,13 @@ function buildAutonomousExpansionScoringInput(colony, report, context) {
     }
     seenRooms.add(candidate.roomName);
     candidates.push(
-      toExpansionCandidateInput(candidate, order, getOwnedAdjacency(candidate.roomName, adjacentRoomNamesByOwnedRoom))
+      toExpansionCandidateInput(
+        candidate,
+        order,
+        colonyName,
+        includeMineralSynergyEvidence,
+        getOwnedAdjacency(candidate.roomName, adjacentRoomNamesByOwnedRoom)
+      )
     );
   });
   return {
@@ -21231,15 +21244,18 @@ function buildAutonomousExpansionScoringInput(colony, report, context) {
     ownedRoomCount: getVisibleOwnedRoomCount(),
     ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
     activePostClaimBootstrapCount: countActivePostClaimBootstraps2(),
+    claimedRooms,
     candidates
   };
 }
-function toExpansionCandidateInput(candidate, order, adjacency) {
+function toExpansionCandidateInput(candidate, order, colonyName, includeMineralSynergyEvidence, adjacency) {
+  var _a;
   const room = getVisibleRoom8(candidate.roomName);
   const controller = room == null ? void 0 : room.controller;
   const controllerId = typeof (controller == null ? void 0 : controller.id) === "string" ? controller.id : candidate.controllerId;
   const hostileCreepCount = typeof candidate.hostileCreepCount === "number" ? candidate.hostileCreepCount : room ? findVisibleHostileCreeps2(room).length : void 0;
   const hostileStructureCount = typeof candidate.hostileStructureCount === "number" ? candidate.hostileStructureCount : room ? findVisibleHostileStructures2(room).length : void 0;
+  const mineral = includeMineralSynergyEvidence ? room ? buildVisibleExpansionMineralEvidence(room) : summarizeScoutedExpansionMineral((_a = getTerritoryScoutIntel(colonyName, candidate.roomName)) == null ? void 0 : _a.mineral) : void 0;
   return {
     roomName: candidate.roomName,
     order,
@@ -21251,8 +21267,18 @@ function toExpansionCandidateInput(candidate, order, adjacency) {
     ...controller ? { controller: summarizeExpansionController2(controller) } : {},
     ...controllerId ? { controllerId } : {},
     ...typeof candidate.sourceCount === "number" ? { sourceCount: candidate.sourceCount } : {},
+    ...mineral ? { mineral } : {},
     ...typeof hostileCreepCount === "number" ? { hostileCreepCount } : {},
     ...typeof hostileStructureCount === "number" ? { hostileStructureCount } : {}
+  };
+}
+function summarizeScoutedExpansionMineral(mineral) {
+  if (!mineral) {
+    return void 0;
+  }
+  return {
+    ...mineral.mineralType ? { mineralType: mineral.mineralType } : {},
+    ...typeof mineral.density === "number" ? { density: mineral.density } : {}
   };
 }
 function summarizeExpansionController2(controller) {
@@ -22780,6 +22806,8 @@ function clearColonyExpansionClaimIntent(colony) {
 }
 function selectColonyExpansionCandidate(colony) {
   const ownerUsername = getControllerOwnerUsername8(colony.room.controller);
+  const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, ownerUsername);
+  const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString18(room.mineralType));
   const candidates = getAdjacentRoomNames8(colony.room.name).flatMap((roomName, order) => {
     if (!getVisibleRoom11(roomName)) {
       return [];
@@ -22796,18 +22824,99 @@ function selectColonyExpansionCandidate(colony) {
       return [];
     }
     const effectiveScore = controllerState.kind === "ownReserved" ? claimScore.score + CLAIM_SCORE_RESERVED_PENALTY : claimScore.score;
-    return [{ roomName, order, claimScore, effectiveScore, controllerState }];
+    return [
+      {
+        roomName,
+        order,
+        claimScore,
+        effectiveScore,
+        rankingScore: effectiveScore,
+        synergyScore: 0,
+        controllerState,
+        expansionCandidate: toColonyExpansionCandidateInput(
+          colony.room.name,
+          roomName,
+          order,
+          claimScore,
+          controllerState,
+          ownerUsername,
+          includeMineralSynergyEvidence
+        )
+      }
+    ];
   });
+  const claimableCandidates = candidates.filter(
+    (candidate) => candidate.effectiveScore >= MIN_COLONY_EXPANSION_CLAIM_SCORE
+  );
+  if (claimableCandidates.length > 0) {
+    applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, claimableCandidates);
+    return selectBestColonyExpansionCandidate(claimableCandidates, compareColonyExpansionCandidates);
+  }
+  return selectBestColonyExpansionCandidate(candidates, compareColonyExpansionCandidatesByEffectiveScore);
+}
+function selectBestColonyExpansionCandidate(candidates, compareCandidates) {
   let bestCandidate = null;
   for (const candidate of candidates) {
-    if (!bestCandidate || compareColonyExpansionCandidates(candidate, bestCandidate) < 0) {
+    if (!bestCandidate || compareCandidates(candidate, bestCandidate) < 0) {
       bestCandidate = candidate;
     }
   }
   return bestCandidate;
 }
 function compareColonyExpansionCandidates(left, right) {
+  return right.rankingScore - left.rankingScore || right.effectiveScore - left.effectiveScore || right.claimScore.sources - left.claimScore.sources || left.claimScore.distance - right.claimScore.distance || left.order - right.order || left.roomName.localeCompare(right.roomName);
+}
+function compareColonyExpansionCandidatesByEffectiveScore(left, right) {
   return right.effectiveScore - left.effectiveScore || right.claimScore.sources - left.claimScore.sources || left.claimScore.distance - right.claimScore.distance || left.order - right.order || left.roomName.localeCompare(right.roomName);
+}
+function applyColonyExpansionSynergyScores(colony, ownerUsername, claimedRooms, candidates) {
+  var _a, _b, _c;
+  if (candidates.length === 0) {
+    return;
+  }
+  const report = scoreExpansionCandidates({
+    colonyName: colony.room.name,
+    ...ownerUsername ? { colonyOwnerUsername: ownerUsername } : {},
+    energyCapacityAvailable: colony.energyCapacityAvailable,
+    ...typeof ((_a = colony.room.controller) == null ? void 0 : _a.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
+    ownedRoomCount: countVisibleOwnedRooms3(colony.room.name, ownerUsername),
+    ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
+    claimedRooms,
+    candidates: candidates.map((candidate) => candidate.expansionCandidate)
+  });
+  const synergyScoresByRoom = new Map(
+    report.candidates.map((candidate) => [candidate.roomName, candidate.synergyScore])
+  );
+  for (const candidate of candidates) {
+    candidate.synergyScore = (_c = synergyScoresByRoom.get(candidate.roomName)) != null ? _c : 0;
+    candidate.rankingScore = candidate.effectiveScore + candidate.synergyScore;
+  }
+}
+function toColonyExpansionCandidateInput(colonyName, roomName, order, claimScore, controllerState, ownerUsername, includeMineralSynergyEvidence) {
+  const room = getVisibleRoom11(roomName);
+  const mineral = includeMineralSynergyEvidence && room ? buildVisibleExpansionMineralEvidence(room) : void 0;
+  return {
+    roomName,
+    order,
+    adjacentToOwnedRoom: true,
+    visible: room != null,
+    routeDistance: claimScore.distance,
+    nearestOwnedRoom: colonyName,
+    nearestOwnedRoomDistance: 1,
+    controller: getColonyExpansionControllerEvidence(controllerState, ownerUsername),
+    ...controllerState.controllerId ? { controllerId: controllerState.controllerId } : {},
+    sourceCount: claimScore.sources,
+    ...mineral ? { mineral } : {}
+  };
+}
+function getColonyExpansionControllerEvidence(controllerState, ownerUsername) {
+  if (controllerState.kind === "ownReserved") {
+    return {
+      ...ownerUsername ? { reservationUsername: ownerUsername } : {},
+      ...typeof controllerState.ticksToEnd === "number" ? { reservationTicksToEnd: controllerState.ticksToEnd } : {}
+    };
+  }
+  return {};
 }
 function hasHostileClaimScore(score) {
   return score.details.some((detail) => detail.startsWith("hostile presence "));

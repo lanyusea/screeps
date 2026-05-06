@@ -5,12 +5,15 @@ import {
 } from '../spawn/bodyBuilder';
 import type { RuntimeTelemetryEvent, RuntimeTerritoryClaimTelemetryReason } from '../telemetry/runtimeSummary';
 import {
+  buildRuntimeClaimedRoomSynergyEvidence,
+  buildVisibleExpansionMineralEvidence,
   NEXT_EXPANSION_TARGET_CREATOR,
   scoreExpansionCandidates,
   type ExpansionCandidateInput,
   type ExpansionCandidateReport,
   type ExpansionCandidateScore,
   type ExpansionControllerEvidence,
+  type ExpansionMineralEvidence,
   type ExpansionScoringInput
 } from './expansionScoring';
 import type { OccupationRecommendationReport, OccupationRecommendationScore } from './occupationRecommendation';
@@ -23,6 +26,7 @@ import {
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import {
   ensureTerritoryScoutAttempt,
+  getTerritoryScoutIntel,
   recordTerritoryScoutValidation,
   recordVisibleRoomScoutIntel,
   validateTerritoryScoutIntelForClaim,
@@ -584,6 +588,8 @@ function buildAutonomousExpansionScoringInput(
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
   const ownedRoomNames = getVisibleOwnedRoomNames(colonyName, colonyOwnerUsername);
   const adjacentRoomNamesByOwnedRoom = getAdjacentRoomNamesByOwnedRoom(ownedRoomNames, context);
+  const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, colonyOwnerUsername);
+  const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString(room.mineralType));
   const seenRooms = new Set<string>();
   const candidates: ExpansionCandidateInput[] = [];
 
@@ -594,7 +600,13 @@ function buildAutonomousExpansionScoringInput(
 
     seenRooms.add(candidate.roomName);
     candidates.push(
-      toExpansionCandidateInput(candidate, order, getOwnedAdjacency(candidate.roomName, adjacentRoomNamesByOwnedRoom))
+      toExpansionCandidateInput(
+        candidate,
+        order,
+        colonyName,
+        includeMineralSynergyEvidence,
+        getOwnedAdjacency(candidate.roomName, adjacentRoomNamesByOwnedRoom)
+      )
     );
   });
 
@@ -608,6 +620,7 @@ function buildAutonomousExpansionScoringInput(
       ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade }
       : {}),
     activePostClaimBootstrapCount: countActivePostClaimBootstraps(),
+    claimedRooms,
     candidates
   };
 }
@@ -615,6 +628,8 @@ function buildAutonomousExpansionScoringInput(
 function toExpansionCandidateInput(
   candidate: OccupationRecommendationScore,
   order: number,
+  colonyName: string,
+  includeMineralSynergyEvidence: boolean,
   adjacency: { adjacentToOwnedRoom: boolean; nearestOwnedRoom?: string; nearestOwnedRoomDistance?: number }
 ): ExpansionCandidateInput {
   const room = getVisibleRoom(candidate.roomName);
@@ -635,6 +650,11 @@ function toExpansionCandidateInput(
       : room
         ? findVisibleHostileStructures(room).length
         : undefined;
+  const mineral = includeMineralSynergyEvidence
+    ? room
+      ? buildVisibleExpansionMineralEvidence(room)
+      : summarizeScoutedExpansionMineral(getTerritoryScoutIntel(colonyName, candidate.roomName)?.mineral)
+    : undefined;
 
   return {
     roomName: candidate.roomName,
@@ -649,8 +669,22 @@ function toExpansionCandidateInput(
     ...(controller ? { controller: summarizeExpansionController(controller) } : {}),
     ...(controllerId ? { controllerId } : {}),
     ...(typeof candidate.sourceCount === 'number' ? { sourceCount: candidate.sourceCount } : {}),
+    ...(mineral ? { mineral } : {}),
     ...(typeof hostileCreepCount === 'number' ? { hostileCreepCount } : {}),
     ...(typeof hostileStructureCount === 'number' ? { hostileStructureCount } : {})
+  };
+}
+
+function summarizeScoutedExpansionMineral(
+  mineral: TerritoryScoutMineralIntelMemory | undefined
+): ExpansionMineralEvidence | undefined {
+  if (!mineral) {
+    return undefined;
+  }
+
+  return {
+    ...(mineral.mineralType ? { mineralType: mineral.mineralType } : {}),
+    ...(typeof mineral.density === 'number' ? { density: mineral.density } : {})
   };
 }
 
