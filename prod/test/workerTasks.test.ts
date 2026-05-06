@@ -37,8 +37,10 @@ import {
 } from '../src/territory/territoryPlanner';
 
 const TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25 as const;
+const TEST_ERR_NO_PATH = -2 as const;
 
 type TestEnergySink = StructureSpawn | StructureExtension | StructureTower;
+type TestInterRoomEnergyStoreType = 'storage' | 'terminal';
 
 function makeLoadedWorker(room: Room, task?: CreepTaskMemory): Creep {
   return {
@@ -292,44 +294,58 @@ function makeWorkerTaskRoom({
 }
 
 function makeInterRoomEnergyRooms({
+  sourceStoreType = 'storage',
   sourceStructures = [],
-  targetSources = []
+  targetSources = [],
+  targetStoreType = 'storage'
 }: {
+  sourceStoreType?: TestInterRoomEnergyStoreType;
   sourceStructures?: AnyStructure[];
   targetSources?: Source[];
+  targetStoreType?: TestInterRoomEnergyStoreType;
 } = {}): { sourceRoom: Room; targetRoom: Room } {
-  const sourceStorage = makeEnergySinkWithEnergy(
-    'W1N1-storage',
-    'storage' as StructureConstant,
+  const sourceStore = makeEnergySinkWithEnergy(
+    `W1N1-${sourceStoreType}`,
+    sourceStoreType as StructureConstant,
     900,
     100
-  ) as unknown as StructureStorage;
-  const targetStorage = makeEnergySinkWithEnergy(
-    'W2N1-storage',
-    'storage' as StructureConstant,
+  ) as unknown as StructureStorage | StructureTerminal;
+  const targetStore = makeEnergySinkWithEnergy(
+    `W2N1-${targetStoreType}`,
+    targetStoreType as StructureConstant,
     100,
     900
-  ) as unknown as StructureStorage;
+  ) as unknown as StructureStorage | StructureTerminal;
   const sourceRoom = makeWorkerTaskRoom({
     name: 'W1N1',
     controller: { id: 'W1N1-controller', my: true, level: 8, ticksToDowngrade: 10_000 } as StructureController,
     energyAvailable: 800,
     energyCapacityAvailable: 800,
-    myStructures: [sourceStorage as unknown as AnyOwnedStructure],
-    structures: [sourceStorage as unknown as AnyStructure, ...sourceStructures]
+    myStructures: [sourceStore as unknown as AnyOwnedStructure],
+    structures: [sourceStore as unknown as AnyStructure, ...sourceStructures]
   });
   const targetRoom = makeWorkerTaskRoom({
     name: 'W2N1',
     controller: { id: 'W2N1-controller', my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController,
     energyAvailable: 300,
     energyCapacityAvailable: 800,
-    myStructures: [targetStorage as unknown as AnyOwnedStructure],
+    myStructures: [targetStore as unknown as AnyOwnedStructure],
     sources: targetSources,
-    structures: [targetStorage as unknown as AnyStructure]
+    structures: [targetStore as unknown as AnyStructure]
   });
 
-  (sourceRoom as { storage?: StructureStorage }).storage = sourceStorage;
-  (targetRoom as { storage?: StructureStorage }).storage = targetStorage;
+  if (sourceStoreType === 'storage') {
+    (sourceRoom as { storage?: StructureStorage }).storage = sourceStore as StructureStorage;
+  } else {
+    (sourceRoom as { terminal?: StructureTerminal }).terminal = sourceStore as StructureTerminal;
+  }
+
+  if (targetStoreType === 'storage') {
+    (targetRoom as { storage?: StructureStorage }).storage = targetStore as StructureStorage;
+  } else {
+    (targetRoom as { terminal?: StructureTerminal }).terminal = targetStore as StructureTerminal;
+  }
+
   return { sourceRoom, targetRoom };
 }
 
@@ -3888,6 +3904,43 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('uses terminal stores for planned inter-room energy hauls', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms({
+      sourceStoreType: 'terminal',
+      targetStoreType: 'terminal'
+    });
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const collectingCreep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+    const deliveringCreep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(collectingCreep)).toEqual({ type: 'withdraw', targetId: 'W1N1-terminal' });
+    expect(collectingCreep.memory.interRoomEnergyHaul).toMatchObject({
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      sourceId: 'W1N1-terminal'
+    });
+    expect(selectWorkerTask(deliveringCreep)).toEqual({ type: 'transfer', targetId: 'W2N1-terminal' });
+    expect(deliveringCreep.memory.interRoomEnergyHaul).toMatchObject({
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      targetId: 'W2N1-terminal'
+    });
+  });
+
   it('recalls an empty inter-room hauler from the target room to the source store', () => {
     const targetSource = makeSource('target-source', 10, 10, 'W2N1');
     const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms({ targetSources: [targetSource] });
@@ -3938,6 +3991,27 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(firstCreep)).toEqual({ type: 'withdraw', targetId: 'W1N1-storage' });
     expect(selectWorkerTask(secondCreep)).toEqual({ type: 'withdraw', targetId: 'W1N1-storage' });
+    expect(findRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not create an inter-room energy haul when the logistics route is unreachable', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms();
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const findRoute = jest.fn(() => TEST_ERR_NO_PATH);
+    ((globalThis as unknown as { Game: Partial<Game> }).Game.map as Partial<GameMap> & {
+      findRoute: jest.Mock;
+    }).findRoute = findRoute;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).not.toEqual({ type: 'transfer', targetId: 'W2N1-storage' });
+    expect(creep.memory.interRoomEnergyHaul).toBeUndefined();
     expect(findRoute).toHaveBeenCalledTimes(1);
   });
 

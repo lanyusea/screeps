@@ -188,6 +188,13 @@ interface InterRoomHaulReservationCache {
   tick: number | null;
 }
 
+interface GameCreepsCache {
+  creeps: Creep[];
+  creepsRecord: Partial<Game>['creeps'];
+  game: Partial<Game> | undefined;
+  tick: number | null;
+}
+
 interface ConstructionSiteSelectionOptions {
   priorityContext?: ConstructionSiteImpactPriorityContext | undefined;
   requireReasonableRange?: boolean;
@@ -225,6 +232,7 @@ interface SourceContainerWithdrawalContext {
 let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserveCache | null = null;
 let interRoomLiveTransferCandidateCache: LiveTransferCandidateCache | null = null;
 let interRoomHaulReservationCache: InterRoomHaulReservationCache | null = null;
+let gameCreepsCache: GameCreepsCache | null = null;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerEfficiencyTelemetry(creep);
@@ -6544,6 +6552,23 @@ function isSourceContainerHarvestAssignment(task: Partial<CreepTaskMemory> | und
 }
 
 function getGameCreeps(): Creep[] {
-  const creeps = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  return creeps ? Object.values(creeps) : [];
+  const game = getGameReference();
+  const creeps = game?.creeps;
+  const gameTick = getGameTick();
+  if (
+    gameCreepsCache &&
+    gameCreepsCache.game === game &&
+    gameCreepsCache.creepsRecord === creeps &&
+    gameCreepsCache.tick === gameTick
+  ) {
+    return gameCreepsCache.creeps;
+  }
+
+  gameCreepsCache = {
+    creeps: creeps ? Object.values(creeps) : [],
+    creepsRecord: creeps,
+    game,
+    tick: gameTick
+  };
+  return gameCreepsCache.creeps;
 }

@@ -13500,6 +13500,7 @@ var MAX_HARVEST_PATH_OPS = 2e3;
 var nearTermSpawnExtensionRefillReserveCache = null;
 var interRoomLiveTransferCandidateCache = null;
 var interRoomHaulReservationCache = null;
+var gameCreepsCache = null;
 function selectWorkerTask(creep) {
   clearWorkerEfficiencyTelemetry(creep);
   const heuristicTask = selectHeuristicWorkerTask(creep);
@@ -17662,9 +17663,19 @@ function isSourceContainerHarvestAssignment(task) {
   return (task == null ? void 0 : task.type) === "harvest" && task.sourceContainerAssigned === true;
 }
 function getGameCreeps() {
-  var _a;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  return creeps ? Object.values(creeps) : [];
+  const game = getGameReference();
+  const creeps = game == null ? void 0 : game.creeps;
+  const gameTick = getGameTick3();
+  if (gameCreepsCache && gameCreepsCache.game === game && gameCreepsCache.creepsRecord === creeps && gameCreepsCache.tick === gameTick) {
+    return gameCreepsCache.creeps;
+  }
+  gameCreepsCache = {
+    creeps: creeps ? Object.values(creeps) : [],
+    creepsRecord: creeps,
+    game,
+    tick: gameTick
+  };
+  return gameCreepsCache.creeps;
 }
 
 // src/creeps/workerRunner.ts
