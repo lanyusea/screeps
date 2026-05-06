@@ -5865,6 +5865,8 @@ var TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS = 1500;
 var TERRITORY_RECOVERED_FOLLOW_UP_RETRY_COOLDOWN_TICKS2 = 50;
 var TERRITORY_RECOVERED_INTENT_SPAWN_PRIORITY = 1e3;
 var TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND = 1;
+var GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS = globalThis.TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS;
+var TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS = typeof GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS === "number" && Number.isFinite(GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS) && GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS > 0 ? Math.floor(GLOBAL_TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS) : 1500;
 var TERRITORY_ADJACENT_CONTROLLER_PROGRESS_WORKER_SURPLUS = 0;
 var EXIT_DIRECTION_ORDER2 = ["1", "3", "5", "7"];
 var MIN_CLAIM_PARTS_FOR_RESERVATION_PROGRESS = 2;
@@ -6566,7 +6568,8 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
       gameTime,
       roleCounts,
       routeDistanceLookupContext
-    )
+    ),
+    gameTime
   );
   const persistedIntentCandidates = applyOccupationRecommendationScores(
     colony,
@@ -6579,7 +6582,8 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
       intents,
       gameTime,
       routeDistanceLookupContext
-    )
+    ),
+    gameTime
   );
   const primaryCandidates = getSpawnCapableTerritoryCandidates(
     filterTerritoryCandidatesForPlanningOptions(
@@ -6625,7 +6629,8 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
             roleCounts,
             routeDistanceLookupContext
           ) : []
-        ]
+        ],
+        gameTime
       ),
       options
     );
@@ -6644,30 +6649,36 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     );
   }
   const adjacentCandidates = filterTerritoryCandidatesForPlanningOptions(
-    applyOccupationRecommendationScores(colony, roleCounts, workerTarget, [
-      ...getAdjacentReserveCandidates(
-        colonyName,
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        !hasBlockingConfiguredTarget,
-        "adjacent",
-        0,
-        routeDistanceLookupContext
-      ),
-      ...getAdjacentFollowUpReserveCandidates(
-        colonyName,
-        colonyOwnerUsername,
-        territoryMemory,
-        intents,
-        gameTime,
-        roleCounts,
-        !hasBlockingConfiguredTarget,
-        routeDistanceLookupContext
-      )
-    ]),
+    applyOccupationRecommendationScores(
+      colony,
+      roleCounts,
+      workerTarget,
+      [
+        ...getAdjacentReserveCandidates(
+          colonyName,
+          colonyName,
+          colonyOwnerUsername,
+          territoryMemory,
+          intents,
+          gameTime,
+          !hasBlockingConfiguredTarget,
+          "adjacent",
+          0,
+          routeDistanceLookupContext
+        ),
+        ...getAdjacentFollowUpReserveCandidates(
+          colonyName,
+          colonyOwnerUsername,
+          territoryMemory,
+          intents,
+          gameTime,
+          roleCounts,
+          !hasBlockingConfiguredTarget,
+          routeDistanceLookupContext
+        )
+      ],
+      gameTime
+    ),
     options
   );
   const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
@@ -7465,7 +7476,7 @@ function scoreTerritoryCandidate(selection, source, order, colonyName, colonyOwn
 function getInferredTerritoryRouteDistance(source) {
   return source === "adjacent" ? 1 : void 0;
 }
-function applyOccupationRecommendationScores(colony, roleCounts, workerTarget, candidates) {
+function applyOccupationRecommendationScores(colony, roleCounts, workerTarget, candidates, gameTime) {
   var _a;
   const colonyOwnerUsername = (_a = getControllerOwnerUsername3(colony.room.controller)) != null ? _a : void 0;
   const adjacentControllerProgressReady = isTerritoryHomeReadyForAdjacentControllerProgress(
@@ -7482,12 +7493,12 @@ function applyOccupationRecommendationScores(colony, roleCounts, workerTarget, c
       workerCount: getWorkerCapacity(roleCounts),
       ...typeof ((_a2 = colony.room.controller) == null ? void 0 : _a2.level) === "number" ? { controllerLevel: colony.room.controller.level } : {},
       ...typeof ((_b = colony.room.controller) == null ? void 0 : _b.ticksToDowngrade) === "number" ? { ticksToDowngrade: colony.room.controller.ticksToDowngrade } : {},
-      candidates: [buildOccupationRecommendationCandidate(candidate)]
+      candidates: [buildOccupationRecommendationCandidate(candidate, gameTime)]
     }).candidates[0];
     if (!recommendation || recommendation.evidenceStatus === "unavailable") {
       return [];
     }
-    const adjacentExpansionClaimDecision = getAdjacentExpansionClaimDecision(candidate, roleCounts);
+    const adjacentExpansionClaimDecision = getAdjacentExpansionClaimDecision(candidate, roleCounts, gameTime);
     return [
       applyOccupationRecommendationScore(
         candidate,
@@ -7533,14 +7544,22 @@ function applyOccupationRecommendationScore(candidate, recommendation, roleCount
     ...renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}
   };
 }
-function getAdjacentExpansionClaimDecision(candidate, roleCounts) {
+function getAdjacentExpansionClaimDecision(candidate, roleCounts, gameTime) {
   if (!isAdjacentExpansionClaimDecisionCandidate(candidate)) {
+    return "ignore";
+  }
+  if (shouldRefreshExpansionCandidateScoutIntel(
+    candidate.target.colony,
+    candidate.target.roomName,
+    getTerritoryMemoryRecord4(),
+    gameTime
+  )) {
     return "ignore";
   }
   const scoutIntel = getFreshTerritoryScoutIntel(
     candidate.target.colony,
     candidate.target.roomName,
-    getGameTime8()
+    gameTime
   );
   if (!isViableAdjacentExpansionClaimScoutIntel(scoutIntel)) {
     return "ignore";
@@ -7628,9 +7647,14 @@ function isAdjacentRoomReservationReserveSelection(selection) {
 function isRecoveredTerritoryFollowUpControlCandidate(candidate) {
   return candidate.recoveredFollowUp === true && candidate.followUp !== void 0 && isTerritoryControlAction3(candidate.intentAction);
 }
-function buildOccupationRecommendationCandidate(candidate) {
+function buildOccupationRecommendationCandidate(candidate, gameTime) {
   const room = getVisibleRoom(candidate.target.roomName);
-  const scoutIntel = room ? null : getFreshTerritoryScoutIntel(candidate.target.colony, candidate.target.roomName, getGameTime8());
+  const scoutIntel = room || shouldRefreshExpansionCandidateScoutIntel(
+    candidate.target.colony,
+    candidate.target.roomName,
+    getTerritoryMemoryRecord4(),
+    gameTime
+  ) ? null : getFreshTerritoryScoutIntel(candidate.target.colony, candidate.target.roomName, gameTime);
   return {
     roomName: candidate.target.roomName,
     source: candidate.source === "configured" ? "configured" : "adjacent",
@@ -7643,6 +7667,33 @@ function buildOccupationRecommendationCandidate(candidate) {
     ...candidate.ignoreOwnHealthyReservation === true ? { ignoreOwnHealthyReservation: true } : {},
     ...room ? buildVisibleOccupationRecommendationEvidence(room, candidate.target.controllerId) : scoutIntel ? buildScoutedOccupationRecommendationEvidence(scoutIntel) : {}
   };
+}
+function shouldRefreshExpansionCandidateScoutIntel(colonyName, roomName, territoryMemory, gameTime) {
+  if (isVisibleRoomKnown(roomName) || !hasPersistedAdjacentExpansionCandidate(colonyName, roomName, territoryMemory)) {
+    return false;
+  }
+  const scoutIntel = getTerritoryScoutIntel(colonyName, roomName);
+  if (!scoutIntel) {
+    return true;
+  }
+  return isTerritoryScoutIntelStaleForExpansionCandidate(scoutIntel, gameTime);
+}
+function hasPersistedAdjacentExpansionCandidate(colonyName, roomName, territoryMemory) {
+  if (!territoryMemory || !Array.isArray(territoryMemory.expansionCandidates)) {
+    return false;
+  }
+  return territoryMemory.expansionCandidates.some((rawCandidate) => {
+    if (!isRecord7(rawCandidate)) {
+      return false;
+    }
+    return rawCandidate.colony === colonyName && rawCandidate.roomName === roomName && rawCandidate.adjacentToOwnedRoom === true && rawCandidate.evidenceStatus !== "unavailable" && (rawCandidate.recommendedAction === "claim" || rawCandidate.recommendedAction === "scout");
+  });
+}
+function isTerritoryScoutIntelStaleForExpansionCandidate(scoutIntel, gameTime) {
+  if (gameTime < scoutIntel.updatedAt) {
+    return false;
+  }
+  return gameTime - scoutIntel.updatedAt > TERRITORY_EXPANSION_CANDIDATE_SCOUT_STALE_TICKS;
 }
 function getFreshTerritoryScoutIntel(colony, roomName, gameTime) {
   const intel = getTerritoryScoutIntel(colony, roomName);
