@@ -19217,6 +19217,9 @@ function planDefenseSpawnForRoom(colony, activeDefenderCount, gameTime, options)
   };
 }
 function planPostClaimControllerDefenseSpawn(context) {
+  if (context.survival.mode !== "TERRITORY_READY") {
+    return null;
+  }
   const defensePlan = selectPostClaimControllerDefensePlan(context.colony);
   if (!defensePlan) {
     return null;

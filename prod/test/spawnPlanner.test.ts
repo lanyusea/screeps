@@ -942,6 +942,44 @@ describe('planSpawn', () => {
     });
   });
 
+  it('suppresses post-claim room defenders while the home colony is in bootstrap recovery', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 140,
+      energyCapacityAvailable: 650,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTerritoryRoom('W2N1', {
+          id: 'controller2',
+          my: true,
+          level: 1,
+          upgradeBlocked: 20
+        } as StructureController)
+      },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            status: 'ready',
+            claimedAt: 174,
+            updatedAt: 175,
+            workerTarget: 2,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 177)).toBeNull();
+  });
+
   it('keeps home worker recovery ahead of post-claim controller sustain', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,

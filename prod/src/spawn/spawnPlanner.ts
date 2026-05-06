@@ -688,6 +688,10 @@ interface PostClaimControllerDefensePlan {
 }
 
 function planPostClaimControllerDefenseSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (context.survival.mode !== 'TERRITORY_READY') {
+    return null;
+  }
+
   const defensePlan = selectPostClaimControllerDefensePlan(context.colony);
   if (!defensePlan) {
     return null;
