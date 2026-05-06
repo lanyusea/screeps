@@ -2340,7 +2340,14 @@ function makeVisibleExpansionScoringRoom(
     } as StructureController,
     find: jest.fn((type: number) =>
       type === FIND_SOURCES
-        ? [{ id: `${roomName}-source`, pos: { x: 20, y: 20 } as RoomPosition } as Source]
+        ? Array.from(
+            { length: 2 },
+            (_value, index) =>
+              ({
+                id: `${roomName}-source${index}`,
+                pos: { x: 20 + index * 5, y: 20 + index * 5 } as RoomPosition
+              }) as Source
+          )
         : []
     )
   } as unknown as Room;

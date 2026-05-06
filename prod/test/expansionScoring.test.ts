@@ -551,6 +551,41 @@ describe('next expansion scoring', () => {
     });
   });
 
+  it('does not persist one-source rooms as next expansion claim targets or actions', () => {
+    const colony = makeSafeColony();
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 1
+        })
+      ])
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      sourceCount: 1
+    });
+    expect(refreshNextExpansionTargetSelection(colony, report, 102)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unavailable'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      sourceCount: 1,
+      visible: true,
+      updatedAt: 102
+    });
+    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
+  });
+
   it('preserves unrelated claim intents while pruning stale next expansion intents', () => {
     const colony = makeSafeColony();
     const manualIntent: TerritoryIntentMemory = {

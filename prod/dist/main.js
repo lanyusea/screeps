@@ -17265,8 +17265,11 @@ function getOwnedRoomCount(input) {
 function selectPersistableExpansionCandidate(report) {
   var _a;
   return (_a = report.candidates.find(
-    (candidate) => candidate.visible && candidate.evidenceStatus === "sufficient" && candidate.preconditions.length === 0
+    (candidate) => candidate.visible && isViableExpansionCandidate(candidate)
   )) != null ? _a : null;
+}
+function isViableExpansionCandidate(candidate) {
+  return candidate.evidenceStatus === "sufficient" && candidate.preconditions.length === 0 && candidate.sourceCount === 2;
 }
 function getSelectionSkipReason(report) {
   if (report.candidates.length === 0) {
@@ -17332,7 +17335,7 @@ function toPersistedExpansionCandidateMemory(colony, candidate, gameTime, rank) 
   };
 }
 function getPersistedExpansionCandidateRecommendedAction(candidate) {
-  if (candidate.evidenceStatus === "sufficient" && candidate.preconditions.length === 0) {
+  if (isViableExpansionCandidate(candidate)) {
     return candidate.visible ? "claim" : "reserve";
   }
   return candidate.evidenceStatus === "insufficient-evidence" && candidate.adjacentToOwnedRoom ? "scout" : void 0;

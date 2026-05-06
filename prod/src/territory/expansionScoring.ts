@@ -711,9 +711,16 @@ function selectPersistableExpansionCandidate(report: ExpansionCandidateReport): 
     report.candidates.find(
       (candidate) =>
         candidate.visible &&
-        candidate.evidenceStatus === 'sufficient' &&
-        candidate.preconditions.length === 0
+        isViableExpansionCandidate(candidate)
     ) ?? null
+  );
+}
+
+function isViableExpansionCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.evidenceStatus === 'sufficient' &&
+    candidate.preconditions.length === 0 &&
+    candidate.sourceCount === 2
   );
 }
 
@@ -813,7 +820,7 @@ function toPersistedExpansionCandidateMemory(
 function getPersistedExpansionCandidateRecommendedAction(
   candidate: ExpansionCandidateScore
 ): PersistedExpansionCandidateRecommendedAction | undefined {
-  if (candidate.evidenceStatus === 'sufficient' && candidate.preconditions.length === 0) {
+  if (isViableExpansionCandidate(candidate)) {
     return candidate.visible ? 'claim' : 'reserve';
   }
 
