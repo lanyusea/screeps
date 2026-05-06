@@ -1476,6 +1476,63 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('dispatches a scaled reserver for a persisted planned reservation intent', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 1_950,
+      energyCapacityAvailable: 1_950,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W3N1: makeTerritoryRoom(
+          'W3N1',
+          { id: 'controller-W3N1', my: false } as StructureController,
+          2
+        )
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 154,
+            controllerId: 'controller-W3N1' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
+      spawn,
+      body: ['claim', 'claim', 'claim', 'move', 'move', 'move'],
+      name: 'claimer-W1N1-W3N1-155',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W3N1',
+          action: 'reserve',
+          controllerId: 'controller-W3N1' as Id<StructureController>
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'reserve',
+        status: 'planned',
+        updatedAt: 155,
+        controllerId: 'controller-W3N1'
+      }
+    ]);
+  });
+
   it('plans a claimer-role claimer for a claim-ready configured reserve target', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
