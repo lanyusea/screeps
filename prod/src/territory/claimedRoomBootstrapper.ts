@@ -529,7 +529,7 @@ function planClaimedRoomTowerConstruction(colony: ColonySnapshot): ScreepsReturn
   const structureType = getStructureConstant('STRUCTURE_TOWER', 'tower');
   for (const position of selectTowerConstructionPositions(anchor, lookups)) {
     const result = room.createConstructionSite(position.x, position.y, structureType);
-    if (result === OK_CODE) {
+    if (result === OK_CODE || isFatalConstructionSiteResult(result)) {
       return result;
     }
 

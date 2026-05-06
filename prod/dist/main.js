@@ -22555,7 +22555,7 @@ function planClaimedRoomTowerConstruction(colony) {
   const structureType = getStructureConstant2("STRUCTURE_TOWER", "tower");
   for (const position of selectTowerConstructionPositions(anchor, lookups)) {
     const result = room.createConstructionSite(position.x, position.y, structureType);
-    if (result === OK_CODE8) {
+    if (result === OK_CODE8 || isFatalConstructionSiteResult(result)) {
       return result;
     }
     lookups.blockedPositions.add(getPositionKey4(position));
