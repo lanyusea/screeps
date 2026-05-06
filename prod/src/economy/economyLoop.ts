@@ -26,7 +26,10 @@ import {
   type RuntimeTelemetryEvent
 } from '../telemetry/runtimeSummary';
 import { recordSourceWorkloads } from './sourceWorkload';
-import { ensureSourceContainersForOwnedRooms } from './sourceContainerPlanner';
+import {
+  ensureRemoteSourceContainersForAssignedHarvesters,
+  ensureSourceContainersForOwnedRooms
+} from './sourceContainerPlanner';
 import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
 import { balanceStorage } from './storageBalancer';
@@ -187,6 +190,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   }
 
   ensureSourceContainersForOwnedRooms(colonies.map((colony) => colony.room));
+  ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
 
   for (const creep of creeps) {
