@@ -10,6 +10,7 @@ import { shouldSignOccupiedController } from './controllerSigning';
 export interface ControllerManagementOptions {
   competingSpawnDemand?: boolean;
   activeUpgraderCount?: number;
+  allowReservedSpawnEnergy?: boolean;
 }
 
 export interface ControllerUpgradeSpawnDemand {
@@ -98,7 +99,8 @@ export function buildControllerManagementPlan(
   const activeUpgraderCount =
     options.activeUpgraderCount ?? countActiveControllerUpgraders(roomName, controllerId);
   const upgradePriority = getControllerUpgradePriority(controller, {
-    energyAvailable: colony.energyAvailable,
+    energyAvailable:
+      options.allowReservedSpawnEnergy === true ? colony.energyCapacityAvailable : colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
     competingSpawnDemand: options.competingSpawnDemand
   });
@@ -152,9 +154,23 @@ function shouldCreateControllerUpgradeSpawnDemand(
     desiredUpgraderCount > activeUpgraderCount &&
     options.competingSpawnDemand !== true &&
     getWorkerCapacity(roleCounts) >= workerTarget &&
-    colony.energyCapacityAvailable >= CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY &&
-    colony.energyAvailable >= colony.energyCapacityAvailable
+    hasControllerProgressDemandSpawnEnergy(colony, options)
   );
+}
+
+function hasControllerProgressDemandSpawnEnergy(
+  colony: ColonySnapshot,
+  options: ControllerManagementOptions
+): boolean {
+  if (colony.energyCapacityAvailable < CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY) {
+    return false;
+  }
+
+  if (options.allowReservedSpawnEnergy === true) {
+    return colony.energyAvailable >= CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY;
+  }
+
+  return colony.energyAvailable >= colony.energyCapacityAvailable;
 }
 
 function getDesiredControllerUpgraderCount(priority: ControllerUpgradePriority): number {
@@ -165,12 +181,12 @@ function countActiveControllerUpgraders(
   roomName: string,
   controllerId: Id<StructureController>
 ): number {
-  const creeps = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  if (!creeps) {
+  const game = (globalThis as unknown as { Game?: Partial<Pick<Game, 'creeps'>> }).Game;
+  if (!game?.creeps) {
     return 0;
   }
 
-  return Object.values(creeps).filter((creep) =>
+  return Object.values(game.creeps).filter((creep) =>
     canSatisfyControllerUpgradeDemand(creep, roomName, controllerId)
   ).length;
 }

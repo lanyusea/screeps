@@ -822,7 +822,6 @@ function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): Spawn
 
 function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
-    context.options.workersOnly ||
     context.territoryIntentPending ||
     context.survival.mode !== 'TERRITORY_READY' ||
     hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
@@ -835,7 +834,8 @@ function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnR
     context.colony,
     context.roleCounts,
     context.workerTarget,
-    context.gameTime
+    context.gameTime,
+    { allowReservedSpawnEnergy: isWorkerOnlyFollowUpPass(context.options) }
   );
   if (!demand) {
     return null;
@@ -1108,6 +1108,10 @@ function planWorkerSpawnWithBody(
 
 function appendSpawnNameSuffix(baseName: string, options: SpawnPlanningOptions): string {
   return options.nameSuffix ? `${baseName}-${options.nameSuffix}` : baseName;
+}
+
+function isWorkerOnlyFollowUpPass(options: SpawnPlanningOptions): boolean {
+  return options.workersOnly === true && isNonEmptyString(options.nameSuffix);
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {

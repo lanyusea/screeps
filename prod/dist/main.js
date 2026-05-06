@@ -17800,7 +17800,7 @@ function buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTim
   const controllerId = controller.id;
   const activeUpgraderCount = (_a = options.activeUpgraderCount) != null ? _a : countActiveControllerUpgraders(roomName, controllerId);
   const upgradePriority = getControllerUpgradePriority(controller, {
-    energyAvailable: colony.energyAvailable,
+    energyAvailable: options.allowReservedSpawnEnergy === true ? colony.energyCapacityAvailable : colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
     competingSpawnDemand: options.competingSpawnDemand
   });
@@ -17836,18 +17836,26 @@ function buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTim
   return plan;
 }
 function shouldCreateControllerUpgradeSpawnDemand(colony, roleCounts, workerTarget, upgradePriority, desiredUpgraderCount, activeUpgraderCount, options) {
-  return upgradePriority === "rclProgress" && desiredUpgraderCount > activeUpgraderCount && options.competingSpawnDemand !== true && getWorkerCapacity(roleCounts) >= workerTarget && colony.energyCapacityAvailable >= CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY && colony.energyAvailable >= colony.energyCapacityAvailable;
+  return upgradePriority === "rclProgress" && desiredUpgraderCount > activeUpgraderCount && options.competingSpawnDemand !== true && getWorkerCapacity(roleCounts) >= workerTarget && hasControllerProgressDemandSpawnEnergy(colony, options);
+}
+function hasControllerProgressDemandSpawnEnergy(colony, options) {
+  if (colony.energyCapacityAvailable < CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY) {
+    return false;
+  }
+  if (options.allowReservedSpawnEnergy === true) {
+    return colony.energyAvailable >= CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY;
+  }
+  return colony.energyAvailable >= colony.energyCapacityAvailable;
 }
 function getDesiredControllerUpgraderCount(priority) {
   return priority === "rclProgress" ? CONTROLLER_PROGRESS_DEMAND_UPGRADERS : 0;
 }
 function countActiveControllerUpgraders(roomName, controllerId) {
-  var _a;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  if (!creeps) {
+  const game = globalThis.Game;
+  if (!(game == null ? void 0 : game.creeps)) {
     return 0;
   }
-  return Object.values(creeps).filter(
+  return Object.values(game.creeps).filter(
     (creep) => canSatisfyControllerUpgradeDemand(creep, roomName, controllerId)
   ).length;
 }
@@ -19158,14 +19166,15 @@ function planControllerUpgradeSurplusSpawn(context) {
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
 }
 function planControllerUpgradeDemandSpawn(context) {
-  if (context.options.workersOnly || context.territoryIntentPending || context.survival.mode !== "TERRITORY_READY" || hasControllerUpgradeBlockingTerritoryWork(context.colony) || context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony)) {
+  if (context.territoryIntentPending || context.survival.mode !== "TERRITORY_READY" || hasControllerUpgradeBlockingTerritoryWork(context.colony) || context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony)) {
     return null;
   }
   const demand = selectControllerUpgradeSpawnDemand(
     context.colony,
     context.roleCounts,
     context.workerTarget,
-    context.gameTime
+    context.gameTime,
+    { allowReservedSpawnEnergy: isWorkerOnlyFollowUpPass(context.options) }
   );
   if (!demand) {
     return null;
@@ -19337,6 +19346,9 @@ function planWorkerSpawnWithBody(colony, body, gameTime, options) {
 }
 function appendSpawnNameSuffix(baseName, options) {
   return options.nameSuffix ? `${baseName}-${options.nameSuffix}` : baseName;
+}
+function isWorkerOnlyFollowUpPass(options) {
+  return options.workersOnly === true && isNonEmptyString14(options.nameSuffix);
 }
 function selectWorkerBody(colony, roleCounts) {
   var _a;
@@ -25579,7 +25591,7 @@ function runEconomy(preludeTelemetryEvents = []) {
       recordReservedSpawnEnergy(reservedSpawnEnergyByRoom, spawnRoomName, bodyCost);
       successfulSpawnCount += 1;
       recordPlannedMultiRoomUpgraderSpawn(spawnRequest.memory);
-      if (spawnRequest.memory.role !== "worker") {
+      if (spawnRequest.memory.role !== "worker" || isControllerUpgradeSpawnRequest(spawnRequest)) {
         break;
       }
       if (spawnRequest.memory.colony !== colony.room.name) {
@@ -26141,6 +26153,9 @@ function getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollow
 }
 function isAllowedPostSpawnRequest(spawnRequest) {
   return spawnRequest.memory.role === "worker" || isTerritoryControllerPressureSpawnRequest(spawnRequest) || isTerritoryControllerFollowUpSpawnRequest(spawnRequest);
+}
+function isControllerUpgradeSpawnRequest(spawnRequest) {
+  return spawnRequest.memory.role === "worker" && spawnRequest.memory.controllerUpgrade !== void 0;
 }
 function isTerritoryControllerPressureSpawnRequest(spawnRequest) {
   const territory = spawnRequest.memory.territory;

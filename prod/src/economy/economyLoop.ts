@@ -208,7 +208,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       successfulSpawnCount += 1;
       recordPlannedMultiRoomUpgraderSpawn(spawnRequest.memory);
 
-      if (spawnRequest.memory.role !== 'worker') {
+      if (spawnRequest.memory.role !== 'worker' || isControllerUpgradeSpawnRequest(spawnRequest)) {
         break;
       }
 
@@ -1042,6 +1042,10 @@ function isAllowedPostSpawnRequest(spawnRequest: SpawnRequest): boolean {
     isTerritoryControllerPressureSpawnRequest(spawnRequest) ||
     isTerritoryControllerFollowUpSpawnRequest(spawnRequest)
   );
+}
+
+function isControllerUpgradeSpawnRequest(spawnRequest: SpawnRequest): boolean {
+  return spawnRequest.memory.role === 'worker' && spawnRequest.memory.controllerUpgrade !== undefined;
 }
 
 function isTerritoryControllerPressureSpawnRequest(spawnRequest: SpawnRequest): boolean {

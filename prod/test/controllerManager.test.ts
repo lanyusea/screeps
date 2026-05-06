@@ -68,6 +68,19 @@ describe('controller manager', () => {
     expect(plan.spawnDemand).toBeUndefined();
   });
 
+  it('treats missing Game state as no active controller upgraders', () => {
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+
+    const plan = buildControllerManagementPlan(makeColony(), { worker: 3 }, 3, 204);
+
+    expect(plan.activeUpgraderCount).toBe(0);
+    expect(plan.spawnDemand).toMatchObject({
+      roomName: 'W1N1',
+      controllerId: 'controller1',
+      priority: 'rclProgress'
+    });
+  });
+
   it('counts active controller upgraders before requesting another dedicated worker', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: {

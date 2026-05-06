@@ -570,6 +570,70 @@ describe('planSpawn', () => {
     });
   });
 
+  it('keeps controller-upgrade demand eligible during worker-only follow-up passes', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N20',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller1' as Id<StructureController>,
+        progress: 900,
+        progressTotal: 1_000
+      } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    expect(planSpawn(colony, { worker: 3 }, 130, { workersOnly: true, nameSuffix: '2' })).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N20-controller-upgrader-130-2',
+      memory: {
+        role: 'worker',
+        colony: 'W1N20',
+        controllerUpgrade: {
+          roomName: 'W1N20',
+          controllerId: 'controller1',
+          priority: 'rclProgress',
+          assignedAt: 130
+        }
+      }
+    });
+  });
+
+  it('allows controller-upgrade demand to use reserved-energy worker-only follow-up budget', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N21',
+      energyAvailable: 600,
+      energyCapacityAvailable: 650,
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller1' as Id<StructureController>,
+        progress: 900,
+        progressTotal: 1_000
+      } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    expect(planSpawn(colony, { worker: 3 }, 131, { workersOnly: true, nameSuffix: '2' })).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N21-controller-upgrader-131-2',
+      memory: {
+        role: 'worker',
+        colony: 'W1N21',
+        controllerUpgrade: {
+          roomName: 'W1N21',
+          controllerId: 'controller1',
+          priority: 'rclProgress',
+          assignedAt: 131
+        }
+      }
+    });
+  });
+
   it('waits on surplus controller workers until spawn energy is full', () => {
     const { colony } = makeColony({
       roomName: 'W1N18',
