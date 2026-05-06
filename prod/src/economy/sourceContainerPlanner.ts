@@ -11,6 +11,7 @@ const ROOM_EDGE_MIN = 1;
 const ROOM_EDGE_MAX = 48;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
+const REMOTE_HARVESTER_ROLE = 'remoteHarvester';
 
 interface PositionedRoomPosition {
   x: number;
@@ -81,7 +82,18 @@ export function ensureSourceContainersForOwnedRooms(rooms = getVisibleOwnedRooms
   };
 }
 
-export function summarizeSourceContainerCoverage(room: Room): SourceContainerCoverageSummary {
+export function ensureRemoteSourceContainersForAssignedHarvesters(
+  creeps = getGameCreeps()
+): SourceContainerPlannerResult {
+  const roomResults = getRemoteSourceContainerScans(creeps).map(planSourceContainersForRoom);
+
+  return buildSourceContainerPlannerResult(roomResults);
+}
+
+export function summarizeSourceContainerCoverage(
+  room: Room,
+  sources = getRoomSources(room)
+): SourceContainerCoverageSummary {
   const summary: SourceContainerCoverageSummary = {
     sourceCount: 0,
     sourcesWithContainers: 0,
@@ -89,7 +101,7 @@ export function summarizeSourceContainerCoverage(room: Room): SourceContainerCov
     sourcesMissingContainers: 0
   };
 
-  for (const source of getRoomSources(room)) {
+  for (const source of sources) {
     summary.sourceCount += 1;
     if (findSourceContainer(room, source)) {
       summary.sourcesWithContainers += 1;
@@ -101,6 +113,20 @@ export function summarizeSourceContainerCoverage(room: Room): SourceContainerCov
   }
 
   return summary;
+}
+
+function buildSourceContainerPlannerResult(
+  roomResults: SourceContainerPlannerRoomResult[]
+): SourceContainerPlannerResult {
+  return {
+    rooms: roomResults,
+    placedSiteCount: roomResults.reduce((total, room) => total + countOkPlacements(room.placements), 0),
+    attemptedSiteCount: roomResults.reduce((total, room) => total + room.placements.length, 0),
+    sourceCount: roomResults.reduce((total, room) => total + room.sourceCount, 0),
+    sourcesWithContainers: roomResults.reduce((total, room) => total + room.sourcesWithContainers, 0),
+    sourcesWithContainerSites: roomResults.reduce((total, room) => total + room.sourcesWithContainerSites, 0),
+    sourcesMissingContainers: roomResults.reduce((total, room) => total + room.sourcesMissingContainers, 0)
+  };
 }
 
 function planSourceContainersForRoom(scan: RoomSourceContainerScan): SourceContainerPlannerRoomResult {
@@ -145,12 +171,62 @@ function planSourceContainersForRoom(scan: RoomSourceContainerScan): SourceConta
 }
 
 function scanSourceContainerRoom(room: Room): RoomSourceContainerScan {
+  const sources = getSortedRoomSources(room);
   return {
     room,
     controllerLevel: getOwnedRoomControllerLevel(room),
-    sources: getSortedRoomSources(room),
-    coverage: summarizeSourceContainerCoverage(room)
+    sources,
+    coverage: summarizeSourceContainerCoverage(room, sources)
   };
+}
+
+function getRemoteSourceContainerScans(creeps: Creep[]): RoomSourceContainerScan[] {
+  const sourcesByRoom = new Map<string, Map<string, Source>>();
+
+  for (const creep of creeps) {
+    const assignment = normalizeRemoteHarvesterMemory(creep);
+    if (!assignment) {
+      continue;
+    }
+
+    const room = getVisibleRoom(assignment.targetRoom);
+    if (!room || !isBuildableRemoteRoom(room)) {
+      continue;
+    }
+
+    const source = getVisibleSourceById(room, assignment.sourceId);
+    if (!source || !isAssignedRemoteHarvesterLosingEnergyToDecay(creep, room, source)) {
+      continue;
+    }
+
+    const sources = sourcesByRoom.get(room.name) ?? new Map<string, Source>();
+    sources.set(String(source.id), source);
+    sourcesByRoom.set(room.name, sources);
+  }
+
+  return [...sourcesByRoom.entries()]
+    .map(([roomName, sourcesById]): RoomSourceContainerScan | null => {
+      const room = getVisibleRoom(roomName);
+      if (!room) {
+        return null;
+      }
+
+      const sources = [...sourcesById.values()]
+        .filter((source) => {
+          const position = getRoomObjectPosition(source);
+          return position !== null && isSameRoomPosition(position, room.name);
+        })
+        .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+
+      return {
+        room,
+        controllerLevel: getOwnedRoomControllerLevel(room),
+        sources,
+        coverage: summarizeSourceContainerCoverage(room, sources)
+      };
+    })
+    .filter((scan): scan is RoomSourceContainerScan => scan !== null && scan.sources.length > 0)
+    .sort(compareRoomSourceContainerScans);
 }
 
 function createSourceContainerPlannerLookups(room: Room): SourceContainerPlannerLookups | null {
@@ -317,6 +393,16 @@ function getRoomSources(room: Room): Source[] {
   return findRoomObjects<Source>(room, 'FIND_SOURCES') ?? [];
 }
 
+function getVisibleSourceById(room: Room, sourceId: Id<Source>): Source | null {
+  const gameSource = getGameSourceById(sourceId);
+  const gameSourcePosition = gameSource ? getRoomObjectPosition(gameSource) : null;
+  if (gameSource && gameSourcePosition && isSameRoomPosition(gameSourcePosition, room.name)) {
+    return gameSource;
+  }
+
+  return getRoomSources(room).find((source) => String(source.id) === String(sourceId)) ?? null;
+}
+
 function findRoomObjects<T>(room: Room, constantName: string): T[] | null {
   const findConstant = getGlobalNumber(constantName);
   const find = (room as unknown as { find?: (type: number) => unknown }).find;
@@ -390,9 +476,31 @@ function getVisibleOwnedRooms(): Room[] {
   return rooms ? Object.values(rooms).filter((room): room is Room => room !== undefined && isOwnedRoom(room)) : [];
 }
 
+function getVisibleRoom(roomName: string): Room | undefined {
+  return (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[roomName];
+}
+
 function getVisibleSpawns(): StructureSpawn[] {
   const spawns = (globalThis as { Game?: Partial<Game> }).Game?.spawns;
   return spawns ? Object.values(spawns).filter((spawn): spawn is StructureSpawn => spawn !== undefined) : [];
+}
+
+function getGameCreeps(): Creep[] {
+  const creeps = (globalThis as { Game?: Partial<Game> }).Game?.creeps;
+  return creeps ? Object.values(creeps).filter((creep): creep is Creep => creep !== undefined) : [];
+}
+
+function getGameSourceById(id: Id<Source>): Source | null {
+  const getObjectById = (globalThis as { Game?: Partial<Game> }).Game?.getObjectById;
+  if (typeof getObjectById !== 'function') {
+    return null;
+  }
+
+  try {
+    return getObjectById(id) as Source | null;
+  } catch {
+    return null;
+  }
 }
 
 function getRoomTerrain(room: Room): RoomTerrain | null {
@@ -443,4 +551,96 @@ function getGlobalNumber(name: string): number | null {
 
 function countOkPlacements(placements: SourceContainerSitePlacement[]): number {
   return placements.filter((placement) => placement.result === getOkCode()).length;
+}
+
+function normalizeRemoteHarvesterMemory(creep: Creep): CreepRemoteHarvesterMemory | null {
+  if (creep.memory?.role !== REMOTE_HARVESTER_ROLE) {
+    return null;
+  }
+
+  const assignment = creep.memory.remoteHarvester;
+  if (
+    !isRecord(assignment) ||
+    typeof assignment.homeRoom !== 'string' ||
+    assignment.homeRoom.length === 0 ||
+    typeof assignment.targetRoom !== 'string' ||
+    assignment.targetRoom.length === 0 ||
+    assignment.homeRoom === assignment.targetRoom ||
+    typeof assignment.sourceId !== 'string' ||
+    assignment.sourceId.length === 0
+  ) {
+    return null;
+  }
+
+  return assignment as CreepRemoteHarvesterMemory;
+}
+
+function isBuildableRemoteRoom(room: Room): boolean {
+  return room.controller?.owner === undefined || room.controller.my === true;
+}
+
+function isAssignedRemoteHarvesterLosingEnergyToDecay(
+  creep: Creep,
+  room: Room,
+  source: Source
+): boolean {
+  if (hasDroppedEnergyDecayingAtSource(room, source)) {
+    return true;
+  }
+
+  if (creep.room?.name !== room.name) {
+    return false;
+  }
+
+  return getUsedEnergy(creep) > 0 || getFreeEnergyCapacity(creep) === 0;
+}
+
+function hasDroppedEnergyDecayingAtSource(room: Room, source: Source): boolean {
+  const sourcePosition = getRoomObjectPosition(source);
+  if (!sourcePosition) {
+    return false;
+  }
+
+  const droppedResources = findRoomObjects<Resource<ResourceConstant>>(room, 'FIND_DROPPED_RESOURCES') ?? [];
+  return droppedResources.some((resource) => {
+    const resourcePosition = getRoomObjectPosition(resource);
+    return (
+      resourcePosition !== null &&
+      isDroppedEnergy(resource) &&
+      isSameRoomPosition(resourcePosition, room.name) &&
+      getRangeBetweenPositions(sourcePosition, resourcePosition) <= 1
+    );
+  });
+}
+
+function isDroppedEnergy(resource: Resource<ResourceConstant>): boolean {
+  const amount = resource.amount;
+  const ticksToDecay = (resource as Resource<ResourceConstant> & { ticksToDecay?: number }).ticksToDecay;
+  return (
+    resource.resourceType === getEnergyResource() &&
+    typeof amount === 'number' &&
+    Number.isFinite(amount) &&
+    amount > 0 &&
+    (typeof ticksToDecay !== 'number' || ticksToDecay > 0)
+  );
+}
+
+function getUsedEnergy(creep: Creep): number {
+  const store = creep.store as Partial<StoreDefinition>;
+  const used = store.getUsedCapacity?.(getEnergyResource());
+  return typeof used === 'number' && Number.isFinite(used) ? Math.max(0, used) : 0;
+}
+
+function getFreeEnergyCapacity(creep: Creep): number | null {
+  const store = creep.store as Partial<StoreDefinition>;
+  const free = store.getFreeCapacity?.(getEnergyResource());
+  return typeof free === 'number' && Number.isFinite(free) ? Math.max(0, free) : null;
+}
+
+function getEnergyResource(): ResourceConstant {
+  return ((globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
