@@ -211,6 +211,7 @@ interface RuntimeRoomSummary {
   workerEfficiency?: RuntimeWorkerEfficiencySummary;
   refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary;
   refillWorkerUtilization?: RuntimeRefillWorkerUtilizationSummary;
+  workerEnergyThroughput?: RuntimeWorkerEnergyThroughputSummary;
   spawnCriticalRefill?: RuntimeSpawnCriticalRefillSummary;
   controller?: RuntimeControllerSummary;
   resources: RuntimeResourceSummary;
@@ -412,6 +413,16 @@ interface RuntimeRefillWorkerUtilizationWorkerSummary {
   refillActiveTicks: number;
   idleOrOtherTaskTicks: number;
   ratio: number;
+}
+
+interface RuntimeWorkerEnergyThroughputSummary {
+  sampleCount: number;
+  energyDelivered: number;
+  deliveryTicks: number;
+  activeTicks: number;
+  idleOrOtherTaskTicks: number;
+  energyPerTick: number;
+  deliveryEfficiency: number;
 }
 
 interface RuntimeSpawnCriticalRefillSummary {
@@ -1162,10 +1173,12 @@ function summarizeRefillTelemetry(
 ): {
   refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary;
   refillWorkerUtilization?: RuntimeRefillWorkerUtilizationSummary;
+  workerEnergyThroughput?: RuntimeWorkerEnergyThroughputSummary;
 } {
   return {
     ...summarizeRefillDeliveryTicks(workers, tick),
-    ...summarizeRefillWorkerUtilization(workers)
+    ...summarizeRefillWorkerUtilization(workers),
+    ...summarizeWorkerEnergyThroughput(workers, tick)
   };
 }
 
@@ -1173,17 +1186,7 @@ function summarizeRefillDeliveryTicks(
   workers: Creep[],
   tick: number
 ): { refillDeliveryTicks?: RuntimeRefillDeliveryTicksSummary } {
-  const samples = workers
-    .flatMap((worker) =>
-      (worker.memory.refillTelemetry?.recentDeliveries ?? []).map((sample) => ({
-        creepName: getCreepName(worker),
-        sample
-      }))
-    )
-    .filter((entry): entry is RuntimeRefillDeliverySampleEntry =>
-      isRecentRefillDeliverySample(entry.sample, tick)
-    )
-    .sort(compareRefillDeliverySampleEntries);
+  const samples = getRecentRefillDeliverySampleEntries(workers, tick);
 
   if (samples.length === 0) {
     return {};
@@ -1202,6 +1205,53 @@ function summarizeRefillDeliveryTicks(
       ...(samples.length > MAX_REFILL_DELIVERY_SAMPLES
         ? { omittedSampleCount: samples.length - MAX_REFILL_DELIVERY_SAMPLES }
         : {})
+    }
+  };
+}
+
+function getRecentRefillDeliverySampleEntries(
+  workers: Creep[],
+  tick: number
+): RuntimeRefillDeliverySampleEntry[] {
+  return workers
+    .flatMap((worker) =>
+      (worker.memory.refillTelemetry?.recentDeliveries ?? []).map((sample) => ({
+        creepName: getCreepName(worker),
+        sample
+      }))
+    )
+    .filter((entry): entry is RuntimeRefillDeliverySampleEntry =>
+      isRecentRefillDeliverySample(entry.sample, tick)
+    )
+    .sort(compareRefillDeliverySampleEntries);
+}
+
+function summarizeWorkerEnergyThroughput(
+  workers: Creep[],
+  tick: number
+): { workerEnergyThroughput?: RuntimeWorkerEnergyThroughputSummary } {
+  const samples = getRecentRefillDeliverySampleEntries(workers, tick);
+  if (samples.length === 0) {
+    return {};
+  }
+
+  const energyDelivered = samples.reduce((total, entry) => total + Math.max(0, entry.sample.energyDelivered), 0);
+  const deliveryTicks = samples.reduce((total, entry) => total + Math.max(0, entry.sample.deliveryTicks), 0);
+  const activeTicks = samples.reduce((total, entry) => total + Math.max(0, entry.sample.activeTicks), 0);
+  const idleOrOtherTaskTicks = samples.reduce(
+    (total, entry) => total + Math.max(0, entry.sample.idleOrOtherTaskTicks),
+    0
+  );
+
+  return {
+    workerEnergyThroughput: {
+      sampleCount: samples.length,
+      energyDelivered,
+      deliveryTicks,
+      activeTicks,
+      idleOrOtherTaskTicks,
+      energyPerTick: roundRatio(energyDelivered, deliveryTicks),
+      deliveryEfficiency: roundRatio(activeTicks, activeTicks + idleOrOtherTaskTicks)
     }
   };
 }
