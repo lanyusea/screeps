@@ -12893,7 +12893,12 @@ function findWorkerEnergyAcquisitionCandidates(creep, options = {}) {
     return candidate ? [candidate] : [];
   }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options));
   const droppedEnergyCandidates = findDroppedEnergyAcquisitionCandidates(creep, reservationContext, options);
-  return [...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
+  const sourceLinkEnergyCandidates = findWorkerSourceLinkEnergyAcquisitionCandidates(
+    creep,
+    reservationContext,
+    options
+  );
+  return [...sourceLinkEnergyCandidates, ...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
 }
 function selectWorkerLinkEnergyFallbackTask(creep) {
   var _a, _b;
@@ -12935,6 +12940,13 @@ function findOwnedWorkerEnergyLinks(room) {
     filter: (structure) => isLinkEnergySource(structure) && getStoredEnergy4(structure) > 0
   });
   return Array.isArray(structures) ? structures : [];
+}
+function findOwnedSourceWorkerEnergyLinks(room) {
+  const workerLinkIds = new Set(findOwnedWorkerEnergyLinks(room).map((link) => String(link.id)));
+  if (workerLinkIds.size === 0) {
+    return [];
+  }
+  return classifyLinks(room).sourceLinks.filter((link) => workerLinkIds.has(String(link.id)));
 }
 function getMinimumWorkerLinkWithdrawalEnergy(creep) {
   return Math.max(1, getFreeEnergyCapacity3(creep));
@@ -12983,6 +12995,12 @@ function findDroppedEnergyAcquisitionCandidates(creep, reservationContext, optio
     );
     return candidate ? [candidate] : [];
   }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options)).sort(compareDroppedEnergyReachabilityPriority).slice(0, MAX_DROPPED_ENERGY_REACHABILITY_CHECKS).filter((candidate) => isReachable(creep, candidate.source));
+}
+function findWorkerSourceLinkEnergyAcquisitionCandidates(creep, reservationContext, options = {}) {
+  return findOwnedSourceWorkerEnergyLinks(creep.room).flatMap((link) => {
+    const candidate = createSourceLinkEnergyAcquisitionCandidate(creep, link, reservationContext);
+    return candidate ? [candidate] : [];
+  }).filter((candidate) => isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options));
 }
 function isWorkerEnergyAcquisitionCandidateWithinSearchRange(candidate, options) {
   return options.maximumRange === void 0 || candidate.range !== null && candidate.range <= options.maximumRange;
@@ -13961,6 +13979,7 @@ function findSourceContainerWithdrawCandidates(creep) {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
   const candidates = [];
   const seenContainerIds = /* @__PURE__ */ new Set();
+  const seenLinkIds = /* @__PURE__ */ new Set();
   for (const source of context.sources) {
     const sourceContainer = findVisibleSourceContainer(creep, source);
     if (!sourceContainer || seenContainerIds.has(String(sourceContainer.id))) {
@@ -13979,6 +13998,18 @@ function findSourceContainerWithdrawCandidates(creep) {
       getHarvestSourceAssignmentLoad(context.assignmentLoads, source)
     )) {
       continue;
+    }
+    const sourceLink = findVisibleSourceLink(creep, source);
+    if (sourceLink && !seenLinkIds.has(String(sourceLink.id))) {
+      const sourceLinkCandidate = createSourceLinkEnergyAcquisitionCandidate(
+        creep,
+        sourceLink,
+        reservationContext
+      );
+      if (sourceLinkCandidate) {
+        candidates.push(sourceLinkCandidate);
+        seenLinkIds.add(String(sourceLink.id));
+      }
     }
     const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
       creep,
@@ -14000,6 +14031,19 @@ function findSourceContainerWithdrawCandidates(creep) {
     }
   }
   return candidates;
+}
+function createSourceLinkEnergyAcquisitionCandidate(creep, sourceLink, reservationContext) {
+  const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+    creep,
+    sourceLink,
+    getStoredEnergy4(sourceLink),
+    {
+      type: "withdraw",
+      targetId: sourceLink.id
+    },
+    reservationContext
+  );
+  return candidate && candidate.range !== null ? { ...candidate, priority: 1 } : null;
 }
 function selectSourceContainerHarvestTask(creep) {
   const source = selectSourceContainerHarvestSource(creep);
@@ -14092,6 +14136,21 @@ function getAdjacentRoomNames4(roomName, gameMap) {
 function findVisibleSourceContainer(creep, source) {
   const sourceRoom = findVisibleSourceRoom(creep, source);
   return sourceRoom ? findSourceContainer(sourceRoom, source) : null;
+}
+function findVisibleSourceLink(creep, source) {
+  var _a;
+  const sourceRoom = findVisibleSourceRoom(creep, source);
+  if (!sourceRoom) {
+    return null;
+  }
+  return (_a = findOwnedSourceWorkerEnergyLinks(sourceRoom).filter((link) => isSourceLinkNearSource(source, link)).sort((left, right) => compareSourceLinksForSource(source, left, right))[0]) != null ? _a : null;
+}
+function isSourceLinkNearSource(source, link) {
+  const range = getRangeBetweenRoomObjectPositions(source, link);
+  return range !== null && range <= SOURCE_LINK_RANGE;
+}
+function compareSourceLinksForSource(source, left, right) {
+  return compareOptionalRanges(getRangeBetweenRoomObjectPositions(source, left), getRangeBetweenRoomObjectPositions(source, right)) || String(left.id).localeCompare(String(right.id));
 }
 function createSourceContainerWithdrawalContext(creep, sources = findVisibleHarvestSources(creep)) {
   const assignmentLoads = getWorkerHarvestLoads(sources);
