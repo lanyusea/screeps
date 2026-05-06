@@ -35,6 +35,8 @@ import {
   TERRITORY_RESERVATION_RENEWAL_TICKS
 } from '../src/territory/territoryPlanner';
 
+const TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25 as const;
+
 type TestEnergySink = StructureSpawn | StructureExtension | StructureTower;
 
 function makeLoadedWorker(room: Room, task?: CreepTaskMemory): Creep {
@@ -360,6 +362,10 @@ describe('selectWorkerTask', () => {
     delete (globalThis as unknown as { PathFinder?: Partial<PathFinder> }).PathFinder;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game?: Partial<Game> }).Game = { creeps: {} };
+  });
+
+  it('pins the critical spawn repair threshold at 25 percent', () => {
+    expect(CRITICAL_SPAWN_REPAIR_HITS_RATIO).toBe(TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO);
   });
 
   it('selects harvest when worker has no energy', () => {
@@ -6421,7 +6427,7 @@ describe('selectWorkerTask', () => {
     const site = { id: 'generic-site1', structureType: 'tower' } as ConstructionSite;
     const spawn = makeRepairSpawn(
       'spawn-critical',
-      Math.floor(5_000 * CRITICAL_SPAWN_REPAIR_HITS_RATIO),
+      Math.floor(5_000 * TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO),
       5_000,
       { pos: makeRoomPosition(10, 10) }
     );
@@ -6449,7 +6455,7 @@ describe('selectWorkerTask', () => {
   it('keeps healthy damaged spawns behind critical infrastructure repair', () => {
     const spawn = makeRepairSpawn(
       'spawn-damaged',
-      Math.floor(5_000 * CRITICAL_SPAWN_REPAIR_HITS_RATIO) + 1
+      Math.floor(5_000 * TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO) + 1
     );
     const container = makeStructure('container-critical', 'container' as StructureConstant, 100, 2_000);
     const creep = {
@@ -9778,7 +9784,7 @@ describe('selectWorkerTask', () => {
     const source2 = makeSource('source2', 24, 23);
     const spawn = makeRepairSpawn(
       'spawn-critical',
-      Math.floor(5_000 * CRITICAL_SPAWN_REPAIR_HITS_RATIO),
+      Math.floor(5_000 * TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO),
       5_000,
       { pos: makeRoomPosition(10, 10) }
     );
