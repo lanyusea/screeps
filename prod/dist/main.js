@@ -10102,6 +10102,13 @@ function selectHeuristicWorkerTask(creep) {
     recordLowLoadReturnTelemetry(creep, downgradeGuardTask, "controllerDowngradeGuard");
     return downgradeGuardTask;
   }
+  const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep);
+  if (criticalSpawnRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: "repair",
+      targetId: criticalSpawnRepairTarget.id
+    });
+  }
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask = {

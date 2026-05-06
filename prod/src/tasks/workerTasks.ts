@@ -318,6 +318,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return downgradeGuardTask;
   }
 
+  const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep);
+  if (criticalSpawnRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: criticalSpawnRepairTarget.id as Id<Structure>
+    });
+  }
+
   const spawnOrExtensionEnergySink = selectSpawnOrExtensionEnergySink(creep);
   if (spawnOrExtensionEnergySink) {
     const spawnOrExtensionRefillTask: Extract<CreepTaskMemory, { type: 'transfer' }> = {
