@@ -1213,7 +1213,21 @@ function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryInten
     return buildTerritoryReserverBody(energyAvailable);
   }
 
+  if (hasPostClaimBootstrapReserve(intent)) {
+    return buildTerritoryControllerBody(
+      Math.max(0, energyAvailable - Math.floor(intent.postClaimBootstrapReserveEnergy ?? 0))
+    );
+  }
+
   return buildTerritoryControllerBody(energyAvailable);
+}
+
+function hasPostClaimBootstrapReserve(intent: TerritoryIntentPlan): boolean {
+  return (
+    intent.action === 'claim' &&
+    typeof intent.postClaimBootstrapReserveEnergy === 'number' &&
+    intent.postClaimBootstrapReserveEnergy > 0
+  );
 }
 
 function getVisibleRoom(roomName: string): Room | undefined {

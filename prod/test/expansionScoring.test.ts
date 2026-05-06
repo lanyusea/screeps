@@ -551,6 +551,34 @@ describe('next expansion scoring', () => {
     });
   });
 
+  it('does not persist own-reserved rooms as generic next-expansion claims', () => {
+    const colony = makeSafeColony();
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 2,
+          controller: { reservationUsername: 'me', reservationTicksToEnd: 4_500 }
+        })
+      ])
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      reservation: { relation: 'own', ticksToEnd: 4_500 }
+    });
+    expect(refreshNextExpansionTargetSelection(colony, report, 103)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unavailable'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
+  });
+
   it('does not persist one-source rooms as next expansion claim targets or actions', () => {
     const colony = makeSafeColony();
     const report = scoreExpansionCandidates(
