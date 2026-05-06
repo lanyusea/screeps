@@ -141,6 +141,58 @@ describe('autonomous expansion claim executor', () => {
     ]);
   });
 
+  it('uses claimed-room resource synergy when ranking autonomous expansion claims', () => {
+    const colony = makeColony({
+      energyAvailable: 1_000,
+      energyCapacityAvailable: 1_000,
+      sourceCount: 2,
+      mineralType: 'H'
+    });
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId: 'controller2' as Id<StructureController>,
+      sourceCount: 2,
+      mineralType: 'H'
+    });
+    (Game.rooms as Record<string, Room>).W1N2 = makeTargetRoom('W1N2', {
+      controllerId: 'controller12' as Id<StructureController>,
+      sourceCount: 1,
+      mineralType: 'O'
+    });
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      colony,
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId: 'controller2' as Id<StructureController>,
+          sourceCount: 2
+        }),
+        makeCandidate({
+          roomName: 'W1N2',
+          controllerId: 'controller12' as Id<StructureController>,
+          sourceCount: 1
+        })
+      ]),
+      100
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      controllerId: 'controller12'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W1N2',
+        action: 'claim',
+        createdBy: 'autonomousExpansionClaim',
+        controllerId: 'controller12'
+      }
+    ]);
+  });
+
   it('does not record a claim when all expansion scores are below threshold', () => {
     (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
       controllerId: 'controller2' as Id<StructureController>
@@ -848,7 +900,6 @@ describe('autonomous expansion claim executor', () => {
       ]),
       104
     );
-
     expect(evaluation).toMatchObject({
       status: 'planned',
       targetRoom: 'W2N1',
@@ -1145,18 +1196,41 @@ function makeColony({
   roomName = 'W1N1',
   energyAvailable = 650,
   energyCapacityAvailable = 650,
-  controllerLevel = 3
+  controllerLevel = 3,
+  sourceCount = 1,
+  mineralType
 }: {
   roomName?: string;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   controllerLevel?: number;
+  sourceCount?: number;
+  mineralType?: string;
 } = {}): ColonySnapshot {
   const room = {
     name: roomName,
     energyAvailable,
     energyCapacityAvailable,
-    controller: { my: true, owner: { username: 'me' }, level: controllerLevel, ticksToDowngrade: 10_000 }
+    controller: { my: true, owner: { username: 'me' }, level: controllerLevel, ticksToDowngrade: 10_000 },
+    find: jest.fn((type: number) => {
+      if (type === FIND_SOURCES) {
+        return Array.from({ length: sourceCount }, (_value, index) => ({ id: `${roomName}-source${index}` }));
+      }
+
+      if (type === FIND_MINERALS) {
+        return mineralType
+          ? [
+              {
+                id: `${roomName}-mineral`,
+                mineralType,
+                density: 1
+              }
+            ]
+          : [];
+      }
+
+      return [];
+    })
   } as unknown as Room;
 
   return {
@@ -1210,12 +1284,14 @@ function makeTargetRoom(
     controllerId,
     upgradeBlocked = 0,
     sourceCount = 1,
+    mineralType = 'H',
     hostileCreeps = [],
     hostileStructures = []
   }: {
     controllerId: Id<StructureController>;
     upgradeBlocked?: number;
     sourceCount?: number;
+    mineralType?: string;
     hostileCreeps?: Creep[];
     hostileStructures?: AnyStructure[];
   }
@@ -1241,7 +1317,14 @@ function makeTargetRoom(
       }
 
       if (type === FIND_MINERALS) {
-        return [{ id: `${roomName}-mineral`, mineralType: 'H' }];
+        return mineralType
+          ? [
+              {
+                id: `${roomName}-mineral`,
+                mineralType
+              }
+            ]
+          : [];
       }
 
       return [];

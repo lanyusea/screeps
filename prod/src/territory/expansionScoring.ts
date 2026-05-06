@@ -58,6 +58,7 @@ export interface ExpansionCandidateReport {
 export interface ExpansionCandidateScore {
   roomName: string;
   score: number;
+  synergyScore: number;
   evidenceStatus: ExpansionCandidateEvidenceStatus;
   visible: boolean;
   rationale: string[];
@@ -528,6 +529,7 @@ function scoreExpansionCandidate(
   return {
     roomName: candidate.roomName,
     score,
+    synergyScore: synergy.score,
     evidenceStatus,
     visible,
     rationale,
@@ -1168,7 +1170,7 @@ function countVisibleOwnedRooms(colonyName: string, ownerUsername: string | unde
   return getVisibleOwnedRoomNames(colonyName, ownerUsername).size;
 }
 
-function buildRuntimeClaimedRoomSynergyEvidence(
+export function buildRuntimeClaimedRoomSynergyEvidence(
   colonyRoom: Room,
   ownerUsername: string | undefined
 ): ExpansionClaimedRoomInput[] {
@@ -1182,14 +1184,10 @@ function buildRuntimeClaimedRoomSynergyEvidence(
 
 function buildClaimedRoomSynergyEvidence(room: Room): ExpansionClaimedRoomInput {
   const sourceFindConstant = getFindConstant('FIND_SOURCES');
-  const mineralFindConstant = getFindConstant('FIND_MINERALS');
   const sources = typeof sourceFindConstant === 'number' && typeof room.find === 'function'
     ? findRoomObjects<Source>(room, sourceFindConstant)
     : undefined;
-  const mineral = typeof mineralFindConstant === 'number' && typeof room.find === 'function'
-    ? findRoomObjects<Mineral>(room, mineralFindConstant)[0]
-    : undefined;
-  const mineralType = normalizeMineralType(mineral ? summarizeExpansionMineral(mineral).mineralType : undefined);
+  const mineralType = normalizeMineralType(buildVisibleExpansionMineralEvidence(room)?.mineralType);
 
   return {
     roomName: room.name,
@@ -1404,6 +1402,14 @@ function summarizeExpansionScoutController(
       ? { reservationTicksToEnd: controller.reservationTicksToEnd }
       : {})
   };
+}
+
+export function buildVisibleExpansionMineralEvidence(room: Room): ExpansionMineralEvidence | undefined {
+  const mineralFindConstant = getFindConstant('FIND_MINERALS');
+  const mineral = typeof mineralFindConstant === 'number' && typeof room.find === 'function'
+    ? findRoomObjects<Mineral>(room, mineralFindConstant)[0]
+    : undefined;
+  return mineral ? summarizeExpansionMineral(mineral) : undefined;
 }
 
 function summarizeExpansionMineral(mineral: Mineral): ExpansionMineralEvidence {
