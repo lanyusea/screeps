@@ -43,9 +43,15 @@ describe('spawn survival integration', () => {
       suppressionReasons: ['bootstrapWorkerFloor', 'spawnEnergyCritical']
     });
 
-    harness.runTick(102, 200 + MIN_SPAWN_ENERGY_BUFFER - 1);
+    harness.runTick(102, 200);
     expectSpawnHasEnergyOrWorker(harness);
-    expect(harness.spawn.spawnCreep).not.toHaveBeenCalled();
+    expect(harness.spawn.spawnCreep).toHaveBeenLastCalledWith(
+      ['work', 'carry', 'move'],
+      'worker-W1N1-102',
+      { memory: { role: 'worker', colony: 'W1N1' } }
+    );
+    expect(harness.spawnedBodies()).toEqual([['work', 'carry', 'move']]);
+    expect(harness.workerNames()).toEqual(['worker-W1N1-102']);
     expect(harness.room.memory.colonyStage).toEqual({
       mode: 'BOOTSTRAP',
       updatedAt: 102,
@@ -59,8 +65,11 @@ describe('spawn survival integration', () => {
       'worker-W1N1-103',
       { memory: { role: 'worker', colony: 'W1N1' } }
     );
-    expect(harness.spawnedBodies()).toEqual([['work', 'carry', 'move']]);
-    expect(harness.workerNames()).toEqual(['worker-W1N1-103']);
+    expect(harness.spawnedBodies()).toEqual([
+      ['work', 'carry', 'move'],
+      ['work', 'carry', 'move']
+    ]);
+    expect(harness.workerNames()).toEqual(['worker-W1N1-102', 'worker-W1N1-103']);
     expect(harness.room.memory.colonyStage).toEqual({
       mode: 'BOOTSTRAP',
       updatedAt: 103,
@@ -71,7 +80,11 @@ describe('spawn survival integration', () => {
     expectSpawnHasEnergyOrWorker(harness);
     harness.runTick(105, 200 + MIN_SPAWN_ENERGY_BUFFER);
     expectSpawnHasEnergyOrWorker(harness);
-    expect(harness.workerNames()).toEqual(['worker-W1N1-103', 'worker-W1N1-104', 'worker-W1N1-105']);
+    expect(harness.workerNames()).toEqual([
+      'worker-W1N1-102',
+      'worker-W1N1-103',
+      'worker-W1N1-104'
+    ]);
     expect(harness.spawnedBodies().slice(0, 3)).toEqual([
       ['work', 'carry', 'move'],
       ['work', 'carry', 'move'],
@@ -93,8 +106,8 @@ describe('spawn survival integration', () => {
 
     harness.runTick(107, 500);
     expectSpawnHasEnergyOrWorker(harness);
-    expect(harness.spawnedBodies()).toHaveLength(4);
-    expect(harness.workerNames()).toHaveLength(4);
+    expect(harness.spawnedBodies()[4]).toEqual(['work', 'work', 'work', 'carry', 'move', 'move']);
+    expect(harness.workerNames()).toHaveLength(5);
     expect(harness.room.memory.colonyStage).toMatchObject({
       mode: 'BOOTSTRAP',
       updatedAt: 107,
@@ -103,25 +116,11 @@ describe('spawn survival integration', () => {
 
     harness.runTick(108, 800);
     expectSpawnHasEnergyOrWorker(harness);
-    expect(harness.spawnedBodies()[4]).toEqual([
-      'work',
-      'work',
-      'work',
-      'carry',
-      'move',
-      'move',
-      'work',
-      'move',
-      'carry',
-      'move',
-      'move'
-    ]);
     expect(harness.workerNames()).toHaveLength(5);
     expect(harness.spawn.spawnCreep).toHaveBeenCalledTimes(5);
-    expect(harness.room.memory.colonyStage).toMatchObject({
-      mode: 'BOOTSTRAP',
-      updatedAt: 108,
-      suppressionReasons: ['bootstrapRecovery']
+    expect(harness.room.memory.colonyStage).toEqual({
+      mode: 'TERRITORY_READY',
+      updatedAt: 108
     });
 
     harness.runTick(109, 800);

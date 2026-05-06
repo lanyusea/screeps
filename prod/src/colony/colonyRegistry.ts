@@ -4,6 +4,7 @@ export interface ColonySnapshot {
   spawns: StructureSpawn[];
   energyAvailable: number;
   energyCapacityAvailable: number;
+  spawnEnergyBudget?: number;
 }
 
 export function getOwnedColonies(): ColonySnapshot[] {

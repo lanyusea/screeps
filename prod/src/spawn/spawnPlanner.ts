@@ -280,7 +280,7 @@ function hasControllerDowngradeGuardSpawnCapacity(context: SpawnPlanningContext)
 }
 
 function hasRecoveryWorkerSpawnEnergy(colony: ColonySnapshot): boolean {
-  return colony.energyAvailable >= MINIMUM_EMERGENCY_WORKER_BODY_COST;
+  return getSpawnEnergyBudget(colony) >= MINIMUM_EMERGENCY_WORKER_BODY_COST;
 }
 
 interface PostClaimControllerSustainPlan {
@@ -646,7 +646,7 @@ function planDefenseSpawnForRoom(
     return null;
   }
 
-  const body = buildDefenseBody(colony.energyAvailable, hostileCount);
+  const body = buildDefenseBody(getSpawnEnergyBudget(colony), hostileCount);
   if (body.length === 0) {
     return null;
   }
@@ -681,7 +681,7 @@ function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | n
 
   const remoteHarvesterAssignment = selectRemoteHarvesterAssignment(context.colony.room.name);
   if (remoteHarvesterAssignment) {
-    const body = buildRemoteHarvesterBody(context.colony.energyAvailable);
+    const body = buildRemoteHarvesterBody(getSpawnEnergyBudget(context.colony));
     if (body.length > 0) {
       return {
         spawn,
@@ -709,7 +709,7 @@ function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | n
     return null;
   }
 
-  const body = buildRemoteHaulerBody(context.colony.energyAvailable, remoteHaulerAssignment.routeDistance);
+  const body = buildRemoteHaulerBody(getSpawnEnergyBudget(context.colony), remoteHaulerAssignment.routeDistance);
   if (body.length === 0) {
     return null;
   }
@@ -835,7 +835,7 @@ function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): Spa
   }
 
   for (const upgradePlan of upgradePlans) {
-    const body = buildMultiRoomUpgraderBody(context.colony.energyAvailable, upgradePlan);
+    const body = buildMultiRoomUpgraderBody(getSpawnEnergyBudget(context.colony), upgradePlan);
     if (body.length === 0) {
       continue;
     }
@@ -1001,7 +1001,7 @@ function planTerritorySpawn(
     return null;
   }
 
-  const body = buildTerritorySpawnBody(colony.energyAvailable, territoryIntent);
+  const body = buildTerritorySpawnBody(getSpawnEnergyBudget(colony), territoryIntent);
   if (body.length === 0) {
     return null;
   }
@@ -1061,27 +1061,32 @@ function appendSpawnNameSuffix(baseName: string, options: SpawnPlanningOptions):
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {
+  const spawnEnergyBudget = getSpawnEnergyBudget(colony);
   if (shouldUseSourceHarvesterBody(colony, roleCounts)) {
     const sourceDistance = estimateLocalSourceDistance(colony);
     const fullCapacityBody = generateHarvesterBody(colony.energyCapacityAvailable, sourceDistance);
-    if (canAffordBody(fullCapacityBody, colony.energyAvailable)) {
+    if (canAffordBody(fullCapacityBody, spawnEnergyBudget)) {
       return fullCapacityBody;
     }
 
-    return generateHarvesterBody(colony.energyAvailable, sourceDistance);
+    return generateHarvesterBody(spawnEnergyBudget, sourceDistance);
   }
 
   const controllerLevel = colony.room.controller?.level;
   const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
-  if (canAffordBody(normalBody, colony.energyAvailable)) {
+  if (canAffordBody(normalBody, spawnEnergyBudget)) {
     return normalBody;
   }
 
   if (roleCounts.worker === 0) {
-    return buildEmergencyWorkerBody(colony.energyAvailable);
+    return buildEmergencyWorkerBody(spawnEnergyBudget);
   }
 
-  return buildWorkerBody(colony.energyAvailable, controllerLevel);
+  return buildWorkerBody(spawnEnergyBudget, controllerLevel);
+}
+
+function getSpawnEnergyBudget(colony: ColonySnapshot): number {
+  return normalizeNonNegativeInteger(colony.spawnEnergyBudget ?? colony.energyAvailable);
 }
 
 export function generateHarvesterBody(

@@ -104,6 +104,15 @@ interface SpawnAttemptOutcome {
   result: ScreepsReturnCode;
 }
 
+interface SpawnRequestSelection {
+  spawnRequest: SpawnRequest;
+  bodyCost: number;
+}
+
+interface SpawnPlanSelection extends SpawnRequestSelection {
+  planningColony: ColonySnapshot;
+}
+
 export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): RuntimeSummary | undefined {
   const creeps = Object.values(Game.creeps);
   balanceStorage();
@@ -141,24 +150,20 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     const usedSpawns = new Set<StructureSpawn>(usedSpawnsByRoom.get(colony.room.name) ?? []);
 
     while (true) {
-      const planningColony = createSpawnPlanningColony(colony, availableEnergy, usedSpawns);
-      const spawnRequest = planSpawn(
-        planningColony,
+      const spawnPlan = selectSpawnPlanWithinEnergyBuffer(
+        colony,
+        availableEnergy,
+        usedSpawns,
         roleCounts,
         Game.time,
         getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp)
       );
-      if (!spawnRequest) {
+      if (!spawnPlan) {
         break;
       }
 
+      const { planningColony, spawnRequest, bodyCost } = spawnPlan;
       if (successfulSpawnCount > 0 && !isAllowedPostSpawnRequest(spawnRequest)) {
-        break;
-      }
-
-      const bodyCost = getBodyCost(spawnRequest.body);
-      if (isSpawnEnergyBufferViolated(availableEnergy, bodyCost)) {
-        logSpawnEnergyBufferWarning(spawnRequest, colony.room.name, availableEnergy, bodyCost);
         break;
       }
 
@@ -272,20 +277,25 @@ function attemptCrossRoomHaulerSpawn(
     return;
   }
 
-  const bodyCost = getBodyCost(spawnRequest.body);
   const availableEnergy = getAvailableSpawnEnergyAfterReservations(sourceColony, spawnRequest, reservedSpawnEnergyByRoom);
-  if (bodyCost > availableEnergy) {
+  const spawnPlan = selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(spawnRequest, availableEnergy);
+  if (!spawnPlan) {
+    const originalBodyCost = getBodyCost(spawnRequest.body);
+    if (originalBodyCost <= availableEnergy && isSpawnEnergyBufferViolated(availableEnergy, originalBodyCost)) {
+      logSpawnEnergyBufferWarning(spawnRequest, sourceRoomName, availableEnergy, originalBodyCost);
+    }
     return;
   }
 
+  const { spawnRequest: bufferedSpawnRequest, bodyCost } = spawnPlan;
   if (isSpawnEnergyBufferViolated(availableEnergy, bodyCost)) {
     logSpawnEnergyBufferWarning(spawnRequest, sourceRoomName, availableEnergy, bodyCost);
     return;
   }
 
-  const request = candidateSpawns.includes(spawnRequest.spawn)
-    ? spawnRequest
-    : { ...spawnRequest, spawn: candidateSpawns[0] };
+  const request = candidateSpawns.includes(bufferedSpawnRequest.spawn)
+    ? bufferedSpawnRequest
+    : { ...bufferedSpawnRequest, spawn: candidateSpawns[0] };
   const outcome = attemptSpawnRequest(
     request,
     sourceRoomName,
@@ -623,6 +633,122 @@ function createSpawnPlanningColony(
     energyAvailable,
     spawns: colony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn))
   };
+}
+
+function selectSpawnPlanWithinEnergyBuffer(
+  colony: ColonySnapshot,
+  availableEnergy: number,
+  usedSpawns: Set<StructureSpawn>,
+  roleCounts: RoleCounts,
+  gameTime: number,
+  options: SpawnPlanningOptions
+): SpawnPlanSelection | null {
+  const spawnPlan = planSpawnWithEnergyBudget(
+    colony,
+    availableEnergy,
+    usedSpawns,
+    roleCounts,
+    gameTime,
+    options
+  );
+  if (!spawnPlan) {
+    return null;
+  }
+
+  if (roleCounts.worker === 0 || !isSpawnEnergyBufferViolated(availableEnergy, spawnPlan.bodyCost)) {
+    return spawnPlan;
+  }
+
+  const fallbackSpawnPlan = planSpawnWithEnergyBudget(
+    colony,
+    getBufferedSpawnEnergyBudget(availableEnergy),
+    usedSpawns,
+    roleCounts,
+    gameTime,
+    options
+  );
+  if (fallbackSpawnPlan && !isSpawnEnergyBufferViolated(availableEnergy, fallbackSpawnPlan.bodyCost)) {
+    return fallbackSpawnPlan;
+  }
+
+  logSpawnEnergyBufferWarning(spawnPlan.spawnRequest, colony.room.name, availableEnergy, spawnPlan.bodyCost);
+  return null;
+}
+
+function planSpawnWithEnergyBudget(
+  colony: ColonySnapshot,
+  energyBudget: number,
+  usedSpawns: Set<StructureSpawn>,
+  roleCounts: RoleCounts,
+  gameTime: number,
+  options: SpawnPlanningOptions
+): SpawnPlanSelection | null {
+  const planningColony = createSpawnPlanningColony(colony, energyBudget, usedSpawns);
+  const spawnRequest = planSpawn(planningColony, roleCounts, gameTime, options);
+  if (!spawnRequest) {
+    return null;
+  }
+
+  return {
+    planningColony,
+    spawnRequest,
+    bodyCost: getBodyCost(spawnRequest.body)
+  };
+}
+
+function getBufferedSpawnEnergyBudget(availableEnergy: number): number {
+  return Math.max(0, availableEnergy - MIN_SPAWN_ENERGY_BUFFER);
+}
+
+function selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(
+  spawnRequest: SpawnRequest,
+  availableEnergy: number
+): SpawnRequestSelection | null {
+  const bodyCost = getBodyCost(spawnRequest.body);
+  if (bodyCost <= getBufferedSpawnEnergyBudget(availableEnergy)) {
+    return {
+      spawnRequest,
+      bodyCost
+    };
+  }
+
+  const fallbackBody = buildAffordableCrossRoomHaulerBody(
+    spawnRequest.body,
+    getBufferedSpawnEnergyBudget(availableEnergy)
+  );
+  if (fallbackBody.length === 0) {
+    return null;
+  }
+
+  return {
+    spawnRequest: { ...spawnRequest, body: fallbackBody },
+    bodyCost: getBodyCost(fallbackBody)
+  };
+}
+
+function buildAffordableCrossRoomHaulerBody(
+  body: BodyPartConstant[],
+  energyBudget: number
+): BodyPartConstant[] {
+  const affordableBody: BodyPartConstant[] = [];
+  let bodyCost = 0;
+
+  for (let index = 0; index + 1 < body.length; index += 2) {
+    const pair = body.slice(index, index + 2);
+    if (pair[0] !== 'carry' || pair[1] !== 'move') {
+      return [];
+    }
+
+    const pairCost = getBodyCost(pair);
+    if (bodyCost + pairCost > energyBudget) {
+      break;
+    }
+
+    affordableBody.push(...pair);
+    bodyCost += pairCost;
+  }
+
+  return affordableBody;
 }
 
 function getSpawnPlanningOptions(

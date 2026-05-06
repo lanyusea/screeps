@@ -42,7 +42,7 @@ describe('runEconomy', () => {
     });
   });
 
-  it('defers an emergency bootstrap worker when spawning would violate the energy buffer', () => {
+  it('spawns an emergency bootstrap worker without requiring the energy buffer', () => {
     const room = {
       name: 'W1N1',
       energyAvailable: 200,
@@ -64,8 +64,10 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith(
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-125', {
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+    expect(logSpy).not.toHaveBeenCalledWith(
       `[spawn] warning: deferred worker-W1N1-125 in W1N1; available energy 200, body cost 200, required buffer ${MIN_SPAWN_ENERGY_BUFFER}`
     );
   });
@@ -331,6 +333,44 @@ describe('runEconomy', () => {
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
       ['work', 'carry', 'move', 'work', 'carry', 'move'],
       'worker-W1N1-127',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+  });
+
+  it('sizes a refill worker against buffered energy when raw room energy would consume the buffer', () => {
+    (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 4;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 400,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: 'source1' } as Source] : []))
+    } as unknown as Room;
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 128,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: workers
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move'],
+      'worker-W1N1-128',
       {
         memory: { role: 'worker', colony: 'W1N1' }
       }
@@ -944,7 +984,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    room.energyCapacityAvailable = 700;
+    room.energyCapacityAvailable = 750;
     (globalThis as unknown as { Game: Partial<Game> }).Game.time = 502;
 
     runEconomy();
@@ -2253,13 +2293,13 @@ function createLifecycleSpawn(room: Room, creeps: Record<string, Creep>, spawnTi
   return spawn as unknown as LifecycleSpawn;
 }
 
-function makeTerritoryReadyEconomyRoom({
-  energyAvailable = 650 + MIN_SPAWN_ENERGY_BUFFER,
-  energyCapacityAvailable = 650
-}: {
+function makeTerritoryReadyEconomyRoom(options: {
   energyAvailable?: number;
   energyCapacityAvailable?: number;
 } = {}): Room {
+  const energyCapacityAvailable = options.energyCapacityAvailable ?? 650 + MIN_SPAWN_ENERGY_BUFFER;
+  const energyAvailable = Math.min(options.energyAvailable ?? energyCapacityAvailable, energyCapacityAvailable);
+
   return {
     name: 'W1N1',
     energyAvailable,
