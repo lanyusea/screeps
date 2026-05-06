@@ -1095,6 +1095,94 @@ describe('runEconomy', () => {
     ]);
   });
 
+  it('spawns a next-expansion claimer from sufficient scout-intel scoring', () => {
+    (globalThis as unknown as {
+      FIND_SOURCES: number;
+      FIND_HOSTILE_CREEPS: number;
+      FIND_HOSTILE_STRUCTURES: number;
+      TERRAIN_MASK_WALL: number;
+      TERRAIN_MASK_SWAMP: number;
+      Memory: Partial<Memory>;
+    }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 2;
+    (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 3;
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W2N1': {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            updatedAt: 500,
+            controller: { id: 'controller2' as Id<StructureController>, my: false },
+            sourceIds: ['source-a', 'source-b'],
+            sourceCount: 2,
+            sourceAccessPoints: 7,
+            controllerSourceRange: 8,
+            terrain: { walkableRatio: 0.92, swampRatio: 0.04, wallRatio: 0.08 },
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+    const room = makeTerritoryReadyEconomyRoom();
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 505,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null),
+      map: {
+        describeExits: jest.fn(() => ({ '3': 'W2N1' })),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => ({ get: jest.fn().mockReturnValue(0) } as unknown as RoomTerrain))
+      } as unknown as GameMap
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W2N1-505', {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W2N1',
+          action: 'claim',
+          controllerId: 'controller2'
+        }
+      }
+    });
+    expect(room.memory.cachedExpansionSelection).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
   it('reuses cached next expansion scoring between refresh ticks', () => {
     (globalThis as unknown as {
       FIND_SOURCES: number;
@@ -2006,8 +2094,8 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_STRUCTURES, 2, 2, 47, 47, true);
-    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_CONSTRUCTION_SITES, 2, 2, 47, 47, true);
+    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_STRUCTURES, 15, 15, 31, 31, true);
+    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_CONSTRUCTION_SITES, 15, 15, 31, 31, true);
     expect(room.createConstructionSite).toHaveBeenCalledWith(16, 16, STRUCTURE_SPAWN);
     expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
       status: 'spawnSitePending',
@@ -2101,7 +2189,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_MINERALS, 2, 2, 47, 47, true);
+    expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_MINERALS, 15, 15, 31, 31, true);
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 22, 22, STRUCTURE_SPAWN);
     expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 23, 22, STRUCTURE_SPAWN);

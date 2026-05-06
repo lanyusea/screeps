@@ -5678,6 +5678,8 @@ var DOWNGRADE_GUARD_TICKS = 5e3;
 var MIN_CONTROLLER_LEVEL = 2;
 var MAX_PERSISTED_EXPANSION_CANDIDATES = 5;
 var EXPANSION_SCOUT_INTEL_TTL = 1e4;
+var EXPANSION_CLAIM_ROUTE_ROOM_TICKS = 50;
+var EXPANSION_CLAIM_READY_BUFFER_TICKS = 10;
 var EXPANSION_SOURCE_COVERAGE_TARGET_PER_ROOM = 2;
 var EXPANSION_ENERGY_CAPACITY_CONSTRAINED_THRESHOLD = 800;
 var SYNERGY_MINERAL_GAP_BONUS = 220;
@@ -6225,13 +6227,27 @@ function getOwnedRoomCount(input) {
 }
 function selectPersistableExpansionCandidate(report) {
   var _a;
-  return (_a = report.candidates.find(
-    (candidate) => candidate.visible && isViableExpansionCandidate(candidate)
-  )) != null ? _a : null;
+  return (_a = report.candidates.find(isViableExpansionCandidate)) != null ? _a : null;
 }
 function isViableExpansionCandidate(candidate) {
+  return candidate.evidenceStatus === "sufficient" && candidate.preconditions.length === 0 && typeof candidate.sourceCount === "number" && candidate.sourceCount > 0 && isExpansionControllerAvailableForClaim(candidate);
+}
+function isExpansionControllerAvailableForClaim(candidate) {
   var _a;
-  return candidate.evidenceStatus === "sufficient" && candidate.preconditions.length === 0 && candidate.sourceCount === 2 && ((_a = candidate.reservation) == null ? void 0 : _a.relation) !== "own";
+  if (((_a = candidate.reservation) == null ? void 0 : _a.relation) !== "own") {
+    return true;
+  }
+  return isOwnReservationClaimArrivalWindowOpen(candidate);
+}
+function isOwnReservationClaimArrivalWindowOpen(candidate) {
+  var _a;
+  const ticksToEnd = (_a = candidate.reservation) == null ? void 0 : _a.ticksToEnd;
+  return typeof ticksToEnd === "number" && ticksToEnd <= estimateExpansionClaimArrivalTicks(candidate);
+}
+function estimateExpansionClaimArrivalTicks(candidate) {
+  var _a, _b;
+  const roomDistance = (_b = (_a = candidate.routeDistance) != null ? _a : candidate.nearestOwnedRoomDistance) != null ? _b : candidate.adjacentToOwnedRoom ? 1 : MAX_NEARBY_EXPANSION_ROUTE_DISTANCE;
+  return Math.max(1, Math.ceil(roomDistance)) * EXPANSION_CLAIM_ROUTE_ROOM_TICKS + EXPANSION_CLAIM_READY_BUFFER_TICKS;
 }
 function getSelectionSkipReason(report) {
   if (report.candidates.length === 0) {
@@ -6299,7 +6315,7 @@ function toPersistedExpansionCandidateMemory(colony, candidate, gameTime, rank) 
 }
 function getPersistedExpansionCandidateRecommendedAction(candidate) {
   if (isViableExpansionCandidate(candidate)) {
-    return candidate.visible ? "claim" : "reserve";
+    return "claim";
   }
   return candidate.evidenceStatus === "insufficient-evidence" && candidate.adjacentToOwnedRoom ? "scout" : void 0;
 }
@@ -19104,6 +19120,7 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
     workerTarget: (_b = existing == null ? void 0 : existing.workerTarget) != null ? _b : POST_CLAIM_BOOTSTRAP_WORKER_TARGET,
     ...input.controllerId ? { controllerId: input.controllerId } : {}
   };
+  recordClaimedRoomOccupation(input.roomName, claimedAt, gameTime);
   telemetryEvents.push({
     type: "postClaimBootstrap",
     roomName: input.roomName,
@@ -19113,6 +19130,26 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
     workerTarget: POST_CLAIM_BOOTSTRAP_WORKER_TARGET
   });
   placePostClaimSpawnConstructionSite(input.roomName, telemetryEvents);
+}
+function recordClaimedRoomOccupation(roomName, claimedAt, gameTime) {
+  var _a;
+  const memory = globalThis.Memory;
+  if (!memory) {
+    return;
+  }
+  if (!memory.territory) {
+    memory.territory = {};
+  }
+  if (!memory.territory.claimedRoomBootstrapper) {
+    memory.territory.claimedRoomBootstrapper = { rooms: {} };
+  }
+  memory.territory.claimedRoomBootstrapper.rooms[roomName] = {
+    roomName,
+    owned: true,
+    claimedAt,
+    updatedAt: gameTime,
+    ...((_a = memory.territory.claimedRoomBootstrapper.rooms[roomName]) == null ? void 0 : _a.completedAt) !== void 0 ? { completedAt: memory.territory.claimedRoomBootstrapper.rooms[roomName].completedAt } : {}
+  };
 }
 function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents = []) {
   var _a, _b;
@@ -19352,6 +19389,10 @@ function planInitialSpawnConstructionSite(room) {
   if (typeof room.createConstructionSite !== "function") {
     return { result: ERR_INVALID_TARGET_CODE2 };
   }
+  const plannerResult = planInitialSpawnConstructionSiteWithPlanner(room);
+  if (plannerResult) {
+    return plannerResult;
+  }
   const positions = findInitialSpawnConstructionPositions(room);
   if (positions.length === 0) {
     return { result: ERR_INVALID_TARGET_CODE2 };
@@ -19367,6 +19408,39 @@ function planInitialSpawnConstructionSite(room) {
     }
   }
   return { result: lastResult };
+}
+function planInitialSpawnConstructionSiteWithPlanner(room) {
+  const result = planConstructionForColony({
+    room,
+    spawns: getRoomSpawns(room.name),
+    energyAvailable: getRoomEnergyAvailable3(room),
+    energyCapacityAvailable: getRoomEnergyCapacityAvailable2(room)
+  });
+  const spawnPlacement = result.placements.find((placement) => placement.priority === "spawn");
+  if (!spawnPlacement) {
+    return null;
+  }
+  return {
+    result: spawnPlacement.result,
+    ...spawnPlacement.result === OK_CODE7 && typeof spawnPlacement.x === "number" && typeof spawnPlacement.y === "number" ? { position: { roomName: room.name, x: spawnPlacement.x, y: spawnPlacement.y } } : {}
+  };
+}
+function getRoomSpawns(roomName) {
+  var _a;
+  const spawns = (_a = globalThis.Game) == null ? void 0 : _a.spawns;
+  if (!spawns) {
+    return [];
+  }
+  return Object.values(spawns).filter((spawn) => {
+    var _a2;
+    return ((_a2 = spawn == null ? void 0 : spawn.room) == null ? void 0 : _a2.name) === roomName;
+  });
+}
+function getRoomEnergyAvailable3(room) {
+  return typeof room.energyAvailable === "number" && Number.isFinite(room.energyAvailable) ? Math.max(0, room.energyAvailable) : 0;
+}
+function getRoomEnergyCapacityAvailable2(room) {
+  return typeof room.energyCapacityAvailable === "number" && Number.isFinite(room.energyCapacityAvailable) ? Math.max(0, room.energyCapacityAvailable) : getRoomEnergyAvailable3(room);
 }
 function findInitialSpawnConstructionPositions(room) {
   const anchor = selectInitialSpawnAnchor2(room);

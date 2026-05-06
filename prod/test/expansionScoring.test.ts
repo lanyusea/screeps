@@ -518,20 +518,30 @@ describe('next expansion scoring', () => {
     expect(report.next?.rationale).toEqual(expect.arrayContaining(['2 sources scouted']));
 
     expect(refreshNextExpansionTargetSelection(colony, report, 451)).toEqual({
-      status: 'skipped',
+      status: 'planned',
       colony: 'W1N1',
-      reason: 'unavailable'
+      targetRoom: 'W2N1',
+      controllerId: 'controller2',
+      score: report.candidates[0].score
     });
     expect(getExpansionCandidateMemory()[0]).toMatchObject({
       colony: 'W1N1',
       roomName: 'W2N1',
       rank: 1,
       evidenceStatus: 'sufficient',
-      recommendedAction: 'reserve',
+      recommendedAction: 'claim',
       visible: false,
       updatedAt: 451
     });
-    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller2'
+      }
+    ]);
   });
 
   it('uses persisted scout intel to rank two-source neutral rooms above one-source owned rooms', () => {
@@ -767,7 +777,7 @@ describe('next expansion scoring', () => {
     });
   });
 
-  it('does not persist own-reserved rooms as generic next-expansion claims', () => {
+  it('does not persist own-reserved rooms before the claim arrival window opens', () => {
     const colony = makeSafeColony();
     const report = scoreExpansionCandidates(
       makeInput([
@@ -795,7 +805,46 @@ describe('next expansion scoring', () => {
     expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
   });
 
-  it('does not persist one-source rooms as next expansion claim targets or actions', () => {
+  it('persists own-reserved rooms when the reservation will expire before arrival', () => {
+    const colony = makeSafeColony();
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 2,
+          controller: { reservationUsername: 'me', reservationTicksToEnd: 55 }
+        })
+      ])
+    );
+
+    expect(refreshNextExpansionTargetSelection(colony, report, 104)).toEqual({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      controllerId: 'controller3',
+      score: report.candidates[0].score
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller3'
+      }
+    ]);
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      recommendedAction: 'claim',
+      visible: true,
+      updatedAt: 104
+    });
+  });
+
+  it('persists one-source rooms as next expansion claim targets when they are the best available candidate', () => {
     const colony = makeSafeColony();
     const report = scoreExpansionCandidates(
       makeInput([
@@ -813,21 +862,41 @@ describe('next expansion scoring', () => {
       sourceCount: 1
     });
     expect(refreshNextExpansionTargetSelection(colony, report, 102)).toEqual({
-      status: 'skipped',
+      status: 'planned',
       colony: 'W1N1',
-      reason: 'unavailable'
+      targetRoom: 'W3N1',
+      controllerId: 'controller3',
+      score: report.candidates[0].score
     });
-    expect(Memory.territory?.targets).toBeUndefined();
-    expect(Memory.territory?.intents).toBeUndefined();
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller3'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 102,
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller3'
+      }
+    ]);
     expect(getExpansionCandidateMemory()[0]).toMatchObject({
       colony: 'W1N1',
       roomName: 'W3N1',
       evidenceStatus: 'sufficient',
       sourceCount: 1,
       visible: true,
-      updatedAt: 102
+      updatedAt: 102,
+      recommendedAction: 'claim'
     });
-    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
   });
 
   it('preserves unrelated claim intents while pruning stale next expansion intents', () => {

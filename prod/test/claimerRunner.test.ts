@@ -164,6 +164,12 @@ describe('runClaimer', () => {
       updatedAt: 520,
       controllerId: 'controller1'
     });
+    expect(Memory.territory?.claimedRoomBootstrapper?.rooms.W2N1).toEqual({
+      roomName: 'W2N1',
+      owned: true,
+      claimedAt: 520,
+      updatedAt: 520
+    });
     expect((colonyRoom.memory.cachedExpansionSelection as unknown as Record<string, unknown>).claimExecution).toEqual({
       status: 'claimed',
       targetRoom: 'W2N1',
