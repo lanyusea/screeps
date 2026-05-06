@@ -964,6 +964,59 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('keeps an approved adjacent auto-claim when occupation evidence is unavailable', () => {
+    const colony = makeSafeColony({
+      energyAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY,
+      energyCapacityAvailable: TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+    });
+    const targetController = {
+      id: 'controller2' as Id<StructureController>,
+      my: false,
+      reservation: { username: 'me', ticksToEnd: TERRITORY_AUTO_CLAIM_RESERVATION_MIN_TICKS }
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits: jest.fn(() => ({ '1': 'W1N2' })) } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      },
+      getObjectById: jest.fn((id: Id<StructureController>) => (id === 'controller2' ? targetController : null))
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W1N2',
+            action: 'reserve',
+            createdBy: 'adjacentRoomReservation',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 1002)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'claim',
+      createdBy: 'adjacentRoomReservation',
+      controllerId: 'controller2',
+      postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 1002,
+        createdBy: 'adjacentRoomReservation',
+        controllerId: 'controller2',
+        postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
+      }
+    ]);
+  });
+
   it('holds adjacent reservations until auto-claim gates are satisfied', () => {
     const scenarios = [
       {

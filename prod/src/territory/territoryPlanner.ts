@@ -136,6 +136,7 @@ interface SelectedTerritoryTarget {
   target: TerritoryTargetMemory;
   intentAction: TerritoryIntentAction;
   commitTarget: boolean;
+  autoClaimApproved?: boolean;
   requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
   postClaimBootstrapReserveEnergy?: number;
@@ -1521,13 +1522,15 @@ function getConfiguredTerritoryCandidates(
       territoryMemory,
       gameTime
     );
+    const autoClaimApproved =
+      actionForTarget !== target.action && isAdjacentReservationAutoClaimTarget(target, actionForTarget);
     const actionableTarget =
       actionForTarget === target.action
         ? target
         : {
             ...target,
             action: actionForTarget,
-            ...(isAdjacentReservationAutoClaimTarget(target, actionForTarget)
+            ...(autoClaimApproved
               ? { postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY }
               : {})
           };
@@ -1592,6 +1595,7 @@ function getConfiguredTerritoryCandidates(
         target: actionableTarget,
         intentAction: actionableTarget.action,
         commitTarget: false,
+        ...(autoClaimApproved ? { autoClaimApproved: true } : {}),
         ...(ignoreOwnHealthyReservation ? { ignoreOwnHealthyReservation: true } : {}),
         ...(requiresControllerPressure ? { requiresControllerPressure: true } : {}),
         ...(persistedFollowUp ? { followUp: persistedFollowUp.followUp } : {}),
@@ -2725,6 +2729,10 @@ function applyOccupationRecommendationScores(
     workerTarget
   );
   return candidates.flatMap((candidate) => {
+    if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
+      return [candidate];
+    }
+
     const recommendation = scoreOccupationRecommendations({
       colonyName: colony.room.name,
       ...(colonyOwnerUsername ? { colonyOwnerUsername } : {}),
@@ -2853,6 +2861,10 @@ function getRecommendedTerritoryIntentAction(
   recommendation: OccupationRecommendationScore,
   roleCounts: RoleCounts
 ): TerritoryIntentAction {
+  if (isAutoClaimApprovedTerritoryCandidate(candidate)) {
+    return candidate.intentAction;
+  }
+
   if (candidate.source === 'occupationIntent' && isPersistedControllerFollowUpCandidate(candidate)) {
     return candidate.intentAction;
   }
@@ -2889,6 +2901,15 @@ function getRecommendedTerritoryIntentAction(
 
 function isUnscoutedAdjacentReservationCandidate(candidate: ScoredTerritoryTarget): boolean {
   return isAdjacentRoomReservationReserveSelection(candidate);
+}
+
+function isAutoClaimApprovedTerritoryCandidate(candidate: ScoredTerritoryTarget): boolean {
+  return (
+    candidate.autoClaimApproved === true &&
+    candidate.intentAction === 'claim' &&
+    candidate.target.action === 'claim' &&
+    candidate.target.createdBy === 'adjacentRoomReservation'
+  );
 }
 
 function isAdjacentRoomReservationReserveSelection(
