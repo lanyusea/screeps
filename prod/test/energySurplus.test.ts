@@ -55,6 +55,30 @@ describe('energySurplus', () => {
     });
   });
 
+  it.each([
+    42,
+    { updatedAt: 50, rooms: [] }
+  ])('normalizes malformed surplus memory before refreshing room state', (energySurplus) => {
+    const spawn = makeEnergyStructure('spawn1', 'spawn', 300, 300);
+    const container = makeEnergyStructure('container1', 'container', 2_000, 2_000);
+    const storage = makeEnergyStructure('storage1', 'storage', 100, 1_000) as StructureStorage;
+    const room = makeRoom({
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      storage,
+      myStructures: [spawn, storage],
+      structures: [spawn, container, storage]
+    });
+    (Memory as unknown as { economy: { energySurplus: unknown } }).economy = { energySurplus };
+
+    expect(() => refreshRoomEnergySurplusState(room)).not.toThrow();
+    expect(Memory.economy?.energySurplus?.rooms.W1N1).toMatchObject({
+      surplus: true,
+      selectedSinkId: 'storage1',
+      updatedAt: 100
+    });
+  });
+
   it('does not declare surplus while a visible container still has capacity', () => {
     const spawn = makeEnergyStructure('spawn1', 'spawn', 300, 300);
     const container = makeEnergyStructure('container1', 'container', 1_900, 2_000);

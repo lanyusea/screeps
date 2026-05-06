@@ -521,11 +521,6 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return null;
   }
 
-  const energySurplusStorageTask = selectEnergySurplusStorageTask(creep, carriedEnergy);
-  if (energySurplusStorageTask) {
-    return energySurplusStorageTask;
-  }
-
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
   const highImpactConstructionSite = selectUnreservedConstructionSite(
     creep,
@@ -575,6 +570,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
 
   if (controller?.my && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'upgrade', targetId: controller.id });
+  }
+
+  const energySurplusStorageTask = selectEnergySurplusStorageTask(creep, carriedEnergy);
+  if (energySurplusStorageTask) {
+    return energySurplusStorageTask;
   }
 
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {

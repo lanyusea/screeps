@@ -11361,8 +11361,8 @@ function getRemoteMiningSources(room) {
   );
 }
 function getRemoteMiningAssignedCreeps(homeRoom, targetRoom) {
-  const findMyCreeps4 = globalThis.FIND_MY_CREEPS;
-  if (typeof findMyCreeps4 !== "number") {
+  const findMyCreeps3 = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps3 !== "number") {
     return [];
   }
   const seen = /* @__PURE__ */ new Set();
@@ -11372,7 +11372,7 @@ function getRemoteMiningAssignedCreeps(homeRoom, targetRoom) {
     if (!room || typeof room.find !== "function") {
       continue;
     }
-    const roomCreeps = room.find(findMyCreeps4);
+    const roomCreeps = room.find(findMyCreeps3);
     if (!Array.isArray(roomCreeps)) {
       continue;
     }
@@ -11559,13 +11559,14 @@ function getRoomEnergySurplusState(room) {
 function refreshRoomEnergySurplusState(room) {
   const state = getRoomEnergySurplusState(room);
   const memory = getEconomyMemory();
-  if (!memory.energySurplus) {
-    memory.energySurplus = { updatedAt: getGameTime10(), rooms: {} };
+  const updatedAt = getGameTime10();
+  if (!isPlainObject(memory.energySurplus) || !isPlainObject(memory.energySurplus.rooms)) {
+    memory.energySurplus = { updatedAt, rooms: {} };
   }
-  memory.energySurplus.updatedAt = getGameTime10();
+  memory.energySurplus.updatedAt = updatedAt;
   memory.energySurplus.rooms[room.name] = {
     ...state,
-    updatedAt: getGameTime10()
+    updatedAt
   };
   return state;
 }
@@ -11580,41 +11581,6 @@ function selectEnergySurplusDeliverySink(room, minimumFreeCapacity = 1) {
     getRoomTerminal(room, ownedStructures),
     minimumFreeCapacity
   );
-}
-function routeEnergySurplus(room) {
-  const state = refreshRoomEnergySurplusState(room);
-  const ownedStructures = findOwnedStructures3(room);
-  const sink = state.surplus ? selectEnergySurplusSinkFromStores(
-    getRoomStorage2(room, ownedStructures),
-    getRoomTerminal(room, ownedStructures),
-    1
-  ) : null;
-  if (!sink) {
-    return { assignedTasks: 0, routedEnergy: 0, state };
-  }
-  let remainingSinkCapacity = getFreeEnergyCapacity(sink);
-  let assignedTasks = 0;
-  let routedEnergy = 0;
-  const sinkId = getObjectId5(sink);
-  for (const worker of findMyCreeps2(room).filter(isEligibleSurplusWorker).sort(compareCreepsByStableId)) {
-    const carriedEnergy = getStoredEnergy3(worker);
-    if (carriedEnergy <= 0) {
-      continue;
-    }
-    if (isTransferTaskTo(worker.memory.task, sinkId)) {
-      remainingSinkCapacity = Math.max(0, remainingSinkCapacity - carriedEnergy);
-      routedEnergy += carriedEnergy;
-      continue;
-    }
-    if (!isAssignableSurplusWorker(worker) || carriedEnergy > remainingSinkCapacity) {
-      continue;
-    }
-    worker.memory.task = { type: "transfer", targetId: sink.id };
-    assignedTasks += 1;
-    routedEnergy += carriedEnergy;
-    remainingSinkCapacity = Math.max(0, remainingSinkCapacity - carriedEnergy);
-  }
-  return { assignedTasks, routedEnergy, state };
 }
 function getTerminalEnergyTarget(terminal) {
   if (!terminal) {
@@ -11693,13 +11659,6 @@ function findRoomStructures2(room, ownedStructures) {
   const result = room.find(FIND_STRUCTURES);
   return Array.isArray(result) ? result : ownedStructures;
 }
-function findMyCreeps2(room) {
-  if (typeof FIND_MY_CREEPS !== "number" || typeof room.find !== "function") {
-    return [];
-  }
-  const result = room.find(FIND_MY_CREEPS);
-  return Array.isArray(result) ? result : [];
-}
 function getRoomStorage2(room, ownedStructures) {
   var _a, _b;
   return (_b = (_a = room.storage) != null ? _a : ownedStructures.find(isStorage)) != null ? _b : null;
@@ -11707,28 +11666,6 @@ function getRoomStorage2(room, ownedStructures) {
 function getRoomTerminal(room, ownedStructures) {
   var _a, _b;
   return (_b = (_a = room.terminal) != null ? _a : ownedStructures.find(isTerminal)) != null ? _b : null;
-}
-function isEligibleSurplusWorker(creep) {
-  var _a;
-  return ((_a = creep.memory) == null ? void 0 : _a.role) === "worker" && !creep.memory.controllerSustain && !creep.memory.territory;
-}
-function isAssignableSurplusWorker(creep) {
-  const task = creep.memory.task;
-  return !task || task.type === "build" || task.type === "repair" || task.type === "upgrade";
-}
-function isTransferTaskTo(task, targetId) {
-  return (task == null ? void 0 : task.type) === "transfer" && String(task.targetId) === targetId;
-}
-function compareCreepsByStableId(left, right) {
-  return getCreepStableId(left).localeCompare(getCreepStableId(right));
-}
-function getCreepStableId(creep) {
-  const name = creep.name;
-  if (typeof name === "string") {
-    return name;
-  }
-  const id = creep.id;
-  return typeof id === "string" ? id : "";
 }
 function isSpawnOrExtension(structure) {
   return matchesStructureType8(structure.structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType8(structure.structureType, "STRUCTURE_EXTENSION", "extension");
@@ -11781,6 +11718,13 @@ function getObjectId5(object) {
   }
   const id = object.id;
   return typeof id === "string" ? id : "";
+}
+function isPlainObject(value) {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 function getEconomyMemory() {
   const memory = getMemory();
@@ -12770,10 +12714,6 @@ function selectHeuristicWorkerTask(creep) {
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
-  const energySurplusStorageTask = selectEnergySurplusStorageTask(creep, carriedEnergy);
-  if (energySurplusStorageTask) {
-    return energySurplusStorageTask;
-  }
   const constructionPriorityContext = buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
   const highImpactConstructionSite = selectUnreservedConstructionSite(
     creep,
@@ -12816,6 +12756,10 @@ function selectHeuristicWorkerTask(creep) {
   }
   if ((controller == null ? void 0 : controller.my) && canUpgradeController(controller)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: "upgrade", targetId: controller.id });
+  }
+  const energySurplusStorageTask = selectEnergySurplusStorageTask(creep, carriedEnergy);
+  if (energySurplusStorageTask) {
+    return energySurplusStorageTask;
   }
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
@@ -13272,7 +13216,7 @@ function selectPriorityTowerEnergySink(creep) {
 }
 function selectEnergySurplusStorageTask(creep, carriedEnergy) {
   var _a, _b;
-  if (carriedEnergy <= 0 || ((_a = creep.memory) == null ? void 0 : _a.controllerSustain) || ((_b = creep.memory) == null ? void 0 : _b.territory)) {
+  if (carriedEnergy <= 0 || !isWorkerInColonyRoom(creep) || ((_a = creep.memory) == null ? void 0 : _a.controllerSustain) || ((_b = creep.memory) == null ? void 0 : _b.territory)) {
     return null;
   }
   const sink = selectEnergySurplusDeliverySink(creep.room, carriedEnergy);
@@ -13582,9 +13526,9 @@ function createConstructionReservationContext(room) {
 }
 function getRoomOwnedCreeps(room) {
   var _a;
-  const findMyCreeps4 = globalThis.FIND_MY_CREEPS;
-  if (typeof findMyCreeps4 === "number") {
-    const roomCreeps = (_a = room.find) == null ? void 0 : _a.call(room, findMyCreeps4);
+  const findMyCreeps3 = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps3 === "number") {
+    const roomCreeps = (_a = room.find) == null ? void 0 : _a.call(room, findMyCreeps3);
     if (Array.isArray(roomCreeps)) {
       return roomCreeps;
     }
@@ -17685,15 +17629,15 @@ function getVisibleRoom3(roomName) {
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
 function getRemoteOperationCreeps(homeRoom, targetRoom) {
-  const findMyCreeps4 = globalThis.FIND_MY_CREEPS;
-  if (typeof findMyCreeps4 !== "number") {
+  const findMyCreeps3 = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps3 !== "number") {
     return [];
   }
   const seen = /* @__PURE__ */ new Set();
   const creeps = [];
   for (const roomName of [homeRoom, targetRoom]) {
     const room = getVisibleRoom3(roomName);
-    const roomCreeps = typeof (room == null ? void 0 : room.find) === "function" ? room.find(findMyCreeps4) : void 0;
+    const roomCreeps = typeof (room == null ? void 0 : room.find) === "function" ? room.find(findMyCreeps3) : void 0;
     if (!Array.isArray(roomCreeps)) {
       continue;
     }
@@ -17961,15 +17905,15 @@ function getObjectById2(id) {
   return typeof getObjectById5 === "function" ? getObjectById5(String(id)) : null;
 }
 function getRemoteOperationCreeps2(homeRoom, targetRoom) {
-  const findMyCreeps4 = globalThis.FIND_MY_CREEPS;
-  if (typeof findMyCreeps4 !== "number") {
+  const findMyCreeps3 = globalThis.FIND_MY_CREEPS;
+  if (typeof findMyCreeps3 !== "number") {
     return [];
   }
   const seen = /* @__PURE__ */ new Set();
   const creeps = [];
   for (const roomName of [homeRoom, targetRoom]) {
     const room = getVisibleRoom4(roomName);
-    const roomCreeps = typeof (room == null ? void 0 : room.find) === "function" ? room.find(findMyCreeps4) : void 0;
+    const roomCreeps = typeof (room == null ? void 0 : room.find) === "function" ? room.find(findMyCreeps3) : void 0;
     if (!Array.isArray(roomCreeps)) {
       continue;
     }
@@ -22721,7 +22665,7 @@ function isRoomSpawnExtensionEnergyLow(room, structures) {
 function findStorageManagementWorkers(room, storage, demandState) {
   const storageId = getObjectId10(storage);
   const demandTargetIds = new Set(demandState.targets.map((target) => target.id));
-  return findMyCreeps3(room).filter((creep) => isEligibleStorageManagementWorker(creep, room.name)).filter((creep) => isAssignableStorageManagementWorker(creep, storageId, demandTargetIds)).sort(compareWorkers);
+  return findMyCreeps2(room).filter((creep) => isEligibleStorageManagementWorker(creep, room.name)).filter((creep) => isAssignableStorageManagementWorker(creep, storageId, demandTargetIds)).sort(compareWorkers);
 }
 function reserveExistingAssignments(workers, storage, demandState, storageEnergy) {
   let projectedStorageEnergy = storageEnergy;
@@ -22893,7 +22837,7 @@ function findOwnedStructures6(room) {
   const result = room.find(FIND_MY_STRUCTURES);
   return Array.isArray(result) ? result : [];
 }
-function findMyCreeps3(room) {
+function findMyCreeps2(room) {
   if (typeof FIND_MY_CREEPS !== "number" || typeof room.find !== "function") {
     return [];
   }
@@ -26433,7 +26377,7 @@ function runEconomy(preludeTelemetryEvents = []) {
     }
     transferEnergy(colony.room);
     manageStorage(colony.room);
-    routeEnergySurplus(colony.room);
+    refreshRoomEnergySurplusState(colony.room);
     recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
   ensureRemoteSourceContainersForAssignedHarvesters(creeps);

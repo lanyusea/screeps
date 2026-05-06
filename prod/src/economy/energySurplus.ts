@@ -81,14 +81,15 @@ export function getRoomEnergySurplusState(room: Room): RoomEnergySurplusState {
 export function refreshRoomEnergySurplusState(room: Room): RoomEnergySurplusState {
   const state = getRoomEnergySurplusState(room);
   const memory = getEconomyMemory();
-  if (!memory.energySurplus) {
-    memory.energySurplus = { updatedAt: getGameTime(), rooms: {} };
+  const updatedAt = getGameTime();
+  if (!isPlainObject(memory.energySurplus) || !isPlainObject(memory.energySurplus.rooms)) {
+    memory.energySurplus = { updatedAt, rooms: {} };
   }
 
-  memory.energySurplus.updatedAt = getGameTime();
+  memory.energySurplus.updatedAt = updatedAt;
   memory.energySurplus.rooms[room.name] = {
     ...state,
-    updatedAt: getGameTime()
+    updatedAt
   };
   return state;
 }
@@ -385,6 +386,15 @@ function getObjectId(object: unknown): string {
 
   const id = (object as { id?: unknown }).id;
   return typeof id === 'string' ? id : '';
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function getEconomyMemory(): EconomyMemory {
