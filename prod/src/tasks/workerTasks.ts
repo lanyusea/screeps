@@ -169,6 +169,25 @@ interface ConstructionReservationContext {
   reservedProgressBySiteId: Map<string, number>;
 }
 
+interface LiveTransferCandidateCache {
+  game: Partial<Game> | undefined;
+  resultsByRoomPair: Map<string, boolean>;
+  tick: number;
+}
+
+interface InterRoomHaulReservation {
+  energy: number;
+  transferKey: string;
+}
+
+interface InterRoomHaulReservationCache {
+  game: Partial<Game> | undefined;
+  reservationsByCreep: Map<Creep, InterRoomHaulReservation>;
+  reservationsByCreepKey: Map<string, InterRoomHaulReservation>;
+  reservedEnergyByTransferKey: Map<string, number>;
+  tick: number | null;
+}
+
 interface ConstructionSiteSelectionOptions {
   priorityContext?: ConstructionSiteImpactPriorityContext | undefined;
   requireReasonableRange?: boolean;
@@ -204,6 +223,8 @@ interface SourceContainerWithdrawalContext {
 }
 
 let nearTermSpawnExtensionRefillReserveCache: NearTermSpawnExtensionRefillReserveCache | null = null;
+let interRoomLiveTransferCandidateCache: LiveTransferCandidateCache | null = null;
+let interRoomHaulReservationCache: InterRoomHaulReservationCache | null = null;
 
 export function selectWorkerTask(creep: Creep): CreepTaskMemory | null {
   clearWorkerEfficiencyTelemetry(creep);
@@ -1366,8 +1387,13 @@ function selectInterRoomCollectionTask(
     return null;
   }
 
+  const task: Extract<CreepTaskMemory, { type: 'withdraw' }> = {
+    type: 'withdraw',
+    targetId: source.id as Id<AnyStoreStructure>
+  };
   recordInterRoomEnergyHaulAssignment(creep, transfer, { sourceId: source.id as Id<AnyStoreStructure> });
-  return { type: 'withdraw', targetId: source.id as Id<AnyStoreStructure> };
+  syncInterRoomHaulReservationCache(creep, task);
+  return task;
 }
 
 function selectInterRoomDeliveryTask(
@@ -1380,8 +1406,13 @@ function selectInterRoomDeliveryTask(
     return selectInterRoomForeignRoomReturnTask(creep, carriedEnergy);
   }
 
+  const task: Extract<CreepTaskMemory, { type: 'transfer' }> = {
+    type: 'transfer',
+    targetId: target.id as Id<AnyStoreStructure>
+  };
   recordInterRoomEnergyHaulAssignment(creep, transfer, { targetId: target.id as Id<AnyStoreStructure> });
-  return { type: 'transfer', targetId: target.id as Id<AnyStoreStructure> };
+  syncInterRoomHaulReservationCache(creep, task);
+  return task;
 }
 
 function selectExistingInterRoomEnergyTransfer(creep: Creep): EconomyStorageTransferMemory | null {
@@ -1392,7 +1423,7 @@ function selectExistingInterRoomEnergyTransfer(creep: Creep): EconomyStorageTran
   }
 
   const transfer = findInterRoomEnergyTransfer(assignment.sourceRoom, assignment.targetRoom);
-  if (!transfer || !isWorkerAllowedForInterRoomTransfer(creep, transfer) || !isLiveTransferCandidate(transfer)) {
+  if (!transfer || !isWorkerAllowedForInterRoomTransfer(creep, transfer) || !isCachedLiveTransferCandidate(transfer)) {
     clearInterRoomEnergyHaulAssignment(creep);
     return null;
   }
@@ -1415,10 +1446,40 @@ function selectNewInterRoomEnergyTransfer(
     getStorageBalanceState().transfers
       .filter((transfer) => isWorkerAllowedForInterRoomTransfer(creep, transfer))
       .filter((transfer) => transfer.amount > 0)
-      .filter(isLiveTransferCandidate)
+      .filter(isCachedLiveTransferCandidate)
       .filter((transfer) => getRemainingInterRoomHaulEnergy(transfer, creep) >= minimumRemainingEnergy)
       .sort(compareInterRoomEnergyTransfersForWorker)[0] ?? null
   );
+}
+
+function isCachedLiveTransferCandidate(transfer: EconomyStorageTransferMemory): boolean {
+  const gameTick = getGameTick();
+  if (gameTick === null) {
+    return isLiveTransferCandidate(transfer);
+  }
+
+  const game = getGameReference();
+  if (
+    !interRoomLiveTransferCandidateCache ||
+    interRoomLiveTransferCandidateCache.tick !== gameTick ||
+    interRoomLiveTransferCandidateCache.game !== game
+  ) {
+    interRoomLiveTransferCandidateCache = {
+      game,
+      resultsByRoomPair: new Map<string, boolean>(),
+      tick: gameTick
+    };
+  }
+
+  const transferKey = getInterRoomTransferKey(transfer.sourceRoom, transfer.targetRoom);
+  const cachedResult = interRoomLiveTransferCandidateCache.resultsByRoomPair.get(transferKey);
+  if (cachedResult !== undefined) {
+    return cachedResult;
+  }
+
+  const result = isLiveTransferCandidate(transfer);
+  interRoomLiveTransferCandidateCache.resultsByRoomPair.set(transferKey, result);
+  return result;
 }
 
 function isWorkerAllowedForInterRoomTransfer(
@@ -1466,42 +1527,210 @@ function getReservedInterRoomHaulEnergy(
   transfer: EconomyStorageTransferMemory,
   excludedCreep?: Creep
 ): number {
-  let reservedEnergy = 0;
-  for (const creep of getGameCreeps()) {
-    if (excludedCreep && isSameCreep(creep, excludedCreep)) {
-      continue;
-    }
+  const reservationCache = getInterRoomHaulReservationCache();
+  const transferKey = getInterRoomTransferKey(transfer.sourceRoom, transfer.targetRoom);
+  const reservedEnergy = reservationCache.reservedEnergyByTransferKey.get(transferKey) ?? 0;
+  const excludedEnergy = excludedCreep
+    ? getCachedInterRoomHaulReservationEnergy(reservationCache, excludedCreep, transferKey)
+    : 0;
+  return Math.max(0, reservedEnergy - excludedEnergy);
+}
 
-    if (isAssignedInterRoomWorkerHauler(creep, transfer) || isAssignedDedicatedCrossRoomHauler(creep, transfer)) {
-      reservedEnergy += Math.max(getUsedEnergy(creep), getFreeEnergyCapacity(creep));
+function getInterRoomHaulReservationCache(): InterRoomHaulReservationCache {
+  const game = getGameReference();
+  const gameTick = getGameTick();
+  if (
+    interRoomHaulReservationCache &&
+    interRoomHaulReservationCache.game === game &&
+    interRoomHaulReservationCache.tick === gameTick
+  ) {
+    return interRoomHaulReservationCache;
+  }
+
+  interRoomHaulReservationCache = {
+    game,
+    reservationsByCreep: new Map<Creep, InterRoomHaulReservation>(),
+    reservationsByCreepKey: new Map<string, InterRoomHaulReservation>(),
+    reservedEnergyByTransferKey: new Map<string, number>(),
+    tick: gameTick
+  };
+
+  for (const creep of getGameCreeps()) {
+    setCachedInterRoomHaulReservation(
+      interRoomHaulReservationCache,
+      creep,
+      getInterRoomHaulReservation(creep)
+    );
+  }
+
+  return interRoomHaulReservationCache;
+}
+
+function syncInterRoomHaulReservationCache(creep: Creep, selectedTask: CreepTaskMemory): void {
+  const reservationCache = getActiveInterRoomHaulReservationCache();
+  if (!reservationCache) {
+    return;
+  }
+
+  setCachedInterRoomHaulReservation(
+    reservationCache,
+    creep,
+    getInterRoomHaulReservation(creep, selectedTask)
+  );
+}
+
+function clearCachedInterRoomHaulReservation(creep: Creep): void {
+  const reservationCache = getActiveInterRoomHaulReservationCache();
+  if (!reservationCache) {
+    return;
+  }
+
+  removeCachedInterRoomHaulReservation(reservationCache, creep);
+}
+
+function getActiveInterRoomHaulReservationCache(): InterRoomHaulReservationCache | null {
+  const game = getGameReference();
+  const gameTick = getGameTick();
+  return interRoomHaulReservationCache &&
+    interRoomHaulReservationCache.game === game &&
+    interRoomHaulReservationCache.tick === gameTick
+    ? interRoomHaulReservationCache
+    : null;
+}
+
+function setCachedInterRoomHaulReservation(
+  reservationCache: InterRoomHaulReservationCache,
+  creep: Creep,
+  reservation: InterRoomHaulReservation | null
+): void {
+  removeCachedInterRoomHaulReservation(reservationCache, creep);
+  if (!reservation || reservation.energy <= 0) {
+    return;
+  }
+
+  reservationCache.reservedEnergyByTransferKey.set(
+    reservation.transferKey,
+    (reservationCache.reservedEnergyByTransferKey.get(reservation.transferKey) ?? 0) + reservation.energy
+  );
+
+  const creepKey = getCreepStableSortKey(creep);
+  if (creepKey.length > 0) {
+    reservationCache.reservationsByCreepKey.set(creepKey, reservation);
+    return;
+  }
+
+  reservationCache.reservationsByCreep.set(creep, reservation);
+}
+
+function removeCachedInterRoomHaulReservation(
+  reservationCache: InterRoomHaulReservationCache,
+  creep: Creep
+): void {
+  const creepKey = getCreepStableSortKey(creep);
+  if (creepKey.length > 0) {
+    const keyedReservation = reservationCache.reservationsByCreepKey.get(creepKey);
+    if (keyedReservation) {
+      decrementCachedInterRoomHaulReservation(reservationCache, keyedReservation);
+      reservationCache.reservationsByCreepKey.delete(creepKey);
     }
   }
 
-  return reservedEnergy;
+  const objectReservation = reservationCache.reservationsByCreep.get(creep);
+  if (objectReservation) {
+    decrementCachedInterRoomHaulReservation(reservationCache, objectReservation);
+    reservationCache.reservationsByCreep.delete(creep);
+  }
 }
 
-function isAssignedInterRoomWorkerHauler(
+function decrementCachedInterRoomHaulReservation(
+  reservationCache: InterRoomHaulReservationCache,
+  reservation: InterRoomHaulReservation
+): void {
+  const remainingEnergy = (reservationCache.reservedEnergyByTransferKey.get(reservation.transferKey) ?? 0) -
+    reservation.energy;
+  if (remainingEnergy > 0) {
+    reservationCache.reservedEnergyByTransferKey.set(reservation.transferKey, remainingEnergy);
+    return;
+  }
+
+  reservationCache.reservedEnergyByTransferKey.delete(reservation.transferKey);
+}
+
+function getCachedInterRoomHaulReservationEnergy(
+  reservationCache: InterRoomHaulReservationCache,
   creep: Creep,
-  transfer: EconomyStorageTransferMemory
-): boolean {
+  transferKey: string
+): number {
+  const creepKey = getCreepStableSortKey(creep);
+  const reservation = creepKey.length > 0
+    ? reservationCache.reservationsByCreepKey.get(creepKey)
+    : reservationCache.reservationsByCreep.get(creep);
+  return reservation?.transferKey === transferKey ? reservation.energy : 0;
+}
+
+function getInterRoomHaulReservation(
+  creep: Creep,
+  selectedTask?: Partial<CreepTaskMemory>
+): InterRoomHaulReservation | null {
+  return getInterRoomWorkerHaulReservation(creep, selectedTask) ?? getDedicatedCrossRoomHaulReservation(creep);
+}
+
+function getInterRoomWorkerHaulReservation(
+  creep: Creep,
+  selectedTask?: Partial<CreepTaskMemory>
+): InterRoomHaulReservation | null {
   if (creep.memory?.role !== 'worker') {
-    return false;
+    return null;
   }
 
   const assignment = normalizeInterRoomEnergyHaulMemory(creep.memory?.interRoomEnergyHaul);
-  return assignment?.sourceRoom === transfer.sourceRoom && assignment.targetRoom === transfer.targetRoom;
+  if (!assignment) {
+    return null;
+  }
+
+  return {
+    energy: isOnInterRoomHaulLeg(creep, assignment, selectedTask)
+      ? getEnergyCapacity(creep)
+      : getUsedEnergy(creep),
+    transferKey: getInterRoomTransferKey(assignment.sourceRoom, assignment.targetRoom)
+  };
 }
 
-function isAssignedDedicatedCrossRoomHauler(
-  creep: Creep,
-  transfer: EconomyStorageTransferMemory
-): boolean {
+function getDedicatedCrossRoomHaulReservation(creep: Creep): InterRoomHaulReservation | null {
   if (creep.memory?.role !== CROSS_ROOM_HAULER_ROLE) {
-    return false;
+    return null;
   }
 
   const assignment = creep.memory.crossRoomHauler;
-  return assignment?.homeRoom === transfer.sourceRoom && assignment.targetRoom === transfer.targetRoom;
+  if (!assignment?.homeRoom || !assignment.targetRoom) {
+    return null;
+  }
+
+  return {
+    energy: Math.max(getUsedEnergy(creep), getFreeEnergyCapacity(creep)),
+    transferKey: getInterRoomTransferKey(assignment.homeRoom, assignment.targetRoom)
+  };
+}
+
+function isOnInterRoomHaulLeg(
+  creep: Creep,
+  assignment: CreepInterRoomEnergyHaulMemory,
+  selectedTask?: Partial<CreepTaskMemory>
+): boolean {
+  const task = selectedTask ?? (creep.memory?.task as Partial<CreepTaskMemory> | undefined);
+  if (task?.type === 'withdraw' && assignment.sourceId) {
+    return String(task.targetId) === String(assignment.sourceId);
+  }
+
+  if (task?.type === 'transfer' && assignment.targetId) {
+    return String(task.targetId) === String(assignment.targetId);
+  }
+
+  return false;
+}
+
+function getInterRoomTransferKey(sourceRoom: string, targetRoom: string): string {
+  return `${sourceRoom}\0${targetRoom}`;
 }
 
 function selectInterRoomEnergySource(
@@ -1593,11 +1822,9 @@ function selectInterRoomRecallEnergySink(room: Room): InterRoomRecallEnergySink 
 }
 
 function findInterRoomEnergyStores(room: Room): InterRoomEnergyStore[] {
-  const stores = [
-    room.storage,
-    room.terminal,
-    ...findVisibleRoomStructures(room).filter(isInterRoomEnergyStore)
-  ].filter((store): store is InterRoomEnergyStore => store !== undefined);
+  const stores = [room.storage, room.terminal].filter(
+    (store): store is InterRoomEnergyStore => store !== undefined
+  );
   const seenIds = new Set<string>();
   return stores.filter((store) => {
     const id = String(store.id);
@@ -1608,13 +1835,6 @@ function findInterRoomEnergyStores(room: Room): InterRoomEnergyStore[] {
     seenIds.add(id);
     return true;
   });
-}
-
-function isInterRoomEnergyStore(structure: AnyStructure): structure is InterRoomEnergyStore {
-  return (
-    matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
-    matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')
-  );
 }
 
 function compareInterRoomEnergySources(
@@ -1717,6 +1937,7 @@ function isEligibleInterRoomEnergyHaulWorker(creep: Creep): boolean {
 
 function clearInterRoomEnergyHaulAssignment(creep: Creep): void {
   if (creep.memory) {
+    clearCachedInterRoomHaulReservation(creep);
     delete creep.memory.interRoomEnergyHaul;
   }
 }
@@ -4847,8 +5068,12 @@ function createNearTermSpawnExtensionRefillReserveContext(
 }
 
 function getGameTick(): number | null {
-  const time = (globalThis as unknown as { Game?: Partial<Game> }).Game?.time;
+  const time = getGameReference()?.time;
   return typeof time === 'number' && Number.isFinite(time) ? time : null;
+}
+
+function getGameReference(): Partial<Game> | undefined {
+  return (globalThis as unknown as { Game?: Partial<Game> }).Game;
 }
 
 function getRoomName(room: Room): string | null {

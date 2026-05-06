@@ -13473,6 +13473,8 @@ var HARVEST_SOURCE_RANGE = 1;
 var HARVEST_SOURCE_CONTAINER_RANGE = 0;
 var MAX_HARVEST_PATH_OPS = 2e3;
 var nearTermSpawnExtensionRefillReserveCache = null;
+var interRoomLiveTransferCandidateCache = null;
+var interRoomHaulReservationCache = null;
 function selectWorkerTask(creep) {
   clearWorkerEfficiencyTelemetry(creep);
   const heuristicTask = selectHeuristicWorkerTask(creep);
@@ -14283,8 +14285,13 @@ function selectInterRoomCollectionTask(creep, transfer) {
     clearInterRoomEnergyHaulAssignment(creep);
     return null;
   }
+  const task = {
+    type: "withdraw",
+    targetId: source.id
+  };
   recordInterRoomEnergyHaulAssignment(creep, transfer, { sourceId: source.id });
-  return { type: "withdraw", targetId: source.id };
+  syncInterRoomHaulReservationCache(creep, task);
+  return task;
 }
 function selectInterRoomDeliveryTask(creep, transfer, carriedEnergy) {
   var _a;
@@ -14292,8 +14299,13 @@ function selectInterRoomDeliveryTask(creep, transfer, carriedEnergy) {
   if (!target) {
     return selectInterRoomForeignRoomReturnTask(creep, carriedEnergy);
   }
+  const task = {
+    type: "transfer",
+    targetId: target.id
+  };
   recordInterRoomEnergyHaulAssignment(creep, transfer, { targetId: target.id });
-  return { type: "transfer", targetId: target.id };
+  syncInterRoomHaulReservationCache(creep, task);
+  return task;
 }
 function selectExistingInterRoomEnergyTransfer(creep) {
   var _a;
@@ -14303,7 +14315,7 @@ function selectExistingInterRoomEnergyTransfer(creep) {
     return null;
   }
   const transfer = findInterRoomEnergyTransfer(assignment.sourceRoom, assignment.targetRoom);
-  if (!transfer || !isWorkerAllowedForInterRoomTransfer(creep, transfer) || !isLiveTransferCandidate(transfer)) {
+  if (!transfer || !isWorkerAllowedForInterRoomTransfer(creep, transfer) || !isCachedLiveTransferCandidate(transfer)) {
     clearInterRoomEnergyHaulAssignment(creep);
     return null;
   }
@@ -14317,7 +14329,29 @@ function selectNewInterRoomEnergyTransfer(creep, carriedEnergy) {
     return null;
   }
   const minimumRemainingEnergy = Math.max(1, carriedEnergy || getFreeEnergyCapacity5(creep));
-  return (_a = getStorageBalanceState().transfers.filter((transfer) => isWorkerAllowedForInterRoomTransfer(creep, transfer)).filter((transfer) => transfer.amount > 0).filter(isLiveTransferCandidate).filter((transfer) => getRemainingInterRoomHaulEnergy(transfer, creep) >= minimumRemainingEnergy).sort(compareInterRoomEnergyTransfersForWorker)[0]) != null ? _a : null;
+  return (_a = getStorageBalanceState().transfers.filter((transfer) => isWorkerAllowedForInterRoomTransfer(creep, transfer)).filter((transfer) => transfer.amount > 0).filter(isCachedLiveTransferCandidate).filter((transfer) => getRemainingInterRoomHaulEnergy(transfer, creep) >= minimumRemainingEnergy).sort(compareInterRoomEnergyTransfersForWorker)[0]) != null ? _a : null;
+}
+function isCachedLiveTransferCandidate(transfer) {
+  const gameTick = getGameTick3();
+  if (gameTick === null) {
+    return isLiveTransferCandidate(transfer);
+  }
+  const game = getGameReference();
+  if (!interRoomLiveTransferCandidateCache || interRoomLiveTransferCandidateCache.tick !== gameTick || interRoomLiveTransferCandidateCache.game !== game) {
+    interRoomLiveTransferCandidateCache = {
+      game,
+      resultsByRoomPair: /* @__PURE__ */ new Map(),
+      tick: gameTick
+    };
+  }
+  const transferKey = getInterRoomTransferKey(transfer.sourceRoom, transfer.targetRoom);
+  const cachedResult = interRoomLiveTransferCandidateCache.resultsByRoomPair.get(transferKey);
+  if (cachedResult !== void 0) {
+    return cachedResult;
+  }
+  const result = isLiveTransferCandidate(transfer);
+  interRoomLiveTransferCandidateCache.resultsByRoomPair.set(transferKey, result);
+  return result;
 }
 function isWorkerAllowedForInterRoomTransfer(creep, transfer) {
   const colonyName = getCreepColonyName(creep);
@@ -14336,32 +14370,149 @@ function getRemainingInterRoomHaulEnergy(transfer, excludedCreep) {
   return Math.max(0, transfer.amount - getReservedInterRoomHaulEnergy(transfer, excludedCreep));
 }
 function getReservedInterRoomHaulEnergy(transfer, excludedCreep) {
-  let reservedEnergy = 0;
+  var _a;
+  const reservationCache = getInterRoomHaulReservationCache();
+  const transferKey = getInterRoomTransferKey(transfer.sourceRoom, transfer.targetRoom);
+  const reservedEnergy = (_a = reservationCache.reservedEnergyByTransferKey.get(transferKey)) != null ? _a : 0;
+  const excludedEnergy = excludedCreep ? getCachedInterRoomHaulReservationEnergy(reservationCache, excludedCreep, transferKey) : 0;
+  return Math.max(0, reservedEnergy - excludedEnergy);
+}
+function getInterRoomHaulReservationCache() {
+  const game = getGameReference();
+  const gameTick = getGameTick3();
+  if (interRoomHaulReservationCache && interRoomHaulReservationCache.game === game && interRoomHaulReservationCache.tick === gameTick) {
+    return interRoomHaulReservationCache;
+  }
+  interRoomHaulReservationCache = {
+    game,
+    reservationsByCreep: /* @__PURE__ */ new Map(),
+    reservationsByCreepKey: /* @__PURE__ */ new Map(),
+    reservedEnergyByTransferKey: /* @__PURE__ */ new Map(),
+    tick: gameTick
+  };
   for (const creep of getGameCreeps()) {
-    if (excludedCreep && isSameCreep(creep, excludedCreep)) {
-      continue;
-    }
-    if (isAssignedInterRoomWorkerHauler(creep, transfer) || isAssignedDedicatedCrossRoomHauler(creep, transfer)) {
-      reservedEnergy += Math.max(getUsedEnergy2(creep), getFreeEnergyCapacity5(creep));
+    setCachedInterRoomHaulReservation(
+      interRoomHaulReservationCache,
+      creep,
+      getInterRoomHaulReservation(creep)
+    );
+  }
+  return interRoomHaulReservationCache;
+}
+function syncInterRoomHaulReservationCache(creep, selectedTask) {
+  const reservationCache = getActiveInterRoomHaulReservationCache();
+  if (!reservationCache) {
+    return;
+  }
+  setCachedInterRoomHaulReservation(
+    reservationCache,
+    creep,
+    getInterRoomHaulReservation(creep, selectedTask)
+  );
+}
+function clearCachedInterRoomHaulReservation(creep) {
+  const reservationCache = getActiveInterRoomHaulReservationCache();
+  if (!reservationCache) {
+    return;
+  }
+  removeCachedInterRoomHaulReservation(reservationCache, creep);
+}
+function getActiveInterRoomHaulReservationCache() {
+  const game = getGameReference();
+  const gameTick = getGameTick3();
+  return interRoomHaulReservationCache && interRoomHaulReservationCache.game === game && interRoomHaulReservationCache.tick === gameTick ? interRoomHaulReservationCache : null;
+}
+function setCachedInterRoomHaulReservation(reservationCache, creep, reservation) {
+  var _a;
+  removeCachedInterRoomHaulReservation(reservationCache, creep);
+  if (!reservation || reservation.energy <= 0) {
+    return;
+  }
+  reservationCache.reservedEnergyByTransferKey.set(
+    reservation.transferKey,
+    ((_a = reservationCache.reservedEnergyByTransferKey.get(reservation.transferKey)) != null ? _a : 0) + reservation.energy
+  );
+  const creepKey = getCreepStableSortKey(creep);
+  if (creepKey.length > 0) {
+    reservationCache.reservationsByCreepKey.set(creepKey, reservation);
+    return;
+  }
+  reservationCache.reservationsByCreep.set(creep, reservation);
+}
+function removeCachedInterRoomHaulReservation(reservationCache, creep) {
+  const creepKey = getCreepStableSortKey(creep);
+  if (creepKey.length > 0) {
+    const keyedReservation = reservationCache.reservationsByCreepKey.get(creepKey);
+    if (keyedReservation) {
+      decrementCachedInterRoomHaulReservation(reservationCache, keyedReservation);
+      reservationCache.reservationsByCreepKey.delete(creepKey);
     }
   }
-  return reservedEnergy;
+  const objectReservation = reservationCache.reservationsByCreep.get(creep);
+  if (objectReservation) {
+    decrementCachedInterRoomHaulReservation(reservationCache, objectReservation);
+    reservationCache.reservationsByCreep.delete(creep);
+  }
 }
-function isAssignedInterRoomWorkerHauler(creep, transfer) {
+function decrementCachedInterRoomHaulReservation(reservationCache, reservation) {
+  var _a;
+  const remainingEnergy = ((_a = reservationCache.reservedEnergyByTransferKey.get(reservation.transferKey)) != null ? _a : 0) - reservation.energy;
+  if (remainingEnergy > 0) {
+    reservationCache.reservedEnergyByTransferKey.set(reservation.transferKey, remainingEnergy);
+    return;
+  }
+  reservationCache.reservedEnergyByTransferKey.delete(reservation.transferKey);
+}
+function getCachedInterRoomHaulReservationEnergy(reservationCache, creep, transferKey) {
+  const creepKey = getCreepStableSortKey(creep);
+  const reservation = creepKey.length > 0 ? reservationCache.reservationsByCreepKey.get(creepKey) : reservationCache.reservationsByCreep.get(creep);
+  return (reservation == null ? void 0 : reservation.transferKey) === transferKey ? reservation.energy : 0;
+}
+function getInterRoomHaulReservation(creep, selectedTask) {
+  var _a;
+  return (_a = getInterRoomWorkerHaulReservation(creep, selectedTask)) != null ? _a : getDedicatedCrossRoomHaulReservation(creep);
+}
+function getInterRoomWorkerHaulReservation(creep, selectedTask) {
   var _a, _b;
   if (((_a = creep.memory) == null ? void 0 : _a.role) !== "worker") {
-    return false;
+    return null;
   }
   const assignment = normalizeInterRoomEnergyHaulMemory((_b = creep.memory) == null ? void 0 : _b.interRoomEnergyHaul);
-  return (assignment == null ? void 0 : assignment.sourceRoom) === transfer.sourceRoom && assignment.targetRoom === transfer.targetRoom;
+  if (!assignment) {
+    return null;
+  }
+  return {
+    energy: isOnInterRoomHaulLeg(creep, assignment, selectedTask) ? getEnergyCapacity3(creep) : getUsedEnergy2(creep),
+    transferKey: getInterRoomTransferKey(assignment.sourceRoom, assignment.targetRoom)
+  };
 }
-function isAssignedDedicatedCrossRoomHauler(creep, transfer) {
+function getDedicatedCrossRoomHaulReservation(creep) {
   var _a;
   if (((_a = creep.memory) == null ? void 0 : _a.role) !== CROSS_ROOM_HAULER_ROLE) {
-    return false;
+    return null;
   }
   const assignment = creep.memory.crossRoomHauler;
-  return (assignment == null ? void 0 : assignment.homeRoom) === transfer.sourceRoom && assignment.targetRoom === transfer.targetRoom;
+  if (!(assignment == null ? void 0 : assignment.homeRoom) || !assignment.targetRoom) {
+    return null;
+  }
+  return {
+    energy: Math.max(getUsedEnergy2(creep), getFreeEnergyCapacity5(creep)),
+    transferKey: getInterRoomTransferKey(assignment.homeRoom, assignment.targetRoom)
+  };
+}
+function isOnInterRoomHaulLeg(creep, assignment, selectedTask) {
+  var _a;
+  const task = selectedTask != null ? selectedTask : (_a = creep.memory) == null ? void 0 : _a.task;
+  if ((task == null ? void 0 : task.type) === "withdraw" && assignment.sourceId) {
+    return String(task.targetId) === String(assignment.sourceId);
+  }
+  if ((task == null ? void 0 : task.type) === "transfer" && assignment.targetId) {
+    return String(task.targetId) === String(assignment.targetId);
+  }
+  return false;
+}
+function getInterRoomTransferKey(sourceRoom, targetRoom) {
+  return `${sourceRoom}\0${targetRoom}`;
 }
 function selectInterRoomEnergySource(roomName, preferredSourceId) {
   var _a;
@@ -14428,11 +14579,9 @@ function selectInterRoomRecallEnergySink(room) {
   ].filter((sink) => getFreeStoredEnergyCapacity(sink) > 0).sort(compareInterRoomRecallEnergySinks)[0]) != null ? _a : null;
 }
 function findInterRoomEnergyStores(room) {
-  const stores = [
-    room.storage,
-    room.terminal,
-    ...findVisibleRoomStructures(room).filter(isInterRoomEnergyStore)
-  ].filter((store) => store !== void 0);
+  const stores = [room.storage, room.terminal].filter(
+    (store) => store !== void 0
+  );
   const seenIds = /* @__PURE__ */ new Set();
   return stores.filter((store) => {
     const id = String(store.id);
@@ -14442,9 +14591,6 @@ function findInterRoomEnergyStores(room) {
     seenIds.add(id);
     return true;
   });
-}
-function isInterRoomEnergyStore(structure) {
-  return matchesStructureType11(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType11(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
 }
 function compareInterRoomEnergySources(left, right) {
   return getStoredEnergy7(right) - getStoredEnergy7(left) || getInterRoomEnergyStorePriority(right) - getInterRoomEnergyStorePriority(left) || String(left.id).localeCompare(String(right.id));
@@ -14501,6 +14647,7 @@ function isEligibleInterRoomEnergyHaulWorker(creep) {
 }
 function clearInterRoomEnergyHaulAssignment(creep) {
   if (creep.memory) {
+    clearCachedInterRoomHaulReservation(creep);
     delete creep.memory.interRoomEnergyHaul;
   }
 }
@@ -16443,8 +16590,11 @@ function createNearTermSpawnExtensionRefillReserveContext(room) {
 }
 function getGameTick3() {
   var _a;
-  const time = (_a = globalThis.Game) == null ? void 0 : _a.time;
+  const time = (_a = getGameReference()) == null ? void 0 : _a.time;
   return typeof time === "number" && Number.isFinite(time) ? time : null;
+}
+function getGameReference() {
+  return globalThis.Game;
 }
 function getRoomName3(room) {
   return typeof room.name === "string" && room.name.length > 0 ? room.name : null;
