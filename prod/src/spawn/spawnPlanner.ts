@@ -1427,15 +1427,12 @@ function compareColoniesForSpawnPlanning(
 ): number {
   const leftBudget = getRoomCreepBudget(left, getRoleCountsForSpawnPlanning(left, roleCountsByRoom));
   const rightBudget = getRoomCreepBudget(right, getRoleCountsForSpawnPlanning(right, roleCountsByRoom));
-  const operationalSpawnRankDelta = getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget);
-  if (operationalSpawnRankDelta !== 0) {
-    return operationalSpawnRankDelta;
-  }
 
   return (
-    getNoSpawnRoomOrdering(leftBudget, rightBudget) ||
     getRoomSpawnPriorityRank(leftBudget.priority) - getRoomSpawnPriorityRank(rightBudget.priority) ||
     rightBudget.workerDeficit - leftBudget.workerDeficit ||
+    getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget) ||
+    getNoSpawnRoomOrdering(leftBudget, rightBudget) ||
     leftBudget.controllerLevel - rightBudget.controllerLevel ||
     getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) ||
     rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable ||
