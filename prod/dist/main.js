@@ -12512,7 +12512,7 @@ function findSourceContainerWithdrawCandidates(creep) {
     return [];
   }
   const context = createSourceContainerWithdrawalContext(creep, findVisibleHarvestSourcesInRooms(harvestRooms));
-  if (context.sources.length === 0 || context.hasAssignableHarvestSource) {
+  if (context.sources.length === 0) {
     return [];
   }
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -12525,6 +12525,9 @@ function findSourceContainerWithdrawCandidates(creep) {
     }
     const sourceRoom = findVisibleSourceRoom(creep, source);
     if (!sourceRoom) {
+      continue;
+    }
+    if (hasAssignableHarvestSourceInRoom(creep, sourceRoom, context.sources, context.assignmentLoads)) {
       continue;
     }
     if (!isSourceContainerWithdrawalSourceSaturated(
@@ -12567,7 +12570,7 @@ function selectSourceContainerHarvestTask(creep) {
     creep,
     findVisibleHarvestSourcesInRooms(harvestRooms).filter((candidate) => hasNonEmptyVisibleSourceContainer(creep, candidate))
   );
-  return source ? { type: "harvest", targetId: source.id } : null;
+  return source ? { type: "harvest", targetId: source.id, sourceContainerAssigned: true } : null;
 }
 function hasNonEmptyVisibleSourceContainer(creep, source) {
   const sourceContainer = findVisibleSourceContainer(creep, source);
@@ -12647,9 +12650,18 @@ function createSourceContainerWithdrawalContext(creep, sources = findVisibleHarv
   const assignmentLoads = getWorkerHarvestLoads(sources);
   return {
     assignmentLoads,
-    hasAssignableHarvestSource: hasAssignableHarvestSource(creep, sources, assignmentLoads),
     sources
   };
+}
+function hasAssignableHarvestSourceInRoom(creep, room, sources, assignmentLoads) {
+  return hasAssignableHarvestSource(
+    creep,
+    sources.filter((source) => {
+      var _a;
+      return ((_a = findVisibleSourceRoom(creep, source)) == null ? void 0 : _a.name) === room.name;
+    }),
+    assignmentLoads
+  );
 }
 function hasAssignableHarvestSource(creep, sources, assignmentLoads) {
   const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
@@ -12669,7 +12681,7 @@ function isSourceContainerWithdrawalSourceSaturated(creep, source, assignmentLoa
   return assignmentLoad.assignmentCount >= getHarvestSourceAccessCapacity(source) || hasOccupiedSourceContainerHarvestSlot(source, assignmentLoad);
 }
 function hasOccupiedSourceContainerHarvestSlot(source, assignmentLoad) {
-  return assignmentLoad.assignmentCount > 0 && getRoomObjectPosition3(source) !== null;
+  return assignmentLoad.hasContainerAssignment && getRoomObjectPosition3(source) !== null;
 }
 function findVisibleSourceRoom(creep, source) {
   var _a, _b, _c, _d, _e, _f;
@@ -12785,7 +12797,7 @@ function getHarvestSourceAssignmentLoad(assignmentLoads, source) {
   return (_a = assignmentLoads.get(source.id)) != null ? _a : createEmptyHarvestSourceAssignmentLoad();
 }
 function createEmptyHarvestSourceAssignmentLoad() {
-  return { assignedWorkParts: 0, assignmentCount: 0 };
+  return { assignedWorkParts: 0, assignmentCount: 0, hasContainerAssignment: false };
 }
 function getHarvestSourceAccessCapacity(source) {
   const position = getRoomObjectPosition3(source);
@@ -12991,10 +13003,14 @@ function getWorkerHarvestLoads(sources) {
     const currentLoad = (_c = assignmentLoads.get(sourceId)) != null ? _c : createEmptyHarvestSourceAssignmentLoad();
     assignmentLoads.set(sourceId, {
       assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts(assignedCreep),
-      assignmentCount: currentLoad.assignmentCount + 1
+      assignmentCount: currentLoad.assignmentCount + 1,
+      hasContainerAssignment: currentLoad.hasContainerAssignment || isSourceContainerHarvestAssignment(task)
     });
   }
   return assignmentLoads;
+}
+function isSourceContainerHarvestAssignment(task) {
+  return (task == null ? void 0 : task.type) === "harvest" && task.sourceContainerAssigned === true;
 }
 function getGameCreeps() {
   var _a;

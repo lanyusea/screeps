@@ -170,11 +170,11 @@ interface HarvestSourceLoad {
 interface HarvestSourceAssignmentLoad {
   assignedWorkParts: number;
   assignmentCount: number;
+  hasContainerAssignment: boolean;
 }
 
 interface SourceContainerWithdrawalContext {
   assignmentLoads: Map<Id<Source>, HarvestSourceAssignmentLoad>;
-  hasAssignableHarvestSource: boolean;
   sources: Source[];
 }
 
@@ -4237,7 +4237,7 @@ function findSourceContainerWithdrawCandidates(creep: Creep): WorkerEnergyAcquis
   }
 
   const context = createSourceContainerWithdrawalContext(creep, findVisibleHarvestSourcesInRooms(harvestRooms));
-  if (context.sources.length === 0 || context.hasAssignableHarvestSource) {
+  if (context.sources.length === 0) {
     return [];
   }
 
@@ -4253,6 +4253,10 @@ function findSourceContainerWithdrawCandidates(creep: Creep): WorkerEnergyAcquis
 
     const sourceRoom = findVisibleSourceRoom(creep, source);
     if (!sourceRoom) {
+      continue;
+    }
+
+    if (hasAssignableHarvestSourceInRoom(creep, sourceRoom, context.sources, context.assignmentLoads)) {
       continue;
     }
 
@@ -4310,7 +4314,7 @@ function selectSourceContainerHarvestTask(creep: Creep): Extract<CreepTaskMemory
     creep,
     findVisibleHarvestSourcesInRooms(harvestRooms).filter((candidate) => hasNonEmptyVisibleSourceContainer(creep, candidate))
   );
-  return source ? { type: 'harvest', targetId: source.id } : null;
+  return source ? { type: 'harvest', targetId: source.id, sourceContainerAssigned: true } : null;
 }
 
 function hasNonEmptyVisibleSourceContainer(creep: Creep, source: Source): boolean {
@@ -4418,9 +4422,21 @@ function createSourceContainerWithdrawalContext(
   const assignmentLoads = getWorkerHarvestLoads(sources);
   return {
     assignmentLoads,
-    hasAssignableHarvestSource: hasAssignableHarvestSource(creep, sources, assignmentLoads),
     sources
   };
+}
+
+function hasAssignableHarvestSourceInRoom(
+  creep: Creep,
+  room: Room,
+  sources: Source[],
+  assignmentLoads: Map<Id<Source>, HarvestSourceAssignmentLoad>
+): boolean {
+  return hasAssignableHarvestSource(
+    creep,
+    sources.filter((source) => findVisibleSourceRoom(creep, source)?.name === room.name),
+    assignmentLoads
+  );
 }
 
 function hasAssignableHarvestSource(
@@ -4459,7 +4475,7 @@ function hasOccupiedSourceContainerHarvestSlot(
   source: Source,
   assignmentLoad: HarvestSourceAssignmentLoad
 ): boolean {
-  return assignmentLoad.assignmentCount > 0 && getRoomObjectPosition(source) !== null;
+  return assignmentLoad.hasContainerAssignment && getRoomObjectPosition(source) !== null;
 }
 
 function findVisibleSourceRoom(creep: Creep, source: Source): Room | null {
@@ -4616,7 +4632,7 @@ function getHarvestSourceAssignmentLoad(
 }
 
 function createEmptyHarvestSourceAssignmentLoad(): HarvestSourceAssignmentLoad {
-  return { assignedWorkParts: 0, assignmentCount: 0 };
+  return { assignedWorkParts: 0, assignmentCount: 0, hasContainerAssignment: false };
 }
 
 function getHarvestSourceAccessCapacity(source: Source): number {
@@ -4892,11 +4908,19 @@ function getWorkerHarvestLoads(sources: Source[]): Map<Id<Source>, HarvestSource
     const currentLoad = assignmentLoads.get(sourceId) ?? createEmptyHarvestSourceAssignmentLoad();
     assignmentLoads.set(sourceId, {
       assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts(assignedCreep),
-      assignmentCount: currentLoad.assignmentCount + 1
+      assignmentCount: currentLoad.assignmentCount + 1,
+      hasContainerAssignment: currentLoad.hasContainerAssignment || isSourceContainerHarvestAssignment(task)
     });
   }
 
   return assignmentLoads;
+}
+
+function isSourceContainerHarvestAssignment(task: Partial<CreepTaskMemory> | undefined): boolean {
+  return (
+    task?.type === 'harvest' &&
+    (task as Partial<Extract<CreepTaskMemory, { type: 'harvest' }>>).sourceContainerAssigned === true
+  );
 }
 
 function getGameCreeps(): Creep[] {
