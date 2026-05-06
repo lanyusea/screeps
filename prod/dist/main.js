@@ -19377,8 +19377,10 @@ function planSpawn(colony, roleCounts, gameTime, options = {}) {
   }
   return null;
 }
-function orderColoniesForSpawnPlanning(colonies) {
-  return [...colonies].sort(compareColoniesForSpawnPlanning);
+function orderColoniesForSpawnPlanning(colonies, roleCountsByRoom) {
+  return [...colonies].sort(
+    (left, right) => compareColoniesForSpawnPlanning(left, right, roleCountsByRoom)
+  );
 }
 function getSpawnEnergyForecast(colony) {
   const balance = getStorageBalanceMemory();
@@ -19407,6 +19409,27 @@ function shouldSuppressWorkerSpawnForCrossRoomImport(colony) {
   return ((_b = balance == null ? void 0 : balance.transfers) != null ? _b : []).some(
     (transfer) => transfer.targetRoom === colony.room.name && transfer.amount > 0 && isLiveTransferCandidate(transfer)
   );
+}
+function getRoomCreepBudget(colony, roleCounts) {
+  const forecast = getSpawnEnergyForecast(colony);
+  const survival = assessColonySnapshotSurvival(colony, roleCounts);
+  const workerTarget = getWorkerTarget(colony, roleCounts);
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  const workerDeficit = Math.max(0, workerTarget - workerCapacity);
+  return {
+    roomName: colony.room.name,
+    controllerLevel: getControllerLevel2(colony.room.controller),
+    energyAvailable: normalizeNonNegativeInteger3(colony.energyAvailable),
+    energyCapacityAvailable: normalizeNonNegativeInteger3(colony.energyCapacityAvailable),
+    effectiveEnergyAvailable: forecast.effectiveEnergyAvailable,
+    energyGate: getSpawnPlanningEnergyGate(forecast.effectiveEnergyAvailable, colony.energyCapacityAvailable),
+    ownedSpawnCount: colony.spawns.length,
+    idleSpawnCount: colony.spawns.filter((spawn) => !spawn.spawning).length,
+    workerCapacity,
+    workerTarget,
+    workerDeficit,
+    priority: selectRoomSpawnPriority(survival, workerDeficit)
+  };
 }
 function planSpawnForPriorityTier(tier, context) {
   switch (tier) {
@@ -20190,10 +20213,101 @@ function getVisibleRoom6(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
-function compareColoniesForSpawnPlanning(left, right) {
-  const leftForecast = getSpawnEnergyForecast(left);
-  const rightForecast = getSpawnEnergyForecast(right);
-  return rightForecast.effectiveEnergyAvailable - leftForecast.effectiveEnergyAvailable || right.energyAvailable - left.energyAvailable || left.room.name.localeCompare(right.room.name);
+function compareColoniesForSpawnPlanning(left, right, roleCountsByRoom) {
+  const leftBudget = getRoomCreepBudget(left, getRoleCountsForSpawnPlanning(left, roleCountsByRoom));
+  const rightBudget = getRoomCreepBudget(right, getRoleCountsForSpawnPlanning(right, roleCountsByRoom));
+  return getRoomSpawnPriorityRank(leftBudget.priority) - getRoomSpawnPriorityRank(rightBudget.priority) || rightBudget.workerDeficit - leftBudget.workerDeficit || getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget) || getNoSpawnRoomOrdering(leftBudget, rightBudget) || leftBudget.controllerLevel - rightBudget.controllerLevel || getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) || rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable || right.energyAvailable - left.energyAvailable || left.room.name.localeCompare(right.room.name);
+}
+function getOperationalSpawnRank(budget) {
+  return budget.ownedSpawnCount > 0 ? 1 : 0;
+}
+function getNoSpawnRoomOrdering(left, right) {
+  if (left.ownedSpawnCount > 0 || right.ownedSpawnCount > 0) {
+    return 0;
+  }
+  return right.effectiveEnergyAvailable - left.effectiveEnergyAvailable || right.energyAvailable - left.energyAvailable;
+}
+function getRoleCountsForSpawnPlanning(colony, roleCountsByRoom) {
+  var _a;
+  const roomName = colony.room.name;
+  const mappedCounts = getMappedRoleCounts(roleCountsByRoom, roomName);
+  if (mappedCounts) {
+    return mappedCounts;
+  }
+  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
+  return countCreepsByRole(creeps ? Object.values(creeps) : [], roomName);
+}
+function getMappedRoleCounts(roleCountsByRoom, roomName) {
+  if (!roleCountsByRoom) {
+    return void 0;
+  }
+  if (isRoleCountsMap(roleCountsByRoom)) {
+    return roleCountsByRoom.get(roomName);
+  }
+  return roleCountsByRoom[roomName];
+}
+function isRoleCountsMap(value) {
+  return typeof value.get === "function";
+}
+function selectRoomSpawnPriority(survival, workerDeficit) {
+  if (survival.mode === "BOOTSTRAP" && hasEmergencyBootstrapCreepShortfall(survival)) {
+    return "emergencyBootstrap";
+  }
+  if (survival.hostilePresence) {
+    return "defense";
+  }
+  if (survival.controllerDowngradeGuard) {
+    return "controllerDowngradeGuard";
+  }
+  if (workerDeficit > 0) {
+    return "localWorkerRecovery";
+  }
+  return survival.mode === "TERRITORY_READY" ? "stableWork" : "surplusWork";
+}
+function getRoomSpawnPriorityRank(priority) {
+  switch (priority) {
+    case "emergencyBootstrap":
+      return 0;
+    case "defense":
+      return 1;
+    case "controllerDowngradeGuard":
+      return 2;
+    case "localWorkerRecovery":
+      return 3;
+    case "stableWork":
+      return 4;
+    case "surplusWork":
+      return 5;
+  }
+}
+function getSpawnPlanningEnergyGate(energyAvailable, energyCapacityAvailable) {
+  const energy = normalizeNonNegativeInteger3(energyAvailable);
+  const capacity = normalizeNonNegativeInteger3(energyCapacityAvailable);
+  if (energy < MINIMUM_EMERGENCY_WORKER_BODY_COST) {
+    return "critical";
+  }
+  if (energy < BOOTSTRAP_MIN_SPAWN_ENERGY) {
+    return "recovery";
+  }
+  if (capacity > 0 && energy >= capacity) {
+    return "full";
+  }
+  return "ready";
+}
+function getEnergyGateRank(gate) {
+  switch (gate) {
+    case "critical":
+      return 0;
+    case "recovery":
+      return 1;
+    case "ready":
+      return 2;
+    case "full":
+      return 3;
+  }
+}
+function getControllerLevel2(controller) {
+  return typeof (controller == null ? void 0 : controller.level) === "number" ? controller.level : MAX_CONTROLLER_LEVEL5;
 }
 function getStorageBalanceMemory() {
   var _a, _b;
@@ -26295,11 +26409,15 @@ function runEconomy(preludeTelemetryEvents = []) {
   var _a, _b, _c;
   const creeps = Object.values(Game.creeps);
   balanceStorage();
-  const colonies = orderColoniesForSpawnPlanning(getOwnedColonies());
+  const ownedColonies = getOwnedColonies();
+  const initialRoleCountsByRoom = new Map(
+    ownedColonies.map((colony) => [colony.room.name, countCreepsByRole(creeps, colony.room.name)])
+  );
+  const colonies = orderColoniesForSpawnPlanning(ownedColonies, initialRoleCountsByRoom);
   const telemetryEvents = [...preludeTelemetryEvents];
   const usedSpawnsByRoom = /* @__PURE__ */ new Map();
   const reservedSpawnEnergyByRoom = /* @__PURE__ */ new Map();
-  const plannedRoleCountsByRoom = /* @__PURE__ */ new Map();
+  const plannedRoleCountsByRoom = new Map(initialRoleCountsByRoom);
   clearColonySurvivalAssessmentCache();
   refreshClaimedRoomBootstrapperOwnership();
   for (const colony of colonies) {
@@ -26741,6 +26859,9 @@ function createSpawnPlanningColony(colony, sourceColony, energyAvailable, usedSp
 }
 function getCoordinatedSpawnSourceColonies(targetColony, colonies, creeps, usedSpawnsByRoom, reservedSpawnEnergyByRoom, plannedRoleCountsByRoom) {
   const localSource = colonies.find((colony) => colony.room.name === targetColony.room.name);
+  if (localSource && hasUsedLocalSpawnThisTick(localSource, usedSpawnsByRoom)) {
+    return [localSource];
+  }
   const remoteSources = colonies.filter((colony) => colony.room.name !== targetColony.room.name).filter(
     (sourceColony) => canUseCrossRoomSpawnSource(
       sourceColony,
@@ -26753,6 +26874,10 @@ function getCoordinatedSpawnSourceColonies(targetColony, colonies, creeps, usedS
     (left, right) => compareCoordinatedSpawnSources(left, right, reservedSpawnEnergyByRoom)
   );
   return localSource ? [localSource, ...remoteSources] : remoteSources;
+}
+function hasUsedLocalSpawnThisTick(colony, usedSpawnsByRoom) {
+  var _a, _b;
+  return ((_b = (_a = usedSpawnsByRoom.get(colony.room.name)) == null ? void 0 : _a.size) != null ? _b : 0) > 0;
 }
 function canUseCrossRoomSpawnSource(sourceColony, creeps, usedSpawnsByRoom, reservedSpawnEnergyByRoom, plannedRoleCountsByRoom) {
   if (getUnusedSpawnCount(sourceColony, usedSpawnsByRoom) === 0) {

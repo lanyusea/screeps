@@ -130,11 +130,15 @@ interface CoordinatedSpawnPlan {
 export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): RuntimeSummary | undefined {
   const creeps = Object.values(Game.creeps);
   balanceStorage();
-  const colonies = orderColoniesForSpawnPlanning(getOwnedColonies());
+  const ownedColonies = getOwnedColonies();
+  const initialRoleCountsByRoom = new Map(
+    ownedColonies.map((colony) => [colony.room.name, countCreepsByRole(creeps, colony.room.name)] as const)
+  );
+  const colonies = orderColoniesForSpawnPlanning(ownedColonies, initialRoleCountsByRoom);
   const telemetryEvents: RuntimeTelemetryEvent[] = [...preludeTelemetryEvents];
   const usedSpawnsByRoom = new Map<string, Set<StructureSpawn>>();
   const reservedSpawnEnergyByRoom = new Map<string, number>();
-  const plannedRoleCountsByRoom = new Map<string, RoleCounts>();
+  const plannedRoleCountsByRoom = new Map<string, RoleCounts>(initialRoleCountsByRoom);
   clearColonySurvivalAssessmentCache();
   refreshClaimedRoomBootstrapperOwnership();
 
@@ -742,6 +746,10 @@ function getCoordinatedSpawnSourceColonies(
   plannedRoleCountsByRoom: Map<string, RoleCounts>
 ): ColonySnapshot[] {
   const localSource = colonies.find((colony) => colony.room.name === targetColony.room.name);
+  if (localSource && hasUsedLocalSpawnThisTick(localSource, usedSpawnsByRoom)) {
+    return [localSource];
+  }
+
   const remoteSources = colonies
     .filter((colony) => colony.room.name !== targetColony.room.name)
     .filter((sourceColony) =>
@@ -758,6 +766,13 @@ function getCoordinatedSpawnSourceColonies(
     );
 
   return localSource ? [localSource, ...remoteSources] : remoteSources;
+}
+
+function hasUsedLocalSpawnThisTick(
+  colony: ColonySnapshot,
+  usedSpawnsByRoom: Map<string, Set<StructureSpawn>>
+): boolean {
+  return (usedSpawnsByRoom.get(colony.room.name)?.size ?? 0) > 0;
 }
 
 function canUseCrossRoomSpawnSource(
