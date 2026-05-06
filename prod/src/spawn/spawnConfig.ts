@@ -1,0 +1,1 @@
+export const MIN_SPAWN_ENERGY_BUFFER = 50;

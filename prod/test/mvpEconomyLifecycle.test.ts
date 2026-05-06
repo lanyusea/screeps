@@ -1,5 +1,6 @@
 import { runEconomy } from '../src/economy/economyLoop';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../src/creeps/roleCounts';
+import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { URGENT_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 
 describe('MVP economy lifecycle', () => {
@@ -188,8 +189,8 @@ describe('MVP economy lifecycle', () => {
   it('plans a replacement before a colony worker expires without counting unrelated workers', () => {
     const room = {
       name: 'W1N1',
-      energyAvailable: 600,
-      energyCapacityAvailable: 800,
+      energyAvailable: 600 + MIN_SPAWN_ENERGY_BUFFER,
+      energyCapacityAvailable: 600,
       controller: { my: true, id: 'controller1' } as StructureController,
       find: jest.fn().mockReturnValue([])
     } as unknown as Room;

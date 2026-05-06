@@ -6,6 +6,7 @@ import {
 
 export const CROSS_ROOM_HAULER_ROLE = 'crossRoomHauler';
 export type SpawnPlan = SpawnRequest;
+export type CrossRoomHaulerEnergyBudgetProvider = (sourceRoomName: string) => number;
 
 const CARRY_MOVE_PAIR_COST = 100;
 const CARRY_CAPACITY_PER_PART = 50;
@@ -35,7 +36,9 @@ interface LogisticsRoute {
   rooms: string[];
 }
 
-export function planCrossRoomHauler(): SpawnPlan | null {
+export function planCrossRoomHauler(
+  getEnergyBudget: CrossRoomHaulerEnergyBudgetProvider = getDefaultCrossRoomHaulerEnergyBudget
+): SpawnPlan | null {
   const transfer = selectCrossRoomEnergyTransfer();
   if (!transfer) {
     return null;
@@ -59,7 +62,7 @@ export function planCrossRoomHauler(): SpawnPlan | null {
 
   const sourceState = getRoomStoredEnergyState(sourceRoom);
   const transferableEnergy = Math.min(transfer.amount, sourceState.exportableEnergy);
-  const body = buildCrossRoomHaulerBody(sourceRoom.energyAvailable, transferableEnergy);
+  const body = buildCrossRoomHaulerBody(getEnergyBudget(sourceRoom.name), transferableEnergy);
   if (body.length === 0) {
     return null;
   }
@@ -85,6 +88,10 @@ export function planCrossRoomHauler(): SpawnPlan | null {
       }
     }
   };
+}
+
+function getDefaultCrossRoomHaulerEnergyBudget(sourceRoomName: string): number {
+  return getVisibleRoom(sourceRoomName)?.energyAvailable ?? 0;
 }
 
 export function buildCrossRoomHaulerBody(
