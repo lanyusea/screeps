@@ -93,16 +93,16 @@ export function isSourceLink(room: Room, link: StructureLink): boolean {
   return linkId !== '' && classifyLinks(room).sourceLinks.some((sourceLink) => getObjectId(sourceLink) === linkId);
 }
 
-export function getSourceLinkWorkerEnergyAvailable(room: Room, link: StructureLink): number {
+export function getSourceLinkWorkerEnergyAvailable(room: Room, link: StructureLink, network?: LinkNetwork): number {
   const linkId = getObjectId(link);
-  const network = classifyLinks(room);
-  const sourceLink = network.sourceLinks.find((candidate) => getObjectId(candidate) === linkId);
+  const linkNetwork = network ?? classifyLinks(room);
+  const sourceLink = linkNetwork.sourceLinks.find((candidate) => getObjectId(candidate) === linkId);
   if (!sourceLink) {
     return getStoredEnergy(link);
   }
 
-  const projectedState = createProjectedLinkState(network.links);
-  const routingReserve = createSourceLinkRoutingReserve(room, network, projectedState).get(linkId) ?? 0;
+  const projectedState = createProjectedLinkState(linkNetwork.links);
+  const routingReserve = createSourceLinkRoutingReserve(room, linkNetwork, projectedState).get(linkId) ?? 0;
   return Math.max(0, getStoredEnergy(sourceLink) - routingReserve);
 }
 
@@ -211,12 +211,14 @@ function createSourceLinkRoutingReserve(
   projectedState: ProjectedLinkState
 ): Map<string, number> {
   const reserveById = new Map<string, number>();
+  const spentSourceIds = new Set<string>();
 
   if (shouldControllerLinkReceiveEnergy(room, network.controllerLink, projectedState)) {
     reserveSourceLinksForDestination(
       sortSourceLinksByDistanceToDestination(network.sourceLinks, network.controllerLink),
       network.controllerLink,
       projectedState,
+      spentSourceIds,
       reserveById
     );
   }
@@ -226,6 +228,7 @@ function createSourceLinkRoutingReserve(
       sortSourceLinksBySurplusPriority(network.sourceLinks, network.storageLink, projectedState),
       network.storageLink,
       projectedState,
+      spentSourceIds,
       reserveById
     );
   }
@@ -237,6 +240,7 @@ function reserveSourceLinksForDestination(
   sourceLinks: StructureLink[],
   destinationLink: StructureLink,
   projectedState: ProjectedLinkState,
+  spentSourceIds: Set<string>,
   reserveById: Map<string, number>
 ): void {
   const destinationId = getObjectId(destinationLink);
@@ -245,7 +249,13 @@ function reserveSourceLinksForDestination(
     const sourceId = getObjectId(sourceLink);
     const destinationFreeCapacity = projectedState.freeCapacityById.get(destinationId) ?? 0;
     const sourceEnergy = projectedState.storedEnergyById.get(sourceId) ?? 0;
-    if (destinationId === sourceId || destinationFreeCapacity <= 0 || sourceEnergy <= 0) {
+    if (
+      spentSourceIds.has(sourceId) ||
+      !canLinkSendEnergy(sourceLink, projectedState) ||
+      destinationId === sourceId ||
+      destinationFreeCapacity <= 0 ||
+      sourceEnergy <= 0
+    ) {
       continue;
     }
 
@@ -255,6 +265,7 @@ function reserveSourceLinksForDestination(
     }
 
     reserveById.set(sourceId, (reserveById.get(sourceId) ?? 0) + amount);
+    spentSourceIds.add(sourceId);
     projectedState.storedEnergyById.set(sourceId, sourceEnergy - amount);
     projectedState.freeCapacityById.set(destinationId, destinationFreeCapacity - amount);
   }

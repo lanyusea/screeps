@@ -212,7 +212,7 @@ describe('linkManager', () => {
     expect(sourceLink.transferEnergy).not.toHaveBeenCalled();
   });
 
-  it('reserves source-link energy from worker withdrawal for controller and storage routing demand', () => {
+  it('does not double-reserve one source link for controller and storage routing demand', () => {
     const sourceLink = makeLink('source-link', 11, 10, 800, 0);
     const controllerLink = makeLink('controller-link', 25, 23, 0, 100);
     const storageLink = makeLink('storage-link', 20, 21, 0, 400);
@@ -223,7 +223,34 @@ describe('linkManager', () => {
       storage: makeStorage('storage1', 20, 20, 2_000, 8_000, 10_000)
     });
 
-    expect(getSourceLinkWorkerEnergyAvailable(room, sourceLink)).toBe(300);
+    expect(getSourceLinkWorkerEnergyAvailable(room, sourceLink)).toBe(700);
+  });
+
+  it('does not reserve worker-withdrawable energy from cooling source links', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 800, 0, 3);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 500);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)]
+    });
+
+    expect(getSourceLinkWorkerEnergyAvailable(room, sourceLink)).toBe(800);
+  });
+
+  it('uses a precomputed link network for worker availability without finding links again', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 800, 0);
+    const controllerLink = makeLink('controller-link', 25, 23, 0, 500);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      links: [sourceLink, controllerLink],
+      sources: [makeSource('source1', 10, 10)]
+    });
+    const network = classifyLinks(room);
+    (room.find as jest.Mock).mockClear();
+
+    expect(getSourceLinkWorkerEnergyAvailable(room, sourceLink, network)).toBe(300);
+    expect(room.find).not.toHaveBeenCalled();
   });
 });
 
