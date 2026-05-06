@@ -3352,8 +3352,8 @@ function compareWorkerEnergyAcquisitionCandidates(
   }
 
   return (
-    right.score - left.score ||
     compareOptionalRanges(left.range, right.range) ||
+    right.score - left.score ||
     right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id)) ||
     left.task.type.localeCompare(right.task.type)
@@ -3391,8 +3391,8 @@ function compareWorkerLinkEnergyAcquisitionCandidates(
   right: WorkerEnergyAcquisitionCandidate
 ): number {
   return (
-    right.energy - left.energy ||
     compareOptionalRanges(left.range, right.range) ||
+    right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id))
   );
 }
