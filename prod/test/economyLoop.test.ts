@@ -140,6 +140,220 @@ describe('runEconomy', () => {
     );
   });
 
+  it('uses a stable secondary-room spawn for primary worker recovery when the primary spawn is busy', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const primaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controllerLevel: 1
+    });
+    const secondaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W2N1',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    const primarySpawn = {
+      name: 'Spawn1',
+      room: primaryRoom,
+      spawning: { name: 'busy-worker' } as Spawning,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondarySpawn = {
+      name: 'Spawn2',
+      room: secondaryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondaryWorkers = {
+      Worker1: makeEconomyWorker(secondaryRoom),
+      Worker2: makeEconomyWorker(secondaryRoom),
+      Worker3: makeEconomyWorker(secondaryRoom),
+      Worker4: makeEconomyWorker(secondaryRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 131,
+      rooms: { W1N1: primaryRoom, W2N1: secondaryRoom },
+      spawns: { Spawn1: primarySpawn, Spawn2: secondarySpawn },
+      creeps: secondaryWorkers
+    };
+
+    runEconomy();
+
+    expect(primarySpawn.spawnCreep).not.toHaveBeenCalled();
+    expect(secondarySpawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W1N1-131', {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        spawnSupport: { originRoom: 'W2N1', targetRoom: 'W1N1' }
+      }
+    });
+  });
+
+  it('keeps secondary bootstrap energy local instead of borrowing it for primary territory control', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: { targets: [{ colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }] }
+    };
+    const primaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W1N1',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    });
+    const secondaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W2N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controllerLevel: 1
+    });
+    const reserveRoom = makeVisibleReserveRoom('W3N1', 'controller3' as Id<StructureController>);
+    const primarySpawn = {
+      name: 'Spawn1',
+      room: primaryRoom,
+      spawning: { name: 'busy-worker' } as Spawning,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondarySpawn = {
+      name: 'Spawn2',
+      room: secondaryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const primaryWorkers = {
+      Worker1: makeEconomyWorker(primaryRoom),
+      Worker2: makeEconomyWorker(primaryRoom),
+      Worker3: makeEconomyWorker(primaryRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 132,
+      rooms: { W1N1: primaryRoom, W2N1: secondaryRoom, W3N1: reserveRoom },
+      spawns: { Spawn1: primarySpawn, Spawn2: secondarySpawn },
+      creeps: primaryWorkers,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(primarySpawn.spawnCreep).not.toHaveBeenCalled();
+    expect(secondarySpawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W2N1-132', {
+      memory: { role: 'worker', colony: 'W2N1' }
+    });
+  });
+
+  it('keeps primary claimer production working while a secondary room bootstraps local workers', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: { targets: [{ colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }] }
+    };
+    const primaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W1N1',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    });
+    const secondaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W2N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controllerLevel: 1
+    });
+    const reserveRoom = makeVisibleReserveRoom('W3N1', 'controller3' as Id<StructureController>);
+    const primarySpawn = {
+      name: 'Spawn1',
+      room: primaryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondarySpawn = {
+      name: 'Spawn2',
+      room: secondaryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const primaryWorkers = {
+      Worker1: makeEconomyWorker(primaryRoom),
+      Worker2: makeEconomyWorker(primaryRoom),
+      Worker3: makeEconomyWorker(primaryRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 133,
+      rooms: { W1N1: primaryRoom, W2N1: secondaryRoom, W3N1: reserveRoom },
+      spawns: { Spawn1: primarySpawn, Spawn2: secondarySpawn },
+      creeps: primaryWorkers,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(primarySpawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W3N1-133', {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W3N1', action: 'reserve', controllerId: 'controller3' }
+      }
+    });
+    expect(secondarySpawn.spawnCreep).toHaveBeenCalledWith(['work', 'carry', 'move'], 'worker-W2N1-133', {
+      memory: { role: 'worker', colony: 'W2N1' }
+    });
+  });
+
+  it('can use a stable secondary-room spawn for primary reserver production when the primary spawn is busy', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: { targets: [{ colony: 'W1N1', roomName: 'W3N1', action: 'reserve' }] }
+    };
+    const primaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W1N1',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    });
+    const secondaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W2N1',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    });
+    const reserveRoom = makeVisibleReserveRoom('W3N1', 'controller3' as Id<StructureController>);
+    const primarySpawn = {
+      name: 'Spawn1',
+      room: primaryRoom,
+      spawning: { name: 'busy-worker' } as Spawning,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondarySpawn = {
+      name: 'Spawn2',
+      room: secondaryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const creeps = {
+      PrimaryWorker1: makeEconomyWorker(primaryRoom),
+      PrimaryWorker2: makeEconomyWorker(primaryRoom),
+      PrimaryWorker3: makeEconomyWorker(primaryRoom),
+      SecondaryWorker1: makeEconomyWorker(secondaryRoom),
+      SecondaryWorker2: makeEconomyWorker(secondaryRoom),
+      SecondaryWorker3: makeEconomyWorker(secondaryRoom),
+      SecondaryWorker4: makeEconomyWorker(secondaryRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 134,
+      rooms: { W1N1: primaryRoom, W2N1: secondaryRoom, W3N1: reserveRoom },
+      spawns: { Spawn1: primarySpawn, Spawn2: secondarySpawn },
+      creeps,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(primarySpawn.spawnCreep).not.toHaveBeenCalled();
+    expect(secondarySpawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W3N1-134', {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W3N1', action: 'reserve', controllerId: 'controller3' }
+      }
+    });
+  });
+
   it('keeps a single source-room spawn on local recovery before cross-room hauling', () => {
     (globalThis as unknown as { FIND_SOURCES: number; RESOURCE_ENERGY: ResourceConstant }).FIND_SOURCES = 1;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
@@ -2254,6 +2468,47 @@ function makeOwnedEconomyRoom(roomName: string): Room {
       level: 3,
       ticksToDowngrade: 10_000
     } as StructureController,
+    find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
+  } as unknown as Room;
+}
+
+function installSpawnCoordinationGlobals(): void {
+  (globalThis as unknown as {
+    FIND_SOURCES: number;
+    FIND_MY_STRUCTURES: number;
+    FIND_MY_CONSTRUCTION_SITES: number;
+    FIND_CONSTRUCTION_SITES: number;
+    STRUCTURE_EXTENSION: StructureConstant;
+  }).FIND_SOURCES = 1;
+  (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 2;
+  (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 3;
+  (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 4;
+  (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+}
+
+function makeSpawnCoordinationRoom({
+  roomName,
+  energyAvailable,
+  energyCapacityAvailable,
+  controllerLevel = 3
+}: {
+  roomName: string;
+  energyAvailable: number;
+  energyCapacityAvailable: number;
+  controllerLevel?: number;
+}): Room {
+  return {
+    name: roomName,
+    energyAvailable,
+    energyCapacityAvailable,
+    controller: {
+      id: `${roomName}-controller`,
+      my: true,
+      owner: { username: 'me' },
+      level: controllerLevel,
+      ticksToDowngrade: 10_000
+    } as StructureController,
+    memory: {},
     find: jest.fn((type: number) => (type === FIND_SOURCES ? [{ id: `${roomName}-source` } as Source] : []))
   } as unknown as Room;
 }

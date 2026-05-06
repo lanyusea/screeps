@@ -94,6 +94,41 @@ describe('runWorker', () => {
     expect(homeRoom.find).not.toHaveBeenCalled();
   });
 
+  it('routes a cross-room spawn support worker to its colony before local work', () => {
+    const targetController = { id: 'controller2', my: true } as StructureController;
+    const originRoom = {
+      name: 'W2N1',
+      find: jest.fn().mockReturnValue([{ id: 'source1' } as Source])
+    } as unknown as Room;
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source> },
+        spawnSupport: { originRoom: 'W2N1', targetRoom: 'W1N1' }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: originRoom,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: { name: 'W1N1', controller: targetController } as Room,
+        W2N1: originRoom
+      },
+      creeps: {}
+    };
+
+    runWorker(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith(targetController);
+    expect(creep.memory.task).toBeUndefined();
+    expect(originRoom.find).not.toHaveBeenCalled();
+  });
+
   it('loads a post-claim energy hauler in the home room before sending it to the claimed room', () => {
     const storage = {
       id: 'storage1',
