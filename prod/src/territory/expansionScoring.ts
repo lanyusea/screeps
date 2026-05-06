@@ -38,6 +38,7 @@ const SYNERGY_SOURCE_DUPLICATE_PENALTY_PER_SOURCE = 40;
 const SYNERGY_DUAL_SOURCE_DUPLICATE_PENALTY = 80;
 const FOREIGN_RESERVATION_CONTROLLER_PRESSURE_RISK = 'foreign reservation requires controller pressure';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
+const GCL_LIMIT_PRECONDITION = 'wait for GCL capacity to claim another room';
 const MAX_ROOM_COUNT_BY_RCL: Record<number, number> = {
   1: 1,
   2: 1,
@@ -86,6 +87,7 @@ export interface ExpansionScoringInput {
   colonyName: string;
   colonyOwnerUsername?: string;
   energyCapacityAvailable: number;
+  gclLevel?: number;
   controllerLevel?: number;
   ownedRoomCount?: number;
   ticksToDowngrade?: number;
@@ -155,6 +157,7 @@ type TerritoryMemoryWithExpansionCandidates = TerritoryMemory & {
 export type NextExpansionTargetSelectionStatus = 'planned' | 'skipped';
 export type NextExpansionTargetSelectionReason =
   | 'noCandidate'
+  | 'gclInsufficient'
   | 'roomLimitReached'
   | 'unmetPreconditions'
   | 'insufficientEvidence'
@@ -263,12 +266,14 @@ function validateVisibleNextExpansionScoutIntel(
 }
 
 function buildRuntimeExpansionScoringInput(colony: ColonySnapshot): ExpansionScoringInput {
+  const gclLevel = getGclLevel();
   return {
     colonyName: colony.room.name,
     ...(getControllerOwnerUsername(colony.room.controller)
       ? { colonyOwnerUsername: getControllerOwnerUsername(colony.room.controller) }
       : {}),
     energyCapacityAvailable: colony.energyCapacityAvailable,
+    ...(gclLevel !== null ? { gclLevel } : {}),
     ...(typeof colony.room.controller?.level === 'number' ? { controllerLevel: colony.room.controller.level } : {}),
     ownedRoomCount: countVisibleOwnedRooms(colony.room.name, getControllerOwnerUsername(colony.room.controller)),
     ...(typeof colony.room.controller?.ticksToDowngrade === 'number'
@@ -855,6 +860,11 @@ function getExpansionPreconditions(input: ExpansionScoringInput): string[] {
   }
 
   const ownedRoomCount = getOwnedRoomCount(input);
+  const gclRoomCapacity = getGclClaimRoomCapacity(input);
+  if (gclRoomCapacity !== null && ownedRoomCount >= gclRoomCapacity) {
+    preconditions.push(GCL_LIMIT_PRECONDITION);
+  }
+
   const maxRoomCount = maxRoomsForRcl(input.controllerLevel);
   if (ownedRoomCount >= maxRoomCount) {
     preconditions.push(`limit expansion to ${maxRoomCount} owned rooms for current controller level`);
@@ -869,6 +879,15 @@ function getExpansionPreconditions(input: ExpansionScoringInput): string[] {
   }
 
   return preconditions;
+}
+
+function getGclClaimRoomCapacity(input: ExpansionScoringInput): number | null {
+  const level = input.gclLevel;
+  if (typeof level !== 'number' || !Number.isFinite(level) || level <= 0) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor(level));
 }
 
 function getOwnedRoomCount(input: ExpansionScoringInput): number {
@@ -919,6 +938,10 @@ function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansion
     return 'noCandidate';
   }
 
+  if (report.candidates.some(hasGclLimitPrecondition)) {
+    return 'gclInsufficient';
+  }
+
   if (report.candidates.some(hasRoomLimitPrecondition)) {
     return 'roomLimitReached';
   }
@@ -932,6 +955,10 @@ function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansion
   }
 
   return 'unavailable';
+}
+
+function hasGclLimitPrecondition(candidate: ExpansionCandidateScore): boolean {
+  return candidate.preconditions.includes(GCL_LIMIT_PRECONDITION);
 }
 
 function hasRoomLimitPrecondition(candidate: ExpansionCandidateScore): boolean {
@@ -1670,6 +1697,11 @@ function getVisibleRoom(roomName: string): Room | undefined {
 function getGameTime(): number {
   const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
   return typeof gameTime === 'number' ? gameTime : 0;
+}
+
+function getGclLevel(): number | null {
+  const level = (globalThis as { Game?: Partial<Game> & { gcl?: { level?: number } } }).Game?.gcl?.level;
+  return typeof level === 'number' && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
 }
 
 function getTerritoryMemoryRecord(): TerritoryMemory | undefined {
