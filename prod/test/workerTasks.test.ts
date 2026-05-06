@@ -1028,6 +1028,62 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('does not pre-buffer construction energy into hostile-owned storage in an owned room', () => {
+    const constructionSite = withRangeTo(
+      {
+        id: 'build-site1',
+        structureType: 'extension',
+        progress: 0,
+        progressTotal: 200,
+        pos: makeRoomPosition(20, 20)
+      } as ConstructionSite,
+      {
+        'hostile-storage-near-site': 2
+      }
+    );
+    const hostileStorage = withRangeTo(
+      makeStoredEnergyStructure('hostile-storage-near-site', 'storage' as StructureConstant, 0, {
+        my: false,
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(500)
+        }
+      }),
+      { 'build-site1': 2 }
+    );
+    const room = makeWorkerTaskRoom({
+      constructionSites: [constructionSite],
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      structures: [hostileStorage]
+    });
+    const creep = {
+      name: 'ConstructionBufferWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'build-site1': 12,
+            'hostile-storage-near-site': 6
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { ConstructionBufferWorker: creep },
+      time: 340
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'build', targetId: 'build-site1' });
+    expect(creep.memory.constructionPreBuffer).toBeUndefined();
+  });
+
   it('withdraws extension pre-buffer energy before resuming construction at the site', () => {
     const constructionSite = withRangeTo(
       {

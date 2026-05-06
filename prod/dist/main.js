@@ -13488,7 +13488,7 @@ function shouldPreBufferEnergyForConstructionSite(creep, site) {
   return range === null || range > CONSTRUCTION_PREBUFFER_SITE_RANGE;
 }
 function selectConstructionEnergyPreBufferSink(creep, site) {
-  const sinks = findVisibleRoomStructures(creep.room).filter((structure) => isConstructionPreBufferSink(creep.room, structure)).filter((sink) => isConstructionSiteNearSource(site, sink, CONSTRUCTION_PREBUFFER_SITE_RANGE));
+  const sinks = findVisibleRoomStructures(creep.room).filter((structure) => isConstructionPreBufferSink(structure)).filter((sink) => isConstructionSiteNearSource(site, sink, CONSTRUCTION_PREBUFFER_SITE_RANGE));
   if (sinks.length === 0) {
     return null;
   }
@@ -13497,17 +13497,17 @@ function selectConstructionEnergyPreBufferSink(creep, site) {
 function compareConstructionPreBufferSinks(creep, site, left, right) {
   return compareOptionalRanges(getRangeBetweenRoomObjects2(site, left), getRangeBetweenRoomObjects2(site, right)) || compareOptionalRanges(getRangeBetweenRoomObjects2(creep, left), getRangeBetweenRoomObjects2(creep, right)) || getFreeStoredEnergyCapacity(right) - getFreeStoredEnergyCapacity(left) || String(left.id).localeCompare(String(right.id));
 }
-function isConstructionPreBufferSink(room, structure) {
+function isConstructionPreBufferSink(structure) {
   if (!("store" in structure) || getFreeStoredEnergyCapacity(structure) < CONSTRUCTION_PREBUFFER_MIN_FREE_CAPACITY) {
     return false;
   }
   if (isExtensionEnergyBuffer(structure)) {
-    return isOwnedOrClaimedRoomStructure(room, structure);
+    return isOwnedRoomStructure(structure);
   }
-  return isStorageEnergyBuffer(structure) && isOwnedOrClaimedRoomStructure(room, structure);
+  return isStorageEnergyBuffer(structure) && isOwnedRoomStructure(structure);
 }
 function isConstructionPreBufferSource(creep, site, structure) {
-  return (isExtensionEnergyBuffer(structure) || isStorageEnergyBuffer(structure)) && isOwnedOrClaimedRoomStructure(creep.room, structure) && isConstructionSiteNearSource(site, structure, CONSTRUCTION_PREBUFFER_SITE_RANGE) && getStoredEnergy4(structure) >= CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY;
+  return (isExtensionEnergyBuffer(structure) || isStorageEnergyBuffer(structure)) && isOwnedRoomStructure(structure) && isConstructionSiteNearSource(site, structure, CONSTRUCTION_PREBUFFER_SITE_RANGE) && getStoredEnergy4(structure) >= CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY;
 }
 function isExtensionEnergyBuffer(structure) {
   return matchesStructureType9(structure.structureType, "STRUCTURE_EXTENSION", "extension");
@@ -13515,10 +13515,9 @@ function isExtensionEnergyBuffer(structure) {
 function isStorageEnergyBuffer(structure) {
   return matchesStructureType9(structure.structureType, "STRUCTURE_STORAGE", "storage");
 }
-function isOwnedOrClaimedRoomStructure(room, structure) {
-  var _a;
+function isOwnedRoomStructure(structure) {
   const ownership = structure.my;
-  return ownership === true || ((_a = room.controller) == null ? void 0 : _a.my) === true;
+  return ownership === true;
 }
 function shouldPrioritizeExtensionCapacity(room) {
   const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
@@ -13765,7 +13764,7 @@ function isBuilderConstructionPreBufferExtension(creep, constructionSite, struct
 function isConstructionPreBufferExtensionSource(creep, structure) {
   var _a;
   const memory = (_a = creep.memory) == null ? void 0 : _a.constructionPreBuffer;
-  return (memory == null ? void 0 : memory.bufferId) === String(structure.id) && isOwnedOrClaimedRoomStructure(creep.room, structure) && getStoredEnergy4(structure) >= CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY;
+  return (memory == null ? void 0 : memory.bufferId) === String(structure.id) && isOwnedRoomStructure(structure) && getStoredEnergy4(structure) >= CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY;
 }
 function isConstructionSiteNearSource(constructionSite, source, rangeLimit) {
   const rangeToSite = getRangeBetweenRoomObjects2(constructionSite, source);
