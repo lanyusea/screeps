@@ -1564,20 +1564,52 @@ describe('selectWorkerTask', () => {
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
   });
 
-  it('withdraws only from source links and ignores controller links', () => {
+  it('harvests active sources before falling back to link energy', () => {
     const source = makeSource('source1', 10, 10);
-    const sourceLink = makeStoredEnergyLink('source-link', 11, 10, 300);
-    const controllerLink = makeStoredEnergyLink('controller-link', 25, 23, 800);
-    const controller = {
-      id: 'controller1',
-      my: true,
-      pos: makeRoomPosition(25, 25)
-    } as StructureController;
+    const link = makeStoredEnergyLink('link-full', 11, 10, 800);
     const room = makeWorkerTaskRoom({
-      controller,
-      myStructures: [sourceLink, controllerLink],
-      sources: [source],
-      structures: [controllerLink, sourceLink]
+      myStructures: [link],
+      sources: [source]
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('withdraws from containers before falling back to link energy', () => {
+    const emptySource = makeSource('source-empty', 10, 10, 0);
+    const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 50);
+    const link = makeStoredEnergyLink('link-full', 11, 10, 800);
+    const room = makeWorkerTaskRoom({
+      myStructures: [link],
+      sources: [emptySource],
+      structures: [container]
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
+  });
+
+  it('withdraws from the richest owned link when containers and sources are empty', () => {
+    const emptySource = makeSource('source-empty', 10, 10, 0);
+    const smallLink = makeStoredEnergyLink('link-small', 11, 10, 100);
+    const emptyLink = makeStoredEnergyLink('link-empty', 12, 10, 0);
+    const richLink = makeStoredEnergyLink('link-rich', 25, 23, 800);
+    const room = makeWorkerTaskRoom({
+      myStructures: [smallLink, emptyLink, richLink],
+      sources: [emptySource]
     });
     const creep = {
       store: {
@@ -1585,12 +1617,12 @@ describe('selectWorkerTask', () => {
         getFreeCapacity: jest.fn().mockReturnValue(50)
       },
       pos: {
-        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'controller-link' ? 1 : 10))
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'link-rich' ? 20 : 1))
       },
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'source-link' });
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-rich' });
   });
 
   it('prefers a nearby full-load pickup over distant surplus stored energy', () => {
