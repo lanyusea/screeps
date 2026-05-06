@@ -4356,6 +4356,9 @@ function removeStaleOccupationRecommendationTargets(territoryMemory, colony, act
   }
   territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
     const target = normalizeTerritoryTarget(rawTarget);
+    if ((target == null ? void 0 : target.colony) === colony && (activeTarget == null ? void 0 : activeTarget.roomName) === target.roomName && activeTarget.action === "reserve" && target.action === "claim") {
+      return true;
+    }
     return !((target == null ? void 0 : target.colony) === colony && target.enabled !== false && target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR && (!activeTarget || target.roomName !== activeTarget.roomName || target.action !== activeTarget.action));
   });
 }
@@ -5880,6 +5883,8 @@ var TERRITORY_SCOUT_INTEL_PLANNING_TTL = 1e4;
 var OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 = "occupationRecommendation";
 var REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
 var MAX_CONTROLLER_LEVEL = 8;
+var ADJACENT_EXPANSION_CLAIM_SOURCE_COUNT = 2;
+var ADJACENT_EXPANSION_CLAIM_MIN_WORKERS = 3;
 var recoveredTerritoryFollowUpRetryMetadata = /* @__PURE__ */ new WeakMap();
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options = {}) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
@@ -7482,19 +7487,21 @@ function applyOccupationRecommendationScores(colony, roleCounts, workerTarget, c
     if (!recommendation || recommendation.evidenceStatus === "unavailable") {
       return [];
     }
+    const adjacentExpansionClaimDecision = getAdjacentExpansionClaimDecision(candidate, roleCounts);
     return [
       applyOccupationRecommendationScore(
         candidate,
         recommendation,
         roleCounts,
-        adjacentControllerProgressReady
+        adjacentControllerProgressReady,
+        adjacentExpansionClaimDecision === "claim"
       )
     ];
   });
 }
-function applyOccupationRecommendationScore(candidate, recommendation, roleCounts, adjacentControllerProgressReady) {
+function applyOccupationRecommendationScore(candidate, recommendation, roleCounts, adjacentControllerProgressReady, claimAdjacentExpansion = false) {
   var _a;
-  const intentAction = getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
+  const intentAction = claimAdjacentExpansion ? "claim" : getRecommendedTerritoryIntentAction(candidate, recommendation, roleCounts);
   const requiresControllerPressure = isTerritoryControlAction3(intentAction) && candidate.requiresControllerPressure === true;
   const commitTarget = recommendation.evidenceStatus === "sufficient" && intentAction !== "scout" && (candidate.commitTarget || isScoutedAdjacentControlCandidate(candidate));
   const target = getRecommendedTerritoryTarget(candidate.target, recommendation, intentAction);
@@ -7518,13 +7525,56 @@ function applyOccupationRecommendationScore(candidate, recommendation, roleCount
     target,
     intentAction,
     commitTarget: nextSelection.commitTarget,
-    priority: getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
+    priority: claimAdjacentExpansion ? TERRITORY_CANDIDATE_PRIORITY_VISIBLE_CLAIM : getTerritoryCandidatePriority(nextSelection, renewalTicksToEnd),
     recommendationScore: getTerritoryCandidateRecommendationScore(candidate, recommendation),
     recommendationEvidenceStatus: recommendation.evidenceStatus,
     ...requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...safeAdjacentControllerProgress ? { safeAdjacentControllerProgress: true } : {},
     ...renewalTicksToEnd !== null ? { renewalTicksToEnd } : {}
   };
+}
+function getAdjacentExpansionClaimDecision(candidate, roleCounts) {
+  if (!isAdjacentExpansionClaimDecisionCandidate(candidate)) {
+    return "ignore";
+  }
+  const scoutIntel = getFreshTerritoryScoutIntel(
+    candidate.target.colony,
+    candidate.target.roomName,
+    getGameTime8()
+  );
+  if (!isViableAdjacentExpansionClaimScoutIntel(scoutIntel)) {
+    return "ignore";
+  }
+  if (getWorkerCapacity(roleCounts) < ADJACENT_EXPANSION_CLAIM_MIN_WORKERS || hasActiveClaimCreepForColony(roleCounts)) {
+    return "defer";
+  }
+  return "claim";
+}
+function isAdjacentExpansionClaimDecisionCandidate(candidate) {
+  if (candidate.target.action !== "reserve") {
+    return false;
+  }
+  if (candidate.source === "adjacent") {
+    return true;
+  }
+  return candidate.source === "configured" && candidate.target.createdBy === OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 && isRoomAdjacentToColony(candidate.target.colony, candidate.target.roomName);
+}
+function isViableAdjacentExpansionClaimScoutIntel(intel) {
+  if (!intel || intel.sourceCount !== ADJACENT_EXPANSION_CLAIM_SOURCE_COUNT) {
+    return false;
+  }
+  const controller = intel.controller;
+  if (!controller || controller.my === true || isNonEmptyString7(controller.ownerUsername) || isNonEmptyString7(controller.reservationUsername)) {
+    return false;
+  }
+  return intel.hostileCreepCount <= 0 && intel.hostileStructureCount <= 0 && intel.hostileSpawnCount <= 0;
+}
+function hasActiveClaimCreepForColony(roleCounts) {
+  var _a, _b;
+  if (roleCounts.claimersByTargetRoomAction) {
+    return Object.values((_a = roleCounts.claimersByTargetRoomAction.claim) != null ? _a : {}).some((count) => count > 0);
+  }
+  return ((_b = roleCounts.claimer) != null ? _b : 0) > 0;
 }
 function getRecommendedTerritoryTarget(candidateTarget, recommendation, intentAction) {
   if (!isTerritoryControlAction3(intentAction)) {

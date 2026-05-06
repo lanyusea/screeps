@@ -192,7 +192,7 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
-  it('uses persisted scout intel to promote an unseen adjacent room into a reserve target', () => {
+  it('uses persisted scout intel to promote a high-value unseen adjacent room into a claim target', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -224,14 +224,14 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W1N2',
-      action: 'reserve',
+      action: 'claim',
       controllerId: 'controller2'
     });
     expect(Memory.territory?.targets).toEqual([
       {
         colony: 'W1N1',
         roomName: 'W1N2',
-        action: 'reserve',
+        action: 'claim',
         controllerId: 'controller2'
       }
     ]);
@@ -239,7 +239,7 @@ describe('planTerritoryIntent', () => {
       {
         colony: 'W1N1',
         targetRoom: 'W1N2',
-        action: 'reserve',
+        action: 'claim',
         status: 'planned',
         updatedAt: 525,
         controllerId: 'controller2'
