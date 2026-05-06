@@ -463,6 +463,37 @@ describe('runDefense', () => {
     ]);
   });
 
+  it('moves an assigned post-claim defender toward its defense room before contact is visible', () => {
+    (globalThis as unknown as { RoomPosition: typeof RoomPosition }).RoomPosition = jest.fn(
+      (x: number, y: number, roomName: string) => ({ x, y, roomName }) as RoomPosition
+    ) as unknown as typeof RoomPosition;
+    const homeRoom = makeRoom({
+      roomName: 'W1N1',
+      controller: makeController()
+    });
+    const defender = {
+      name: 'Defender1',
+      memory: { role: 'defender', colony: 'W2N1', defense: { homeRoom: 'W2N1' } },
+      pos: makePosition(25, 25, 'W1N1'),
+      room: homeRoom,
+      attack: jest.fn().mockReturnValue(ERR_NOT_IN_RANGE_CODE),
+      moveTo: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 106,
+      rooms: { W1N1: homeRoom },
+      spawns: {},
+      creeps: { Defender1: defender }
+    };
+
+    const events = runDefense();
+
+    expect(defender.attack).not.toHaveBeenCalled();
+    expect(defender.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W2N1' });
+    expect(events).toEqual([]);
+    delete (globalThis as { RoomPosition?: typeof RoomPosition }).RoomPosition;
+  });
+
   it('does not path a defender toward a known enemy tower room when no safe route exists', () => {
     const hostileTower = makeHostileStructure('enemy-tower', 25, 25, 'W2N1', TEST_GLOBALS.STRUCTURE_TOWER);
     const deadZoneRoom = makeRoom({

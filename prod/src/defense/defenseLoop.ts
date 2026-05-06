@@ -19,6 +19,7 @@ export { DEFENDER_ROLE } from './defensePlanner';
 const MAX_RECORDED_DEFENSE_ACTIONS = 20;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 
+type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
 type CriticalOwnedStructure = StructureSpawn | StructureTower;
 type HostileTarget = Creep | Structure;
 type DefenseActionReason =
@@ -116,6 +117,10 @@ function runDefender(creep: Creep, telemetryEvents: RuntimeTelemetryEvent[]): vo
   }
 
   const target = selectDefenderTarget(creep);
+  if (!target && moveTowardAssignedDefenseRoom(creep)) {
+    return;
+  }
+
   if (target && typeof creep.attack === 'function') {
     const attackResult = creep.attack(target);
     if (attackResult === ERR_NOT_IN_RANGE_CODE) {
@@ -132,6 +137,27 @@ function runDefender(creep: Creep, telemetryEvents: RuntimeTelemetryEvent[]): vo
 
     recordDefenderAction(creep, 'defenderAttack', target, attackResult, telemetryEvents);
   }
+}
+
+function moveTowardAssignedDefenseRoom(creep: Creep): boolean {
+  const defenseRoom = creep.memory.defense?.homeRoom;
+  if (!defenseRoom || creep.room?.name === defenseRoom || typeof creep.moveTo !== 'function') {
+    return false;
+  }
+
+  const visibleRoom = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[defenseRoom];
+  if (visibleRoom?.controller) {
+    creep.moveTo(visibleRoom.controller);
+    return true;
+  }
+
+  const RoomPositionCtor = (globalThis as { RoomPosition?: RoomPositionConstructor }).RoomPosition;
+  if (typeof RoomPositionCtor !== 'function') {
+    return false;
+  }
+
+  creep.moveTo(new RoomPositionCtor(25, 25, defenseRoom));
+  return true;
 }
 
 function shouldSuppressDefenderMove(creep: Creep, target: HostileTarget): boolean {

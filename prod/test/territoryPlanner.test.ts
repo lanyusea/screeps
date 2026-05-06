@@ -6377,6 +6377,55 @@ describe('planTerritoryIntent', () => {
     });
   });
 
+  it('reissues a claim intent when a previously claimed post-expansion room becomes unowned', () => {
+    const colony = makeSafeColony();
+    const expiredController = {
+      id: 'controller2',
+      my: false,
+      level: 0
+    } as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W1N1: colony.room,
+        W2N1: { name: 'W2N1', controller: expiredController } as Room
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: makeRemoteMiningBootstrap()
+        }
+      }
+    };
+
+    const plan = planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 706);
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      controllerId: 'controller2'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        controllerId: 'controller2'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 706,
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
   it('plans remote source container construction and records pending remote mining state', () => {
     (globalThis as unknown as {
       FIND_STRUCTURES: number;
