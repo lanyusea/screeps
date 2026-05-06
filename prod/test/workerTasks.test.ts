@@ -376,7 +376,7 @@ describe('selectWorkerTask', () => {
   });
 
   it('harvests the closer source when same-tier sources can both fill the worker', () => {
-    const distantSource = makeSource('source-distant', 25, 25, 300);
+    const distantSource = makeSource('source-a-distant', 25, 25, 300);
     const closeSource = makeSource('source-close', 8, 8, 300);
     const room = {
       name: 'W1N1',
@@ -1648,11 +1648,11 @@ describe('selectWorkerTask', () => {
 
   it('withdraws from the closer container when same-tier containers both have energy', () => {
     const closeContainer = makeStoredEnergyStructure('container-close', 'container' as StructureConstant, 100);
-    const distantContainer = makeStoredEnergyStructure('container-distant', 'container' as StructureConstant, 1_000);
+    const distantContainer = makeStoredEnergyStructure('container-a-distant', 'container' as StructureConstant, 1_000);
     const getRangeTo = jest.fn((target: { id?: string }) => {
       const ranges: Record<string, number> = {
         'container-close': 4,
-        'container-distant': 12
+        'container-a-distant': 12
       };
       return ranges[String(target.id)] ?? 99;
     });
@@ -1681,11 +1681,11 @@ describe('selectWorkerTask', () => {
 
   it('picks up the closer dropped energy when same-tier drops both have energy', () => {
     const closeDroppedEnergy = { id: 'drop-close', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
-    const distantDroppedEnergy = { id: 'drop-distant', resourceType: 'energy', amount: 500 } as Resource<ResourceConstant>;
+    const distantDroppedEnergy = { id: 'drop-a-distant', resourceType: 'energy', amount: 500 } as Resource<ResourceConstant>;
     const getRangeTo = jest.fn((target: { id?: string }) => {
       const ranges: Record<string, number> = {
         'drop-close': 4,
-        'drop-distant': 12
+        'drop-a-distant': 12
       };
       return ranges[String(target.id)] ?? 99;
     });
@@ -1714,11 +1714,11 @@ describe('selectWorkerTask', () => {
 
   it('withdraws from the closer ruin when same-tier ruins both have energy', () => {
     const closeRuin = makeSalvageEnergySource('ruin-close', 25);
-    const distantRuin = makeSalvageEnergySource('ruin-distant', 500);
+    const distantRuin = makeSalvageEnergySource('ruin-a-distant', 500);
     const getRangeTo = jest.fn((target: { id?: string }) => {
       const ranges: Record<string, number> = {
         'ruin-close': 4,
-        'ruin-distant': 12
+        'ruin-a-distant': 12
       };
       return ranges[String(target.id)] ?? 99;
     });
