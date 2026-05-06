@@ -34,6 +34,7 @@ const TEST_GLOBALS = {
   STRUCTURE_ROAD: 'road',
   STRUCTURE_CONTAINER: 'container',
   STRUCTURE_STORAGE: 'storage',
+  STRUCTURE_TERMINAL: 'terminal',
   STRUCTURE_LINK: 'link'
 } as const;
 
@@ -137,6 +138,23 @@ describe('runtime telemetry summaries', () => {
               pendingBuildProgress: 0,
               repairBacklogHits: 0,
               controllerProgressRemaining: 43766
+            },
+            energySurplus: {
+              surplus: false,
+              spawnExtensionsFull: false,
+              containersFull: true,
+              spawnExtensionFreeCapacity: 50,
+              containerFreeCapacity: 0,
+              durableFreeCapacity: 0,
+              storageEnergy: 125,
+              storageFreeCapacity: 0,
+              terminalEnergy: 0,
+              terminalFreeCapacity: 0,
+              terminalTargetEnergy: 0,
+              terminalEnergyDeficit: 0,
+              terminalEnergySurplus: 0,
+              routedWorkerCount: 0,
+              routedCarriedEnergy: 0
             },
             events: {
               harvestedEnergy: 10,
@@ -709,7 +727,7 @@ describe('runtime telemetry summaries', () => {
     });
   });
 
-  it('reports storedEnergy from owned spawn, extension, and container stores', () => {
+  it('reports storedEnergy from owned spawn, extension, container, and terminal stores', () => {
     const colony = makeColony({
       time: RUNTIME_SUMMARY_INTERVAL,
       includeEventLog: false,
@@ -717,6 +735,7 @@ describe('runtime telemetry summaries', () => {
         { id: 'spawn1', structureType: TEST_GLOBALS.STRUCTURE_SPAWN, store: makeEnergyStore(40, 300) },
         { id: 'extension1', structureType: TEST_GLOBALS.STRUCTURE_EXTENSION, store: makeEnergyStore(20, 50) },
         { id: 'container1', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, store: makeEnergyStore(125, 2000) },
+        { id: 'terminal1', structureType: TEST_GLOBALS.STRUCTURE_TERMINAL, store: makeEnergyStore(70, 1000) },
         { id: 'tower1', structureType: TEST_GLOBALS.STRUCTURE_TOWER, store: makeEnergyStore(900, 1000) },
         { id: 'unknown-store', store: makeEnergyStore(500, 500) }
       ]
@@ -726,7 +745,7 @@ describe('runtime telemetry summaries', () => {
 
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
-    expect((room.resources as Record<string, unknown>).storedEnergy).toBe(185);
+    expect((room.resources as Record<string, unknown>).storedEnergy).toBe(255);
   });
 
   it('reports workerCarriedEnergy from owned creeps in the room', () => {
@@ -746,6 +765,51 @@ describe('runtime telemetry summaries', () => {
     const payload = parseLoggedSummary();
     const [room] = payload.rooms as Array<Record<string, unknown>>;
     expect((room.resources as Record<string, unknown>).workerCarriedEnergy).toBe(45);
+  });
+
+  it('reports energy surplus routing KPIs in room resource telemetry', () => {
+    const colony = makeColony({
+      time: RUNTIME_SUMMARY_INTERVAL,
+      includeEventLog: false,
+      structures: [
+        { id: 'spawn1', structureType: TEST_GLOBALS.STRUCTURE_SPAWN, store: makeEnergyStore(300, 300) },
+        { id: 'container1', structureType: TEST_GLOBALS.STRUCTURE_CONTAINER, store: makeEnergyStore(2_000, 2_000) },
+        { id: 'storage1', structureType: TEST_GLOBALS.STRUCTURE_STORAGE, store: makeEnergyStore(200, 1_000) }
+      ]
+    });
+    (colony.room as { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 300;
+    (colony.room as { energyAvailable: number; energyCapacityAvailable: number }).energyCapacityAvailable = 300;
+    colony.energyAvailable = 300;
+    colony.energyCapacityAvailable = 300;
+    const worker = makeWorker(
+      { role: 'worker', colony: 'W1N1', task: { type: 'transfer', targetId: 'storage1' as Id<AnyStoreStructure> } },
+      50,
+      'SurplusCarrier'
+    );
+
+    emitRuntimeSummary([colony], [worker]);
+
+    const payload = parseLoggedSummary();
+    const [room] = payload.rooms as Array<Record<string, unknown>>;
+    expect((room.resources as Record<string, unknown>).energySurplus).toEqual({
+      surplus: true,
+      spawnExtensionsFull: true,
+      containersFull: true,
+      spawnExtensionFreeCapacity: 0,
+      containerFreeCapacity: 0,
+      durableFreeCapacity: 800,
+      storageEnergy: 200,
+      storageFreeCapacity: 800,
+      terminalEnergy: 0,
+      terminalFreeCapacity: 0,
+      terminalTargetEnergy: 0,
+      terminalEnergyDeficit: 0,
+      terminalEnergySurplus: 0,
+      routedWorkerCount: 1,
+      routedCarriedEnergy: 50,
+      selectedSinkId: 'storage1',
+      selectedSinkType: 'storage'
+    });
   });
 
   it('reports harvestedThisTick from harvest event amounts', () => {

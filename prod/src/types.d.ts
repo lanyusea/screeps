@@ -139,6 +139,7 @@ declare global {
   interface EconomyMemory {
     sourceWorkloads?: Record<string, EconomyRoomSourceWorkloadMemory>;
     storageBalance?: EconomyStorageBalanceMemory;
+    energySurplus?: EconomyEnergySurplusMemory;
   }
 
   type EconomyStorageBalanceMode = 'export' | 'import' | 'balanced';
@@ -157,6 +158,15 @@ declare global {
     ratio: number;
     exportableEnergy: number;
     importDemand: number;
+    storageEnergy?: number;
+    storageCapacity?: number;
+    storageFreeCapacity?: number;
+    terminalEnergy?: number;
+    terminalCapacity?: number;
+    terminalFreeCapacity?: number;
+    terminalTargetEnergy?: number;
+    terminalEnergyDeficit?: number;
+    terminalEnergySurplus?: number;
     updatedAt: number;
   }
 
@@ -164,6 +174,31 @@ declare global {
     sourceRoom: string;
     targetRoom: string;
     amount: number;
+    updatedAt: number;
+  }
+
+  interface EconomyEnergySurplusMemory {
+    updatedAt: number;
+    rooms: Record<string, EconomyEnergySurplusRoomMemory>;
+  }
+
+  interface EconomyEnergySurplusRoomMemory {
+    roomName: string;
+    surplus: boolean;
+    spawnExtensionsFull: boolean;
+    containersFull: boolean;
+    spawnExtensionFreeCapacity: number;
+    containerFreeCapacity: number;
+    durableFreeCapacity: number;
+    storageEnergy: number;
+    storageFreeCapacity: number;
+    terminalEnergy: number;
+    terminalFreeCapacity: number;
+    terminalTargetEnergy: number;
+    terminalEnergyDeficit: number;
+    terminalEnergySurplus: number;
+    selectedSinkId?: string;
+    selectedSinkType?: 'storage' | 'terminal';
     updatedAt: number;
   }
 
