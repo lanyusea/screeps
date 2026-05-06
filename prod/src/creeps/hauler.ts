@@ -1,4 +1,5 @@
 import { selectRemoteHaulerDeliveryTask } from '../tasks/workerTasks';
+import { recordCreepBehaviorEnergyAcquisition } from '../telemetry/behaviorTelemetry';
 import {
   getRemoteSourceAssignments,
   moveTowardRoom,
@@ -14,7 +15,14 @@ export const REMOTE_HAULER_DISPATCH_ENERGY_THRESHOLD = 500;
 
 const MAX_REMOTE_HAULERS_PER_CONTAINER = 1;
 const HAULER_MOVE_OPTS: MoveToOpts = { reusePath: 20, ignoreRoads: false };
+const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+
+type RemoteHaulerEnergySource = StructureContainer | StructureStorage | StructureTerminal;
+type RemoteHaulerEnergySourceStructureGlobal =
+  | 'STRUCTURE_CONTAINER'
+  | 'STRUCTURE_STORAGE'
+  | 'STRUCTURE_TERMINAL';
 
 export { buildRemoteHaulerBody };
 
@@ -66,32 +74,33 @@ export function runHauler(creep: Creep): void {
 }
 
 function collectRemoteEnergy(creep: Creep, assignment: CreepRemoteHaulerMemory): void {
-  const container = getAssignedContainer(assignment);
+  const assignedContainer = getAssignedContainer(assignment);
   if (creep.room?.name !== assignment.targetRoom) {
     delete creep.memory.task;
-    moveTowardRoom(creep, assignment.targetRoom, container);
+    moveTowardRoom(creep, assignment.targetRoom, assignedContainer);
     return;
   }
 
-  if (!container) {
+  const source = selectRemoteHaulerEnergySource(creep, assignedContainer);
+  if (!source) {
     delete creep.memory.task;
-    return;
-  }
-
-  if (getStoredEnergy(container) <= 0) {
-    delete creep.memory.task;
-    moveTo(creep, container);
+    if (assignedContainer) {
+      moveTo(creep, assignedContainer);
+    }
     return;
   }
 
   const task: Extract<CreepTaskMemory, { type: 'withdraw' }> = {
     type: 'withdraw',
-    targetId: assignment.containerId as Id<AnyStoreStructure>
+    targetId: source.id as Id<AnyStoreStructure>
   };
   creep.memory.task = task;
-  const result = creep.withdraw?.(container, getEnergyResource());
+  const result = creep.withdraw?.(source, getEnergyResource());
+  if (result === OK_CODE) {
+    recordCreepBehaviorEnergyAcquisition(creep, 'withdrawn');
+  }
   if (result === getErrNotInRangeCode()) {
-    moveTo(creep, container);
+    moveTo(creep, source);
   }
 }
 
@@ -166,6 +175,72 @@ function getAssignedContainer(assignment: CreepRemoteHaulerMemory): StructureCon
   return getObjectById<StructureContainer>(assignment.containerId);
 }
 
+function selectRemoteHaulerEnergySource(
+  creep: Creep,
+  assignedContainer: StructureContainer | null
+): RemoteHaulerEnergySource | null {
+  const seenSourceIds = new Set<string>();
+  const sources: RemoteHaulerEnergySource[] = [];
+
+  for (const source of [assignedContainer, ...findVisibleRemoteHaulerEnergySources(creep.room)]) {
+    if (!source || getStoredEnergy(source) <= 0) {
+      continue;
+    }
+
+    const sourceId = getObjectId(source);
+    if (seenSourceIds.has(sourceId)) {
+      continue;
+    }
+
+    seenSourceIds.add(sourceId);
+    sources.push(source);
+  }
+
+  return sources.sort((left, right) => compareRemoteHaulerEnergySources(creep, left, right))[0] ?? null;
+}
+
+function findVisibleRemoteHaulerEnergySources(room: Room | undefined): RemoteHaulerEnergySource[] {
+  if (typeof FIND_STRUCTURES !== 'number' || typeof room?.find !== 'function') {
+    return [];
+  }
+
+  const structures = room.find(FIND_STRUCTURES);
+  return Array.isArray(structures) ? structures.filter(isRemoteHaulerEnergySource) : [];
+}
+
+function isRemoteHaulerEnergySource(structure: Structure): structure is RemoteHaulerEnergySource {
+  const structureType = structure.structureType;
+  if (matchesStructureType(structureType, 'STRUCTURE_CONTAINER', 'container')) {
+    return true;
+  }
+
+  if (
+    matchesStructureType(structureType, 'STRUCTURE_STORAGE', 'storage') ||
+    matchesStructureType(structureType, 'STRUCTURE_TERMINAL', 'terminal')
+  ) {
+    return (structure as { my?: unknown }).my !== false;
+  }
+
+  return false;
+}
+
+function compareRemoteHaulerEnergySources(
+  creep: Creep,
+  left: RemoteHaulerEnergySource,
+  right: RemoteHaulerEnergySource
+): number {
+  return (
+    getStoredEnergy(right) - getStoredEnergy(left) ||
+    getRangeToRoomObject(creep, left) - getRangeToRoomObject(creep, right) ||
+    getObjectId(left).localeCompare(getObjectId(right))
+  );
+}
+
+function getRangeToRoomObject(creep: Creep, target: RoomObject): number {
+  const range = creep.pos?.getRangeTo?.(target);
+  return typeof range === 'number' && Number.isFinite(range) ? Math.max(0, range) : Number.MAX_SAFE_INTEGER;
+}
+
 function moveTo(creep: Creep, target: RoomObject): void {
   creep.moveTo?.(target, HAULER_MOVE_OPTS);
 }
@@ -232,6 +307,25 @@ function getVisibleRoom(roomName: string): Room | undefined {
 
 function getCreepStableKey(creep: Creep): string {
   return creep.name ?? `${creep.memory?.role ?? 'creep'}:${creep.memory?.colony ?? ''}:${creep.ticksToLive ?? ''}`;
+}
+
+function getObjectId(object: unknown): string {
+  const id = (object as { id?: unknown; name?: unknown } | null)?.id;
+  if (typeof id === 'string') {
+    return id;
+  }
+
+  const name = (object as { name?: unknown } | null)?.name;
+  return typeof name === 'string' ? name : '';
+}
+
+function matchesStructureType(
+  actual: string | undefined,
+  globalName: RemoteHaulerEnergySourceStructureGlobal,
+  fallback: string
+): boolean {
+  const constants = globalThis as unknown as Partial<Record<RemoteHaulerEnergySourceStructureGlobal, string>>;
+  return actual === (constants[globalName] ?? fallback);
 }
 
 function getErrNotInRangeCode(): ScreepsReturnCode {

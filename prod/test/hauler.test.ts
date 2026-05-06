@@ -7,9 +7,11 @@ describe('runHauler', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 1;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 2;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 3;
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
@@ -37,6 +39,28 @@ describe('runHauler', () => {
     expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'container1' });
     expect(creep.withdraw).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
     expect(creep.moveTo).toHaveBeenCalledWith(container, { reusePath: 20, ignoreRoads: false });
+  });
+
+  it('withdraws from the richest visible remote container or storage source', () => {
+    const assignedContainer = makeStoreStructure('container1', STRUCTURE_CONTAINER, 100, 0);
+    const richContainer = makeStoreStructure('container-rich', STRUCTURE_CONTAINER, 800, 0);
+    const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 500, 0);
+    const remoteRoom = makeRoom('W2N1', true, [], [], [
+      assignedContainer as unknown as Structure,
+      richContainer as unknown as Structure,
+      storage as unknown as Structure
+    ]);
+    const creep = makeHauler(remoteRoom, 0);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) => (id === 'container1' ? assignedContainer : null))
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'container-rich' });
+    expect(creep.withdraw).toHaveBeenCalledWith(richContainer, RESOURCE_ENERGY);
+    expect(creep.memory.behaviorTelemetry).toMatchObject({ energyAcquisitionWithdrawn: 1 });
   });
 
   it('delivers carried remote energy to spawn and extension sinks before storage', () => {
@@ -150,7 +174,8 @@ function makeRoom(
   roomName: string,
   owned: boolean,
   structures: AnyOwnedStructure[],
-  hostiles: Creep[]
+  hostiles: Creep[],
+  roomStructures: Structure[] = []
 ): Room {
   return {
     name: roomName,
@@ -162,6 +187,10 @@ function makeRoom(
 
       if (type === FIND_MY_STRUCTURES) {
         return options?.filter ? structures.filter(options.filter) : structures;
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return roomStructures;
       }
 
       return [];
