@@ -57,6 +57,9 @@ export function runWorker(creep: Creep): void {
   if (runControllerSustainMovement(creep)) {
     return;
   }
+  if (runSpawnSupportMovement(creep)) {
+    return;
+  }
   observeCreepBehaviorTick(creep);
 
   const selectedTask = selectWorkerTaskForRunner(creep);
@@ -216,6 +219,33 @@ function selectControllerSustainDestinationRoom(
   }
 
   return roomName === sustain.homeRoom ? sustain.targetRoom : sustain.homeRoom;
+}
+
+function runSpawnSupportMovement(creep: Creep): boolean {
+  const support = creep.memory.spawnSupport;
+  if (!isSpawnSupportMemory(support)) {
+    return false;
+  }
+
+  if (creep.room?.name === support.targetRoom) {
+    return false;
+  }
+
+  clearAssignedTask(creep);
+  moveTowardRoom(creep, support.targetRoom);
+  return true;
+}
+
+function isSpawnSupportMemory(value: unknown): value is CreepSpawnSupportMemory {
+  const support = value as Partial<CreepSpawnSupportMemory>;
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof support.originRoom === 'string' &&
+    typeof support.targetRoom === 'string' &&
+    support.originRoom.length > 0 &&
+    support.targetRoom.length > 0
+  );
 }
 
 function clearAssignedTask(creep: Creep): void {

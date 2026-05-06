@@ -50,6 +50,7 @@ declare global {
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
     crossRoomHauler?: CreepCrossRoomHaulerMemory;
+    spawnSupport?: CreepSpawnSupportMemory;
   }
 
   type DefenseActionType =
@@ -155,6 +156,11 @@ declare global {
     sourceId?: Id<AnyStoreStructure> | null;
     state?: 'collecting' | 'delivering' | 'returning' | 'unassigned';
     route?: string[];
+  }
+
+  interface CreepSpawnSupportMemory {
+    originRoom: string;
+    targetRoom: string;
   }
 
   interface EconomyRoomSourceWorkloadMemory {
