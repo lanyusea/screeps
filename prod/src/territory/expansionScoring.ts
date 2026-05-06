@@ -119,7 +119,7 @@ export interface ExpansionReservationEvidence {
   ticksToEnd?: number;
 }
 
-type PersistedExpansionCandidateRecommendedAction = 'claim' | 'scout';
+type PersistedExpansionCandidateRecommendedAction = TerritoryExpansionCandidateRecommendedAction;
 
 type PersistedExpansionCandidateMemory = TerritoryExpansionCandidateMemory;
 
@@ -388,7 +388,7 @@ function buildScoutedExpansionCandidateEvidence(
     ...(intel.controllerSourceRange !== undefined ? { controllerSourceRange: intel.controllerSourceRange } : {}),
     ...(intel.terrain ? { terrain: intel.terrain } : {}),
     hostileCreepCount: intel.hostileCreepCount,
-    hostileStructureCount: intel.hostileStructureCount
+    hostileStructureCount: intel.hostileStructureCount + (intel.hostileSpawnCount ?? 0)
   };
 }
 
@@ -709,8 +709,18 @@ function getOwnedRoomCount(input: ExpansionScoringInput): number {
 function selectPersistableExpansionCandidate(report: ExpansionCandidateReport): ExpansionCandidateScore | null {
   return (
     report.candidates.find(
-      (candidate) => candidate.evidenceStatus === 'sufficient' && candidate.preconditions.length === 0
+      (candidate) =>
+        candidate.visible &&
+        isViableExpansionCandidate(candidate)
     ) ?? null
+  );
+}
+
+function isViableExpansionCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.evidenceStatus === 'sufficient' &&
+    candidate.preconditions.length === 0 &&
+    candidate.sourceCount === 2
   );
 }
 
@@ -810,8 +820,8 @@ function toPersistedExpansionCandidateMemory(
 function getPersistedExpansionCandidateRecommendedAction(
   candidate: ExpansionCandidateScore
 ): PersistedExpansionCandidateRecommendedAction | undefined {
-  if (candidate.evidenceStatus === 'sufficient' && candidate.preconditions.length === 0) {
-    return 'claim';
+  if (isViableExpansionCandidate(candidate)) {
+    return candidate.visible ? 'claim' : 'reserve';
   }
 
   return candidate.evidenceStatus === 'insufficient-evidence' && candidate.adjacentToOwnedRoom

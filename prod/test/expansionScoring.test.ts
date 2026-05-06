@@ -433,22 +433,21 @@ describe('next expansion scoring', () => {
     });
     expect(report.next?.rationale).toEqual(expect.arrayContaining(['2 sources scouted']));
 
-    expect(refreshNextExpansionTargetSelection(colony, report, 451)).toMatchObject({
-      status: 'planned',
+    expect(refreshNextExpansionTargetSelection(colony, report, 451)).toEqual({
+      status: 'skipped',
       colony: 'W1N1',
-      targetRoom: 'W2N1',
-      controllerId: 'controller2',
-      score: report.next?.score
+      reason: 'unavailable'
     });
     expect(getExpansionCandidateMemory()[0]).toMatchObject({
       colony: 'W1N1',
       roomName: 'W2N1',
       rank: 1,
       evidenceStatus: 'sufficient',
-      recommendedAction: 'claim',
+      recommendedAction: 'reserve',
       visible: false,
       updatedAt: 451
     });
+    expect(Memory.territory?.targets).toBeUndefined();
   });
 
   it('records terrain-based source accessibility for visible expansion candidates', () => {
@@ -550,6 +549,41 @@ describe('next expansion scoring', () => {
       createdBy: 'nextExpansionScoring',
       controllerId: 'controller3'
     });
+  });
+
+  it('does not persist one-source rooms as next expansion claim targets or actions', () => {
+    const colony = makeSafeColony();
+    const report = scoreExpansionCandidates(
+      makeInput([
+        makeCandidate({
+          roomName: 'W3N1',
+          controllerId: 'controller3' as Id<StructureController>,
+          sourceCount: 1
+        })
+      ])
+    );
+
+    expect(report.next).toMatchObject({
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      sourceCount: 1
+    });
+    expect(refreshNextExpansionTargetSelection(colony, report, 102)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unavailable'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toBeUndefined();
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      sourceCount: 1,
+      visible: true,
+      updatedAt: 102
+    });
+    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
   });
 
   it('preserves unrelated claim intents while pruning stale next expansion intents', () => {

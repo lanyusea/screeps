@@ -144,6 +144,10 @@ export function clearColonyExpansionClaimIntent(colony: string): void {
 function selectColonyExpansionCandidate(colony: ColonySnapshot): ColonyExpansionCandidate | null {
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
   const candidates = getAdjacentRoomNames(colony.room.name).flatMap((roomName, order) => {
+    if (!getVisibleRoom(roomName)) {
+      return [];
+    }
+
     const claimScore = scoreClaimTarget(roomName, colony.room);
     if (claimScore.sources <= 0 || hasHostileClaimScore(claimScore)) {
       return [];
