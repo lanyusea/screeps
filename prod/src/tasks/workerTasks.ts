@@ -60,7 +60,7 @@ const MIN_DROPPED_ENERGY_PICKUP_AMOUNT = 25;
 const MIN_SPAWN_RECOVERY_DROPPED_ENERGY_PICKUP_AMOUNT = 10;
 const MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT = 2;
 const MIN_NEARBY_LINK_REFILL_ENERGY = 1;
-const COMPETITIVE_CONTAINER_WITHDRAW_MIN_ENERGY = 200;
+const COMPETITIVE_SOURCE_CONTAINER_WITHDRAW_MIN_ENERGY = 200;
 const ENERGY_ACQUISITION_RANGE_COST = 50;
 const ENERGY_ACQUISITION_ACTION_TICKS = 1;
 const WORKER_ENERGY_SURPLUS_SCORE_RATIO = 0.4;
@@ -262,9 +262,9 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
         return storageRefillAcquisitionTask;
       }
 
-      const competitiveContainerEnergyAcquisitionTask = selectCompetitiveContainerEnergyAcquisitionTask(creep);
-      if (competitiveContainerEnergyAcquisitionTask) {
-        return competitiveContainerEnergyAcquisitionTask;
+      const competitiveWorkerEnergyAcquisitionTask = selectCompetitiveWorkerEnergyAcquisitionTask(creep);
+      if (competitiveWorkerEnergyAcquisitionTask) {
+        return competitiveWorkerEnergyAcquisitionTask;
       }
 
       const nearbyLinkRefillTask = selectNearbyWorkerLinkRefillTask(creep);
@@ -2486,21 +2486,20 @@ function selectNearbyWorkerLinkRefillTask(creep: Creep): WorkerEnergyAcquisition
   return findNearestNearbyWorkerLinkRefillCandidate(creep)?.task ?? null;
 }
 
-function selectCompetitiveContainerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
+function selectCompetitiveWorkerEnergyAcquisitionTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
   const harvestCandidate = createPriorityHarvestEnergyAcquisitionCandidate(creep);
-  if (!harvestCandidate) {
+  if (!harvestCandidate || harvestCandidate.range === null) {
     return null;
   }
 
-  const containerCandidates = findCompetitiveContainerEnergyAcquisitionCandidates(creep);
-  if (containerCandidates.length === 0) {
+  const candidates = findWorkerEnergyAcquisitionCandidates(creep)
+    .filter((candidate) => isPreferredWorkerEnergyAcquisitionSourceBeforeHarvest(candidate.source))
+    .filter((candidate) => isWorkerEnergyAcquisitionCandidateCompetitiveWithHarvest(creep, candidate, harvestCandidate));
+  if (candidates.length === 0) {
     return null;
   }
 
-  const selectedCandidate = [harvestCandidate, ...containerCandidates].sort(
-    compareCompetitiveWorkerEnergyAcquisitionCandidates
-  )[0];
-  return selectedCandidate.task.type === 'withdraw' ? selectedCandidate.task : null;
+  return candidates.sort(compareRecoverableWorkerEnergyAcquisitionCandidatesBeforeHarvest)[0].task;
 }
 
 function createPriorityHarvestEnergyAcquisitionCandidate(
@@ -2535,54 +2534,83 @@ function createCompetitiveHarvestEnergyAcquisitionCandidate(
   };
 }
 
-function findCompetitiveContainerEnergyAcquisitionCandidates(
-  creep: Creep
-): LowLoadWorkerEnergyAcquisitionCandidate[] {
-  const context: StoredEnergySourceContext = {
-    creepOwnerUsername: getCreepOwnerUsername(creep),
-    hasHostilePresence: hasVisibleHostilePresence(creep.room),
-    room: creep.room
-  };
-  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
+function isWorkerEnergyAcquisitionCandidateCompetitiveWithHarvest(
+  creep: Creep,
+  candidate: WorkerEnergyAcquisitionCandidate,
+  harvestCandidate: LowLoadWorkerEnergyAcquisitionCandidate
+): boolean {
+  if (candidate.range === null || harvestCandidate.range === null) {
+    return false;
+  }
 
-  return findVisibleRoomStructures(creep.room)
-    .filter(
-      (structure): structure is StructureContainer =>
-        isSafeStoredEnergySource(structure, context) && isContainerEnergySource(structure)
-    )
-    .flatMap((source) => {
-      const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
-        creep,
-        source,
-        getStoredEnergy(source),
-        {
-          type: 'withdraw',
-          targetId: source.id as Id<AnyStoreStructure>
-        },
-        reservationContext,
-        COMPETITIVE_CONTAINER_WITHDRAW_MIN_ENERGY
-      );
-
-      if (!candidate || candidate.range === null) {
-        return [];
-      }
-
-      return [toLowLoadWorkerEnergyAcquisitionCandidate(candidate)];
-    });
+  return (
+    candidate.range < harvestCandidate.range ||
+    isBufferedSourceContainerForHarvestCandidate(creep, candidate, harvestCandidate)
+  );
 }
 
-function compareCompetitiveWorkerEnergyAcquisitionCandidates(
-  left: LowLoadWorkerEnergyAcquisitionCandidate,
-  right: LowLoadWorkerEnergyAcquisitionCandidate
+function isBufferedSourceContainerForHarvestCandidate(
+  creep: Creep,
+  candidate: WorkerEnergyAcquisitionCandidate,
+  harvestCandidate: LowLoadWorkerEnergyAcquisitionCandidate
+): boolean {
+  if (
+    candidate.energy < COMPETITIVE_SOURCE_CONTAINER_WITHDRAW_MIN_ENERGY ||
+    candidate.range !== harvestCandidate.range
+  ) {
+    return false;
+  }
+
+  const harvestSource = harvestCandidate.source;
+  if (!isHarvestSourceObject(harvestSource)) {
+    return false;
+  }
+
+  const sourceContainer = findVisibleSourceContainer(creep, harvestSource);
+  return sourceContainer !== null && String(candidate.source.id) === String(sourceContainer.id);
+}
+
+function isHarvestSourceObject(source: LowLoadWorkerEnergyAcquisitionSource): source is Source {
+  return 'energy' in source && !('resourceType' in source);
+}
+
+function isPreferredWorkerEnergyAcquisitionSourceBeforeHarvest(
+  source: WorkerEnergyAcquisitionSource
+): boolean {
+  return isContainerEnergySource(source) || isStorageEnergySource(source) || isWorkerDroppedEnergySource(source);
+}
+
+function compareRecoverableWorkerEnergyAcquisitionCandidatesBeforeHarvest(
+  left: WorkerEnergyAcquisitionCandidate,
+  right: WorkerEnergyAcquisitionCandidate
 ): number {
   return (
-    left.priority - right.priority ||
-    right.score - left.score ||
     compareOptionalRanges(left.range, right.range) ||
+    compareWorkerEnergyAcquisitionSourceTypePriority(left.source, right.source) ||
+    right.score - left.score ||
     right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id)) ||
     left.task.type.localeCompare(right.task.type)
   );
+}
+
+function compareWorkerEnergyAcquisitionSourceTypePriority(
+  left: WorkerEnergyAcquisitionSource,
+  right: WorkerEnergyAcquisitionSource
+): number {
+  return getWorkerEnergyAcquisitionSourceTypePriority(left) - getWorkerEnergyAcquisitionSourceTypePriority(right);
+}
+
+function getWorkerEnergyAcquisitionSourceTypePriority(source: WorkerEnergyAcquisitionSource): number {
+  if (isContainerEnergySource(source)) {
+    return 0;
+  }
+
+  if (isStorageEnergySource(source)) {
+    return 1;
+  }
+
+  return isWorkerDroppedEnergySource(source) ? 2 : 3;
 }
 
 function selectLowLoadWorkerEnergyAcquisitionCandidate(
@@ -2965,7 +2993,12 @@ function findWorkerEnergyAcquisitionCandidates(
     options
   );
 
-  return [...sourceLinkEnergyCandidates, ...storedEnergyCandidates, ...salvageEnergyCandidates, ...droppedEnergyCandidates];
+  return [
+    ...sourceLinkEnergyCandidates,
+    ...storedEnergyCandidates,
+    ...salvageEnergyCandidates,
+    ...droppedEnergyCandidates
+  ].sort(compareWorkerEnergyAcquisitionCandidates);
 }
 
 function selectWorkerLinkEnergyFallbackTask(creep: Creep): WorkerEnergyAcquisitionTask | null {
@@ -3522,6 +3555,11 @@ function compareWorkerEnergyAcquisitionCandidates(
   left: WorkerEnergyAcquisitionCandidate,
   right: WorkerEnergyAcquisitionCandidate
 ): number {
+  const rangeComparison = compareOptionalRanges(left.range, right.range);
+  if (rangeComparison !== 0) {
+    return rangeComparison;
+  }
+
   const priorityComparison = left.priority - right.priority;
   if (priorityComparison !== 0) {
     return priorityComparison;
@@ -3529,7 +3567,6 @@ function compareWorkerEnergyAcquisitionCandidates(
 
   if (left.priority === 0) {
     return (
-      compareOptionalRanges(left.range, right.range) ||
       right.energy - left.energy ||
       String(left.source.id).localeCompare(String(right.source.id)) ||
       left.task.type.localeCompare(right.task.type)
@@ -3538,7 +3575,6 @@ function compareWorkerEnergyAcquisitionCandidates(
 
   if (left.priority === 1) {
     return (
-      compareOptionalRanges(left.range, right.range) ||
       right.score - left.score ||
       right.energy - left.energy ||
       String(left.source.id).localeCompare(String(right.source.id)) ||
@@ -3547,7 +3583,6 @@ function compareWorkerEnergyAcquisitionCandidates(
   }
 
   return (
-    compareOptionalRanges(left.range, right.range) ||
     right.score - left.score ||
     right.energy - left.energy ||
     String(left.source.id).localeCompare(String(right.source.id)) ||

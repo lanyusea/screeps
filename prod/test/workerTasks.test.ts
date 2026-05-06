@@ -1783,6 +1783,39 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-close' });
   });
 
+  it('prefers a container at range five over a farther harvest source at range ten', () => {
+    const container = makeStoredEnergyStructure('container-range-5', 'container' as StructureConstant, 100);
+    const source = makeSource('source-range-10', 20, 20, 300);
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        'container-range-5': 5,
+        'source-range-10': 10
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return [container];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-range-5' });
+  });
+
   it('picks up the closer dropped energy when same-tier drops both have energy', () => {
     const closeDroppedEnergy = { id: 'drop-close', resourceType: 'energy', amount: 25 } as Resource<ResourceConstant>;
     const distantDroppedEnergy = { id: 'drop-a-distant', resourceType: 'energy', amount: 500 } as Resource<ResourceConstant>;
@@ -1814,6 +1847,39 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-close' });
+  });
+
+  it('prefers dropped energy at range three over a farther harvest source at range eight', () => {
+    const droppedEnergy = { id: 'drop-range-3', resourceType: 'energy', amount: 50 } as Resource<ResourceConstant>;
+    const source = makeSource('source-range-8', 20, 20, 300);
+    const getRangeTo = jest.fn((target: { id?: string }) => {
+      const ranges: Record<string, number> = {
+        'drop-range-3': 3,
+        'source-range-8': 8
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const roomFind = jest.fn((type: number) => {
+      if (type === FIND_DROPPED_RESOURCES) {
+        return [droppedEnergy];
+      }
+
+      if (type === FIND_STRUCTURES || type === FIND_HOSTILE_CREEPS || type === FIND_HOSTILE_STRUCTURES) {
+        return [];
+      }
+
+      return type === FIND_SOURCES ? [source] : [];
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo },
+      room: { controller: { my: true }, find: roomFind }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-range-3' });
   });
 
   it('withdraws from the closer ruin when same-tier ruins both have energy', () => {
@@ -2734,6 +2800,78 @@ describe('selectWorkerTask', () => {
       targetId: 'source-charged-container',
       sourceContainerAssigned: true
     });
+  });
+
+  it('skips an empty container in favor of a farther non-empty container', () => {
+    const source = makeSource('source-fallback', 30, 30);
+    const emptyContainer = makeStoredEnergyStructure('container-empty', 'container' as StructureConstant, 0, {
+      pos: makeRoomPosition(5, 5)
+    });
+    const chargedContainer = makeStoredEnergyStructure('container-charged', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [source],
+      structures: [emptyContainer, chargedContainer]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'container-empty': 2,
+            'container-charged': 10,
+            'source-fallback': 12
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-charged' });
+  });
+
+  it('falls back to direct source harvesting when all source containers are empty', () => {
+    const closeSource = makeSource('source-close-empty-container', 10, 10);
+    const farSource = makeSource('source-far-empty-container', 30, 30);
+    const closeContainer = makeStoredEnergyStructure('container-close-empty', 'container' as StructureConstant, 0, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const farContainer = makeStoredEnergyStructure('container-far-empty', 'container' as StructureConstant, 0, {
+      pos: makeRoomPosition(30, 31)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [closeSource, farSource],
+      structures: [closeContainer, farContainer]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'container-close-empty': 2,
+            'container-far-empty': 10,
+            'source-close-empty-container': 3,
+            'source-far-empty-container': 12
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-close-empty-container' });
   });
 
   it('does not assign a second harvester to a source container with a dedicated worker', () => {
