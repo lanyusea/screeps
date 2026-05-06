@@ -2398,7 +2398,11 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-near' });
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'harvest',
+      targetId: 'source-near',
+      sourceContainerAssigned: true
+    });
   });
 
   it('skips depleted source containers when assigning dedicated harvesters', () => {
@@ -2430,7 +2434,11 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-charged-container' });
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'harvest',
+      targetId: 'source-charged-container',
+      sourceContainerAssigned: true
+    });
   });
 
   it('does not assign a second harvester to a source container with a dedicated worker', () => {
@@ -2450,7 +2458,14 @@ describe('selectWorkerTask', () => {
     });
     setGameCreeps({
       DedicatedHarvester: {
-        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source-assigned-container' as Id<Source> } },
+        memory: {
+          role: 'worker',
+          task: {
+            type: 'harvest',
+            targetId: 'source-assigned-container' as Id<Source>,
+            sourceContainerAssigned: true
+          }
+        },
         room
       } as unknown as Creep
     });
@@ -2468,7 +2483,11 @@ describe('selectWorkerTask', () => {
       room
     } as unknown as Creep;
 
-    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-available-container' });
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'harvest',
+      targetId: 'source-available-container',
+      sourceContainerAssigned: true
+    });
   });
 
   it('waits for source-container hauling when every source already has a dedicated harvester', () => {
@@ -2487,14 +2506,141 @@ describe('selectWorkerTask', () => {
     });
     setGameCreeps({
       Harvester1: {
-        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+        memory: {
+          role: 'worker',
+          task: { type: 'harvest', targetId: 'source1' as Id<Source>, sourceContainerAssigned: true }
+        },
         room
       } as unknown as Creep,
       Harvester2: {
-        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source2' as Id<Source> } },
+        memory: {
+          role: 'worker',
+          task: { type: 'harvest', targetId: 'source2' as Id<Source>, sourceContainerAssigned: true }
+        },
         room
       } as unknown as Creep
     });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
+  });
+
+  it('withdraws from source containers when every source container harvest slot is occupied', () => {
+    const source1 = makeSource('source1', 10, 10);
+    const source2 = makeSource('source2', 30, 30);
+    const container1 = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const container2 = makeStoredEnergyStructure('container2', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(30, 31)
+    });
+    const room = makeWorkerTaskRoom({
+      controller: { id: 'controller1', my: true, level: 1 } as StructureController,
+      sources: [source1, source2],
+      structures: [container1, container2]
+    });
+    setGameCreeps({
+      Harvester1: {
+        memory: {
+          role: 'worker',
+          task: { type: 'harvest', targetId: 'source1' as Id<Source>, sourceContainerAssigned: true }
+        },
+        room
+      } as unknown as Creep,
+      Harvester2: {
+        memory: {
+          role: 'worker',
+          task: { type: 'harvest', targetId: 'source2' as Id<Source>, sourceContainerAssigned: true }
+        },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container1' });
+  });
+
+  it('withdraws from a saturated local source container before traveling to an adjacent assignable source', () => {
+    const localSource = makeSource('source-local', 10, 10, 'W1N1');
+    const adjacentSource = makeSource('source-adjacent', 20, 20, 'W2N1');
+    const localContainer = makeStoredEnergyStructure('container-local', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(10, 11, 'W1N1')
+    });
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const homeRoom = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [localSource],
+      structures: [localContainer]
+    });
+    const adjacentRoom = makeWorkerTaskRoom({
+      controller: { id: 'controller2', my: true, level: 2 } as StructureController,
+      name: 'W2N1',
+      sources: [adjacentSource]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        LocalHarvester: {
+          memory: {
+            role: 'worker',
+            task: { type: 'harvest', targetId: 'source-local' as Id<Source>, sourceContainerAssigned: true }
+          },
+          room: homeRoom
+        } as unknown as Creep
+      },
+      map: { describeExits: jest.fn().mockReturnValue({ '3': 'W2N1' }) } as unknown as GameMap,
+      rooms: { W1N1: homeRoom, W2N1: adjacentRoom }
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: homeRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-local' });
+  });
+
+  it('does not treat an ordinary source assignment as an occupied source-container harvest slot', () => {
+    const source = makeSource('source1', 10, 10);
+    const container = makeStoredEnergyStructure('container1', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(10, 11)
+    });
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const room = makeWorkerTaskRoom({
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source],
+      structures: [container]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {
+        OpenTileHarvester: {
+          memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+          room
+        } as unknown as Creep
+      },
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({
+          get: jest.fn().mockReturnValue(0)
+        })
+      } as unknown as GameMap,
+      rooms: { W1N1: room }
+    };
     const creep = {
       memory: { role: 'worker', colony: 'W1N1' },
       store: {

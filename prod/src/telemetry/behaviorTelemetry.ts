@@ -5,6 +5,7 @@ export interface RuntimeCreepBehaviorSummary {
   workTicks: number;
   stuckTicks: number;
   containerTransfers: number;
+  sourceContainerWithdrawals: number;
   pathLength: number;
   repairTargetId?: string;
 }
@@ -21,13 +22,20 @@ interface RuntimeBehaviorTotals {
   workTicks: number;
   stuckTicks: number;
   containerTransfers: number;
+  sourceContainerWithdrawals: number;
   pathLength: number;
 }
 
 interface CreepBehaviorCounterKey {
   key: keyof Pick<
     CreepBehaviorTelemetryMemory,
-    'idleTicks' | 'moveTicks' | 'workTicks' | 'stuckTicks' | 'containerTransfers' | 'pathLength'
+    | 'idleTicks'
+    | 'moveTicks'
+    | 'workTicks'
+    | 'stuckTicks'
+    | 'containerTransfers'
+    | 'sourceContainerWithdrawals'
+    | 'pathLength'
   >;
 }
 
@@ -37,6 +45,7 @@ const BEHAVIOR_COUNTER_KEYS: CreepBehaviorCounterKey[] = [
   { key: 'workTicks' },
   { key: 'stuckTicks' },
   { key: 'containerTransfers' },
+  { key: 'sourceContainerWithdrawals' },
   { key: 'pathLength' }
 ];
 const TOP_IDLE_WORKER_COUNT = 3;
@@ -102,6 +111,16 @@ export function recordCreepBehaviorContainerTransfer(creep: Creep): void {
   telemetry.containerTransfers = (telemetry.containerTransfers ?? 0) + 1;
 }
 
+export function recordCreepBehaviorSourceContainerWithdrawal(creep: Creep, tick: number = getGameTime()): void {
+  const telemetry = ensureCreepBehaviorTelemetry(creep);
+  if (telemetry.lastSourceContainerWithdrawalTick === tick) {
+    return;
+  }
+
+  telemetry.sourceContainerWithdrawals = (telemetry.sourceContainerWithdrawals ?? 0) + 1;
+  telemetry.lastSourceContainerWithdrawalTick = tick;
+}
+
 export function summarizeAndResetCreepBehaviorTelemetry(workers: Creep[]): { behavior?: RuntimeBehaviorSummary } {
   const creepSummaries = workers
     .map(toRuntimeCreepBehaviorSummary)
@@ -146,6 +165,7 @@ function toRuntimeCreepBehaviorSummary(creep: Creep): RuntimeCreepBehaviorSummar
     workTicks: getNonNegativeCounter(telemetry.workTicks),
     stuckTicks: getNonNegativeCounter(telemetry.stuckTicks),
     containerTransfers: getNonNegativeCounter(telemetry.containerTransfers),
+    sourceContainerWithdrawals: getNonNegativeCounter(telemetry.sourceContainerWithdrawals),
     pathLength: getNonNegativeCounter(telemetry.pathLength),
     ...(typeof telemetry.repairTargetId === 'string' && telemetry.repairTargetId.length > 0
       ? { repairTargetId: telemetry.repairTargetId }
@@ -172,6 +192,7 @@ function resetCreepBehaviorCounters(creep: Creep): void {
   delete telemetry.repairTargetId;
   delete telemetry.lastIdleTick;
   delete telemetry.lastWorkTick;
+  delete telemetry.lastSourceContainerWithdrawalTick;
 
   if (!telemetry.lastPosition && telemetry.lastMoveTick === undefined && telemetry.lastObservedTick === undefined) {
     delete creep.memory.behaviorTelemetry;
@@ -186,6 +207,7 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
       workTicks: totals.workTicks + creep.workTicks,
       stuckTicks: totals.stuckTicks + creep.stuckTicks,
       containerTransfers: totals.containerTransfers + creep.containerTransfers,
+      sourceContainerWithdrawals: totals.sourceContainerWithdrawals + creep.sourceContainerWithdrawals,
       pathLength: totals.pathLength + creep.pathLength
     }),
     {
@@ -194,6 +216,7 @@ function summarizeBehaviorTotals(creeps: RuntimeCreepBehaviorSummary[]): Runtime
       workTicks: 0,
       stuckTicks: 0,
       containerTransfers: 0,
+      sourceContainerWithdrawals: 0,
       pathLength: 0
     }
   );
