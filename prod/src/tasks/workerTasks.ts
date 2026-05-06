@@ -36,6 +36,7 @@ import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 // Low-downgrade safety floor: enough buffer for worker travel/recovery without treating healthy controllers as urgent.
 export const CONTROLLER_DOWNGRADE_GUARD_TICKS = 5_000;
 export const CRITICAL_ROAD_CONTAINER_REPAIR_HITS_RATIO = 0.5;
+export const CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25;
 export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 export const TOWER_REFILL_ENERGY_FLOOR = 500;
 export const CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
@@ -84,8 +85,8 @@ const HARVEST_SOURCE_RANGE = 1;
 const HARVEST_SOURCE_CONTAINER_RANGE = 0;
 const MAX_HARVEST_PATH_OPS = 2_000;
 
-type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart;
-type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer;
+type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart | StructureSpawn;
+type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer | StructureSpawn;
 type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal | StructureLink;
 type UpgraderBoostStoredEnergySource = StructureContainer | StructureStorage;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
@@ -1865,6 +1866,11 @@ function selectNearbyProductiveEnergySinkTask(
   controller: StructureController,
   constructionReservationContext: ConstructionReservationContext
 ): ProductiveEnergySinkTask | null {
+  const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep);
+  if (criticalSpawnRepairTarget) {
+    return { type: 'repair', targetId: criticalSpawnRepairTarget.id as Id<Structure> };
+  }
+
   const controllerRange = getRangeBetweenRoomObjects(creep, controller);
   if (controllerRange === null) {
     return null;
@@ -1887,7 +1893,7 @@ function selectNearbyProductiveEnergySinkTask(
         )
       ),
     ...findVisibleRoomStructures(creep.room)
-      .filter(isSafeRepairTarget)
+      .filter((structure) => isSafeRepairTargetForWorkerRoom(creep, structure))
       .map((structure) =>
         createProductiveEnergySinkCandidate(
           creep,
@@ -3500,6 +3506,11 @@ function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
 
 function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrastructureRepairTarget | null {
   const visibleStructures = findVisibleRoomStructures(creep.room);
+  const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep, visibleStructures);
+  if (criticalSpawnRepairTarget) {
+    return criticalSpawnRepairTarget;
+  }
+
   const criticalRoadContext = visibleStructures.some(isCriticalRoadRepairCandidate)
     ? buildWorkerCriticalRoadLogisticsContext(creep)
     : null;
@@ -3524,6 +3535,17 @@ function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrast
   }
 
   return repairTargets.sort(compareRepairTargets)[0];
+}
+
+function selectCriticalOwnedSpawnRepairTarget(
+  creep: Creep,
+  visibleStructures = findVisibleRoomStructures(creep.room)
+): StructureSpawn | null {
+  if (creep.room.controller?.my !== true) {
+    return null;
+  }
+
+  return visibleStructures.filter(isCriticalOwnedSpawnRepairTarget).sort(compareRepairTargets)[0] ?? null;
 }
 
 function canRepairRemoteCriticalRoadInfrastructure(creep: Creep): boolean {
@@ -3565,11 +3587,22 @@ function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWor
     return false;
   }
 
+  if (isOwnedSpawnRepairTarget(structure)) {
+    return true;
+  }
+
   if (isRoadOrContainerRepairTarget(structure)) {
     return true;
   }
 
   return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure);
+}
+
+function isSafeRepairTargetForWorkerRoom(
+  creep: Creep,
+  structure: AnyStructure
+): structure is RepairableWorkerStructure {
+  return isSafeRepairTarget(structure) && (!isSpawnRepairTarget(structure) || creep.room.controller?.my === true);
 }
 
 function isCriticalInfrastructureRepairTarget(
@@ -3613,6 +3646,22 @@ function isContainerRepairTarget(structure: AnyStructure): structure is Structur
   return matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container');
 }
 
+function isCriticalOwnedSpawnRepairTarget(structure: AnyStructure): structure is StructureSpawn {
+  return (
+    isOwnedSpawnRepairTarget(structure) &&
+    !isWorkerRepairTargetComplete(structure) &&
+    getHitsRatio(structure) <= CRITICAL_SPAWN_REPAIR_HITS_RATIO
+  );
+}
+
+function isOwnedSpawnRepairTarget(structure: AnyStructure): structure is StructureSpawn {
+  return isSpawnRepairTarget(structure) && (structure as Partial<StructureSpawn>).my === true;
+}
+
+function isSpawnRepairTarget(structure: AnyStructure): structure is StructureSpawn {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn');
+}
+
 export function isWorkerRepairTargetComplete(structure: Structure): boolean {
   return structure.hits >= getWorkerRepairHitsCeiling(structure);
 }
@@ -3639,15 +3688,23 @@ function compareRepairTargets(left: RepairableWorkerStructure, right: Repairable
 }
 
 function getRepairPriority(structure: RepairableWorkerStructure): number {
-  if (matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road')) {
+  if (isCriticalOwnedSpawnRepairTarget(structure)) {
     return 0;
   }
 
-  if (matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')) {
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road')) {
     return 1;
   }
 
-  return 2;
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')) {
+    return 2;
+  }
+
+  if (isSpawnRepairTarget(structure)) {
+    return 3;
+  }
+
+  return 4;
 }
 
 function getHitsRatio(structure: Structure): number {
