@@ -56,6 +56,73 @@ describe('runDefense', () => {
     });
   });
 
+  it('runs tower defense in every owned room, including claimed rooms without local spawns', () => {
+    const homeHostile = makeHostile('home-hostile', 25, 25, 'W1N1');
+    const expansionHostile = makeHostile('expansion-hostile', 25, 25, 'W2N1');
+    let homeTowers: StructureTower[] = [];
+    let expansionTowers: StructureTower[] = [];
+    const homeRoom = makeRoom({
+      roomName: 'W1N1',
+      controller: makeController(),
+      hostiles: [homeHostile],
+      getTowers: () => homeTowers
+    });
+    const expansionRoom = makeRoom({
+      roomName: 'W2N1',
+      controller: makeController(),
+      hostiles: [expansionHostile],
+      getTowers: () => expansionTowers
+    });
+    const homeSpawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      room: homeRoom,
+      structureType: TEST_GLOBALS.STRUCTURE_SPAWN,
+      hits: 5_000,
+      hitsMax: 5_000,
+      spawning: null
+    } as unknown as StructureSpawn;
+    const homeTower = makeTower(homeRoom, {
+      id: 'home-tower',
+      attack: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    const expansionTower = makeTower(expansionRoom, {
+      id: 'expansion-tower',
+      attack: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    homeTowers = [homeTower];
+    expansionTowers = [expansionTower];
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 104,
+      rooms: { W1N1: homeRoom, W2N1: expansionRoom },
+      spawns: { Spawn1: homeSpawn },
+      creeps: {}
+    };
+
+    const events = runDefense();
+
+    expect(homeTower.attack).toHaveBeenCalledWith(homeHostile);
+    expect(expansionTower.attack).toHaveBeenCalledWith(expansionHostile);
+    expect(events).toMatchObject([
+      {
+        type: 'defense',
+        action: 'towerAttack',
+        roomName: 'W1N1',
+        structureId: 'home-tower',
+        targetId: 'home-hostile'
+      },
+      {
+        type: 'defense',
+        action: 'towerAttack',
+        roomName: 'W2N1',
+        structureId: 'expansion-tower',
+        targetId: 'expansion-hostile'
+      }
+    ]);
+  });
+
   it('falls back to the nearest hostile structure when no hostile creep is visible', () => {
     const farStructure = makeHostileStructure('structure-a', 34, 25);
     const nearStructure = makeHostileStructure('structure-z', 26, 25);
@@ -679,7 +746,7 @@ function makeTower(
     attack,
     heal,
     repair,
-    pos: makePosition()
+    pos: makePosition(25, 25, room.name)
   } as unknown as StructureTower;
 }
 

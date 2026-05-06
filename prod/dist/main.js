@@ -3028,7 +3028,7 @@ var CONSTRUCTION_SITE_IMPACT_PRIORITY = {
   claimedRoomSpawn: 110,
   extension: 100,
   spawn: 95,
-  tower: 90,
+  tower: 92,
   protectedRampart: 90,
   rampart: 85,
   sourceContainer: 70,
@@ -22156,6 +22156,7 @@ var ROOM_EDGE_MAX8 = 48;
 var SPAWN_EDGE_MIN = 2;
 var SPAWN_EDGE_MAX = 47;
 var MAX_SPAWN_SITE_SCAN_RADIUS = 8;
+var MAX_TOWER_SITE_SCAN_RADIUS = 8;
 var DEFAULT_TERRAIN_WALL_MASK11 = 1;
 var OK_CODE8 = 0;
 var ERR_FULL_CODE3 = -8;
@@ -22215,6 +22216,12 @@ function runClaimedRoomBootstrapperForColony(colony) {
   if (sourceContainerResults.length > 0) {
     return { roomName: room.name, phase: "sourceContainer", results: sourceContainerResults };
   }
+  if (((_b = room.controller.level) != null ? _b : 0) >= 3 && countExistingAndPendingStructures(room, "STRUCTURE_TOWER", "tower") <= 0) {
+    const result = planClaimedRoomTowerConstruction(colony);
+    if (result !== null) {
+      return { roomName: room.name, phase: "tower", result };
+    }
+  }
   const roadResults = planEarlyRoadConstruction(colony, {
     maxSitesPerTick: 1,
     maxPendingRoadSites: 100,
@@ -22222,12 +22229,6 @@ function runClaimedRoomBootstrapperForColony(colony) {
   });
   if (roadResults.length > 0) {
     return { roomName: room.name, phase: "road", results: roadResults };
-  }
-  if (((_b = room.controller.level) != null ? _b : 0) >= 3 && countExistingAndPendingStructures(room, "STRUCTURE_TOWER", "tower") <= 0) {
-    const result = planTowerConstruction(colony);
-    if (result !== null) {
-      return { roomName: room.name, phase: "tower", result };
-    }
   }
   if (isClaimedRoomBootstrapComplete(colony)) {
     markClaimedRoomBootstrapComplete(room.name);
@@ -22457,6 +22458,136 @@ function compareSourceContainerPositions3(left, right, anchor) {
   }
   return left.y - right.y || left.x - right.x;
 }
+function planClaimedRoomTowerConstruction(colony) {
+  const room = colony.room;
+  if (typeof room.createConstructionSite !== "function") {
+    return null;
+  }
+  const lookups = createTowerPlacementLookups(colony);
+  if (!lookups) {
+    return null;
+  }
+  const anchor = selectWeightedTowerAnchor(lookups.anchors, room.name);
+  if (!anchor) {
+    return null;
+  }
+  const structureType = getStructureConstant2("STRUCTURE_TOWER", "tower");
+  for (const position of selectTowerConstructionPositions(anchor, lookups)) {
+    const result = room.createConstructionSite(position.x, position.y, structureType);
+    if (result === OK_CODE8) {
+      return result;
+    }
+    lookups.blockedPositions.add(getPositionKey4(position));
+  }
+  return null;
+}
+function createTowerPlacementLookups(colony) {
+  const room = colony.room;
+  const terrain = getRoomTerrain11(room);
+  if (!terrain) {
+    return null;
+  }
+  const blockedPositions = /* @__PURE__ */ new Set();
+  const anchors = /* @__PURE__ */ new Map();
+  addTowerAnchor(anchors, room.controller, 4, room.name);
+  addBlockedPosition(blockedPositions, room.controller, room.name);
+  for (const source of getSortedSources3(room)) {
+    addBlockedPosition(blockedPositions, source, room.name);
+  }
+  for (const structure of findRoomObjects15(room, "FIND_STRUCTURES")) {
+    addBlockedPosition(blockedPositions, structure, room.name);
+    const structureType = structure.structureType;
+    if (matchesStructureType16(structureType, "STRUCTURE_SPAWN", "spawn")) {
+      addTowerAnchor(anchors, structure, 4, room.name);
+    } else if (matchesStructureType16(structureType, "STRUCTURE_STORAGE", "storage")) {
+      addTowerAnchor(anchors, structure, 3, room.name);
+    } else if (matchesStructureType16(structureType, "STRUCTURE_CONTAINER", "container")) {
+      addTowerAnchor(anchors, structure, 2, room.name);
+    }
+  }
+  for (const site of findRoomObjects15(room, "FIND_CONSTRUCTION_SITES")) {
+    addBlockedPosition(blockedPositions, site, room.name);
+    const structureType = site.structureType;
+    if (matchesStructureType16(structureType, "STRUCTURE_SPAWN", "spawn")) {
+      addTowerAnchor(anchors, site, 4, room.name);
+    } else if (matchesStructureType16(structureType, "STRUCTURE_STORAGE", "storage")) {
+      addTowerAnchor(anchors, site, 3, room.name);
+    } else if (matchesStructureType16(structureType, "STRUCTURE_CONTAINER", "container")) {
+      addTowerAnchor(anchors, site, 2, room.name);
+    }
+  }
+  for (const spawn of colony.spawns) {
+    addTowerAnchor(anchors, spawn, 4, room.name);
+    addBlockedPosition(blockedPositions, spawn, room.name);
+  }
+  return {
+    terrain,
+    blockedPositions,
+    anchors: [...anchors.values()]
+  };
+}
+function addTowerAnchor(anchors, object, weight, roomName) {
+  var _a;
+  const position = getAnyObjectPosition(object);
+  if (!position || !isSameRoomPosition4(position, roomName)) {
+    return;
+  }
+  const key = getPositionKey4(position);
+  const existing = anchors.get(key);
+  anchors.set(key, {
+    position: { x: position.x, y: position.y, roomName },
+    weight: Math.max((_a = existing == null ? void 0 : existing.weight) != null ? _a : 0, weight)
+  });
+}
+function addBlockedPosition(blockedPositions, object, roomName) {
+  const position = getAnyObjectPosition(object);
+  if (position && isSameRoomPosition4(position, roomName)) {
+    blockedPositions.add(getPositionKey4(position));
+  }
+}
+function selectWeightedTowerAnchor(anchors, roomName) {
+  if (anchors.length === 0) {
+    return null;
+  }
+  const totalWeight = anchors.reduce((sum, anchor) => sum + anchor.weight, 0);
+  if (totalWeight <= 0) {
+    return null;
+  }
+  return clampRoomPosition({
+    x: Math.round(anchors.reduce((sum, anchor) => sum + anchor.position.x * anchor.weight, 0) / totalWeight),
+    y: Math.round(anchors.reduce((sum, anchor) => sum + anchor.position.y * anchor.weight, 0) / totalWeight),
+    roomName
+  });
+}
+function selectTowerConstructionPositions(anchor, lookups) {
+  return getTowerCandidatePositions(anchor).filter((position) => canPlaceTower(lookups, position)).sort((left, right) => compareTowerPositions(left, right, anchor, lookups.anchors));
+}
+function getTowerCandidatePositions(anchor) {
+  const positions = [];
+  for (let radius = 0; radius <= MAX_TOWER_SITE_SCAN_RADIUS; radius += 1) {
+    for (let y = anchor.y - radius; y <= anchor.y + radius; y += 1) {
+      for (let x = anchor.x - radius; x <= anchor.x + radius; x += 1) {
+        if (Math.max(Math.abs(x - anchor.x), Math.abs(y - anchor.y)) !== radius) {
+          continue;
+        }
+        positions.push({ x, y, roomName: anchor.roomName });
+      }
+    }
+  }
+  return positions;
+}
+function canPlaceTower(lookups, position) {
+  return position.x >= ROOM_EDGE_MIN8 && position.x <= ROOM_EDGE_MAX8 && position.y >= ROOM_EDGE_MIN8 && position.y <= ROOM_EDGE_MAX8 && !lookups.blockedPositions.has(getPositionKey4(position)) && !isTerrainWall6(lookups.terrain, position);
+}
+function compareTowerPositions(left, right, anchor, anchors) {
+  return getTowerPlacementScore(left, anchors) - getTowerPlacementScore(right, anchors) || getRangeBetweenPositions3(left, anchor) - getRangeBetweenPositions3(right, anchor) || left.y - right.y || left.x - right.x;
+}
+function getTowerPlacementScore(position, anchors) {
+  return anchors.reduce(
+    (score, anchor) => score + getRangeBetweenPositions3(position, anchor.position) * anchor.weight,
+    0
+  );
+}
 function isClaimedRoomBootstrapComplete(colony) {
   var _a, _b, _c;
   const room = colony.room;
@@ -22567,6 +22698,13 @@ function clampSpawnPosition(position) {
   return {
     x: Math.max(SPAWN_EDGE_MIN, Math.min(SPAWN_EDGE_MAX, position.x)),
     y: Math.max(SPAWN_EDGE_MIN, Math.min(SPAWN_EDGE_MAX, position.y)),
+    roomName: position.roomName
+  };
+}
+function clampRoomPosition(position) {
+  return {
+    x: Math.max(ROOM_EDGE_MIN8, Math.min(ROOM_EDGE_MAX8, position.x)),
+    y: Math.max(ROOM_EDGE_MIN8, Math.min(ROOM_EDGE_MAX8, position.y)),
     roomName: position.roomName
   };
 }
