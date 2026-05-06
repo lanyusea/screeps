@@ -2562,9 +2562,6 @@ function applyOccupationRecommendationScores(
     }
 
     const adjacentExpansionClaimDecision = getAdjacentExpansionClaimDecision(candidate, roleCounts);
-    if (adjacentExpansionClaimDecision === 'defer') {
-      return [];
-    }
 
     return [
       applyOccupationRecommendationScore(
@@ -2697,9 +2694,8 @@ function isViableAdjacentExpansionClaimScoutIntel(
 }
 
 function hasActiveClaimCreepForColony(roleCounts: RoleCounts): boolean {
-  const claimersByClaimTarget = roleCounts.claimersByTargetRoomAction?.claim;
-  if (claimersByClaimTarget) {
-    return Object.values(claimersByClaimTarget).some((count) => count > 0);
+  if (roleCounts.claimersByTargetRoomAction) {
+    return Object.values(roleCounts.claimersByTargetRoomAction.claim ?? {}).some((count) => count > 0);
   }
 
   return (roleCounts.claimer ?? 0) > 0;

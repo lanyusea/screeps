@@ -79,16 +79,28 @@ describe('adjacent expansion claim decisions', () => {
     expect(Memory.territory?.targets).toBeUndefined();
   });
 
-  it('defers a viable adjacent claim until the colony has at least three workers', () => {
+  it('falls back to reserve scoring for a viable adjacent claim until the colony has at least three workers', () => {
     const { colony } = makeColony();
     installGame(colony, { '3': 'W2N1' }, 103);
     installScoutIntel('W2N1', { updatedAt: 102 });
 
-    expect(planTerritoryIntent(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 2, 103)).toBeNull();
-    expect(Memory.territory?.targets).toBeUndefined();
+    expect(planTerritoryIntent(colony, { worker: 2, claimer: 0, claimersByTargetRoom: {} }, 2, 103)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller-W2N1'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        controllerId: 'controller-W2N1'
+      }
+    ]);
   });
 
-  it('suppresses a second adjacent claim while one claim claimer is active for the colony', () => {
+  it('falls back to reserve scoring while one claim claimer is active for the colony', () => {
     const { colony } = makeColony();
     installGame(colony, { '1': 'W2N1', '3': 'W3N1' }, 104);
     installScoutIntel('W2N1', { updatedAt: 103 });
@@ -106,14 +118,59 @@ describe('adjacent expansion claim decisions', () => {
         3,
         104
       )
-    ).toBeNull();
-    expect(Memory.territory?.targets).toBeUndefined();
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller-W2N1'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        controllerId: 'controller-W2N1'
+      }
+    ]);
   });
 
-  it('does not duplicate an existing live claimer for the same adjacent claim target', () => {
+  it('ignores active reserve claimers when deciding whether an adjacent claim claimer is active', () => {
     const { colony } = makeColony();
     installGame(colony, { '3': 'W2N1' }, 105);
     installScoutIntel('W2N1', { updatedAt: 104 });
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        {
+          worker: 3,
+          claimer: 1,
+          claimersByTargetRoom: { W3N1: 1 },
+          claimersByTargetRoomAction: { reserve: { W3N1: 1 } }
+        },
+        3,
+        105
+      )
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      controllerId: 'controller-W2N1'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        controllerId: 'controller-W2N1'
+      }
+    ]);
+  });
+
+  it('falls back to reserve scoring instead of duplicating an existing live claim claimer for the same target', () => {
+    const { colony } = makeColony();
+    installGame(colony, { '3': 'W2N1' }, 106);
+    installScoutIntel('W2N1', { updatedAt: 105 });
 
     expect(
       planTerritoryIntent(
@@ -125,16 +182,28 @@ describe('adjacent expansion claim decisions', () => {
           claimersByTargetRoomAction: { claim: { W2N1: 1 } }
         },
         3,
-        105
+        106
       )
-    ).toBeNull();
-    expect(Memory.territory?.targets).toBeUndefined();
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve',
+      controllerId: 'controller-W2N1'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        controllerId: 'controller-W2N1'
+      }
+    ]);
   });
 
   it('lets auto-claim override a persisted occupation reserve recommendation for the same room', () => {
     const { colony } = makeColony();
-    installGame(colony, { '3': 'W2N1' }, 106);
-    installScoutIntel('W2N1', { updatedAt: 105 });
+    installGame(colony, { '3': 'W2N1' }, 107);
+    installScoutIntel('W2N1', { updatedAt: 106 });
     Memory.territory = {
       ...(Memory.territory ?? {}),
       targets: [
@@ -147,7 +216,7 @@ describe('adjacent expansion claim decisions', () => {
       ]
     };
 
-    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 106)).toEqual({
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 107)).toEqual({
       colony: 'W1N1',
       targetRoom: 'W2N1',
       action: 'claim',
@@ -160,7 +229,7 @@ describe('adjacent expansion claim decisions', () => {
         targetRoom: 'W2N1',
         action: 'claim',
         status: 'planned',
-        updatedAt: 106,
+        updatedAt: 107,
         createdBy: 'occupationRecommendation',
         controllerId: 'controller-W2N1'
       }
