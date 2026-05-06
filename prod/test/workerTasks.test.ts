@@ -7,6 +7,7 @@ import {
   BUILDER_DROPPED_PICKUP_RANGE,
   BUILDER_STORAGE_WITHDRAW_MIN,
   LOW_LOAD_NEARBY_ENERGY_RANGE,
+  LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE,
   LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE,
   MINIMUM_USEFUL_LOAD_RATIO,
   TOWER_REFILL_ENERGY_FLOOR,
@@ -433,6 +434,53 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-close' });
+  });
+
+  it('prefers the lower-trip source for spawn refill even when another source is less assigned', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300, {
+      pos: makeRoomPosition(10, 10)
+    });
+    const nearSpawnSource = makeSource('source-near-spawn', 11, 10, 300);
+    const farSpawnSource = makeSource('source-far-spawn', 40, 40, 300);
+    const room = makeWorkerTaskRoom({
+      energyAvailable: 200,
+      energyCapacityAvailable: 500,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [nearSpawnSource, farSpawnSource]
+    });
+    const assignedWorker = {
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source-near-spawn' as Id<Source> } },
+      room,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      }
+    } as unknown as Creep;
+    const creep = {
+      name: 'RefillHarvester',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'source-near-spawn': 6,
+            'source-far-spawn': 2,
+            spawn1: 5
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AssignedWorker: assignedWorker, RefillHarvester: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game.map = {
+      getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+    } as unknown as GameMap;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-near-spawn' });
   });
 
   it('boosting upgraders withdraw stored energy before source2 lane harvesting near controller level-up', () => {
@@ -918,6 +966,137 @@ describe('selectWorkerTask', () => {
     };
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage-small' });
+  });
+
+  it('pre-buffers carried construction energy into storage near a distant construction site', () => {
+    const constructionSite = withRangeTo(
+      {
+        id: 'build-site1',
+        structureType: 'extension',
+        progress: 0,
+        progressTotal: 200,
+        pos: makeRoomPosition(20, 20)
+      } as ConstructionSite,
+      {
+        'storage-near-site': 2
+      }
+    );
+    const storage = withRangeTo(
+      makeStoredEnergyStructure('storage-near-site', 'storage' as StructureConstant, 0, {
+        my: true,
+        store: {
+          getUsedCapacity: jest.fn().mockReturnValue(0),
+          getFreeCapacity: jest.fn().mockReturnValue(500)
+        }
+      }),
+      { 'build-site1': 2 }
+    );
+    const room = makeWorkerTaskRoom({
+      constructionSites: [constructionSite],
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      structures: [storage]
+    });
+    const creep = {
+      name: 'ConstructionBufferWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'build-site1': 12,
+            'storage-near-site': 6
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { ConstructionBufferWorker: creep },
+      time: 340
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'storage-near-site' });
+    expect(creep.memory.constructionPreBuffer).toEqual({
+      siteId: 'build-site1',
+      bufferId: 'storage-near-site',
+      tick: 340
+    });
+  });
+
+  it('withdraws extension pre-buffer energy before resuming construction at the site', () => {
+    const constructionSite = withRangeTo(
+      {
+        id: 'build-site1',
+        structureType: 'road',
+        pos: makeRoomPosition(20, 20)
+      } as ConstructionSite,
+      {
+        'extension-buffer': 1
+      }
+    );
+    const extension = withRangeTo(
+      makeEnergySinkWithEnergy('extension-buffer', 'extension' as StructureConstant, 50, 0, {
+        my: true
+      }) as StructureExtension,
+      { 'build-site1': 1 }
+    );
+    const source = makeSource('source1', 8, 8, 300);
+    const room = makeWorkerTaskRoom({
+      constructionSites: [constructionSite],
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      myStructures: [extension as AnyOwnedStructure],
+      sources: [source],
+      structures: [extension]
+    });
+    const creep = {
+      name: 'ConstructionBufferWorker',
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'build', targetId: 'build-site1' as Id<ConstructionSite> },
+        constructionPreBuffer: {
+          siteId: 'build-site1',
+          bufferId: 'extension-buffer',
+          tick: 340
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'build-site1': 5,
+            'extension-buffer': 1,
+            source1: 4
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { ConstructionBufferWorker: creep },
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'build-site1') {
+          return constructionSite;
+        }
+        if (id === 'extension-buffer') {
+          return extension;
+        }
+        return null;
+      }),
+      time: 341
+    };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'extension-buffer' });
   });
 
   it('falls back to harvesting when visible dropped energy is not reachable', () => {
@@ -3669,6 +3848,53 @@ describe('selectWorkerTask', () => {
     });
   });
 
+  it('keeps a low-load spawn refill worker acquiring beyond the generic nearby range', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
+    const source = { id: 'source1', energy: 300 } as Source;
+    const capacity = 100;
+    const carriedEnergy = Math.ceil(capacity * MINIMUM_USEFUL_LOAD_RATIO) - 1;
+    const sourceRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE + 2;
+    expect(sourceRange).toBeLessThanOrEqual(LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        source1: sourceRange,
+        spawn1: 2
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      energyCapacityAvailable: 500,
+      myStructures: [spawn as AnyOwnedStructure],
+      sources: [source]
+    });
+    const creep = {
+      name: 'PartialRefillWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getCapacity: jest.fn().mockReturnValue(capacity),
+        getUsedCapacity: jest.fn().mockReturnValue(carriedEnergy),
+        getFreeCapacity: jest.fn().mockReturnValue(capacity - carriedEnergy)
+      },
+      pos: { getRangeTo },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ PartialRefillWorker: creep });
+    (globalThis as unknown as { Game: Partial<Game> }).Game.time = 328;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 328,
+      carriedEnergy,
+      freeCapacity: capacity - carriedEnergy,
+      selectedTask: 'harvest',
+      targetId: 'source1',
+      energy: 300,
+      range: sourceRange
+    });
+  });
+
   it('lets a worker at the minimum useful load proceed with normal refill', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const source = { id: 'source1', energy: 300 } as Source;
@@ -3901,6 +4127,15 @@ describe('selectWorkerTask', () => {
             ratio: 0.75
           }
         ]
+      });
+      expect(roomSummary.workerEnergyThroughput).toEqual({
+        sampleCount: 1,
+        energyDelivered: 15,
+        deliveryTicks: 3,
+        activeTicks: 3,
+        idleOrOtherTaskTicks: 1,
+        energyPerTick: 5,
+        deliveryEfficiency: 0.75
       });
     } finally {
       logSpy.mockRestore();

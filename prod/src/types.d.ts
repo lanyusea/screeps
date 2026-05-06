@@ -46,6 +46,7 @@ declare global {
     remoteHauler?: CreepRemoteHaulerMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
     refillTelemetry?: WorkerRefillTelemetryMemory;
+    constructionPreBuffer?: WorkerConstructionPreBufferMemory;
     spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
     workerBehavior?: WorkerTaskBehaviorSampleMemory;
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
@@ -583,6 +584,12 @@ declare global {
     activeTicks: number;
     idleOrOtherTaskTicks: number;
     energyDelivered: number;
+  }
+
+  interface WorkerConstructionPreBufferMemory {
+    siteId: string;
+    bufferId: string;
+    tick: number;
   }
 
   interface WorkerSpawnCriticalRefillMemory {

@@ -54,6 +54,7 @@ export const NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
 export const MINIMUM_USEFUL_LOAD_RATIO = 0.4;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
+export const LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE = 12;
 export const BUILDER_STORAGE_WITHDRAW_MIN = 100;
 export const BUILDER_DROPPED_PICKUP_RANGE = 5;
 const DEFAULT_SPAWN_ENERGY_CAPACITY = 300;
@@ -88,6 +89,10 @@ const MAX_SUSTAINED_CONTROLLER_PROGRESS_WORKERS = 2;
 const MAX_SURPLUS_CONTROLLER_PROGRESS_WORKERS = 3;
 const BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY = 550;
 const BUILDER_STORAGE_ACQUISITION_SITE_RANGE = BUILDER_DROPPED_PICKUP_RANGE;
+const CONSTRUCTION_PREBUFFER_SITE_RANGE = 5;
+const CONSTRUCTION_PREBUFFER_MIN_FREE_CAPACITY = 25;
+const CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY = 25;
+const SPAWN_RECOVERY_SOURCE_LOAD_BALANCE_ETA_TOLERANCE = 1;
 const ROAD_TRAVEL_COST = 1;
 const PLAIN_TRAVEL_COST = 2;
 const SWAMP_TRAVEL_COST = 10;
@@ -99,6 +104,8 @@ type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureR
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer | StructureSpawn;
 type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal | StructureLink;
 type UpgraderBoostStoredEnergySource = StructureContainer | StructureStorage;
+type ConstructionPreBufferSink = StructureExtension | StructureStorage;
+type BuilderStoredEnergySource = StoredWorkerEnergySource | StructureExtension;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
 type FillableEnergySink = StructureSpawn | StructureExtension | StructureTower;
 type RemoteHaulerDeliverySink =
@@ -112,6 +119,7 @@ type WorkerEnergyAcquisitionSource =
   | StoredWorkerEnergySource
   | SalvageableWorkerEnergySource
   | Resource<ResourceConstant>;
+type BuilderEnergyAcquisitionSource = BuilderStoredEnergySource | SalvageableWorkerEnergySource | Resource<ResourceConstant>;
 type WorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'pickup' | 'withdraw' }>;
 type LowLoadWorkerEnergyAcquisitionSource = WorkerEnergyAcquisitionSource | Source;
 type LowLoadWorkerEnergyAcquisitionTask = Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>;
@@ -130,7 +138,7 @@ interface BuilderEnergyAcquisitionCandidate {
   priority: BuilderEnergyAcquisitionPriority;
   range: number | null;
   score: number;
-  source: WorkerEnergyAcquisitionSource | Source;
+  source: BuilderEnergyAcquisitionSource | Source;
   task: BuilderEnergyAcquisitionTask;
 }
 
@@ -250,6 +258,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
         return upgraderBoostEnergyAcquisitionTask;
       }
 
+      const constructionPreBufferRecoveryTask = selectConstructionPreBufferRecoveryTask(creep);
+      if (constructionPreBufferRecoveryTask) {
+        return constructionPreBufferRecoveryTask;
+      }
+
       const builderEnergyAcquisitionTask = selectBuilderEnergyAcquisitionTask(creep);
       if (builderEnergyAcquisitionTask) {
         return builderEnergyAcquisitionTask;
@@ -361,7 +374,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     }
 
     // Workers in this branch always have carriedEnergy > 0.
-    return applyMinimumUsefulLoadPolicy(creep, spawnOrExtensionRefillTask);
+    return applyMinimumUsefulSpawnExtensionDeliveryPolicy(creep, spawnOrExtensionRefillTask);
   }
 
   if (remoteProductiveSpendingSuppressed) {
@@ -393,12 +406,27 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     constructionSites.length > 0
       ? createConstructionReservationContext(creep.room)
       : createEmptyConstructionReservationContext();
+  const constructionPreBufferBuildTask = selectConstructionPreBufferBuildTask(creep);
+  if (constructionPreBufferBuildTask) {
+    return applyMinimumUsefulLoadPolicy(creep, constructionPreBufferBuildTask);
+  }
+
   const capacityConstructionSite = selectCapacityEnablingConstructionSite(
     creep,
     constructionSites,
     controller,
     constructionReservationContext
   );
+  const constructionPreBufferTask = selectConstructionEnergyPreBufferTask(
+    creep,
+    constructionSites,
+    constructionReservationContext,
+    capacityConstructionSite
+  );
+  if (constructionPreBufferTask) {
+    return applyMinimumUsefulLoadPolicy(creep, constructionPreBufferTask);
+  }
+
   if (territoryControllerTask && capacityConstructionSite && isSpawnConstructionSite(capacityConstructionSite)) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'build', targetId: capacityConstructionSite.id });
   }
@@ -882,6 +910,35 @@ function applyMinimumUsefulLoadPolicy(
 
   recordLowLoadReturnTelemetry(creep, task, 'noReachableEnergy');
   return task;
+}
+
+function applyMinimumUsefulSpawnExtensionDeliveryPolicy(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'transfer' }>
+): Extract<CreepTaskMemory, { type: 'transfer' }> | LowLoadWorkerEnergyAcquisitionTask {
+  if (!getLowLoadWorkerEnergyContext(creep)) {
+    return task;
+  }
+
+  if (hasVisibleHostilePresence(creep.room)) {
+    recordLowLoadReturnTelemetry(creep, task, 'hostileSafety');
+    return task;
+  }
+
+  const shouldUseExtendedContinuation = hasKnownSpawnExtensionEnergyCapacity(creep.room);
+  const lowLoadEnergyContinuationTask = shouldUseExtendedContinuation
+    ? selectLowLoadSpawnExtensionDeliveryContinuationTask(creep)
+    : selectLowLoadWorkerEnergyContinuationTask(creep);
+  if (lowLoadEnergyContinuationTask) {
+    return lowLoadEnergyContinuationTask;
+  }
+
+  recordLowLoadReturnTelemetry(creep, task, shouldUseExtendedContinuation ? 'noNearbyEnergy' : 'noReachableEnergy');
+  return task;
+}
+
+function hasKnownSpawnExtensionEnergyCapacity(room: Room): boolean {
+  return getRoomEnergyCapacityAvailable(room) !== null;
 }
 
 function clearWorkerEfficiencyTelemetry(creep: Creep): void {
@@ -2067,6 +2124,161 @@ function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
   );
 }
 
+function selectConstructionEnergyPreBufferTask(
+  creep: Creep,
+  constructionSites: ConstructionSite[],
+  constructionReservationContext: ConstructionReservationContext,
+  preferredConstructionSite: ConstructionSite | null
+): Extract<CreepTaskMemory, { type: 'transfer' }> | null {
+  if (
+    getUsedEnergy(creep) <= 0 ||
+    constructionSites.length === 0 ||
+    creep.memory?.constructionPreBuffer ||
+    creep.memory?.task?.type === 'build' ||
+    hasEmergencySpawnExtensionRefillDemand(creep)
+  ) {
+    return null;
+  }
+
+  const site =
+    preferredConstructionSite ??
+    selectUnreservedConstructionSite(creep, constructionSites, constructionReservationContext, () => true, {
+      priorityContext: buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites)
+    });
+  if (!site || !shouldPreBufferEnergyForConstructionSite(creep, site)) {
+    return null;
+  }
+
+  const buffer = selectConstructionEnergyPreBufferSink(creep, site);
+  if (!buffer) {
+    return null;
+  }
+
+  creep.memory.constructionPreBuffer = {
+    siteId: String(site.id),
+    bufferId: String(buffer.id),
+    tick: getGameTick() ?? 0
+  };
+
+  return { type: 'transfer', targetId: buffer.id as Id<AnyStoreStructure> };
+}
+
+function selectConstructionPreBufferRecoveryTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'withdraw' }> | null {
+  const memory = creep.memory?.constructionPreBuffer;
+  if (!memory) {
+    return null;
+  }
+
+  const site = getGameObjectById<ConstructionSite>(memory.siteId);
+  const buffer = getGameObjectById<ConstructionPreBufferSink>(memory.bufferId);
+  if (!site || !buffer || !isConstructionPreBufferSource(creep, site, buffer)) {
+    delete creep.memory.constructionPreBuffer;
+    return null;
+  }
+
+  return { type: 'withdraw', targetId: buffer.id as Id<AnyStoreStructure> };
+}
+
+function selectConstructionPreBufferBuildTask(
+  creep: Creep
+): Extract<CreepTaskMemory, { type: 'build' }> | null {
+  const memory = creep.memory?.constructionPreBuffer;
+  if (!memory) {
+    return null;
+  }
+
+  const currentTask = creep.memory.task;
+  if (currentTask?.type === 'transfer' && String(currentTask.targetId) === memory.bufferId) {
+    return null;
+  }
+
+  const site = getGameObjectById<ConstructionSite>(memory.siteId);
+  if (!site || !canSpendCreepEnergyOnConstruction(creep)) {
+    delete creep.memory.constructionPreBuffer;
+    return null;
+  }
+
+  delete creep.memory.constructionPreBuffer;
+  return { type: 'build', targetId: site.id };
+}
+
+function shouldPreBufferEnergyForConstructionSite(creep: Creep, site: ConstructionSite): boolean {
+  if (!canSpendCreepEnergyOnConstruction(creep)) {
+    return false;
+  }
+
+  const range = getRangeBetweenRoomObjects(creep, site);
+  return range === null || range > CONSTRUCTION_PREBUFFER_SITE_RANGE;
+}
+
+function selectConstructionEnergyPreBufferSink(
+  creep: Creep,
+  site: ConstructionSite
+): ConstructionPreBufferSink | null {
+  const sinks = findVisibleRoomStructures(creep.room)
+    .filter((structure): structure is ConstructionPreBufferSink => isConstructionPreBufferSink(creep.room, structure))
+    .filter((sink) => isConstructionSiteNearSource(site, sink, CONSTRUCTION_PREBUFFER_SITE_RANGE));
+  if (sinks.length === 0) {
+    return null;
+  }
+
+  return sinks.sort((left, right) => compareConstructionPreBufferSinks(creep, site, left, right))[0];
+}
+
+function compareConstructionPreBufferSinks(
+  creep: Creep,
+  site: ConstructionSite,
+  left: ConstructionPreBufferSink,
+  right: ConstructionPreBufferSink
+): number {
+  return (
+    compareOptionalRanges(getRangeBetweenRoomObjects(site, left), getRangeBetweenRoomObjects(site, right)) ||
+    compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
+    getFreeStoredEnergyCapacity(right) - getFreeStoredEnergyCapacity(left) ||
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
+function isConstructionPreBufferSink(room: Room, structure: AnyStructure): structure is ConstructionPreBufferSink {
+  if (!('store' in structure) || getFreeStoredEnergyCapacity(structure) < CONSTRUCTION_PREBUFFER_MIN_FREE_CAPACITY) {
+    return false;
+  }
+
+  if (isExtensionEnergyBuffer(structure)) {
+    return isOwnedOrClaimedRoomStructure(room, structure);
+  }
+
+  return isStorageEnergyBuffer(structure) && isOwnedOrClaimedRoomStructure(room, structure);
+}
+
+function isConstructionPreBufferSource(
+  creep: Creep,
+  site: ConstructionSite,
+  structure: ConstructionPreBufferSink
+): boolean {
+  return (
+    (isExtensionEnergyBuffer(structure) || isStorageEnergyBuffer(structure)) &&
+    isOwnedOrClaimedRoomStructure(creep.room, structure) &&
+    isConstructionSiteNearSource(site, structure, CONSTRUCTION_PREBUFFER_SITE_RANGE) &&
+    getStoredEnergy(structure) >= CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY
+  );
+}
+
+function isExtensionEnergyBuffer(structure: AnyStructure): structure is StructureExtension {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension');
+}
+
+function isStorageEnergyBuffer(structure: AnyStructure): structure is StructureStorage {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage');
+}
+
+function isOwnedOrClaimedRoomStructure(room: Room, structure: AnyStructure): boolean {
+  const ownership = (structure as AnyStructure & { my?: boolean }).my;
+  return ownership === true || room.controller?.my === true;
+}
+
 function shouldPrioritizeExtensionCapacity(room: Room): boolean {
   const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
   return (
@@ -2373,10 +2585,14 @@ export function findBuilderEnergyAcquisitionCandidates(
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
 
   const storedEnergyCandidates = findVisibleRoomStructures(creep.room)
-    .filter((structure): structure is StoredWorkerEnergySource => isSafeStoredEnergySource(structure, context))
+    .filter(
+      (structure): structure is BuilderStoredEnergySource =>
+        isSafeStoredEnergySource(structure, context) ||
+        isBuilderConstructionPreBufferExtension(creep, constructionSite, structure)
+    )
     .filter((source) => isConstructionSiteNearSource(constructionSite, source, BUILDER_STORAGE_ACQUISITION_SITE_RANGE))
     .flatMap((source) => {
-      const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+      const candidate = createUnreservedBuilderStoredEnergyAcquisitionCandidate(
         creep,
         source,
         getStoredEnergy(source),
@@ -2388,7 +2604,7 @@ export function findBuilderEnergyAcquisitionCandidates(
         BUILDER_STORAGE_WITHDRAW_MIN
       );
 
-      return candidate ? [toBuilderEnergyAcquisitionCandidate(candidate)] : [];
+      return candidate ? [candidate] : [];
     });
 
   const droppedEnergyCandidates = findDroppedResources(creep.room)
@@ -2426,6 +2642,73 @@ function toBuilderEnergyAcquisitionCandidate(
     source: candidate.source as BuilderEnergyAcquisitionCandidate['source'],
     task: candidate.task as BuilderEnergyAcquisitionCandidate['task']
   };
+}
+
+function createUnreservedBuilderStoredEnergyAcquisitionCandidate(
+  creep: Creep,
+  source: BuilderStoredEnergySource,
+  energy: number,
+  task: WorkerEnergyAcquisitionTask,
+  reservationContext: WorkerEnergyAcquisitionReservationContext,
+  minimumEnergy: number
+): BuilderEnergyAcquisitionCandidate | null {
+  if (isExtensionEnergyBuffer(source)) {
+    if (!isConstructionPreBufferExtensionSource(creep, source) || energy < CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY) {
+      return null;
+    }
+
+    return createBuilderEnergyAcquisitionCandidate(creep, source, energy, task);
+  }
+
+  const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
+    creep,
+    source,
+    energy,
+    task,
+    reservationContext,
+    minimumEnergy
+  );
+  return candidate ? toBuilderEnergyAcquisitionCandidate(candidate) : null;
+}
+
+function createBuilderEnergyAcquisitionCandidate(
+  creep: Creep,
+  source: BuilderStoredEnergySource,
+  energy: number,
+  task: WorkerEnergyAcquisitionTask
+): BuilderEnergyAcquisitionCandidate {
+  const range = getRangeBetweenRoomObjects(creep, source);
+  const energyScore = scoreWorkerEnergyAcquisitionAmount(energy, getFreeEnergyCapacity(creep));
+
+  return {
+    energy,
+    priority: isExtensionEnergyBuffer(source) ? 1 : getWorkerEnergyAcquisitionPriority(creep, source, energy, range),
+    range,
+    score: range === null ? energyScore : energyScore - range * ENERGY_ACQUISITION_RANGE_COST,
+    source,
+    task
+  };
+}
+
+function isBuilderConstructionPreBufferExtension(
+  creep: Creep,
+  constructionSite: ConstructionSite,
+  structure: AnyStructure
+): structure is StructureExtension {
+  return (
+    isExtensionEnergyBuffer(structure) &&
+    isConstructionPreBufferExtensionSource(creep, structure) &&
+    isConstructionSiteNearSource(constructionSite, structure, CONSTRUCTION_PREBUFFER_SITE_RANGE)
+  );
+}
+
+function isConstructionPreBufferExtensionSource(creep: Creep, structure: StructureExtension): boolean {
+  const memory = creep.memory?.constructionPreBuffer;
+  return (
+    memory?.bufferId === String(structure.id) &&
+    isOwnedOrClaimedRoomStructure(creep.room, structure) &&
+    getStoredEnergy(structure) >= CONSTRUCTION_PREBUFFER_MIN_STORED_ENERGY
+  );
 }
 
 function isConstructionSiteNearSource(
@@ -2683,15 +2966,49 @@ function selectLowLoadWorkerEnergyContinuationTask(creep: Creep): LowLoadWorkerE
   return candidate.task;
 }
 
-function selectLowLoadWorkerEnergyContinuationCandidate(
+function selectLowLoadSpawnExtensionDeliveryContinuationTask(
   creep: Creep
+): LowLoadWorkerEnergyAcquisitionTask | null {
+  const candidate = selectLowLoadSpawnExtensionDeliveryContinuationCandidate(creep);
+  if (!candidate) {
+    return null;
+  }
+
+  recordNearbyEnergyChoiceTelemetry(creep, candidate);
+  return candidate.task;
+}
+
+function selectLowLoadSpawnExtensionDeliveryContinuationCandidate(
+  creep: Creep
+): LowLoadWorkerEnergyAcquisitionCandidate | null {
+  const nearbyCandidate = selectLowLoadWorkerEnergyContinuationCandidate(creep);
+  const extendedHarvestCandidates = findLowLoadHarvestEnergyAcquisitionCandidates(creep).filter((candidate) =>
+    isLowLoadWorkerEnergyContinuationCandidateInRange(
+      candidate,
+      LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE
+    )
+  );
+  const candidates = [
+    ...(nearbyCandidate ? [nearbyCandidate] : []),
+    ...extendedHarvestCandidates
+  ];
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
+}
+
+function selectLowLoadWorkerEnergyContinuationCandidate(
+  creep: Creep,
+  maximumRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
 ): LowLoadWorkerEnergyAcquisitionCandidate | null {
   if (!shouldKeepLowLoadWorkerAcquiringEnergy(creep)) {
     return null;
   }
 
-  const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep).filter(
-    isLowLoadWorkerEnergyContinuationCandidateInRange
+  const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep, maximumRange).filter((candidate) =>
+    isLowLoadWorkerEnergyContinuationCandidateInRange(candidate, maximumRange)
   );
   if (candidates.length === 0) {
     return null;
@@ -2705,19 +3022,20 @@ function shouldKeepLowLoadWorkerAcquiringEnergy(creep: Creep): boolean {
 }
 
 function findLowLoadWorkerEnergyContinuationCandidates(
-  creep: Creep
+  creep: Creep,
+  maximumRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
 ): LowLoadWorkerEnergyAcquisitionCandidate[] {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
   const nearbyLinkRefillCandidate = findNearestNearbyWorkerLinkRefillCandidate(creep, reservationContext);
   // Use the normal candidate set so continuation can take close energy beyond the nearby-only fast path.
   return [
     ...findWorkerEnergyAcquisitionCandidates(creep, {
-      maximumRange: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+      maximumRange
     }).map(toLowLoadWorkerEnergyAcquisitionCandidate),
     ...(nearbyLinkRefillCandidate ? [toNearbyWorkerLinkRefillCandidate(nearbyLinkRefillCandidate)] : []),
     ...findLowLoadHarvestEnergyAcquisitionCandidates(creep),
     ...findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext, {
-      maximumRange: LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
+      maximumRange
     }).map(toLowLoadWorkerEnergyAcquisitionCandidate)
   ];
 }
@@ -2828,9 +3146,10 @@ function isNearbyLowLoadWorkerEnergyAcquisitionSource(
 }
 
 function isLowLoadWorkerEnergyContinuationCandidateInRange(
-  candidate: LowLoadWorkerEnergyAcquisitionCandidate
+  candidate: LowLoadWorkerEnergyAcquisitionCandidate,
+  maximumRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
 ): boolean {
-  return candidate.range !== null && candidate.range <= LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE;
+  return candidate.range !== null && candidate.range <= maximumRange;
 }
 
 function toLowLoadWorkerEnergyAcquisitionCandidate(
@@ -3696,10 +4015,15 @@ function compareSpawnRecoveryHarvestCandidates(
   left: SpawnRecoveryHarvestCandidate,
   right: SpawnRecoveryHarvestCandidate
 ): number {
+  const deliveryEtaComparison = left.deliveryEta - right.deliveryEta;
+  if (Math.abs(deliveryEtaComparison) > SPAWN_RECOVERY_SOURCE_LOAD_BALANCE_ETA_TOLERANCE) {
+    return deliveryEtaComparison;
+  }
+
   return (
     compareHarvestSourceLoadRatio(left.load, right.load) ||
     left.load.assignmentCount - right.load.assignmentCount ||
-    left.deliveryEta - right.deliveryEta ||
+    deliveryEtaComparison ||
     String(left.source.id).localeCompare(String(right.source.id))
   );
 }
