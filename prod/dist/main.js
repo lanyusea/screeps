@@ -12058,7 +12058,7 @@ function compareWorkerEnergyAcquisitionCandidates(left, right) {
   if (left.priority === 1) {
     return compareOptionalRanges(left.range, right.range) || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
   }
-  return right.score - left.score || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
+  return compareOptionalRanges(left.range, right.range) || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
 }
 function compareNearbyWorkerEnergyAcquisitionCandidates(left, right) {
   return compareOptionalRanges(left.range, right.range) || left.priority - right.priority || right.score - left.score || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
@@ -12067,7 +12067,7 @@ function compareDroppedEnergyReachabilityPriority(left, right) {
   return compareOptionalRanges(left.range, right.range) || right.energy - left.energy || right.score - left.score || String(left.source.id).localeCompare(String(right.source.id));
 }
 function compareWorkerLinkEnergyAcquisitionCandidates(left, right) {
-  return right.energy - left.energy || compareOptionalRanges(left.range, right.range) || String(left.source.id).localeCompare(String(right.source.id));
+  return compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id));
 }
 function compareSpawnRecoveryEnergyAcquisitionCandidates(left, right) {
   return left.deliveryEta - right.deliveryEta || compareOptionalRanges(left.range, right.range) || right.energy - left.energy || String(left.source.id).localeCompare(String(right.source.id)) || left.task.type.localeCompare(right.task.type);
