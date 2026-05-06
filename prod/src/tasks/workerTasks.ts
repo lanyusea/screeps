@@ -31,7 +31,9 @@ import {
   getStorageEnergyAvailableForWithdrawal,
   withdrawFromStorage
 } from '../economy/energyBuffer';
+import { CROSS_ROOM_HAULER_ROLE, isLiveTransferCandidate } from '../economy/crossRoomHauler';
 import { selectEnergySurplusDeliverySink } from '../economy/energySurplus';
+import { getStorageBalanceState } from '../economy/storageBalancer';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
   classifyLinks,
@@ -109,6 +111,8 @@ type ConstructionPreBufferSink = StructureExtension | StructureStorage;
 type BuilderStoredEnergySource = StoredWorkerEnergySource | StructureExtension;
 type SalvageableWorkerEnergySource = Tombstone | Ruin;
 type FillableEnergySink = StructureSpawn | StructureExtension | StructureTower;
+type InterRoomEnergyStore = StructureStorage | StructureTerminal;
+type InterRoomRecallEnergySink = FillableEnergySink | InterRoomEnergyStore;
 type RemoteHaulerDeliverySink =
   | StructureSpawn
   | StructureExtension
@@ -230,6 +234,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       return territoryControllerTask;
     }
 
+    const interRoomRecallTask = selectInterRoomForeignRoomRecallTask(creep, carriedEnergy);
+    if (interRoomRecallTask) {
+      return interRoomRecallTask;
+    }
+
     let hasPriorityEnergySink = false;
     if (getFreeEnergyCapacity(creep) > 0) {
       const spawnRecoveryEnergySink = selectFillableEnergySink(creep);
@@ -302,6 +311,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
       const sourceContainerWithdrawTask = selectSourceContainerWithdrawTask(creep);
       if (sourceContainerWithdrawTask) {
         return sourceContainerWithdrawTask;
+      }
+
+      const interRoomEnergyHaulTask = selectInterRoomEnergyHaulingTask(creep, carriedEnergy);
+      if (interRoomEnergyHaulTask) {
+        return interRoomEnergyHaulTask;
       }
 
       if (!hasPriorityEnergySink) {
@@ -566,6 +580,11 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   const repairTarget = selectRepairTarget(creep);
   if (repairTarget) {
     return applyMinimumUsefulLoadPolicy(creep, { type: 'repair', targetId: repairTarget.id as Id<Structure> });
+  }
+
+  const interRoomEnergyHaulTask = selectInterRoomEnergyHaulingTask(creep, carriedEnergy);
+  if (interRoomEnergyHaulTask) {
+    return interRoomEnergyHaulTask;
   }
 
   if (controller?.my && canUpgradeController(controller)) {
@@ -1289,6 +1308,426 @@ function selectEnergySurplusStorageTask(
 
   const sink = selectEnergySurplusDeliverySink(creep.room, carriedEnergy);
   return sink ? { type: 'transfer', targetId: sink.id as Id<AnyStoreStructure> } : null;
+}
+
+function selectInterRoomForeignRoomRecallTask(
+  creep: Creep,
+  carriedEnergy: number
+): CreepTaskMemory | null {
+  if (!isEligibleInterRoomEnergyHaulWorker(creep) || isWorkerInColonyRoom(creep)) {
+    return null;
+  }
+
+  const existingTransfer = selectExistingInterRoomEnergyTransfer(creep);
+  if (existingTransfer) {
+    return carriedEnergy > 0
+      ? selectInterRoomDeliveryTask(creep, existingTransfer, carriedEnergy)
+      : selectInterRoomCollectionTask(creep, existingTransfer);
+  }
+
+  return carriedEnergy > 0
+    ? selectInterRoomForeignRoomReturnTask(creep, carriedEnergy)
+    : selectInterRoomHomeEnergyAcquisitionTask(creep);
+}
+
+function selectInterRoomEnergyHaulingTask(
+  creep: Creep,
+  carriedEnergy: number
+): CreepTaskMemory | null {
+  if (!isEligibleInterRoomEnergyHaulWorker(creep)) {
+    clearInterRoomEnergyHaulAssignment(creep);
+    return null;
+  }
+
+  const transfer =
+    selectExistingInterRoomEnergyTransfer(creep) ??
+    selectNewInterRoomEnergyTransfer(creep, carriedEnergy);
+  if (!transfer) {
+    clearInterRoomEnergyHaulAssignment(creep);
+    return selectInterRoomForeignRoomRecallTask(creep, carriedEnergy);
+  }
+
+  return carriedEnergy > 0
+    ? selectInterRoomDeliveryTask(creep, transfer, carriedEnergy)
+    : selectInterRoomCollectionTask(creep, transfer);
+}
+
+function selectInterRoomCollectionTask(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory
+): Extract<CreepTaskMemory, { type: 'withdraw' }> | null {
+  if (getFreeEnergyCapacity(creep) <= 0) {
+    return null;
+  }
+
+  const source = selectInterRoomEnergySource(transfer.sourceRoom, creep.memory.interRoomEnergyHaul?.sourceId);
+  if (!source) {
+    clearInterRoomEnergyHaulAssignment(creep);
+    return null;
+  }
+
+  recordInterRoomEnergyHaulAssignment(creep, transfer, { sourceId: source.id as Id<AnyStoreStructure> });
+  return { type: 'withdraw', targetId: source.id as Id<AnyStoreStructure> };
+}
+
+function selectInterRoomDeliveryTask(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory,
+  carriedEnergy: number
+): Extract<CreepTaskMemory, { type: 'transfer' }> | null {
+  const target = selectInterRoomEnergyTarget(transfer.targetRoom, creep.memory.interRoomEnergyHaul?.targetId);
+  if (!target) {
+    return selectInterRoomForeignRoomReturnTask(creep, carriedEnergy);
+  }
+
+  recordInterRoomEnergyHaulAssignment(creep, transfer, { targetId: target.id as Id<AnyStoreStructure> });
+  return { type: 'transfer', targetId: target.id as Id<AnyStoreStructure> };
+}
+
+function selectExistingInterRoomEnergyTransfer(creep: Creep): EconomyStorageTransferMemory | null {
+  const assignment = normalizeInterRoomEnergyHaulMemory(creep.memory?.interRoomEnergyHaul);
+  if (!assignment) {
+    clearInterRoomEnergyHaulAssignment(creep);
+    return null;
+  }
+
+  const transfer = findInterRoomEnergyTransfer(assignment.sourceRoom, assignment.targetRoom);
+  if (!transfer || !isWorkerAllowedForInterRoomTransfer(creep, transfer) || !isLiveTransferCandidate(transfer)) {
+    clearInterRoomEnergyHaulAssignment(creep);
+    return null;
+  }
+
+  creep.memory.interRoomEnergyHaul = assignment;
+  return transfer;
+}
+
+function selectNewInterRoomEnergyTransfer(
+  creep: Creep,
+  carriedEnergy: number
+): EconomyStorageTransferMemory | null {
+  const colonyName = getCreepColonyName(creep);
+  if (!colonyName || !isWorkerInColonyRoom(creep)) {
+    return null;
+  }
+
+  const minimumRemainingEnergy = Math.max(1, carriedEnergy || getFreeEnergyCapacity(creep));
+  return (
+    getStorageBalanceState().transfers
+      .filter((transfer) => isWorkerAllowedForInterRoomTransfer(creep, transfer))
+      .filter((transfer) => transfer.amount > 0)
+      .filter(isLiveTransferCandidate)
+      .filter((transfer) => getRemainingInterRoomHaulEnergy(transfer, creep) >= minimumRemainingEnergy)
+      .sort(compareInterRoomEnergyTransfersForWorker)[0] ?? null
+  );
+}
+
+function isWorkerAllowedForInterRoomTransfer(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory
+): boolean {
+  const colonyName = getCreepColonyName(creep);
+  return colonyName !== null && transfer.sourceRoom === colonyName && transfer.targetRoom !== colonyName;
+}
+
+function findInterRoomEnergyTransfer(
+  sourceRoom: string,
+  targetRoom: string
+): EconomyStorageTransferMemory | null {
+  return (
+    getStorageBalanceState().transfers.find(
+      (transfer) =>
+        transfer.sourceRoom === sourceRoom &&
+        transfer.targetRoom === targetRoom &&
+        transfer.amount > 0
+    ) ?? null
+  );
+}
+
+function compareInterRoomEnergyTransfersForWorker(
+  left: EconomyStorageTransferMemory,
+  right: EconomyStorageTransferMemory
+): number {
+  return (
+    getRemainingInterRoomHaulEnergy(right) - getRemainingInterRoomHaulEnergy(left) ||
+    right.amount - left.amount ||
+    left.targetRoom.localeCompare(right.targetRoom) ||
+    left.sourceRoom.localeCompare(right.sourceRoom)
+  );
+}
+
+function getRemainingInterRoomHaulEnergy(
+  transfer: EconomyStorageTransferMemory,
+  excludedCreep?: Creep
+): number {
+  return Math.max(0, transfer.amount - getReservedInterRoomHaulEnergy(transfer, excludedCreep));
+}
+
+function getReservedInterRoomHaulEnergy(
+  transfer: EconomyStorageTransferMemory,
+  excludedCreep?: Creep
+): number {
+  let reservedEnergy = 0;
+  for (const creep of getGameCreeps()) {
+    if (excludedCreep && isSameCreep(creep, excludedCreep)) {
+      continue;
+    }
+
+    if (isAssignedInterRoomWorkerHauler(creep, transfer) || isAssignedDedicatedCrossRoomHauler(creep, transfer)) {
+      reservedEnergy += Math.max(getUsedEnergy(creep), getFreeEnergyCapacity(creep));
+    }
+  }
+
+  return reservedEnergy;
+}
+
+function isAssignedInterRoomWorkerHauler(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory
+): boolean {
+  if (creep.memory?.role !== 'worker') {
+    return false;
+  }
+
+  const assignment = normalizeInterRoomEnergyHaulMemory(creep.memory?.interRoomEnergyHaul);
+  return assignment?.sourceRoom === transfer.sourceRoom && assignment.targetRoom === transfer.targetRoom;
+}
+
+function isAssignedDedicatedCrossRoomHauler(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory
+): boolean {
+  if (creep.memory?.role !== CROSS_ROOM_HAULER_ROLE) {
+    return false;
+  }
+
+  const assignment = creep.memory.crossRoomHauler;
+  return assignment?.homeRoom === transfer.sourceRoom && assignment.targetRoom === transfer.targetRoom;
+}
+
+function selectInterRoomEnergySource(
+  roomName: string,
+  preferredSourceId?: Id<AnyStoreStructure>
+): InterRoomEnergyStore | null {
+  const room = getVisibleOwnedRoom(roomName);
+  if (!room) {
+    return null;
+  }
+
+  const sources = findInterRoomEnergyStores(room).filter((source) => getStoredEnergy(source) > 0);
+  const preferredSource = sources.find((source) => String(source.id) === String(preferredSourceId));
+  if (preferredSource) {
+    return preferredSource;
+  }
+
+  return sources.sort(compareInterRoomEnergySources)[0] ?? null;
+}
+
+function selectInterRoomEnergyTarget(
+  roomName: string,
+  preferredTargetId?: Id<AnyStoreStructure>
+): InterRoomEnergyStore | null {
+  const room = getVisibleOwnedRoom(roomName);
+  if (!room) {
+    return null;
+  }
+
+  const targets = findInterRoomEnergyStores(room).filter((target) => getFreeStoredEnergyCapacity(target) > 0);
+  const preferredTarget = targets.find((target) => String(target.id) === String(preferredTargetId));
+  if (preferredTarget) {
+    return preferredTarget;
+  }
+
+  return targets.sort(compareInterRoomEnergyTargets)[0] ?? null;
+}
+
+function selectInterRoomForeignRoomReturnTask(
+  creep: Creep,
+  carriedEnergy: number
+): Extract<CreepTaskMemory, { type: 'transfer' }> | null {
+  if (carriedEnergy <= 0 || isWorkerInColonyRoom(creep)) {
+    return null;
+  }
+
+  const colonyRoom = getCreepColonyRoom(creep);
+  if (!colonyRoom) {
+    return null;
+  }
+
+  const sink = selectInterRoomRecallEnergySink(colonyRoom);
+  return sink ? { type: 'transfer', targetId: sink.id as Id<AnyStoreStructure> } : null;
+}
+
+function selectInterRoomHomeEnergyAcquisitionTask(creep: Creep): CreepTaskMemory | null {
+  const colonyRoom = getCreepColonyRoom(creep);
+  if (!colonyRoom || getFreeEnergyCapacity(creep) <= 0) {
+    return null;
+  }
+
+  const source = selectInterRoomEnergySource(colonyRoom.name);
+  if (source) {
+    return { type: 'withdraw', targetId: source.id as Id<AnyStoreStructure> };
+  }
+
+  const harvestSource = selectFirstColonyHarvestSource(colonyRoom);
+  return harvestSource ? { type: 'harvest', targetId: harvestSource.id } : null;
+}
+
+function selectFirstColonyHarvestSource(room: Room): Source | null {
+  if (typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
+    return null;
+  }
+
+  const sources = room.find(FIND_SOURCES) as Source[];
+  return sources
+    .filter((source) => source.energy === undefined || source.energy > 0)
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)))[0] ?? null;
+}
+
+function selectInterRoomRecallEnergySink(room: Room): InterRoomRecallEnergySink | null {
+  return [
+    ...findFillableEnergySinksInRoom(room),
+    ...findInterRoomEnergyStores(room)
+  ]
+    .filter((sink) => getFreeStoredEnergyCapacity(sink) > 0)
+    .sort(compareInterRoomRecallEnergySinks)[0] ?? null;
+}
+
+function findInterRoomEnergyStores(room: Room): InterRoomEnergyStore[] {
+  const stores = [
+    room.storage,
+    room.terminal,
+    ...findVisibleRoomStructures(room).filter(isInterRoomEnergyStore)
+  ].filter((store): store is InterRoomEnergyStore => store !== undefined);
+  const seenIds = new Set<string>();
+  return stores.filter((store) => {
+    const id = String(store.id);
+    if (seenIds.has(id)) {
+      return false;
+    }
+
+    seenIds.add(id);
+    return true;
+  });
+}
+
+function isInterRoomEnergyStore(structure: AnyStructure): structure is InterRoomEnergyStore {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')
+  );
+}
+
+function compareInterRoomEnergySources(
+  left: InterRoomEnergyStore,
+  right: InterRoomEnergyStore
+): number {
+  return (
+    getStoredEnergy(right) - getStoredEnergy(left) ||
+    getInterRoomEnergyStorePriority(right) - getInterRoomEnergyStorePriority(left) ||
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
+function compareInterRoomEnergyTargets(
+  left: InterRoomEnergyStore,
+  right: InterRoomEnergyStore
+): number {
+  return (
+    getInterRoomEnergyStorePriority(right) - getInterRoomEnergyStorePriority(left) ||
+    getFreeStoredEnergyCapacity(right) - getFreeStoredEnergyCapacity(left) ||
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
+function compareInterRoomRecallEnergySinks(
+  left: InterRoomRecallEnergySink,
+  right: InterRoomRecallEnergySink
+): number {
+  return (
+    getInterRoomRecallSinkPriority(right) - getInterRoomRecallSinkPriority(left) ||
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
+function getInterRoomEnergyStorePriority(store: InterRoomEnergyStore): number {
+  return matchesStructureType(store.structureType, 'STRUCTURE_STORAGE', 'storage') ? 2 : 1;
+}
+
+function getInterRoomRecallSinkPriority(sink: InterRoomRecallEnergySink): number {
+  if (matchesStructureType(sink.structureType, 'STRUCTURE_SPAWN', 'spawn')) {
+    return 5;
+  }
+
+  if (matchesStructureType(sink.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
+    return 4;
+  }
+
+  if (matchesStructureType(sink.structureType, 'STRUCTURE_TOWER', 'tower')) {
+    return 3;
+  }
+
+  if (matchesStructureType(sink.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function recordInterRoomEnergyHaulAssignment(
+  creep: Creep,
+  transfer: EconomyStorageTransferMemory,
+  ids: Partial<Pick<CreepInterRoomEnergyHaulMemory, 'sourceId' | 'targetId'>>
+): void {
+  const gameTick = getGameTick();
+  creep.memory.interRoomEnergyHaul = {
+    ...creep.memory.interRoomEnergyHaul,
+    sourceRoom: transfer.sourceRoom,
+    targetRoom: transfer.targetRoom,
+    ...ids,
+    ...(gameTick === null ? {} : { updatedAt: gameTick })
+  };
+}
+
+function normalizeInterRoomEnergyHaulMemory(value: unknown): CreepInterRoomEnergyHaulMemory | null {
+  if (!isWorkerTaskRecord(value) || !isNonEmptyString(value.sourceRoom) || !isNonEmptyString(value.targetRoom)) {
+    return null;
+  }
+
+  return {
+    sourceRoom: value.sourceRoom,
+    targetRoom: value.targetRoom,
+    ...(isNonEmptyString(value.sourceId) ? { sourceId: value.sourceId as Id<AnyStoreStructure> } : {}),
+    ...(isNonEmptyString(value.targetId) ? { targetId: value.targetId as Id<AnyStoreStructure> } : {}),
+    ...(typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt)
+      ? { updatedAt: value.updatedAt }
+      : {})
+  };
+}
+
+function isEligibleInterRoomEnergyHaulWorker(creep: Creep): boolean {
+  return (
+    creep.memory?.role === 'worker' &&
+    getCreepColonyName(creep) !== null &&
+    !creep.memory.controllerUpgrade &&
+    !creep.memory.controllerSustain &&
+    !creep.memory.territory &&
+    !creep.memory.spawnSupport
+  );
+}
+
+function clearInterRoomEnergyHaulAssignment(creep: Creep): void {
+  if (creep.memory) {
+    delete creep.memory.interRoomEnergyHaul;
+  }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function getVisibleOwnedRoom(roomName: string): Room | null {
+  const room = (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
+  return room?.controller?.my === true ? room : null;
 }
 
 function hasUnreservedEnergySinkCapacity(
