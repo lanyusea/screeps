@@ -7,6 +7,10 @@ import {
   selectWorkerTask,
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
 } from '../tasks/workerTasks';
+import {
+  selectWorkerEnergyCriticalTask,
+  shouldPreemptForWorkerEnergyCriticalTask
+} from './workerTaskPolicy';
 import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
@@ -70,8 +74,10 @@ export function runWorker(creep: Creep): void {
   }
   observeCreepBehaviorTick(creep);
 
-  const selectedTask = selectWorkerTaskForRunner(creep);
   const currentTask = creep.memory.task;
+  const baseSelectedTask = selectWorkerTaskForRunner(creep);
+  const energyCriticalTask = selectWorkerEnergyCriticalTask(creep, currentTask, baseSelectedTask);
+  const selectedTask = energyCriticalTask ?? baseSelectedTask;
   let taskAssignedThisTick = false;
 
   if (!currentTask) {
@@ -81,6 +87,8 @@ export function runWorker(creep: Creep): void {
   } else if (shouldRetainAssignedEnergyDropoffOptimization(creep, currentTask, selectedTask)) {
     // Keep the optimized side task until it completes or a higher-priority selector result appears.
   } else if (shouldPreemptForVisibleTerritoryControllerTask(currentTask, selectedTask)) {
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldPreemptForWorkerEnergyCriticalTask(currentTask, energyCriticalTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
     taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
@@ -607,7 +615,8 @@ function canExecuteTask(creep: Creep, task: CreepTaskMemory): boolean {
 }
 
 function assignNextTask(creep: Creep): CreepTaskMemory | null {
-  const task = selectWorkerTaskForRunner(creep);
+  const baseTask = selectWorkerTaskForRunner(creep);
+  const task = selectWorkerEnergyCriticalTask(creep, creep.memory.task, baseTask) ?? baseTask;
   return assignSelectedTask(creep, task);
 }
 
