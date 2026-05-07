@@ -27,8 +27,6 @@ const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
 const MAX_PERSISTED_EXPANSION_CANDIDATES = 5;
 const EXPANSION_SCOUT_INTEL_TTL = 10_000;
-const EXPANSION_CLAIM_ROUTE_ROOM_TICKS = 50;
-const EXPANSION_CLAIM_READY_BUFFER_TICKS = 10;
 const EXPANSION_SOURCE_COVERAGE_TARGET_PER_ROOM = 2;
 const EXPANSION_ENERGY_CAPACITY_CONSTRAINED_THRESHOLD = 800;
 const SYNERGY_MINERAL_GAP_BONUS = 220;
@@ -929,30 +927,8 @@ function isViableExpansionCandidate(candidate: ExpansionCandidateScore): boolean
     candidate.evidenceStatus === 'sufficient' &&
     candidate.preconditions.length === 0 &&
     typeof candidate.sourceCount === 'number' &&
-    candidate.sourceCount > 0 &&
-    isExpansionControllerAvailableForClaim(candidate)
+    candidate.sourceCount > 0
   );
-}
-
-function isExpansionControllerAvailableForClaim(candidate: ExpansionCandidateScore): boolean {
-  if (candidate.reservation?.relation !== 'own') {
-    return true;
-  }
-
-  return isOwnReservationClaimArrivalWindowOpen(candidate);
-}
-
-function isOwnReservationClaimArrivalWindowOpen(candidate: ExpansionCandidateScore): boolean {
-  const ticksToEnd = candidate.reservation?.ticksToEnd;
-  return typeof ticksToEnd === 'number' && ticksToEnd <= estimateExpansionClaimArrivalTicks(candidate);
-}
-
-function estimateExpansionClaimArrivalTicks(candidate: ExpansionCandidateScore): number {
-  const roomDistance =
-    candidate.routeDistance ??
-    candidate.nearestOwnedRoomDistance ??
-    (candidate.adjacentToOwnedRoom ? 1 : MAX_NEARBY_EXPANSION_ROUTE_DISTANCE);
-  return Math.max(1, Math.ceil(roomDistance)) * EXPANSION_CLAIM_ROUTE_ROOM_TICKS + EXPANSION_CLAIM_READY_BUFFER_TICKS;
 }
 
 function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansionTargetSelectionReason {

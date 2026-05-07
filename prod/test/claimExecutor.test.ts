@@ -766,6 +766,95 @@ describe('autonomous expansion claim executor', () => {
     });
   });
 
+  it('allows visible own-reserved controllers through autonomous claim planning', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId,
+      reservationUsername: 'me',
+      reservationTicksToEnd: 4_000
+    });
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId,
+          sourceCount: 2
+        })
+      ]),
+      151
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'autonomousExpansionClaim',
+        controllerId
+      }
+    ]);
+    expect(Memory.territory?.scoutIntel?.['W1N1>W2N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      updatedAt: 151,
+      controller: {
+        id: 'controller2',
+        my: false,
+        reservationUsername: 'me',
+        reservationTicksToEnd: 4_000
+      }
+    });
+  });
+
+  it('blocks visible foreign-reserved controllers before autonomous claim planning', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId,
+      reservationUsername: 'enemy',
+      reservationTicksToEnd: 3_000
+    });
+
+    const evaluation = refreshAutonomousExpansionClaimIntent(
+      makeColony(),
+      makeReport([
+        makeCandidate({
+          roomName: 'W2N1',
+          controllerId,
+          sourceCount: 2
+        })
+      ]),
+      152
+    );
+
+    expect(evaluation).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId,
+      reason: 'controllerReserved'
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.scoutIntel?.['W1N1>W2N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      updatedAt: 152,
+      controller: {
+        id: 'controller2',
+        my: false,
+        reservationUsername: 'enemy',
+        reservationTicksToEnd: 3_000
+      }
+    });
+  });
+
   it('blocks claim validation when scout intel sees a hostile controller', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
@@ -1286,7 +1375,9 @@ function makeTargetRoom(
     sourceCount = 1,
     mineralType = 'H',
     hostileCreeps = [],
-    hostileStructures = []
+    hostileStructures = [],
+    reservationUsername,
+    reservationTicksToEnd
   }: {
     controllerId: Id<StructureController>;
     upgradeBlocked?: number;
@@ -1294,6 +1385,8 @@ function makeTargetRoom(
     mineralType?: string;
     hostileCreeps?: Creep[];
     hostileStructures?: AnyStructure[];
+    reservationUsername?: string;
+    reservationTicksToEnd?: number;
   }
 ): Room {
   return {
@@ -1301,7 +1394,10 @@ function makeTargetRoom(
     controller: {
       id: controllerId,
       my: false,
-      ...(upgradeBlocked > 0 ? { upgradeBlocked } : {})
+      ...(upgradeBlocked > 0 ? { upgradeBlocked } : {}),
+      ...(reservationUsername
+        ? { reservation: { username: reservationUsername, ticksToEnd: reservationTicksToEnd ?? 0 } }
+        : {})
     } as StructureController & { upgradeBlocked?: number },
     find: jest.fn((type: number) => {
       if (type === FIND_HOSTILE_CREEPS) {

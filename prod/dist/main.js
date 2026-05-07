@@ -5944,8 +5944,6 @@ var DOWNGRADE_GUARD_TICKS = 5e3;
 var MIN_CONTROLLER_LEVEL = 2;
 var MAX_PERSISTED_EXPANSION_CANDIDATES = 5;
 var EXPANSION_SCOUT_INTEL_TTL = 1e4;
-var EXPANSION_CLAIM_ROUTE_ROOM_TICKS = 50;
-var EXPANSION_CLAIM_READY_BUFFER_TICKS = 10;
 var EXPANSION_SOURCE_COVERAGE_TARGET_PER_ROOM = 2;
 var EXPANSION_ENERGY_CAPACITY_CONSTRAINED_THRESHOLD = 800;
 var SYNERGY_MINERAL_GAP_BONUS = 220;
@@ -6521,24 +6519,7 @@ function selectPersistableExpansionCandidate(report) {
   return (_a = report.candidates.find(isViableExpansionCandidate)) != null ? _a : null;
 }
 function isViableExpansionCandidate(candidate) {
-  return candidate.evidenceStatus === "sufficient" && candidate.preconditions.length === 0 && typeof candidate.sourceCount === "number" && candidate.sourceCount > 0 && isExpansionControllerAvailableForClaim(candidate);
-}
-function isExpansionControllerAvailableForClaim(candidate) {
-  var _a;
-  if (((_a = candidate.reservation) == null ? void 0 : _a.relation) !== "own") {
-    return true;
-  }
-  return isOwnReservationClaimArrivalWindowOpen(candidate);
-}
-function isOwnReservationClaimArrivalWindowOpen(candidate) {
-  var _a;
-  const ticksToEnd = (_a = candidate.reservation) == null ? void 0 : _a.ticksToEnd;
-  return typeof ticksToEnd === "number" && ticksToEnd <= estimateExpansionClaimArrivalTicks(candidate);
-}
-function estimateExpansionClaimArrivalTicks(candidate) {
-  var _a, _b;
-  const roomDistance = (_b = (_a = candidate.routeDistance) != null ? _a : candidate.nearestOwnedRoomDistance) != null ? _b : candidate.adjacentToOwnedRoom ? 1 : MAX_NEARBY_EXPANSION_ROUTE_DISTANCE;
-  return Math.max(1, Math.ceil(roomDistance)) * EXPANSION_CLAIM_ROUTE_ROOM_TICKS + EXPANSION_CLAIM_READY_BUFFER_TICKS;
+  return candidate.evidenceStatus === "sufficient" && candidate.preconditions.length === 0 && typeof candidate.sourceCount === "number" && candidate.sourceCount > 0;
 }
 function getSelectionSkipReason(report) {
   if (report.candidates.length === 0) {
@@ -24027,9 +24008,6 @@ function evaluateAutonomousExpansionClaim(colony, report, gameTime, context, tel
     return { ...visibleControllerEvaluation, reason: "controllerOwned" };
   }
   const colonyOwnerUsername = getControllerOwnerUsername7(colony.room.controller);
-  if (controller && isOwnReservedController2(controller, colonyOwnerUsername)) {
-    return { ...visibleControllerEvaluation, reason: "controllerReserved" };
-  }
   if (controller && isControllerReserved(controller, colonyOwnerUsername)) {
     return { ...visibleControllerEvaluation, reason: "controllerReserved" };
   }
@@ -24854,11 +24832,6 @@ function isControllerReserved(controller, colonyOwnerUsername) {
   var _a;
   const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
   return isNonEmptyString19(reservationUsername) && reservationUsername !== colonyOwnerUsername;
-}
-function isOwnReservedController2(controller, colonyOwnerUsername) {
-  var _a;
-  const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
-  return isNonEmptyString19(colonyOwnerUsername) && reservationUsername === colonyOwnerUsername;
 }
 function getControllerOwnerUsername7(controller) {
   var _a;
