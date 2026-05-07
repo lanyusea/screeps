@@ -11770,18 +11770,15 @@ function getSpawnEnergyAvailableForWithdrawal(room, target, currentEnergy = getS
   const roomSurplus = Math.max(0, roomTotalSpawnEnergy - totalSpawnBuffer);
   return Math.min(targetSpawnEnergy, roomSurplus);
 }
-function getSpawnEnergyWithdrawalAmount(room, target, requestedAmount) {
-  const requestedEnergy = normalizeEnergyAmount2(requestedAmount);
-  if (!isSpawnStructure(target)) {
-    return requestedEnergy;
-  }
-  return Math.min(requestedEnergy, getSpawnEnergyAvailableForWithdrawal(room, target));
-}
 function canWithdrawFromSpawnEnergyBuffer(room, target, requestedAmount) {
   if (!isSpawnStructure(target)) {
     return true;
   }
-  return getSpawnEnergyWithdrawalAmount(room, target, requestedAmount) > 0;
+  const requestedEnergy = normalizeEnergyAmount2(requestedAmount);
+  if (requestedEnergy <= 0) {
+    return false;
+  }
+  return getSpawnEnergyAvailableForWithdrawal(room, target) >= requestedEnergy;
 }
 function isSpawnEnergySource(target) {
   return isSpawnStructure(target);
