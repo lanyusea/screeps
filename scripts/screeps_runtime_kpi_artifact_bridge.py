@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence, TextIO
 
@@ -23,9 +25,17 @@ JsonObject = dict[str, Any]
 
 
 @dataclass
+class RuntimeSummaryRecord:
+    line: str
+    path: Path
+    timestamp: datetime | None
+
+
+@dataclass
 class ScanResult:
     input_paths: list[str]
     lines: list[str] = field(default_factory=list)
+    records: list[RuntimeSummaryRecord] = field(default_factory=list)
     scanned_files: int = 0
     matched_files: int = 0
     skipped_files: list[JsonObject] = field(default_factory=list)
@@ -142,6 +152,35 @@ def scan_file(path: Path, result: ScanResult, max_file_bytes: int) -> None:
 
     result.matched_files += 1
     result.lines.extend(matching_lines)
+    timestamp = infer_runtime_summary_timestamp(path)
+    result.records.extend(RuntimeSummaryRecord(line=line, path=path, timestamp=timestamp) for line in matching_lines)
+
+
+def infer_runtime_summary_timestamp(path: Path) -> datetime | None:
+    path_text = str(path)
+    compact_match = re_search_timestamp(r"(\d{8}T\d{6}Z)", path_text)
+    if compact_match is not None:
+        return compact_match
+
+    dashed_match = re_search_timestamp(r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})", path_text)
+    if dashed_match is not None:
+        return dashed_match
+
+    return None
+
+
+def re_search_timestamp(pattern: str, value: str) -> datetime | None:
+    match = re.search(pattern, value)
+    if not match:
+        return None
+    try:
+        if len(match.groups()) == 1:
+            return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        date_part, time_part = match.group(1), match.group(2)
+        timestamp = f"{date_part}T{time_part.replace('-', ':')}Z"
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def build_bridge_report(paths: Sequence[str], max_file_bytes: int = DEFAULT_MAX_FILE_BYTES) -> JsonObject:
