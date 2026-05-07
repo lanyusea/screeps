@@ -157,7 +157,12 @@ export function canWithdrawFromSpawnEnergyBuffer(
     return true;
   }
 
-  return getSpawnEnergyWithdrawalAmount(room, target, requestedAmount) > 0;
+  const requestedEnergy = normalizeEnergyAmount(requestedAmount);
+  if (requestedEnergy <= 0) {
+    return false;
+  }
+
+  return getSpawnEnergyAvailableForWithdrawal(room, target) >= requestedEnergy;
 }
 
 export function isSpawnEnergySource(target: unknown): target is StructureSpawn {

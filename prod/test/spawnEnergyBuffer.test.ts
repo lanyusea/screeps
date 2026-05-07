@@ -1,5 +1,6 @@
 import {
   SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL,
+  canWithdrawFromSpawnEnergyBuffer,
   getBufferedSpawnEnergyBudget,
   getSpawnEnergyAvailableForWithdrawal,
   getSpawnEnergyBufferRequirement,
@@ -116,6 +117,18 @@ describe('spawnEnergyBuffer', () => {
 
     expect(getSpawnEnergyAvailableForWithdrawal(room, spawn1)).toBe(50);
     expect(getSpawnEnergyAvailableForWithdrawal(room, spawn2)).toBe(150);
+  });
+
+  it('requires full requested energy to be available before allowing spawn withdrawal', () => {
+    const room = makeRoom({
+      level: 1,
+      memory: { spawnEnergyBuffer: { minimumEnergyPerSpawn: 275 } }
+    });
+    const spawn = makeSpawn('spawn1', room, 300);
+
+    expect(canWithdrawFromSpawnEnergyBuffer(room, spawn, 25)).toBe(true);
+    expect(canWithdrawFromSpawnEnergyBuffer(room, spawn, 50)).toBe(false);
+    expect(canWithdrawFromSpawnEnergyBuffer(room, spawn, 0)).toBe(false);
   });
 
   it('persists current buffer health without overwriting memory-level configuration', () => {
