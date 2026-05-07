@@ -64,15 +64,8 @@ import {
   persistOccupationRecommendationFollowUpIntent,
   suppressOccupationClaimRecommendation
 } from '../territory/occupationRecommendation';
-import {
-  buildRuntimeExpansionCandidateReport,
-  clearNextExpansionTargetIntent,
-  NEXT_EXPANSION_TARGET_CREATOR,
-  type NextExpansionTargetSelection,
-  refreshNextExpansionTargetSelection,
-  selectExpansionScoutTargets
-} from '../territory/expansionScoring';
-import { refreshExpansionRoomScouting } from '../territory/roomScouting';
+import { clearNextExpansionTargetIntent } from '../territory/expansionScoring';
+import { refreshExpansionExecutorIntent } from '../territory/expansionExecutor';
 import { runPlannedClaimReservation } from '../territory/roomReservation';
 import {
   clearAutonomousExpansionClaimIntent,
@@ -96,7 +89,6 @@ import {
 import { refreshReserveExecutionTargets } from '../territory/reserveExecutor';
 import {
   refreshClaimedRoomBootstrapperOwnership,
-  logBestClaimTarget,
   runTerritoryControllerCreep
 } from '../territory/territoryRunner';
 import { runTowerConstructionExecutorForColony } from '../territory/towerConstructionExecutor';
@@ -116,14 +108,6 @@ import {
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
 const OK_CODE = 0 as ScreepsReturnCode;
 const BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
-const NEXT_EXPANSION_SCORING_REFRESH_INTERVAL = 50;
-const NEXT_EXPANSION_SCORING_DOWNGRADE_GUARD_TICKS = 5_000;
-
-interface CachedNextExpansionTargetSelection {
-  refreshedAt: number;
-  stateKey: string;
-  selection: NextExpansionTargetSelection;
-}
 
 interface SpawnAttemptOutcome {
   spawn: StructureSpawn;
@@ -457,7 +441,7 @@ function refreshExecutableTerritoryRecommendation(
   );
   let report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   if (territoryReady) {
-    const expansionSelection = refreshNextExpansionTargetSelectionIfDue(colony, Game.time, telemetryEvents);
+    const expansionSelection = refreshExpansionExecutorIntent(colony, Game.time, telemetryEvents);
     if (expansionSelection.status === 'planned') {
       clearAdjacentRoomReservationIntent(colony.room.name);
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
@@ -500,234 +484,6 @@ function refreshExecutableTerritoryRecommendation(
   if (territoryReady) {
     refreshAdjacentRoomReservationIntent(colony, Game.time);
   }
-}
-
-function refreshNextExpansionTargetSelectionIfDue(
-  colony: ColonySnapshot,
-  gameTime: number,
-  telemetryEvents: RuntimeTelemetryEvent[]
-): NextExpansionTargetSelection {
-  const colonyName = colony.room.name;
-  const colonyMemory = getWritableColonyMemory(colony);
-  const stateKey = getNextExpansionSelectionCacheStateKey(colony);
-  const cachedSelection = getCachedNextExpansionTargetSelection(colonyMemory, colonyName);
-  if (
-    cachedSelection &&
-    isNextExpansionTargetSelectionCacheReusable(cachedSelection, colonyName, gameTime, stateKey)
-  ) {
-    return cachedSelection.selection;
-  }
-
-  const report = buildRuntimeExpansionCandidateReport(colony);
-  const selection = refreshNextExpansionTargetSelection(colony, report, gameTime);
-  if (selection.status === 'skipped' && selection.reason === 'insufficientEvidence') {
-    refreshExpansionRoomScouting(colony, selectExpansionScoutTargets(report), gameTime, telemetryEvents);
-  }
-  logBestClaimTarget(colony.room);
-  colonyMemory.lastExpansionScoreTime = gameTime;
-  colonyMemory.cachedExpansionSelection = { ...selection, stateKey: getNextExpansionSelectionCacheStateKey(colony) };
-  return selection;
-}
-
-function getWritableColonyMemory(colony: ColonySnapshot): RoomMemory {
-  const roomWithMemory = colony.room as Room & { memory?: RoomMemory };
-  const memory = colony.memory ?? roomWithMemory.memory ?? {};
-  if (!colony.memory) {
-    colony.memory = memory;
-  }
-  if (!roomWithMemory.memory) {
-    roomWithMemory.memory = memory;
-  }
-  return memory;
-}
-
-function getCachedNextExpansionTargetSelection(
-  colonyMemory: RoomMemory,
-  colonyName: string
-): CachedNextExpansionTargetSelection | null {
-  const refreshedAt = colonyMemory.lastExpansionScoreTime;
-  const rawSelection = (colonyMemory as { cachedExpansionSelection?: unknown }).cachedExpansionSelection;
-  const selection = normalizeNextExpansionTargetSelection(rawSelection, colonyName);
-  if (
-    !isFiniteNumber(refreshedAt) ||
-    !isRecord(rawSelection) ||
-    !isNonEmptyString(rawSelection.stateKey) ||
-    !selection
-  ) {
-    return null;
-  }
-
-  return { refreshedAt, stateKey: rawSelection.stateKey, selection };
-}
-
-function normalizeNextExpansionTargetSelection(
-  rawSelection: unknown,
-  colonyName: string
-): NextExpansionTargetSelection | null {
-  if (
-    !isRecord(rawSelection) ||
-    rawSelection.colony !== colonyName ||
-    (rawSelection.status !== 'planned' && rawSelection.status !== 'skipped')
-  ) {
-    return null;
-  }
-
-  if (rawSelection.status === 'planned') {
-    if (!isNonEmptyString(rawSelection.targetRoom)) {
-      return null;
-    }
-
-    return {
-      status: 'planned',
-      colony: colonyName,
-      targetRoom: rawSelection.targetRoom,
-      ...(typeof rawSelection.controllerId === 'string'
-        ? { controllerId: rawSelection.controllerId as Id<StructureController> }
-        : {}),
-      ...(isFiniteNumber(rawSelection.score) ? { score: rawSelection.score } : {})
-    };
-  }
-
-  const reason = normalizeNextExpansionTargetSelectionReason(rawSelection.reason);
-  if (!reason) {
-    return null;
-  }
-
-  return {
-    status: 'skipped',
-    colony: colonyName,
-    reason
-  };
-}
-
-function normalizeNextExpansionTargetSelectionReason(
-  reason: unknown
-): NextExpansionTargetSelection['reason'] | undefined {
-  return reason === 'noCandidate' ||
-    reason === 'gclInsufficient' ||
-    reason === 'roomLimitReached' ||
-    reason === 'unmetPreconditions' ||
-    reason === 'insufficientEvidence' ||
-    reason === 'unavailable'
-    ? reason
-    : undefined;
-}
-
-function isNextExpansionTargetSelectionCacheReusable(
-  cachedSelection: CachedNextExpansionTargetSelection,
-  colony: string,
-  gameTime: number,
-  stateKey: string
-): boolean {
-  if (
-    cachedSelection.stateKey !== stateKey ||
-    gameTime < cachedSelection.refreshedAt ||
-    gameTime - cachedSelection.refreshedAt >= NEXT_EXPANSION_SCORING_REFRESH_INTERVAL
-  ) {
-    return false;
-  }
-
-  return (
-    cachedSelection.selection.status !== 'planned' ||
-    hasNextExpansionTarget(colony, cachedSelection.selection.targetRoom)
-  );
-}
-
-function hasNextExpansionTarget(colony: string, targetRoom: string | undefined): boolean {
-  if (!targetRoom) {
-    return false;
-  }
-
-  const targets = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.targets;
-  return Array.isArray(targets)
-    ? targets.some(
-        (target) =>
-          isRecord(target) &&
-          target.colony === colony &&
-          target.roomName === targetRoom &&
-          target.action === 'claim' &&
-          target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
-      )
-    : false;
-}
-
-function getNextExpansionSelectionCacheStateKey(colony: ColonySnapshot): string {
-  const controller = colony.room.controller;
-  const controllerLevel = isFiniteNumber(controller?.level) ? controller.level : 'unknown';
-  const downgradeState =
-    isFiniteNumber(controller?.ticksToDowngrade) &&
-    controller.ticksToDowngrade < NEXT_EXPANSION_SCORING_DOWNGRADE_GUARD_TICKS
-      ? 'guarded'
-      : 'stable';
-
-  return [
-    colony.room.name,
-    colony.energyCapacityAvailable,
-    controllerLevel,
-    getGclLevel() ?? 'unknown',
-    countVisibleOwnedRooms(),
-    downgradeState,
-    countActivePostClaimBootstraps(),
-    getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
-  ].join('|');
-}
-
-function countVisibleOwnedRooms(): number {
-  const rooms = (globalThis as { Game?: Partial<Game> }).Game?.rooms;
-  if (!rooms) {
-    return 0;
-  }
-
-  return Object.values(rooms).filter((room) => room?.controller?.my === true).length;
-}
-
-function getGclLevel(): number | null {
-  const level = (globalThis as { Game?: Partial<Game> & { gcl?: { level?: number } } }).Game?.gcl?.level;
-  return typeof level === 'number' && Number.isFinite(level) && level > 0 ? Math.floor(level) : null;
-}
-
-function countActivePostClaimBootstraps(): number {
-  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
-  if (!isRecord(records)) {
-    return 0;
-  }
-
-  return Object.values(records).filter(
-    (record) => isRecord(record) && record.status !== 'ready'
-  ).length;
-}
-
-function getLatestTerritoryScoutIntelUpdatedAt(colony: string): number {
-  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.scoutIntel;
-  if (!isRecord(records)) {
-    return 0;
-  }
-
-  let latestUpdatedAt = 0;
-  for (const record of Object.values(records)) {
-    if (
-      isRecord(record) &&
-      record.colony === colony &&
-      isFiniteNumber(record.updatedAt) &&
-      record.updatedAt > latestUpdatedAt
-    ) {
-      latestUpdatedAt = record.updatedAt;
-    }
-  }
-
-  return latestUpdatedAt;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
 }
 
 function normalizeNonNegativeInteger(value: unknown): number {
