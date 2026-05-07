@@ -79,7 +79,10 @@ interface ExpansionReservationUpgradeContext {
   action: TerritoryControlAction;
 }
 
-export function evaluateExpansionRoomSuitability(room: Room): ExpansionRoomSuitability {
+export function evaluateExpansionRoomSuitability(
+  room: Room,
+  colonyOwnerUsername?: string
+): ExpansionRoomSuitability {
   const ownerUsername = getControllerOwnerUsername(room.controller);
   const reservationUsername = getControllerReservationUsername(room.controller);
   return evaluateExpansionSuitability({
@@ -92,6 +95,7 @@ export function evaluateExpansionRoomSuitability(room: Room): ExpansionRoomSuita
     ...(room.controller?.id ? { controllerId: room.controller.id } : {}),
     ...(ownerUsername ? { ownerUsername } : {}),
     ...(reservationUsername ? { reservationUsername } : {}),
+    ...(colonyOwnerUsername ? { colonyOwnerUsername } : {}),
     hasController: room.controller !== undefined
   });
 }
@@ -160,7 +164,7 @@ export function buildRuntimeExpansionPlannerCandidates(
         continue;
       }
 
-      candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, 1, order));
+      candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, 1, order, ownerUsername));
       order += 1;
     }
   }
@@ -182,7 +186,7 @@ export function buildRuntimeExpansionPlannerCandidates(
     }
 
     seenRooms.add(room.name);
-    candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, distance, order));
+    candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, distance, order, ownerUsername));
     order += 1;
   }
 
@@ -341,6 +345,7 @@ function evaluateExpansionSuitability({
   controllerId,
   ownerUsername,
   reservationUsername,
+  colonyOwnerUsername,
   hasController
 }: {
   sourceCount: number;
@@ -349,6 +354,7 @@ function evaluateExpansionSuitability({
   controllerId?: Id<StructureController>;
   ownerUsername?: string;
   reservationUsername?: string;
+  colonyOwnerUsername?: string;
   hasController: boolean;
 }): ExpansionRoomSuitability {
   const normalizedSourceCount = normalizeNonNegativeInteger(sourceCount);
@@ -368,7 +374,10 @@ function evaluateExpansionSuitability({
     reasons.push('controllerMissing');
   } else if (isNonEmptyString(ownerUsername)) {
     reasons.push('controllerOwned');
-  } else if (isNonEmptyString(reservationUsername)) {
+  } else if (
+    isNonEmptyString(reservationUsername) &&
+    (!isNonEmptyString(colonyOwnerUsername) || reservationUsername !== colonyOwnerUsername)
+  ) {
     reasons.push('controllerReserved');
   }
 
@@ -388,9 +397,10 @@ function toRuntimeExpansionPlannerCandidate(
   colony: string,
   room: Room,
   distance: number,
-  order: number
+  order: number,
+  colonyOwnerUsername: string | undefined
 ): ExpansionPlannerCandidate {
-  const suitability = evaluateExpansionRoomSuitability(room);
+  const suitability = evaluateExpansionRoomSuitability(room, colonyOwnerUsername);
   const normalizedDistance = Math.max(1, normalizeNonNegativeInteger(distance));
   return {
     colony,

@@ -8244,7 +8244,7 @@ var ERR_NO_PATH_CODE4 = -2;
 var SOURCE_SCORE_WEIGHT = 1e3;
 var DISTANCE_SCORE_WEIGHT = 100;
 var EXPANSION_PLANNER_TARGET_CREATOR = "expansionPlanner";
-function evaluateExpansionRoomSuitability(room) {
+function evaluateExpansionRoomSuitability(room, colonyOwnerUsername) {
   var _a;
   const ownerUsername = getControllerOwnerUsername4(room.controller);
   const reservationUsername = getControllerReservationUsername3(room.controller);
@@ -8258,6 +8258,7 @@ function evaluateExpansionRoomSuitability(room) {
     ...((_a = room.controller) == null ? void 0 : _a.id) ? { controllerId: room.controller.id } : {},
     ...ownerUsername ? { ownerUsername } : {},
     ...reservationUsername ? { reservationUsername } : {},
+    ...colonyOwnerUsername ? { colonyOwnerUsername } : {},
     hasController: room.controller !== void 0
   });
 }
@@ -8282,7 +8283,7 @@ function buildRuntimeExpansionPlannerCandidates(colony) {
       if (!room) {
         continue;
       }
-      candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, 1, order));
+      candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, 1, order, ownerUsername));
       order += 1;
     }
   }
@@ -8295,7 +8296,7 @@ function buildRuntimeExpansionPlannerCandidates(colony) {
       continue;
     }
     seenRooms.add(room.name);
-    candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, distance, order));
+    candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, distance, order, ownerUsername));
     order += 1;
   }
   return candidates.filter((candidate) => candidate.suitable).sort(compareExpansionPlannerCandidates);
@@ -8426,6 +8427,7 @@ function evaluateExpansionSuitability({
   controllerId,
   ownerUsername,
   reservationUsername,
+  colonyOwnerUsername,
   hasController
 }) {
   const normalizedSourceCount = normalizeNonNegativeInteger4(sourceCount);
@@ -8442,7 +8444,7 @@ function evaluateExpansionSuitability({
     reasons.push("controllerMissing");
   } else if (isNonEmptyString9(ownerUsername)) {
     reasons.push("controllerOwned");
-  } else if (isNonEmptyString9(reservationUsername)) {
+  } else if (isNonEmptyString9(reservationUsername) && (!isNonEmptyString9(colonyOwnerUsername) || reservationUsername !== colonyOwnerUsername)) {
     reasons.push("controllerReserved");
   }
   return {
@@ -8456,8 +8458,8 @@ function evaluateExpansionSuitability({
     ...reservationUsername ? { reservationUsername } : {}
   };
 }
-function toRuntimeExpansionPlannerCandidate(colony, room, distance, order) {
-  const suitability = evaluateExpansionRoomSuitability(room);
+function toRuntimeExpansionPlannerCandidate(colony, room, distance, order, colonyOwnerUsername) {
+  const suitability = evaluateExpansionRoomSuitability(room, colonyOwnerUsername);
   const normalizedDistance = Math.max(1, normalizeNonNegativeInteger4(distance));
   return {
     colony,

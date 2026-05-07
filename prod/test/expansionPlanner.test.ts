@@ -1,6 +1,7 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import { buildTerritorySpawnBody } from '../src/spawn/spawnPlanner';
 import {
+  buildRuntimeExpansionPlannerCandidates,
   createExpansionIntent,
   evaluateExpansionCandidate,
   evaluateExpansionRoomSuitability,
@@ -179,7 +180,13 @@ describe('expansion planner', () => {
       gclLevel: 2,
       exits: { W1N1: { '3': 'W2N1' } },
       rooms: {
-        W2N1: makeExpansionRoom('W2N1')
+        W2N1: makeExpansionRoom('W2N1', {
+          controller: {
+            id: controllerId,
+            my: false,
+            reservation: { username: 'me', ticksToEnd: 3_000 }
+          } as StructureController
+        })
       }
     });
 
@@ -217,6 +224,33 @@ describe('expansion planner', () => {
         controllerId
       }
     ]);
+  });
+
+  it('filters enemy-reserved runtime rooms from expansion candidates', () => {
+    const { colony } = makeColony({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 3
+    });
+    installGame(colony, {
+      gclLevel: 2,
+      exits: { W1N1: { '3': 'W2N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', {
+          controller: {
+            id: 'controller-W2N1' as Id<StructureController>,
+            my: false,
+            reservation: { username: 'enemy', ticksToEnd: 3_000 }
+          } as StructureController
+        })
+      }
+    });
+
+    expect(buildRuntimeExpansionPlannerCandidates(colony)).toEqual([]);
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 115)
+    ).toBeNull();
+    expect(Memory.territory).toBeUndefined();
   });
 
   it('does not reactivate completed expansion intents while the candidate remains unsuitable', () => {
