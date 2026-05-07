@@ -3686,7 +3686,6 @@ function isSubstantialContainerMoreEfficientThanHarvest(
   harvestCandidate: LowLoadWorkerEnergyAcquisitionCandidate
 ): boolean {
   if (
-    candidate.range === null ||
     !isContainerEnergySource(candidate.source) ||
     !hasSubstantialContainerEnergy(candidate.source, getStoredEnergy(candidate.source)) ||
     !isHarvestSourceObject(harvestCandidate.source)
@@ -3694,8 +3693,13 @@ function isSubstantialContainerMoreEfficientThanHarvest(
     return false;
   }
 
+  const containerTravelCost = estimateRoadAwareTravelCostBetweenRoomObjects(creep, candidate.source, 1);
   const harvestEta = estimateHarvestEnergyAcquisitionEta(creep, harvestCandidate.source);
-  return harvestEta !== null && candidate.range + ENERGY_ACQUISITION_ACTION_TICKS < harvestEta;
+  return (
+    containerTravelCost !== null &&
+    harvestEta !== null &&
+    containerTravelCost + ENERGY_ACQUISITION_ACTION_TICKS < harvestEta
+  );
 }
 
 function isBufferedSourceContainerForHarvestCandidate(

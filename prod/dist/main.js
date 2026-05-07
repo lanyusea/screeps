@@ -19097,11 +19097,12 @@ function isWorkerEnergyAcquisitionCandidateCompetitiveWithHarvest(creep, candida
   return candidate.range < harvestCandidate.range || isBufferedSourceContainerForHarvestCandidate(creep, candidate, harvestCandidate);
 }
 function isSubstantialContainerMoreEfficientThanHarvest(creep, candidate, harvestCandidate) {
-  if (candidate.range === null || !isContainerEnergySource(candidate.source) || !hasSubstantialContainerEnergy(candidate.source, getStoredEnergy11(candidate.source)) || !isHarvestSourceObject(harvestCandidate.source)) {
+  if (!isContainerEnergySource(candidate.source) || !hasSubstantialContainerEnergy(candidate.source, getStoredEnergy11(candidate.source)) || !isHarvestSourceObject(harvestCandidate.source)) {
     return false;
   }
+  const containerTravelCost = estimateRoadAwareTravelCostBetweenRoomObjects(creep, candidate.source, 1);
   const harvestEta = estimateHarvestEnergyAcquisitionEta(creep, harvestCandidate.source);
-  return harvestEta !== null && candidate.range + ENERGY_ACQUISITION_ACTION_TICKS < harvestEta;
+  return containerTravelCost !== null && harvestEta !== null && containerTravelCost + ENERGY_ACQUISITION_ACTION_TICKS < harvestEta;
 }
 function isBufferedSourceContainerForHarvestCandidate(creep, candidate, harvestCandidate) {
   if (candidate.energy < COMPETITIVE_SOURCE_CONTAINER_WITHDRAW_MIN_ENERGY || candidate.range !== harvestCandidate.range) {
