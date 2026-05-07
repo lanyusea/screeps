@@ -3,6 +3,7 @@ import {
   assessColonyStage,
   EMERGENCY_BOOTSTRAP_WORKER_BODY,
   getColonySpawnPriorityTiers,
+  getWorkerTarget,
   suppressesTerritoryWork
 } from '../src/colony/colonyStage';
 import { planSpawn } from '../src/spawn/spawnPlanner';
@@ -164,6 +165,37 @@ describe('colony bootstrap stage', () => {
       }
     });
   });
+
+  it('raises the sustainable worker target when local miners saturate source throughput', () => {
+    (globalThis as unknown as { Game: Partial<Game>; Memory: Partial<Memory> }).Game = { time: 200 };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        sourceWorkloads: {
+          W1N1: {
+            updatedAt: 200,
+            sources: {
+              source0: makeSourceWorkload('source0', 10),
+              source1: makeSourceWorkload('source1', 10)
+            }
+          }
+        }
+      }
+    };
+    const { colony, spawn } = makeColony({
+      sourceCount: 2,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800
+    });
+    const roleCounts = { worker: 3, sourceHarvester: 2, workerCapacity: 5 };
+
+    expect(getWorkerTarget(colony, roleCounts)).toBe(6);
+    expect(planSpawn(colony, roleCounts, 201)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N1-201',
+      memory: { role: 'worker', colony: 'W1N1' }
+    });
+  });
 });
 
 function makeColony({
@@ -210,5 +242,21 @@ function makeColony({
       spawnEnergyBudget: energyAvailable
     },
     spawn
+  };
+}
+
+function makeSourceWorkload(sourceId: string, harvestEnergyPerTick: number): EconomySourceWorkloadMemory {
+  return {
+    sourceId,
+    assignedHarvesters: 1,
+    assignedWorkParts: Math.ceil(harvestEnergyPerTick / 2),
+    openPositions: 1,
+    harvestWorkCapacity: 5,
+    harvestEnergyPerTick,
+    regenEnergyPerTick: 10,
+    sourceEnergyCapacity: 3_000,
+    sourceEnergyRegenTicks: 300,
+    hasContainer: true,
+    containerId: `${sourceId}-container`
   };
 }

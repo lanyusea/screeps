@@ -1,4 +1,6 @@
 import {
+  MINER_ADJUSTED_SPAWN_ENERGY_BUFFER_FLOOR,
+  MINER_OUTPUT_BUFFER_CREDIT_TICKS,
   SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL,
   canWithdrawFromSpawnEnergyBuffer,
   getBufferedSpawnEnergyBudget,
@@ -77,6 +79,65 @@ describe('spawnEnergyBuffer', () => {
     expect(getBufferedSpawnEnergyBudget(room, [spawn], 500)).toBe(250);
     expect(getSpawnEnergyAvailableForWithdrawal(room, spawn)).toBe(50);
     expect(getSpawnEnergyWithdrawalAmount(room, spawn, 100)).toBe(50);
+  });
+
+  it.each([
+    { harvestRates: [0], expectedCredit: 0, expectedThreshold: 500 },
+    { harvestRates: [5], expectedCredit: 5 * MINER_OUTPUT_BUFFER_CREDIT_TICKS, expectedThreshold: 400 },
+    {
+      harvestRates: [10, 10],
+      expectedCredit: 20 * MINER_OUTPUT_BUFFER_CREDIT_TICKS,
+      expectedThreshold: MINER_ADJUSTED_SPAWN_ENERGY_BUFFER_FLOOR
+    }
+  ])(
+    'sizes the default spawn buffer from fresh miner throughput %#',
+    ({ harvestRates, expectedCredit, expectedThreshold }) => {
+      const room = makeRoom({ energyAvailable: 650, level: 4 });
+      const spawn = makeSpawn('spawn1', room, 300);
+      installSourceWorkloadMemory(harvestRates, 100);
+
+      expect(getSpawnEnergyBufferThreshold(room)).toBe(expectedThreshold);
+      expect(getSpawnEnergyBufferSnapshot(room, [spawn])).toMatchObject({
+        baseThresholdPerSpawn: 500,
+        minerOutputBufferCredit: expectedCredit,
+        minerOutputEnergyPerTick: harvestRates.reduce((total, rate) => total + Math.min(rate, 10), 0),
+        thresholdPerSpawn: expectedThreshold
+      });
+    }
+  );
+
+  it('spends against the miner-adjusted spawn buffer without draining below the floor', () => {
+    const room = makeRoom({ energyAvailable: 650, level: 4 });
+    const spawn = makeSpawn('spawn1', room, 300);
+    installSourceWorkloadMemory([10, 10], 100);
+
+    expect(getBufferedSpawnEnergyBudget(room, [spawn], 650)).toBe(450);
+    expect(isSpawnEnergyBufferViolated(room, [spawn], 650, 450)).toBe(false);
+    expect(isSpawnEnergyBufferViolated(room, [spawn], 650, 451)).toBe(true);
+  });
+
+  it('applies miner throughput credit once before splitting a multi-spawn buffer', () => {
+    const room = makeRoom({ energyAvailable: 1_000, level: 4 });
+    const spawns = [makeSpawn('spawn1', room, 300), makeSpawn('spawn2', room, 300)];
+    installSourceWorkloadMemory([10], 100);
+
+    expect(getSpawnEnergyBufferRequirement(room, spawns)).toBe(800);
+    expect(getBufferedSpawnEnergyBudget(room, spawns, 1_000)).toBe(200);
+    expect(isSpawnEnergyBufferViolated(room, spawns, 1_000, 201)).toBe(true);
+    expect(getSpawnEnergyBufferSnapshot(room, spawns)).toMatchObject({
+      baseThresholdPerSpawn: 500,
+      minerOutputBufferCredit: 10 * MINER_OUTPUT_BUFFER_CREDIT_TICKS,
+      spawnCount: 2,
+      threshold: 800,
+      thresholdPerSpawn: 400
+    });
+  });
+
+  it('ignores stale miner throughput when sizing the spawn buffer', () => {
+    const room = makeRoom({ energyAvailable: 650, level: 4 });
+    installSourceWorkloadMemory([10, 10], 74);
+
+    expect(getSpawnEnergyBufferThreshold(room)).toBe(500);
   });
 
   it('limits spawn withdrawal by room-level spawn surplus', () => {
@@ -221,6 +282,34 @@ function makeSpawn(id: string, room: Room, energy: number): StructureSpawn {
       getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0))
     }
   } as unknown as StructureSpawn;
+}
+
+function installSourceWorkloadMemory(harvestRates: number[], updatedAt: number): void {
+  Memory.economy = {
+    sourceWorkloads: {
+      W1N1: {
+        updatedAt,
+        sources: Object.fromEntries(
+          harvestRates.map((harvestEnergyPerTick, index) => [
+            `source${index}`,
+            {
+              sourceId: `source${index}`,
+              assignedHarvesters: harvestEnergyPerTick > 0 ? 1 : 0,
+              assignedWorkParts: Math.ceil(harvestEnergyPerTick / 2),
+              openPositions: 1,
+              harvestWorkCapacity: 5,
+              harvestEnergyPerTick,
+              regenEnergyPerTick: 10,
+              sourceEnergyCapacity: 3_000,
+              sourceEnergyRegenTicks: 300,
+              hasContainer: true,
+              containerId: `container${index}`
+            }
+          ])
+        )
+      }
+    }
+  };
 }
 
 function makeEmptyWorker(room: Room): Creep {
