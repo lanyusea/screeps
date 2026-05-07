@@ -76,7 +76,7 @@ describe('expansion planner', () => {
     ).toContain('controllerReserved');
   });
 
-  it('prioritizes suitable candidates by source count, distance, and stable order', () => {
+  it('prioritizes suitable candidates by adjacency score, source count, and stable order', () => {
     const orderedCandidates = prioritizeExpansionCandidates([
       {
         colony: 'W1N1',
@@ -112,7 +112,42 @@ describe('expansion planner', () => {
       }
     ]);
 
-    expect(orderedCandidates.map((candidate) => candidate.roomName)).toEqual(['W4N1', 'W1N2', 'W2N1']);
+    expect(orderedCandidates.map((candidate) => candidate.roomName)).toEqual(['W1N2', 'W4N1', 'W2N1']);
+  });
+
+  it('deduplicates expansion candidates for the same room by keeping the highest score', () => {
+    const orderedCandidates = prioritizeExpansionCandidates([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        distance: 2,
+        sourceCount: 2,
+        controllerId: 'controller-W2N1' as Id<StructureController>,
+        order: 0
+      },
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        distance: 1,
+        sourceCount: 2,
+        controllerId: 'controller-W2N1' as Id<StructureController>,
+        order: 1
+      },
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        distance: 1,
+        sourceCount: 2,
+        controllerId: 'controller-W3N1' as Id<StructureController>,
+        order: 2
+      }
+    ]);
+
+    expect(orderedCandidates).toHaveLength(2);
+    expect(orderedCandidates[0]).toMatchObject({
+      roomName: 'W2N1',
+      distance: 1
+    });
   });
 
   it('plans valid strategic tower placements from controller, source, and entrance anchors', () => {
@@ -421,6 +456,123 @@ describe('expansion planner', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 100,
+        createdBy: 'expansionPlanner',
+        controllerId: 'controller-W2N1'
+      }
+    ]);
+  });
+
+  it.each([
+    [
+      'low bootstrap energy',
+      { energyAvailable: 650, energyCapacityAvailable: 650 },
+      undefined
+    ],
+    [
+      'no active spawn',
+      { energyAvailable: 1_300, energyCapacityAvailable: 1_300, spawns: [] },
+      undefined
+    ],
+    [
+      'visible home hostiles',
+      { energyAvailable: 1_300, energyCapacityAvailable: 1_300, hostileCreepCount: 1 },
+      undefined
+    ],
+    [
+      'pending colony threat',
+      { energyAvailable: 1_300, energyCapacityAvailable: 1_300 },
+      {
+        updatedAt: 100,
+        rooms: {
+          W1N1: {
+            roomName: 'W1N1',
+            level: 'hostile_present' as DefenseThreatLevel,
+            updatedAt: 100,
+            hostileCreepCount: 1,
+            hostileStructureCount: 0,
+            damagedCriticalStructureCount: 0
+          }
+        }
+      }
+    ],
+    [
+      'recent colony threat not refreshed this tick',
+      { energyAvailable: 1_300, energyCapacityAvailable: 1_300 },
+      {
+        updatedAt: 99,
+        rooms: {
+          W1N1: {
+            roomName: 'W1N1',
+            level: 'hostile_present' as DefenseThreatLevel,
+            updatedAt: 99,
+            hostileCreepCount: 1,
+            hostileStructureCount: 0,
+            damagedCriticalStructureCount: 0
+          }
+        }
+      }
+    ]
+  ])('falls back to reservation when claim readiness is blocked by %s', (_label, colonyOptions, threatMemory) => {
+    const { colony } = makeColony(colonyOptions);
+    if (threatMemory) {
+      Memory.defense = { colonyThreats: threatMemory };
+    }
+    installGame(colony, {
+      gclLevel: 2,
+      exits: { W1N1: { '3': 'W2N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1')
+      }
+    });
+
+    const plan = refreshExpansionPlannerIntent(colony, 100);
+
+    expect(plan).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'reserve'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        createdBy: 'expansionPlanner',
+        controllerId: 'controller-W2N1'
+      }
+    ]);
+  });
+
+  it('uses Game.spawns as a claim-readiness fallback when the colony snapshot has no spawns', () => {
+    const { colony } = makeColony({ energyAvailable: 1_300, energyCapacityAvailable: 1_300, spawns: [] });
+    installGame(colony, {
+      gclLevel: 2,
+      exits: { W1N1: { '3': 'W2N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1')
+      }
+    });
+    ((globalThis as unknown as { Game: Partial<Game> }).Game as { spawns: Record<string, StructureSpawn> }).spawns = {
+      'spawn-W1N1': {
+        ...makeActiveSpawn('spawn-W1N1'),
+        room: colony.room
+      } as StructureSpawn
+    };
+
+    const plan = refreshExpansionPlannerIntent(colony, 100);
+
+    expect(plan).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
         createdBy: 'expansionPlanner',
         controllerId: 'controller-W2N1'
       }
@@ -804,7 +956,7 @@ describe('expansion planner', () => {
       colony: 'W1N1',
       targetRoom: 'W2N1',
       action: 'claim',
-      score: 1_900,
+      score: 3_400,
       controllerId
     });
     expect(territory.targets?.[0]).toMatchObject({
@@ -824,6 +976,281 @@ describe('expansion planner', () => {
         updatedAt: 121,
         createdBy: 'expansionPlanner',
         controllerId
+      }
+    ]);
+  });
+
+  it('keeps a higher-priority existing colony claim plan for the selected room', () => {
+    const controllerId = 'controller-W2N1' as Id<StructureController>;
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W0N1',
+          roomName: 'W2N1',
+          action: 'claim',
+          createdBy: 'expansionPlanner',
+          controllerId
+        }
+      ],
+      intents: [
+        {
+          colony: 'W0N1',
+          targetRoom: 'W2N1',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 100,
+          createdBy: 'expansionPlanner',
+          controllerId
+        }
+      ]
+    };
+    const { colony } = makeColony({ energyAvailable: 1_300, energyCapacityAvailable: 1_300 });
+    installGame(colony, {
+      gclLevel: 3,
+      exits: {
+        W0N1: { '3': 'W2N1' },
+        W1N1: {}
+      },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1')
+      }
+    });
+
+    const intent = createExpansionIntent(
+      evaluateExpansionCandidate({
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        distance: 2,
+        sourceCount: 2,
+        controllerId
+      }),
+      'claim',
+      122
+    );
+
+    const territory = Memory.territory as TerritoryMemory;
+    expect(intent).toMatchObject({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim'
+    });
+    expect(territory.targets).toEqual([
+      {
+        colony: 'W0N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId
+      },
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId
+      }
+    ]);
+    expect(territory.intents).toEqual([
+      {
+        colony: 'W0N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 100,
+        createdBy: 'expansionPlanner',
+        controllerId
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 122,
+        createdBy: 'expansionPlanner',
+        controllerId
+      }
+    ]);
+  });
+
+  it('disables older same-colony expansion planner claim plans when a new claim is selected', () => {
+    const oldControllerId = 'controller-W3N1' as Id<StructureController>;
+    const nextControllerId = 'controller-W2N1' as Id<StructureController>;
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W3N1',
+          action: 'claim',
+          createdBy: 'expansionPlanner',
+          controllerId: oldControllerId
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W3N1',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 100,
+          createdBy: 'expansionPlanner',
+          controllerId: oldControllerId
+        }
+      ]
+    };
+    const { colony } = makeColony({ energyAvailable: 1_300, energyCapacityAvailable: 1_300 });
+    installGame(colony, {
+      gclLevel: 3,
+      exits: { W1N1: { '3': 'W2N1', '5': 'W3N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 3 }),
+        W3N1: makeExpansionRoom('W3N1', { sourceCount: 2 })
+      }
+    });
+
+    const intent = createExpansionIntent(
+      evaluateExpansionCandidate({
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        distance: 1,
+        sourceCount: 3,
+        controllerId: nextControllerId
+      }),
+      'claim',
+      123
+    );
+
+    const territory = Memory.territory as TerritoryMemory;
+    expect(intent).toMatchObject({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim'
+    });
+    expect(territory.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId: oldControllerId,
+        enabled: false
+      },
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId: nextControllerId
+      }
+    ]);
+    expect(territory.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'inactive',
+        updatedAt: 123,
+        createdBy: 'expansionPlanner',
+        controllerId: oldControllerId
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 123,
+        createdBy: 'expansionPlanner',
+        controllerId: nextControllerId
+      }
+    ]);
+  });
+
+  it('keeps a higher-priority same-colony claim plan active when a weaker claim is selected', () => {
+    const oldControllerId = 'controller-W3N1' as Id<StructureController>;
+    const nextControllerId = 'controller-W2N1' as Id<StructureController>;
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W3N1',
+          action: 'claim',
+          createdBy: 'expansionPlanner',
+          controllerId: oldControllerId
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W3N1',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 100,
+          createdBy: 'expansionPlanner',
+          controllerId: oldControllerId
+        }
+      ]
+    };
+    const { colony } = makeColony({ energyAvailable: 1_300, energyCapacityAvailable: 1_300 });
+    installGame(colony, {
+      gclLevel: 3,
+      exits: { W1N1: { '3': 'W2N1', '5': 'W3N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 2 }),
+        W3N1: makeExpansionRoom('W3N1', { sourceCount: 3 })
+      }
+    });
+
+    const intent = createExpansionIntent(
+      evaluateExpansionCandidate({
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        distance: 1,
+        sourceCount: 2,
+        controllerId: nextControllerId
+      }),
+      'claim',
+      124
+    );
+
+    const territory = Memory.territory as TerritoryMemory;
+    expect(intent).toMatchObject({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim'
+    });
+    expect(territory.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId: oldControllerId
+      },
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId: nextControllerId
+      }
+    ]);
+    expect(territory.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 100,
+        createdBy: 'expansionPlanner',
+        controllerId: oldControllerId
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 124,
+        createdBy: 'expansionPlanner',
+        controllerId: nextControllerId
       }
     ]);
   });
@@ -1098,11 +1525,17 @@ describe('expansion planner', () => {
 function makeColony({
   energyAvailable = 650,
   energyCapacityAvailable = 650,
-  controllerLevel = 3
+  controllerLevel = 3,
+  hostileCreepCount = 0,
+  hostileStructureCount = 0,
+  spawns = [makeActiveSpawn('spawn-W1N1')]
 }: {
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   controllerLevel?: number;
+  hostileCreepCount?: number;
+  hostileStructureCount?: number;
+  spawns?: StructureSpawn[];
 } = {}): { colony: ColonySnapshot } {
   const room = {
     name: 'W1N1',
@@ -1119,6 +1552,14 @@ function makeColony({
       if (findType === FIND_SOURCES) {
         return [{ id: 'source-W1N1-0' }];
       }
+      if (findType === FIND_HOSTILE_CREEPS) {
+        return Array.from({ length: hostileCreepCount }, (_value, index) => ({ id: `home-hostile-${index}` }));
+      }
+      if (findType === FIND_HOSTILE_STRUCTURES) {
+        return Array.from({ length: hostileStructureCount }, (_value, index) => ({
+          id: `home-hostile-structure-${index}`
+        }));
+      }
 
       return [];
     })
@@ -1127,11 +1568,20 @@ function makeColony({
   return {
     colony: {
       room,
-      spawns: [],
+      spawns,
       energyAvailable,
       energyCapacityAvailable
     }
   };
+}
+
+function makeActiveSpawn(name: string): StructureSpawn {
+  return {
+    id: `${name}-id` as Id<StructureSpawn>,
+    name,
+    spawning: null,
+    isActive: jest.fn(() => true)
+  } as unknown as StructureSpawn;
 }
 
 function makeExpansionRoom(
