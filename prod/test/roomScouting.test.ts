@@ -1,6 +1,8 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   collectVisibleRoomScoutingSnapshot,
+  getNearbyRoomScoutingTargets,
+  refreshNearbyRoomScouting,
   refreshAdjacentRoomScouting
 } from '../src/territory/roomScouting';
 
@@ -110,6 +112,55 @@ describe('room scouting', () => {
         status: 'planned',
         updatedAt: 100
       }
+    ]);
+  });
+
+  it('discovers rooms within two exits and preserves distance metadata for scout requests', () => {
+    const colony = makeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 220,
+      rooms: {
+        W1N1: colony.room
+      },
+      map: {
+        describeExits: jest.fn((roomName: string) => {
+          switch (roomName) {
+            case 'W1N1':
+              return { '1': 'W1N2', '3': 'W2N1' };
+            case 'W1N2':
+              return { '1': 'W1N3', '3': 'W2N2', '5': 'W1N1' };
+            case 'W2N1':
+              return { '1': 'W2N2', '3': 'W3N1', '7': 'W1N1' };
+            default:
+              return {};
+          }
+        })
+      } as unknown as GameMap
+    };
+
+    expect(getNearbyRoomScoutingTargets('W1N1')).toEqual([
+      { roomName: 'W1N2', distance: 1 },
+      { roomName: 'W2N1', distance: 1 },
+      { roomName: 'W1N3', distance: 2 },
+      { roomName: 'W2N2', distance: 2 },
+      { roomName: 'W3N1', distance: 2 }
+    ]);
+
+    const result = refreshNearbyRoomScouting(colony, 220);
+
+    expect(result.records).toEqual([
+      { colony: 'W1N1', roomName: 'W1N2', status: 'requested', updatedAt: 220, distance: 1 },
+      { colony: 'W1N1', roomName: 'W2N1', status: 'requested', updatedAt: 220, distance: 1 },
+      { colony: 'W1N1', roomName: 'W1N3', status: 'requested', updatedAt: 220, distance: 2 },
+      { colony: 'W1N1', roomName: 'W2N2', status: 'requested', updatedAt: 220, distance: 2 },
+      { colony: 'W1N1', roomName: 'W3N1', status: 'requested', updatedAt: 220, distance: 2 }
+    ]);
+    expect(Memory.territory?.intents?.map((intent) => intent.targetRoom)).toEqual([
+      'W1N2',
+      'W2N1',
+      'W1N3',
+      'W2N2',
+      'W3N1'
     ]);
   });
 });
