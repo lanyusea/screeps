@@ -99,6 +99,7 @@ import {
   runTerritoryControllerCreep
 } from '../territory/territoryRunner';
 import { runTowerConstructionExecutorForColony } from '../territory/towerConstructionExecutor';
+import { runRampartWallConstructionExecutorForColony } from '../territory/rampartWallConstructionExecutor';
 import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgrader';
 import { refreshControllerManagement } from '../territory/controllerManager';
 import {
@@ -185,6 +186,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     );
     refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
     runTowerConstructionExecutorForColony(colony, { requireExpansionMemory: true });
+    runRampartWallConstructionExecutorForColony(colony, { requireExpansionMemory: true });
     planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
     if (survivalAssessment.mode === 'TERRITORY_READY') {
       refreshRemoteMiningSetup(colony, Game.time);

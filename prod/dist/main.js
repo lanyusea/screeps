@@ -8386,11 +8386,13 @@ var SOURCE_SCORE_WEIGHT = 1e3;
 var DISTANCE_SCORE_WEIGHT = 100;
 var EXPANSION_PLANNER_TARGET_CREATOR = "expansionPlanner";
 var EXPANSION_TOWER_DEFAULT_MAX_PLACEMENTS = 6;
+var EXPANSION_DEFENSE_BARRIER_DEFAULT_MAX_PLACEMENTS = 24;
 var EXPANSION_TOWER_ROOM_EDGE_MIN = 1;
 var EXPANSION_TOWER_ROOM_EDGE_MAX = 48;
 var EXPANSION_TOWER_CONTROLLER_WEIGHT = 6;
 var EXPANSION_TOWER_SOURCE_WEIGHT = 3;
 var EXPANSION_TOWER_ENTRANCE_WEIGHT = 1;
+var EXPANSION_DEFENSE_BARRIER_MAX_SECONDARY_RAMPARTS = 12;
 var DEFAULT_TERRAIN_WALL_MASK9 = 1;
 function evaluateExpansionRoomSuitability(room, colonyOwnerUsername) {
   var _a;
@@ -8688,6 +8690,25 @@ function planExpansionTowerPlacements(room, options = {}) {
   }
   return placements.sort(compareExpansionTowerPlacements).slice(0, getExpansionTowerMaxPlacements(options.maxPlacements));
 }
+function planExpansionDefenseBarrierPlacements(room, options = {}) {
+  if (!isNonEmptyString9(room.name)) {
+    return [];
+  }
+  const lookups = createExpansionDefenseBarrierPlacementLookups(room);
+  const entranceRampartTargets = getExpansionDefenseEntranceRampartTargets(room, lookups);
+  if (entranceRampartTargets.length === 0) {
+    return [];
+  }
+  const entranceRampartPlacements = entranceRampartTargets.filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position)).filter((position) => canPlaceExpansionDefenseRampart(lookups, position)).map((position) => createExpansionDefenseBarrierPlacement(room.name, position, "entranceRampart"));
+  if (entranceRampartPlacements.length > 0) {
+    return entranceRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+  }
+  const entranceWallPlacements = getExpansionDefenseEntranceWallTargets(entranceRampartTargets, lookups).filter((position) => !hasExpansionDefenseWallCoverage(lookups, position)).filter((position) => canPlaceExpansionDefenseWall(lookups, position)).map((position) => createExpansionDefenseBarrierPlacement(room.name, position, "entranceWall"));
+  if (entranceWallPlacements.length > 0) {
+    return entranceWallPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+  }
+  return getExpansionDefenseSecondaryRampartTargets(room, lookups).filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position)).filter((position) => canPlaceExpansionDefenseRampart(lookups, position)).map((position) => createExpansionDefenseBarrierPlacement(room.name, position, "secondaryRampart")).slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+}
 function createExpansionTowerPlacementLookups(room) {
   const blockedPositions = /* @__PURE__ */ new Set();
   for (const object of [
@@ -8930,6 +8951,237 @@ function getExpansionTowerMaxPlacements(maxPlacements) {
     return EXPANSION_TOWER_DEFAULT_MAX_PLACEMENTS;
   }
   return Math.max(1, Math.floor(maxPlacements));
+}
+function createExpansionDefenseBarrierPlacementLookups(room) {
+  const structuresByPosition = /* @__PURE__ */ new Map();
+  const constructionSitesByPosition = /* @__PURE__ */ new Map();
+  const reservedPositions = /* @__PURE__ */ new Set();
+  addExpansionDefenseReservedPosition(reservedPositions, room.controller, room.name);
+  for (const source of findRoomObjects12(room, getFindConstant4("FIND_SOURCES"))) {
+    addExpansionDefenseReservedPosition(reservedPositions, source, room.name);
+  }
+  for (const mineral of findRoomObjects12(room, getFindConstant4("FIND_MINERALS"))) {
+    addExpansionDefenseReservedPosition(reservedPositions, mineral, room.name);
+  }
+  for (const structure of findRoomObjects12(room, getFindConstant4("FIND_STRUCTURES"))) {
+    addExpansionDefenseObjectAtPosition(structuresByPosition, structure, room.name);
+  }
+  for (const site of findRoomObjects12(room, getFindConstant4("FIND_CONSTRUCTION_SITES"))) {
+    addExpansionDefenseObjectAtPosition(constructionSitesByPosition, site, room.name);
+  }
+  return {
+    terrain: getExpansionTowerRoomTerrain(room.name),
+    reservedPositions,
+    structuresByPosition,
+    constructionSitesByPosition
+  };
+}
+function getExpansionDefenseEntranceRampartTargets(room, lookups) {
+  return dedupeExpansionDefensePositions(
+    getExpansionTowerEntranceAnchors(room).map((position) => projectExpansionDefenseEntranceInsideRoom(position, room.name)).filter((position) => position !== null).filter((position) => isExpansionDefenseRampartTargetAllowed(lookups, position))
+  );
+}
+function projectExpansionDefenseEntranceInsideRoom(position, roomName) {
+  const side = getExpansionTowerExitSide(position);
+  switch (side) {
+    case "top":
+      return { x: clampExpansionDefenseBuildCoordinate(position.x), y: 1, roomName };
+    case "right":
+      return { x: 48, y: clampExpansionDefenseBuildCoordinate(position.y), roomName };
+    case "bottom":
+      return { x: clampExpansionDefenseBuildCoordinate(position.x), y: 48, roomName };
+    case "left":
+      return { x: 1, y: clampExpansionDefenseBuildCoordinate(position.y), roomName };
+    default:
+      return null;
+  }
+}
+function isExpansionDefenseRampartTargetAllowed(lookups, position) {
+  return isExpansionDefenseBuildablePosition(lookups, position) && !lookups.reservedPositions.has(getExpansionTowerPositionKey(position)) && !hasExpansionDefenseStructureTypeAt(lookups, position, "STRUCTURE_WALL", "constructedWall");
+}
+function getExpansionDefenseEntranceWallTargets(entranceRampartTargets, lookups) {
+  const positions = [];
+  for (const rampartPosition of entranceRampartTargets) {
+    if (!hasExpansionDefenseRampartCoverage(lookups, rampartPosition)) {
+      continue;
+    }
+    positions.push(...getExpansionDefenseAdjacentWallTargets(rampartPosition));
+  }
+  return dedupeExpansionDefensePositions(positions);
+}
+function getExpansionDefenseAdjacentWallTargets(position) {
+  const side = getExpansionDefenseInteriorSide(position);
+  if (side === "top" || side === "bottom") {
+    return [
+      { x: position.x - 1, y: position.y, roomName: position.roomName },
+      { x: position.x + 1, y: position.y, roomName: position.roomName }
+    ];
+  }
+  if (side === "left" || side === "right") {
+    return [
+      { x: position.x, y: position.y - 1, roomName: position.roomName },
+      { x: position.x, y: position.y + 1, roomName: position.roomName }
+    ];
+  }
+  return [];
+}
+function getExpansionDefenseSecondaryRampartTargets(room, lookups) {
+  const targets = [];
+  const structures = findRoomObjects12(room, getFindConstant4("FIND_STRUCTURES"));
+  for (const spawn of structures.filter((structure) => isExpansionDefenseStructureType(structure.structureType, "STRUCTURE_SPAWN", "spawn")).sort(compareExpansionTowerObjectIds)) {
+    const spawnPosition = getExpansionTowerObjectPosition(spawn);
+    if (!isExpansionTowerSameRoomPosition(spawnPosition, room.name)) {
+      continue;
+    }
+    targets.push(spawnPosition, ...getExpansionDefenseAdjacentPositions(spawnPosition, true));
+  }
+  const controllerPosition = getExpansionTowerObjectPosition(room.controller);
+  if (isExpansionTowerSameRoomPosition(controllerPosition, room.name)) {
+    targets.push(...getExpansionDefenseAdjacentPositions(controllerPosition, false));
+  }
+  return dedupeExpansionDefensePositions(targets).filter((position) => isExpansionDefenseRampartTargetAllowed(lookups, position)).slice(0, EXPANSION_DEFENSE_BARRIER_MAX_SECONDARY_RAMPARTS);
+}
+function getExpansionDefenseAdjacentPositions(center, includeCenter) {
+  const positions = includeCenter ? [{ ...center }] : [];
+  const offsets = [
+    { dx: 0, dy: -1 },
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 },
+    { dx: -1, dy: -1 },
+    { dx: 1, dy: -1 },
+    { dx: 1, dy: 1 },
+    { dx: -1, dy: 1 }
+  ];
+  for (const offset of offsets) {
+    positions.push({
+      x: center.x + offset.dx,
+      y: center.y + offset.dy,
+      roomName: center.roomName
+    });
+  }
+  return positions;
+}
+function canPlaceExpansionDefenseRampart(lookups, position) {
+  return isExpansionDefenseRampartTargetAllowed(lookups, position) && !hasExpansionDefenseConstructionAt(lookups, position);
+}
+function canPlaceExpansionDefenseWall(lookups, position) {
+  return isExpansionDefenseBuildablePosition(lookups, position) && !lookups.reservedPositions.has(getExpansionTowerPositionKey(position)) && !hasExpansionDefenseStructureAt(lookups, position) && !hasExpansionDefenseConstructionAt(lookups, position);
+}
+function isExpansionDefenseBuildablePosition(lookups, position) {
+  return position.x >= EXPANSION_TOWER_ROOM_EDGE_MIN && position.x <= EXPANSION_TOWER_ROOM_EDGE_MAX && position.y >= EXPANSION_TOWER_ROOM_EDGE_MIN && position.y <= EXPANSION_TOWER_ROOM_EDGE_MAX && !isExpansionTowerTerrainWall(lookups.terrain, position);
+}
+function hasExpansionDefenseRampartCoverage(lookups, position) {
+  return hasExpansionDefenseStructureTypeAt(lookups, position, "STRUCTURE_RAMPART", "rampart") || hasExpansionDefenseConstructionTypeAt(lookups, position, "STRUCTURE_RAMPART", "rampart");
+}
+function hasExpansionDefenseWallCoverage(lookups, position) {
+  return hasExpansionDefenseStructureTypeAt(lookups, position, "STRUCTURE_WALL", "constructedWall") || hasExpansionDefenseConstructionTypeAt(lookups, position, "STRUCTURE_WALL", "constructedWall");
+}
+function hasExpansionDefenseStructureAt(lookups, position) {
+  var _a;
+  return ((_a = lookups.structuresByPosition.get(getExpansionTowerPositionKey(position))) != null ? _a : []).length > 0;
+}
+function hasExpansionDefenseConstructionAt(lookups, position) {
+  var _a;
+  return ((_a = lookups.constructionSitesByPosition.get(getExpansionTowerPositionKey(position))) != null ? _a : []).length > 0;
+}
+function hasExpansionDefenseStructureTypeAt(lookups, position, globalName, fallback) {
+  var _a;
+  return ((_a = lookups.structuresByPosition.get(getExpansionTowerPositionKey(position))) != null ? _a : []).some(
+    (structure) => isExpansionDefenseStructureType(structure.structureType, globalName, fallback)
+  );
+}
+function hasExpansionDefenseConstructionTypeAt(lookups, position, globalName, fallback) {
+  var _a;
+  return ((_a = lookups.constructionSitesByPosition.get(getExpansionTowerPositionKey(position))) != null ? _a : []).some(
+    (site) => isExpansionDefenseStructureType(String(site.structureType), globalName, fallback)
+  );
+}
+function createExpansionDefenseBarrierPlacement(roomName, position, stage) {
+  const isWall = stage === "entranceWall";
+  return {
+    roomName,
+    x: position.x,
+    y: position.y,
+    structureType: getExpansionDefenseStructureConstant(
+      isWall ? "STRUCTURE_WALL" : "STRUCTURE_RAMPART",
+      isWall ? "constructedWall" : "rampart"
+    ),
+    stage,
+    priority: getExpansionDefenseBarrierStagePriority(stage)
+  };
+}
+function getExpansionDefenseBarrierStagePriority(stage) {
+  switch (stage) {
+    case "entranceRampart":
+      return 0;
+    case "entranceWall":
+      return 1;
+    case "secondaryRampart":
+      return 2;
+  }
+}
+function getExpansionDefenseInteriorSide(position) {
+  if (position.y <= EXPANSION_TOWER_ROOM_EDGE_MIN) {
+    return "top";
+  }
+  if (position.x >= EXPANSION_TOWER_ROOM_EDGE_MAX) {
+    return "right";
+  }
+  if (position.y >= EXPANSION_TOWER_ROOM_EDGE_MAX) {
+    return "bottom";
+  }
+  if (position.x <= EXPANSION_TOWER_ROOM_EDGE_MIN) {
+    return "left";
+  }
+  return null;
+}
+function addExpansionDefenseReservedPosition(reservedPositions, object, roomName) {
+  const position = getExpansionTowerObjectPosition(object);
+  if (isExpansionTowerSameRoomPosition(position, roomName)) {
+    reservedPositions.add(getExpansionTowerPositionKey(position));
+  }
+}
+function addExpansionDefenseObjectAtPosition(objectsByPosition, object, roomName) {
+  var _a;
+  const position = getExpansionTowerObjectPosition(object);
+  if (!isExpansionTowerSameRoomPosition(position, roomName)) {
+    return;
+  }
+  const key = getExpansionTowerPositionKey(position);
+  const objects = (_a = objectsByPosition.get(key)) != null ? _a : [];
+  objects.push(object);
+  objectsByPosition.set(key, objects);
+}
+function dedupeExpansionDefensePositions(positions) {
+  const seen = /* @__PURE__ */ new Set();
+  const deduped = [];
+  for (const position of positions) {
+    const key = getExpansionTowerPositionKey(position);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(position);
+  }
+  return deduped;
+}
+function clampExpansionDefenseBuildCoordinate(value) {
+  return Math.max(EXPANSION_TOWER_ROOM_EDGE_MIN, Math.min(EXPANSION_TOWER_ROOM_EDGE_MAX, value));
+}
+function getExpansionDefenseBarrierMaxPlacements(maxPlacements) {
+  if (typeof maxPlacements !== "number" || !Number.isFinite(maxPlacements)) {
+    return EXPANSION_DEFENSE_BARRIER_DEFAULT_MAX_PLACEMENTS;
+  }
+  return Math.max(1, Math.floor(maxPlacements));
+}
+function isExpansionDefenseStructureType(actual, globalName, fallback) {
+  return actual === getExpansionDefenseStructureConstant(globalName, fallback);
+}
+function getExpansionDefenseStructureConstant(globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return (_a = constants[globalName]) != null ? _a : fallback;
 }
 function compareExpansionTowerObjectIds(left, right) {
   return getExpansionTowerObjectId(left).localeCompare(getExpansionTowerObjectId(right));
@@ -30918,6 +31170,227 @@ function isRecord28(value) {
   return typeof value === "object" && value !== null;
 }
 
+// src/territory/rampartWallConstructionExecutor.ts
+var EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_RCL = 3;
+var EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_ENERGY = 1;
+var OK_CODE15 = 0;
+var ERR_FULL_CODE6 = -8;
+var ERR_RCL_NOT_ENOUGH_CODE3 = -14;
+var FALLBACK_EXTENSION_LIMITS_BY_RCL = [0, 0, 5, 10, 20, 30, 40, 50, 60];
+var FALLBACK_TOWER_LIMITS_BY_RCL2 = [0, 0, 0, 1, 1, 2, 2, 3, 6];
+function runRampartWallConstructionExecutorForColony(colony, options = {}) {
+  var _a, _b;
+  const room = colony.room;
+  if (options.requireExpansionMemory === true && !isExpansionControlledRoom2(room.name)) {
+    return { roomName: room.name, status: "skipped", reason: "notExpansionRoom" };
+  }
+  if (((_a = room.controller) == null ? void 0 : _a.my) !== true) {
+    return { roomName: room.name, status: "skipped", reason: "roomNotClaimed" };
+  }
+  if (!hasRampartWallConstructionExecutorApis(room)) {
+    return { roomName: room.name, status: "skipped", reason: "apiUnavailable" };
+  }
+  const rcl = getOwnedRoomRcl4(room);
+  if (rcl < EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_RCL) {
+    return { roomName: room.name, status: "skipped", reason: "controllerLevelLow" };
+  }
+  const minEnergyAvailable = resolveNonNegativeInteger4(
+    options.minEnergyAvailable,
+    EXPANSION_DEFENSE_BARRIER_CONSTRUCTION_MIN_ENERGY
+  );
+  if (getColonyEnergyAvailable2(colony) < minEnergyAvailable) {
+    return { roomName: room.name, status: "skipped", reason: "energyUnavailable" };
+  }
+  if (!isDefenseBarrierStageReady(colony, rcl)) {
+    return { roomName: room.name, status: "skipped", reason: "essentialStructuresPending" };
+  }
+  const placements = planExpansionDefenseBarrierPlacements(room, {
+    maxPlacements: options.maxPlacementCandidates
+  });
+  const stage = (_b = placements[0]) == null ? void 0 : _b.stage;
+  if (!stage) {
+    return { roomName: room.name, status: "skipped", reason: "noPlacement" };
+  }
+  for (const placement of placements) {
+    if (placement.stage !== stage) {
+      continue;
+    }
+    const result = room.createConstructionSite(placement.x, placement.y, placement.structureType);
+    if (result === OK_CODE15) {
+      return {
+        roomName: room.name,
+        status: "created",
+        result,
+        stage: placement.stage,
+        structureType: placement.structureType,
+        x: placement.x,
+        y: placement.y
+      };
+    }
+    if (isFatalConstructionSiteResult3(result)) {
+      return {
+        roomName: room.name,
+        status: "skipped",
+        reason: "noPlacement",
+        result,
+        stage: placement.stage,
+        structureType: placement.structureType,
+        x: placement.x,
+        y: placement.y
+      };
+    }
+  }
+  return { roomName: room.name, status: "skipped", reason: "noPlacement", stage };
+}
+function isDefenseBarrierStageReady(colony, rcl) {
+  const room = colony.room;
+  return hasSpawnCoverage2(colony) && hasExtensionCapacityPlaced(room, rcl) && hasSourceContainerCoverage3(room) && hasTowerCoverage(room, rcl);
+}
+function hasSpawnCoverage2(colony) {
+  return colony.spawns.some((spawn) => {
+    var _a;
+    return ((_a = spawn.room) == null ? void 0 : _a.name) === colony.room.name;
+  }) || countExistingAndPendingStructures2(colony.room, "STRUCTURE_SPAWN", "spawn") > 0;
+}
+function hasExtensionCapacityPlaced(room, rcl) {
+  const extensionLimit = getStructureLimitForRcl("STRUCTURE_EXTENSION", "extension", rcl, FALLBACK_EXTENSION_LIMITS_BY_RCL);
+  return countExistingAndPendingStructures2(room, "STRUCTURE_EXTENSION", "extension") >= extensionLimit;
+}
+function hasTowerCoverage(room, rcl) {
+  const towerLimit = getStructureLimitForRcl("STRUCTURE_TOWER", "tower", rcl, FALLBACK_TOWER_LIMITS_BY_RCL2);
+  return towerLimit <= 0 || countExistingAndPendingStructures2(room, "STRUCTURE_TOWER", "tower") >= Math.min(1, towerLimit);
+}
+function hasSourceContainerCoverage3(room) {
+  const sources = findRoomObjects20(room, "FIND_SOURCES").filter(
+    (source) => isSameRoomPosition7(getRoomObjectPosition5(source), room.name)
+  );
+  if (sources.length === 0) {
+    return true;
+  }
+  const containers = [
+    ...findRoomObjects20(room, "FIND_STRUCTURES"),
+    ...findRoomObjects20(room, "FIND_CONSTRUCTION_SITES")
+  ].filter(
+    (object) => matchesStructureType23(object.structureType, "STRUCTURE_CONTAINER", "container")
+  );
+  return sources.every(
+    (source) => containers.some((container) => isNearRoomObject5(source, container))
+  );
+}
+function countExistingAndPendingStructures2(room, globalName, fallback) {
+  return findRoomObjects20(room, "FIND_MY_STRUCTURES").filter(
+    (structure) => matchesStructureType23(structure.structureType, globalName, fallback)
+  ).length + findRoomObjects20(room, "FIND_MY_CONSTRUCTION_SITES").filter(
+    (site) => matchesStructureType23(String(site.structureType), globalName, fallback)
+  ).length;
+}
+function isExpansionControlledRoom2(roomName) {
+  var _a, _b, _c, _d;
+  const territoryMemory = (_a = globalThis.Memory) == null ? void 0 : _a.territory;
+  if (!territoryMemory) {
+    return false;
+  }
+  if (isRecord29((_b = territoryMemory.postClaimBootstraps) == null ? void 0 : _b[roomName])) {
+    return true;
+  }
+  const claimedRoomRecord = (_d = (_c = territoryMemory.claimedRoomBootstrapper) == null ? void 0 : _c.rooms) == null ? void 0 : _d[roomName];
+  if ((claimedRoomRecord == null ? void 0 : claimedRoomRecord.claimedAt) !== void 0) {
+    return true;
+  }
+  return hasExpansionControlReference2(territoryMemory.targets, roomName, "roomName") || hasExpansionControlReference2(territoryMemory.intents, roomName, "targetRoom");
+}
+function hasExpansionControlReference2(records, roomName, roomKey) {
+  return Array.isArray(records) ? records.some(
+    (record) => isRecord29(record) && record[roomKey] === roomName && (record.action === "claim" || record.action === "reserve")
+  ) : false;
+}
+function hasRampartWallConstructionExecutorApis(room) {
+  return typeof room.find === "function" && typeof room.createConstructionSite === "function";
+}
+function getOwnedRoomRcl4(room) {
+  var _a;
+  const level = (_a = room.controller) == null ? void 0 : _a.level;
+  return typeof level === "number" && Number.isFinite(level) ? Math.max(0, Math.floor(level)) : 0;
+}
+function getColonyEnergyAvailable2(colony) {
+  return Math.max(
+    0,
+    Math.floor(
+      Number.isFinite(colony.energyAvailable) ? colony.energyAvailable : typeof colony.room.energyAvailable === "number" ? colony.room.energyAvailable : 0
+    )
+  );
+}
+function getStructureLimitForRcl(globalName, fallback, rcl, fallbackLimits) {
+  var _a, _b;
+  const normalizedRcl = Math.max(0, Math.floor(rcl));
+  const structureType = getStructureConstant4(globalName, fallback);
+  const controllerStructures = globalThis.CONTROLLER_STRUCTURES;
+  const configuredLimit = (_a = controllerStructures == null ? void 0 : controllerStructures[structureType]) == null ? void 0 : _a[normalizedRcl];
+  if (typeof configuredLimit === "number" && Number.isFinite(configuredLimit)) {
+    return Math.max(0, Math.floor(configuredLimit));
+  }
+  return (_b = fallbackLimits[normalizedRcl]) != null ? _b : 0;
+}
+function findRoomObjects20(room, globalName) {
+  const findConstant = getGlobalNumber14(globalName);
+  if (findConstant === null || typeof room.find !== "function") {
+    return [];
+  }
+  try {
+    const result = room.find(findConstant);
+    return Array.isArray(result) ? result : [];
+  } catch {
+    return [];
+  }
+}
+function getRoomObjectPosition5(object) {
+  const position = object == null ? void 0 : object.pos;
+  if (typeof (position == null ? void 0 : position.x) !== "number" || typeof position.y !== "number" || !Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+    return null;
+  }
+  return {
+    x: position.x,
+    y: position.y,
+    ...typeof position.roomName === "string" ? { roomName: position.roomName } : {}
+  };
+}
+function isNearRoomObject5(left, right) {
+  const leftPosition = getRoomObjectPosition5(left);
+  const rightPosition = getRoomObjectPosition5(right);
+  if (!leftPosition || !rightPosition || !isSameRoomPosition7(leftPosition, rightPosition.roomName)) {
+    return false;
+  }
+  return Math.max(Math.abs(leftPosition.x - rightPosition.x), Math.abs(leftPosition.y - rightPosition.y)) <= 1;
+}
+function isSameRoomPosition7(position, roomName) {
+  return position !== null && (position.roomName === void 0 || roomName === void 0 || position.roomName === roomName);
+}
+function matchesStructureType23(actual, globalName, fallback) {
+  return actual === getStructureConstant4(globalName, fallback);
+}
+function getStructureConstant4(globalName, fallback) {
+  var _a;
+  const constants = globalThis;
+  return (_a = constants[globalName]) != null ? _a : fallback;
+}
+function getGlobalNumber14(name) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : null;
+}
+function getGlobalReturnCode3(name, fallback) {
+  const value = globalThis[name];
+  return typeof value === "number" ? value : fallback;
+}
+function isFatalConstructionSiteResult3(result) {
+  return result === getGlobalReturnCode3("ERR_FULL", ERR_FULL_CODE6) || result === getGlobalReturnCode3("ERR_RCL_NOT_ENOUGH", ERR_RCL_NOT_ENOUGH_CODE3);
+}
+function resolveNonNegativeInteger4(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+function isRecord29(value) {
+  return typeof value === "object" && value !== null;
+}
+
 // src/strategy/strategyRecommender.ts
 var DEFAULT_STRATEGY_RECOMMENDATION_CONFIDENCE_THRESHOLD = 0.7;
 var MAX_RECOMMENDATIONS = 5;
@@ -31046,11 +31519,11 @@ function buildStrategyRecommendationRoomState(colony, creeps) {
       return creep.memory.colony === room.name || ((_a2 = creep.room) == null ? void 0 : _a2.name) === room.name;
     }
   );
-  const hostileCreeps = findRoomObjects20(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects20(room, "FIND_HOSTILE_STRUCTURES");
-  const ownedStructures = findRoomObjects20(room, "FIND_MY_STRUCTURES");
-  const constructionSites = findRoomObjects20(room, "FIND_MY_CONSTRUCTION_SITES");
-  const sources = findRoomObjects20(room, "FIND_SOURCES");
+  const hostileCreeps = findRoomObjects21(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects21(room, "FIND_HOSTILE_STRUCTURES");
+  const ownedStructures = findRoomObjects21(room, "FIND_MY_STRUCTURES");
+  const constructionSites = findRoomObjects21(room, "FIND_MY_CONSTRUCTION_SITES");
+  const sources = findRoomObjects21(room, "FIND_SOURCES");
   return {
     roomName: room.name,
     controllerLevel: (_a = room.controller) == null ? void 0 : _a.level,
@@ -31141,7 +31614,7 @@ function buildMemoryTerritoryState(roomName) {
   const expansionCandidates = [];
   if (Array.isArray(targets)) {
     for (const target of targets) {
-      if (!isRecord29(target) || target.colony !== roomName || typeof target.roomName !== "string") {
+      if (!isRecord30(target) || target.colony !== roomName || typeof target.roomName !== "string") {
         continue;
       }
       const action = normalizeTerritoryAction(target.action);
@@ -31203,12 +31676,12 @@ function countVisibleOwnedRooms5() {
 }
 function countStructuresByType3(structures, globalName, fallback) {
   return structures.filter(
-    (structure) => isRecord29(structure) && matchesStructureType23(structure.structureType, globalName, fallback)
+    (structure) => isRecord30(structure) && matchesStructureType24(structure.structureType, globalName, fallback)
   ).length;
 }
 function estimateRepairBacklogHits(structures) {
   return structures.reduce((total, structure) => {
-    if (!isRecord29(structure)) {
+    if (!isRecord30(structure)) {
       return total;
     }
     const hits = finiteNumberOrNull(structure.hits);
@@ -31224,7 +31697,7 @@ function getStoredEnergy16(room) {
   return getEnergyInStore2(storage);
 }
 function getEnergyInStore2(object) {
-  if (!isRecord29(object) || !isRecord29(object.store)) {
+  if (!isRecord30(object) || !isRecord30(object.store)) {
     return 0;
   }
   const getUsedCapacity = object.store.getUsedCapacity;
@@ -31235,8 +31708,8 @@ function getEnergyInStore2(object) {
   }
   return finiteNumberOrZero(object.store[resourceEnergy]);
 }
-function findRoomObjects20(room, constantName) {
-  const findConstant = getGlobalNumber14(constantName);
+function findRoomObjects21(room, constantName) {
+  const findConstant = getGlobalNumber15(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
     return [];
@@ -31248,7 +31721,7 @@ function findRoomObjects20(room, constantName) {
     return [];
   }
 }
-function matchesStructureType23(value, globalName, fallback) {
+function matchesStructureType24(value, globalName, fallback) {
   const globalValue = globalThis[globalName];
   return value === globalValue || value === fallback;
 }
@@ -31256,7 +31729,7 @@ function getResourceEnergy() {
   const value = globalThis.RESOURCE_ENERGY;
   return value != null ? value : "energy";
 }
-function getGlobalNumber14(name) {
+function getGlobalNumber15(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
@@ -31276,13 +31749,13 @@ function finiteNumberOrZero(value) {
 function finiteNumberOrNull(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
-function isRecord29(value) {
+function isRecord30(value) {
   return typeof value === "object" && value !== null;
 }
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
-var OK_CODE15 = 0;
+var OK_CODE16 = 0;
 var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 var NEXT_EXPANSION_SCORING_REFRESH_INTERVAL = 50;
 var NEXT_EXPANSION_SCORING_DOWNGRADE_GUARD_TICKS = 5e3;
@@ -31321,6 +31794,7 @@ function runEconomy(preludeTelemetryEvents = []) {
     );
     refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
     runTowerConstructionExecutorForColony(colony, { requireExpansionMemory: true });
+    runRampartWallConstructionExecutorForColony(colony, { requireExpansionMemory: true });
     planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
     if (survivalAssessment.mode === "TERRITORY_READY") {
       refreshRemoteMiningSetup(colony, Game.time);
@@ -31362,7 +31836,7 @@ function runEconomy(preludeTelemetryEvents = []) {
         telemetryEvents,
         coordinatedPlan.spawns
       );
-      if (!outcome || outcome.result !== OK_CODE15) {
+      if (!outcome || outcome.result !== OK_CODE16) {
         break;
       }
       const spawnRoomName = (_b = (_a = outcome.spawn.room) == null ? void 0 : _a.name) != null ? _b : "unknown";
@@ -31492,7 +31966,7 @@ function attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom
     telemetryEvents,
     candidateSpawns
   );
-  if (!outcome || outcome.result !== OK_CODE15) {
+  if (!outcome || outcome.result !== OK_CODE16) {
     return;
   }
   recordUsedSpawn(usedSpawnsByRoom, sourceRoomName, outcome.spawn);
@@ -31524,7 +31998,7 @@ function attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSp
     }
     const bodyCost = getBodyCost(spawnRequest.body);
     const outcome = attemptSpawnRequest(spawnRequest, roomName, telemetryEvents, candidateSpawns);
-    if (!outcome || outcome.result !== OK_CODE15) {
+    if (!outcome || outcome.result !== OK_CODE16) {
       continue;
     }
     recordUsedSpawn(usedSpawnsByRoom, roomName, outcome.spawn);
@@ -31612,13 +32086,13 @@ function getCachedNextExpansionTargetSelection(colonyMemory, colonyName) {
   const refreshedAt = colonyMemory.lastExpansionScoreTime;
   const rawSelection = colonyMemory.cachedExpansionSelection;
   const selection = normalizeNextExpansionTargetSelection(rawSelection, colonyName);
-  if (!isFiniteNumber10(refreshedAt) || !isRecord30(rawSelection) || !isNonEmptyString28(rawSelection.stateKey) || !selection) {
+  if (!isFiniteNumber10(refreshedAt) || !isRecord31(rawSelection) || !isNonEmptyString28(rawSelection.stateKey) || !selection) {
     return null;
   }
   return { refreshedAt, stateKey: rawSelection.stateKey, selection };
 }
 function normalizeNextExpansionTargetSelection(rawSelection, colonyName) {
-  if (!isRecord30(rawSelection) || rawSelection.colony !== colonyName || rawSelection.status !== "planned" && rawSelection.status !== "skipped") {
+  if (!isRecord31(rawSelection) || rawSelection.colony !== colonyName || rawSelection.status !== "planned" && rawSelection.status !== "skipped") {
     return null;
   }
   if (rawSelection.status === "planned") {
@@ -31659,7 +32133,7 @@ function hasNextExpansionTarget(colony, targetRoom) {
   }
   const targets = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.targets;
   return Array.isArray(targets) ? targets.some(
-    (target) => isRecord30(target) && target.colony === colony && target.roomName === targetRoom && target.action === "claim" && target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
+    (target) => isRecord31(target) && target.colony === colony && target.roomName === targetRoom && target.action === "claim" && target.createdBy === NEXT_EXPANSION_TARGET_CREATOR
   ) : false;
 }
 function getNextExpansionSelectionCacheStateKey(colony) {
@@ -31697,28 +32171,28 @@ function getGclLevel6() {
 function countActivePostClaimBootstraps3() {
   var _a, _b;
   const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
-  if (!isRecord30(records)) {
+  if (!isRecord31(records)) {
     return 0;
   }
   return Object.values(records).filter(
-    (record) => isRecord30(record) && record.status !== "ready"
+    (record) => isRecord31(record) && record.status !== "ready"
   ).length;
 }
 function getLatestTerritoryScoutIntelUpdatedAt(colony) {
   var _a, _b;
   const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.scoutIntel;
-  if (!isRecord30(records)) {
+  if (!isRecord31(records)) {
     return 0;
   }
   let latestUpdatedAt = 0;
   for (const record of Object.values(records)) {
-    if (isRecord30(record) && record.colony === colony && isFiniteNumber10(record.updatedAt) && record.updatedAt > latestUpdatedAt) {
+    if (isRecord31(record) && record.colony === colony && isFiniteNumber10(record.updatedAt) && record.updatedAt > latestUpdatedAt) {
       latestUpdatedAt = record.updatedAt;
     }
   }
   return latestUpdatedAt;
 }
-function isRecord30(value) {
+function isRecord31(value) {
   return typeof value === "object" && value !== null;
 }
 function isNonEmptyString28(value) {
@@ -33052,10 +33526,10 @@ function getLatestFiniteScore(scores) {
   return void 0;
 }
 function normalizeHistoricalReplay(rawReplay) {
-  if (!isRecord31(rawReplay)) {
+  if (!isRecord32(rawReplay)) {
     return null;
   }
-  if (!isNonEmptyString29(rawReplay.replayId) || !isNonEmptyString29(rawReplay.room) || !isFiniteNumber11(rawReplay.startTick) || !isFiniteNumber11(rawReplay.endTick) || !isFiniteNumber11(rawReplay.finalScore) || !isRecord31(rawReplay.kpiHistory)) {
+  if (!isNonEmptyString29(rawReplay.replayId) || !isNonEmptyString29(rawReplay.room) || !isFiniteNumber11(rawReplay.startTick) || !isFiniteNumber11(rawReplay.endTick) || !isFiniteNumber11(rawReplay.finalScore) || !isRecord32(rawReplay.kpiHistory)) {
     return null;
   }
   const kpiHistory = Object.entries(rawReplay.kpiHistory).reduce(
@@ -33080,7 +33554,7 @@ function normalizeHistoricalReplay(rawReplay) {
 function formatCorrelation(correlation) {
   return correlation.toFixed(3);
 }
-function isRecord31(value) {
+function isRecord32(value) {
   return typeof value === "object" && value !== null;
 }
 function isNonEmptyString29(value) {
