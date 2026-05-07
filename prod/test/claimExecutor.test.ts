@@ -248,6 +248,12 @@ describe('autonomous expansion claim executor', () => {
       W1N1: makeColony().room,
       W2N1: targetRoom
     };
+    Object.defineProperty(Game, 'creeps', {
+      configurable: true,
+      get: () => {
+        throw new Error('claim success stage refresh should not scan Game.creeps');
+      }
+    });
     (Game as unknown as { getObjectById: jest.Mock }).getObjectById = jest.fn((id: Id<StructureController>) =>
       id === controllerId ? controller : null
     );
@@ -312,6 +318,185 @@ describe('autonomous expansion claim executor', () => {
       controllerId,
       workerTarget: 2
     });
+  });
+
+  it('clears legacy unscoped planner claim intents after claim success', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game as { time: number }).time = 2_230;
+    const targetRoom = makeTargetRoom('W2N1', { controllerId });
+    (targetRoom as Room & { memory?: RoomMemory }).memory = {};
+    const controller = targetRoom.controller as StructureController & { my: boolean; room: Room };
+    controller.room = targetRoom;
+    (Game.rooms as Record<string, Room>) = {
+      W1N1: makeColony().room,
+      W2N1: targetRoom
+    };
+    (Game as unknown as { getObjectById: jest.Mock }).getObjectById = jest.fn((id: Id<StructureController>) =>
+      id === controllerId ? controller : null
+    );
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 2_229,
+            controllerId
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 2_229,
+            createdBy: 'expansionPlanner',
+            controllerId
+          }
+        ]
+      }
+    };
+    const creep = makeRecommendedClaimCreep({
+      controllerId,
+      room: targetRoom
+    });
+    creep.claimController.mockImplementation(() => {
+      controller.my = true;
+      return 0 as ScreepsReturnCode;
+    });
+
+    expect(runRecommendedExpansionClaimExecutor(creep)).toBe(true);
+
+    expect(creep.claimController).toHaveBeenCalledWith(controller);
+    expect(Memory.territory?.intents).toEqual([]);
+  });
+
+  it('retries legacy unscoped planner claim intents without duplicating the planner intent', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game as { time: number }).time = 2_240;
+    const targetRoom = makeTargetRoom('W2N1', { controllerId });
+    (Game.rooms as Record<string, Room>) = {
+      W1N1: makeColony().room,
+      W2N1: targetRoom
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 2_239,
+            controllerId
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 2_239,
+            createdBy: 'expansionPlanner',
+            controllerId
+          }
+        ]
+      }
+    };
+    const creep = makeRecommendedClaimCreep({
+      controllerId,
+      room: targetRoom
+    }) as MockClaimCreep & { getActiveBodyparts: jest.Mock };
+    creep.getActiveBodyparts = jest.fn().mockReturnValue(0);
+
+    expect(runRecommendedExpansionClaimExecutor(creep)).toBe(true);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 2_240,
+        lastAttemptAt: 2_240,
+        controllerId
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 2_240,
+        createdBy: 'expansionPlanner',
+        lastAttemptAt: 2_240,
+        controllerId
+      }
+    ]);
+  });
+
+  it('suppresses legacy unscoped planner claim intents without duplicating the planner intent', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game as { time: number }).time = 2_250;
+    const targetRoom = makeTargetRoom('W2N1', { controllerId });
+    (Game.rooms as Record<string, Room>) = {
+      W1N1: makeColony().room,
+      W2N1: targetRoom
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 2_249,
+            controllerId
+          },
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 2_249,
+            createdBy: 'expansionPlanner',
+            controllerId
+          }
+        ]
+      }
+    };
+    const creep = makeRecommendedClaimCreep({
+      controllerId,
+      room: targetRoom
+    });
+    creep.claimController.mockReturnValue(-15 as ScreepsReturnCode);
+
+    expect(runRecommendedExpansionClaimExecutor(creep)).toBe(true);
+
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 2_250,
+        lastAttemptAt: 2_250,
+        controllerId
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'suppressed',
+        updatedAt: 2_250,
+        createdBy: 'expansionPlanner',
+        lastAttemptAt: 2_250,
+        controllerId
+      }
+    ]);
   });
 
   it('uses claimed-room resource synergy when ranking autonomous expansion claims', () => {

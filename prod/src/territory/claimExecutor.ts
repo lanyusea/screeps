@@ -1159,9 +1159,7 @@ function getRecommendedExpansionClaimExecutionGate(
     return null;
   }
 
-  const targetSource = getRecommendedClaimTargetSource(territoryMemory, colony, assignment.targetRoom);
-  const expansionPlannerRecommendation = getMatchingExpansionPlannerClaimRecommendation(colony, assignment);
-  const source = targetSource ?? expansionPlannerRecommendation?.createdBy;
+  const source = getRecommendedClaimExecutionSource(territoryMemory, colony, assignment);
   const allowUnscopedIntent = source !== undefined;
   const intent =
     normalizeTerritoryIntents(territoryMemory.intents).find((candidate) =>
@@ -1455,10 +1453,8 @@ function updateRecommendedClaimIntentForRetry(
 
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
-  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
-  const fallbackSource =
-    getRecommendedClaimTargetSource(territoryMemory, colony, assignment.targetRoom) ??
-    getMatchingExpansionPlannerClaimRecommendation(colony, assignment)?.createdBy;
+  const fallbackSource = getRecommendedClaimExecutionSource(territoryMemory, colony, assignment);
+  const allowUnscopedIntent = fallbackSource !== undefined;
   let matchedIntent = false;
   for (let i = 0; i < intents.length; i += 1) {
     const intent = intents[i];
@@ -1481,7 +1477,11 @@ function updateRecommendedClaimIntentForRetry(
     };
   }
 
-  if (!matchedIntent && fallbackSource) {
+  if (
+    !matchedIntent &&
+    fallbackSource &&
+    !hasIdenticalClaimIntentSource(intents, colony, assignment.targetRoom, fallbackSource)
+  ) {
     intents.push({
       colony,
       targetRoom: assignment.targetRoom,
@@ -1512,10 +1512,8 @@ function suppressRecommendedClaimIntent(
 
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
-  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
-  const fallbackSource =
-    getRecommendedClaimTargetSource(territoryMemory, colony, assignment.targetRoom) ??
-    getMatchingExpansionPlannerClaimRecommendation(colony, assignment)?.createdBy;
+  const fallbackSource = getRecommendedClaimExecutionSource(territoryMemory, colony, assignment);
+  const allowUnscopedIntent = fallbackSource !== undefined;
   let matchedIntent = false;
   for (let i = 0; i < intents.length; i += 1) {
     const intent = intents[i];
@@ -1538,7 +1536,11 @@ function suppressRecommendedClaimIntent(
     };
   }
 
-  if (!matchedIntent && fallbackSource) {
+  if (
+    !matchedIntent &&
+    fallbackSource &&
+    !hasIdenticalClaimIntentSource(intents, colony, assignment.targetRoom, fallbackSource)
+  ) {
     intents.push({
       colony,
       targetRoom: assignment.targetRoom,
@@ -1565,7 +1567,12 @@ function completeRecommendedClaimIntent(
     return;
   }
 
-  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, targetRoom);
+  const source = getRecommendedClaimExecutionSource(territoryMemory, colony, {
+    targetRoom,
+    action: 'claim',
+    controllerId
+  });
+  const allowUnscopedIntent = source !== undefined;
   territoryMemory.intents = normalizeTerritoryIntents(territoryMemory.intents).filter(
     (intent) => !isMatchingRecommendedClaimIntent(intent, colony, targetRoom, controllerId, allowUnscopedIntent)
   );
@@ -1594,10 +1601,6 @@ function isMatchingRecommendedClaimIntent(
   );
 }
 
-function hasRecommendedClaimTarget(territoryMemory: TerritoryMemory, colony: string, targetRoom: string): boolean {
-  return getRecommendedClaimTargetSource(territoryMemory, colony, targetRoom) !== undefined;
-}
-
 function getRecommendedClaimTargetSource(
   territoryMemory: TerritoryMemory,
   colony: string,
@@ -1607,6 +1610,32 @@ function getRecommendedClaimTargetSource(
     ? territoryMemory.targets.find((target) => isMatchingRecommendedClaimTarget(target, colony, targetRoom))
         ?.createdBy
     : undefined;
+}
+
+function getRecommendedClaimExecutionSource(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  assignment: CreepTerritoryMemory
+): TerritoryAutomationSource | undefined {
+  return (
+    getRecommendedClaimTargetSource(territoryMemory, colony, assignment.targetRoom) ??
+    getMatchingExpansionPlannerClaimRecommendation(colony, assignment)?.createdBy
+  );
+}
+
+function hasIdenticalClaimIntentSource(
+  intents: TerritoryIntentMemory[],
+  colony: string,
+  targetRoom: string,
+  createdBy: TerritoryAutomationSource
+): boolean {
+  return intents.some(
+    (intent) =>
+      intent.colony === colony &&
+      intent.targetRoom === targetRoom &&
+      intent.action === 'claim' &&
+      intent.createdBy === createdBy
+  );
 }
 
 function isMatchingRecommendedClaimTarget(target: unknown, colony: string, targetRoom: string): boolean {

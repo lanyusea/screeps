@@ -270,7 +270,7 @@ export function recordClaimedRoomBootstrapStage(
     return null;
   }
 
-  const roleCounts = countVisibleColonyRoles(roomName);
+  const roleCounts = countVisibleColonyRoles(room, roomName);
   const workerCapacity = getWorkerCapacity(roleCounts);
   const assessment = assessColonyStage({
     roomName,
@@ -582,14 +582,9 @@ function getRoomEnergyCapacityAvailable(room: Room): number {
   return typeof energyCapacityAvailable === 'number' ? energyCapacityAvailable : 0;
 }
 
-function countVisibleColonyRoles(roomName: string): RoleCounts {
-  const creeps = (globalThis as { Game?: Partial<Game> }).Game?.creeps;
-  if (!creeps) {
-    return { worker: 0 };
-  }
-
+function countVisibleColonyRoles(room: Room, roomName: string): RoleCounts {
   const roleCounts: RoleCounts = { worker: 0 };
-  for (const creep of Object.values(creeps)) {
+  for (const creep of findVisibleColonyCreeps(room, roomName)) {
     if (creep?.memory?.colony !== roomName) {
       continue;
     }
@@ -609,6 +604,19 @@ function countVisibleColonyRoles(roomName: string): RoleCounts {
   }
 
   return roleCounts;
+}
+
+function findVisibleColonyCreeps(room: Room, roomName: string): Creep[] {
+  if (typeof room.find !== 'function') {
+    return [];
+  }
+
+  const findConstant = getGlobalNumber('FIND_MY_CREEPS');
+  if (findConstant === undefined) {
+    return [];
+  }
+
+  return (room.find(findConstant as FindConstant) as Creep[]).filter((creep) => creep.memory?.colony === roomName);
 }
 
 function isColonyStage(value: unknown): value is ColonyStage {
