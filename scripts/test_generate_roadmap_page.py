@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -65,6 +67,85 @@ def write_codex_session(path: Path, records: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
 
 
+def utc_text(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def insert_metric_point(
+    conn: sqlite3.Connection,
+    *,
+    sampled_at: str,
+    metric: str = "owned_rooms",
+    value: int | float | None = 1,
+    status: str = "observed",
+    instrumented: bool = True,
+    observed: bool = True,
+) -> None:
+    spec = next(item for item in roadmap.METRIC_SPECS if item.key == metric)
+    conn.execute(
+        """
+        INSERT INTO metric_points
+        (captured_at, metric, category, label, value, unit, layer, instrumented, observed, status, source, details_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            sampled_at,
+            spec.key,
+            spec.category,
+            spec.label,
+            value,
+            spec.unit,
+            spec.layer,
+            int(instrumented),
+            int(observed),
+            status,
+            spec.source,
+            "{}",
+        ),
+    )
+
+
+def metric_history_point(sampled_at: str, value: int | float = 1) -> dict[str, Any]:
+    return {
+        "sampledAt": sampled_at,
+        "value": value,
+        "instrumented": True,
+        "observed": True,
+        "status": "observed",
+    }
+
+
+def runtime_summary_line(*, tick: int, level: int = 3, stored_energy: int = 0, hostile_creeps: int = 0) -> str:
+    payload = {
+        "type": "runtime-summary",
+        "tick": tick,
+        "source": "test",
+        "rooms": [
+            {
+                "roomName": "E26S49",
+                "shard": "shardX",
+                "controller": {
+                    "level": level,
+                    "progress": tick,
+                    "progressTotal": 100000,
+                    "ticksToDowngrade": 10000,
+                },
+                "resources": {
+                    "storedEnergy": stored_energy,
+                    "workerCarriedEnergy": 10,
+                    "droppedEnergy": 0,
+                    "sourceCount": 2,
+                },
+                "combat": {
+                    "hostileCreepCount": hostile_creeps,
+                    "hostileStructureCount": 0,
+                },
+            }
+        ],
+    }
+    return f"#runtime-summary {json.dumps(payload, sort_keys=True)}\n"
+
+
 def token_count_record(timestamp: str, total_tokens: int) -> dict[str, Any]:
     return {
         "timestamp": timestamp,
@@ -93,6 +174,119 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(target["shard"], "shardX")
         self.assertEqual(target["room"], "E26S49")
         self.assertEqual(target["url"], "https://screeps.com/a/#!/room/shardX/E26S49")
+
+    def test_load_metric_history_keeps_latest_seven_cst_days_for_hourly_samples(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.execute("PRAGMA foreign_keys=ON")
+        roadmap.ensure_schema(conn)
+        roadmap.write_metric_definitions(conn)
+        start = datetime(2026, 4, 29, 0, 0, tzinfo=timezone.utc)
+        for hour in range(8 * 24):
+            sampled_at = utc_text(start + timedelta(hours=hour))
+            insert_metric_point(conn, sampled_at=sampled_at, value=hour)
+        conn.commit()
+
+        history = roadmap.load_metric_history(conn)
+        points = history["owned_rooms"]
+        buckets = roadmap.report_kpi_date_buckets(history, "2026-05-06T23:30:00Z")
+        values, statuses = roadmap.metric_history_values(history, "owned_rooms", buckets)
+
+        self.assertGreater(len(points), 24)
+        self.assertEqual([roadmap.format_report_date(bucket) for bucket in buckets], ["5/1", "5/2", "5/3", "5/4", "5/5", "5/6", "5/7"])
+        self.assertEqual(statuses, ["observed"] * 7)
+        self.assertEqual(len([value for value in values if value is not None]), 7)
+
+    def test_report_kpi_missing_middle_days_stay_blank_and_collecting(self) -> None:
+        history = {
+            "owned_rooms": [
+                metric_history_point("2026-05-01T12:00:00Z", 1),
+                metric_history_point("2026-05-05T12:00:00Z", 2),
+            ],
+            "controller_level_sum": [
+                metric_history_point("2026-05-01T12:00:00Z", 2),
+                metric_history_point("2026-05-05T12:00:00Z", 3),
+            ],
+        }
+
+        cards = roadmap.build_report_kpi_cards(history, "2026-05-05T15:00:00Z")
+        territory = next(card for card in cards if card["key"] == "territory")
+        owned_rooms = next(series for series in territory["series"] if series["label"] == "Owned rooms")
+
+        self.assertEqual(territory["dates"], ["4/29", "4/30", "5/1", "5/2", "5/3", "5/4", "5/5"])
+        self.assertEqual(owned_rooms["values"], [None, None, 1, None, None, None, 2])
+        self.assertEqual(owned_rooms["statuses"], ["missing", "missing", "observed", "missing", "missing", "missing", "observed"])
+        self.assertEqual(territory["history"]["status"], "collecting")
+        self.assertEqual(territory["history"]["observedDays"], 2)
+        self.assertTrue(territory["history"]["insufficient"])
+        self.assertIn("History collecting (2/7 days observed; insufficient for a complete 7d trend)", territory["footer"])
+
+    def test_lfs_pointer_history_db_reports_cold_start_collecting_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "docs" / "roadmap-kpi.sqlite"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            db_path.write_text(
+                "\n".join(
+                    [
+                        "version https://git-lfs.github.com/spec/v1",
+                        "oid sha256:" + ("a" * 64),
+                        "size 69632",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            conn, db_status = roadmap.prepare_history_db(db_path)
+            try:
+                roadmap.write_metric_definitions(conn)
+                insert_metric_point(conn, sampled_at="2026-05-05T12:00:00Z", value=1)
+                conn.commit()
+                history = roadmap.load_metric_history(conn)
+            finally:
+                conn.close()
+
+        source = roadmap.summarize_kpi_history_source(db_status, {"status": "unavailable", "dailyBucketDays": 0})
+        cards = roadmap.build_report_kpi_cards(history, "2026-05-05T15:00:00Z", source)
+        territory = next(card for card in cards if card["key"] == "territory")
+
+        self.assertEqual(db_status["status"], "cold-start-lfs-pointer")
+        self.assertTrue(db_status["coldStart"])
+        self.assertEqual(territory["history"]["status"], "collecting")
+        self.assertTrue(territory["history"]["insufficient"])
+        self.assertIn("SQLite history is cold-started", territory["footer"])
+
+    def test_runtime_artifact_history_derives_daily_buckets_outside_sqlite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            artifact_dir = repo_root / "runtime-artifacts" / "runtime-summary-console"
+            artifact_dir.mkdir(parents=True)
+            for day_offset in range(7):
+                timestamp = datetime(2026, 5, 1 + day_offset, 12, 0, tzinfo=timezone.utc)
+                path = artifact_dir / f"runtime-summary-monitor-{timestamp.strftime('%Y%m%dT%H%M%SZ')}.log"
+                path.write_text(
+                    runtime_summary_line(tick=1000 + day_offset, level=2 + day_offset, stored_energy=day_offset * 10),
+                    encoding="utf-8",
+                )
+
+            artifact_history, artifact_status = roadmap.load_runtime_artifact_metric_history(
+                repo_root,
+                "2026-05-07T15:00:00Z",
+                {},
+                paths=[str(repo_root / "runtime-artifacts")],
+            )
+
+        cards = roadmap.build_report_kpi_cards(
+            artifact_history,
+            "2026-05-07T15:00:00Z",
+            roadmap.summarize_kpi_history_source({"status": "created"}, artifact_status),
+        )
+        territory = next(card for card in cards if card["key"] == "territory")
+        owned_rooms = next(series for series in territory["series"] if series["label"] == "Owned rooms")
+
+        self.assertEqual(artifact_status["dailyBucketDays"], 7)
+        self.assertEqual(owned_rooms["values"], [1, 1, 1, 1, 1, 1, 1])
+        self.assertEqual(territory["history"]["status"], "complete")
+        self.assertIn("reducer-backed KPI history", territory["footer"])
 
     def test_counts_only_successful_official_deploy_evidence_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
