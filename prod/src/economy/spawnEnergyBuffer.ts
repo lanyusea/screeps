@@ -1,3 +1,5 @@
+import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
+
 export const MINIMUM_SPAWN_ENERGY_BUFFER_PER_SPAWN = 300;
 
 export const SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = {
@@ -18,8 +20,10 @@ export interface SpawnEnergyBufferSnapshot {
   healthy: boolean;
   roomName: string;
   spawnCount: number;
+  reservedEnergy: number;
   threshold: number;
   thresholdPerSpawn: number;
+  unmetReservedEnergy: number;
 }
 
 export interface RefreshSpawnEnergyBufferOptions {
@@ -75,14 +79,17 @@ export function getSpawnEnergyBufferSnapshot(
   const spawnCount = getSpawnBufferCount(spawns);
   const threshold = thresholdPerSpawn * spawnCount;
   const normalizedEnergy = normalizeEnergyAmount(currentEnergy);
+  const reservation = getRoomSpawnEnergyReservationState(room);
 
   return {
     currentEnergy: normalizedEnergy,
     healthy: normalizedEnergy >= threshold,
     roomName: getRoomName(room),
     spawnCount,
+    reservedEnergy: reservation.reservedEnergy,
     threshold,
-    thresholdPerSpawn
+    thresholdPerSpawn,
+    unmetReservedEnergy: reservation.unmetReservedEnergy
   };
 }
 

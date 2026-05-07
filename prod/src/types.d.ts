@@ -185,6 +185,26 @@ declare global {
     storageBalance?: EconomyStorageBalanceMemory;
     energySurplus?: EconomyEnergySurplusMemory;
     spawnEnergyBuffer?: EconomySpawnEnergyBufferMemory;
+    spawnEnergyReservation?: EconomySpawnEnergyReservationMemory;
+  }
+
+  interface EconomySpawnEnergyReservationMemory {
+    updatedAt: number;
+    rooms: Record<string, EconomySpawnEnergyReservationRoomMemory>;
+  }
+
+  interface EconomySpawnEnergyReservationRoomMemory {
+    bodyCost: number;
+    creepName: string;
+    idleSince?: number;
+    idleTicks?: number;
+    reservedAt: number;
+    reservedEnergy: number;
+    role: string;
+    roomName: string;
+    sourceCreepName?: string;
+    sourceRole?: string;
+    updatedAt: number;
   }
 
   interface EconomySpawnEnergyBufferMemory {
@@ -197,11 +217,13 @@ declare global {
     healthy: boolean;
     minimumEnergyPerSpawn?: number;
     rcl: number;
+    reservedEnergy?: number;
     roomName: string;
     spawnCount: number;
     spawns: Record<string, EconomySpawnEnergyBufferSpawnMemory>;
     threshold: number;
     thresholdPerSpawn: number;
+    unmetReservedEnergy?: number;
     updatedAt: number;
   }
 
@@ -229,6 +251,8 @@ declare global {
     ratio: number;
     exportableEnergy: number;
     importDemand: number;
+    reservedSpawnEnergy?: number;
+    unmetSpawnEnergyReservation?: number;
     storageEnergy?: number;
     storageCapacity?: number;
     storageFreeCapacity?: number;
@@ -258,6 +282,8 @@ declare global {
     surplus: boolean;
     spawnExtensionsFull: boolean;
     containersFull: boolean;
+    reservedSpawnEnergy?: number;
+    unmetSpawnEnergyReservation?: number;
     spawnExtensionFreeCapacity: number;
     containerFreeCapacity: number;
     durableFreeCapacity: number;

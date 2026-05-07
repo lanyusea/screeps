@@ -1,3 +1,5 @@
+import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
+
 export const TERMINAL_ENERGY_TARGET = 50_000;
 export const TERMINAL_SURPLUS_ROUTING_STORAGE_FLOOR = 5_000;
 
@@ -14,6 +16,8 @@ export interface RoomEnergySurplusState {
   surplus: boolean;
   spawnExtensionsFull: boolean;
   containersFull: boolean;
+  reservedSpawnEnergy: number;
+  unmetSpawnEnergyReservation: number;
   spawnExtensionFreeCapacity: number;
   containerFreeCapacity: number;
   durableFreeCapacity: number;
@@ -49,11 +53,13 @@ export function getRoomEnergySurplusState(room: Room): RoomEnergySurplusState {
   const terminalEnergyDeficit = Math.max(0, terminalTargetEnergy - terminalEnergy);
   const terminalEnergySurplus = Math.max(0, terminalEnergy - terminalTargetEnergy);
   const durableFreeCapacity = storageFreeCapacity + terminalFreeCapacity;
+  const spawnEnergyReservation = getRoomSpawnEnergyReservationState(room);
   const surplus =
     spawnExtensionState.full &&
     containerState.full &&
     durableFreeCapacity > 0 &&
-    room.controller?.my === true;
+    room.controller?.my === true &&
+    spawnEnergyReservation.unmetReservedEnergy <= 0;
   const selectedSink = surplus ? selectEnergySurplusSinkFromStores(storage, terminal, 1) : null;
 
   return {
@@ -61,6 +67,8 @@ export function getRoomEnergySurplusState(room: Room): RoomEnergySurplusState {
     surplus,
     spawnExtensionsFull: spawnExtensionState.full,
     containersFull: containerState.full,
+    reservedSpawnEnergy: spawnEnergyReservation.reservedEnergy,
+    unmetSpawnEnergyReservation: spawnEnergyReservation.unmetReservedEnergy,
     spawnExtensionFreeCapacity: spawnExtensionState.freeCapacity,
     containerFreeCapacity: containerState.freeCapacity,
     durableFreeCapacity,

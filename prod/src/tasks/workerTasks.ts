@@ -38,6 +38,7 @@ import {
   getSpawnEnergyAvailableForWithdrawal,
   isSpawnEnergySource
 } from '../economy/spawnEnergyBuffer';
+import { getUnmetSpawnEnergyReservation } from '../economy/spawnEnergyReservation';
 import { CROSS_ROOM_HAULER_ROLE, isLiveTransferCandidate } from '../economy/crossRoomHauler';
 import { selectEnergySurplusDeliverySink } from '../economy/energySurplus';
 import { getStorageBalanceState } from '../economy/storageBalancer';
@@ -936,7 +937,8 @@ function estimateNearTermSpawnExtensionRefillReserveFromStructures(
 
   return Math.max(
     immediateRefillReserve,
-    estimateNearTermSpawnCompletionRefillReserve(room, spawnExtensionEnergyStructures)
+    estimateNearTermSpawnCompletionRefillReserve(room, spawnExtensionEnergyStructures),
+    getUnmetSpawnEnergyReservation(room)
   );
 }
 

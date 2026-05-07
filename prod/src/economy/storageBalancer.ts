@@ -1,4 +1,5 @@
 import { getTerminalEnergyTarget } from './energySurplus';
+import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
 
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
 export const STORAGE_BALANCE_IMPORT_RATIO = 0.3;
@@ -20,6 +21,8 @@ export interface RoomStoredEnergyState {
   terminalTargetEnergy: number;
   terminalEnergyDeficit: number;
   terminalEnergySurplus: number;
+  reservedSpawnEnergy: number;
+  unmetSpawnEnergyReservation: number;
   mode: EconomyStorageBalanceMode;
 }
 
@@ -72,10 +75,12 @@ export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
   const energy = stores.reduce((total, structure) => total + getStoredEnergy(structure), 0);
   const capacity = stores.reduce((total, structure) => total + getEnergyCapacity(structure), 0);
   const ratio = capacity > 0 ? energy / capacity : 0;
-  const exportableEnergy =
+  const spawnEnergyReservation = getRoomSpawnEnergyReservationState(room);
+  const rawExportableEnergy =
     capacity > 0 && ratio > STORAGE_BALANCE_EXPORT_RATIO
       ? Math.floor(energy - capacity * STORAGE_BALANCE_EXPORT_RATIO)
       : 0;
+  const exportableEnergy = Math.max(0, rawExportableEnergy - spawnEnergyReservation.unmetReservedEnergy);
   const importDemand =
     capacity > 0 && ratio < STORAGE_BALANCE_IMPORT_RATIO
       ? Math.ceil(capacity * STORAGE_BALANCE_IMPORT_RATIO - energy)
@@ -97,6 +102,8 @@ export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
     terminalTargetEnergy,
     terminalEnergyDeficit,
     terminalEnergySurplus,
+    reservedSpawnEnergy: spawnEnergyReservation.reservedEnergy,
+    unmetSpawnEnergyReservation: spawnEnergyReservation.unmetReservedEnergy,
     mode: selectStorageBalanceMode(capacity, ratio)
   };
 }
@@ -128,6 +135,8 @@ function buildStorageBalanceState(gameTime: number): EconomyStorageBalanceMemory
           terminalTargetEnergy: state.terminalTargetEnergy,
           terminalEnergyDeficit: state.terminalEnergyDeficit,
           terminalEnergySurplus: state.terminalEnergySurplus,
+          reservedSpawnEnergy: state.reservedSpawnEnergy,
+          unmetSpawnEnergyReservation: state.unmetSpawnEnergyReservation,
           updatedAt: gameTime
         }
       ])
