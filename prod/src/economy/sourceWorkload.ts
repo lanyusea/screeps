@@ -3,6 +3,7 @@ import {
   getRoomObjectPosition,
   isSameRoomPosition
 } from './sourceContainers';
+import { SOURCE_HARVESTER_ROLE } from '../creeps/sourceHarvester';
 
 const HARVEST_ENERGY_PER_WORK_PART = 2;
 const DEFAULT_SOURCE_ENERGY_CAPACITY = 3_000;
@@ -104,18 +105,26 @@ function getSourceAssignmentLoads(
   for (const creep of creeps) {
     const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
     const targetId = typeof task?.targetId === 'string' ? task.targetId : undefined;
-    if (
-      creep.memory?.role !== 'worker' ||
-      creep.room?.name !== roomName ||
-      task?.type !== 'harvest' ||
-      !targetId ||
-      !sourceIds.has(targetId)
-    ) {
+    const sourceHarvesterTargetId =
+      creep.memory?.role === SOURCE_HARVESTER_ROLE &&
+      creep.memory.sourceHarvester?.roomName === roomName &&
+      typeof creep.memory.sourceHarvester.sourceId === 'string'
+        ? creep.memory.sourceHarvester.sourceId
+        : undefined;
+    const assignedSourceId =
+      creep.memory?.role === 'worker' &&
+      creep.room?.name === roomName &&
+      task?.type === 'harvest' &&
+      targetId &&
+      sourceIds.has(targetId)
+        ? targetId
+        : sourceHarvesterTargetId;
+    if (!assignedSourceId || !sourceIds.has(assignedSourceId)) {
       continue;
     }
 
-    const currentLoad = assignmentLoads.get(targetId) ?? createEmptySourceAssignmentLoad();
-    assignmentLoads.set(targetId, {
+    const currentLoad = assignmentLoads.get(assignedSourceId) ?? createEmptySourceAssignmentLoad();
+    assignmentLoads.set(assignedSourceId, {
       assignedHarvesters: currentLoad.assignedHarvesters + 1,
       assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts(creep)
     });

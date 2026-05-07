@@ -1,6 +1,7 @@
 export interface RoleCounts {
   worker: number;
   workerCapacity?: number;
+  sourceHarvester?: number;
   defender?: number;
   claimer?: number;
   claimersByTargetRoom?: Record<string, number>;
@@ -19,6 +20,12 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
     (counts, creep) => {
       if (isColonyWorker(creep, colonyName)) {
         counts.worker += 1;
+        if (canSatisfyRoleCapacity(creep)) {
+          counts.workerCapacity = (counts.workerCapacity ?? 0) + 1;
+        }
+      }
+      if (isColonySourceHarvester(creep, colonyName)) {
+        counts.sourceHarvester = (counts.sourceHarvester ?? 0) + 1;
         if (canSatisfyRoleCapacity(creep)) {
           counts.workerCapacity = (counts.workerCapacity ?? 0) + 1;
         }
@@ -79,6 +86,10 @@ function incrementTargetRoomActionCount(
 
 function isColonyWorker(creep: Creep, colonyName: string): boolean {
   return creep.memory.colony === colonyName && creep.memory.role === 'worker';
+}
+
+function isColonySourceHarvester(creep: Creep, colonyName: string): boolean {
+  return creep.memory.colony === colonyName && creep.memory.role === 'sourceHarvester';
 }
 
 function isColonyClaimer(creep: Creep, colonyName: string): boolean {

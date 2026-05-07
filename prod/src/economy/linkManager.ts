@@ -4,20 +4,22 @@ import {
   isSameRoomPosition
 } from './sourceContainers';
 
-type LinkStructureConstantGlobal = 'STRUCTURE_LINK' | 'STRUCTURE_STORAGE';
+type LinkStructureConstantGlobal = 'STRUCTURE_LINK' | 'STRUCTURE_SPAWN' | 'STRUCTURE_STORAGE';
 
 export const SOURCE_LINK_RANGE = 2;
 export const CONTROLLER_LINK_RANGE = 3;
+export const SPAWN_LINK_RANGE = 2;
 export const STORAGE_LINK_RANGE = 2;
 export const STORAGE_LINK_ROUTING_TARGET_RATIO = 0.3;
 const OK_CODE = 0 as ScreepsReturnCode;
 
-export type LinkDestinationRole = 'controller' | 'storage';
+export type LinkDestinationRole = 'controller' | 'spawn' | 'storage';
 
 export interface LinkNetwork {
   links: StructureLink[];
   sourceLinks: StructureLink[];
   controllerLink: StructureLink | null;
+  spawnLink: StructureLink | null;
   storageLink: StructureLink | null;
   storage: StructureStorage | null;
 }
@@ -55,6 +57,16 @@ export function transferEnergy(room: Room): LinkTransferResult[] {
     );
   }
 
+  if (shouldSpawnLinkReceiveEnergy(room, network.spawnLink, projectedState)) {
+    transferSourceLinksToDestination(
+      sortSourceLinksByDistanceToDestination(network.sourceLinks, network.spawnLink),
+      { link: network.spawnLink, role: 'spawn' },
+      projectedState,
+      spentSourceIds,
+      results
+    );
+  }
+
   if (shouldStorageLinkReceiveSurplus(network, projectedState)) {
     transferSourceLinksToDestination(
       sortSourceLinksBySurplusPriority(network.sourceLinks, network.storageLink, projectedState),
@@ -73,8 +85,9 @@ export function classifyLinks(room: Room): LinkNetwork {
   const controllerLink = selectControllerLink(room, links);
   const storage = room.storage ?? findStorage(room);
   const storageLink = selectStorageLink(room, links, controllerLink, storage);
+  const spawnLink = selectSpawnLink(room, links, controllerLink, storageLink);
   const destinationIds = new Set(
-    [controllerLink, storageLink]
+    [controllerLink, spawnLink, storageLink]
       .filter((link): link is StructureLink => link !== null)
       .map((link) => getObjectId(link))
   );
@@ -83,6 +96,7 @@ export function classifyLinks(room: Room): LinkNetwork {
     links,
     sourceLinks: selectSourceLinks(room, links, destinationIds),
     controllerLink,
+    spawnLink,
     storageLink,
     storage
   };
@@ -172,6 +186,29 @@ function shouldControllerLinkReceiveEnergy(
   return (projectedState.freeCapacityById.get(getObjectId(controllerLink)) ?? 0) > 0;
 }
 
+function shouldSpawnLinkReceiveEnergy(
+  room: Room,
+  spawnLink: StructureLink | null,
+  projectedState: ProjectedLinkState
+): spawnLink is StructureLink {
+  if (!spawnLink) {
+    return false;
+  }
+
+  if ((projectedState.freeCapacityById.get(getObjectId(spawnLink)) ?? 0) <= 0) {
+    return false;
+  }
+
+  const energyAvailable = getKnownRoomEnergyAvailable(room);
+  const energyCapacityAvailable = getKnownRoomEnergyCapacityAvailable(room);
+  return (
+    energyAvailable === null ||
+    energyCapacityAvailable === null ||
+    energyCapacityAvailable <= 0 ||
+    energyAvailable < energyCapacityAvailable
+  );
+}
+
 function shouldStorageLinkReceiveSurplus(
   network: LinkNetwork,
   projectedState: ProjectedLinkState
@@ -217,6 +254,16 @@ function createSourceLinkRoutingReserve(
     reserveSourceLinksForDestination(
       sortSourceLinksByDistanceToDestination(network.sourceLinks, network.controllerLink),
       network.controllerLink,
+      projectedState,
+      spentSourceIds,
+      reserveById
+    );
+  }
+
+  if (shouldSpawnLinkReceiveEnergy(room, network.spawnLink, projectedState)) {
+    reserveSourceLinksForDestination(
+      sortSourceLinksByDistanceToDestination(network.sourceLinks, network.spawnLink),
+      network.spawnLink,
       projectedState,
       spentSourceIds,
       reserveById
@@ -365,6 +412,43 @@ function selectStorageLink(
   );
 }
 
+function selectSpawnLink(
+  room: Room,
+  links: StructureLink[],
+  controllerLink: StructureLink | null,
+  storageLink: StructureLink | null
+): StructureLink | null {
+  const excludedIds = new Set(
+    [controllerLink, storageLink].map((link) => getObjectId(link)).filter((id) => id.length > 0)
+  );
+  const sourceLinkCandidateIds = new Set(selectSourceLinks(room, links, new Set()).map((link) => getObjectId(link)));
+  const spawns = findRoomSpawns(room);
+  if (spawns.length === 0) {
+    return null;
+  }
+
+  return (
+    spawns
+      .flatMap((spawn) => {
+        const link = selectClosestLink(
+          links.filter((candidate) => {
+            const candidateId = getObjectId(candidate);
+            return !excludedIds.has(candidateId) && !sourceLinkCandidateIds.has(candidateId);
+          }),
+          spawn,
+          room.name,
+          SPAWN_LINK_RANGE
+        );
+        return link ? [link] : [];
+      })
+      .sort(
+        (left, right) =>
+          compareClosestSpawnRange(room, left, right) ||
+          getObjectId(left).localeCompare(getObjectId(right))
+      )[0] ?? null
+  );
+}
+
 function selectClosestLink(
   links: StructureLink[],
   target: RoomObject,
@@ -434,6 +518,24 @@ function findStorage(room: Room): StructureStorage | null {
   );
 }
 
+function findRoomSpawns(room: Room): StructureSpawn[] {
+  const ownedStructureSpawns = findOwnedStructures(room).filter((structure): structure is StructureSpawn =>
+    matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn')
+  );
+  const gameSpawns = (globalThis as { Game?: Partial<Pick<Game, 'spawns'>> }).Game?.spawns;
+  const visibleSpawns = gameSpawns
+    ? Object.values(gameSpawns).filter((spawn): spawn is StructureSpawn => spawn?.room?.name === room.name)
+    : [];
+  const spawnsById = new Map<string, StructureSpawn>();
+  for (const spawn of [...ownedStructureSpawns, ...visibleSpawns]) {
+    const id = getObjectId(spawn);
+    if (id.length > 0) {
+      spawnsById.set(id, spawn);
+    }
+  }
+  return [...spawnsById.values()].sort(compareObjectIds);
+}
+
 function findSources(room: Room): Source[] {
   if (typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
     return [];
@@ -441,6 +543,29 @@ function findSources(room: Room): Source[] {
 
   const result = room.find(FIND_SOURCES);
   return Array.isArray(result) ? result : [];
+}
+
+function compareClosestSpawnRange(room: Room, left: StructureLink, right: StructureLink): number {
+  const spawns = findRoomSpawns(room);
+  if (spawns.length === 0) {
+    return 0;
+  }
+
+  return (
+    Math.min(...spawns.map((spawn) => getRangeBetweenRoomObjects(left, spawn, room.name))) -
+    Math.min(...spawns.map((spawn) => getRangeBetweenRoomObjects(right, spawn, room.name)))
+  );
+}
+
+function getRangeBetweenRoomObjects(left: RoomObject, right: RoomObject, roomName: string): number {
+  const leftPosition = getRoomObjectPosition(left);
+  const rightPosition = getRoomObjectPosition(right);
+  return leftPosition !== null &&
+    rightPosition !== null &&
+    isSameRoomPosition(leftPosition, roomName) &&
+    isSameRoomPosition(rightPosition, roomName)
+    ? getRangeBetweenPositions(leftPosition, rightPosition)
+    : Number.POSITIVE_INFINITY;
 }
 
 function getStoredEnergy(structure: StructureLink): number {
@@ -456,6 +581,18 @@ function getLinkCooldown(link: StructureLink): number {
   return typeof link.cooldown === 'number' && Number.isFinite(link.cooldown) ? link.cooldown : 0;
 }
 
+function getKnownRoomEnergyAvailable(room: Room): number | null {
+  const energyAvailable = room.energyAvailable;
+  return typeof energyAvailable === 'number' && Number.isFinite(energyAvailable) ? Math.max(0, energyAvailable) : null;
+}
+
+function getKnownRoomEnergyCapacityAvailable(room: Room): number | null {
+  const energyCapacityAvailable = room.energyCapacityAvailable;
+  return typeof energyCapacityAvailable === 'number' && Number.isFinite(energyCapacityAvailable)
+    ? Math.max(0, energyCapacityAvailable)
+    : null;
+}
+
 function getEnergyResource(): ResourceConstant {
   return ((globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
 }
@@ -469,8 +606,12 @@ function getObjectId(object: unknown): string {
     return '';
   }
 
-  const id = (object as { id?: unknown }).id;
-  return typeof id === 'string' ? id : '';
+  const candidate = object as { id?: unknown; name?: unknown };
+  if (typeof candidate.id === 'string') {
+    return candidate.id;
+  }
+
+  return typeof candidate.name === 'string' ? candidate.name : '';
 }
 
 function matchesStructureType(

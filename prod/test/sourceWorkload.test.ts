@@ -24,6 +24,7 @@ describe('source workload tracking', () => {
       makeWorker(room, 'source1', 2),
       makeWorker(room, 'source1', 1),
       makeWorker(room, 'source2', 1),
+      makeSourceHarvester(room, 'source2', 5),
       makeWorker({ name: 'W2N2' } as Room, 'source1', 5),
       { memory: { role: 'miner', task: { type: 'harvest', targetId: 'source1' } }, room } as unknown as Creep
     ];
@@ -46,11 +47,11 @@ describe('source workload tracking', () => {
       },
       {
         sourceId: 'source2',
-        assignedHarvesters: 1,
-        assignedWorkParts: 1,
+        assignedHarvesters: 2,
+        assignedWorkParts: 6,
         openPositions: 8,
         harvestWorkCapacity: 5,
-        harvestEnergyPerTick: 2,
+        harvestEnergyPerTick: 12,
         regenEnergyPerTick: 10,
         sourceEnergyCapacity: 3_000,
         sourceEnergyRegenTicks: 300,
@@ -102,6 +103,22 @@ function makeRoom(sources: Source[], structures: AnyStructure[]): Room {
 function makeWorker(room: Room, sourceId: string, workParts: number): Creep {
   return {
     memory: { role: 'worker', task: { type: 'harvest', targetId: sourceId as Id<Source> } },
+    room,
+    getActiveBodyparts: jest.fn().mockReturnValue(workParts)
+  } as unknown as Creep;
+}
+
+function makeSourceHarvester(room: Room, sourceId: string, workParts: number): Creep {
+  return {
+    memory: {
+      role: 'sourceHarvester',
+      colony: room.name,
+      sourceHarvester: {
+        roomName: room.name,
+        sourceId: sourceId as Id<Source>,
+        containerId: `${sourceId}-container` as Id<StructureContainer>
+      }
+    },
     room,
     getActiveBodyparts: jest.fn().mockReturnValue(workParts)
   } as unknown as Creep;

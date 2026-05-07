@@ -64,6 +64,7 @@ describe('planSpawn', () => {
     spawnEnergyBudget = energyAvailable,
     omitSpawnEnergyBudget = false,
     sourcePositions,
+    structures = [],
     ownedStructures = []
   }: {
     sourceCount?: number;
@@ -80,6 +81,7 @@ describe('planSpawn', () => {
     spawnEnergyBudget?: number;
     omitSpawnEnergyBudget?: boolean;
     sourcePositions?: RoomPosition[];
+    structures?: AnyStructure[];
     ownedStructures?: AnyOwnedStructure[];
   } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
     const sources = Array.from(
@@ -109,6 +111,10 @@ describe('planSpawn', () => {
 
       if (type === FIND_MY_STRUCTURES) {
         return ownedStructures;
+      }
+
+      if (type === FIND_STRUCTURES) {
+        return structures;
       }
 
       const hostileCreepsFind = (globalThis as Record<string, unknown>).FIND_HOSTILE_CREEPS;
@@ -476,6 +482,50 @@ describe('planSpawn', () => {
       name: 'worker-W2N27-160',
       memory: { role: 'worker', colony: 'W2N27' }
     });
+  });
+
+  it('plans a stationary source harvester for a built local source container', () => {
+    const sourcePosition = makeRoomPosition(10, 10, 'W1N28');
+    const container = makeRemoteContainer('container0', 0, 10, 11, 'W1N28') as unknown as AnyStructure;
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N28',
+      sourceCount: 1,
+      sourcePositions: [sourcePosition],
+      structures: [container],
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 600,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 161)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'sourceHarvester-W1N28-source0-161',
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'W1N28',
+        sourceHarvester: {
+          roomName: 'W1N28',
+          sourceId: 'source0',
+          containerId: 'container0'
+        }
+      }
+    });
+  });
+
+  it('keeps mobile worker harvesting as the fallback when a local source container is missing', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N29',
+      sourceCount: 1,
+      sourcePositions: [makeRoomPosition(10, 10, 'W1N29')],
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 600,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 162)).toBeNull();
   });
 
   it('uses the RCL4 medium worker profile when full capacity is affordable', () => {

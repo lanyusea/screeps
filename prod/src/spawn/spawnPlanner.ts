@@ -15,6 +15,11 @@ import {
   selectRemoteHarvesterAssignment
 } from '../creeps/remoteHarvester';
 import {
+  buildSourceHarvesterBody,
+  selectSourceHarvesterAssignment,
+  SOURCE_HARVESTER_ROLE
+} from '../creeps/sourceHarvester';
+import {
   HAULER_ROLE,
   selectRemoteHaulerAssignment
 } from '../creeps/hauler';
@@ -64,6 +69,7 @@ import { isLiveTransferCandidate } from '../economy/crossRoomHauler';
 
 type SpawnPriorityTier =
   | 'emergencyBootstrap'
+  | 'localSourceMining'
   | 'defense'
   | 'localRefillSurvival'
   | 'controllerDowngradeGuard'
@@ -161,6 +167,7 @@ const POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY = 200;
 const MINIMUM_EMERGENCY_WORKER_BODY_COST = getBodyCost(EMERGENCY_BOOTSTRAP_WORKER_BODY);
 const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'emergencyBootstrap',
+  'localSourceMining',
   'localRefillSurvival',
   'controllerDowngradeGuard',
   'defense',
@@ -282,6 +289,8 @@ function planSpawnForPriorityTier(
   switch (tier) {
     case 'emergencyBootstrap':
       return planEmergencyBootstrapSpawn(context);
+    case 'localSourceMining':
+      return planLocalSourceMiningSpawn(context);
     case 'localRefillSurvival':
       return planLocalSurvivalSpawn(context);
     case 'controllerDowngradeGuard':
@@ -330,6 +339,53 @@ function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | n
   }
 
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function planLocalSourceMiningSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.options.workersOnly ||
+    context.survival.hostilePresence ||
+    context.survival.controllerDowngradeGuard ||
+    context.colony.room.controller?.my !== true ||
+    (context.colony.room.controller.level ?? 0) < 2 ||
+    context.workerCapacity < LOCAL_SUPPORT_WORKER_FLOOR
+  ) {
+    return null;
+  }
+
+  const assignment = selectSourceHarvesterAssignment(context.colony.room);
+  if (!assignment) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const body = selectDynamicBodyForColony(
+    context.colony,
+    SOURCE_HARVESTER_ROLE,
+    context.workerCapacity < context.workerTarget ? 'recovery' : 'surplus',
+    buildSourceHarvesterBody
+  );
+  if (body.length === 0) {
+    return null;
+  }
+
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(
+      `${SOURCE_HARVESTER_ROLE}-${context.colony.room.name}-${assignment.sourceId}-${context.gameTime}`,
+      context.options
+    ),
+    memory: {
+      role: SOURCE_HARVESTER_ROLE,
+      colony: context.colony.room.name,
+      sourceHarvester: assignment
+    }
+  };
 }
 
 function planControllerDowngradeGuardSpawn(context: SpawnPlanningContext): SpawnRequest | null {

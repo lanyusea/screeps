@@ -486,6 +486,7 @@ function getRoomName(room: Room): string | null {
 
 function getColonyCreepTotal(roleCounts: RoleCounts): number {
   return normalizeNonNegativeInteger(roleCounts.worker) +
+    normalizeNonNegativeInteger(roleCounts.sourceHarvester ?? 0) +
     normalizeNonNegativeInteger(roleCounts.defender ?? 0) +
     normalizeNonNegativeInteger(roleCounts.claimer ?? 0) +
     normalizeNonNegativeInteger(roleCounts.scout ?? 0);
