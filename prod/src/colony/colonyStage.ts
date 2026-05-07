@@ -257,6 +257,40 @@ export function persistColonyStageAssessment(
   };
 }
 
+export function recordClaimedRoomBootstrapStage(
+  roomName: string,
+  tick = getGameTime()
+): ColonyStageAssessment | null {
+  if (!isNonEmptyString(roomName) || tick === null) {
+    return null;
+  }
+
+  const room = getVisibleOwnedRoom(roomName);
+  if (!room) {
+    return null;
+  }
+
+  const roleCounts = countVisibleColonyRoles(room, roomName);
+  const workerCapacity = getWorkerCapacity(roleCounts);
+  const assessment = assessColonyStage({
+    roomName,
+    totalCreeps: getColonyCreepTotal(roleCounts),
+    workerCapacity,
+    workerTarget: Math.max(1, MIN_WORKER_TARGET),
+    energyAvailable: getRoomEnergyAvailable(room),
+    energyCapacityAvailable: getRoomEnergyCapacityAvailable(room),
+    spawnEnergyAvailable: getRoomEnergyAvailable(room),
+    previousMode: getPersistedRoomStageMode(room),
+    controller: getControllerSurvivalState(room.controller),
+    hostileCreepCount: countRoomFind(room, 'FIND_HOSTILE_CREEPS'),
+    hostileStructureCount: countRoomFind(room, 'FIND_HOSTILE_STRUCTURES')
+  });
+
+  recordColonyStageAssessment(roomName, assessment, tick);
+  persistRoomColonyStageAssessment(room, assessment, tick);
+  return assessment;
+}
+
 export function getRecordedColonySurvivalAssessment(
   colonyName: string | null | undefined,
   tick = getGameTime()
@@ -501,6 +535,11 @@ function getReadableColonyMemory(colony: ColonySnapshot): RoomMemory | undefined
   return colony.memory ?? (colony.room as Room & { memory?: RoomMemory }).memory;
 }
 
+function getPersistedRoomStageMode(room: Room): ColonyStage | undefined {
+  const mode = (room as Room & { memory?: RoomMemory }).memory?.colonyStage?.mode;
+  return isColonyStage(mode) ? mode : undefined;
+}
+
 function getWritableColonyMemory(colony: ColonySnapshot): RoomMemory {
   const roomWithMemory = colony.room as Room & { memory?: RoomMemory };
   const memory = colony.memory ?? roomWithMemory.memory ?? {};
@@ -511,6 +550,73 @@ function getWritableColonyMemory(colony: ColonySnapshot): RoomMemory {
     roomWithMemory.memory = memory;
   }
   return memory;
+}
+
+function persistRoomColonyStageAssessment(
+  room: Room,
+  assessment: ColonyStageAssessment,
+  tick: number
+): void {
+  const roomWithMemory = room as Room & { memory?: RoomMemory };
+  const memory = roomWithMemory.memory ?? {};
+  roomWithMemory.memory = memory;
+  memory.colonyStage = {
+    mode: assessment.mode,
+    updatedAt: tick,
+    ...(assessment.suppressionReasons.length > 0 ? { suppressionReasons: assessment.suppressionReasons } : {})
+  };
+}
+
+function getVisibleOwnedRoom(roomName: string): Room | null {
+  const room = (globalThis as { Game?: Partial<Game> }).Game?.rooms?.[roomName];
+  return room?.controller?.my === true ? room : null;
+}
+
+function getRoomEnergyAvailable(room: Room): number {
+  const energyAvailable = (room as Room & { energyAvailable?: number }).energyAvailable;
+  return typeof energyAvailable === 'number' ? energyAvailable : 0;
+}
+
+function getRoomEnergyCapacityAvailable(room: Room): number {
+  const energyCapacityAvailable = (room as Room & { energyCapacityAvailable?: number }).energyCapacityAvailable;
+  return typeof energyCapacityAvailable === 'number' ? energyCapacityAvailable : 0;
+}
+
+function countVisibleColonyRoles(room: Room, roomName: string): RoleCounts {
+  const roleCounts: RoleCounts = { worker: 0 };
+  for (const creep of findVisibleColonyCreeps(room, roomName)) {
+    if (creep?.memory?.colony !== roomName) {
+      continue;
+    }
+
+    const role = creep.memory.role;
+    if (role === 'worker') {
+      roleCounts.worker = normalizeNonNegativeInteger(roleCounts.worker) + 1;
+    } else if (role === 'sourceHarvester') {
+      roleCounts.sourceHarvester = normalizeNonNegativeInteger(roleCounts.sourceHarvester ?? 0) + 1;
+    } else if (role === 'defender') {
+      roleCounts.defender = normalizeNonNegativeInteger(roleCounts.defender ?? 0) + 1;
+    } else if (role === 'claimer') {
+      roleCounts.claimer = normalizeNonNegativeInteger(roleCounts.claimer ?? 0) + 1;
+    } else if (role === 'scout') {
+      roleCounts.scout = normalizeNonNegativeInteger(roleCounts.scout ?? 0) + 1;
+    }
+  }
+
+  return roleCounts;
+}
+
+function findVisibleColonyCreeps(room: Room, roomName: string): Creep[] {
+  if (typeof room.find !== 'function') {
+    return [];
+  }
+
+  const findConstant = getGlobalNumber('FIND_MY_CREEPS');
+  if (findConstant === undefined) {
+    return [];
+  }
+
+  return (room.find(findConstant as FindConstant) as Creep[]).filter((creep) => creep.memory?.colony === roomName);
 }
 
 function isColonyStage(value: unknown): value is ColonyStage {
