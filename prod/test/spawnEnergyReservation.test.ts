@@ -30,9 +30,11 @@ describe('spawnEnergyReservation', () => {
       .toMatchObject({
         bodyCost: 300,
         creepName: 'worker-W1N1-100',
+        reservedAt: expect.any(Number),
         reservedEnergy: 300,
         role: 'worker',
-        roomName: 'W1N1'
+        roomName: 'W1N1',
+        updatedAt: expect.any(Number)
       });
   });
 
