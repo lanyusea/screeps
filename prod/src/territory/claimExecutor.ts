@@ -19,11 +19,13 @@ import {
 } from './expansionScoring';
 import type { OccupationRecommendationReport, OccupationRecommendationScore } from './occupationRecommendation';
 import {
+  isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry,
   isVisibleTerritoryAssignmentSafe,
   suppressTerritoryIntent,
   TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS,
   TERRITORY_SUPPRESSION_RETRY_TICKS
 } from './territoryPlanner';
+import { signOccupiedControllerIfNeeded } from './controllerSigning';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 import {
   ensureTerritoryScoutAttempt,
@@ -167,8 +169,7 @@ export function runRecommendedExpansionClaimExecutor(
 
   const visibleController = selectCurrentOrVisibleClaimTargetController(creep, assignment);
   if (visibleController?.my === true) {
-    recordRecommendedClaimSuccess(creep, assignment, visibleController, telemetryEvents);
-    completeClaimAssignment(creep);
+    completeRecommendedClaimIfSigned(creep, assignment, visibleController, telemetryEvents);
     return true;
   }
 
@@ -209,8 +210,7 @@ export function runRecommendedExpansionClaimExecutor(
   }
 
   if (controller.my === true) {
-    recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
-    completeClaimAssignment(creep);
+    completeRecommendedClaimIfSigned(creep, assignment, controller, telemetryEvents);
     return true;
   }
 
@@ -259,8 +259,7 @@ export function runRecommendedExpansionClaimExecutor(
   execution.claimAttemptCount = (execution.claimAttemptCount ?? 0) + 1;
 
   if (result === OK_CODE && isClaimVerified(assignment.targetRoom, controller)) {
-    recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
-    completeClaimAssignment(creep);
+    completeRecommendedClaimIfSigned(creep, assignment, controller, telemetryEvents);
     return true;
   }
 
@@ -1367,6 +1366,25 @@ function recordRecommendedClaimSuccess(
     creepName: creep.name,
     updatedAt: getGameTime()
   });
+}
+
+function completeRecommendedClaimIfSigned(
+  creep: Creep,
+  assignment: CreepTerritoryMemory,
+  controller: StructureController,
+  telemetryEvents: RuntimeTelemetryEvent[]
+): void {
+  if (isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep)) {
+    return;
+  }
+
+  const signingResult = signOccupiedControllerIfNeeded(creep, controller);
+  if (signingResult === 'moving' || signingResult === 'blocked') {
+    return;
+  }
+
+  recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
+  completeClaimAssignment(creep);
 }
 
 function recordRecommendedClaimTerminalFailure(
