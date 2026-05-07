@@ -427,6 +427,63 @@ describe('runEconomy', () => {
     });
   });
 
+  it('refreshes action-hint reserve targets before economy spawn planning', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W3N1',
+            actionHint: 'reserve',
+            controllerId: 'controller3' as Id<StructureController>
+          } as unknown as TerritoryTargetMemory
+        ]
+      }
+    };
+    const primaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W1N1',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    });
+    const reserveRoom = makeVisibleReserveRoom('W3N1', 'controller3' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room: primaryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const creeps = {
+      Worker1: makeEconomyWorker(primaryRoom),
+      Worker2: makeEconomyWorker(primaryRoom),
+      Worker3: makeEconomyWorker(primaryRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 136,
+      rooms: { W1N1: primaryRoom, W3N1: reserveRoom },
+      spawns: { Spawn1: spawn },
+      creeps,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W3N1-136', {
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W3N1', action: 'reserve', controllerId: 'controller3' }
+      }
+    });
+    expect(Memory.territory?.targets?.[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      action: 'reserve',
+      actionHint: 'reserve',
+      controllerId: 'controller3'
+    });
+  });
+
   it('can use a stable secondary-room spawn for primary reserver production when the primary spawn is busy', () => {
     installSpawnCoordinationGlobals();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {

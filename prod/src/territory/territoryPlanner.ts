@@ -3710,10 +3710,11 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
     return null;
   }
 
+  const action = getTerritoryTargetAction(rawTarget);
   if (
     !isNonEmptyString(rawTarget.colony) ||
     !isNonEmptyString(rawTarget.roomName) ||
-    !isTerritoryControlAction(rawTarget.action)
+    !action
   ) {
     return null;
   }
@@ -3721,7 +3722,7 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
   return {
     colony: rawTarget.colony,
     roomName: rawTarget.roomName,
-    action: rawTarget.action,
+    action,
     ...(typeof rawTarget.controllerId === 'string'
       ? { controllerId: rawTarget.controllerId as Id<StructureController> }
       : {}),
@@ -3731,6 +3732,14 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
       ? { postClaimBootstrapReserveEnergy: Math.floor(rawTarget.postClaimBootstrapReserveEnergy) }
       : {})
   };
+}
+
+function getTerritoryTargetAction(rawTarget: Record<string, unknown>): TerritoryControlAction | null {
+  if (isTerritoryControlAction(rawTarget.action)) {
+    return rawTarget.action;
+  }
+
+  return isTerritoryControlAction(rawTarget.actionHint) ? rawTarget.actionHint : null;
 }
 
 function isTerritoryAutomationSource(source: unknown): source is TerritoryAutomationSource {

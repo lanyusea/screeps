@@ -69,6 +69,7 @@ import { refreshExpansionRoomScouting } from '../territory/roomScouting';
 import { runPlannedClaimReservation } from '../territory/roomReservation';
 import {
   clearAutonomousExpansionClaimIntent,
+  refreshClaimExecutionTargets,
   refreshAutonomousExpansionClaimIntent,
   shouldDeferOccupationRecommendationForExpansionClaim
 } from '../territory/claimExecutor';
@@ -85,6 +86,7 @@ import {
   clearAdjacentRoomReservationIntent,
   refreshAdjacentRoomReservationIntent
 } from '../territory/reservationPlanner';
+import { refreshReserveExecutionTargets } from '../territory/reserveExecutor';
 import {
   refreshClaimedRoomBootstrapperOwnership,
   logBestClaimTarget,
@@ -178,6 +180,10 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       refreshRemoteMiningSetup(colony, Game.time);
     }
     refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
+    if (survivalAssessment.territoryReady) {
+      refreshClaimExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
+      refreshReserveExecutionTargets({ colony: colony.room.name, gameTime: Game.time });
+    }
     const hasPendingTerritoryFollowUp = hasPendingTerritoryFollowUpIntent(
       colony.room.name,
       roleCounts,
