@@ -115,6 +115,14 @@ describe('expansion executor', () => {
       reason: 'unmetPreconditions'
     });
     expect(Memory.territory?.targets).toEqual([]);
+
+    hostileCreepCount = 0;
+    ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 152;
+
+    expect(refreshExpansionExecutorIntent(colony, 152)).toMatchObject({
+      status: 'planned',
+      targetRoom: 'W2N1'
+    });
   });
 
   it('blocks claiming when recent threat memory was not refreshed on the current tick', () => {

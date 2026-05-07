@@ -9627,6 +9627,9 @@ function toRuntimeExpansionPlannerCandidate(colony, room, distance, order, colon
 function compareExpansionPlannerCandidates(left, right) {
   return right.score - left.score || right.sourceCount - left.sourceCount || left.distance - right.distance || getExpansionPlannerCandidateAdjacencyBonus(right) - getExpansionPlannerCandidateAdjacencyBonus(left) || left.order - right.order || left.roomName.localeCompare(right.roomName);
 }
+function compareExpansionPlannerCandidatePriority(left, right) {
+  return right.score - left.score || right.sourceCount - left.sourceCount || left.distance - right.distance || getExpansionPlannerCandidateAdjacencyBonus(right) - getExpansionPlannerCandidateAdjacencyBonus(left) || left.roomName.localeCompare(right.roomName);
+}
 function scoreExpansionPlannerCandidate(sourceCount, distance, adjacencyBonus) {
   return sourceCount * SOURCE_SCORE_WEIGHT + adjacencyBonus - distance * DISTANCE_SCORE_WEIGHT;
 }
@@ -9907,7 +9910,11 @@ function disableLowerPriorityExpansionClaimPlans(territoryMemory, intents, selec
   if (Array.isArray(territoryMemory.targets)) {
     for (const rawTarget of territoryMemory.targets) {
       const target = normalizeTerritoryTarget2(rawTarget);
-      if (!target || target.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR || target.action !== "claim" || target.colony !== selectedCandidate.colony || target.roomName === selectedCandidate.roomName || target.enabled === false) {
+      if (!target || target.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR || target.action !== "claim" || target.enabled === false || !shouldDisableLowerPriorityExpansionClaimPlan(
+        selectedCandidate,
+        target.colony,
+        target.roomName
+      )) {
         continue;
       }
       rawTarget.enabled = false;
@@ -9915,7 +9922,11 @@ function disableLowerPriorityExpansionClaimPlans(territoryMemory, intents, selec
   }
   for (let index = 0; index < intents.length; index += 1) {
     const intent = intents[index];
-    if (intent.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR || intent.action !== "claim" || intent.colony !== selectedCandidate.colony || intent.targetRoom === selectedCandidate.roomName || intent.status !== "planned" && intent.status !== "active") {
+    if (intent.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR || intent.action !== "claim" || intent.status !== "planned" && intent.status !== "active" || !shouldDisableLowerPriorityExpansionClaimPlan(
+      selectedCandidate,
+      intent.colony,
+      intent.targetRoom
+    )) {
       continue;
     }
     intents[index] = {
@@ -9924,6 +9935,38 @@ function disableLowerPriorityExpansionClaimPlans(territoryMemory, intents, selec
       updatedAt: gameTime
     };
   }
+}
+function shouldDisableLowerPriorityExpansionClaimPlan(selectedCandidate, colony, roomName) {
+  if (colony === selectedCandidate.colony && roomName === selectedCandidate.roomName) {
+    return false;
+  }
+  if (colony !== selectedCandidate.colony && roomName !== selectedCandidate.roomName) {
+    return false;
+  }
+  const existingCandidate = buildVisibleExpansionPlannerClaimPlanCandidate(colony, roomName);
+  return existingCandidate !== null && compareExpansionPlannerCandidatePriority(existingCandidate, selectedCandidate) > 0;
+}
+function buildVisibleExpansionPlannerClaimPlanCandidate(colony, roomName) {
+  var _a;
+  const rooms = getGameRooms3();
+  const room = rooms == null ? void 0 : rooms[roomName];
+  if (!room) {
+    return null;
+  }
+  const ownerUsername = getControllerOwnerUsername4((_a = rooms == null ? void 0 : rooms[colony]) == null ? void 0 : _a.controller);
+  const ownedRoomNames = getVisibleOwnedRoomNames3(colony, ownerUsername);
+  const distance = getNearestOwnedRoomDistance2(ownedRoomNames, roomName);
+  if (distance === null || distance > EXPANSION_PLANNER_MAX_ROUTE_DISTANCE) {
+    return null;
+  }
+  return toRuntimeExpansionPlannerCandidate(
+    colony,
+    room,
+    distance,
+    0,
+    ownerUsername,
+    getExpansionPlannerAdjacencyBonus(distance)
+  );
 }
 function getExpansionPlanKey(colony, targetRoom, action) {
   return `${colony}:${targetRoom}:${action}`;
@@ -30442,6 +30485,7 @@ function getExpansionExecutorCacheStateKey(colony, gameTime = getGameTime27()) {
     countVisibleOwnedRooms2(),
     downgradeState,
     countActiveExpansionExecutorSpawns(colony),
+    getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
     countActivePostClaimBootstraps3(),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
@@ -30453,6 +30497,9 @@ function getExpansionExecutorAvailableEnergyState(energyAvailable) {
 function isExpansionExecutorClaimReady(colony, gameTime) {
   const controller = colony.room.controller;
   return (controller == null ? void 0 : controller.my) === true && isFiniteNumber9(controller.level) && controller.level >= 2 && countActiveExpansionExecutorSpawns(colony) > 0 && !hasExpansionExecutorActiveHostiles(colony.room) && getExpansionExecutorThreatState(colony.room.name, gameTime) === "none" && colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY && colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY;
+}
+function getExpansionExecutorVisibleHostileState(room) {
+  return hasExpansionExecutorActiveHostiles(room) ? "visibleHostile" : "visibleSafe";
 }
 function countActiveExpansionExecutorSpawns(colony) {
   var _a;

@@ -1637,6 +1637,19 @@ function compareExpansionPlannerCandidates(
   );
 }
 
+function compareExpansionPlannerCandidatePriority(
+  left: ExpansionPlannerCandidate,
+  right: ExpansionPlannerCandidate
+): number {
+  return (
+    right.score - left.score ||
+    right.sourceCount - left.sourceCount ||
+    left.distance - right.distance ||
+    getExpansionPlannerCandidateAdjacencyBonus(right) - getExpansionPlannerCandidateAdjacencyBonus(left) ||
+    left.roomName.localeCompare(right.roomName)
+  );
+}
+
 function scoreExpansionPlannerCandidate(
   sourceCount: number,
   distance: number,
@@ -2156,9 +2169,12 @@ function disableLowerPriorityExpansionClaimPlans(
         !target ||
         target.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR ||
         target.action !== 'claim' ||
-        target.colony !== selectedCandidate.colony ||
-        target.roomName === selectedCandidate.roomName ||
-        target.enabled === false
+        target.enabled === false ||
+        !shouldDisableLowerPriorityExpansionClaimPlan(
+          selectedCandidate,
+          target.colony,
+          target.roomName
+        )
       ) {
         continue;
       }
@@ -2172,9 +2188,12 @@ function disableLowerPriorityExpansionClaimPlans(
     if (
       intent.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR ||
       intent.action !== 'claim' ||
-      intent.colony !== selectedCandidate.colony ||
-      intent.targetRoom === selectedCandidate.roomName ||
-      (intent.status !== 'planned' && intent.status !== 'active')
+      (intent.status !== 'planned' && intent.status !== 'active') ||
+      !shouldDisableLowerPriorityExpansionClaimPlan(
+        selectedCandidate,
+        intent.colony,
+        intent.targetRoom
+      )
     ) {
       continue;
     }
@@ -2185,6 +2204,53 @@ function disableLowerPriorityExpansionClaimPlans(
       updatedAt: gameTime
     };
   }
+}
+
+function shouldDisableLowerPriorityExpansionClaimPlan(
+  selectedCandidate: ExpansionPlannerCandidate,
+  colony: string,
+  roomName: string
+): boolean {
+  if (colony === selectedCandidate.colony && roomName === selectedCandidate.roomName) {
+    return false;
+  }
+
+  if (colony !== selectedCandidate.colony && roomName !== selectedCandidate.roomName) {
+    return false;
+  }
+
+  const existingCandidate = buildVisibleExpansionPlannerClaimPlanCandidate(colony, roomName);
+  return (
+    existingCandidate !== null &&
+    compareExpansionPlannerCandidatePriority(existingCandidate, selectedCandidate) > 0
+  );
+}
+
+function buildVisibleExpansionPlannerClaimPlanCandidate(
+  colony: string,
+  roomName: string
+): ExpansionPlannerCandidate | null {
+  const rooms = getGameRooms();
+  const room = rooms?.[roomName];
+  if (!room) {
+    return null;
+  }
+
+  const ownerUsername = getControllerOwnerUsername(rooms?.[colony]?.controller);
+  const ownedRoomNames = getVisibleOwnedRoomNames(colony, ownerUsername);
+  const distance = getNearestOwnedRoomDistance(ownedRoomNames, roomName);
+  if (distance === null || distance > EXPANSION_PLANNER_MAX_ROUTE_DISTANCE) {
+    return null;
+  }
+
+  return toRuntimeExpansionPlannerCandidate(
+    colony,
+    room,
+    distance,
+    0,
+    ownerUsername,
+    getExpansionPlannerAdjacencyBonus(distance)
+  );
 }
 
 function getExpansionPlanKey(colony: string, targetRoom: string, action: TerritoryControlAction): string {

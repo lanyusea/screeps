@@ -228,6 +228,7 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = ge
     countVisibleOwnedRooms(),
     downgradeState,
     countActiveExpansionExecutorSpawns(colony),
+    getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
     countActivePostClaimBootstraps(),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
@@ -250,6 +251,10 @@ function isExpansionExecutorClaimReady(colony: ColonySnapshot, gameTime: number)
     colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY &&
     colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
   );
+}
+
+function getExpansionExecutorVisibleHostileState(room: Room): string {
+  return hasExpansionExecutorActiveHostiles(room) ? 'visibleHostile' : 'visibleSafe';
 }
 
 function countActiveExpansionExecutorSpawns(colony: ColonySnapshot): number {

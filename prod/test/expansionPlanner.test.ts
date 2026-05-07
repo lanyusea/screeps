@@ -980,7 +980,7 @@ describe('expansion planner', () => {
     ]);
   });
 
-  it('does not disable another colony claim plan for the selected room without priority comparison', () => {
+  it('keeps a higher-priority existing colony claim plan for the selected room', () => {
     const controllerId = 'controller-W2N1' as Id<StructureController>;
     Memory.territory = {
       targets: [
@@ -1004,12 +1004,23 @@ describe('expansion planner', () => {
         }
       ]
     };
+    const { colony } = makeColony({ energyAvailable: 1_300, energyCapacityAvailable: 1_300 });
+    installGame(colony, {
+      gclLevel: 3,
+      exits: {
+        W0N1: { '3': 'W2N1' },
+        W1N1: {}
+      },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1')
+      }
+    });
 
     const intent = createExpansionIntent(
       evaluateExpansionCandidate({
         colony: 'W1N1',
         roomName: 'W2N1',
-        distance: 1,
+        distance: 2,
         sourceCount: 2,
         controllerId
       }),
@@ -1086,13 +1097,22 @@ describe('expansion planner', () => {
         }
       ]
     };
+    const { colony } = makeColony({ energyAvailable: 1_300, energyCapacityAvailable: 1_300 });
+    installGame(colony, {
+      gclLevel: 3,
+      exits: { W1N1: { '3': 'W2N1', '5': 'W3N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 3 }),
+        W3N1: makeExpansionRoom('W3N1', { sourceCount: 2 })
+      }
+    });
 
     const intent = createExpansionIntent(
       evaluateExpansionCandidate({
         colony: 'W1N1',
         roomName: 'W2N1',
         distance: 1,
-        sourceCount: 2,
+        sourceCount: 3,
         controllerId: nextControllerId
       }),
       'claim',
@@ -1138,6 +1158,97 @@ describe('expansion planner', () => {
         action: 'claim',
         status: 'planned',
         updatedAt: 123,
+        createdBy: 'expansionPlanner',
+        controllerId: nextControllerId
+      }
+    ]);
+  });
+
+  it('keeps a higher-priority same-colony claim plan active when a weaker claim is selected', () => {
+    const oldControllerId = 'controller-W3N1' as Id<StructureController>;
+    const nextControllerId = 'controller-W2N1' as Id<StructureController>;
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W3N1',
+          action: 'claim',
+          createdBy: 'expansionPlanner',
+          controllerId: oldControllerId
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W3N1',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 100,
+          createdBy: 'expansionPlanner',
+          controllerId: oldControllerId
+        }
+      ]
+    };
+    const { colony } = makeColony({ energyAvailable: 1_300, energyCapacityAvailable: 1_300 });
+    installGame(colony, {
+      gclLevel: 3,
+      exits: { W1N1: { '3': 'W2N1', '5': 'W3N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', { sourceCount: 2 }),
+        W3N1: makeExpansionRoom('W3N1', { sourceCount: 3 })
+      }
+    });
+
+    const intent = createExpansionIntent(
+      evaluateExpansionCandidate({
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        distance: 1,
+        sourceCount: 2,
+        controllerId: nextControllerId
+      }),
+      'claim',
+      124
+    );
+
+    const territory = Memory.territory as TerritoryMemory;
+    expect(intent).toMatchObject({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim'
+    });
+    expect(territory.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId: oldControllerId
+      },
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId: nextControllerId
+      }
+    ]);
+    expect(territory.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 100,
+        createdBy: 'expansionPlanner',
+        controllerId: oldControllerId
+      },
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 124,
         createdBy: 'expansionPlanner',
         controllerId: nextControllerId
       }
