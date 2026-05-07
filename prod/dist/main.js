@@ -8736,7 +8736,7 @@ function getVisibleExpansionTargetTerminalStatus(target, ownerUsername) {
   if (!reservationUsername) {
     return null;
   }
-  return reservationUsername === ownerUsername ? "completed" : "inactive";
+  return reservationUsername === ownerUsername ? null : "inactive";
 }
 function normalizeTerritoryTarget2(rawTarget) {
   if (!isRecord9(rawTarget)) {
