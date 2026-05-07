@@ -13,6 +13,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -1189,6 +1190,7 @@ def prepare_history_db(db_path: Path) -> tuple[sqlite3.Connection, JsonObject]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     status: JsonObject
     if is_lfs_pointer(db_path):
+        guard_history_db_recovery_path(db_path)
         db_path.unlink()
         status = {
             "status": "cold-start-lfs-pointer",
@@ -1219,6 +1221,7 @@ def prepare_history_db(db_path: Path) -> tuple[sqlite3.Connection, JsonObject]:
         except Exception:
             pass
         if db_path.exists():
+            guard_history_db_recovery_path(db_path)
             db_path.unlink()
         status = {
             "status": "recreated-invalid-sqlite",
@@ -1231,6 +1234,50 @@ def prepare_history_db(db_path: Path) -> tuple[sqlite3.Connection, JsonObject]:
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_schema(conn)
     return conn, status
+
+
+def guard_history_db_recovery_path(db_path: Path) -> None:
+    expected_name = "roadmap-kpi.sqlite"
+    if has_symlink_component(db_path):
+        raise RuntimeError(
+            f"Refusing to auto-recreate KPI history DB at {db_path}: path has a symlink component; "
+            "the path was not removed."
+        )
+    if db_path.name != expected_name or db_path.parent.name != "docs":
+        raise RuntimeError(
+            f"Refusing to auto-recreate KPI history DB at {db_path}: only docs/{expected_name} "
+            "may be recovered automatically; the path was not removed."
+        )
+
+    resolved_path = db_path.resolve(strict=False)
+    repo_history_db = (Path(__file__).resolve().parents[1] / "docs" / expected_name).resolve(strict=False)
+    if resolved_path == repo_history_db or is_temp_history_db_recovery_path(resolved_path, expected_name):
+        return
+
+    raise RuntimeError(
+        f"Refusing to auto-recreate KPI history DB at {db_path}: path is outside the expected "
+        f"repository docs/{expected_name} or temporary test docs/{expected_name} location; "
+        "the path was not removed."
+    )
+
+
+def has_symlink_component(path: Path) -> bool:
+    check_path = path if path.is_absolute() else Path.cwd() / path
+    current = Path(check_path.anchor)
+    for part in check_path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def is_temp_history_db_recovery_path(path: Path, expected_name: str) -> bool:
+    temp_root = Path(tempfile.gettempdir()).resolve(strict=False)
+    try:
+        relative = path.relative_to(temp_root)
+    except ValueError:
+        return False
+    return len(relative.parts) == 3 and relative.parts[1] == "docs" and relative.parts[2] == expected_name
 
 
 def is_lfs_pointer(path: Path) -> bool:
