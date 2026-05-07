@@ -1374,12 +1374,10 @@ function completeRecommendedClaimIfSigned(
   controller: StructureController,
   telemetryEvents: RuntimeTelemetryEvent[]
 ): void {
-  if (isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep)) {
-    return;
-  }
-
-  const signingResult = signOccupiedControllerIfNeeded(creep, controller);
-  if (signingResult === 'moving' || signingResult === 'blocked') {
+  const signingResult = isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep)
+    ? 'skipped'
+    : signOccupiedControllerIfNeeded(creep, controller);
+  if (signingResult === 'moving') {
     return;
   }
 

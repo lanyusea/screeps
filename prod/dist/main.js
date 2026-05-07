@@ -29647,11 +29647,8 @@ function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryE
   });
 }
 function completeRecommendedClaimIfSigned(creep, assignment, controller, telemetryEvents) {
-  if (isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep)) {
-    return;
-  }
-  const signingResult = signOccupiedControllerIfNeeded(creep, controller);
-  if (signingResult === "moving" || signingResult === "blocked") {
+  const signingResult = isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep) ? "skipped" : signOccupiedControllerIfNeeded(creep, controller);
+  if (signingResult === "moving") {
     return;
   }
   recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
