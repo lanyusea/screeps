@@ -301,7 +301,7 @@ describe('linkManager', () => {
     expect(room.find).not.toHaveBeenCalled();
   });
 
-  it('prioritizes inter-room link transfers toward the highest deficit import room', () => {
+  it('does not issue cross-room link transfers toward import rooms', () => {
     const sourceStorageLink = makeLink('source-storage-link', 20, 21, 600, 200, 0, 'W1N1');
     const highDeficitSpawnLink = makeLink('high-deficit-spawn-link', 6, 5, 0, 300, 0, 'W2N1');
     const lowDeficitStorageLink = makeLink('low-deficit-storage-link', 20, 21, 0, 800, 0, 'W3N1');
@@ -335,19 +335,9 @@ describe('linkManager', () => {
       ]
     });
 
-    expect(transferInterRoomEnergy([sourceRoom, lowDeficitRoom, highDeficitRoom])).toEqual([
-      {
-        amount: 300,
-        destinationId: 'high-deficit-spawn-link',
-        destinationRole: 'spawn',
-        plannedAmount: 300,
-        result: OK_CODE,
-        sourceId: 'source-storage-link',
-        sourceRoom: 'W1N1',
-        targetRoom: 'W2N1'
-      }
-    ]);
-    expect(sourceStorageLink.transferEnergy).toHaveBeenCalledWith(highDeficitSpawnLink, 300);
+    expect(transferInterRoomEnergy([sourceRoom, lowDeficitRoom, highDeficitRoom])).toEqual([]);
+    expect(sourceStorageLink.transferEnergy).not.toHaveBeenCalled();
+    expect(sourceStorageLink.transferEnergy).not.toHaveBeenCalledWith(highDeficitSpawnLink, expect.any(Number));
     expect(sourceStorageLink.transferEnergy).not.toHaveBeenCalledWith(lowDeficitStorageLink, expect.any(Number));
   });
 
@@ -376,7 +366,7 @@ describe('linkManager', () => {
     expect(sourceStorageLink.transferEnergy).not.toHaveBeenCalled();
   });
 
-  it('fills inter-room deficit links from additional export links without overfilling', () => {
+  it('does not fill inter-room deficit links from additional cross-room export links', () => {
     const sourceStorageLink = makeLink('source-storage-link', 20, 21, 200, 600, 0, 'W1N1');
     const sourceHarvestLink = makeLink('source-harvest-link', 11, 10, 500, 300, 0, 'W1N1');
     const targetStorageLink = makeLink('target-storage-link', 20, 21, 0, 600, 0, 'W2N1');
@@ -399,22 +389,9 @@ describe('linkManager', () => {
       transfers: [{ sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 700, updatedAt: 100 }]
     });
 
-    expect(transferInterRoomEnergy([sourceRoom, targetRoom])).toMatchObject([
-      {
-        amount: 200,
-        destinationId: 'target-storage-link',
-        destinationRole: 'storage',
-        sourceId: 'source-storage-link'
-      },
-      {
-        amount: 400,
-        destinationId: 'target-storage-link',
-        destinationRole: 'storage',
-        sourceId: 'source-harvest-link'
-      }
-    ]);
-    expect(sourceStorageLink.transferEnergy).toHaveBeenCalledWith(targetStorageLink, 200);
-    expect(sourceHarvestLink.transferEnergy).toHaveBeenCalledWith(targetStorageLink, 400);
+    expect(transferInterRoomEnergy([sourceRoom, targetRoom])).toEqual([]);
+    expect(sourceStorageLink.transferEnergy).not.toHaveBeenCalled();
+    expect(sourceHarvestLink.transferEnergy).not.toHaveBeenCalled();
   });
 });
 
@@ -471,6 +448,7 @@ function makeLink(
   return {
     id,
     cooldown,
+    room: { name: roomName },
     structureType: 'link',
     pos: makeRoomPosition(x, y, roomName),
     store: {

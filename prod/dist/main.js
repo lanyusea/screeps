@@ -15977,6 +15977,10 @@ function transferInterRoomEnergyForPlan(transfer, targetRoom, sourceNetwork, tar
         spentSourceIds.add(sourceId);
         continue;
       }
+      if (sourceLink.room.name !== destination.link.room.name) {
+        spentSourceIds.add(sourceId);
+        continue;
+      }
       const amount = Math.min(
         remainingTransfer,
         (_d = projectedState.storedEnergyById.get(sourceId)) != null ? _d : 0,
