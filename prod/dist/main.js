@@ -19788,7 +19788,7 @@ function selectStorageEnergyCriticalDeliveryTask(creep, carriedEnergy) {
   return { type: "transfer", targetId: storage.id };
 }
 function isStorageCritical(assessment) {
-  return assessment.storageEnergy !== null && assessment.storageEnterThreshold !== null && assessment.storageExitThreshold !== null && assessment.storageEnergy < assessment.storageExitThreshold;
+  return assessment.reason === "storage" || assessment.reason === "spawnAndStorage";
 }
 function isRoomStorageWithdrawTask(creep, task) {
   if ((task == null ? void 0 : task.type) !== "withdraw") {
