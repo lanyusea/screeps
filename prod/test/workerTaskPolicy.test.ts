@@ -13,6 +13,7 @@ import {
 import {
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+  WORKER_PRE_HARVEST_REGEN_THRESHOLD,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
 
@@ -220,6 +221,32 @@ describe('worker energy-critical policy', () => {
       type: 'harvest',
       targetId: 'source1'
     });
+  });
+
+  it('does not assign pre-harvest while spawn energy is critical', () => {
+    const source = {
+      id: 'source-pre',
+      energy: 0,
+      ticksToRegeneration: WORKER_PRE_HARVEST_REGEN_THRESHOLD
+    } as Source;
+    const room = makeEnergyCriticalRoom({
+      controller: makeController(),
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      sources: [source]
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 0,
+      freeCapacity: 50
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 204,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'source-pre' ? source : null))
+    };
+
+    expect(
+      selectWorkerEnergyCriticalTask(creep, null, { type: 'harvest', targetId: 'source-pre' as Id<Source> })
+    ).toBeNull();
   });
 });
 
