@@ -3,6 +3,7 @@ import {
   buildCriticalRoadLogisticsContext,
   isCriticalRoadLogisticsWork
 } from '../construction/criticalRoads';
+import { getContainerEnergyFillRatio, getStoreEnergyCapacity } from '../economy/containerEnergy';
 import { findSourceContainer } from '../economy/sourceContainers';
 import { buildRemoteHarvesterBody } from '../spawn/bodyBuilder';
 
@@ -22,7 +23,9 @@ export interface RemoteSourceAssignment {
   targetRoom: string;
   sourceId: Id<Source>;
   containerId?: Id<StructureContainer>;
+  containerCapacity?: number;
   containerEnergy: number;
+  containerFillRatio?: number;
   routeDistance: number;
 }
 
@@ -194,12 +197,17 @@ function getRemoteSourceAssignmentsInRoom(homeRoom: string, room: Room): RemoteS
   return (room.find(FIND_SOURCES) as Source[])
     .map((source) => {
       const container = findSourceContainer(room, source);
+      const containerEnergy = container ? getStoredEnergy(container) : 0;
+      const containerCapacity = container ? getStoreEnergyCapacity(container) : null;
+      const containerFillRatio = container ? getContainerEnergyFillRatio(container, containerEnergy) : null;
       return {
         homeRoom,
         targetRoom: room.name,
         sourceId: source.id,
         ...(container ? { containerId: container.id } : {}),
-        containerEnergy: container ? getStoredEnergy(container) : 0,
+        ...(containerCapacity === null ? {} : { containerCapacity }),
+        containerEnergy,
+        ...(containerFillRatio === null ? {} : { containerFillRatio }),
         routeDistance: estimateRemoteRoomDistance(homeRoom, room.name)
       };
     });

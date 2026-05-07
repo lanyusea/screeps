@@ -63,6 +63,48 @@ describe('runHauler', () => {
     expect(creep.memory.behaviorTelemetry).toMatchObject({ energyAcquisitionWithdrawn: 1 });
   });
 
+  it('withdraws from an overflow-risk container before richer durable storage', () => {
+    const assignedContainer = makeStoreStructure('container1', STRUCTURE_CONTAINER, 100, 1_900, 2_000);
+    const overflowContainer = makeStoreStructure('container-overflow', STRUCTURE_CONTAINER, 1_700, 300, 2_000);
+    const storage = makeStoreStructure('storage-rich', STRUCTURE_STORAGE, 5_000, 5_000, 10_000);
+    const remoteRoom = makeRoom('W2N1', true, [], [], [
+      assignedContainer as unknown as Structure,
+      overflowContainer as unknown as Structure,
+      storage as unknown as Structure
+    ]);
+    const creep = makeHauler(remoteRoom, 0);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) => (id === 'container1' ? assignedContainer : null))
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'container-overflow' });
+    expect(creep.withdraw).toHaveBeenCalledWith(overflowContainer, RESOURCE_ENERGY);
+  });
+
+  it('keeps durable storage ahead of containers below the overflow threshold', () => {
+    const assignedContainer = makeStoreStructure('container1', STRUCTURE_CONTAINER, 100, 1_900, 2_000);
+    const bufferedContainer = makeStoreStructure('container-buffered', STRUCTURE_CONTAINER, 1_500, 500, 2_000);
+    const storage = makeStoreStructure('storage-rich', STRUCTURE_STORAGE, 5_000, 5_000, 10_000);
+    const remoteRoom = makeRoom('W2N1', true, [], [], [
+      assignedContainer as unknown as Structure,
+      bufferedContainer as unknown as Structure,
+      storage as unknown as Structure
+    ]);
+    const creep = makeHauler(remoteRoom, 0);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { W2N1: remoteRoom },
+      getObjectById: jest.fn((id: string) => (id === 'container1' ? assignedContainer : null))
+    };
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'storage-rich' });
+    expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
+  });
+
   it('delivers carried remote energy to spawn and extension sinks before storage', () => {
     const spawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 100, 200);
     const storage = makeStoreStructure('storage1', STRUCTURE_STORAGE, 1_000, 5_000);
@@ -202,14 +244,16 @@ function makeStoreStructure(
   id: string,
   structureType: StructureConstant,
   usedEnergy: number,
-  freeEnergy: number
+  freeEnergy: number,
+  capacity = usedEnergy + freeEnergy
 ): AnyOwnedStructure {
   return {
     id,
     structureType,
     store: {
       getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? usedEnergy : 0)),
-      getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeEnergy : 0))
+      getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeEnergy : 0)),
+      getCapacity: jest.fn((resource?: ResourceConstant) => (resource === undefined || resource === RESOURCE_ENERGY ? capacity : 0))
     }
   } as unknown as AnyOwnedStructure;
 }
