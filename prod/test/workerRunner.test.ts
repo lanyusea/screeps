@@ -162,7 +162,7 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'storage1' });
-    expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
+    expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY, 50);
     expect(creep.moveTo).toHaveBeenCalledWith(storage);
   });
 
@@ -651,11 +651,11 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy');
+    expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy', 50);
     expect(creep.moveTo).toHaveBeenCalledWith(container);
   });
 
-  it('withdraws from spawn energy without passing an unsupported amount argument', () => {
+  it('caps spawn energy withdrawal to approved amount', () => {
     const spawn = {
       id: 'spawn1',
       structureType: 'spawn',
@@ -692,9 +692,9 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.withdraw).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.withdraw).toHaveBeenCalledWith(spawn, 'energy', 50);
     expect(creep.withdraw).toHaveBeenCalledTimes(1);
-    expect(withdraw.mock.calls[0]).toEqual([spawn, 'energy']);
+    expect(withdraw.mock.calls[0]).toEqual([spawn, 'energy', 50]);
   });
 
   it('records source container withdrawal telemetry on successful source-container withdraw', () => {
@@ -735,7 +735,7 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy');
+    expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy', 50);
     expect(creep.memory.behaviorTelemetry).toMatchObject({
       workTicks: 1,
       sourceContainerWithdrawals: 1,
@@ -771,7 +771,7 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(withdraw).toHaveBeenCalledWith(drainedContainer, 'energy');
+    expect(withdraw).toHaveBeenCalledWith(drainedContainer, 'energy', 50);
     expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
     expect(harvest).toHaveBeenCalledWith(source);
     expect(creep.moveTo).not.toHaveBeenCalled();
@@ -2780,7 +2780,7 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.withdraw).toHaveBeenCalledWith(link, 'energy');
+    expect(creep.withdraw).toHaveBeenCalledWith(link, 'energy', 50);
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 

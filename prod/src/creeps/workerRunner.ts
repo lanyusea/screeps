@@ -1075,7 +1075,7 @@ function executeTask(
         return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
       }
 
-      const result = creep.withdraw(withdrawTarget, RESOURCE_ENERGY);
+      const result = creep.withdraw(withdrawTarget, RESOURCE_ENERGY, requestedAmount);
       return toTaskExecutionResult(result, 'work', {
         energyAcquisitionMethod: 'withdrawn',
         sourceContainerWithdrawal: isVisibleSourceContainer(creep, withdrawTarget)
