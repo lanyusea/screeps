@@ -136,7 +136,11 @@ function selectPriorityTowerAttackTarget(
   priorityTargetGroups: TowerPriorityTargetGroup[]
 ): Creep | Structure | null {
   for (const group of priorityTargetGroups) {
-    const target = selectTowerAttackTarget(tower, group.hostileCreeps, group.hostileStructures);
+    const target = selectTowerAttackTarget(
+      tower,
+      group.hostileCreeps.filter((creep) => creep.room?.name === tower.room.name),
+      group.hostileStructures.filter((structure) => structure.room?.name === tower.room.name)
+    );
     if (target) {
       return target;
     }

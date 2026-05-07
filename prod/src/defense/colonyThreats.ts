@@ -16,15 +16,16 @@ export function getDefenseThreatLevel(observation: DefenseThreatObservation): De
   const hostileCount =
     normalizeNonNegativeInteger(observation.hostileCreepCount) +
     normalizeNonNegativeInteger(observation.hostileStructureCount);
-  if (hostileCount <= 0 && observation.controllerUnderAttack !== true) {
-    return 'none';
-  }
 
   if (
     observation.controllerUnderAttack === true ||
     normalizeNonNegativeInteger(observation.damagedCriticalStructureCount) > 0
   ) {
     return 'under_attack';
+  }
+
+  if (hostileCount <= 0) {
+    return 'none';
   }
 
   return 'hostile_present';

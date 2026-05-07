@@ -161,7 +161,7 @@ describe('runDefense', () => {
     });
   });
 
-  it('prioritizes in-range hostiles from an attacked sibling room before local hostile contact', () => {
+  it('keeps attacked sibling room priority targets from skipping local tower defense', () => {
     const localHostile = makeHostile('local-hostile', 25, 25, 'W1N1');
     const siblingHostile = makeHostile('sibling-hostile', 26, 25, 'W1N1');
     let homeTowers: StructureTower[] = [];
@@ -191,8 +191,25 @@ describe('runDefense', () => {
 
     runDefense();
 
-    expect(homeTower.attack).toHaveBeenCalledWith(siblingHostile);
-    expect(homeTower.attack).not.toHaveBeenCalledWith(localHostile);
+    expect(homeTower.attack).toHaveBeenCalledWith(localHostile);
+    expect(homeTower.attack).not.toHaveBeenCalledWith(siblingHostile);
+  });
+
+  it('records damaged critical structures as under attack without visible hostiles', () => {
+    makeOwnedRoom({
+      spawnHits: 2_000,
+      spawnHitsMax: 5_000
+    });
+
+    runDefense();
+
+    expect(Memory.defense?.colonyThreats?.rooms?.W1N1).toMatchObject({
+      roomName: 'W1N1',
+      level: 'under_attack',
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      damagedCriticalStructureCount: 1
+    });
   });
 
   it('falls back to local hostiles when attacked sibling room targets are out of tower range', () => {
@@ -823,6 +840,14 @@ function makeRoom({
       return [];
     })
   } as unknown as Room;
+
+  for (const hostile of hostiles) {
+    (hostile as unknown as { room: Room }).room = room;
+  }
+
+  for (const hostileStructure of hostileStructures) {
+    (hostileStructure as unknown as { room: Room }).room = room;
+  }
 
   return room;
 }

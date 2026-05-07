@@ -1441,7 +1441,17 @@ function runTowerAttack(tower, context, result, priorityTargetGroups) {
 }
 function selectPriorityTowerAttackTarget(tower, priorityTargetGroups) {
   for (const group of priorityTargetGroups) {
-    const target = selectTowerAttackTarget(tower, group.hostileCreeps, group.hostileStructures);
+    const target = selectTowerAttackTarget(
+      tower,
+      group.hostileCreeps.filter((creep) => {
+        var _a;
+        return ((_a = creep.room) == null ? void 0 : _a.name) === tower.room.name;
+      }),
+      group.hostileStructures.filter((structure) => {
+        var _a;
+        return ((_a = structure.room) == null ? void 0 : _a.name) === tower.room.name;
+      })
+    );
     if (target) {
       return target;
     }
@@ -1527,11 +1537,11 @@ var THREAT_LEVEL_PRIORITY = {
 };
 function getDefenseThreatLevel(observation) {
   const hostileCount = normalizeNonNegativeInteger2(observation.hostileCreepCount) + normalizeNonNegativeInteger2(observation.hostileStructureCount);
-  if (hostileCount <= 0 && observation.controllerUnderAttack !== true) {
-    return "none";
-  }
   if (observation.controllerUnderAttack === true || normalizeNonNegativeInteger2(observation.damagedCriticalStructureCount) > 0) {
     return "under_attack";
+  }
+  if (hostileCount <= 0) {
+    return "none";
   }
   return "hostile_present";
 }
