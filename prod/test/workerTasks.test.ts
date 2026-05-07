@@ -12,7 +12,9 @@ import {
   MINIMUM_USEFUL_LOAD_RATIO,
   TOWER_REFILL_ENERGY_FLOOR,
   URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+  WORKER_PRE_HARVEST_REGEN_THRESHOLD,
   estimateNearTermSpawnExtensionRefillReserve,
+  isWorkerPreHarvestSource,
   canLevelUpController,
   canUpgradeController,
   isUpgraderBoostActive,
@@ -223,6 +225,18 @@ function makeSource(id: string, x: number, y: number, energyOrRoomName: number |
     energy,
     pos: makeRoomPosition(x, y, roomName)
   } as unknown as Source;
+}
+
+function makePreHarvestSource(
+  id: string,
+  x: number,
+  y: number,
+  ticksToRegeneration = WORKER_PRE_HARVEST_REGEN_THRESHOLD
+): Source {
+  return {
+    ...makeSource(id, x, y, 0),
+    ticksToRegeneration
+  } as Source;
 }
 
 function makeWorkerTaskRoom({
@@ -497,6 +511,74 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-ready' });
+  });
+
+  it('detects sources that are useful pre-harvest candidates', () => {
+    expect(isWorkerPreHarvestSource(makePreHarvestSource('source-pre', 10, 10))).toBe(true);
+    expect(
+      isWorkerPreHarvestSource(
+        makePreHarvestSource('source-late', 10, 10, WORKER_PRE_HARVEST_REGEN_THRESHOLD + 1)
+      )
+    ).toBe(false);
+    expect(isWorkerPreHarvestSource(makeSource('source-active', 10, 10, 1))).toBe(false);
+  });
+
+  it('prioritizes pre-regenerating harvest sources over active sources', () => {
+    const activeSource = makeSource('source-active', 8, 8, 300);
+    const preHarvestSource = makePreHarvestSource('source-pre', 20, 20);
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source-active' ? 1 : 10))
+      },
+      room: makeWorkerTaskRoom({ sources: [activeSource, preHarvestSource] })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-pre' });
+  });
+
+  it('falls back to active sources when a pre-harvest source already has a waiter', () => {
+    const preHarvestSource = makePreHarvestSource('source-pre', 8, 8);
+    const activeSource = makeSource('source-active', 20, 20, 300);
+    const room = makeWorkerTaskRoom({ sources: [preHarvestSource, activeSource] });
+    setGameCreeps({
+      PreHarvestWaiter: {
+        memory: { role: 'worker', task: { type: 'harvest', targetId: 'source-pre' as Id<Source> } },
+        room
+      } as unknown as Creep
+    });
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'source-pre' ? 1 : 10))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source-active' });
+  });
+
+  it('does not assign pre-harvest while spawn energy is critical', () => {
+    const preHarvestSource = makePreHarvestSource('source-pre', 8, 8);
+    const creep = {
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room: makeWorkerTaskRoom({
+        energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        sources: [preHarvestSource]
+      })
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toBeNull();
   });
 
   it('harvests the closer source when same-tier sources can both fill the worker', () => {
