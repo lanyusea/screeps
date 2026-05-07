@@ -18,6 +18,8 @@ describe('linkManager', () => {
       STRUCTURE_SPAWN: 'spawn',
       STRUCTURE_STORAGE: 'storage'
     });
+    delete (globalThis as { Game?: Partial<Game> }).Game;
+    delete (globalThis as { Memory?: Partial<Memory> }).Memory;
   });
 
   it('handles rooms with no links', () => {
@@ -297,10 +299,12 @@ describe('linkManager', () => {
     expect(getSourceLinkWorkerEnergyAvailable(room, sourceLink, network)).toBe(300);
     expect(room.find).not.toHaveBeenCalled();
   });
+
 });
 
 function makeRoom({
-  controller = makeController(25, 25),
+  roomName = 'W1N1',
+  controller,
   energyAvailable,
   energyCapacityAvailable,
   links = [],
@@ -308,6 +312,7 @@ function makeRoom({
   spawns = [],
   storage
 }: {
+  roomName?: string;
   controller?: StructureController;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
@@ -316,10 +321,11 @@ function makeRoom({
   spawns?: StructureSpawn[];
   storage?: StructureStorage;
 }): Room {
+  const roomController = controller ?? makeController(25, 25, roomName);
   const structures = storage ? [...links, storage, ...spawns] : [...links, ...spawns];
   return {
-    name: 'W1N1',
-    controller,
+    name: roomName,
+    controller: roomController,
     ...(typeof energyAvailable === 'number' ? { energyAvailable } : {}),
     ...(typeof energyCapacityAvailable === 'number' ? { energyCapacityAvailable } : {}),
     ...(storage ? { storage } : {}),
@@ -343,13 +349,15 @@ function makeLink(
   y: number,
   energy: number,
   freeCapacity: number,
-  cooldown = 0
+  cooldown = 0,
+  roomName = 'W1N1'
 ): TestStructureLink {
   return {
     id,
     cooldown,
+    room: { name: roomName },
     structureType: 'link',
-    pos: makeRoomPosition(x, y),
+    pos: makeRoomPosition(x, y, roomName),
     store: {
       getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
       getUsedCapacity: jest.fn().mockReturnValue(energy)
@@ -364,12 +372,13 @@ function makeStorage(
   y: number,
   energy: number,
   freeCapacity = 100_000,
-  capacity?: number
+  capacity?: number,
+  roomName = 'W1N1'
 ): StructureStorage {
   return {
     id,
     structureType: 'storage',
-    pos: makeRoomPosition(x, y),
+    pos: makeRoomPosition(x, y, roomName),
     store: {
       getFreeCapacity: jest.fn().mockReturnValue(freeCapacity),
       ...(capacity === undefined ? {} : { getCapacity: jest.fn().mockReturnValue(capacity) }),
@@ -378,23 +387,23 @@ function makeStorage(
   } as unknown as StructureStorage;
 }
 
-function makeSource(id: string, x: number, y: number): Source {
-  return { id, pos: makeRoomPosition(x, y) } as unknown as Source;
+function makeSource(id: string, x: number, y: number, roomName = 'W1N1'): Source {
+  return { id, pos: makeRoomPosition(x, y, roomName) } as unknown as Source;
 }
 
-function makeController(x: number, y: number): StructureController {
-  return { id: 'controller1', my: true, pos: makeRoomPosition(x, y) } as unknown as StructureController;
+function makeController(x: number, y: number, roomName = 'W1N1'): StructureController {
+  return { id: `${roomName}-controller`, my: true, pos: makeRoomPosition(x, y, roomName) } as unknown as StructureController;
 }
 
-function makeSpawn(id: string, x: number, y: number): StructureSpawn {
+function makeSpawn(id: string, x: number, y: number, roomName = 'W1N1'): StructureSpawn {
   return {
     id,
     name: id,
     structureType: 'spawn',
-    pos: makeRoomPosition(x, y)
+    pos: makeRoomPosition(x, y, roomName)
   } as unknown as StructureSpawn;
 }
 
-function makeRoomPosition(x: number, y: number): RoomPosition {
-  return { x, y, roomName: 'W1N1' } as RoomPosition;
+function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
+  return { x, y, roomName } as RoomPosition;
 }
