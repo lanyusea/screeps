@@ -6584,6 +6584,7 @@ describe('planTerritoryIntent', () => {
       updatedAt: 699,
       sources: {}
     };
+    const deferredRemoteMiningSnapshot = JSON.parse(JSON.stringify(deferredRemoteMiningMemory)) as TerritoryRemoteMiningRoomMemory;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       territory: {
         postClaimBootstraps: {
@@ -6614,6 +6615,7 @@ describe('planTerritoryIntent', () => {
     expect(deferredRoom.createConstructionSite).not.toHaveBeenCalled();
     expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toBeDefined();
     expect(Memory.territory?.remoteMining?.['W1N1:W3N1']).toBe(deferredRemoteMiningMemory);
+    expect(Memory.territory?.remoteMining?.['W1N1:W3N1']).toEqual(deferredRemoteMiningSnapshot);
   });
 
   it('records active remote mining state from source containers and room-local assigned creeps', () => {

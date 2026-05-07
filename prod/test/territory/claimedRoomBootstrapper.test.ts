@@ -260,8 +260,8 @@ describe('claimed room bootstrapper', () => {
     Memory.territory = {
       claimedRoomBootstrapper: {
         rooms: {
-          W2N1: { roomName: 'W2N1', owned: true, claimedAt: 80, updatedAt: 90 },
-          W3N1: { roomName: 'W3N1', owned: true, claimedAt: 90, updatedAt: 90 }
+          W3N1: { roomName: 'W3N1', owned: true, claimedAt: 90, updatedAt: 90 },
+          W2N1: { roomName: 'W2N1', owned: true, claimedAt: 80, updatedAt: 90 }
         }
       }
     };
