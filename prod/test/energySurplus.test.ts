@@ -99,6 +99,44 @@ describe('energySurplus', () => {
     expect(selectEnergySurplusDeliverySink(room, 50)).toBeNull();
   });
 
+  it('does not declare surplus while a spawn energy reservation is unmet', () => {
+    Memory.economy = {
+      spawnEnergyReservation: {
+        updatedAt: 99,
+        rooms: {
+          W1N1: {
+            bodyCost: 400,
+            creepName: 'claimer-W1N1-W2N1-100',
+            reservedAt: 99,
+            reservedEnergy: 400,
+            role: 'claimer',
+            roomName: 'W1N1',
+            updatedAt: 99
+          }
+        }
+      }
+    };
+    const spawn = makeEnergyStructure('spawn1', 'spawn', 300, 300);
+    const container = makeEnergyStructure('container1', 'container', 2_000, 2_000);
+    const storage = makeEnergyStructure('storage1', 'storage', 100, 1_000) as StructureStorage;
+    const room = makeRoom({
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      storage,
+      myStructures: [spawn, storage],
+      structures: [spawn, container, storage]
+    });
+
+    expect(getRoomEnergySurplusState(room)).toMatchObject({
+      surplus: false,
+      spawnExtensionsFull: true,
+      containersFull: true,
+      reservedSpawnEnergy: 400,
+      unmetSpawnEnergyReservation: 100
+    });
+    expect(selectEnergySurplusDeliverySink(room, 50)).toBeNull();
+  });
+
   it('uses terminal as the surplus sink when storage is full and terminal needs energy', () => {
     const spawn = makeEnergyStructure('spawn1', 'spawn', 300, 300);
     const container = makeEnergyStructure('container1', 'container', 2_000, 2_000);

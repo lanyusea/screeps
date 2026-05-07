@@ -69,6 +69,37 @@ describe('cross-room energy logistics', () => {
     ]);
   });
 
+  it('keeps storage exports from consuming unmet spawn energy reservations', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 900, energyAvailable: 700 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 200 });
+    installGame([sourceRoom, targetRoom], []);
+    Memory.economy = {
+      spawnEnergyReservation: {
+        updatedAt: 99,
+        rooms: {
+          W1N1: {
+            bodyCost: 800,
+            creepName: 'claimer-W1N1-W3N1-100',
+            reservedAt: 99,
+            reservedEnergy: 800,
+            role: 'claimer',
+            roomName: 'W1N1',
+            updatedAt: 99
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.W1N1).toMatchObject({
+      exportableEnergy: 0,
+      reservedSpawnEnergy: 800,
+      unmetSpawnEnergyReservation: 100
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([]);
+  });
+
   it('records terminal energy balance fields with storage balance state', () => {
     const room = makeOwnedRoom({
       roomName: 'W1N1',

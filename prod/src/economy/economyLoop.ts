@@ -16,6 +16,7 @@ import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn
 import {
   orderColoniesForSpawnPlanning,
   planSpawn,
+  planSpawnEnergyReservationCandidate,
   shouldSuppressWorkerSpawnForCrossRoomImport,
   type SpawnPlanningOptions,
   type SpawnRequest
@@ -50,6 +51,11 @@ import {
   runMineralHarvester
 } from './mineral-harvesting';
 import { refreshRoomEnergySurplusState } from './energySurplus';
+import {
+  clearSpawnEnergyReservation,
+  refreshSpawnEnergyReservationState,
+  reserveSpawnEnergyForNextRequest
+} from './spawnEnergyReservation';
 import {
   buildRuntimeOccupationRecommendationReport,
   clearOccupationRecommendationClaimIntent,
@@ -136,6 +142,7 @@ interface CoordinatedSpawnPlan {
   bodyCost: number;
   planningColony: ColonySnapshot;
   spawns: StructureSpawn[];
+  sourceColony: ColonySnapshot;
   sourceRoomName: string;
   availableEnergy: number;
 }
@@ -144,6 +151,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   const creeps = Object.values(Game.creeps);
   balanceStorage();
   const ownedColonies = getOwnedColonies();
+  refreshSpawnEnergyReservationStates(ownedColonies);
   const initialRoleCountsByRoom = new Map(
     ownedColonies.map((colony) => [colony.room.name, countCreepsByRole(creeps, colony.room.name)] as const)
   );
@@ -232,16 +240,35 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       successfulSpawnCount += 1;
       recordPlannedMultiRoomUpgraderSpawn(spawnRequest.memory);
 
-      if (spawnRequest.memory.role !== 'worker' || isControllerUpgradeSpawnRequest(spawnRequest)) {
+      const shouldContinueAfterWorkerSpawn =
+        spawnRequest.memory.role === 'worker' && !isControllerUpgradeSpawnRequest(spawnRequest);
+      const spawnedLocalWorker = shouldContinueAfterWorkerSpawn && spawnRequest.memory.colony === colony.room.name;
+      if (spawnedLocalWorker) {
+        roleCounts = addPlannedWorker(roleCounts);
+        plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
+      }
+
+      if (spawnedLocalWorker) {
+        updateNextSpawnEnergyReservation(
+          colony,
+          coordinatedPlan.sourceColony,
+          roleCounts,
+          Game.time,
+          getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp),
+          spawnRequest,
+          reservedSpawnEnergyByRoom.get(spawnRoomName) ?? bodyCost
+        );
+      } else {
+        clearSpawnEnergyReservation(spawnRoomName, Game.time);
+      }
+
+      if (!shouldContinueAfterWorkerSpawn) {
         break;
       }
 
-      if (spawnRequest.memory.colony !== colony.room.name) {
+      if (!spawnedLocalWorker) {
         continue;
       }
-
-      roleCounts = addPlannedWorker(roleCounts);
-      plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
     }
 
     transferLinkEnergy(colony.room);
@@ -253,6 +280,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
+  refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
 
   for (const creep of creeps) {
@@ -762,6 +790,7 @@ function planCoordinatedSpawn(
       ...spawnPlan,
       spawnRequest: withCrossRoomSpawnSupportMemory(spawnPlan.spawnRequest, sourceRoomName, colony.room.name),
       spawns: spawnPlan.planningColony.spawns,
+      sourceColony,
       sourceRoomName,
       availableEnergy
     };
@@ -782,6 +811,22 @@ function createSpawnPlanningColony(
     energyCapacityAvailable: normalizeNonNegativeInteger(sourceColony.energyCapacityAvailable),
     spawnEnergyBudget: normalizeNonNegativeInteger(energyAvailable),
     spawns: sourceColony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn))
+  };
+}
+
+function createSpawnEnergyReservationPlanningColony(
+  colony: ColonySnapshot,
+  sourceColony: ColonySnapshot,
+  energyBudget: number
+): ColonySnapshot {
+  const energyCapacityAvailable = normalizeNonNegativeInteger(sourceColony.energyCapacityAvailable);
+  const normalizedEnergyBudget = normalizeNonNegativeInteger(energyBudget);
+  return {
+    ...colony,
+    energyAvailable: normalizedEnergyBudget,
+    energyCapacityAvailable,
+    spawnEnergyBudget: normalizedEnergyBudget,
+    spawns: sourceColony.spawns
   };
 }
 
@@ -903,6 +948,55 @@ function getAvailableSpawnEnergy(
     normalizeNonNegativeInteger(colony.energyAvailable) -
       (reservedSpawnEnergyByRoom.get(colony.room.name) ?? 0)
   );
+}
+
+function updateNextSpawnEnergyReservation(
+  colony: ColonySnapshot,
+  sourceColony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  gameTime: number,
+  options: SpawnPlanningOptions,
+  spawnedRequest: SpawnRequest,
+  spentSpawnEnergyThisTick: number
+): void {
+  const sourceRoomName = sourceColony.room.name;
+  const energyBudgetAfterSpawn = Math.max(
+    0,
+    normalizeNonNegativeInteger(sourceColony.energyAvailable) - normalizeNonNegativeInteger(spentSpawnEnergyThisTick)
+  );
+  const reservationPlanningColony = createSpawnEnergyReservationPlanningColony(
+    colony,
+    sourceColony,
+    energyBudgetAfterSpawn
+  );
+  const candidate = planSpawnEnergyReservationCandidate(
+    reservationPlanningColony,
+    roleCounts,
+    gameTime,
+    options
+  );
+  if (!candidate) {
+    clearSpawnEnergyReservation(sourceRoomName, gameTime);
+    return;
+  }
+
+  reserveSpawnEnergyForNextRequest(
+    {
+      roomName: sourceRoomName,
+      bodyCost: candidate.bodyCost,
+      creepName: candidate.creepName,
+      role: candidate.role,
+      sourceCreepName: spawnedRequest.name,
+      sourceRole: String(spawnedRequest.memory.role)
+    },
+    gameTime
+  );
+}
+
+function refreshSpawnEnergyReservationStates(colonies: ColonySnapshot[]): void {
+  for (const colony of colonies) {
+    refreshSpawnEnergyReservationState(colony.room, colony.spawns, Game.time);
+  }
 }
 
 function refreshSpawnEnergyBufferStates(

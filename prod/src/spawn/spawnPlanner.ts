@@ -34,6 +34,7 @@ import {
   type DynamicCreepBodyDemand,
   type SpawnBufferBudgetPolicy
 } from '../economy/creepBodyScaling';
+import { getReservedSpawnEnergy } from '../economy/spawnEnergyReservation';
 import {
   buildEmergencyWorkerBody,
   buildRemoteHarvesterBody,
@@ -111,6 +112,7 @@ export interface SpawnEnergyForecast {
   energyAvailable: number;
   incomingEnergy: number;
   outgoingEnergy: number;
+  reservedEnergy: number;
   effectiveEnergyAvailable: number;
 }
 
@@ -137,6 +139,13 @@ export interface RoomCreepBudget {
   workerTarget: number;
   workerDeficit: number;
   priority: SpawnPlanningRoomPriority;
+  reservedSpawnEnergy: number;
+}
+
+export interface SpawnEnergyReservationCandidate {
+  bodyCost: number;
+  creepName: string;
+  role: string;
 }
 
 export type SpawnPlanningRoleCountsByRoom =
@@ -227,14 +236,75 @@ export function getSpawnEnergyForecast(colony: ColonySnapshot): SpawnEnergyForec
     .filter((transfer) => transfer.sourceRoom === colony.room.name)
     .reduce((total, transfer) => total + normalizeNonNegativeInteger(transfer.amount), 0);
   const energyAvailable = normalizeNonNegativeInteger(colony.energyAvailable);
+  const reservedEnergy = getReservedSpawnEnergy(colony.room.name);
 
   return {
     roomName: colony.room.name,
     energyAvailable,
     incomingEnergy,
     outgoingEnergy,
-    effectiveEnergyAvailable: Math.max(0, energyAvailable + incomingEnergy - outgoingEnergy)
+    reservedEnergy,
+    effectiveEnergyAvailable: Math.max(0, energyAvailable + incomingEnergy - outgoingEnergy - reservedEnergy)
   };
+}
+
+export function planSpawnEnergyReservationCandidate(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  gameTime: number,
+  options: SpawnPlanningOptions = {}
+): SpawnEnergyReservationCandidate | null {
+  const forecastColony = createSpawnEnergyReservationForecastColony(colony);
+  const request = planSpawn(forecastColony, roleCounts, gameTime, options);
+  if (!request) {
+    return null;
+  }
+
+  const bodyCost = getBodyCost(request.body);
+  if (bodyCost <= 0) {
+    return null;
+  }
+
+  return {
+    bodyCost,
+    creepName: request.name,
+    role: String(request.memory.role)
+  };
+}
+
+function createSpawnEnergyReservationForecastColony(colony: ColonySnapshot): ColonySnapshot {
+  const energyCapacityAvailable = normalizeNonNegativeInteger(colony.energyCapacityAvailable);
+  const explicitEnergyBudget = colony.spawnEnergyBudget;
+  const energyBudget = explicitEnergyBudget !== undefined
+    ? normalizeNonNegativeInteger(explicitEnergyBudget)
+    : getSpawnEnergyReservationForecastBudget(colony, energyCapacityAvailable);
+
+  return {
+    ...colony,
+    energyAvailable: energyBudget,
+    energyCapacityAvailable,
+    spawnEnergyBudget: energyBudget,
+    spawns: colony.spawns.map(createIdleSpawnForReservationPlanning)
+  };
+}
+
+function getSpawnEnergyReservationForecastBudget(
+  colony: ColonySnapshot,
+  energyCapacityAvailable: number
+): number {
+  return energyCapacityAvailable > 0
+    ? energyCapacityAvailable
+    : normalizeNonNegativeInteger(colony.energyAvailable);
+}
+
+function createIdleSpawnForReservationPlanning(spawn: StructureSpawn): StructureSpawn {
+  const planningSpawn = Object.create(spawn) as StructureSpawn & { spawning: Spawning | null };
+  Object.defineProperty(planningSpawn, 'spawning', {
+    configurable: true,
+    enumerable: true,
+    value: null
+  });
+  return planningSpawn;
 }
 
 export function shouldSuppressWorkerSpawnForCrossRoomImport(colony: ColonySnapshot): boolean {
@@ -278,7 +348,8 @@ export function getRoomCreepBudget(
     workerCapacity,
     workerTarget,
     workerDeficit,
-    priority: selectRoomSpawnPriority(survival, workerDeficit)
+    priority: selectRoomSpawnPriority(survival, workerDeficit),
+    reservedSpawnEnergy: forecast.reservedEnergy
   };
 }
 

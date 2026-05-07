@@ -290,6 +290,8 @@ interface RuntimeEnergySurplusSummary {
   surplus: boolean;
   spawnExtensionsFull: boolean;
   containersFull: boolean;
+  reservedSpawnEnergy: number;
+  unmetSpawnEnergyReservation: number;
   spawnExtensionFreeCapacity: number;
   containerFreeCapacity: number;
   durableFreeCapacity: number;
@@ -1591,6 +1593,8 @@ function summarizeEnergySurplus(room: Room, colonyWorkers: Creep[]): RuntimeEner
     surplus: state.surplus,
     spawnExtensionsFull: state.spawnExtensionsFull,
     containersFull: state.containersFull,
+    reservedSpawnEnergy: state.reservedSpawnEnergy,
+    unmetSpawnEnergyReservation: state.unmetSpawnEnergyReservation,
     spawnExtensionFreeCapacity: state.spawnExtensionFreeCapacity,
     containerFreeCapacity: state.containerFreeCapacity,
     durableFreeCapacity: state.durableFreeCapacity,

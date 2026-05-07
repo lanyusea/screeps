@@ -1,4 +1,5 @@
 import { runEconomy } from '../src/economy/economyLoop';
+import { SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS } from '../src/economy/spawnEnergyReservation';
 import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { CONTROLLER_DOWNGRADE_GUARD_TICKS } from '../src/tasks/workerTasks';
 import { RUNTIME_SUMMARY_PREFIX } from '../src/telemetry/runtimeSummary';
@@ -1850,6 +1851,163 @@ describe('runEconomy', () => {
     ]);
   });
 
+  it('reserves energy for queued territory control after a support worker spawn', () => {
+    installSpawnCoordinationGlobals();
+    delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
+    delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
+    Object.assign(globalThis, {
+      RESOURCE_ENERGY: 'energy',
+      STRUCTURE_SPAWN: 'spawn'
+    });
+    const followUp: TerritoryFollowUpMemory = {
+      source: 'activeReserveAdjacent',
+      originRoom: 'W1N2',
+      originAction: 'reserve'
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [{ colony: 'W1N1', roomName: 'W2N1', action: 'reserve' }],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'reserve',
+            status: 'planned',
+            updatedAt: 326,
+            requiresControllerPressure: true,
+            followUp
+          }
+        ]
+      }
+    };
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 4_050,
+      energyCapacityAvailable: 4_050
+    });
+    const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
+    let spawn = {} as StructureSpawn;
+    room.find = jest.fn(
+      (type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: 'home-source' } as Source];
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn] as unknown as AnyOwnedStructure[];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      }
+    ) as Room['find'];
+    spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      room,
+      structureType: 'spawn',
+      spawning: null,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(0) },
+      spawnCreep: jest.fn((_body: BodyPartConstant[]) => {
+        (room as Room & { energyAvailable: number }).energyAvailable = 3_000;
+        return OK_CODE;
+      })
+    } as unknown as StructureSpawn;
+    const loadedWorker = {
+      name: 'Worker1',
+      memory: { role: 'worker', colony: 'W1N1' },
+      room,
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      }
+    } as unknown as Creep;
+    const workers = {
+      Worker1: loadedWorker,
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 326,
+      rooms: { W1N1: room, W2N1: targetRoom },
+      spawns: { Spawn1: spawn },
+      creeps: workers,
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      'worker-W1N1-326',
+      {
+        memory: { role: 'worker', colony: 'W1N1' }
+      }
+    );
+    expect(Memory.economy?.spawnEnergyReservation?.rooms.W1N1).toMatchObject({
+      reservedEnergy: 3_250,
+      role: 'claimer',
+      creepName: 'claimer-W1N1-W2N1-326-2',
+      sourceCreepName: 'worker-W1N1-326',
+      sourceRole: 'worker'
+    });
+    expect(Memory.economy?.spawnEnergyBuffer?.rooms.W1N1).toMatchObject({
+      currentEnergy: 3_400,
+      reservedEnergy: 3_250,
+      unmetReservedEnergy: 250
+    });
+    expect(loadedWorker.memory.task).toBeUndefined();
+  });
+
+  it('releases reserved spawn energy after the spawn stays idle past the grace window', () => {
+    installSpawnCoordinationGlobals();
+    const reservedAt = 400;
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    });
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: reservedAt,
+          rooms: {
+            W1N1: {
+              bodyCost: 650,
+              creepName: 'claimer-W1N1-W2N1-400',
+              idleSince: reservedAt,
+              idleTicks: 0,
+              reservedAt,
+              reservedEnergy: 650,
+              role: 'claimer',
+              roomName: 'W1N1',
+              updatedAt: reservedAt
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: reservedAt + SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS + 1,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Worker1: makeEconomyWorker(room),
+        Worker2: makeEconomyWorker(room),
+        Worker3: makeEconomyWorker(room)
+      }
+    };
+
+    runEconomy();
+
+    expect(Memory.economy?.spawnEnergyReservation?.rooms.W1N1).toBeUndefined();
+  });
+
   it('uses a second idle spawn for a non-pressure follow-up after spawning support', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     const followUp: TerritoryFollowUpMemory = {
@@ -2630,11 +2788,11 @@ describe('runEconomy', () => {
     expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toMatchObject({
       colony: 'W1N1',
       roomName: 'W2N1',
-      status: 'suspended',
+      status: 'containerPending',
       sources: {
         'remote-source': {
           sourceId: 'remote-source',
-          containerSitePending: false
+          containerSitePending: true
         }
       }
     });
