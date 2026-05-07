@@ -132,6 +132,28 @@ describe('defensePlanner', () => {
     expect(selectTowerAttackTarget(tower, [crossRoomHostile], [closerStructure])).toBe(closerStructure);
   });
 
+  it('prioritizes hostile creeps near owned controllers before nearer room hostiles', () => {
+    const controller = makeController({ safeModeAvailable: 1 });
+    const tower = { pos: makePosition(20, 20, 'W1N1'), room: { controller } };
+    const nearestHostile = makeCreep('nearest-hostile', 21, 20, 'W1N1');
+    const controllerHostile = makeCreep('controller-hostile', 26, 25, 'W1N1');
+
+    expect(selectTowerAttackTarget(tower, [nearestHostile, controllerHostile], [])).toBe(controllerHostile);
+  });
+
+  it('prioritizes hostile creeps pressuring owned structures before generic nearest hostiles', () => {
+    const tower = { pos: makePosition(20, 20, 'W1N1') };
+    const nearestHostile = makeCreep('nearest-hostile', 21, 20, 'W1N1');
+    const structureHostile = makeCreep('structure-hostile', 30, 30, 'W1N1');
+    const protectedStructure = makeStructure('spawn1', 31, 30, 'W1N1');
+
+    expect(
+      selectTowerAttackTarget(tower, [nearestHostile, structureHostile], [], {
+        protectedStructures: [protectedStructure]
+      })
+    ).toBe(structureHostile);
+  });
+
   it('selects defender attack targets by hostile creep priority before hostile structures', () => {
     const defender = { pos: makePosition(25, 25, 'W1N1') };
     const farHostile = makeCreep('hostile1', 40, 25, 'W1N1');

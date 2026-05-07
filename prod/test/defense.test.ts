@@ -72,6 +72,18 @@ describe('automatic room defense response', () => {
     expect(rightTower.attack).toHaveBeenCalledWith(rightHostile);
   });
 
+  it('prioritizes hostiles near an owned controller before closer generic tower targets', () => {
+    const nearHostile = makeHostile('near-hostile', 21, 20);
+    const controllerHostile = makeHostile('controller-hostile', 26, 25);
+    const tower = makeTower('tower1', { energy: 500, x: 20, y: 20 });
+    const room = makeRoom({ hostiles: [nearHostile, controllerHostile], structures: [tower] });
+    attachRoom([tower], room);
+
+    runTowers(room);
+
+    expect(tower.attack).toHaveBeenCalledWith(controllerHostile);
+  });
+
   it('keeps low-energy towers from healing or repairing so attack reserve is preserved', () => {
     const wounded = makeFriendlyCreep('worker1', 25, 25, 70, 100);
     const spawn = makeSpawn('spawn1', 1_000, 5_000);
