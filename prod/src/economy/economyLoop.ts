@@ -854,6 +854,7 @@ function selectSpawnPlanWithinEnergyBuffer(
       spawnPlan.spawnRequest,
       sourceRoleCounts,
       availableEnergy,
+      spawnPlan.bodyCost,
       sourceSurvivalAssessment
     ) ||
     !isSpawnEnergyBufferViolated(sourceColony.room, sourceColony.spawns, availableEnergy, spawnPlan.bodyCost)
@@ -913,11 +914,13 @@ function shouldBypassSpawnEnergyBuffer(
   spawnRequest: SpawnRequest,
   roleCounts: RoleCounts,
   availableEnergy: number,
+  bodyCost: number,
   survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
 ): boolean {
   return (
     roleCounts.worker === 0 ||
     isBootstrapWorkerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, survivalAssessment) ||
+    isLocalSourceMinerRecoverySpawnRequest(spawnRequest, roleCounts, availableEnergy, bodyCost, survivalAssessment) ||
     isTerritoryControllerSpawnRequest(spawnRequest)
   );
 }
@@ -938,6 +941,24 @@ function isBootstrapWorkerRecoverySpawnRequest(
 
 function isTerritoryControllerSpawnRequest(spawnRequest: SpawnRequest): boolean {
   return spawnRequest.memory.role === TERRITORY_CLAIMER_ROLE || spawnRequest.memory.role === TERRITORY_SCOUT_ROLE;
+}
+
+function isLocalSourceMinerRecoverySpawnRequest(
+  spawnRequest: SpawnRequest,
+  roleCounts: RoleCounts,
+  availableEnergy: number,
+  bodyCost: number,
+  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+): boolean {
+  return (
+    spawnRequest.memory.role === SOURCE_HARVESTER_ROLE &&
+    spawnRequest.memory.sourceHarvester?.roomName === spawnRequest.memory.colony &&
+    survivalAssessment.mode !== 'BOOTSTRAP' &&
+    !survivalAssessment.hostilePresence &&
+    !survivalAssessment.controllerDowngradeGuard &&
+    roleCounts.worker >= survivalAssessment.survivalWorkerFloor &&
+    availableEnergy >= bodyCost
+  );
 }
 
 function selectCrossRoomHaulerSpawnPlanWithinEnergyBuffer(

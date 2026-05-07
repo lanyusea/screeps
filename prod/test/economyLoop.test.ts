@@ -735,6 +735,103 @@ describe('runEconomy', () => {
     });
   });
 
+  it('lets a local container miner use the spawn buffer after the worker floor is stable', () => {
+    installSpawnCoordinationGlobals();
+    Object.assign(globalThis, {
+      BODYPART_COST: {
+        move: 50,
+        work: 100,
+        carry: 50,
+        attack: 80,
+        ranged_attack: 150,
+        heal: 250,
+        claim: 600,
+        tough: 10
+      },
+      FIND_STRUCTURES: 5,
+      RESOURCE_ENERGY: 'energy',
+      STRUCTURE_CONTAINER: 'container',
+      Memory: {}
+    });
+    const source = {
+      id: 'source0',
+      energyCapacity: 3_000,
+      pos: { x: 10, y: 10, roomName: 'W1N1' } as RoomPosition
+    } as Source;
+    const container = {
+      id: 'container0',
+      structureType: 'container',
+      pos: { x: 10, y: 11, roomName: 'W1N1' } as RoomPosition
+    } as StructureContainer;
+    let spawn = {} as StructureSpawn;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      controller: { my: true, owner: { username: 'me' }, level: 3, ticksToDowngrade: 10_000 } as StructureController,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        if (type === FIND_STRUCTURES) {
+          return [container];
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          const structures = [spawn] as unknown as AnyOwnedStructure[];
+          return options?.filter ? structures.filter(options.filter) : structures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+    spawn = {
+      id: 'spawn1',
+      name: 'Spawn1',
+      room,
+      structureType: 'spawn',
+      pos: { x: 5, y: 5, roomName: 'W1N1' } as RoomPosition,
+      spawning: null,
+      store: { getUsedCapacity: jest.fn().mockReturnValue(300) },
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const workers = {
+      Worker1: makeEconomyWorker(room),
+      Worker2: makeEconomyWorker(room),
+      Worker3: makeEconomyWorker(room)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 129,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: spawn },
+      creeps: workers
+    };
+
+    runEconomy();
+
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      'sourceHarvester-W1N1-source0-129',
+      {
+        memory: {
+          role: 'sourceHarvester',
+          colony: 'W1N1',
+          sourceHarvester: {
+            roomName: 'W1N1',
+            sourceId: 'source0',
+            containerId: 'container0'
+          }
+        }
+      }
+    );
+    expect(Memory.economy?.spawnEnergyBuffer?.rooms.W1N1).toMatchObject({
+      currentEnergy: 0,
+      healthy: false,
+      threshold: 400
+    });
+  });
+
   it('waits through critical energy without invalid spawn attempts and recovers when an emergency body is affordable', () => {
     const room = {
       name: 'W1N1',

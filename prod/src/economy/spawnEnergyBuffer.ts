@@ -1,6 +1,9 @@
 import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
+import { getRoomMinerThroughput } from './minerThroughput';
 
 export const MINIMUM_SPAWN_ENERGY_BUFFER_PER_SPAWN = 300;
+export const MINER_OUTPUT_BUFFER_CREDIT_TICKS = 20;
+export const MINER_ADJUSTED_SPAWN_ENERGY_BUFFER_FLOOR = 200;
 
 export const SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = {
   1: MINIMUM_SPAWN_ENERGY_BUFFER_PER_SPAWN,
@@ -16,8 +19,11 @@ export const SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL: Record<1 | 2 | 3 | 4 | 5 | 6
 type SpawnStructureConstantGlobal = 'STRUCTURE_SPAWN';
 
 export interface SpawnEnergyBufferSnapshot {
+  baseThresholdPerSpawn: number;
   currentEnergy: number;
   healthy: boolean;
+  minerOutputBufferCredit: number;
+  minerOutputEnergyPerTick: number;
   roomName: string;
   spawnCount: number;
   reservedEnergy: number;
@@ -75,6 +81,9 @@ export function getSpawnEnergyBufferSnapshot(
   spawns: StructureSpawn[],
   currentEnergy = getRoomEnergyAvailable(room)
 ): SpawnEnergyBufferSnapshot {
+  const baseThresholdPerSpawn = getBaseSpawnEnergyBufferThreshold(room);
+  const minerOutputEnergyPerTick = getRoomMinerThroughput(room).energyPerTick;
+  const minerOutputBufferCredit = getMinerOutputBufferCredit(minerOutputEnergyPerTick);
   const thresholdPerSpawn = getSpawnEnergyBufferThreshold(room);
   const spawnCount = getSpawnBufferCount(spawns);
   const threshold = thresholdPerSpawn * spawnCount;
@@ -82,8 +91,11 @@ export function getSpawnEnergyBufferSnapshot(
   const reservation = getRoomSpawnEnergyReservationState(room);
 
   return {
+    baseThresholdPerSpawn,
     currentEnergy: normalizedEnergy,
     healthy: normalizedEnergy >= threshold,
+    minerOutputBufferCredit,
+    minerOutputEnergyPerTick,
     roomName: getRoomName(room),
     spawnCount,
     reservedEnergy: reservation.reservedEnergy,
@@ -95,7 +107,15 @@ export function getSpawnEnergyBufferSnapshot(
 
 export function getSpawnEnergyBufferThreshold(room: Room): number {
   const configured = getConfiguredSpawnEnergyBufferThreshold(room);
-  return configured ?? SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL[getRoomRcl(room)];
+  if (configured !== null) {
+    return configured;
+  }
+
+  return getMinerAdjustedSpawnEnergyBufferThreshold(room, getBaseSpawnEnergyBufferThreshold(room));
+}
+
+export function getBaseSpawnEnergyBufferThreshold(room: Room): number {
+  return SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL[getRoomRcl(room)];
 }
 
 export function getSpawnEnergyBufferRequirement(room: Room, spawns: StructureSpawn[]): number {
@@ -188,6 +208,22 @@ function getConfiguredSpawnEnergyBufferThreshold(room: Room): number | null {
       ?.minimumEnergyPerSpawn
   );
   return memoryConfig;
+}
+
+function getMinerAdjustedSpawnEnergyBufferThreshold(room: Room, baseThreshold: number): number {
+  const minerOutputBufferCredit = getMinerOutputBufferCredit(getRoomMinerThroughput(room).energyPerTick);
+  if (minerOutputBufferCredit <= 0) {
+    return baseThreshold;
+  }
+
+  return Math.max(
+    MINER_ADJUSTED_SPAWN_ENERGY_BUFFER_FLOOR,
+    baseThreshold - minerOutputBufferCredit
+  );
+}
+
+function getMinerOutputBufferCredit(minerOutputEnergyPerTick: number): number {
+  return normalizeEnergyAmount(minerOutputEnergyPerTick * MINER_OUTPUT_BUFFER_CREDIT_TICKS);
 }
 
 function normalizeConfiguredThreshold(value: unknown): number | null {

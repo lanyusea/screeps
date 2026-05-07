@@ -1,5 +1,6 @@
 import type { RoleCounts } from '../creeps/roleCounts';
 import { getWorkerCapacity } from '../creeps/roleCounts';
+import { getRoomMinerThroughput } from '../economy/minerThroughput';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 import type { ColonySnapshot } from './colonyRegistry';
 
@@ -194,9 +195,14 @@ export function getWorkerTarget(colony: ColonySnapshot, roleCounts: RoleCounts):
     return baseTarget;
   }
 
+  const minerThroughputTarget = getMinerThroughputWorkerTarget(colony.room, baseTarget);
+  if (workerCapacity < minerThroughputTarget) {
+    return minerThroughputTarget;
+  }
+
   const refillPressureTarget = shouldAddSpawnExtensionRefillWorker(colony)
-    ? Math.min(MAX_WORKER_TARGET, baseTarget + SPAWN_EXTENSION_REFILL_WORKER_BONUS)
-    : baseTarget;
+    ? Math.min(MAX_WORKER_TARGET, minerThroughputTarget + SPAWN_EXTENSION_REFILL_WORKER_BONUS)
+    : minerThroughputTarget;
   if (workerCapacity < refillPressureTarget) {
     return refillPressureTarget;
   }
@@ -218,6 +224,15 @@ export function getWorkerTarget(colony: ColonySnapshot, roleCounts: RoleCounts):
   }
 
   return Math.min(MAX_WORKER_TARGET, firstBonusTarget + CONSTRUCTION_BACKLOG_WORKER_BONUS);
+}
+
+function getMinerThroughputWorkerTarget(room: Room, baseTarget: number): number {
+  const throughput = getRoomMinerThroughput(room);
+  if (throughput.saturatedSourceCount <= 0) {
+    return baseTarget;
+  }
+
+  return Math.min(MAX_WORKER_TARGET, baseTarget + throughput.saturatedSourceCount);
 }
 
 export function recordColonySurvivalAssessment(
