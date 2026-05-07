@@ -180,6 +180,19 @@ describe('sourceHarvester', () => {
 });
 
 describe('buildSourceHarvesterBody', () => {
+  beforeEach(() => {
+    (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST = {
+      move: 50,
+      work: 100,
+      carry: 50,
+      attack: 80,
+      ranged_attack: 150,
+      heal: 250,
+      claim: 600,
+      tough: 10
+    };
+  });
+
   it('waits for enough energy to spawn a container miner with productive work parts', () => {
     expect(buildSourceHarvesterBody(499, { sourceDistance: 1 })).toEqual([]);
     expect(buildSourceHarvesterBody(500, { sourceDistance: 1 })).toEqual([
