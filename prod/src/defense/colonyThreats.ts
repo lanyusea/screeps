@@ -44,7 +44,7 @@ export function recordColonyThreats(
     return;
   }
 
-  const defenseMemory = memory.defense ?? {};
+  const defenseMemory = memory.defense && typeof memory.defense === 'object' ? memory.defense : {};
   const rooms: Record<string, DefenseColonyThreatRoomMemory> = {};
   for (const observation of observations) {
     const level = getDefenseThreatLevel(observation);

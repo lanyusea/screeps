@@ -1550,12 +1550,11 @@ function getDefenseThreatPriority(level) {
   return (_a = THREAT_LEVEL_PRIORITY[level]) != null ? _a : THREAT_LEVEL_PRIORITY.none;
 }
 function recordColonyThreats(observations, tick = getGameTime4()) {
-  var _a;
   const memory = globalThis.Memory;
   if (!memory) {
     return;
   }
-  const defenseMemory = (_a = memory.defense) != null ? _a : {};
+  const defenseMemory = memory.defense && typeof memory.defense === "object" ? memory.defense : {};
   const rooms = {};
   for (const observation of observations) {
     const level = getDefenseThreatLevel(observation);
