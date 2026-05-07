@@ -260,12 +260,7 @@ function selectStorageEnergyCriticalDeliveryTask(
 }
 
 function isStorageCritical(assessment: WorkerEnergyCriticalAssessment): boolean {
-  return (
-    assessment.storageEnergy !== null &&
-    assessment.storageEnterThreshold !== null &&
-    assessment.storageExitThreshold !== null &&
-    assessment.storageEnergy < assessment.storageExitThreshold
-  );
+  return assessment.reason === 'storage' || assessment.reason === 'spawnAndStorage';
 }
 
 function isRoomStorageWithdrawTask(
