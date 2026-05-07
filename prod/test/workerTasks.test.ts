@@ -4404,6 +4404,150 @@ describe('selectWorkerTask', () => {
     expect(findPathTo).not.toHaveBeenCalled();
   });
 
+  it('switches a low-load worker from a low-yield current pickup to higher-yield stored energy when spawn energy is stable', () => {
+    const currentDrop = { id: 'drop-low', resourceType: 'energy', amount: 5 } as Resource<ResourceConstant>;
+    const container = makeStoredEnergyStructure('container-rich', 'container' as StructureConstant, 100);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'container-rich': 3,
+        'drop-low': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      structures: [container]
+    });
+    const baseFind = room.find as unknown as (type: number, options?: unknown) => unknown[];
+    const creep = {
+      memory: { role: 'worker', task: { type: 'pickup', targetId: 'drop-low' as Id<Resource<ResourceConstant>> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(5),
+        getFreeCapacity: jest.fn().mockReturnValue(45)
+      },
+      pos: { getRangeTo },
+      room: {
+        ...room,
+        find: jest.fn((type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+          if (type === FIND_DROPPED_RESOURCES) {
+            return [currentDrop];
+          }
+
+          return baseFind(type, options);
+        })
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 342 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-rich' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 342,
+      carriedEnergy: 5,
+      freeCapacity: 45,
+      selectedTask: 'withdraw',
+      targetId: 'container-rich',
+      energy: 100,
+      range: 3
+    });
+  });
+
+  it('keeps a low-load worker on its current low-yield pickup when spawn energy is scarce', () => {
+    const currentDrop = { id: 'drop-low', resourceType: 'energy', amount: 5 } as Resource<ResourceConstant>;
+    const container = makeStoredEnergyStructure('container-rich', 'container' as StructureConstant, 100);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'container-rich': 3,
+        'drop-low': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      structures: [container]
+    });
+    const baseFind = room.find as unknown as (type: number, options?: unknown) => unknown[];
+    const creep = {
+      memory: { role: 'worker', task: { type: 'pickup', targetId: 'drop-low' as Id<Resource<ResourceConstant>> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(5),
+        getFreeCapacity: jest.fn().mockReturnValue(45)
+      },
+      pos: { getRangeTo },
+      room: {
+        ...room,
+        find: jest.fn((type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+          if (type === FIND_DROPPED_RESOURCES) {
+            return [currentDrop];
+          }
+
+          return baseFind(type, options);
+        })
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 343 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-low' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 343,
+      carriedEnergy: 5,
+      freeCapacity: 45,
+      selectedTask: 'pickup',
+      targetId: 'drop-low',
+      energy: 5,
+      range: 1
+    });
+  });
+
+  it('keeps a low-load worker on the current pickup when a richer alternative loses after travel time', () => {
+    const currentDrop = { id: 'drop-close', resourceType: 'energy', amount: 30 } as Resource<ResourceConstant>;
+    const container = makeStoredEnergyStructure('container-far', 'container' as StructureConstant, 100);
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'container-far': 6,
+        'drop-close': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const room = makeWorkerTaskRoom({
+      energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+      structures: [container]
+    });
+    const baseFind = room.find as unknown as (type: number, options?: unknown) => unknown[];
+    const creep = {
+      memory: { role: 'worker', task: { type: 'pickup', targetId: 'drop-close' as Id<Resource<ResourceConstant>> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(5),
+        getFreeCapacity: jest.fn().mockReturnValue(45)
+      },
+      pos: { getRangeTo },
+      room: {
+        ...room,
+        find: jest.fn((type: number, options?: { filter?: (structure: TestEnergySink) => boolean }) => {
+          if (type === FIND_DROPPED_RESOURCES) {
+            return [currentDrop];
+          }
+
+          return baseFind(type, options);
+        })
+      }
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 344 };
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'pickup', targetId: 'drop-close' });
+    expect(creep.memory.workerEfficiency).toEqual({
+      type: 'nearbyEnergyChoice',
+      tick: 344,
+      carriedEnergy: 5,
+      freeCapacity: 45,
+      selectedTask: 'pickup',
+      targetId: 'drop-close',
+      energy: 30,
+      range: 1
+    });
+  });
+
   it('keeps a low-load worker harvesting instead of making a non-urgent primary refill trip', () => {
     const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300);
     const source = { id: 'source1', energy: 300 } as Source;

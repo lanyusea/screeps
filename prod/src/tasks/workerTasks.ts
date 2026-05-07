@@ -118,6 +118,8 @@ const SWAMP_TRAVEL_COST = 10;
 const HARVEST_SOURCE_RANGE = 1;
 const HARVEST_SOURCE_CONTAINER_RANGE = 0;
 const MAX_HARVEST_PATH_OPS = 2_000;
+const LOW_LOAD_YIELD_SWITCH_MIN_IMPROVEMENT_RATIO = 1.1;
+const LOW_LOAD_YIELD_SWITCH_MIN_ABSOLUTE_GAIN = 0.25;
 
 type RepairableWorkerStructure =
   | StructureRoad
@@ -3776,6 +3778,30 @@ function selectLowLoadWorkerEnergyAcquisitionCandidate(
   return selectLowLoadWorkerEnergyContinuationCandidate(creep);
 }
 
+export function shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield(
+  creep: Creep,
+  currentTask: CreepTaskMemory,
+  selectedTask: CreepTaskMemory | null
+): boolean {
+  if (
+    !isLowLoadWorkerEnergyAcquisitionTask(currentTask) ||
+    !isLowLoadWorkerEnergyAcquisitionTask(selectedTask) ||
+    isSameLowLoadWorkerEnergyAcquisitionTask(currentTask, selectedTask) ||
+    getLowLoadWorkerEnergyContext(creep) === null ||
+    !hasAbundantEnergyForLowLoadYieldSwitch(creep.room)
+  ) {
+    return false;
+  }
+
+  const currentCandidate = createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, currentTask);
+  const selectedCandidate = createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, selectedTask);
+  return (
+    currentCandidate !== null &&
+    selectedCandidate !== null &&
+    isLowLoadWorkerEnergyYieldSwitchBetter(creep, currentCandidate, selectedCandidate)
+  );
+}
+
 function selectLowLoadWorkerEnergyContinuationTask(creep: Creep): LowLoadWorkerEnergyAcquisitionTask | null {
   const candidate = selectLowLoadWorkerEnergyContinuationCandidate(creep);
   if (!candidate) {
@@ -3831,14 +3857,245 @@ function selectLowLoadWorkerEnergyContinuationCandidate(
     .filter((candidate) => isLowLoadWorkerEnergyContinuationCandidateInRange(candidate, maximumRange))
     .filter((candidate) => isLowLoadWorkerEnergyContinuationCandidateReachable(creep, candidate));
   if (candidates.length === 0) {
-    return null;
+    return selectCurrentLowLoadWorkerEnergyAcquisitionCandidate(creep, maximumRange);
   }
 
-  return candidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
+  return selectLowLoadWorkerEnergyYieldAwareCandidate(
+    creep,
+    candidates,
+    candidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0],
+    maximumRange
+  );
 }
 
 function shouldKeepLowLoadWorkerAcquiringEnergy(creep: Creep): boolean {
   return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence(creep.room);
+}
+
+function selectLowLoadWorkerEnergyYieldAwareCandidate(
+  creep: Creep,
+  candidates: LowLoadWorkerEnergyAcquisitionCandidate[],
+  defaultCandidate: LowLoadWorkerEnergyAcquisitionCandidate,
+  maximumRange: number
+): LowLoadWorkerEnergyAcquisitionCandidate {
+  const currentCandidate = selectCurrentLowLoadWorkerEnergyAcquisitionCandidate(creep, maximumRange);
+  if (!currentCandidate) {
+    return defaultCandidate;
+  }
+
+  if (!hasAbundantEnergyForLowLoadYieldSwitch(creep.room)) {
+    return currentCandidate;
+  }
+
+  const bestYieldCandidate = selectBestLowLoadWorkerEnergyYieldCandidate(creep, [
+    currentCandidate,
+    ...candidates
+  ]);
+  if (
+    bestYieldCandidate &&
+    !isSameLowLoadWorkerEnergyAcquisitionTask(currentCandidate.task, bestYieldCandidate.task) &&
+    isLowLoadWorkerEnergyYieldSwitchBetter(creep, currentCandidate, bestYieldCandidate)
+  ) {
+    return bestYieldCandidate;
+  }
+
+  return currentCandidate;
+}
+
+function selectCurrentLowLoadWorkerEnergyAcquisitionCandidate(
+  creep: Creep,
+  maximumRange: number
+): LowLoadWorkerEnergyAcquisitionCandidate | null {
+  const task = creep.memory?.task;
+  if (!isLowLoadWorkerEnergyAcquisitionTask(task)) {
+    return null;
+  }
+
+  const candidate = createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, task);
+  if (
+    !candidate ||
+    !isLowLoadWorkerEnergyContinuationCandidateInRange(candidate, maximumRange) ||
+    !isLowLoadWorkerEnergyContinuationCandidateReachable(creep, candidate)
+  ) {
+    return null;
+  }
+
+  return candidate;
+}
+
+function selectBestLowLoadWorkerEnergyYieldCandidate(
+  creep: Creep,
+  candidates: LowLoadWorkerEnergyAcquisitionCandidate[]
+): LowLoadWorkerEnergyAcquisitionCandidate | null {
+  const scoredCandidates = candidates
+    .map((candidate) => ({
+      candidate,
+      energyPerTick: estimateLowLoadWorkerEnergyAcquisitionYield(creep, candidate)
+    }))
+    .filter(
+      (entry): entry is { candidate: LowLoadWorkerEnergyAcquisitionCandidate; energyPerTick: number } =>
+        entry.energyPerTick !== null
+    );
+  if (scoredCandidates.length === 0) {
+    return null;
+  }
+
+  return scoredCandidates.sort((left, right) =>
+    right.energyPerTick - left.energyPerTick ||
+    compareLowLoadWorkerEnergyAcquisitionCandidates(left.candidate, right.candidate)
+  )[0].candidate;
+}
+
+function isLowLoadWorkerEnergyYieldSwitchBetter(
+  creep: Creep,
+  currentCandidate: LowLoadWorkerEnergyAcquisitionCandidate,
+  selectedCandidate: LowLoadWorkerEnergyAcquisitionCandidate
+): boolean {
+  const currentYield = estimateLowLoadWorkerEnergyAcquisitionYield(creep, currentCandidate);
+  const selectedYield = estimateLowLoadWorkerEnergyAcquisitionYield(creep, selectedCandidate);
+  return (
+    currentYield !== null &&
+    selectedYield !== null &&
+    selectedYield - currentYield >= LOW_LOAD_YIELD_SWITCH_MIN_ABSOLUTE_GAIN &&
+    selectedYield >= currentYield * LOW_LOAD_YIELD_SWITCH_MIN_IMPROVEMENT_RATIO
+  );
+}
+
+function estimateLowLoadWorkerEnergyAcquisitionYield(
+  creep: Creep,
+  candidate: LowLoadWorkerEnergyAcquisitionCandidate
+): number | null {
+  const range = candidate.range;
+  if (range === null) {
+    return null;
+  }
+
+  const tripEnergy = Math.min(candidate.energy, getFreeEnergyCapacity(creep));
+  if (tripEnergy <= 0) {
+    return null;
+  }
+
+  const actionTicks =
+    candidate.task.type === 'harvest' && isHarvestSourceObject(candidate.source)
+      ? estimateHarvestEnergyAcquisitionTicks(creep, candidate.source)
+      : ENERGY_ACQUISITION_ACTION_TICKS;
+  if (!Number.isFinite(actionTicks) || actionTicks <= 0) {
+    return null;
+  }
+
+  return tripEnergy / Math.max(1, range + actionTicks);
+}
+
+function hasAbundantEnergyForLowLoadYieldSwitch(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  if (energyAvailable === null) {
+    return false;
+  }
+
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
+  const abundanceThreshold =
+    energyCapacityAvailable === null
+      ? URGENT_SPAWN_REFILL_ENERGY_THRESHOLD
+      : Math.min(URGENT_SPAWN_REFILL_ENERGY_THRESHOLD, Math.max(1, energyCapacityAvailable));
+  return energyAvailable >= abundanceThreshold;
+}
+
+function createLowLoadWorkerEnergyAcquisitionCandidateForTask(
+  creep: Creep,
+  task: LowLoadWorkerEnergyAcquisitionTask
+): LowLoadWorkerEnergyAcquisitionCandidate | null {
+  const source = findLowLoadWorkerEnergyAcquisitionSourceForTask(creep, task);
+  if (!source) {
+    return null;
+  }
+
+  if (isHarvestSourceObject(source)) {
+    if (getActiveWorkParts(creep) <= 0 || isSourceDepleted(source)) {
+      return null;
+    }
+
+    return createLowLoadWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getHarvestCandidateEnergy(creep, source),
+      task
+    );
+  }
+
+  if (isDroppedEnergySourceObject(source)) {
+    if (source.amount <= 0) {
+      return null;
+    }
+
+    return createLowLoadWorkerEnergyAcquisitionCandidate(creep, source, source.amount, task);
+  }
+
+  const energy = getUnreservedWorkerEnergyAcquisitionAmount(
+    source,
+    getStoredEnergy(source),
+    createWorkerEnergyAcquisitionReservationContext(creep),
+    creep
+  );
+  return energy > 0 ? createLowLoadWorkerEnergyAcquisitionCandidate(creep, source, energy, task) : null;
+}
+
+function findLowLoadWorkerEnergyAcquisitionSourceForTask(
+  creep: Creep,
+  task: LowLoadWorkerEnergyAcquisitionTask
+): LowLoadWorkerEnergyAcquisitionSource | null {
+  const targetId = String(task.targetId);
+  const gameObject = getGameObjectById<RoomObject>(targetId);
+  if (gameObject && isLowLoadWorkerEnergyAcquisitionSourceForTask(gameObject, task)) {
+    return gameObject;
+  }
+
+  switch (task.type) {
+    case 'harvest':
+      return findVisibleHarvestSources(creep).find((source) => String(source.id) === targetId) ?? null;
+    case 'pickup':
+      return findDroppedResources(creep.room)
+        .filter((source): source is Resource<ResourceConstant> => isDroppedEnergySourceObject(source))
+        .find((source) => String(source.id) === targetId) ?? null;
+    case 'withdraw':
+      return ([
+        ...findVisibleRoomStructures(creep.room),
+        ...findTombstones(creep.room),
+        ...findRuins(creep.room)
+      ].find((source) => String(source.id) === targetId && hasEnergyStore(source)) as
+        | WorkerEnergyAcquisitionSource
+        | undefined) ?? null;
+  }
+}
+
+function isLowLoadWorkerEnergyAcquisitionSourceForTask(
+  source: RoomObject,
+  task: LowLoadWorkerEnergyAcquisitionTask
+): source is LowLoadWorkerEnergyAcquisitionSource {
+  switch (task.type) {
+    case 'harvest':
+      return isHarvestSourceObject(source as LowLoadWorkerEnergyAcquisitionSource);
+    case 'pickup':
+      return isDroppedEnergySourceObject(source as LowLoadWorkerEnergyAcquisitionSource);
+    case 'withdraw':
+      return hasEnergyStore(source);
+  }
+}
+
+function hasEnergyStore(source: unknown): source is WorkerEnergyAcquisitionSource {
+  return typeof (source as { store?: { getUsedCapacity?: unknown } } | null)?.store?.getUsedCapacity === 'function';
+}
+
+function isLowLoadWorkerEnergyAcquisitionTask(
+  task: CreepTaskMemory | null | undefined
+): task is LowLoadWorkerEnergyAcquisitionTask {
+  return task?.type === 'harvest' || task?.type === 'pickup' || task?.type === 'withdraw';
+}
+
+function isSameLowLoadWorkerEnergyAcquisitionTask(
+  left: LowLoadWorkerEnergyAcquisitionTask,
+  right: LowLoadWorkerEnergyAcquisitionTask
+): boolean {
+  return left.type === right.type && String(left.targetId) === String(right.targetId);
 }
 
 function findLowLoadWorkerEnergyContinuationCandidates(
@@ -4647,6 +4904,10 @@ function getRangeToLowLoadWorkerEnergyAcquisitionSource(
   creep: Creep,
   source: LowLoadWorkerEnergyAcquisitionSource
 ): number | null {
+  if (isHarvestSourceObject(source)) {
+    return getHarvestSourceTravelCost(creep, source);
+  }
+
   const position = (creep as Creep & {
     pos?: {
       getRangeTo?: (target: LowLoadWorkerEnergyAcquisitionSource) => number;
