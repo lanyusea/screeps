@@ -1,6 +1,7 @@
 import {
   CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
   CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  MINIMUM_USEFUL_LOAD_RATIO,
   selectWorkerPreHarvestTask,
   isUpgraderBoostActive,
   isWorkerRepairTargetComplete,
@@ -731,7 +732,47 @@ function shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(
     return false;
   }
 
+  if (hasLowWorkerEnergyLoad(creep)) {
+    return shouldPreemptLowLoadEnergyAcquisitionForReturn(creep, selectedTask);
+  }
+
   return isUrgentEnergySpendingTask(selectedTask) || isDowngradeGuardUpgradeTask(creep, selectedTask);
+}
+
+function shouldPreemptLowLoadEnergyAcquisitionForReturn(
+  creep: Creep,
+  selectedTask: CreepTaskMemory
+): boolean {
+  const sample = creep.memory?.workerEfficiency;
+  return (
+    sample?.type === 'lowLoadReturn' &&
+    sample.selectedTask === selectedTask.type &&
+    sample.targetId === String(selectedTask.targetId) &&
+    isCurrentWorkerEfficiencySample(sample)
+  );
+}
+
+function hasLowWorkerEnergyLoad(creep: Creep): boolean {
+  const carriedEnergy = getUsedTransferEnergy(creep);
+  const freeCapacity = getFreeCreepEnergyCapacity(creep);
+  if (carriedEnergy <= 0 || freeCapacity <= 0) {
+    return false;
+  }
+
+  const capacity = getCreepEnergyCapacity(creep, carriedEnergy, freeCapacity);
+  return capacity > 0 && carriedEnergy < capacity * MINIMUM_USEFUL_LOAD_RATIO;
+}
+
+function getFreeCreepEnergyCapacity(creep: Creep): number {
+  const freeCapacity = creep.store?.getFreeCapacity?.(RESOURCE_ENERGY);
+  return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
+}
+
+function getCreepEnergyCapacity(creep: Creep, carriedEnergy: number, freeCapacity: number): number {
+  const capacity = creep.store?.getCapacity?.(RESOURCE_ENERGY);
+  return typeof capacity === 'number' && Number.isFinite(capacity) && capacity > 0
+    ? capacity
+    : carriedEnergy + freeCapacity;
 }
 
 function shouldPreemptTaskForUpgraderBoost(

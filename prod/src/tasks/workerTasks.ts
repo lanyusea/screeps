@@ -64,7 +64,8 @@ export const CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 export const URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
 export const WORKER_PRE_HARVEST_REGEN_THRESHOLD = 50;
 export const NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
-export const MINIMUM_USEFUL_LOAD_RATIO = 0.4;
+export const MINIMUM_USEFUL_LOAD_RATIO = 0.3;
+export const LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS = 1_000;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
 export const LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE = 6;
 export const LOW_LOAD_SPAWN_EXTENSION_REFILL_CONTINUATION_MAX_RANGE = 12;
@@ -403,7 +404,7 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
   const controller = creep.room.controller;
   if (
     controller &&
-    shouldGuardControllerDowngrade(controller) &&
+    shouldGuardControllerDowngradeForWorkerLoad(creep, controller) &&
     canUpgradeController(controller) &&
     !remoteProductiveSpendingSuppressed
   ) {
@@ -960,6 +961,31 @@ function isTerritoryControlTask(task: CreepTaskMemory | null): task is Extract<C
 function hasEmergencySpawnExtensionRefillDemand(creep: Creep): boolean {
   const energyAvailable = getRoomEnergyAvailable(creep.room);
   return energyAvailable === null || energyAvailable < URGENT_SPAWN_REFILL_ENERGY_THRESHOLD;
+}
+
+function shouldGuardControllerDowngradeForWorkerLoad(
+  creep: Creep,
+  controller: StructureController | undefined
+): boolean {
+  if (!shouldGuardControllerDowngrade(controller)) {
+    return false;
+  }
+
+  if (!getLowLoadWorkerEnergyContext(creep)) {
+    return true;
+  }
+
+  return isControllerDowngradeImminentForLowLoadReturn(controller);
+}
+
+function isControllerDowngradeImminentForLowLoadReturn(
+  controller: StructureController | undefined
+): boolean {
+  return (
+    controller?.my === true &&
+    typeof controller.ticksToDowngrade === 'number' &&
+    controller.ticksToDowngrade < LOW_LOAD_CONTROLLER_DOWNGRADE_IMMINENT_TICKS
+  );
 }
 
 interface LowLoadWorkerEnergyContext {
@@ -3717,18 +3743,7 @@ function getWorkerEnergyAcquisitionSourceTypePriority(source: WorkerEnergyAcquis
 function selectLowLoadWorkerEnergyAcquisitionCandidate(
   creep: Creep
 ): LowLoadWorkerEnergyAcquisitionCandidate | null {
-  if (!shouldKeepLowLoadWorkerAcquiringEnergy(creep)) {
-    return null;
-  }
-
-  const nearbyCandidates = findLowLoadWorkerEnergyAcquisitionCandidates(creep).filter(
-    (candidate) => candidate.range !== null && candidate.range <= LOW_LOAD_NEARBY_ENERGY_RANGE
-  );
-  if (nearbyCandidates.length === 0) {
-    return null;
-  }
-
-  return nearbyCandidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
+  return selectLowLoadWorkerEnergyContinuationCandidate(creep);
 }
 
 function selectLowLoadWorkerEnergyContinuationTask(creep: Creep): LowLoadWorkerEnergyAcquisitionTask | null {
@@ -3813,111 +3828,6 @@ function findLowLoadWorkerEnergyContinuationCandidates(
       maximumRange
     }).map(toLowLoadWorkerEnergyAcquisitionCandidate)
   ];
-}
-
-function findLowLoadWorkerEnergyAcquisitionCandidates(creep: Creep): LowLoadWorkerEnergyAcquisitionCandidate[] {
-  const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
-  const nearbyLinkRefillCandidate = findNearestNearbyWorkerLinkRefillCandidate(creep, reservationContext);
-
-  return [
-    ...findNearbyLowLoadStoredEnergyAcquisitionCandidates(creep, reservationContext),
-    ...findNearbyLowLoadSalvageEnergyAcquisitionCandidates(creep, reservationContext),
-    ...findNearbyLowLoadDroppedEnergyAcquisitionCandidates(creep, reservationContext),
-    ...(nearbyLinkRefillCandidate ? [toNearbyWorkerLinkRefillCandidate(nearbyLinkRefillCandidate)] : []),
-    ...findLowLoadHarvestEnergyAcquisitionCandidates(creep),
-    ...findWorkerLinkEnergyAcquisitionCandidates(creep, reservationContext, {
-      maximumRange: LOW_LOAD_NEARBY_ENERGY_RANGE
-    }).map(toLowLoadWorkerEnergyAcquisitionCandidate)
-  ];
-}
-
-function findNearbyLowLoadStoredEnergyAcquisitionCandidates(
-  creep: Creep,
-  reservationContext: WorkerEnergyAcquisitionReservationContext
-): LowLoadWorkerEnergyAcquisitionCandidate[] {
-  const context: StoredEnergySourceContext = {
-    creepOwnerUsername: getCreepOwnerUsername(creep),
-    hasHostilePresence: hasVisibleHostilePresence(creep.room),
-    room: creep.room
-  };
-
-  return findVisibleRoomStructures(creep.room)
-    .filter(
-      (structure): structure is StoredWorkerEnergySource =>
-        isSafeStoredEnergySource(structure, context) && !isLinkEnergySource(structure)
-    )
-    .filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source))
-    .flatMap((source) => {
-      const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
-        creep,
-        source,
-        getStoredEnergy(source),
-        {
-          type: 'withdraw',
-          targetId: source.id as Id<AnyStoreStructure>
-        },
-        reservationContext
-      );
-
-      return candidate ? [toLowLoadWorkerEnergyAcquisitionCandidate(candidate)] : [];
-    });
-}
-
-function findNearbyLowLoadSalvageEnergyAcquisitionCandidates(
-  creep: Creep,
-  reservationContext: WorkerEnergyAcquisitionReservationContext
-): LowLoadWorkerEnergyAcquisitionCandidate[] {
-  return [...findTombstones(creep.room), ...findRuins(creep.room)]
-    .filter(hasSalvageableEnergy)
-    .filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source))
-    .flatMap((source) => {
-      const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
-        creep,
-        source,
-        getStoredEnergy(source),
-        {
-          type: 'withdraw',
-          targetId: source.id as unknown as Id<AnyStoreStructure>
-        },
-        reservationContext,
-        MIN_SALVAGE_ENERGY_WITHDRAW_AMOUNT
-      );
-
-      return candidate ? [toLowLoadWorkerEnergyAcquisitionCandidate(candidate)] : [];
-    });
-}
-
-function findNearbyLowLoadDroppedEnergyAcquisitionCandidates(
-  creep: Creep,
-  reservationContext: WorkerEnergyAcquisitionReservationContext
-): LowLoadWorkerEnergyAcquisitionCandidate[] {
-  return findDroppedResources(creep.room)
-    .filter(isUsefulDroppedEnergy)
-    .filter((source) => isNearbyLowLoadWorkerEnergyAcquisitionSource(creep, source))
-    .flatMap((source) => {
-      const candidate = createUnreservedWorkerEnergyAcquisitionCandidate(
-        creep,
-        source,
-        source.amount,
-        {
-          type: 'pickup',
-          targetId: source.id
-        },
-        reservationContext,
-        MIN_DROPPED_ENERGY_PICKUP_AMOUNT
-      );
-
-      return candidate ? [toLowLoadWorkerEnergyAcquisitionCandidate(candidate)] : [];
-    })
-    .filter((candidate) => isReachable(creep, candidate.source));
-}
-
-function isNearbyLowLoadWorkerEnergyAcquisitionSource(
-  creep: Creep,
-  source: LowLoadWorkerEnergyAcquisitionSource
-): boolean {
-  const range = getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
-  return range !== null && range <= LOW_LOAD_NEARBY_ENERGY_RANGE;
 }
 
 function isLowLoadWorkerEnergyContinuationCandidateInRange(
