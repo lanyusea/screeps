@@ -8957,7 +8957,7 @@ function planExpansionDefenseBarrierPlacements(room, options = {}) {
     return [];
   }
   const lookups = createExpansionDefenseBarrierPlacementLookups(room);
-  const towerRampartPlacements = getExpansionDefenseTowerRampartTargets(room, lookups).filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position)).filter((position) => canPlaceExpansionDefenseRampart(lookups, position)).map((position) => createExpansionDefenseBarrierPlacement(room.name, position, "towerRampart"));
+  const towerRampartPlacements = getExpansionDefenseTowerRampartTargets(room, lookups).filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position)).filter((position) => canPlaceExpansionDefenseTowerRampart(lookups, position)).map((position) => createExpansionDefenseBarrierPlacement(room.name, position, "towerRampart"));
   if (towerRampartPlacements.length > 0) {
     return towerRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
   }
@@ -9205,7 +9205,7 @@ function getNearestExpansionTowerAnyAnchorRange(position, anchors) {
   return Math.min(...anchors.map((anchor) => getExpansionTowerRange(position, anchor.position)));
 }
 function getExpansionTowerStructureType(object) {
-  return isRecord10(object) ? object.structureType : void 0;
+  return isRecord11(object) ? object.structureType : void 0;
 }
 function isExpansionTowerStructureType(actual, globalName, fallback) {
   var _a;
@@ -9340,7 +9340,14 @@ function getExpansionDefenseAdjacentWallTargets(position) {
   return [];
 }
 function getExpansionDefenseTowerRampartTargets(room, lookups) {
-  const targets = findRoomObjects12(room, getFindConstant4("FIND_STRUCTURES")).filter((structure) => isExpansionDefenseStructureType(structure.structureType, "STRUCTURE_TOWER", "tower")).sort(compareExpansionTowerObjects).map(getExpansionTowerObjectPosition).filter(
+  const targets = [
+    ...findRoomObjects12(room, getFindConstant4("FIND_STRUCTURES")).filter(
+      (structure) => isExpansionDefenseStructureType(structure.structureType, "STRUCTURE_TOWER", "tower")
+    ),
+    ...findRoomObjects12(room, getFindConstant4("FIND_CONSTRUCTION_SITES")).filter(
+      (site) => isExpansionDefenseStructureType(String(site.structureType), "STRUCTURE_TOWER", "tower")
+    )
+  ].sort(compareExpansionTowerObjects).map(getExpansionTowerObjectPosition).filter(
     (position) => isExpansionTowerSameRoomPosition(position, room.name)
   );
   return dedupeExpansionDefensePositions(targets).filter(
@@ -9386,6 +9393,9 @@ function getExpansionDefenseAdjacentPositions(center, includeCenter) {
 }
 function canPlaceExpansionDefenseRampart(lookups, position) {
   return isExpansionDefenseRampartTargetAllowed(lookups, position) && !hasExpansionDefenseConstructionAt(lookups, position);
+}
+function canPlaceExpansionDefenseTowerRampart(lookups, position) {
+  return isExpansionDefenseRampartTargetAllowed(lookups, position) && (!hasExpansionDefenseConstructionAt(lookups, position) || hasExpansionDefenseConstructionTypeAt(lookups, position, "STRUCTURE_TOWER", "tower"));
 }
 function canPlaceExpansionDefenseWall(lookups, position) {
   return isExpansionDefenseBuildablePosition(lookups, position) && !lookups.reservedPositions.has(getExpansionTowerPositionKey(position)) && !hasExpansionDefenseStructureAt(lookups, position) && !hasExpansionDefenseConstructionAt(lookups, position);
@@ -14109,8 +14119,8 @@ function getSpawnEnergyBufferSnapshot(room, spawns, currentEnergy = getRoomEnerg
   const baseThresholdPerSpawn = getBaseSpawnEnergyBufferThreshold(room);
   const minerOutputEnergyPerTick = getRoomMinerThroughput(room).energyPerTick;
   const minerOutputBufferCredit = getMinerOutputBufferCredit(minerOutputEnergyPerTick);
-  const thresholdPerSpawn = getSpawnEnergyBufferThreshold(room);
   const spawnCount = getSpawnBufferCount(spawns);
+  const thresholdPerSpawn = getSpawnEnergyBufferThresholdForSpawnCount(room, spawnCount);
   const threshold = thresholdPerSpawn * spawnCount;
   const normalizedEnergy = normalizeEnergyAmount2(currentEnergy);
   const reservation = getRoomSpawnEnergyReservationState(room);
@@ -14128,18 +14138,19 @@ function getSpawnEnergyBufferSnapshot(room, spawns, currentEnergy = getRoomEnerg
     unmetReservedEnergy: reservation.unmetReservedEnergy
   };
 }
-function getSpawnEnergyBufferThreshold(room) {
+function getSpawnEnergyBufferThresholdForSpawnCount(room, spawnCount) {
   const configured = getConfiguredSpawnEnergyBufferThreshold(room);
   if (configured !== null) {
     return configured;
   }
-  return getMinerAdjustedSpawnEnergyBufferThreshold(room, getBaseSpawnEnergyBufferThreshold(room));
+  return getMinerAdjustedSpawnEnergyBufferThreshold(room, getBaseSpawnEnergyBufferThreshold(room), spawnCount);
 }
 function getBaseSpawnEnergyBufferThreshold(room) {
   return SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL[getRoomRcl2(room)];
 }
 function getSpawnEnergyBufferRequirement(room, spawns) {
-  return getSpawnEnergyBufferThreshold(room) * getSpawnBufferCount(spawns);
+  const spawnCount = getSpawnBufferCount(spawns);
+  return getSpawnEnergyBufferThresholdForSpawnCount(room, spawnCount) * spawnCount;
 }
 function getBufferedSpawnEnergyBudget(room, spawns, availableEnergy = getRoomEnergyAvailable4(room)) {
   return Math.max(0, normalizeEnergyAmount2(availableEnergy) - getSpawnEnergyBufferRequirement(room, spawns));
@@ -14157,7 +14168,7 @@ function getSpawnEnergyAvailableForWithdrawal(room, target, currentEnergy = getS
     (total, spawn) => total + (isSameSpawn(spawn, target) ? targetSpawnEnergy : getStoredEnergy4(spawn)),
     0
   );
-  const totalSpawnBuffer = getSpawnEnergyBufferThreshold(room) * spawns.length;
+  const totalSpawnBuffer = getSpawnEnergyBufferThresholdForSpawnCount(room, spawns.length) * spawns.length;
   const roomSurplus = Math.max(0, roomTotalSpawnEnergy - totalSpawnBuffer);
   return Math.min(targetSpawnEnergy, roomSurplus);
 }
@@ -14183,15 +14194,18 @@ function getConfiguredSpawnEnergyBufferThreshold(room) {
   );
   return memoryConfig;
 }
-function getMinerAdjustedSpawnEnergyBufferThreshold(room, baseThreshold) {
+function getMinerAdjustedSpawnEnergyBufferThreshold(room, baseThreshold, spawnCount) {
+  const normalizedSpawnCount = Math.max(1, normalizeEnergyAmount2(spawnCount));
   const minerOutputBufferCredit = getMinerOutputBufferCredit(getRoomMinerThroughput(room).energyPerTick);
   if (minerOutputBufferCredit <= 0) {
     return baseThreshold;
   }
-  return Math.max(
-    MINER_ADJUSTED_SPAWN_ENERGY_BUFFER_FLOOR,
-    baseThreshold - minerOutputBufferCredit
+  const roomBufferThreshold = baseThreshold * normalizedSpawnCount;
+  const adjustedRoomBufferThreshold = Math.max(
+    MINER_ADJUSTED_SPAWN_ENERGY_BUFFER_FLOOR * normalizedSpawnCount,
+    roomBufferThreshold - minerOutputBufferCredit
   );
+  return normalizeEnergyAmount2(Math.ceil(adjustedRoomBufferThreshold / normalizedSpawnCount));
 }
 function getMinerOutputBufferCredit(minerOutputEnergyPerTick) {
   return normalizeEnergyAmount2(minerOutputEnergyPerTick * MINER_OUTPUT_BUFFER_CREDIT_TICKS);

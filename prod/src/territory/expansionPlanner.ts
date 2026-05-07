@@ -611,7 +611,7 @@ export function planExpansionDefenseBarrierPlacements(
   const lookups = createExpansionDefenseBarrierPlacementLookups(room);
   const towerRampartPlacements = getExpansionDefenseTowerRampartTargets(room, lookups)
     .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
-    .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
+    .filter((position) => canPlaceExpansionDefenseTowerRampart(lookups, position))
     .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'towerRampart'));
   if (towerRampartPlacements.length > 0) {
     return towerRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
@@ -1182,8 +1182,14 @@ function getExpansionDefenseTowerRampartTargets(
   room: Room,
   lookups: ExpansionDefenseBarrierPlacementLookups
 ): RoomPositionLike[] {
-  const targets = findRoomObjects<AnyStructure>(room, getFindConstant('FIND_STRUCTURES'))
-    .filter((structure) => isExpansionDefenseStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower'))
+  const targets = [
+    ...findRoomObjects<AnyStructure>(room, getFindConstant('FIND_STRUCTURES')).filter((structure) =>
+      isExpansionDefenseStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower')
+    ),
+    ...findRoomObjects<ConstructionSite>(room, getFindConstant('FIND_CONSTRUCTION_SITES')).filter((site) =>
+      isExpansionDefenseStructureType(String(site.structureType), 'STRUCTURE_TOWER', 'tower')
+    )
+  ]
     .sort(compareExpansionTowerObjects)
     .map(getExpansionTowerObjectPosition)
     .filter((position): position is RoomPositionLike =>
@@ -1256,6 +1262,19 @@ function canPlaceExpansionDefenseRampart(
   return (
     isExpansionDefenseRampartTargetAllowed(lookups, position) &&
     !hasExpansionDefenseConstructionAt(lookups, position)
+  );
+}
+
+function canPlaceExpansionDefenseTowerRampart(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (
+    isExpansionDefenseRampartTargetAllowed(lookups, position) &&
+    (
+      !hasExpansionDefenseConstructionAt(lookups, position) ||
+      hasExpansionDefenseConstructionTypeAt(lookups, position, 'STRUCTURE_TOWER', 'tower')
+    )
   );
 }
 
@@ -1332,7 +1351,7 @@ function hasExpansionDefenseStructureTypeAt(
 function hasExpansionDefenseConstructionTypeAt(
   lookups: ExpansionDefenseBarrierPlacementLookups,
   position: RoomPositionLike,
-  globalName: 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
+  globalName: 'STRUCTURE_TOWER' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
   fallback: string
 ): boolean {
   return (lookups.constructionSitesByPosition.get(getExpansionTowerPositionKey(position)) ?? []).some((site) =>

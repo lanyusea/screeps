@@ -216,6 +216,37 @@ describe('expansion planner', () => {
     ]);
   });
 
+  it('holds later defensive barrier stages while the tower is still a construction site', () => {
+    const spawn = makePositionedStructure('spawn1', 20, 20, 'W2N1', STRUCTURE_SPAWN);
+    const towerSite = makePositionedConstructionSite('tower-site', 21, 20, 'W2N1', STRUCTURE_TOWER);
+    const room = makeTowerPlanningRoom('W2N1', {
+      controllerPosition: { x: 25, y: 25 },
+      sourcePositions: [],
+      exitPositions: [
+        { x: 24, y: 0 },
+        { x: 25, y: 0 },
+        { x: 26, y: 0 },
+        { x: 49, y: 25 }
+      ],
+      structures: [spawn],
+      constructionSites: [towerSite]
+    });
+    installTerrain(room.name, new Set());
+
+    const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 });
+
+    expect(placements).toEqual([
+      {
+        roomName: 'W2N1',
+        x: 21,
+        y: 20,
+        structureType: STRUCTURE_RAMPART,
+        stage: 'towerRampart',
+        priority: 0
+      }
+    ]);
+  });
+
   it('plans spawn and controller ramparts after tower ramparts are covered', () => {
     const structures = [
       makePositionedStructure('spawn1', 20, 20, 'W2N1', STRUCTURE_SPAWN),
@@ -1237,6 +1268,20 @@ function makePositionedStructure(
     pos: makePosition(x, y, roomName),
     ...(structureType ? { structureType } : {})
   } as unknown as Structure;
+}
+
+function makePositionedConstructionSite(
+  id: string,
+  x: number,
+  y: number,
+  roomName: string,
+  structureType: StructureConstant
+): ConstructionSite {
+  return {
+    id,
+    pos: makePosition(x, y, roomName),
+    structureType
+  } as unknown as ConstructionSite;
 }
 
 function makePosition(x: number, y: number, roomName: string): RoomPosition {
