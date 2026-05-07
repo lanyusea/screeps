@@ -31,6 +31,10 @@ import {
   getStorageEnergyAvailableForWithdrawal,
   withdrawFromStorage
 } from '../economy/energyBuffer';
+import {
+  getSpawnEnergyAvailableForWithdrawal,
+  isSpawnEnergySource
+} from '../economy/spawnEnergyBuffer';
 import { CROSS_ROOM_HAULER_ROLE, isLiveTransferCandidate } from '../economy/crossRoomHauler';
 import { selectEnergySurplusDeliverySink } from '../economy/energySurplus';
 import { getStorageBalanceState } from '../economy/storageBalancer';
@@ -105,7 +109,7 @@ const MAX_HARVEST_PATH_OPS = 2_000;
 
 type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart | StructureSpawn;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer | StructureSpawn;
-type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal | StructureLink;
+type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal | StructureLink | StructureSpawn;
 type UpgraderBoostStoredEnergySource = StructureContainer | StructureStorage;
 type ConstructionPreBufferSink = StructureExtension | StructureStorage;
 type BuilderStoredEnergySource = StoredWorkerEnergySource | StructureExtension;
@@ -3134,7 +3138,11 @@ function isSafeStoredEnergySource(
   structure: AnyStructure,
   context: StoredEnergySourceContext
 ): structure is StoredWorkerEnergySource {
-  return isStoredWorkerEnergySource(structure, context.room) && hasStoredEnergy(structure) && isFriendlyStoredEnergySource(structure, context);
+  return (
+    isStoredWorkerEnergySource(structure, context.room) &&
+    hasWithdrawableStoredEnergy(structure, context) &&
+    isFriendlyStoredEnergySource(structure, context)
+  );
 }
 
 function isStoredWorkerEnergySource(structure: AnyStructure, room: Room): structure is StoredWorkerEnergySource {
@@ -3143,13 +3151,18 @@ function isStoredWorkerEnergySource(structure: AnyStructure, room: Room): struct
   }
 
   return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage') ||
     matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal')
   );
 }
 
-function hasStoredEnergy(structure: StoredWorkerEnergySource): boolean {
+function hasWithdrawableStoredEnergy(structure: StoredWorkerEnergySource, context: StoredEnergySourceContext): boolean {
+  if (isSpawnEnergySource(structure)) {
+    return getSpawnEnergyAvailableForWithdrawal(context.room, structure) > 0;
+  }
+
   return getStoredEnergy(structure) > 0;
 }
 
@@ -4314,6 +4327,10 @@ function getWorkerEnergyAcquisitionPriority(
     return 2;
   }
 
+  if (isSpawnEnergySource(source)) {
+    return 3;
+  }
+
   return isHarvestSourceObject(source) ? 3 : 0;
 }
 
@@ -4426,6 +4443,10 @@ function getUnreservedWorkerEnergyAcquisitionAmount(
   creep?: Creep
 ): number {
   const projectedEnergy = Math.max(0, energy - getReservedWorkerEnergyAcquisitionAmount(source, reservationContext));
+  if (creep && isSpawnEnergySource(source)) {
+    return getSpawnEnergyAvailableForWithdrawal(creep.room, source, projectedEnergy);
+  }
+
   if (!creep || !isStorageEnergySource(source)) {
     return projectedEnergy;
   }

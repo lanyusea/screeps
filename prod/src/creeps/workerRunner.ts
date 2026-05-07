@@ -10,6 +10,7 @@ import {
 import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
+import { getSpawnEnergyWithdrawalAmount } from '../economy/spawnEnergyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
   observeCreepBehaviorTick,
@@ -1069,7 +1070,14 @@ function executeTask(
       });
     case 'withdraw': {
       const withdrawTarget = target as AnyStoreStructure;
-      return toTaskExecutionResult(creep.withdraw(withdrawTarget, RESOURCE_ENERGY), 'work', {
+      const requestedAmount = getFreeTransferEnergyCapacity(creep);
+      const safeAmount = getSpawnEnergyWithdrawalAmount(creep.room, withdrawTarget, requestedAmount);
+      if (safeAmount <= 0) {
+        return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
+      }
+
+      const result = creep.withdraw(withdrawTarget, RESOURCE_ENERGY, safeAmount);
+      return toTaskExecutionResult(result, 'work', {
         energyAcquisitionMethod: 'withdrawn',
         sourceContainerWithdrawal: isVisibleSourceContainer(creep, withdrawTarget)
       });
