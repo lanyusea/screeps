@@ -2,18 +2,24 @@ import type { ColonySnapshot } from '../colony/colonyRegistry';
 import { TERRITORY_CONTROLLER_BODY_COST } from '../spawn/bodyBuilder';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import {
+  TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS,
+  ensureTerritoryScoutAttempt,
   recordTerritoryScoutValidation,
   recordVisibleRoomScoutIntel,
   getTerritoryScoutIntel,
   validateTerritoryScoutIntelForClaim,
   type TerritoryScoutValidationResult
 } from './scoutIntel';
-import { collectVisibleRoomScoutingSnapshot, type RoomScoutingTarget } from './roomScouting';
+import {
+  ROOM_SCOUTING_MAX_DISTANCE,
+  collectVisibleRoomScoutingSnapshot,
+  getNearbyRoomScoutingTargets,
+  type RoomScoutingTarget
+} from './roomScouting';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
 
-const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'] as const;
 const TERRITORY_ROUTE_DISTANCE_SEPARATOR = '>';
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const MAX_NEARBY_EXPANSION_ROUTE_DISTANCE = 2;
@@ -173,7 +179,8 @@ export interface NextExpansionTargetSelection {
 
 export function selectExpansionScoutTargets(
   report: ExpansionCandidateReport,
-  limit = 1
+  limit = 1,
+  gameTime = getGameTime()
 ): RoomScoutingTarget[] {
   const boundedLimit = Math.max(0, Math.floor(limit));
   if (boundedLimit <= 0) {
@@ -182,15 +189,44 @@ export function selectExpansionScoutTargets(
 
   return report.candidates
     .filter((candidate) =>
-      candidate.evidenceStatus === 'insufficient-evidence' &&
-      candidate.adjacentToOwnedRoom &&
-      candidate.visible === false
+      candidate.visible === false &&
+      isScoutableNearbyExpansionCandidate(candidate) &&
+      (candidate.evidenceStatus === 'insufficient-evidence' ||
+        isExpansionCandidateScoutRefreshDue(report.colonyName, candidate.roomName, gameTime))
     )
     .slice(0, boundedLimit)
     .map((candidate) => ({
       roomName: candidate.roomName,
+      ...(candidate.nearestOwnedRoomDistance !== undefined ? { distance: candidate.nearestOwnedRoomDistance } : {}),
       ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
     }));
+}
+
+function isScoutableNearbyExpansionCandidate(candidate: ExpansionCandidateScore): boolean {
+  return (
+    candidate.adjacentToOwnedRoom ||
+    (typeof candidate.routeDistance === 'number' &&
+      candidate.routeDistance <= MAX_NEARBY_EXPANSION_ROUTE_DISTANCE) ||
+    (typeof candidate.nearestOwnedRoomDistance === 'number' &&
+      candidate.nearestOwnedRoomDistance <= MAX_NEARBY_EXPANSION_ROUTE_DISTANCE)
+  );
+}
+
+function isExpansionCandidateScoutRefreshDue(
+  colonyName: string | undefined,
+  roomName: string,
+  gameTime: number
+): boolean {
+  if (!isNonEmptyString(colonyName)) {
+    return false;
+  }
+
+  const intel = getTerritoryScoutIntel(colonyName, roomName);
+  if (!intel || gameTime < intel.updatedAt) {
+    return false;
+  }
+
+  return gameTime - intel.updatedAt > TERRITORY_SCOUT_VALIDATION_TIMEOUT_TICKS;
 }
 
 export function buildRuntimeExpansionCandidateReport(colony: ColonySnapshot): ExpansionCandidateReport {
@@ -228,13 +264,31 @@ export function refreshNextExpansionTargetSelection(
     };
   }
 
-  const scoutValidation = validateVisibleNextExpansionScoutIntel(colony, candidate, gameTime, telemetryEvents);
+  const scoutValidation = validateNextExpansionScoutIntel(colony, candidate, gameTime, telemetryEvents);
   if (scoutValidation?.status === 'blocked') {
     pruneNextExpansionTargets(colonyName);
     return {
       status: 'skipped',
       colony: colonyName,
       reason: 'unavailable',
+      targetRoom: candidate.roomName,
+      ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
+      score: candidate.score
+    };
+  }
+  if (scoutValidation?.status === 'pending') {
+    ensureTerritoryScoutAttempt(
+      colonyName,
+      candidate.roomName,
+      gameTime,
+      telemetryEvents,
+      candidate.controllerId ?? scoutValidation.intel?.controller?.id
+    );
+    pruneNextExpansionTargets(colonyName);
+    return {
+      status: 'skipped',
+      colony: colonyName,
+      reason: 'insufficientEvidence',
       targetRoom: candidate.roomName,
       ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {}),
       score: candidate.score
@@ -255,19 +309,21 @@ export function clearNextExpansionTargetIntent(colony: string): void {
   pruneNextExpansionTargets(colony);
 }
 
-function validateVisibleNextExpansionScoutIntel(
+function validateNextExpansionScoutIntel(
   colony: ColonySnapshot,
   candidate: ExpansionCandidateScore,
   gameTime: number,
   telemetryEvents: RuntimeTelemetryEvent[]
 ): TerritoryScoutValidationResult | null {
   const room = getVisibleRoom(candidate.roomName);
-  if (!room) {
+  if (!room && candidate.visible !== false) {
     return null;
   }
 
   const colonyName = colony.room.name;
-  recordVisibleRoomScoutIntel(colonyName, room, gameTime, undefined, telemetryEvents);
+  if (room) {
+    recordVisibleRoomScoutIntel(colonyName, room, gameTime, undefined, telemetryEvents);
+  }
   const validation = validateTerritoryScoutIntelForClaim({
     colony: colonyName,
     targetRoom: candidate.roomName,
@@ -323,18 +379,18 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
   const colonyName = colony.room.name;
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
   const ownedRoomNames = getVisibleOwnedRoomNames(colonyName, ownerUsername);
-  const adjacentRoomNames = getAdjacentRoomNamesByOwnedRoom(ownedRoomNames);
+  const nearbyRoomDistancesByOwnedRoom = getNearbyRoomDistancesByOwnedRoom(ownedRoomNames);
   const candidateOrders = new Map<string, number>();
   const gameTime = getGameTime();
   let order = 0;
 
   for (const ownedRoomName of ownedRoomNames) {
-    const adjacentRooms = adjacentRoomNames.get(ownedRoomName);
-    if (!adjacentRooms) {
+    const nearbyRoomDistances = nearbyRoomDistancesByOwnedRoom.get(ownedRoomName);
+    if (!nearbyRoomDistances) {
       continue;
     }
 
-    for (const roomName of adjacentRooms) {
+    for (const roomName of nearbyRoomDistances.keys()) {
       if (roomName === colonyName || ownedRoomNames.has(roomName) || candidateOrders.has(roomName)) {
         continue;
       }
@@ -354,8 +410,12 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
     }
 
     const routeDistance = getKnownRouteLength(colonyName, room.name);
-    const nearestOwnedDistance = getNearestOwnedRoomDistance(ownedRoomNames, room.name, adjacentRoomNames);
-    const adjacentToOwnedRoom = isAdjacentToOwnedRoom(room.name, adjacentRoomNames);
+    const nearestOwnedDistance = getNearestOwnedRoomDistance(
+      ownedRoomNames,
+      room.name,
+      nearbyRoomDistancesByOwnedRoom
+    );
+    const adjacentToOwnedRoom = isAdjacentToOwnedRoom(room.name, nearbyRoomDistancesByOwnedRoom);
     if (!isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom)) {
       continue;
     }
@@ -366,8 +426,12 @@ function buildRuntimeExpansionCandidates(colony: ColonySnapshot): ExpansionCandi
 
   return Array.from(candidateOrders.entries()).flatMap(([roomName, candidateOrder]) => {
     const routeDistance = getKnownRouteLength(colonyName, roomName);
-    const nearestOwnedDistance = getNearestOwnedRoomDistance(ownedRoomNames, roomName, adjacentRoomNames);
-    const adjacentToOwnedRoom = isAdjacentToOwnedRoom(roomName, adjacentRoomNames);
+    const nearestOwnedDistance = getNearestOwnedRoomDistance(
+      ownedRoomNames,
+      roomName,
+      nearbyRoomDistancesByOwnedRoom
+    );
+    const adjacentToOwnedRoom = isAdjacentToOwnedRoom(roomName, nearbyRoomDistancesByOwnedRoom);
     if (!isNearbyExpansionCandidate(routeDistance, nearestOwnedDistance, adjacentToOwnedRoom)) {
       return [];
     }
@@ -1040,7 +1104,7 @@ function getPersistedExpansionCandidateRecommendedAction(
     return 'claim';
   }
 
-  return candidate.evidenceStatus === 'insufficient-evidence' && candidate.adjacentToOwnedRoom
+  return candidate.evidenceStatus === 'insufficient-evidence' && isScoutableNearbyExpansionCandidate(candidate)
     ? 'scout'
     : undefined;
 }
@@ -1282,18 +1346,29 @@ function buildClaimedRoomSynergyEvidence(room: Room): ExpansionClaimedRoomInput 
   };
 }
 
-function getAdjacentRoomNamesByOwnedRoom(ownedRoomNames: Set<string>): Map<string, Set<string>> {
-  const adjacentRoomNames = new Map<string, Set<string>>();
+function getNearbyRoomDistancesByOwnedRoom(ownedRoomNames: Set<string>): Map<string, Map<string, number>> {
+  const nearbyRoomDistances = new Map<string, Map<string, number>>();
   for (const roomName of ownedRoomNames) {
-    adjacentRoomNames.set(roomName, new Set(getAdjacentRoomNames(roomName)));
+    nearbyRoomDistances.set(
+      roomName,
+      new Map(
+        getNearbyRoomScoutingTargets(roomName, MAX_NEARBY_EXPANSION_ROUTE_DISTANCE).map((target) => [
+          target.roomName,
+          target.distance ?? ROOM_SCOUTING_MAX_DISTANCE
+        ])
+      )
+    );
   }
 
-  return adjacentRoomNames;
+  return nearbyRoomDistances;
 }
 
-function isAdjacentToOwnedRoom(roomName: string, adjacentRoomNames: Map<string, Set<string>>): boolean {
-  for (const exits of adjacentRoomNames.values()) {
-    if (exits.has(roomName)) {
+function isAdjacentToOwnedRoom(
+  roomName: string,
+  nearbyRoomDistancesByOwnedRoom: Map<string, Map<string, number>>
+): boolean {
+  for (const roomDistances of nearbyRoomDistancesByOwnedRoom.values()) {
+    if (roomDistances.get(roomName) === 1) {
       return true;
     }
   }
@@ -1304,16 +1379,19 @@ function isAdjacentToOwnedRoom(roomName: string, adjacentRoomNames: Map<string, 
 function getNearestOwnedRoomDistance(
   ownedRoomNames: Set<string>,
   targetRoom: string,
-  adjacentRoomNames: Map<string, Set<string>>
+  nearbyRoomDistancesByOwnedRoom: Map<string, Map<string, number>>
 ): { roomName?: string; distance?: number | null } {
   let nearestRoomName: string | undefined;
   let nearestDistance: number | null | undefined;
   for (const ownedRoomName of ownedRoomNames) {
-    const adjacentDistance = adjacentRoomNames.get(ownedRoomName)?.has(targetRoom) ? 1 : undefined;
-    if (adjacentDistance !== undefined) {
+    const nearbyDistance = nearbyRoomDistancesByOwnedRoom.get(ownedRoomName)?.get(targetRoom);
+    if (nearbyDistance !== undefined) {
       nearestRoomName = ownedRoomName;
-      nearestDistance = adjacentDistance;
-      break;
+      nearestDistance = nearbyDistance;
+      if (nearbyDistance <= 1) {
+        break;
+      }
+      continue;
     }
 
     const linearDistance = getLinearRoomDistance(ownedRoomName, targetRoom);
@@ -1373,23 +1451,6 @@ function isNearbyExpansionCandidate(
     (typeof nearestOwnedDistance.distance === 'number' &&
       nearestOwnedDistance.distance <= MAX_NEARBY_EXPANSION_ROUTE_DISTANCE)
   );
-}
-
-function getAdjacentRoomNames(roomName: string): string[] {
-  const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map;
-  if (!gameMap || typeof gameMap.describeExits !== 'function') {
-    return [];
-  }
-
-  const exits = gameMap.describeExits(roomName) as ExitsInformation | null;
-  if (!isRecord(exits)) {
-    return [];
-  }
-
-  return EXIT_DIRECTION_ORDER.flatMap((direction) => {
-    const exitRoom = exits[direction];
-    return isNonEmptyString(exitRoom) ? [exitRoom] : [];
-  });
 }
 
 function getKnownRouteLength(fromRoom: string, targetRoom: string): number | null | undefined {

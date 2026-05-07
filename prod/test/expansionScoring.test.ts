@@ -4,6 +4,7 @@ import {
   maxRoomsForRcl,
   refreshNextExpansionTargetSelection,
   scoreExpansionCandidates,
+  selectExpansionScoutTargets,
   type ExpansionCandidateInput,
   type ExpansionScoringInput
 } from '../src/territory/expansionScoring';
@@ -458,6 +459,206 @@ describe('next expansion scoring', () => {
         updatedAt: 401
       }
     ]);
+  });
+
+  it('discovers and scores unseen second-ring rooms as scoutable expansion candidates', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 500,
+      map: {
+        describeExits: jest.fn((roomName: string) => {
+          switch (roomName) {
+            case 'W1N1':
+              return { '1': 'W1N2', '3': 'W2N1' };
+            case 'W2N1':
+              return { '3': 'W3N1', '7': 'W1N1' };
+            case 'W1N2':
+              return { '5': 'W1N1' };
+            default:
+              return {};
+          }
+        }),
+        findRoute: jest.fn((_fromRoom: string, toRoom: string) =>
+          Array.from({ length: toRoom === 'W3N1' ? 2 : 1 }, (_value, index) => ({
+            exit: 3,
+            room: `route-${index}`
+          }))
+        ),
+        getRoomTerrain: jest.fn((roomName: string) => makeTerrain(roomName === 'W3N1' ? 0.01 : 0.9))
+      } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+
+    expect(report.next).toMatchObject({
+      roomName: 'W3N1',
+      evidenceStatus: 'insufficient-evidence',
+      visible: false,
+      adjacentToOwnedRoom: false,
+      nearestOwnedRoom: 'W1N1',
+      nearestOwnedRoomDistance: 2,
+      routeDistance: 2,
+      terrain: {
+        walkableRatio: 0.99,
+        swampRatio: 0,
+        wallRatio: 0.01
+      }
+    });
+    expect(selectExpansionScoutTargets(report, 1, 500)).toEqual([{ roomName: 'W3N1', distance: 2 }]);
+
+    expect(refreshNextExpansionTargetSelection(colony, report, 500)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'insufficientEvidence'
+    });
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      evidenceStatus: 'insufficient-evidence',
+      recommendedAction: 'scout',
+      adjacentToOwnedRoom: false,
+      nearestOwnedRoomDistance: 2,
+      updatedAt: 500
+    });
+  });
+
+  it('uses fresh second-ring scout intel to persist a claim target for the territory pipeline', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W3N1': makeScoutIntel('W3N1', { sourceCount: 2, updatedAt: 700 })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 701,
+      map: {
+        describeExits: jest.fn((roomName: string) => {
+          switch (roomName) {
+            case 'W1N1':
+              return { '3': 'W2N1' };
+            case 'W2N1':
+              return { '3': 'W3N1', '7': 'W1N1' };
+            default:
+              return {};
+          }
+        }),
+        findRoute: jest.fn(() => [
+          { exit: 3, room: 'W2N1' },
+          { exit: 3, room: 'W3N1' }
+        ]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0.05))
+      } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+
+    expect(report.next).toMatchObject({
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      visible: false,
+      sourceCount: 2,
+      nearestOwnedRoomDistance: 2
+    });
+    expect(refreshNextExpansionTargetSelection(colony, report, 701)).toEqual({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      controllerId: 'controller-W3N1',
+      score: report.candidates[0].score
+    });
+    expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 702)).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      action: 'claim',
+      createdBy: 'nextExpansionScoring',
+      controllerId: 'controller-W3N1'
+    });
+  });
+
+  it('requests a scout refresh instead of claiming from stale second-ring intel', () => {
+    const colony = makeSafeColony();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        scoutIntel: {
+          'W1N1>W3N1': makeScoutIntel('W3N1', { sourceCount: 2, updatedAt: 100 })
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 1_701,
+      map: {
+        describeExits: jest.fn((roomName: string) => {
+          switch (roomName) {
+            case 'W1N1':
+              return { '3': 'W2N1' };
+            case 'W2N1':
+              return { '3': 'W3N1', '7': 'W1N1' };
+            default:
+              return {};
+          }
+        }),
+        findRoute: jest.fn(() => [
+          { exit: 3, room: 'W2N1' },
+          { exit: 3, room: 'W3N1' }
+        ]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0.05))
+      } as unknown as GameMap,
+      rooms: {
+        W1N1: colony.room
+      }
+    };
+
+    const report = buildRuntimeExpansionCandidateReport(colony);
+
+    expect(report.next).toMatchObject({
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      sourceCount: 2
+    });
+    expect(selectExpansionScoutTargets(report, 1, 1_701)).toEqual([
+      { roomName: 'W3N1', distance: 2, controllerId: 'controller-W3N1' }
+    ]);
+    expect(refreshNextExpansionTargetSelection(colony, report, 1_701)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'insufficientEvidence',
+      targetRoom: 'W3N1',
+      controllerId: 'controller-W3N1',
+      score: report.candidates[0].score
+    });
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 1_701,
+        controllerId: 'controller-W3N1'
+      }
+    ]);
+    expect(Memory.territory?.scoutAttempts?.['W1N1>W3N1']).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      status: 'requested',
+      requestedAt: 1_701,
+      updatedAt: 1_701,
+      attemptCount: 1,
+      controllerId: 'controller-W3N1',
+      lastValidation: {
+        status: 'pending',
+        updatedAt: 1_701,
+        reason: 'scoutPending'
+      }
+    });
   });
 
   it('scores no-longer-visible adjacent rooms from persisted scout intel and persists rank', () => {
