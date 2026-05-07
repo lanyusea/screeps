@@ -348,7 +348,7 @@ function planLocalSourceMiningSpawn(context: SpawnPlanningContext): SpawnRequest
     context.survival.controllerDowngradeGuard ||
     context.colony.room.controller?.my !== true ||
     (context.colony.room.controller.level ?? 0) < 2 ||
-    context.workerCapacity < LOCAL_SUPPORT_WORKER_FLOOR
+    context.roleCounts.worker < LOCAL_SUPPORT_WORKER_FLOOR
   ) {
     return null;
   }
@@ -1470,7 +1470,7 @@ function shouldUseSourceHarvesterBody(colony: ColonySnapshot, roleCounts: RoleCo
   const workerCapacity = getWorkerCapacity(roleCounts);
   return (
     sourceAwareWorkerTarget > LOCAL_SUPPORT_WORKER_FLOOR &&
-    workerCapacity >= LOCAL_SUPPORT_WORKER_FLOOR &&
+    roleCounts.worker >= LOCAL_SUPPORT_WORKER_FLOOR &&
     workerCapacity < sourceAwareWorkerTarget
   );
 }

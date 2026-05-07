@@ -14363,10 +14363,12 @@ var ERR_FULL_CODE2 = -8;
 var ERR_NOT_ENOUGH_RESOURCES_CODE = -6;
 var ERR_NOT_IN_RANGE_CODE4 = -9;
 var SOURCE_LINK_DEPOSIT_RANGE = 1;
+var sourceHarvesterAssignmentCountCache = null;
 function selectSourceHarvesterAssignment(room) {
   var _a;
+  const assignmentCounts = getSourceHarvesterAssignmentCounts();
   return (_a = getSourceHarvesterAssignments(room).find(
-    (assignment) => countAssignedSourceHarvesters(assignment) < 1
+    (assignment) => countAssignedSourceHarvesters(assignment, assignmentCounts) < 1
   )) != null ? _a : null;
 }
 function getSourceHarvesterAssignments(room) {
@@ -14478,19 +14480,56 @@ function isMobileFallbackEnergySink(structure) {
   const structureType = structure.structureType;
   return (matchesStructureType12(structureType, "STRUCTURE_SPAWN", "spawn") || matchesStructureType12(structureType, "STRUCTURE_EXTENSION", "extension") || matchesStructureType12(structureType, "STRUCTURE_TOWER", "tower")) && getFreeEnergyCapacity4(structure) > 0;
 }
-function countAssignedSourceHarvesters(assignment) {
-  return getGameCreeps().filter((creep) => isAssignedToSourceHarvesterSlot(creep, assignment)).length;
+function countAssignedSourceHarvesters(assignment, assignmentCounts) {
+  var _a;
+  return (_a = assignmentCounts.get(getSourceHarvesterAssignmentKey(assignment.roomName, assignment.sourceId))) != null ? _a : 0;
 }
-function isAssignedToSourceHarvesterSlot(creep, assignment) {
-  var _a, _b, _c, _d, _e, _f;
+function getSourceHarvesterAssignmentCounts() {
+  var _a;
+  const game = globalThis.Game;
+  const creeps = game == null ? void 0 : game.creeps;
+  if (!creeps) {
+    return /* @__PURE__ */ new Map();
+  }
+  const gameTime = getCacheableGameTime(game);
+  if (gameTime !== null && (sourceHarvesterAssignmentCountCache == null ? void 0 : sourceHarvesterAssignmentCountCache.gameTime) === gameTime && sourceHarvesterAssignmentCountCache.creeps === creeps) {
+    return sourceHarvesterAssignmentCountCache.counts;
+  }
+  const counts = /* @__PURE__ */ new Map();
+  for (const creep of Object.values(creeps)) {
+    const assignmentKey = getAssignedSourceHarvesterSlotKey(creep);
+    if (!assignmentKey) {
+      continue;
+    }
+    counts.set(assignmentKey, ((_a = counts.get(assignmentKey)) != null ? _a : 0) + 1);
+  }
+  if (gameTime !== null) {
+    sourceHarvesterAssignmentCountCache = { gameTime, creeps, counts };
+  }
+  return counts;
+}
+function getAssignedSourceHarvesterSlotKey(creep) {
+  var _a, _b, _c, _d, _e;
   if (!canSatisfySourceHarvesterCapacity(creep)) {
-    return false;
+    return null;
   }
-  if (((_a = creep.memory) == null ? void 0 : _a.role) === SOURCE_HARVESTER_ROLE && ((_b = creep.memory.sourceHarvester) == null ? void 0 : _b.roomName) === assignment.roomName && String((_c = creep.memory.sourceHarvester) == null ? void 0 : _c.sourceId) === String(assignment.sourceId)) {
-    return true;
+  if (((_a = creep.memory) == null ? void 0 : _a.role) === SOURCE_HARVESTER_ROLE && typeof ((_b = creep.memory.sourceHarvester) == null ? void 0 : _b.roomName) === "string" && creep.memory.sourceHarvester.sourceId !== void 0) {
+    return getSourceHarvesterAssignmentKey(
+      creep.memory.sourceHarvester.roomName,
+      creep.memory.sourceHarvester.sourceId
+    );
   }
-  const task = (_d = creep.memory) == null ? void 0 : _d.task;
-  return ((_e = creep.memory) == null ? void 0 : _e.role) === "worker" && ((_f = creep.room) == null ? void 0 : _f.name) === assignment.roomName && (task == null ? void 0 : task.type) === "harvest" && task.sourceContainerAssigned === true && String(task.targetId) === String(assignment.sourceId);
+  const task = (_c = creep.memory) == null ? void 0 : _c.task;
+  if (((_d = creep.memory) == null ? void 0 : _d.role) === "worker" && typeof ((_e = creep.room) == null ? void 0 : _e.name) === "string" && (task == null ? void 0 : task.type) === "harvest" && task.sourceContainerAssigned === true && task.targetId !== void 0) {
+    return getSourceHarvesterAssignmentKey(creep.room.name, task.targetId);
+  }
+  return null;
+}
+function getSourceHarvesterAssignmentKey(roomName, sourceId) {
+  return `${roomName}\0${String(sourceId)}`;
+}
+function getCacheableGameTime(game) {
+  return typeof game.time === "number" && Number.isFinite(game.time) ? game.time : null;
 }
 function canSatisfySourceHarvesterCapacity(creep) {
   return creep.ticksToLive === void 0 || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE;
@@ -14605,11 +14644,6 @@ function getObjectById2(id) {
 function getVisibleRoom5(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
-}
-function getGameCreeps() {
-  var _a;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  return creeps ? Object.values(creeps).filter((creep) => creep !== void 0) : [];
 }
 function compareAssignments(left, right) {
   return left.roomName.localeCompare(right.roomName) || String(left.sourceId).localeCompare(String(right.sourceId));
@@ -15936,7 +15970,7 @@ function getInterRoomHaulReservationCache() {
     reservedEnergyByTransferKey: /* @__PURE__ */ new Map(),
     tick: gameTick
   };
-  for (const creep of getGameCreeps2()) {
+  for (const creep of getGameCreeps()) {
     setCachedInterRoomHaulReservation(
       interRoomHaulReservationCache,
       creep,
@@ -16516,7 +16550,7 @@ function getRoomOwnedCreeps(room) {
       return roomCreeps;
     }
   }
-  return getGameCreeps2().filter((worker) => isSameRoomWorker(worker, room));
+  return getGameCreeps().filter((worker) => isSameRoomWorker(worker, room));
 }
 function isWorkerAssignedToConstructionSite(worker, site) {
   var _a;
@@ -17725,7 +17759,7 @@ function createWorkerEnergyAcquisitionReservationContext(creep) {
 function getReservedWorkerEnergyAcquisitionsBySourceId(creep) {
   var _a, _b;
   const reservedEnergyBySourceId = /* @__PURE__ */ new Map();
-  for (const worker of getGameCreeps2()) {
+  for (const worker of getGameCreeps()) {
     if (isSameCreep(worker, creep) || !isSameRoomWorker(worker, creep.room)) {
       continue;
     }
@@ -18165,7 +18199,7 @@ function createNearTermSpawnExtensionRefillReserveContext(room) {
     room,
     spawnExtensionEnergyStructures
   );
-  const sortedLoadedWorkers = refillReserve > 0 ? dedupeCreepsByStableKey(getGameCreeps2().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, room))).sort(
+  const sortedLoadedWorkers = refillReserve > 0 ? dedupeCreepsByStableKey(getGameCreeps().filter((candidate) => isSameRoomWorkerWithEnergy(candidate, room))).sort(
     (left, right) => compareNearTermRefillReserveWorkers(left, right, spawnExtensionEnergyStructures)
   ) : [];
   return {
@@ -18410,7 +18444,7 @@ function isSourceDepleted2(source) {
   return typeof source.energy === "number" && source.energy <= 0;
 }
 function hasOtherSource2ControllerLaneWorker(creep, topology) {
-  return getGameCreeps2().some(
+  return getGameCreeps().some(
     (candidate) => !isSameCreep(candidate, creep) && isSameRoomWorker(candidate, creep.room) && isSource2ControllerLaneTask(candidate, topology)
   );
 }
@@ -18543,7 +18577,7 @@ function isActiveTerritoryPressureIntent(intent, colonyName) {
   return intent.colony === colonyName && intent.targetRoom !== colonyName && (intent.status === "planned" || intent.status === "active") && (intent.action === "claim" || intent.action === "reserve" || intent.action === "scout");
 }
 function getSameRoomLoadedWorkers(creep) {
-  return getSameRoomLoadedWorkersFromCandidates(creep, getGameCreeps2());
+  return getSameRoomLoadedWorkersFromCandidates(creep, getGameCreeps());
 }
 function getSameRoomLoadedWorkersForRefillReservations(creep) {
   return getSameRoomLoadedWorkersFromCandidates(creep, getRoomOwnedCreeps(creep.room));
@@ -19204,7 +19238,7 @@ function getWorkerHarvestLoads(sources) {
     assignmentLoads.set(source.id, createEmptyHarvestSourceAssignmentLoad());
   }
   const sourceIds = new Set(sources.map((source) => source.id));
-  for (const assignedCreep of getGameCreeps2()) {
+  for (const assignedCreep of getGameCreeps()) {
     const task = (_a = assignedCreep.memory) == null ? void 0 : _a.task;
     const targetId = typeof (task == null ? void 0 : task.targetId) === "string" ? task.targetId : void 0;
     const sourceHarvesterTargetId = ((_b = assignedCreep.memory) == null ? void 0 : _b.role) === SOURCE_HARVESTER_ROLE && typeof ((_c = assignedCreep.memory.sourceHarvester) == null ? void 0 : _c.sourceId) === "string" ? assignedCreep.memory.sourceHarvester.sourceId : void 0;
@@ -19225,7 +19259,7 @@ function getWorkerHarvestLoads(sources) {
 function isSourceContainerHarvestAssignment(task) {
   return (task == null ? void 0 : task.type) === "harvest" && task.sourceContainerAssigned === true;
 }
-function getGameCreeps2() {
+function getGameCreeps() {
   const game = getGameReference();
   const creeps = game == null ? void 0 : game.creeps;
   const gameTick = getGameTick3();
@@ -21901,7 +21935,7 @@ function planLocalSurvivalSpawn(context) {
 }
 function planLocalSourceMiningSpawn(context) {
   var _a, _b;
-  if (context.options.workersOnly || context.survival.hostilePresence || context.survival.controllerDowngradeGuard || ((_a = context.colony.room.controller) == null ? void 0 : _a.my) !== true || ((_b = context.colony.room.controller.level) != null ? _b : 0) < 2 || context.workerCapacity < LOCAL_SUPPORT_WORKER_FLOOR) {
+  if (context.options.workersOnly || context.survival.hostilePresence || context.survival.controllerDowngradeGuard || ((_a = context.colony.room.controller) == null ? void 0 : _a.my) !== true || ((_b = context.colony.room.controller.level) != null ? _b : 0) < 2 || context.roleCounts.worker < LOCAL_SUPPORT_WORKER_FLOOR) {
     return null;
   }
   const assignment = selectSourceHarvesterAssignment(context.colony.room);
@@ -22674,7 +22708,7 @@ function getHarvesterBodyPartCount(workParts, carryParts) {
 function shouldUseSourceHarvesterBody(colony, roleCounts) {
   const sourceAwareWorkerTarget = getSourceAwareWorkerTarget(colony.room);
   const workerCapacity = getWorkerCapacity(roleCounts);
-  return sourceAwareWorkerTarget > LOCAL_SUPPORT_WORKER_FLOOR && workerCapacity >= LOCAL_SUPPORT_WORKER_FLOOR && workerCapacity < sourceAwareWorkerTarget;
+  return sourceAwareWorkerTarget > LOCAL_SUPPORT_WORKER_FLOOR && roleCounts.worker >= LOCAL_SUPPORT_WORKER_FLOOR && workerCapacity < sourceAwareWorkerTarget;
 }
 function getSourceAwareWorkerTarget(room) {
   return getSourceCount(room) * 2;
@@ -23436,7 +23470,7 @@ var ROOM_EDGE_MAX7 = 48;
 var DEFAULT_TERRAIN_WALL_MASK10 = 1;
 var ERR_INVALID_TARGET_CODE3 = -7;
 var REMOTE_HARVESTER_ROLE2 = "remoteHarvester";
-function ensureRemoteSourceContainersForAssignedHarvesters(creeps = getGameCreeps3()) {
+function ensureRemoteSourceContainersForAssignedHarvesters(creeps = getGameCreeps2()) {
   const roomResults = getRemoteSourceContainerScans(creeps).map(planSourceContainersForRoom);
   return buildSourceContainerPlannerResult(roomResults);
 }
@@ -23699,7 +23733,7 @@ function getVisibleSpawns() {
   const spawns = (_a = globalThis.Game) == null ? void 0 : _a.spawns;
   return spawns ? Object.values(spawns).filter((spawn) => spawn !== void 0) : [];
 }
-function getGameCreeps3() {
+function getGameCreeps2() {
   var _a;
   const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
   return creeps ? Object.values(creeps).filter((creep) => creep !== void 0) : [];
@@ -25037,7 +25071,7 @@ function recordSourceWorkloads(room, creeps, tick) {
     )
   };
 }
-function buildSourceWorkloadRecords(room, sources = findSources4(room), creeps = getGameCreeps4()) {
+function buildSourceWorkloadRecords(room, sources = findSources4(room), creeps = getGameCreeps3()) {
   const roomName = getRoomName5(room);
   const assignmentLoads = getSourceAssignmentLoads(roomName, sources, creeps);
   return sources.filter((source) => hasSourcePositionInRoom(source, room)).sort((left, right) => String(left.id).localeCompare(String(right.id))).map((source) => {
@@ -25176,7 +25210,7 @@ function getBodyPartConstant5(globalName, fallback) {
   const constants = globalThis;
   return (_a = constants[globalName]) != null ? _a : fallback;
 }
-function getGameCreeps4() {
+function getGameCreeps3() {
   var _a;
   const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
   return creeps ? Object.values(creeps) : [];

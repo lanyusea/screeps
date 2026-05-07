@@ -12,18 +12,27 @@ const SOURCE_LINK_DEPOSIT_RANGE = 1;
 
 type MobileFallbackEnergySink = StructureSpawn | StructureExtension | StructureTower;
 
+interface SourceHarvesterAssignmentCountCache {
+  gameTime: number;
+  creeps: Game['creeps'];
+  counts: Map<string, number>;
+}
+
 export interface SourceHarvesterAssignment {
   roomName: string;
   sourceId: Id<Source>;
   containerId: Id<StructureContainer>;
 }
 
+let sourceHarvesterAssignmentCountCache: SourceHarvesterAssignmentCountCache | null = null;
+
 export { buildRemoteHarvesterBody as buildSourceHarvesterBody };
 
 export function selectSourceHarvesterAssignment(room: Room): SourceHarvesterAssignment | null {
+  const assignmentCounts = getSourceHarvesterAssignmentCounts();
   return (
     getSourceHarvesterAssignments(room).find(
-      (assignment) => countAssignedSourceHarvesters(assignment) < 1
+      (assignment) => countAssignedSourceHarvesters(assignment, assignmentCounts) < 1
     ) ?? null
   );
 }
@@ -188,31 +197,82 @@ function isMobileFallbackEnergySink(structure: AnyOwnedStructure): structure is 
   );
 }
 
-function countAssignedSourceHarvesters(assignment: SourceHarvesterAssignment): number {
-  return getGameCreeps().filter((creep) => isAssignedToSourceHarvesterSlot(creep, assignment)).length;
+function countAssignedSourceHarvesters(
+  assignment: SourceHarvesterAssignment,
+  assignmentCounts: ReadonlyMap<string, number>
+): number {
+  return assignmentCounts.get(getSourceHarvesterAssignmentKey(assignment.roomName, assignment.sourceId)) ?? 0;
 }
 
-function isAssignedToSourceHarvesterSlot(creep: Creep, assignment: SourceHarvesterAssignment): boolean {
+function getSourceHarvesterAssignmentCounts(): Map<string, number> {
+  const game = (globalThis as { Game?: Partial<Pick<Game, 'creeps' | 'time'>> }).Game;
+  const creeps = game?.creeps;
+  if (!creeps) {
+    return new Map();
+  }
+
+  const gameTime = getCacheableGameTime(game);
+  if (
+    gameTime !== null &&
+    sourceHarvesterAssignmentCountCache?.gameTime === gameTime &&
+    sourceHarvesterAssignmentCountCache.creeps === creeps
+  ) {
+    return sourceHarvesterAssignmentCountCache.counts;
+  }
+
+  const counts = new Map<string, number>();
+  for (const creep of Object.values(creeps)) {
+    const assignmentKey = getAssignedSourceHarvesterSlotKey(creep);
+    if (!assignmentKey) {
+      continue;
+    }
+
+    counts.set(assignmentKey, (counts.get(assignmentKey) ?? 0) + 1);
+  }
+
+  if (gameTime !== null) {
+    sourceHarvesterAssignmentCountCache = { gameTime, creeps, counts };
+  }
+
+  return counts;
+}
+
+function getAssignedSourceHarvesterSlotKey(creep: Creep): string | null {
   if (!canSatisfySourceHarvesterCapacity(creep)) {
-    return false;
+    return null;
   }
 
   if (
     creep.memory?.role === SOURCE_HARVESTER_ROLE &&
-    creep.memory.sourceHarvester?.roomName === assignment.roomName &&
-    String(creep.memory.sourceHarvester?.sourceId) === String(assignment.sourceId)
+    typeof creep.memory.sourceHarvester?.roomName === 'string' &&
+    creep.memory.sourceHarvester.sourceId !== undefined
   ) {
-    return true;
+    return getSourceHarvesterAssignmentKey(
+      creep.memory.sourceHarvester.roomName,
+      creep.memory.sourceHarvester.sourceId
+    );
   }
 
   const task = creep.memory?.task as Partial<CreepTaskMemory> | undefined;
-  return (
+  if (
     creep.memory?.role === 'worker' &&
-    creep.room?.name === assignment.roomName &&
+    typeof creep.room?.name === 'string' &&
     task?.type === 'harvest' &&
     task.sourceContainerAssigned === true &&
-    String(task.targetId) === String(assignment.sourceId)
-  );
+    task.targetId !== undefined
+  ) {
+    return getSourceHarvesterAssignmentKey(creep.room.name, task.targetId);
+  }
+
+  return null;
+}
+
+function getSourceHarvesterAssignmentKey(roomName: string, sourceId: unknown): string {
+  return `${roomName}\0${String(sourceId)}`;
+}
+
+function getCacheableGameTime(game: Partial<Pick<Game, 'time'>>): number | null {
+  return typeof game.time === 'number' && Number.isFinite(game.time) ? game.time : null;
 }
 
 function canSatisfySourceHarvesterCapacity(creep: Creep): boolean {
@@ -359,11 +419,6 @@ function getObjectById<T>(id: string): T | null {
 
 function getVisibleRoom(roomName: string): Room | undefined {
   return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
-}
-
-function getGameCreeps(): Creep[] {
-  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  return creeps ? Object.values(creeps).filter((creep): creep is Creep => creep !== undefined) : [];
 }
 
 function compareAssignments(left: SourceHarvesterAssignment, right: SourceHarvesterAssignment): number {

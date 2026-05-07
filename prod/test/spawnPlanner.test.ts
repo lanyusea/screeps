@@ -514,6 +514,23 @@ describe('planSpawn', () => {
     });
   });
 
+  it('keeps the local source mining support floor tied to actual workers', () => {
+    const sourcePosition = makeRoomPosition(10, 10, 'W1N30');
+    const container = makeRemoteContainer('container0', 0, 10, 11, 'W1N30') as unknown as AnyStructure;
+    const { colony } = makeColony({
+      roomName: 'W1N30',
+      sourceCount: 1,
+      sourcePositions: [sourcePosition],
+      structures: [container],
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 600,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 2, sourceHarvester: 1, workerCapacity: 3 }, 163)).toBeNull();
+  });
+
   it('keeps mobile worker harvesting as the fallback when a local source container is missing', () => {
     const { colony } = makeColony({
       roomName: 'W1N29',
@@ -3871,6 +3888,22 @@ describe('planSpawn', () => {
       body: ['work', 'work', 'carry', 'move', 'move', 'move'],
       name: 'worker-W1N7-137',
       memory: { role: 'worker', colony: 'W1N7' }
+    });
+  });
+
+  it('uses a general worker body below the actual worker support floor', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N8',
+      sourceCount: 2,
+      energyAvailable: 400,
+      energyCapacityAvailable: 600
+    });
+
+    expect(planSpawn(colony, { worker: 2, sourceHarvester: 1, workerCapacity: 3 }, 139)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      name: 'worker-W1N8-139',
+      memory: { role: 'worker', colony: 'W1N8' }
     });
   });
 

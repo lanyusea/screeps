@@ -40,6 +40,39 @@ describe('sourceHarvester', () => {
     });
   });
 
+  it('skips source assignments already held by active source harvesters', () => {
+    const firstSource = makeSource('source1', 10, 10);
+    const secondSource = makeSource('source2', 20, 20);
+    const firstContainer = makeContainer('container1', 10, 11);
+    const secondContainer = makeContainer('container2', 20, 21);
+    const room = makeRoom({
+      sources: [firstSource, secondSource],
+      structures: [firstContainer, secondContainer]
+    });
+    (globalThis as { Game?: Partial<Game> }).Game = {
+      time: 101,
+      creeps: {
+        Harvester1: {
+          memory: {
+            role: 'sourceHarvester',
+            colony: 'W1N1',
+            sourceHarvester: {
+              roomName: 'W1N1',
+              sourceId: 'source1' as Id<Source>,
+              containerId: 'container1' as Id<StructureContainer>
+            }
+          }
+        } as Creep
+      }
+    };
+
+    expect(selectSourceHarvesterAssignment(room)).toEqual({
+      roomName: 'W1N1',
+      sourceId: 'source2',
+      containerId: 'container2'
+    });
+  });
+
   it('moves onto the assigned container before harvesting', () => {
     const source = makeSource('source1', 10, 10);
     const container = makeContainer('container1', 10, 11);
