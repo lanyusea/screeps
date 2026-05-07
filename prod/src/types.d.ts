@@ -319,6 +319,7 @@ declare global {
     | 'occupationRecommendation'
     | 'autonomousExpansionClaim'
     | 'colonyExpansion'
+    | 'expansionPlanner'
     | 'nextExpansionScoring'
     | 'adjacentRoomReservation';
   type TerritoryIntentSuspensionReason = 'hostile_presence';
@@ -421,7 +422,7 @@ declare global {
     colony: string;
     targetRoom: string;
     action: TerritoryIntentAction;
-    status: 'planned' | 'active' | 'suppressed';
+    status: 'planned' | 'active' | 'suppressed' | 'inactive' | 'completed';
     updatedAt: number;
     createdBy?: TerritoryAutomationSource;
     reason?: TerritoryIntentSuppressionReason;

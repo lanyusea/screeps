@@ -94,7 +94,13 @@ function isTerritoryIntentAction(action: unknown): action is TerritoryIntentActi
 }
 
 function isTerritoryIntentStatus(status: unknown): status is TerritoryIntentMemory['status'] {
-  return status === 'planned' || status === 'active' || status === 'suppressed';
+  return (
+    status === 'planned' ||
+    status === 'active' ||
+    status === 'suppressed' ||
+    status === 'inactive' ||
+    status === 'completed'
+  );
 }
 
 function isTerritoryIntentSuppressionReason(reason: unknown): reason is TerritoryIntentSuppressionReason {
@@ -114,6 +120,7 @@ function isTerritoryAutomationSource(source: unknown): source is TerritoryAutoma
     source === 'occupationRecommendation' ||
     source === 'autonomousExpansionClaim' ||
     source === 'colonyExpansion' ||
+    source === 'expansionPlanner' ||
     source === 'nextExpansionScoring' ||
     source === 'adjacentRoomReservation'
   );

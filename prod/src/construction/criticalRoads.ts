@@ -299,7 +299,7 @@ function hasRemoteTerritoryReference(value: unknown, roomName: string, roomKey: 
       isNonEmptyString(entry.colony) &&
       entry.colony !== roomName &&
       isTerritoryControlAction(entry.action) &&
-      entry.status !== 'suppressed' &&
+      (entry.status === undefined || entry.status === 'planned' || entry.status === 'active') &&
       entry.enabled !== false
     );
   });
