@@ -6541,6 +6541,83 @@ describe('planTerritoryIntent', () => {
     });
   });
 
+  it('defers remote mining setup for non-focused active post-claim rooms', () => {
+    (globalThis as unknown as {
+      FIND_STRUCTURES: number;
+      FIND_CONSTRUCTION_SITES: number;
+      FIND_MY_CREEPS: number;
+      STRUCTURE_CONTAINER: StructureConstant;
+      TERRAIN_MASK_WALL: number;
+      OK: ScreepsReturnCode;
+    }).FIND_STRUCTURES = 10;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 11;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 12;
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
+    (globalThis as unknown as { OK: ScreepsReturnCode }).OK = 0 as ScreepsReturnCode;
+    const colony = makeSafeColony();
+    const makeFocusedRemoteRoom = (roomName: string): Room & { createConstructionSite: jest.Mock } => ({
+      name: roomName,
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: {
+        id: `${roomName}-controller`,
+        my: true,
+        level: 1,
+        pos: { x: 25, y: 25, roomName } as RoomPosition
+      } as StructureController,
+      createConstructionSite: jest.fn().mockReturnValue(0 as ScreepsReturnCode),
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [{ id: `${roomName}-source1`, pos: { x: 10, y: 10, roomName } as RoomPosition } as Source];
+        }
+
+        return [];
+      })
+    }) as unknown as Room & { createConstructionSite: jest.Mock };
+    const focusedRoom = makeFocusedRemoteRoom('W2N1');
+    const deferredRoom = makeFocusedRemoteRoom('W3N1');
+    const deferredRemoteMiningMemory: TerritoryRemoteMiningRoomMemory = {
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      status: 'containerPending',
+      updatedAt: 699,
+      sources: {}
+    };
+    const deferredRemoteMiningSnapshot = JSON.parse(JSON.stringify(deferredRemoteMiningMemory)) as TerritoryRemoteMiningRoomMemory;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        postClaimBootstraps: {
+          W2N1: { ...makeRemoteMiningBootstrap(), status: 'detected', roomName: 'W2N1' },
+          W3N1: {
+            ...makeRemoteMiningBootstrap(),
+            status: 'detected',
+            roomName: 'W3N1',
+            controllerId: 'W3N1-controller' as Id<StructureController>
+          }
+        },
+        remoteMining: {
+          'W1N1:W3N1': deferredRemoteMiningMemory
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 700,
+      rooms: { W1N1: colony.room, W2N1: focusedRoom, W3N1: deferredRoom },
+      map: {
+        getRoomTerrain: jest.fn().mockReturnValue({ get: jest.fn().mockReturnValue(0) })
+      } as unknown as GameMap
+    };
+
+    refreshRemoteMiningSetup(colony, 700, { focusRoomName: 'W2N1' });
+
+    expect(focusedRoom.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(deferredRoom.createConstructionSite).not.toHaveBeenCalled();
+    expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toBeDefined();
+    expect(Memory.territory?.remoteMining?.['W1N1:W3N1']).toBe(deferredRemoteMiningMemory);
+    expect(Memory.territory?.remoteMining?.['W1N1:W3N1']).toEqual(deferredRemoteMiningSnapshot);
+  });
+
   it('records active remote mining state from source containers and room-local assigned creeps', () => {
     (globalThis as unknown as {
       FIND_STRUCTURES: number;

@@ -10420,14 +10420,15 @@ function recordAutonomousExpansionClaimReserveFallbackIntent(colony, evaluation,
     gameTime
   );
 }
-function refreshRemoteMiningSetup(colony, gameTime = getGameTime12()) {
+function refreshRemoteMiningSetup(colony, gameTime = getGameTime12(), options = {}) {
   var _a, _b, _c, _d;
   const territoryMemory = getWritableTerritoryMemoryRecord5();
   if (!territoryMemory) {
     return;
   }
   const colonyName = colony.room.name;
-  const records = getRemoteMiningBootstrapRecords(territoryMemory, colonyName);
+  const allRecords = getRemoteMiningBootstrapRecords(territoryMemory, colonyName);
+  const records = allRecords.filter((record) => shouldRefreshRemoteMiningBootstrapRecord(record, options.focusRoomName));
   const storedRemoteMining = territoryMemory.remoteMining;
   if (storedRemoteMining === void 0 && records.length === 0) {
     return;
@@ -10439,10 +10440,9 @@ function refreshRemoteMiningSetup(colony, gameTime = getGameTime12()) {
     remoteMining = {};
     territoryMemory.remoteMining = remoteMining;
   }
-  const activeKeys = /* @__PURE__ */ new Set();
+  const activeKeys = new Set(allRecords.map((record) => getRemoteMiningMemoryKey(record.colony, record.roomName)));
   for (const record of records) {
     const key = getRemoteMiningMemoryKey(record.colony, record.roomName);
-    activeKeys.add(key);
     const room = getVisibleRoom3(record.roomName);
     if (!room) {
       const previous = remoteMining[key];
@@ -10525,6 +10525,9 @@ function refreshRemoteMiningSetup(colony, gameTime = getGameTime12()) {
       delete remoteMining[key];
     }
   }
+}
+function shouldRefreshRemoteMiningBootstrapRecord(record, focusRoomName) {
+  return record.status === "ready" || !isNonEmptyString10(focusRoomName) || record.roomName === focusRoomName;
 }
 function isTerritoryHomeSafe(colony, roleCounts, workerTarget) {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
@@ -24819,12 +24822,15 @@ function recordClaimedRoomOccupation(roomName, claimedAt, gameTime) {
     ...((_a = memory.territory.claimedRoomBootstrapper.rooms[roomName]) == null ? void 0 : _a.completedAt) !== void 0 ? { completedAt: memory.territory.claimedRoomBootstrapper.rooms[roomName].completedAt } : {}
   };
 }
-function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents = []) {
+function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents = [], options = {}) {
   var _a, _b;
   const roomName = colony.room.name;
   const record = getPostClaimBootstrapRecord(roomName);
   if (!record || record.status === "ready" || ((_a = colony.room.controller) == null ? void 0 : _a.my) !== true) {
     return { active: false, spawnConstructionPending: false };
+  }
+  if (isPostClaimBootstrapDeferred(roomName, options.focusRoomName)) {
+    return { active: true, spawnConstructionPending: false, deferred: true };
   }
   const workerTarget = getPostClaimBootstrapWorkerTarget(record);
   const workerCount = (_b = roleCounts.worker) != null ? _b : 0;
@@ -24912,6 +24918,13 @@ function refreshPostClaimBootstrap(colony, roleCounts, gameTime, telemetryEvents
   }
   return { active: true, spawnConstructionPending: true };
 }
+function selectPostClaimBootstrapFocusRoomName(colonies) {
+  var _a, _b;
+  return (_b = (_a = getVisibleActivePostClaimBootstrapRecords(colonies)[0]) == null ? void 0 : _a.roomName) != null ? _b : null;
+}
+function isPostClaimBootstrapDeferred(roomName, focusRoomName) {
+  return isNonEmptyString19(focusRoomName) && roomName !== focusRoomName && getPostClaimBootstrapRecord(roomName) !== null;
+}
 function recordPostClaimBootstrapWorkerSpawn(roomName, spawnName, creepName, result, telemetryEvents = []) {
   if (!isNonEmptyString19(roomName)) {
     return;
@@ -24951,6 +24964,25 @@ function getPostClaimBootstrapSummary(roomName) {
     ...record.spawnSite ? { spawnSite: record.spawnSite } : {},
     ...record.lastResult !== void 0 ? { lastResult: record.lastResult } : {}
   };
+}
+function getVisibleActivePostClaimBootstrapRecords(colonies) {
+  var _a, _b;
+  const visibleOwnedRoomNames = new Set(
+    colonies.filter((colony) => {
+      var _a2;
+      return ((_a2 = colony.room.controller) == null ? void 0 : _a2.my) === true;
+    }).map((colony) => colony.room.name)
+  );
+  const records = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.territory) == null ? void 0 : _b.postClaimBootstraps;
+  if (!isRecord18(records)) {
+    return [];
+  }
+  return Object.values(records).filter(
+    (record) => isAnyPostClaimBootstrapRecord(record) && record.status !== "ready" && visibleOwnedRoomNames.has(record.roomName)
+  ).sort(comparePostClaimBootstrapRecordsForFocus);
+}
+function comparePostClaimBootstrapRecordsForFocus(left, right) {
+  return left.claimedAt - right.claimedAt || left.updatedAt - right.updatedAt || left.roomName.localeCompare(right.roomName);
 }
 function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
   const record = getPostClaimBootstrapRecord(roomName);
@@ -25280,6 +25312,9 @@ function getWritablePostClaimBootstrapRecords() {
 }
 function isPostClaimBootstrapRecord(value, expectedRoomName) {
   return isRecord18(value) && value.roomName === expectedRoomName && isNonEmptyString19(value.colony) && isPostClaimBootstrapStatus(value.status) && isFiniteNumber8(value.claimedAt) && isFiniteNumber8(value.updatedAt);
+}
+function isAnyPostClaimBootstrapRecord(value) {
+  return isRecord18(value) && isNonEmptyString19(value.roomName) && isPostClaimBootstrapRecord(value, value.roomName);
 }
 function isPostClaimBootstrapStatus(value) {
   return value === "detected" || value === "spawnSitePending" || value === "spawnSiteBlocked" || value === "spawningWorkers" || value === "ready";
@@ -29682,21 +29717,33 @@ var EXPANSION_EXECUTOR_DOWNGRADE_GUARD_TICKS = 5e3;
 function refreshExpansionExecutorIntent(colony, gameTime = getGameTime26(), telemetryEvents = []) {
   const colonyName = colony.room.name;
   const colonyMemory = getWritableColonyMemory2(colony);
-  const stateKey = getExpansionExecutorCacheStateKey(colony);
+  let stateKey = getExpansionExecutorCacheStateKey(colony);
   const cachedSelection = getCachedExpansionExecutorSelection(colonyMemory, colonyName);
   if (cachedSelection && isExpansionExecutorCacheReusable(cachedSelection, colonyName, gameTime, stateKey)) {
     return cachedSelection.selection;
   }
   const report = buildRuntimeExpansionCandidateReport(colony);
   const selection = refreshNextExpansionTargetSelection(colony, report, gameTime);
-  if (selection.status === "skipped" && selection.reason === "insufficientEvidence") {
-    refreshExpansionRoomScouting(colony, selectExpansionScoutTargets(report), gameTime, telemetryEvents);
+  const scoutTargetRooms = [];
+  if (selection.targetRoom) {
+    scoutTargetRooms.push(selection.targetRoom);
   }
+  if (selection.status === "skipped" && selection.reason === "insufficientEvidence") {
+    const scoutTargets = selectExpansionScoutTargets(report);
+    scoutTargetRooms.push(...scoutTargets.map((target) => target.roomName));
+    refreshExpansionRoomScouting(colony, scoutTargets, gameTime, telemetryEvents);
+  }
+  stateKey = refreshExpansionExecutorCacheStateKeyAfterCurrentTickScoutIntel(
+    stateKey,
+    colonyName,
+    scoutTargetRooms,
+    gameTime
+  );
   logBestClaimTarget(colony.room);
   colonyMemory.lastExpansionScoreTime = gameTime;
   colonyMemory.cachedExpansionSelection = {
     ...selection,
-    stateKey: getExpansionExecutorCacheStateKey(colony)
+    stateKey
   };
   return selection;
 }
@@ -29784,6 +29831,24 @@ function getExpansionExecutorCacheStateKey(colony) {
     countActivePostClaimBootstraps3(),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join("|");
+}
+function refreshExpansionExecutorCacheStateKeyAfterCurrentTickScoutIntel(stateKey, colony, roomNames, gameTime) {
+  const recordedCurrentTickScoutIntel = roomNames.some(
+    (roomName) => {
+      var _a;
+      return ((_a = getTerritoryScoutIntel(colony, roomName)) == null ? void 0 : _a.updatedAt) === gameTime;
+    }
+  );
+  return recordedCurrentTickScoutIntel ? replaceExpansionExecutorCacheScoutIntelUpdatedAt(stateKey, gameTime) : stateKey;
+}
+function replaceExpansionExecutorCacheScoutIntelUpdatedAt(stateKey, updatedAt) {
+  const separatorIndex = stateKey.lastIndexOf("|");
+  if (separatorIndex < 0) {
+    return stateKey;
+  }
+  const currentUpdatedAt = Number(stateKey.slice(separatorIndex + 1));
+  const nextUpdatedAt = Math.max(Number.isFinite(currentUpdatedAt) ? currentUpdatedAt : 0, updatedAt);
+  return `${stateKey.slice(0, separatorIndex + 1)}${nextUpdatedAt}`;
 }
 function countVisibleOwnedRooms2() {
   var _a;
@@ -32402,6 +32467,7 @@ function runEconomy(preludeTelemetryEvents = []) {
   const plannedRoleCountsByRoom = new Map(initialRoleCountsByRoom);
   clearColonySurvivalAssessmentCache();
   refreshClaimedRoomBootstrapperOwnership();
+  const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
   for (const colony of colonies) {
     recordSourceWorkloads(colony.room, creeps, Game.time);
     let roleCounts = getPlannedOrCurrentRoleCounts(creeps, colony.room.name, plannedRoleCountsByRoom);
@@ -32419,12 +32485,20 @@ function runEconomy(preludeTelemetryEvents = []) {
         competingSpawnDemand: survivalAssessment.mode !== "TERRITORY_READY" || survivalAssessment.hostilePresence || survivalAssessment.controllerDowngradeGuard
       }
     );
-    refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
+    const postClaimBootstrapRefresh = refreshPostClaimBootstrap(
+      colony,
+      roleCounts,
+      Game.time,
+      telemetryEvents,
+      { focusRoomName: postClaimBootstrapFocusRoomName }
+    );
     runTowerConstructionExecutorForColony(colony, { requireExpansionMemory: true });
     runRampartWallConstructionExecutorForColony(colony, { requireExpansionMemory: true });
-    planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+    if (postClaimBootstrapRefresh.deferred !== true) {
+      planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+    }
     if (survivalAssessment.mode === "TERRITORY_READY") {
-      refreshRemoteMiningSetup(colony, Game.time);
+      refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
     }
     refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
     if (survivalAssessment.territoryReady) {

@@ -34,6 +34,11 @@ interface SpawnPlacementLookups {
 export interface PostClaimBootstrapRefreshResult {
   active: boolean;
   spawnConstructionPending: boolean;
+  deferred?: boolean;
+}
+
+export interface PostClaimBootstrapRefreshOptions {
+  focusRoomName?: string | null;
 }
 
 export interface PostClaimBootstrapSummary {
@@ -119,12 +124,17 @@ export function refreshPostClaimBootstrap(
   colony: ColonySnapshot,
   roleCounts: RoleCounts,
   gameTime: number,
-  telemetryEvents: RuntimeTelemetryEvent[] = []
+  telemetryEvents: RuntimeTelemetryEvent[] = [],
+  options: PostClaimBootstrapRefreshOptions = {}
 ): PostClaimBootstrapRefreshResult {
   const roomName = colony.room.name;
   const record = getPostClaimBootstrapRecord(roomName);
   if (!record || record.status === 'ready' || colony.room.controller?.my !== true) {
     return { active: false, spawnConstructionPending: false };
+  }
+
+  if (isPostClaimBootstrapDeferred(roomName, options.focusRoomName)) {
+    return { active: true, spawnConstructionPending: false, deferred: true };
   }
 
   const workerTarget = getPostClaimBootstrapWorkerTarget(record);
@@ -223,6 +233,17 @@ export function refreshPostClaimBootstrap(
   return { active: true, spawnConstructionPending: true };
 }
 
+export function selectPostClaimBootstrapFocusRoomName(colonies: ColonySnapshot[]): string | null {
+  return getVisibleActivePostClaimBootstrapRecords(colonies)[0]?.roomName ?? null;
+}
+
+function isPostClaimBootstrapDeferred(
+  roomName: string,
+  focusRoomName: string | null | undefined
+): boolean {
+  return isNonEmptyString(focusRoomName) && roomName !== focusRoomName && getPostClaimBootstrapRecord(roomName) !== null;
+}
+
 export function recordPostClaimBootstrapWorkerSpawn(
   roomName: string | undefined,
   spawnName: string,
@@ -272,6 +293,37 @@ export function getPostClaimBootstrapSummary(roomName: string): PostClaimBootstr
     ...(record.spawnSite ? { spawnSite: record.spawnSite } : {}),
     ...(record.lastResult !== undefined ? { lastResult: record.lastResult } : {})
   };
+}
+
+function getVisibleActivePostClaimBootstrapRecords(colonies: ColonySnapshot[]): TerritoryPostClaimBootstrapMemory[] {
+  const visibleOwnedRoomNames = new Set(
+    colonies
+      .filter((colony) => colony.room.controller?.my === true)
+      .map((colony) => colony.room.name)
+  );
+  const records = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory?.postClaimBootstraps;
+  if (!isRecord(records)) {
+    return [];
+  }
+
+  return Object.values(records)
+    .filter((record): record is TerritoryPostClaimBootstrapMemory =>
+      isAnyPostClaimBootstrapRecord(record) &&
+      record.status !== 'ready' &&
+      visibleOwnedRoomNames.has(record.roomName)
+    )
+    .sort(comparePostClaimBootstrapRecordsForFocus);
+}
+
+function comparePostClaimBootstrapRecordsForFocus(
+  left: TerritoryPostClaimBootstrapMemory,
+  right: TerritoryPostClaimBootstrapMemory
+): number {
+  return (
+    left.claimedAt - right.claimedAt ||
+    left.updatedAt - right.updatedAt ||
+    left.roomName.localeCompare(right.roomName)
+  );
 }
 
 function placePostClaimSpawnConstructionSite(
@@ -705,6 +757,10 @@ function isPostClaimBootstrapRecord(
     isFiniteNumber(value.claimedAt) &&
     isFiniteNumber(value.updatedAt)
   );
+}
+
+function isAnyPostClaimBootstrapRecord(value: unknown): value is TerritoryPostClaimBootstrapMemory {
+  return isRecord(value) && isNonEmptyString(value.roomName) && isPostClaimBootstrapRecord(value, value.roomName);
 }
 
 function isPostClaimBootstrapStatus(value: unknown): value is TerritoryPostClaimBootstrapStatus {
