@@ -298,12 +298,16 @@ function getExpansionExecutorThreatState(roomName: string, gameTime: number): Ex
     return 'none';
   }
 
-  const roomThreat = threatMemory?.rooms?.[roomName];
-  if (
-    !isRecentExpansionExecutorThreatMemory(threatMemory.updatedAt, gameTime) ||
-    !roomThreat ||
-    !isRecentExpansionExecutorThreatMemory(roomThreat.updatedAt, gameTime)
-  ) {
+  if (!isRecentExpansionExecutorThreatMemory(threatMemory.updatedAt, gameTime)) {
+    return 'unknown';
+  }
+
+  const roomThreat = threatMemory.rooms?.[roomName];
+  if (roomThreat === undefined || roomThreat === null) {
+    return 'none';
+  }
+
+  if (!isRecentExpansionExecutorThreatMemory(roomThreat.updatedAt, gameTime)) {
     return 'unknown';
   }
 

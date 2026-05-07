@@ -30537,8 +30537,14 @@ function getExpansionExecutorThreatState(roomName, gameTime) {
   if (!threatMemory) {
     return "none";
   }
-  const roomThreat = (_c = threatMemory == null ? void 0 : threatMemory.rooms) == null ? void 0 : _c[roomName];
-  if (!isRecentExpansionExecutorThreatMemory(threatMemory.updatedAt, gameTime) || !roomThreat || !isRecentExpansionExecutorThreatMemory(roomThreat.updatedAt, gameTime)) {
+  if (!isRecentExpansionExecutorThreatMemory(threatMemory.updatedAt, gameTime)) {
+    return "unknown";
+  }
+  const roomThreat = (_c = threatMemory.rooms) == null ? void 0 : _c[roomName];
+  if (roomThreat === void 0 || roomThreat === null) {
+    return "none";
+  }
+  if (!isRecentExpansionExecutorThreatMemory(roomThreat.updatedAt, gameTime)) {
     return "unknown";
   }
   return (_d = roomThreat.level) != null ? _d : "unknown";
