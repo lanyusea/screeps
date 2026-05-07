@@ -1,4 +1,8 @@
 import { selectRemoteHaulerDeliveryTask } from '../tasks/workerTasks';
+import {
+  CONTAINER_OVERFLOW_RISK_FILL_RATIO,
+  isContainerOverflowRisk
+} from '../economy/containerEnergy';
 import { recordCreepBehaviorEnergyAcquisition } from '../telemetry/behaviorTelemetry';
 import {
   getRemoteSourceAssignments,
@@ -132,10 +136,34 @@ function deliverEnergy(creep: Creep, assignment: CreepRemoteHaulerMemory): void 
 
 function compareRemoteHaulerAssignments(left: RemoteSourceAssignment, right: RemoteSourceAssignment): number {
   return (
+    compareRemoteHaulerAssignmentOverflowRisk(left, right) ||
     right.containerEnergy - left.containerEnergy ||
     left.targetRoom.localeCompare(right.targetRoom) ||
     String(left.sourceId).localeCompare(String(right.sourceId))
   );
+}
+
+function compareRemoteHaulerAssignmentOverflowRisk(
+  left: RemoteSourceAssignment,
+  right: RemoteSourceAssignment
+): number {
+  return getRemoteHaulerAssignmentOverflowPriority(right) - getRemoteHaulerAssignmentOverflowPriority(left);
+}
+
+function getRemoteHaulerAssignmentOverflowPriority(assignment: RemoteSourceAssignment): number {
+  const fillRatio = getRemoteHaulerAssignmentFillRatio(assignment);
+  return fillRatio !== null && fillRatio > CONTAINER_OVERFLOW_RISK_FILL_RATIO ? 1 : 0;
+}
+
+function getRemoteHaulerAssignmentFillRatio(assignment: RemoteSourceAssignment): number | null {
+  if (typeof assignment.containerFillRatio === 'number' && Number.isFinite(assignment.containerFillRatio)) {
+    return Math.max(0, Math.min(1, assignment.containerFillRatio));
+  }
+
+  const capacity = assignment.containerCapacity;
+  return typeof capacity === 'number' && Number.isFinite(capacity) && capacity > 0
+    ? Math.max(0, Math.min(1, assignment.containerEnergy / capacity))
+    : null;
 }
 
 function countRemoteHaulersForContainer(assignment: RemoteSourceAssignment): number {
@@ -230,10 +258,26 @@ function compareRemoteHaulerEnergySources(
   right: RemoteHaulerEnergySource
 ): number {
   return (
+    compareRemoteHaulerEnergySourceOverflowRisk(left, right) ||
     getStoredEnergy(right) - getStoredEnergy(left) ||
     getRangeToRoomObject(creep, left) - getRangeToRoomObject(creep, right) ||
     getObjectId(left).localeCompare(getObjectId(right))
   );
+}
+
+function compareRemoteHaulerEnergySourceOverflowRisk(
+  left: RemoteHaulerEnergySource,
+  right: RemoteHaulerEnergySource
+): number {
+  return getRemoteHaulerEnergySourceOverflowPriority(right) - getRemoteHaulerEnergySourceOverflowPriority(left);
+}
+
+function getRemoteHaulerEnergySourceOverflowPriority(source: RemoteHaulerEnergySource): number {
+  return isRemoteHaulerContainerEnergySource(source) && isContainerOverflowRisk(source, getStoredEnergy(source)) ? 1 : 0;
+}
+
+function isRemoteHaulerContainerEnergySource(source: RemoteHaulerEnergySource): source is StructureContainer {
+  return matchesStructureType(source.structureType, 'STRUCTURE_CONTAINER', 'container');
 }
 
 function getRangeToRoomObject(creep: Creep, target: RoomObject): number {

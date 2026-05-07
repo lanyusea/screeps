@@ -38,6 +38,10 @@ import {
   getSpawnEnergyAvailableForWithdrawal,
   isSpawnEnergySource
 } from '../economy/spawnEnergyBuffer';
+import {
+  getReservableContainerEnergy,
+  hasSubstantialContainerEnergy
+} from '../economy/containerEnergy';
 import { getUnmetSpawnEnergyReservation } from '../economy/spawnEnergyReservation';
 import { CROSS_ROOM_HAULER_ROLE, isLiveTransferCandidate } from '../economy/crossRoomHauler';
 import { selectEnergySurplusDeliverySink } from '../economy/energySurplus';
@@ -3666,9 +3670,35 @@ function isWorkerEnergyAcquisitionCandidateCompetitiveWithHarvest(
     }
   }
 
+  if (isSubstantialContainerMoreEfficientThanHarvest(creep, candidate, harvestCandidate)) {
+    return true;
+  }
+
   return (
     candidate.range < harvestCandidate.range ||
     isBufferedSourceContainerForHarvestCandidate(creep, candidate, harvestCandidate)
+  );
+}
+
+function isSubstantialContainerMoreEfficientThanHarvest(
+  creep: Creep,
+  candidate: WorkerEnergyAcquisitionCandidate,
+  harvestCandidate: LowLoadWorkerEnergyAcquisitionCandidate
+): boolean {
+  if (
+    !isContainerEnergySource(candidate.source) ||
+    !hasSubstantialContainerEnergy(candidate.source, getStoredEnergy(candidate.source)) ||
+    !isHarvestSourceObject(harvestCandidate.source)
+  ) {
+    return false;
+  }
+
+  const containerTravelCost = estimateRoadAwareTravelCostBetweenRoomObjects(creep, candidate.source, 1);
+  const harvestEta = estimateHarvestEnergyAcquisitionEta(creep, harvestCandidate.source);
+  return (
+    containerTravelCost !== null &&
+    harvestEta !== null &&
+    containerTravelCost + ENERGY_ACQUISITION_ACTION_TICKS < harvestEta
   );
 }
 
@@ -4448,7 +4478,12 @@ function getUnreservedWorkerEnergyAcquisitionAmount(
   reservationContext: WorkerEnergyAcquisitionReservationContext,
   creep?: Creep
 ): number {
-  const projectedEnergy = Math.max(0, energy - getReservedWorkerEnergyAcquisitionAmount(source, reservationContext));
+  const reservedEnergy = getReservedWorkerEnergyAcquisitionAmount(source, reservationContext);
+  if (isContainerEnergySource(source)) {
+    return getReservableContainerEnergy(source, energy, reservedEnergy);
+  }
+
+  const projectedEnergy = Math.max(0, energy - reservedEnergy);
   if (creep && isSpawnEnergySource(source)) {
     return getSpawnEnergyAvailableForWithdrawal(creep.room, source, projectedEnergy);
   }

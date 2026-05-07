@@ -191,6 +191,21 @@ function makeStoredEnergyStructure(
   } as unknown as StructureContainer | StructureStorage | StructureTerminal;
 }
 
+function makeStoredEnergyContainerWithCapacity(
+  id: string,
+  energy: number,
+  capacity: number,
+  extra: Record<string, unknown> = {}
+): StructureContainer {
+  return makeStoredEnergyStructure(id, 'container' as StructureConstant, energy, {
+    ...extra,
+    store: {
+      getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
+      getCapacity: jest.fn((resource?: ResourceConstant) => (resource === undefined || resource === RESOURCE_ENERGY ? capacity : 0))
+    }
+  }) as StructureContainer;
+}
+
 function makeStoredEnergyLink(id: string, x: number, y: number, energy: number, freeCapacity = 0): StructureLink {
   return {
     id,
@@ -2854,6 +2869,61 @@ describe('selectWorkerTask', () => {
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-open' });
     expect(roomFind).not.toHaveBeenCalledWith(FIND_SOURCES);
+  });
+
+  it('does not reserve energy from a nearly empty known-capacity container', () => {
+    const nearlyEmptyContainer = makeStoredEnergyContainerWithCapacity('container-nearly-empty', 100, 2_000);
+    const source = makeSource('source1', 20, 20);
+    const room = makeWorkerTaskRoom({
+      sources: [source],
+      structures: [nearlyEmptyContainer]
+    });
+    const creep = {
+      name: 'Worker',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'container-nearly-empty' ? 1 : 5))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'harvest', targetId: 'source1' });
+  });
+
+  it('caps reservations from a near-capacity container to the overflow band', () => {
+    const overflowContainer = makeStoredEnergyContainerWithCapacity('container-overflow', 1_700, 2_000);
+    const openContainer = makeStoredEnergyContainerWithCapacity('container-open', 600, 2_000);
+    const room = makeWorkerTaskRoom({
+      structures: [overflowContainer, openContainer]
+    });
+    const assignedWithdrawWorker = {
+      name: 'AssignedWithdrawWorker',
+      memory: {
+        role: 'worker',
+        task: { type: 'withdraw', targetId: 'container-overflow' as Id<AnyStoreStructure> }
+      },
+      store: { getFreeCapacity: jest.fn().mockReturnValue(100) },
+      room
+    } as unknown as Creep;
+    const creep = {
+      name: 'Worker',
+      memory: { role: 'worker' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'container-overflow' ? 1 : 2))
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ AssignedWithdrawWorker: assignedWithdrawWorker, Worker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-open' });
   });
 
   it('uses stable amount and id fallback when range helpers are unavailable', () => {
@@ -10876,6 +10946,43 @@ describe('selectWorkerTask', () => {
     setGameCreeps({ LaneWorker: creep });
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-near' });
+  });
+
+  it('withdraws from a substantially filled container when it beats source2/controller lane harvesting', () => {
+    const source1 = makeSource('source1', 8, 8);
+    const source2 = makeSource('source2', 24, 23);
+    const container = makeStoredEnergyContainerWithCapacity('container-substantial', 1_200, 2_000, {
+      pos: makeRoomPosition(18, 18)
+    });
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1,
+      pos: makeRoomPosition(25, 25)
+    } as StructureController;
+    const room = makeWorkerTaskRoom({ controller, sources: [source1, source2], structures: [container] });
+    const creep = {
+      name: 'LaneWorker',
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => {
+          const ranges: Record<string, number> = {
+            'container-substantial': 4,
+            source2: 3
+          };
+          return ranges[String(target.id)] ?? 99;
+        })
+      },
+      room
+    } as unknown as Creep;
+    setGameCreeps({ LaneWorker: creep });
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'container-substantial' });
   });
 
   it('withdraws from a stocked container before distant source2/controller lane harvesting', () => {
