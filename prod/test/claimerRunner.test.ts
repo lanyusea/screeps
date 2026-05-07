@@ -1,5 +1,6 @@
 import { runClaimer } from '../src/creeps/claimerRunner';
 import { buildTerritoryControllerBody } from '../src/spawn/bodyBuilder';
+import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { EXPANSION_CLAIM_EXECUTION_TIMEOUT_TICKS } from '../src/territory/claimExecutor';
 import { TERRITORY_RESERVATION_RENEWAL_TICKS } from '../src/territory/territoryPlanner';
 
@@ -177,6 +178,250 @@ describe('runClaimer', () => {
       controllerId: 'controller1',
       creepName: 'Claimer1'
     });
+  });
+
+  it('signs a successful recommended expansion claim before clearing the assignment', () => {
+    const colonyRoom = makeColonyRoom();
+    const targetRoom = { name: 'W2N1' } as Room & { controller?: StructureController };
+    const controller = {
+      id: 'controller1',
+      my: false,
+      room: targetRoom,
+      sign: { username: 'enemy', text: 'not ours', time: 519, datetime: '2026-05-07T00:00:00.000Z' }
+    } as unknown as StructureController & { my: boolean };
+    targetRoom.controller = controller;
+    const getObjectById = jest.fn().mockReturnValue(controller);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 523,
+      rooms: {
+        W1N1: colonyRoom,
+        W2N1: targetRoom
+      },
+      getObjectById
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: makeRecommendedClaimMemory()
+    };
+
+    const creep = {
+      name: 'Claimer1',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller1' as Id<StructureController> }
+      },
+      room: targetRoom,
+      claimController: jest.fn(() => {
+        controller.my = true;
+        return 0 as ScreepsReturnCode;
+      }),
+      signController: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.claimController).toHaveBeenCalledWith(controller);
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([]);
+    expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'detected',
+      claimedAt: 523,
+      updatedAt: 523,
+      controllerId: 'controller1'
+    });
+  });
+
+  it('keeps a recommended expansion claim assignment while moving into signing range', () => {
+    const colonyRoom = makeColonyRoom();
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'enemy', text: 'not ours', time: 519, datetime: '2026-05-07T00:00:00.000Z' }
+    } as unknown as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 524,
+      rooms: {
+        W1N1: colonyRoom,
+        W2N1: { name: 'W2N1', controller } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: makeRecommendedClaimMemory()
+    };
+
+    const creep = {
+      name: 'Claimer1',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller1' as Id<StructureController> }
+      },
+      room: { name: 'W2N1', controller },
+      claimController: jest.fn(),
+      signController: jest.fn().mockReturnValue(-9),
+      moveTo: jest.fn().mockReturnValue(0)
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.memory.territory).toEqual({
+      targetRoom: 'W2N1',
+      action: 'claim',
+      controllerId: 'controller1'
+    });
+    expect(Memory.territory?.targets).toEqual(makeRecommendedClaimMemory().targets);
+    expect(Memory.territory?.intents).toEqual(makeRecommendedClaimMemory().intents);
+    expect(
+      (colonyRoom.memory.cachedExpansionSelection as unknown as Record<string, unknown>).claimExecution
+    ).toBeUndefined();
+  });
+
+  it('records recommended expansion claim success when controller signing is blocked', () => {
+    const colonyRoom = makeColonyRoom();
+    const controller = {
+      id: 'controller1',
+      my: true,
+      sign: { username: 'enemy', text: 'not ours', time: 519, datetime: '2026-05-07T00:00:00.000Z' }
+    } as unknown as StructureController;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 526,
+      rooms: {
+        W1N1: colonyRoom,
+        W2N1: { name: 'W2N1', controller } as unknown as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(controller)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: makeRecommendedClaimMemory()
+    };
+
+    const creep = {
+      name: 'Claimer1',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller1' as Id<StructureController> }
+      },
+      room: { name: 'W2N1', controller },
+      claimController: jest.fn(),
+      signController: jest.fn().mockReturnValue(-9),
+      moveTo: jest.fn().mockReturnValue(-7)
+    } as unknown as Creep;
+
+    runClaimer(creep);
+
+    expect(creep.claimController).not.toHaveBeenCalled();
+    expect(creep.signController).toHaveBeenCalledWith(controller, OCCUPIED_CONTROLLER_SIGN_TEXT);
+    expect(creep.moveTo).toHaveBeenCalledWith(controller);
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([]);
+    expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'detected',
+      claimedAt: 526,
+      updatedAt: 526,
+      controllerId: 'controller1'
+    });
+    expect((colonyRoom.memory.cachedExpansionSelection as unknown as Record<string, unknown>).claimExecution).toEqual({
+      status: 'claimed',
+      targetRoom: 'W2N1',
+      updatedAt: 526,
+      controllerId: 'controller1',
+      creepName: 'Claimer1'
+    });
+  });
+
+  it('does not move a recommended expansion claimer into an unsafe room just to sign', () => {
+    const findConstants = globalThis as { FIND_HOSTILE_CREEPS?: number; FIND_HOSTILE_STRUCTURES?: number };
+    const previousFindHostileCreeps = findConstants.FIND_HOSTILE_CREEPS;
+    const previousFindHostileStructures = findConstants.FIND_HOSTILE_STRUCTURES;
+
+    try {
+      findConstants.FIND_HOSTILE_CREEPS = 1;
+      findConstants.FIND_HOSTILE_STRUCTURES = 2;
+      const colonyRoom = makeColonyRoom();
+      const controller = {
+        id: 'controller1',
+        my: true,
+        sign: { username: 'enemy', text: 'not ours', time: 519, datetime: '2026-05-07T00:00:00.000Z' }
+      } as unknown as StructureController;
+      const targetRoom = {
+        name: 'W2N1',
+        controller,
+        find: jest.fn((findType: number) => (findType === 1 ? [{ id: 'enemy1' }] : []))
+      } as unknown as Room;
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        time: 525,
+        rooms: {
+          W1N1: colonyRoom,
+          W2N1: targetRoom
+        },
+        getObjectById: jest.fn().mockReturnValue(controller)
+      };
+      (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+        territory: makeRecommendedClaimMemory()
+      };
+
+      const creep = {
+        name: 'Claimer1',
+        memory: {
+          role: 'claimer',
+          colony: 'W1N1',
+          territory: { targetRoom: 'W2N1', action: 'claim', controllerId: 'controller1' as Id<StructureController> }
+        },
+        room: targetRoom,
+        claimController: jest.fn(),
+        signController: jest.fn().mockReturnValue(-9),
+        moveTo: jest.fn()
+      } as unknown as Creep;
+
+      runClaimer(creep);
+
+      expect(creep.claimController).not.toHaveBeenCalled();
+      expect(creep.signController).not.toHaveBeenCalled();
+      expect(creep.moveTo).not.toHaveBeenCalled();
+      expect(creep.memory.territory).toBeUndefined();
+      expect(Memory.territory?.targets).toEqual([]);
+      expect(Memory.territory?.intents).toEqual([]);
+      expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        status: 'detected',
+        claimedAt: 525,
+        updatedAt: 525,
+        controllerId: 'controller1'
+      });
+      expect((colonyRoom.memory.cachedExpansionSelection as unknown as Record<string, unknown>).claimExecution).toEqual({
+        status: 'claimed',
+        targetRoom: 'W2N1',
+        updatedAt: 525,
+        controllerId: 'controller1',
+        creepName: 'Claimer1'
+      });
+    } finally {
+      if (previousFindHostileCreeps === undefined) {
+        delete findConstants.FIND_HOSTILE_CREEPS;
+      } else {
+        findConstants.FIND_HOSTILE_CREEPS = previousFindHostileCreeps;
+      }
+      if (previousFindHostileStructures === undefined) {
+        delete findConstants.FIND_HOSTILE_STRUCTURES;
+      } else {
+        findConstants.FIND_HOSTILE_STRUCTURES = previousFindHostileStructures;
+      }
+    }
   });
 
   it('keeps recommended expansion claims retryable after a missing CLAIM part failure', () => {
