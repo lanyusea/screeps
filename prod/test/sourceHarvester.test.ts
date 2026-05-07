@@ -1,4 +1,5 @@
 import {
+  buildSourceHarvesterBody,
   runSourceHarvester,
   selectSourceHarvesterAssignment
 } from '../src/creeps/sourceHarvester';
@@ -34,6 +35,23 @@ describe('sourceHarvester', () => {
     });
 
     expect(selectSourceHarvesterAssignment(room)).toEqual({
+      roomName: 'W1N1',
+      sourceId: 'source1',
+      containerId: 'container1'
+    });
+  });
+
+  it('prefers the closest unreserved containerized source from the spawn origin', () => {
+    const farSource = makeSource('source0', 40, 40);
+    const nearSource = makeSource('source1', 12, 10);
+    const farContainer = makeContainer('container0', 40, 41);
+    const nearContainer = makeContainer('container1', 12, 11);
+    const room = makeRoom({
+      sources: [farSource, nearSource],
+      structures: [farContainer, nearContainer]
+    });
+
+    expect(selectSourceHarvesterAssignment(room, { origin: makeRoomPosition(10, 10) })).toEqual({
       roomName: 'W1N1',
       sourceId: 'source1',
       containerId: 'container1'
@@ -90,6 +108,23 @@ describe('sourceHarvester', () => {
     expect(creep.harvest).not.toHaveBeenCalled();
   });
 
+  it('flushes partial carried energy into the container before harvesting again', () => {
+    const source = makeSource('source1', 10, 10);
+    const container = makeContainer('container1', 10, 11);
+    const room = makeRoom({ sources: [source], structures: [container] });
+    const creep = makeSourceHarvester(room, {
+      usedEnergy: 10,
+      freeEnergy: 40,
+      ranges: { source1: 1, container1: 0 }
+    });
+    installGame(room, { source, container });
+
+    runSourceHarvester(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+  });
+
   it('transfers full carried energy into an adjacent source link before the container', () => {
     const source = makeSource('source1', 10, 10);
     const container = makeContainer('container1', 10, 11);
@@ -128,6 +163,52 @@ describe('sourceHarvester', () => {
 
     expect(creep.harvest).toHaveBeenCalledWith(source);
     expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildSourceHarvesterBody', () => {
+  it('waits for enough energy to spawn a container miner with productive work parts', () => {
+    expect(buildSourceHarvesterBody(499, { sourceDistance: 1 })).toEqual([]);
+    expect(buildSourceHarvesterBody(500, { sourceDistance: 1 })).toEqual([
+      'work',
+      'work',
+      'work',
+      'work',
+      'carry',
+      'move'
+    ]);
+  });
+
+  it('uses source regeneration throughput as the work-part target', () => {
+    expect(
+      buildSourceHarvesterBody(400, {
+        sourceDistance: 1,
+        sourceEnergyCapacity: 1_500,
+        sourceEnergyRegenTicks: 300
+      })
+    ).toEqual(['work', 'work', 'work', 'carry', 'move']);
+  });
+
+  it('adds movement for distant sources after full extraction work is affordable', () => {
+    expect(buildSourceHarvesterBody(600, { sourceDistance: 1 })).toEqual([
+      'work',
+      'work',
+      'work',
+      'work',
+      'work',
+      'carry',
+      'move'
+    ]);
+    expect(buildSourceHarvesterBody(650, { sourceDistance: 20 })).toEqual([
+      'work',
+      'work',
+      'work',
+      'work',
+      'work',
+      'carry',
+      'move',
+      'move'
+    ]);
   });
 });
 

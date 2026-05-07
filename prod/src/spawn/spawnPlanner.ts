@@ -94,6 +94,13 @@ interface SpawnPlanningContext {
   workerTarget: number;
 }
 
+interface LocalSourceHarvesterSpawnTarget {
+  spawn: StructureSpawn;
+  assignment: CreepSourceHarvesterMemory;
+  sourceDistance: number;
+  sourceEnergyCapacity?: number;
+}
+
 export interface SpawnRequest {
   spawn: StructureSpawn;
   body: BodyPartConstant[];
@@ -425,13 +432,8 @@ function planLocalSourceMiningSpawn(context: SpawnPlanningContext): SpawnRequest
     return null;
   }
 
-  const assignment = selectSourceHarvesterAssignment(context.colony.room);
-  if (!assignment) {
-    return null;
-  }
-
-  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
-  if (!spawn) {
+  const target = selectLocalSourceHarvesterSpawnTarget(context.colony);
+  if (!target) {
     return null;
   }
 
@@ -439,25 +441,82 @@ function planLocalSourceMiningSpawn(context: SpawnPlanningContext): SpawnRequest
     context.colony,
     SOURCE_HARVESTER_ROLE,
     context.workerCapacity < context.workerTarget ? 'recovery' : 'surplus',
-    buildSourceHarvesterBody
+    (energyBudget) =>
+      buildSourceHarvesterBody(energyBudget, {
+        sourceDistance: target.sourceDistance,
+        sourceEnergyCapacity: target.sourceEnergyCapacity
+      })
   );
   if (body.length === 0) {
     return null;
   }
 
   return {
-    spawn,
+    spawn: target.spawn,
     body,
     name: appendSpawnNameSuffix(
-      `${SOURCE_HARVESTER_ROLE}-${context.colony.room.name}-${assignment.sourceId}-${context.gameTime}`,
+      `${SOURCE_HARVESTER_ROLE}-${context.colony.room.name}-${target.assignment.sourceId}-${context.gameTime}`,
       context.options
     ),
     memory: {
       role: SOURCE_HARVESTER_ROLE,
       colony: context.colony.room.name,
-      sourceHarvester: assignment
+      sourceHarvester: target.assignment
     }
   };
+}
+
+function selectLocalSourceHarvesterSpawnTarget(colony: ColonySnapshot): LocalSourceHarvesterSpawnTarget | null {
+  const idleSpawns = colony.spawns.filter((candidate) => !candidate.spawning);
+  if (idleSpawns.length === 0) {
+    return null;
+  }
+
+  const sourcesById = new Map(getRoomSources(colony.room).map((source) => [String(source.id), source] as const));
+  const candidates = idleSpawns.flatMap((spawn) => {
+    const assignment = selectSourceHarvesterAssignment(colony.room, { origin: spawn.pos });
+    if (!assignment) {
+      return [];
+    }
+
+    const source = sourcesById.get(String(assignment.sourceId));
+    return [
+      {
+        spawn,
+        assignment,
+        sourceDistance: estimateSpawnToSourceDistance(spawn, source),
+        sourceEnergyCapacity: getSourceEnergyCapacity(source)
+      }
+    ];
+  });
+
+  return candidates.sort(compareLocalSourceHarvesterSpawnTargets)[0] ?? null;
+}
+
+function compareLocalSourceHarvesterSpawnTargets(
+  left: LocalSourceHarvesterSpawnTarget,
+  right: LocalSourceHarvesterSpawnTarget
+): number {
+  return (
+    left.sourceDistance - right.sourceDistance ||
+    String(left.spawn.name).localeCompare(String(right.spawn.name)) ||
+    String(left.assignment.sourceId).localeCompare(String(right.assignment.sourceId))
+  );
+}
+
+function estimateSpawnToSourceDistance(spawn: StructureSpawn, source: Source | undefined): number {
+  if (!spawn.pos || !source?.pos) {
+    return 1;
+  }
+
+  return getApproximateRange(spawn.pos, source.pos);
+}
+
+function getSourceEnergyCapacity(source: Source | undefined): number | undefined {
+  const sourceEnergyCapacity = source?.energyCapacity;
+  return typeof sourceEnergyCapacity === 'number' && Number.isFinite(sourceEnergyCapacity) && sourceEnergyCapacity > 0
+    ? sourceEnergyCapacity
+    : undefined;
 }
 
 function planControllerDowngradeGuardSpawn(context: SpawnPlanningContext): SpawnRequest | null {

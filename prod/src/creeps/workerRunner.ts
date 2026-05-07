@@ -1271,19 +1271,25 @@ function executeHarvestTask(creep: Creep, source: Source): TaskExecutionResult {
     return toTaskExecutionResult(creep.harvest(source), 'work', { energyAcquisitionMethod: 'harvested' });
   }
 
-  if (!isInRangeToRoomObject(creep, source, 1)) {
+  if (!isInRangeToRoomObject(creep, sourceContainer, 0)) {
     creep.moveTo(sourceContainer);
     return { result: OK_CODE, action: 'move' };
   }
 
-  if (isDepletedHarvestSource(source)) {
-    return getUsedTransferEnergy(creep) > 0
-      ? transferDedicatedHarvestEnergy(creep, sourceContainer)
-      : { result: OK_CODE };
+  let transferResult: TaskExecutionResult | null = null;
+  if (getUsedTransferEnergy(creep) > 0) {
+    transferResult = transferDedicatedHarvestEnergy(creep, sourceContainer);
+    if (transferResult.action === 'move') {
+      return transferResult;
+    }
   }
 
-  if (getFreeTransferEnergyCapacity(creep) <= 0 && getUsedTransferEnergy(creep) > 0) {
-    return transferDedicatedHarvestEnergy(creep, sourceContainer);
+  if (isDepletedHarvestSource(source)) {
+    return transferResult ?? { result: OK_CODE };
+  }
+
+  if (getFreeTransferEnergyCapacity(creep) <= 0) {
+    return transferResult ?? { result: OK_CODE };
   }
 
   const result = creep.harvest(source);
