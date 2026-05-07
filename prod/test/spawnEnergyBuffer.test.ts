@@ -116,6 +116,23 @@ describe('spawnEnergyBuffer', () => {
     expect(isSpawnEnergyBufferViolated(room, [spawn], 650, 451)).toBe(true);
   });
 
+  it('applies miner throughput credit once before splitting a multi-spawn buffer', () => {
+    const room = makeRoom({ energyAvailable: 1_000, level: 4 });
+    const spawns = [makeSpawn('spawn1', room, 300), makeSpawn('spawn2', room, 300)];
+    installSourceWorkloadMemory([10], 100);
+
+    expect(getSpawnEnergyBufferRequirement(room, spawns)).toBe(800);
+    expect(getBufferedSpawnEnergyBudget(room, spawns, 1_000)).toBe(200);
+    expect(isSpawnEnergyBufferViolated(room, spawns, 1_000, 201)).toBe(true);
+    expect(getSpawnEnergyBufferSnapshot(room, spawns)).toMatchObject({
+      baseThresholdPerSpawn: 500,
+      minerOutputBufferCredit: 10 * MINER_OUTPUT_BUFFER_CREDIT_TICKS,
+      spawnCount: 2,
+      threshold: 800,
+      thresholdPerSpawn: 400
+    });
+  });
+
   it('ignores stale miner throughput when sizing the spawn buffer', () => {
     const room = makeRoom({ energyAvailable: 650, level: 4 });
     installSourceWorkloadMemory([10, 10], 74);
