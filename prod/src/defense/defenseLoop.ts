@@ -8,11 +8,18 @@ import {
 } from './deadZone';
 import {
   DEFENDER_ROLE,
+  hasControllerAttackPressure,
   hasDefensePressure,
   selectDefenderAttackTarget
 } from './defensePlanner';
 import { runSafeModeWithResult } from './safeModeManager';
-import { runTowersWithResult } from './towerManager';
+import { runTowersWithResult, type TowerPriorityTargetGroup } from './towerManager';
+import {
+  getDefenseThreatLevel,
+  getDefenseThreatPriority,
+  recordColonyThreats,
+  type DefenseThreatObservation
+} from './colonyThreats';
 
 export { DEFENDER_ROLE } from './defensePlanner';
 
@@ -48,9 +55,12 @@ export function runDefense(): RuntimeTelemetryEvent[] {
   const telemetryEvents: RuntimeTelemetryEvent[] = [];
   refreshVisibleDeadZoneMemory();
   const colonies = getOwnedColonies();
+  const contexts = colonies.map(createDefenseContext);
+  recordColonyThreats(contexts.map(buildThreatObservation));
+  const towerPriorityTargetGroups = buildTowerPriorityTargetGroups(contexts);
 
-  for (const colony of colonies) {
-    runColonyDefense(createDefenseContext(colony), telemetryEvents);
+  for (const context of contexts) {
+    runColonyDefense(context, telemetryEvents, towerPriorityTargetGroups);
   }
 
   runDefenders(Object.values(Game.creeps), telemetryEvents);
@@ -58,8 +68,14 @@ export function runDefense(): RuntimeTelemetryEvent[] {
   return telemetryEvents;
 }
 
-function runColonyDefense(context: DefenseContext, telemetryEvents: RuntimeTelemetryEvent[]): void {
-  const towerDefenseResult = runTowersWithResult(context.colony.room);
+function runColonyDefense(
+  context: DefenseContext,
+  telemetryEvents: RuntimeTelemetryEvent[],
+  towerPriorityTargetGroups: TowerPriorityTargetGroup[]
+): void {
+  const towerDefenseResult = runTowersWithResult(context.colony.room, {
+    priorityTargetGroups: towerPriorityTargetGroups
+  });
   telemetryEvents.push(...towerDefenseResult.events);
   const safeModeResult = runSafeModeWithResult(context.colony.room);
   telemetryEvents.push(...safeModeResult.events);
@@ -205,6 +221,31 @@ function createDefenseContext(colony: ColonySnapshot): DefenseContext {
     hostileCreeps: findHostileCreeps(colony.room),
     hostileStructures: findHostileStructures(colony.room)
   };
+}
+
+function buildThreatObservation(context: DefenseContext): DefenseThreatObservation {
+  return {
+    roomName: context.colony.room.name,
+    hostileCreepCount: context.hostileCreeps.length,
+    hostileStructureCount: context.hostileStructures.length,
+    damagedCriticalStructureCount: context.damagedCriticalStructures.length,
+    controllerUnderAttack: hasControllerAttackPressure(context.colony.room.controller)
+  };
+}
+
+function buildTowerPriorityTargetGroups(contexts: DefenseContext[]): TowerPriorityTargetGroup[] {
+  return contexts
+    .map((context) => ({ context, level: getDefenseThreatLevel(buildThreatObservation(context)) }))
+    .filter(({ level }) => level !== 'none')
+    .sort(
+      (left, right) =>
+        getDefenseThreatPriority(right.level) - getDefenseThreatPriority(left.level) ||
+        left.context.colony.room.name.localeCompare(right.context.colony.room.name)
+    )
+    .map(({ context }) => ({
+      hostileCreeps: context.hostileCreeps,
+      hostileStructures: context.hostileStructures
+    }));
 }
 
 function getCriticalStructures(colony: ColonySnapshot): CriticalOwnedStructure[] {

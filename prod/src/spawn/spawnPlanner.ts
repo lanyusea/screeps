@@ -1258,7 +1258,9 @@ function isWorkerOnlyFollowUpPass(options: SpawnPlanningOptions): boolean {
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {
   if (shouldUseSourceHarvesterBody(colony, roleCounts)) {
-    const sourceDistance = estimateLocalSourceDistance(colony);
+    const localSpawns = colony.spawns.filter((spawn) => spawn.room?.name === colony.room.name);
+    const sourceDistance =
+      localSpawns.length > 0 ? estimateLocalSourceDistance({ ...colony, spawns: localSpawns }) : 1;
     return selectDynamicBodyForColony(
       colony,
       'sourceHarvester',
@@ -1320,7 +1322,7 @@ function selectDynamicBodyForColony(
 }
 
 function getSpawnBufferBudgetPolicy(colony: ColonySnapshot): SpawnBufferBudgetPolicy {
-  return colony.spawnEnergyBudget === undefined ? 'ignore' : 'alreadyReserved';
+  return colony.spawnEnergyBudget === undefined ? 'respect' : 'alreadyReserved';
 }
 
 function getWorkerDynamicBodyDemand(
