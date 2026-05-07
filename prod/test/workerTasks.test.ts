@@ -5076,6 +5076,7 @@ describe('selectWorkerTask', () => {
       };
       return ranges[String(target.id)] ?? 99;
     });
+    const findPathTo = jest.fn().mockReturnValue([{ x: 1, y: 1 }]);
     const room = makeWorkerTaskRoom({
       energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
       myStructures: [spawn as AnyOwnedStructure],
@@ -5088,7 +5089,7 @@ describe('selectWorkerTask', () => {
         getUsedCapacity: jest.fn().mockReturnValue(2),
         getFreeCapacity: jest.fn().mockReturnValue(48)
       },
-      pos: { getRangeTo },
+      pos: { getRangeTo, findPathTo },
       room
     } as unknown as Creep;
     (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 339 };
@@ -5104,6 +5105,7 @@ describe('selectWorkerTask', () => {
       energy: 80,
       range: LOW_LOAD_NEARBY_ENERGY_RANGE + 1
     });
+    expect(findPathTo).toHaveBeenCalledWith(container, { ignoreCreeps: true });
   });
 
   it('continues harvesting before durable stored energy outside the nearby-only range', () => {
