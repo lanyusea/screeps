@@ -49,26 +49,30 @@ export function selectWorkerEnergyCriticalTask(
     return null;
   }
 
-  if (isEnergyAcquisitionTask(currentTask) && getFreeEnergyCapacity(creep) > 0) {
+  const avoidStorageWithdrawal = isStorageCritical(assessment);
+  const freeCapacity = getFreeEnergyCapacity(creep);
+  const shouldPreemptStorageWithdrawal =
+    avoidStorageWithdrawal && freeCapacity > 0 && isRoomStorageWithdrawTask(creep, currentTask);
+
+  if (isEnergyAcquisitionTask(currentTask) && freeCapacity > 0 && !shouldPreemptStorageWithdrawal) {
     return currentTask;
   }
 
-  if (!shouldReassignWorkerTaskForEnergyCriticalState(creep, currentTask)) {
+  if (!shouldPreemptStorageWithdrawal && !shouldReassignWorkerTaskForEnergyCriticalState(creep, currentTask)) {
     return null;
   }
 
   const carriedEnergy = getCarriedEnergy(creep);
-  const freeCapacity = getFreeEnergyCapacity(creep);
   if (freeCapacity > 0) {
     const acquisitionTask = selectWorkerEnergyCriticalAcquisitionTask(creep, {
-      avoidStorageWithdrawal: isStorageCritical(assessment)
+      avoidStorageWithdrawal
     });
     if (acquisitionTask) {
       return acquisitionTask;
     }
   }
 
-  if (carriedEnergy > 0 && isStorageCritical(assessment)) {
+  if (carriedEnergy > 0 && avoidStorageWithdrawal) {
     const storageTask = selectStorageEnergyCriticalDeliveryTask(creep, carriedEnergy);
     if (storageTask && !isSameTask(storageTask, selectedTask)) {
       return storageTask;
@@ -262,6 +266,18 @@ function isStorageCritical(assessment: WorkerEnergyCriticalAssessment): boolean 
     assessment.storageExitThreshold !== null &&
     assessment.storageEnergy < assessment.storageExitThreshold
   );
+}
+
+function isRoomStorageWithdrawTask(
+  creep: Creep,
+  task: CreepTaskMemory | null | undefined
+): task is Extract<CreepTaskMemory, { type: 'withdraw' }> {
+  if (task?.type !== 'withdraw') {
+    return false;
+  }
+
+  const storage = getRoomStorage(creep.room);
+  return Boolean(storage && String(task.targetId) === String(storage.id));
 }
 
 function getEnergyCriticalReason(spawnActive: boolean, storageActive: boolean): EnergyCriticalReason | null {

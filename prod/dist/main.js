@@ -19339,23 +19339,25 @@ function selectWorkerEnergyCriticalTask(creep, currentTask, selectedTask) {
   if ((selectedTask == null ? void 0 : selectedTask.type) === "transfer") {
     return null;
   }
-  if (isEnergyAcquisitionTask(currentTask) && getFreeEnergyCapacity7(creep) > 0) {
+  const avoidStorageWithdrawal = isStorageCritical(assessment);
+  const freeCapacity = getFreeEnergyCapacity7(creep);
+  const shouldPreemptStorageWithdrawal = avoidStorageWithdrawal && freeCapacity > 0 && isRoomStorageWithdrawTask(creep, currentTask);
+  if (isEnergyAcquisitionTask(currentTask) && freeCapacity > 0 && !shouldPreemptStorageWithdrawal) {
     return currentTask;
   }
-  if (!shouldReassignWorkerTaskForEnergyCriticalState(creep, currentTask)) {
+  if (!shouldPreemptStorageWithdrawal && !shouldReassignWorkerTaskForEnergyCriticalState(creep, currentTask)) {
     return null;
   }
   const carriedEnergy = getCarriedEnergy3(creep);
-  const freeCapacity = getFreeEnergyCapacity7(creep);
   if (freeCapacity > 0) {
     const acquisitionTask = selectWorkerEnergyCriticalAcquisitionTask(creep, {
-      avoidStorageWithdrawal: isStorageCritical(assessment)
+      avoidStorageWithdrawal
     });
     if (acquisitionTask) {
       return acquisitionTask;
     }
   }
-  if (carriedEnergy > 0 && isStorageCritical(assessment)) {
+  if (carriedEnergy > 0 && avoidStorageWithdrawal) {
     const storageTask = selectStorageEnergyCriticalDeliveryTask(creep, carriedEnergy);
     if (storageTask && !isSameTask(storageTask, selectedTask)) {
       return storageTask;
@@ -19490,6 +19492,13 @@ function selectStorageEnergyCriticalDeliveryTask(creep, carriedEnergy) {
 }
 function isStorageCritical(assessment) {
   return assessment.storageEnergy !== null && assessment.storageEnterThreshold !== null && assessment.storageExitThreshold !== null && assessment.storageEnergy < assessment.storageExitThreshold;
+}
+function isRoomStorageWithdrawTask(creep, task) {
+  if ((task == null ? void 0 : task.type) !== "withdraw") {
+    return false;
+  }
+  const storage = getRoomStorage3(creep.room);
+  return Boolean(storage && String(task.targetId) === String(storage.id));
 }
 function getEnergyCriticalReason(spawnActive, storageActive) {
   if (spawnActive && storageActive) {

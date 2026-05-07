@@ -194,6 +194,33 @@ describe('worker energy-critical policy', () => {
     storageEnergy = 500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN;
     expect(assessWorkerEnergyCriticalState(creep).active).toBe(false);
   });
+
+  it('preempts a running storage withdrawal during storage-critical acquisition', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const storage = makeStorage('storage1', () => 499);
+    const room = makeEnergyCriticalRoom({
+      controller: makeController(),
+      energyAvailable: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD,
+      sources: [source],
+      structures: [storage as unknown as AnyStructure],
+      storage
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 0,
+      freeCapacity: 30,
+      task: { type: 'withdraw', targetId: storage.id as Id<AnyStoreStructure> }
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 203,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'storage1' ? storage : source))
+    };
+
+    expect(selectWorkerEnergyCriticalTask(creep, creep.memory.task, creep.memory.task ?? null)).toEqual({
+      type: 'harvest',
+      targetId: 'source1'
+    });
+  });
 });
 
 describe('worker task BC policy', () => {
