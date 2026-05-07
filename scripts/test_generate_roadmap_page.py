@@ -115,6 +115,19 @@ def metric_history_point(sampled_at: str, value: int | float = 1) -> dict[str, A
     }
 
 
+def lfs_pointer_text() -> str:
+    return (
+        "\n".join(
+            [
+                "version https://git-lfs.github.com/spec/v1",
+                "oid sha256:" + ("a" * 64),
+                "size 69632",
+            ]
+        )
+        + "\n"
+    )
+
+
 def runtime_summary_line(*, tick: int, level: int = 3, stored_energy: int = 0, hostile_creeps: int = 0) -> str:
     payload = {
         "type": "runtime-summary",
@@ -224,17 +237,7 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "docs" / "roadmap-kpi.sqlite"
             db_path.parent.mkdir(parents=True, exist_ok=True)
-            db_path.write_text(
-                "\n".join(
-                    [
-                        "version https://git-lfs.github.com/spec/v1",
-                        "oid sha256:" + ("a" * 64),
-                        "size 69632",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            db_path.write_text(lfs_pointer_text(), encoding="utf-8")
 
             conn, db_status = roadmap.prepare_history_db(db_path)
             try:
@@ -254,6 +257,47 @@ class GenerateRoadmapPageTest(unittest.TestCase):
         self.assertEqual(territory["history"]["status"], "collecting")
         self.assertTrue(territory["history"]["insufficient"])
         self.assertIn("SQLite history is cold-started", territory["footer"])
+
+    def test_unexpected_lfs_pointer_history_db_path_is_not_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "nested" / "docs" / "roadmap-kpi.sqlite"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            original = lfs_pointer_text()
+            db_path.write_text(original, encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "Refusing to auto-recreate KPI history DB"):
+                roadmap.prepare_history_db(db_path)
+
+            self.assertEqual(db_path.read_text(encoding="utf-8"), original)
+
+    def test_unexpected_invalid_history_db_path_is_not_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "docs" / "unexpected.sqlite"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            original = "not a sqlite database\n"
+            db_path.write_text(original, encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "only docs/roadmap-kpi.sqlite"):
+                roadmap.prepare_history_db(db_path)
+
+            self.assertEqual(db_path.read_text(encoding="utf-8"), original)
+
+    def test_symlink_history_db_recovery_path_is_not_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target-lfs-pointer"
+            target.write_text(lfs_pointer_text(), encoding="utf-8")
+            db_path = Path(tmp) / "docs" / "roadmap-kpi.sqlite"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                db_path.symlink_to(target)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symlink creation unavailable: {error}")
+
+            with self.assertRaisesRegex(RuntimeError, "symlink component"):
+                roadmap.prepare_history_db(db_path)
+
+            self.assertTrue(db_path.is_symlink())
+            self.assertEqual(target.read_text(encoding="utf-8"), lfs_pointer_text())
 
     def test_runtime_artifact_history_derives_daily_buckets_outside_sqlite(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
