@@ -4,9 +4,11 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const repo = path.resolve(process.argv[2] || process.cwd());
+const inputPath = path.resolve(process.argv[2] || process.cwd());
+const inputIsRoadmapData = fs.existsSync(inputPath) && fs.statSync(inputPath).isFile() && path.basename(inputPath) === 'roadmap-data.json';
+const repo = inputIsRoadmapData ? path.dirname(path.dirname(inputPath)) : inputPath;
 const renderer = path.join(repo, 'scripts', 'render-screeps-roadmap.js');
-const dataPath = path.join(repo, 'docs', 'roadmap-data.json');
+const dataPath = inputIsRoadmapData ? inputPath : path.join(repo, 'docs', 'roadmap-data.json');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'roadmap-renderer-check-'));
 const pngPath = path.join(tmpDir, 'roadmap.png');
 const htmlPath = pngPath.replace(/\.png$/, '.html');

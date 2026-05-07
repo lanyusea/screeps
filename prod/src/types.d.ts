@@ -51,6 +51,7 @@ declare global {
     spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
     workerBehavior?: WorkerTaskBehaviorSampleMemory;
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
+    energyDropoffOptimization?: WorkerEnergyDropoffOptimizationMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
     crossRoomHauler?: CreepCrossRoomHaulerMemory;
     spawnSupport?: CreepSpawnSupportMemory;
@@ -115,6 +116,16 @@ declare global {
 
   interface CreepDefenseMemory {
     homeRoom: string;
+  }
+
+  interface WorkerEnergyDropoffOptimizationMemory {
+    sourceTask: WorkerEnergyDropoffOptimizationTaskRef;
+    optimizedTask: WorkerEnergyDropoffOptimizationTaskRef;
+  }
+
+  interface WorkerEnergyDropoffOptimizationTaskRef {
+    type: CreepTaskMemory['type'];
+    targetId: string;
   }
 
   type CreepControllerSustainRole = 'upgrader' | 'hauler';

@@ -18,8 +18,12 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+import screeps_runtime_kpi_artifact_bridge as runtime_kpi_bridge
+import screeps_runtime_kpi_reducer as runtime_kpi_reducer
+
 
 SCHEMA_VERSION = 1
+KPI_HISTORY_WINDOW_DAYS = 7
 DEFAULT_OWNER = "lanyusea"
 DEFAULT_REPO = "screeps"
 DEFAULT_PROJECT_NUMBER = 3
@@ -48,6 +52,8 @@ PUBLIC_CONTROLLER_TEXT_RE = re.compile(
     re.IGNORECASE,
 )
 CACHED_SUFFIX_RE = re.compile(r"(?:\s*·\s*cached)+\s*$")
+MEDIA_ATTACHMENT_TRIGGER_RE = re.compile(r"\bMEDIA\s*:\s*\S*", re.IGNORECASE)
+MEDIA_ATTACHMENT_REFERENCE_PATH_RE = re.compile(r"\bmedia attachment reference\s*:\s*\S*", re.IGNORECASE)
 
 OBSERVED = "observed"
 NOT_OBSERVED = "not observed"
@@ -694,7 +700,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     runtime_report = load_runtime_kpi_report(repo_root)
     metrics = build_current_metrics(runtime_report)
     cached_page_data = load_cached_page_data(docs_dir / "roadmap-data.json")
-    conn = open_history_db(db_path)
+    conn, history_db_status = prepare_history_db(db_path)
     try:
         write_metric_definitions(conn)
         migrate_legacy_kpi_samples(conn)
@@ -703,6 +709,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         conn.close()
         remove_sqlite_sidecars(db_path)
+    artifact_history, artifact_history_status = load_runtime_artifact_metric_history(repo_root, generated_at, history)
+    history = merge_metric_histories(history, artifact_history)
+    history_source = summarize_kpi_history_source(history_db_status, artifact_history_status)
 
     github_snapshot = fetch_github_snapshot(
         repo_root=repo_root,
@@ -718,6 +727,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         runtime_report=runtime_report,
         metrics=metrics,
         history=history,
+        history_source=history_source,
         github_snapshot=github_snapshot,
         docs_dir=docs_dir,
         repo_root=repo_root,
@@ -792,6 +802,8 @@ def sanitize_public_data(value: Any) -> Any:
 
 def sanitize_public_text(value: str) -> str:
     text = INTERNAL_PROCESS_ID_RE.sub("proc_[redacted]", value)
+    text = MEDIA_ATTACHMENT_TRIGGER_RE.sub("media attachment reference", text)
+    text = MEDIA_ATTACHMENT_REFERENCE_PATH_RE.sub("media attachment reference", text)
     text = HOST_ABSOLUTE_PATH_RE.sub("[redacted-path]", text)
     text = WINDOWS_DRIVE_ROOT_PATH_RE.sub("[redacted-path]", text)
     if "[redacted-path]" in text or PUBLIC_CONTROLLER_TEXT_RE.search(text):
@@ -1169,16 +1181,38 @@ def format_metric_value(metric: JsonObject) -> str:
 
 
 def open_history_db(db_path: Path) -> sqlite3.Connection:
+    conn, _status = prepare_history_db(db_path)
+    return conn
+
+
+def prepare_history_db(db_path: Path) -> tuple[sqlite3.Connection, JsonObject]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    status: JsonObject
     if is_lfs_pointer(db_path):
         db_path.unlink()
+        status = {
+            "status": "cold-start-lfs-pointer",
+            "coldStart": True,
+            "message": (
+                "docs/roadmap-kpi.sqlite was a Git LFS pointer, so SQLite history started empty; "
+                "runtime-summary artifacts must supply prior days or the report remains collecting."
+            ),
+        }
+    elif db_path.exists():
+        status = {"status": "existing", "coldStart": False, "message": "SQLite KPI history opened."}
+    else:
+        status = {
+            "status": "created",
+            "coldStart": True,
+            "message": "SQLite KPI history did not exist, so the report is collecting history.",
+        }
 
     try:
         conn = sqlite3.connect(str(db_path))
         conn.execute("PRAGMA journal_mode=DELETE")
         conn.execute("PRAGMA foreign_keys=ON")
         ensure_schema(conn)
-        return conn
+        return conn, status
     except sqlite3.DatabaseError:
         try:
             conn.close()  # type: ignore[possibly-undefined]
@@ -1186,12 +1220,17 @@ def open_history_db(db_path: Path) -> sqlite3.Connection:
             pass
         if db_path.exists():
             db_path.unlink()
+        status = {
+            "status": "recreated-invalid-sqlite",
+            "coldStart": True,
+            "message": "SQLite KPI history was unreadable and was recreated; the report is collecting history.",
+        }
 
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=DELETE")
     conn.execute("PRAGMA foreign_keys=ON")
     ensure_schema(conn)
-    return conn
+    return conn, status
 
 
 def is_lfs_pointer(path: Path) -> bool:
@@ -1335,8 +1374,13 @@ def load_metric_history(conn: sqlite3.Connection) -> JsonObject:
         ORDER BY captured_at ASC, id ASC
         """
     ).fetchall()
+    latest_sampled_at = latest_timestamp_from_values(str(row[1]) for row in rows)
+    window_start = kpi_history_window_start(latest_sampled_at) if latest_sampled_at is not None else None
     history: JsonObject = {}
     for metric, captured_at, value, instrumented, observed, status in rows:
+        sampled_at = parse_timestamp(str(captured_at))
+        if window_start is not None and sampled_at is not None and sampled_at < window_start:
+            continue
         points = history.setdefault(metric, [])
         points.append(
             {
@@ -1347,7 +1391,147 @@ def load_metric_history(conn: sqlite3.Connection) -> JsonObject:
                 "status": status,
             }
         )
-    return {key: points[-24:] for key, points in history.items()}
+    return history
+
+
+def latest_timestamp_from_values(values: Iterable[str]) -> datetime | None:
+    latest: datetime | None = None
+    for value in values:
+        timestamp = parse_timestamp(value)
+        if timestamp is not None and (latest is None or timestamp > latest):
+            latest = timestamp
+    return latest
+
+
+def kpi_history_window_start(latest: datetime) -> datetime:
+    start_day = latest.astimezone(CST).date() - timedelta(days=KPI_HISTORY_WINDOW_DAYS - 1)
+    return datetime.combine(start_day, datetime.min.time(), CST).astimezone(timezone.utc)
+
+
+def load_runtime_artifact_metric_history(
+    repo_root: Path,
+    generated_at: str,
+    existing_history: JsonObject,
+    paths: Sequence[str] | None = None,
+) -> tuple[JsonObject, JsonObject]:
+    input_paths = runtime_history_input_paths(repo_root) if paths is None else list(paths)
+    try:
+        scan_result = runtime_kpi_bridge.collect_runtime_summary_lines(input_paths)
+    except Exception as error:
+        return {}, {
+            "status": "unavailable",
+            "message": "runtime-summary artifact history scan failed",
+            "error": error.__class__.__name__,
+            "inputPaths": runtime_history_input_path_labels(input_paths),
+        }
+
+    buckets = report_kpi_date_buckets(existing_history, generated_at)
+    bucket_days = set(buckets)
+    records_by_day: dict[date, list[runtime_kpi_bridge.RuntimeSummaryRecord]] = {}
+    untimestamped_records = 0
+    for record in scan_result.records:
+        if record.timestamp is None:
+            untimestamped_records += 1
+            continue
+        sampled_day = record.timestamp.astimezone(CST).date()
+        if sampled_day not in bucket_days:
+            continue
+        records_by_day.setdefault(sampled_day, []).append(record)
+
+    history: JsonObject = {}
+    for sampled_day in sorted(records_by_day):
+        records = sorted(
+            records_by_day[sampled_day],
+            key=lambda record: (
+                record.timestamp or datetime.min.replace(tzinfo=timezone.utc),
+                str(record.path),
+            ),
+        )
+        report = runtime_kpi_reducer.reduce_runtime_kpis(record.line for record in records)
+        latest_record = max(
+            (record.timestamp for record in records if record.timestamp is not None),
+            default=None,
+        )
+        if latest_record is None:
+            continue
+        sampled_at = format_utc_timestamp(latest_record)
+        for metric in build_current_metrics(report):
+            history.setdefault(metric["key"], []).append(metric_history_point(metric, sampled_at))
+
+    day_count = len(records_by_day)
+    status = "observed" if day_count else "unavailable"
+    return history, {
+        "status": status,
+        "message": (
+            f"Derived {day_count}/{KPI_HISTORY_WINDOW_DAYS} daily KPI bucket(s) from persisted runtime-summary artifacts."
+            if day_count
+            else "No timestamped runtime-summary artifacts were available for the visible KPI window."
+        ),
+        "inputPaths": runtime_history_input_path_labels(scan_result.input_paths),
+        "matchedFiles": scan_result.matched_files,
+        "runtimeSummaryLines": len(scan_result.lines),
+        "scannedFiles": scan_result.scanned_files,
+        "skippedFileCount": len(scan_result.skipped_files),
+        "untimestampedRuntimeSummaryLines": untimestamped_records,
+        "dailyBucketDays": day_count,
+    }
+
+
+def runtime_history_input_paths(repo_root: Path) -> list[str]:
+    paths = [str(repo_root / "runtime-artifacts")]
+    for path in runtime_kpi_bridge.DEFAULT_INPUT_PATHS:
+        if path not in paths:
+            paths.append(path)
+    return paths
+
+
+def runtime_history_input_path_labels(input_paths: Sequence[str]) -> list[str]:
+    labels: list[str] = []
+    for path_text in input_paths:
+        path = Path(path_text)
+        normalized = str(path).replace("\\", "/")
+        if normalized.endswith("/.hermes/cron/output"):
+            labels.append("Hermes cron output")
+        elif normalized.endswith("/runtime-artifacts"):
+            labels.append("runtime-artifacts")
+        else:
+            labels.append(path.name or "configured input")
+    return labels
+
+
+def format_utc_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def metric_history_point(metric: JsonObject, sampled_at: str) -> JsonObject:
+    return {
+        "sampledAt": sampled_at,
+        "value": metric["value"],
+        "instrumented": bool(metric["instrumented"]),
+        "observed": bool(metric["observed"]),
+        "status": metric["status"],
+    }
+
+
+def merge_metric_histories(*histories: JsonObject) -> JsonObject:
+    merged: JsonObject = {}
+    for history in histories:
+        for metric_key, points in history.items():
+            if not isinstance(points, list):
+                continue
+            merged.setdefault(metric_key, []).extend(dict(point) for point in points if isinstance(point, dict))
+    for metric_key, points in merged.items():
+        points.sort(key=lambda point: parse_timestamp(str(point.get("sampledAt") or "")) or datetime.min.replace(tzinfo=timezone.utc))
+        merged[metric_key] = points
+    return merged
+
+
+def summarize_kpi_history_source(sqlite_status: JsonObject, artifact_status: JsonObject) -> JsonObject:
+    return {
+        "windowDays": KPI_HISTORY_WINDOW_DAYS,
+        "sqlite": sqlite_status,
+        "runtimeArtifacts": artifact_status,
+    }
 
 
 def remove_sqlite_sidecars(db_path: Path) -> None:
@@ -1914,6 +2098,7 @@ def build_page_data(
     runtime_report: JsonObject,
     metrics: Sequence[JsonObject],
     history: JsonObject,
+    history_source: JsonObject,
     github_snapshot: JsonObject,
     docs_dir: Path,
     repo_root: Path,
@@ -1944,6 +2129,7 @@ def build_page_data(
                 for category, label in CATEGORY_LABELS.items()
             ],
             "history": history,
+            "historySource": history_source,
         },
         "runtimeReport": {
             "window": runtime_report.get("window", {}),
@@ -1953,6 +2139,7 @@ def build_page_data(
         "report": build_approved_report_model(
             generated_at,
             history,
+            history_source,
             github_snapshot,
             repo_root,
             repo,
@@ -1977,6 +2164,7 @@ def summarize_runtime_source(source: Any) -> JsonObject:
 def build_approved_report_model(
     generated_at: str,
     history: JsonObject,
+    history_source: JsonObject,
     github_snapshot: JsonObject,
     repo_root: Path,
     repo: JsonObject,
@@ -1988,14 +2176,18 @@ def build_approved_report_model(
             "Owner-approved roadmap-portrait-kpi-kanban-v5 presentation contract from "
             "Discord message/image 1498175235797811291."
         ),
-        "kpiCards": build_report_kpi_cards(history, generated_at),
+        "kpiCards": build_report_kpi_cards(history, generated_at, history_source),
         "roadmapCards": build_report_roadmap_cards(github_snapshot, repo),
         "domainKanban": build_report_domain_kanban(github_snapshot),
         "processCards": build_report_process_cards(repo_root, repo, github_snapshot, cached_page_data),
     }
 
 
-def build_report_kpi_cards(history: JsonObject, generated_at: str) -> list[JsonObject]:
+def build_report_kpi_cards(
+    history: JsonObject,
+    generated_at: str,
+    history_source: JsonObject | None = None,
+) -> list[JsonObject]:
     buckets = report_kpi_date_buckets(history, generated_at)
     cards = [deepcopy(card) for card in REPORT_KPI_CARDS]
     for card in cards:
@@ -2015,6 +2207,7 @@ def build_report_kpi_cards(history: JsonObject, generated_at: str) -> list[JsonO
             enriched_series.append(enriched)
         card["series"] = enriched_series
         normalize_report_chart_bounds(card)
+        card["history"] = summarize_report_kpi_card_history(card, history_source or {})
         card["footer"] = report_kpi_footer(card)
     return cards
 
@@ -2031,7 +2224,7 @@ def report_kpi_date_buckets(history: JsonObject, generated_at: str) -> list[date
             if sampled_at and sampled_at > latest:
                 latest = sampled_at
     latest_day = latest.astimezone(CST).date()
-    return [latest_day - timedelta(days=offset) for offset in range(6, -1, -1)]
+    return [latest_day - timedelta(days=offset) for offset in range(KPI_HISTORY_WINDOW_DAYS - 1, -1, -1)]
 
 
 def format_report_date(value: date) -> str:
@@ -2110,21 +2303,73 @@ def nice_chart_max(value: float) -> int | float:
     return math.ceil(value / magnitude) * magnitude
 
 
+def summarize_report_kpi_card_history(card: JsonObject, history_source: JsonObject) -> JsonObject:
+    dates = [str(value) for value in card.get("dates", ())]
+    observed_dates: list[str] = []
+    missing_dates: list[str] = []
+    for index, label in enumerate(dates):
+        observed = any(
+            chart_number(series.get("values", [])[index]) is not None
+            for series in card.get("series", ())
+            if isinstance(series, dict)
+            and isinstance(series.get("values"), list)
+            and index < len(series.get("values", []))
+        )
+        if observed:
+            observed_dates.append(label)
+        else:
+            missing_dates.append(label)
+
+    observed_day_count = len(observed_dates)
+    window_days = len(dates) or KPI_HISTORY_WINDOW_DAYS
+    if observed_day_count >= window_days:
+        status = "complete"
+    elif observed_day_count > 0:
+        status = "collecting"
+    else:
+        status = "unavailable"
+
+    return {
+        "status": status,
+        "observedDays": observed_day_count,
+        "windowDays": window_days,
+        "observedDateLabels": observed_dates,
+        "missingDateLabels": missing_dates,
+        "insufficient": observed_day_count < window_days,
+        "source": history_source,
+    }
+
+
 def report_kpi_footer(card: JsonObject) -> str:
-    observed_count = sum(
-        1
-        for series in card.get("series", ())
-        if isinstance(series, dict)
-        for value in series.get("values", ())
-        if chart_number(value) is not None
-    )
+    history = card.get("history") if isinstance(card.get("history"), dict) else {}
+    observed_days = int(history.get("observedDays") or 0)
+    window_days = int(history.get("windowDays") or KPI_HISTORY_WINDOW_DAYS)
+    sqlite_status = get_path(history, ("source", "sqlite", "status"), "")
+    cold_started = sqlite_status in {"cold-start-lfs-pointer", "created", "recreated-invalid-sqlite"}
+    cold_start_note = " SQLite history is cold-started, so" if cold_started else ""
     if card.get("key") == "combat":
-        if observed_count == 0:
-            return "Enemy-kill ownership data is unavailable; generic creepDestroyed is not counted as kills."
-        return "Combat series uses ownership-aware values only; missing buckets are left blank."
-    if observed_count == 0:
-        return "No observed runtime KPI history yet; missing buckets stay blank until persisted summaries exist."
-    return "Series values come from stored KPI history; missing buckets are left blank."
+        if observed_days == 0:
+            return (
+                f"History unavailable (0/{window_days} days observed; insufficient for a complete 7d trend);"
+                f" enemy-kill ownership data is unavailable;{cold_start_note} missing buckets stay blank."
+            )
+        if observed_days < window_days:
+            return (
+                f"History collecting ({observed_days}/{window_days} days observed; insufficient for a complete 7d trend);"
+                f"{cold_start_note} missing buckets stay blank."
+            )
+        return "Combat series uses reducer-backed values only; missing buckets are left blank."
+    if observed_days == 0:
+        return (
+            f"History unavailable (0/{window_days} days observed; insufficient for a complete 7d trend);"
+            f"{cold_start_note} missing buckets stay blank until persisted summaries exist."
+        )
+    if observed_days < window_days:
+        return (
+            f"History collecting ({observed_days}/{window_days} days observed; insufficient for a complete 7d trend);"
+            f"{cold_start_note} missing buckets stay blank."
+        )
+    return "Series values come from reducer-backed KPI history; missing buckets are left blank."
 
 
 def build_report_roadmap_cards(github_snapshot: JsonObject, repo: JsonObject) -> list[JsonObject]:

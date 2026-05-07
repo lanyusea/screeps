@@ -218,9 +218,18 @@ def validate_process_metrics(data: JsonObject, failures: list[str]) -> None:
         )
 
 
+def resolve_repo_root(arg: str | None) -> Path:
+    if not arg:
+        return Path(__file__).resolve().parents[1]
+    path = Path(arg).resolve()
+    if path.is_file() and path.name == "roadmap-data.json":
+        return path.parent.parent
+    return path
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(argv or sys.argv[1:])
-    repo_root = Path(args[0]).resolve() if args else Path(__file__).resolve().parents[1]
+    repo_root = resolve_repo_root(args[0] if args else None)
     generator = load_generator(repo_root)
     failures: list[str] = []
 
