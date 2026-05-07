@@ -19272,7 +19272,10 @@ function hasAbundantEnergyForLowLoadYieldSwitch(room) {
     return false;
   }
   const energyCapacityAvailable = getRoomEnergyCapacityAvailable2(room);
-  const abundanceThreshold = energyCapacityAvailable === null ? URGENT_SPAWN_REFILL_ENERGY_THRESHOLD : Math.min(URGENT_SPAWN_REFILL_ENERGY_THRESHOLD, Math.max(1, energyCapacityAvailable));
+  if (energyCapacityAvailable !== null && energyCapacityAvailable <= 0) {
+    return false;
+  }
+  const abundanceThreshold = energyCapacityAvailable === null ? URGENT_SPAWN_REFILL_ENERGY_THRESHOLD : Math.min(URGENT_SPAWN_REFILL_ENERGY_THRESHOLD, energyCapacityAvailable);
   return energyAvailable >= abundanceThreshold;
 }
 function createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, task) {
@@ -19306,34 +19309,34 @@ function createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, task) {
   return energy > 0 ? createLowLoadWorkerEnergyAcquisitionCandidate(creep, source, energy, task) : null;
 }
 function findLowLoadWorkerEnergyAcquisitionSourceForTask(creep, task) {
-  var _a, _b, _c;
   const targetId = String(task.targetId);
   const gameObject = getGameObjectById2(targetId);
-  if (gameObject && isLowLoadWorkerEnergyAcquisitionSourceForTask(gameObject, task)) {
-    return gameObject;
-  }
-  switch (task.type) {
-    case "harvest":
-      return (_a = findVisibleHarvestSources(creep).find((source) => String(source.id) === targetId)) != null ? _a : null;
-    case "pickup":
-      return (_b = findDroppedResources(creep.room).filter((source) => isDroppedEnergySourceObject(source)).find((source) => String(source.id) === targetId)) != null ? _b : null;
-    case "withdraw":
-      return (_c = [
-        ...findVisibleRoomStructures(creep.room),
-        ...findTombstones(creep.room),
-        ...findRuins(creep.room)
-      ].find((source) => String(source.id) === targetId && hasEnergyStore(source))) != null ? _c : null;
-  }
+  return gameObject && isLowLoadWorkerEnergyAcquisitionSourceForTask(creep, gameObject, task) ? gameObject : null;
 }
-function isLowLoadWorkerEnergyAcquisitionSourceForTask(source, task) {
+function isLowLoadWorkerEnergyAcquisitionSourceForTask(creep, source, task) {
   switch (task.type) {
     case "harvest":
       return isHarvestSourceObject(source);
     case "pickup":
       return isDroppedEnergySourceObject(source);
     case "withdraw":
-      return hasEnergyStore(source);
+      return hasEnergyStore(source) && isSafePersistedLowLoadWorkerWithdrawSource(creep, source);
   }
+}
+function isSafePersistedLowLoadWorkerWithdrawSource(creep, source) {
+  var _a;
+  if (!isStructureEnergySourceObject(source)) {
+    return true;
+  }
+  const room = (_a = source.room) != null ? _a : creep.room;
+  return isSafeStoredEnergySource(source, {
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
+    hasHostilePresence: hasVisibleHostilePresence(room),
+    room
+  });
+}
+function isStructureEnergySourceObject(source) {
+  return typeof (source == null ? void 0 : source.structureType) === "string";
 }
 function hasEnergyStore(source) {
   var _a;
