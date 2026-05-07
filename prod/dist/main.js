@@ -13451,10 +13451,10 @@ function getGameTime13() {
 }
 function getWritableEconomyMemory() {
   const root = globalThis;
-  if (!root.Memory) {
+  if (!root.Memory || typeof root.Memory !== "object") {
     root.Memory = {};
   }
-  if (!root.Memory.economy) {
+  if (!root.Memory.economy || typeof root.Memory.economy !== "object") {
     root.Memory.economy = {};
   }
   return root.Memory.economy;

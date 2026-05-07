@@ -267,11 +267,11 @@ function getGameTime(): number {
 
 function getWritableEconomyMemory(): EconomyMemory {
   const root = globalThis as { Memory?: Partial<Memory> };
-  if (!root.Memory) {
+  if (!root.Memory || typeof root.Memory !== 'object') {
     root.Memory = {};
   }
 
-  if (!root.Memory.economy) {
+  if (!root.Memory.economy || typeof root.Memory.economy !== 'object') {
     root.Memory.economy = {};
   }
 
