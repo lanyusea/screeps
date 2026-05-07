@@ -61,6 +61,7 @@ describe('planSpawn', () => {
     controller,
     storageEnergy,
     storageCapacity,
+    spawnEnergyBudget,
     ownedStructures = []
   }: {
     sourceCount?: number;
@@ -74,6 +75,7 @@ describe('planSpawn', () => {
     controller?: StructureController;
     storageEnergy?: number;
     storageCapacity?: number;
+    spawnEnergyBudget?: number;
     ownedStructures?: AnyOwnedStructure[];
   } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
     const sources = Array.from({ length: sourceCount }, (_, index) => ({ id: `source${index}` }) as Source);
@@ -125,7 +127,8 @@ describe('planSpawn', () => {
       room,
       spawns: [spawn],
       energyAvailable,
-      energyCapacityAvailable
+      energyCapacityAvailable,
+      ...(typeof spawnEnergyBudget === 'number' ? { spawnEnergyBudget } : {})
     };
 
     return { colony, spawn, find };
@@ -401,6 +404,23 @@ describe('planSpawn', () => {
       body: ['work', 'carry', 'move'],
       name: 'worker-W1N24-157',
       memory: { role: 'worker', colony: 'W1N24' }
+    });
+  });
+
+  it('uses the spawn energy budget when scaling worker bodies in the spawn pipeline', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N25',
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      spawnEnergyBudget: 200,
+      controller: { my: true, level: 3, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 158)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N25-158',
+      memory: { role: 'worker', colony: 'W1N25' }
     });
   });
 

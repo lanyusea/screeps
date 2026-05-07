@@ -19571,6 +19571,119 @@ function isNonEmptyString13(value) {
   return typeof value === "string" && value.length > 0;
 }
 
+// src/economy/creepBodyScaling.ts
+var MAX_CREEP_PARTS4 = 50;
+var BODY_PART_COSTS2 = {
+  move: 50,
+  work: 100,
+  carry: 50,
+  attack: 80,
+  ranged_attack: 150,
+  heal: 250,
+  claim: 600,
+  tough: 10
+};
+function selectDynamicCreepBody(input) {
+  const candidates = input.candidates.filter((candidate) => candidate.needed).sort(compareDynamicCreepBodyCandidates);
+  for (const candidate of candidates) {
+    const energyBudget = getDynamicCreepBodyEnergyBudget(input, candidate);
+    if (energyBudget <= 0) {
+      continue;
+    }
+    const body = candidate.buildBody(getCandidateBuildEnergyBudget(candidate, energyBudget));
+    const bodyCost = getDynamicBodyCost(body);
+    if (!isValidDynamicBody(body, bodyCost, energyBudget)) {
+      continue;
+    }
+    const policy = getSpawnBufferPolicy(input);
+    const availableEnergy = getEnergyAvailable(input);
+    const reserveEnergy = getReserveEnergy(input, candidate, policy);
+    return {
+      role: candidate.role,
+      demand: candidate.demand,
+      body,
+      bodyCost,
+      energyBudget,
+      reserveEnergy,
+      roomEnergyCapacity: getRoomEnergyCapacity(input),
+      spawnBufferPolicy: policy,
+      reserveViolated: policy === "respect" && !candidate.allowSpawnBufferBypass && isSpawnEnergyBufferViolated(input.room, input.spawns, availableEnergy, bodyCost)
+    };
+  }
+  return null;
+}
+function getDynamicCreepBodyEnergyBudget(input, candidate) {
+  var _a;
+  const policy = getSpawnBufferPolicy(input);
+  const availableEnergy = getEnergyAvailable(input);
+  const providedBudget = normalizeEnergyAmount3((_a = input.spawnEnergyBudget) != null ? _a : availableEnergy);
+  const roomEnergyCapacity = getRoomEnergyCapacity(input);
+  const capacityLimitedBudget = roomEnergyCapacity > 0 ? Math.min(providedBudget, roomEnergyCapacity) : providedBudget;
+  if (candidate.allowSpawnBufferBypass || policy === "ignore") {
+    return capacityLimitedBudget;
+  }
+  if (policy === "alreadyReserved") {
+    return capacityLimitedBudget;
+  }
+  return Math.min(
+    capacityLimitedBudget,
+    getBufferedSpawnEnergyBudget(input.room, input.spawns, availableEnergy)
+  );
+}
+function getDynamicBodyCost(body) {
+  return body.reduce((cost, part) => cost + BODY_PART_COSTS2[part], 0);
+}
+function compareDynamicCreepBodyCandidates(left, right) {
+  return getDemandRank(left.demand) - getDemandRank(right.demand);
+}
+function getDemandRank(demand) {
+  switch (demand) {
+    case "critical":
+      return 0;
+    case "recovery":
+      return 1;
+    case "standard":
+      return 2;
+    case "surplus":
+      return 3;
+  }
+}
+function getCandidateBuildEnergyBudget(candidate, energyBudget) {
+  const maxEnergyBudget = normalizeOptionalEnergyAmount(candidate.maxEnergyBudget);
+  return maxEnergyBudget === void 0 ? energyBudget : Math.min(energyBudget, maxEnergyBudget);
+}
+function isValidDynamicBody(body, bodyCost, energyBudget) {
+  return body.length > 0 && body.length <= MAX_CREEP_PARTS4 && bodyCost <= energyBudget && body.every((part) => BODY_PART_COSTS2[part] !== void 0);
+}
+function getReserveEnergy(input, candidate, policy) {
+  if (policy !== "respect" || candidate.allowSpawnBufferBypass) {
+    return 0;
+  }
+  return getSpawnEnergyBufferRequirement(input.room, input.spawns);
+}
+function getSpawnBufferPolicy(input) {
+  var _a;
+  return (_a = input.spawnBufferPolicy) != null ? _a : "respect";
+}
+function getEnergyAvailable(input) {
+  var _a;
+  return normalizeEnergyAmount3((_a = input.energyAvailable) != null ? _a : input.room.energyAvailable);
+}
+function getRoomEnergyCapacity(input) {
+  var _a;
+  return normalizeEnergyAmount3((_a = input.energyCapacityAvailable) != null ? _a : input.room.energyCapacityAvailable);
+}
+function normalizeOptionalEnergyAmount(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return void 0;
+  }
+  return Math.max(0, Math.floor(value));
+}
+function normalizeEnergyAmount3(value) {
+  var _a;
+  return (_a = normalizeOptionalEnergyAmount(value)) != null ? _a : 0;
+}
+
 // src/territory/multiRoomUpgrader.ts
 var MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 var MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
@@ -19579,7 +19692,7 @@ var REMOTE_UPGRADER_PATTERN = ["work", "carry", "move"];
 var REMOTE_UPGRADER_TRAVEL_PATTERN = ["work", "carry", "move", "move"];
 var REMOTE_UPGRADER_PATTERN_COST = 200;
 var MOVE_PART_COST = 50;
-var MAX_CREEP_PARTS4 = 50;
+var MAX_CREEP_PARTS5 = 50;
 var MAX_REMOTE_UPGRADER_PATTERN_COUNT = 4;
 var MAX_CONTROLLER_LEVEL4 = 8;
 var ERR_NO_PATH_CODE6 = -2;
@@ -19614,7 +19727,7 @@ function buildMultiRoomUpgraderBody(energyAvailable, plan) {
   const pattern = getRemoteUpgraderPattern(plan.routeDistance);
   const patternCost = getBodyCost2(pattern);
   const maxPatternCountByEnergy = Math.floor(energyAvailable / patternCost);
-  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS4 / pattern.length);
+  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS5 / pattern.length);
   const patternCount = Math.min(
     maxPatternCountByEnergy,
     maxPatternCountBySize,
@@ -19627,7 +19740,7 @@ function buildMultiRoomUpgraderBody(energyAvailable, plan) {
     ...Array.from({ length: patternCount }).flatMap(() => pattern)
   ];
   const unusedEnergy = energyAvailable - getBodyCost2(body);
-  if (unusedEnergy >= MOVE_PART_COST && body.length < MAX_CREEP_PARTS4) {
+  if (unusedEnergy >= MOVE_PART_COST && body.length < MAX_CREEP_PARTS5) {
     return [...body, "move"];
   }
   return body;
@@ -20167,7 +20280,7 @@ var HARVESTER_FULL_EXTRACTION_WORK_PARTS = Math.ceil(
   SOURCE_ENERGY_PER_TICK / HARVEST_POWER_PER_WORK_PART
 );
 var CARRY_CAPACITY_PER_PART2 = 50;
-var MAX_CREEP_PARTS5 = 50;
+var MAX_CREEP_PARTS6 = 50;
 var LOCAL_SUPPORT_WORKER_FLOOR = 3;
 var POST_CLAIM_SUSTAIN_UPGRADER_TARGET = 1;
 var POST_CLAIM_SUSTAIN_HAULER_TARGET = 1;
@@ -20620,7 +20733,12 @@ function planRemoteEconomySpawn(context) {
   }
   const remoteHarvesterAssignment = selectRemoteHarvesterAssignment(context.colony.room.name);
   if (remoteHarvesterAssignment) {
-    const body2 = buildRemoteHarvesterBody(getSpawnEnergyBudget(context.colony));
+    const body2 = selectDynamicBodyForColony(
+      context.colony,
+      REMOTE_HARVESTER_ROLE,
+      "standard",
+      buildRemoteHarvesterBody
+    );
     if (body2.length > 0) {
       return {
         spawn,
@@ -20646,7 +20764,12 @@ function planRemoteEconomySpawn(context) {
   if (!remoteHaulerAssignment) {
     return null;
   }
-  const body = buildRemoteHaulerBody(getSpawnEnergyBudget(context.colony), remoteHaulerAssignment.routeDistance);
+  const body = selectDynamicBodyForColony(
+    context.colony,
+    HAULER_ROLE,
+    "standard",
+    (energyBudget) => buildRemoteHaulerBody(energyBudget, remoteHaulerAssignment.routeDistance)
+  );
   if (body.length === 0) {
     return null;
   }
@@ -20917,25 +21040,65 @@ function isWorkerOnlyFollowUpPass(options) {
   return options.workersOnly === true && isNonEmptyString16(options.nameSuffix);
 }
 function selectWorkerBody(colony, roleCounts) {
-  var _a;
-  const spawnEnergyBudget = getSpawnEnergyBudget(colony);
   if (shouldUseSourceHarvesterBody(colony, roleCounts)) {
     const sourceDistance = estimateLocalSourceDistance(colony);
-    const fullCapacityBody = generateHarvesterBody(colony.energyCapacityAvailable, sourceDistance);
-    if (canAffordBody(fullCapacityBody, spawnEnergyBudget)) {
-      return fullCapacityBody;
-    }
-    return generateHarvesterBody(spawnEnergyBudget, sourceDistance);
+    return selectDynamicBodyForColony(
+      colony,
+      "sourceHarvester",
+      getWorkerDynamicBodyDemand(colony, roleCounts),
+      (energyBudget) => generateHarvesterBody(energyBudget, sourceDistance)
+    );
   }
+  return selectDynamicBodyForColony(
+    colony,
+    "worker",
+    getWorkerDynamicBodyDemand(colony, roleCounts),
+    (energyBudget) => buildWorkerBodyForDemandBudget(colony, roleCounts, energyBudget)
+  );
+}
+function buildWorkerBodyForDemandBudget(colony, roleCounts, energyBudget) {
+  var _a;
   const controllerLevel = (_a = colony.room.controller) == null ? void 0 : _a.level;
   const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
-  if (canAffordBody(normalBody, spawnEnergyBudget)) {
+  if (canAffordBody(normalBody, energyBudget)) {
     return normalBody;
   }
   if (roleCounts.worker === 0) {
-    return buildEmergencyWorkerBody(spawnEnergyBudget);
+    return buildEmergencyWorkerBody(energyBudget);
   }
-  return buildWorkerBody(spawnEnergyBudget, controllerLevel);
+  return buildWorkerBody(energyBudget, controllerLevel);
+}
+function selectDynamicBodyForColony(colony, role, demand, buildBody) {
+  var _a;
+  const selection = selectDynamicCreepBody({
+    room: colony.room,
+    spawns: colony.spawns,
+    energyAvailable: colony.energyAvailable,
+    energyCapacityAvailable: colony.energyCapacityAvailable,
+    spawnEnergyBudget: colony.spawnEnergyBudget,
+    spawnBufferPolicy: getSpawnBufferBudgetPolicy(colony),
+    candidates: [
+      {
+        role,
+        demand,
+        needed: true,
+        buildBody
+      }
+    ]
+  });
+  return (_a = selection == null ? void 0 : selection.body) != null ? _a : [];
+}
+function getSpawnBufferBudgetPolicy(colony) {
+  return colony.spawnEnergyBudget === void 0 ? "ignore" : "alreadyReserved";
+}
+function getWorkerDynamicBodyDemand(colony, roleCounts) {
+  if (roleCounts.worker === 0) {
+    return "critical";
+  }
+  if (getWorkerCapacity(roleCounts) < getWorkerTarget(colony, roleCounts)) {
+    return "recovery";
+  }
+  return "surplus";
 }
 function getSpawnEnergyBudget(colony) {
   var _a;
@@ -20961,7 +21124,7 @@ function selectHarvesterWorkParts(availableEnergy) {
 }
 function selectHarvesterCarryParts(availableEnergy, workParts, carryTarget) {
   let carryParts = 1;
-  while (carryParts < carryTarget && getHarvesterBodyPartCount(workParts, carryParts + 1) <= MAX_CREEP_PARTS5 && getHarvesterBodyCost(workParts, carryParts + 1) <= availableEnergy) {
+  while (carryParts < carryTarget && getHarvesterBodyPartCount(workParts, carryParts + 1) <= MAX_CREEP_PARTS6 && getHarvesterBodyCost(workParts, carryParts + 1) <= availableEnergy) {
     carryParts += 1;
   }
   return carryParts;
@@ -27894,6 +28057,7 @@ function createSpawnPlanningColony(colony, sourceColony, energyAvailable, usedSp
     ...colony,
     energyAvailable,
     energyCapacityAvailable: normalizeNonNegativeInteger5(sourceColony.energyCapacityAvailable),
+    spawnEnergyBudget: normalizeNonNegativeInteger5(energyAvailable),
     spawns: sourceColony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn))
   };
 }
