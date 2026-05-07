@@ -91,6 +91,33 @@ describe('worker energy-critical policy', () => {
     });
   });
 
+  it('preempts repair tasks during an energy crisis', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const repairTarget = { id: 'road1', structureType: 'road' } as StructureRoad;
+    const controller = makeController();
+    const room = makeEnergyCriticalRoom({
+      controller,
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      sources: [source],
+      structures: [repairTarget as unknown as AnyStructure]
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 25,
+      freeCapacity: 25,
+      task: { type: 'repair', targetId: repairTarget.id as Id<Structure> }
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 201,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : repairTarget))
+    };
+
+    expect(selectWorkerEnergyCriticalTask(creep, creep.memory.task, creep.memory.task ?? null)).toEqual({
+      type: 'harvest',
+      targetId: 'source1'
+    });
+  });
+
   it('keeps spawn-critical mode active until the hysteresis exit threshold is reached', () => {
     const room = makeEnergyCriticalRoom({
       controller: makeController(),

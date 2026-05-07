@@ -203,6 +203,11 @@ function shouldReassignWorkerTaskForEnergyCriticalState(
     return !isControllerDowngradeGuardTask(creep, task);
   }
 
+  if (task.type === 'repair') {
+    // Colony-wide energy failure takes priority over ongoing repairs.
+    return true;
+  }
+
   return task.type === 'build' && isNonCriticalConstructionTask(task);
 }
 

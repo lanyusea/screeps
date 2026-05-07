@@ -19458,6 +19458,9 @@ function shouldReassignWorkerTaskForEnergyCriticalState(creep, task) {
   if (task.type === "upgrade") {
     return !isControllerDowngradeGuardTask(creep, task);
   }
+  if (task.type === "repair") {
+    return true;
+  }
   return task.type === "build" && isNonCriticalConstructionTask(task);
 }
 function isControllerDowngradeGuardTask(creep, task) {
