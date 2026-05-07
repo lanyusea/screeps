@@ -34,6 +34,7 @@ import {
   findSourceContainerConstructionSite
 } from '../economy/sourceContainers';
 import { getTerritoryScoutIntel } from './scoutIntel';
+import { refreshExpansionPlannerIntent } from './expansionPlanner';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -1074,6 +1075,10 @@ function selectTerritoryTarget(
 ): SelectedTerritoryTarget | null {
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
+  if (options.controllerPressureOnly !== true && options.followUpOnly !== true) {
+    refreshExpansionPlannerIntent(colony, gameTime);
+  }
+
   const territoryMemory = getTerritoryMemoryRecord();
   let intents = normalizeTerritoryIntents(territoryMemory?.intents);
   const refreshedExpiredClaims = refreshExpiredPostClaimClaimIntents(
