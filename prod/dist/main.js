@@ -15869,6 +15869,53 @@ function transferEnergy(room) {
   }
   return results;
 }
+function transferInterRoomEnergy(rooms = findVisibleOwnedRooms()) {
+  const ownedRoomsByName = new Map(
+    rooms.filter((room) => {
+      var _a;
+      return ((_a = room.controller) == null ? void 0 : _a.my) === true;
+    }).map((room) => [room.name, room])
+  );
+  if (ownedRoomsByName.size < 2) {
+    return [];
+  }
+  const storageBalance = getStorageBalanceState();
+  const transferPlans = selectInterRoomLinkTransferPlans(storageBalance);
+  if (transferPlans.length === 0) {
+    return [];
+  }
+  const networksByRoom = new Map(
+    [...ownedRoomsByName].map(([roomName, room]) => [roomName, classifyLinks(room)])
+  );
+  const projectedState = createProjectedLinkState(
+    [...networksByRoom.values()].flatMap((network) => network.links)
+  );
+  const remainingExportByRoom = createRemainingInterRoomExportByRoom(storageBalance);
+  const remainingImportByRoom = createRemainingInterRoomImportByRoom(storageBalance);
+  const spentSourceIds = /* @__PURE__ */ new Set();
+  const results = [];
+  for (const transfer of transferPlans) {
+    const sourceRoom = ownedRoomsByName.get(transfer.sourceRoom);
+    const targetRoom = ownedRoomsByName.get(transfer.targetRoom);
+    const sourceNetwork = networksByRoom.get(transfer.sourceRoom);
+    const targetNetwork = networksByRoom.get(transfer.targetRoom);
+    if (!sourceRoom || !targetRoom || !sourceNetwork || !targetNetwork) {
+      continue;
+    }
+    transferInterRoomEnergyForPlan(
+      transfer,
+      targetRoom,
+      sourceNetwork,
+      targetNetwork,
+      projectedState,
+      spentSourceIds,
+      remainingExportByRoom,
+      remainingImportByRoom,
+      results
+    );
+  }
+  return results;
+}
 function classifyLinks(room) {
   var _a;
   const links = findOwnedLinks(room);
@@ -15906,6 +15953,71 @@ function getSourceLinkWorkerEnergyAvailable(room, link, network) {
 }
 function transferLinkEnergy(sourceLink, destinationLink, amount) {
   return sourceLink.transferEnergy(destinationLink, amount);
+}
+function transferInterRoomEnergyForPlan(transfer, targetRoom, sourceNetwork, targetNetwork, projectedState, spentSourceIds, remainingExportByRoom, remainingImportByRoom, results) {
+  var _a, _b, _c, _d, _e, _f, _g, _h;
+  let remainingTransfer = Math.min(
+    transfer.amount,
+    (_a = remainingExportByRoom.get(transfer.sourceRoom)) != null ? _a : transfer.amount,
+    (_b = remainingImportByRoom.get(transfer.targetRoom)) != null ? _b : transfer.amount
+  );
+  if (remainingTransfer <= 0) {
+    return;
+  }
+  for (const destination of selectInterRoomDestinationLinks(targetRoom, targetNetwork, projectedState)) {
+    let destinationFreeCapacity = (_c = projectedState.freeCapacityById.get(getObjectId8(destination.link))) != null ? _c : 0;
+    while (remainingTransfer > 0 && destinationFreeCapacity > 0) {
+      const sourceLink = selectInterRoomSourceLink(sourceNetwork, projectedState, spentSourceIds);
+      if (!sourceLink) {
+        return;
+      }
+      const sourceId = getObjectId8(sourceLink);
+      const destinationId = getObjectId8(destination.link);
+      if (sourceId === destinationId) {
+        spentSourceIds.add(sourceId);
+        continue;
+      }
+      const amount = Math.min(
+        remainingTransfer,
+        (_d = projectedState.storedEnergyById.get(sourceId)) != null ? _d : 0,
+        destinationFreeCapacity
+      );
+      if (amount <= 0) {
+        spentSourceIds.add(sourceId);
+        continue;
+      }
+      const result = transferLinkEnergy(sourceLink, destination.link, amount);
+      results.push({
+        amount,
+        destinationId,
+        destinationRole: destination.role,
+        plannedAmount: transfer.amount,
+        result,
+        sourceId,
+        sourceRoom: transfer.sourceRoom,
+        targetRoom: transfer.targetRoom
+      });
+      spentSourceIds.add(sourceId);
+      if (result !== OK_CODE6) {
+        continue;
+      }
+      projectedState.storedEnergyById.set(
+        sourceId,
+        Math.max(0, ((_e = projectedState.storedEnergyById.get(sourceId)) != null ? _e : 0) - amount)
+      );
+      projectedState.freeCapacityById.set(destinationId, Math.max(0, destinationFreeCapacity - amount));
+      destinationFreeCapacity = (_f = projectedState.freeCapacityById.get(destinationId)) != null ? _f : 0;
+      remainingTransfer -= amount;
+      remainingExportByRoom.set(
+        transfer.sourceRoom,
+        Math.max(0, ((_g = remainingExportByRoom.get(transfer.sourceRoom)) != null ? _g : 0) - amount)
+      );
+      remainingImportByRoom.set(
+        transfer.targetRoom,
+        Math.max(0, ((_h = remainingImportByRoom.get(transfer.targetRoom)) != null ? _h : 0) - amount)
+      );
+    }
+  }
 }
 function transferSourceLinksToDestination(sourceLinks, destination, projectedState, spentSourceIds, results) {
   var _a, _b, _c, _d, _e;
@@ -16019,6 +16131,55 @@ function createSourceLinkRoutingReserve(room, network, projectedState) {
   }
   return reserveById;
 }
+function selectInterRoomLinkTransferPlans(storageBalance) {
+  return [...storageBalance.transfers].filter((transfer) => transfer.amount > 0 && transfer.sourceRoom !== transfer.targetRoom).filter((transfer) => isInterRoomLinkTransferPlanLive(storageBalance, transfer)).sort((left, right) => compareInterRoomLinkTransferPlans(storageBalance, left, right));
+}
+function isInterRoomLinkTransferPlanLive(storageBalance, transfer) {
+  const sourceState = storageBalance.rooms[transfer.sourceRoom];
+  const targetState = storageBalance.rooms[transfer.targetRoom];
+  if (sourceState && (sourceState.mode !== "export" || sourceState.exportableEnergy <= 0)) {
+    return false;
+  }
+  if (targetState && (targetState.mode !== "import" || targetState.importDemand <= 0)) {
+    return false;
+  }
+  return true;
+}
+function compareInterRoomLinkTransferPlans(storageBalance, left, right) {
+  return getInterRoomImportDemand(storageBalance, right.targetRoom) - getInterRoomImportDemand(storageBalance, left.targetRoom) || getInterRoomExportableEnergy(storageBalance, right.sourceRoom) - getInterRoomExportableEnergy(storageBalance, left.sourceRoom) || right.amount - left.amount || left.sourceRoom.localeCompare(right.sourceRoom) || left.targetRoom.localeCompare(right.targetRoom);
+}
+function createRemainingInterRoomExportByRoom(storageBalance) {
+  const remaining = /* @__PURE__ */ new Map();
+  for (const [roomName, roomState] of Object.entries(storageBalance.rooms)) {
+    remaining.set(roomName, Math.max(0, roomState.exportableEnergy));
+  }
+  for (const transfer of storageBalance.transfers) {
+    if (!remaining.has(transfer.sourceRoom)) {
+      remaining.set(transfer.sourceRoom, Math.max(0, transfer.amount));
+    }
+  }
+  return remaining;
+}
+function createRemainingInterRoomImportByRoom(storageBalance) {
+  const remaining = /* @__PURE__ */ new Map();
+  for (const [roomName, roomState] of Object.entries(storageBalance.rooms)) {
+    remaining.set(roomName, Math.max(0, roomState.importDemand));
+  }
+  for (const transfer of storageBalance.transfers) {
+    if (!remaining.has(transfer.targetRoom)) {
+      remaining.set(transfer.targetRoom, Math.max(0, transfer.amount));
+    }
+  }
+  return remaining;
+}
+function getInterRoomImportDemand(storageBalance, roomName) {
+  var _a, _b;
+  return Math.max(0, (_b = (_a = storageBalance.rooms[roomName]) == null ? void 0 : _a.importDemand) != null ? _b : 0);
+}
+function getInterRoomExportableEnergy(storageBalance, roomName) {
+  var _a, _b;
+  return Math.max(0, (_b = (_a = storageBalance.rooms[roomName]) == null ? void 0 : _a.exportableEnergy) != null ? _b : 0);
+}
 function reserveSourceLinksForDestination(sourceLinks, destinationLink, projectedState, spentSourceIds, reserveById) {
   var _a, _b, _c;
   const destinationId = getObjectId8(destinationLink);
@@ -16068,6 +16229,73 @@ function sortSourceLinksBySurplusPriority(links, destinationLink, projectedState
       return compareRangeToPosition(destinationPosition, left, right) || ((_a = projectedState.storedEnergyById.get(getObjectId8(right))) != null ? _a : 0) - ((_b = projectedState.storedEnergyById.get(getObjectId8(left))) != null ? _b : 0) || getObjectId8(left).localeCompare(getObjectId8(right));
     }
   );
+}
+function selectInterRoomSourceLink(network, projectedState, spentSourceIds) {
+  var _a;
+  const sourceLinksById = /* @__PURE__ */ new Map();
+  for (const link of [network.storageLink, ...network.sourceLinks]) {
+    if (!link) {
+      continue;
+    }
+    const linkId = getObjectId8(link);
+    if (linkId.length > 0) {
+      sourceLinksById.set(linkId, link);
+    }
+  }
+  return (_a = [...sourceLinksById.values()].filter((link) => !spentSourceIds.has(getObjectId8(link))).filter((link) => canLinkSendEnergy(link, projectedState)).sort(
+    (left, right) => {
+      var _a2, _b;
+      return getInterRoomSourcePriority(right, network) - getInterRoomSourcePriority(left, network) || ((_a2 = projectedState.storedEnergyById.get(getObjectId8(right))) != null ? _a2 : 0) - ((_b = projectedState.storedEnergyById.get(getObjectId8(left))) != null ? _b : 0) || getObjectId8(left).localeCompare(getObjectId8(right));
+    }
+  )[0]) != null ? _a : null;
+}
+function getInterRoomSourcePriority(link, network) {
+  if (getObjectId8(link) === getObjectId8(network.storageLink)) {
+    return 2;
+  }
+  return network.sourceLinks.some((sourceLink) => getObjectId8(sourceLink) === getObjectId8(link)) ? 1 : 0;
+}
+function selectInterRoomDestinationLinks(room, network, projectedState) {
+  const destinationsById = /* @__PURE__ */ new Map();
+  addInterRoomDestination(
+    destinationsById,
+    shouldSpawnLinkReceiveEnergy(room, network.spawnLink, projectedState) ? { link: network.spawnLink, priority: 3, role: "spawn" } : null,
+    projectedState
+  );
+  addInterRoomDestination(
+    destinationsById,
+    shouldControllerLinkReceiveEnergy(room, network.controllerLink, projectedState) ? { link: network.controllerLink, priority: 2, role: "controller" } : null,
+    projectedState
+  );
+  addInterRoomDestination(
+    destinationsById,
+    shouldStorageLinkReceiveInterRoomEnergy(network.storageLink, projectedState) ? { link: network.storageLink, priority: 1, role: "storage" } : null,
+    projectedState
+  );
+  return [...destinationsById.values()].sort(
+    (left, right) => {
+      var _a, _b;
+      return right.priority - left.priority || ((_a = projectedState.freeCapacityById.get(getObjectId8(right.link))) != null ? _a : 0) - ((_b = projectedState.freeCapacityById.get(getObjectId8(left.link))) != null ? _b : 0) || getObjectId8(left.link).localeCompare(getObjectId8(right.link));
+    }
+  );
+}
+function addInterRoomDestination(destinationsById, destination, projectedState) {
+  var _a;
+  if (!destination) {
+    return;
+  }
+  const destinationId = getObjectId8(destination.link);
+  if (destinationId.length === 0 || destinationsById.has(destinationId)) {
+    return;
+  }
+  if (((_a = projectedState.freeCapacityById.get(destinationId)) != null ? _a : 0) <= 0) {
+    return;
+  }
+  destinationsById.set(destinationId, destination);
+}
+function shouldStorageLinkReceiveInterRoomEnergy(storageLink, projectedState) {
+  var _a;
+  return !!storageLink && ((_a = projectedState.freeCapacityById.get(getObjectId8(storageLink))) != null ? _a : 0) > 0;
 }
 function canLinkSendEnergy(link, projectedState) {
   var _a;
@@ -16186,6 +16414,17 @@ function findRoomSpawns(room) {
     }
   }
   return [...spawnsById.values()].sort(compareObjectIds4);
+}
+function findVisibleOwnedRooms() {
+  var _a;
+  const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
+  if (!rooms) {
+    return [];
+  }
+  return Object.values(rooms).filter((room) => {
+    var _a2;
+    return ((_a2 = room == null ? void 0 : room.controller) == null ? void 0 : _a2.my) === true;
+  }).sort((left, right) => left.name.localeCompare(right.name));
 }
 function findSources2(room) {
   if (typeof FIND_SOURCES !== "number" || typeof room.find !== "function") {
@@ -33472,6 +33711,7 @@ function runEconomy(preludeTelemetryEvents = []) {
     refreshRoomEnergySurplusState(colony.room);
     recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
+  transferInterRoomEnergy(colonies.map((colony) => colony.room));
   ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
