@@ -39,7 +39,7 @@ describe('rampart and wall construction executor', () => {
     delete globals.Memory;
   });
 
-  it('creates the first entrance rampart after essential claimed-room structures are covered', () => {
+  it('creates the first tower rampart after essential claimed-room structures are covered', () => {
     const { colony, room } = makeBarrierExecutorColony();
     installGame(room);
 
@@ -49,17 +49,17 @@ describe('rampart and wall construction executor', () => {
       roomName: 'W2N1',
       status: 'created',
       result: OK_CODE,
-      stage: 'entranceRampart',
+      stage: 'towerRampart',
       structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
-      x: 25,
-      y: 1
+      x: 24,
+      y: 24
     });
-    expect(room.createConstructionSite).toHaveBeenCalledWith(25, 1, TEST_GLOBALS.STRUCTURE_RAMPART);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
-  it('creates entrance walls only after the entrance rampart layer is covered', () => {
-    const entranceRampart = makeStructure('rampart-top', TEST_GLOBALS.STRUCTURE_RAMPART, 25, 1);
-    const { colony, room } = makeBarrierExecutorColony({ extraStructures: [entranceRampart] });
+  it('creates spawn/controller core ramparts after tower ramparts are covered', () => {
+    const towerRampart = makeStructure('tower-rampart', TEST_GLOBALS.STRUCTURE_RAMPART, 24, 24);
+    const { colony, room } = makeBarrierExecutorColony({ extraStructures: [towerRampart] });
     installGame(room);
 
     const result = runRampartWallConstructionExecutorForColony(colony, { requireExpansionMemory: true });
@@ -67,12 +67,12 @@ describe('rampart and wall construction executor', () => {
     expect(result).toMatchObject({
       roomName: 'W2N1',
       status: 'created',
-      stage: 'entranceWall',
-      structureType: TEST_GLOBALS.STRUCTURE_WALL,
-      x: 24,
-      y: 1
+      stage: 'coreRampart',
+      structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+      x: 25,
+      y: 24
     });
-    expect(room.createConstructionSite).toHaveBeenCalledWith(24, 1, TEST_GLOBALS.STRUCTURE_WALL);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(25, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 
   it('skips barrier placement until essential structures and tower coverage are placed', () => {

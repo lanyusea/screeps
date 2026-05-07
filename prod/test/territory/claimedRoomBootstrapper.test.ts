@@ -201,6 +201,31 @@ describe('claimed room bootstrapper', () => {
     expect(rcl3.room.createConstructionSite).toHaveBeenCalledWith(23, 23, TEST_GLOBALS.STRUCTURE_TOWER);
   });
 
+  it('ignores roads when choosing claimed-room tower anchors', () => {
+    const spawn = makeStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 20, 20);
+    const distantRoads = Array.from({ length: 8 }, (_value, index) =>
+      makeStructure(`road-${index}`, TEST_GLOBALS.STRUCTURE_ROAD, 40 + (index % 4), 42 + Math.floor(index / 4))
+    );
+    const distantRoadSites = Array.from({ length: 8 }, (_value, index) =>
+      makeConstructionSite(`road-site-${index}`, TEST_GLOBALS.STRUCTURE_ROAD, 44 + (index % 4), 42 + Math.floor(index / 4))
+    );
+    const { room, colony } = makeBootstrapRoom({
+      controllerLevel: 3,
+      controllerPosition: { x: 20, y: 24 },
+      sources: [],
+      structures: [spawn, ...makeExtensions(10), ...distantRoads],
+      constructionSites: distantRoadSites,
+      spawns: [spawn as StructureSpawn]
+    });
+    installActiveBootstrapMemory();
+    installGame(room);
+
+    const result = runClaimedRoomBootstrapper([colony]);
+
+    expect(result.planned).toEqual([{ roomName: 'W2N1', phase: 'tower', result: OK_CODE }]);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(20, 22, TEST_GLOBALS.STRUCTURE_TOWER);
+  });
+
   it('plans RCL3 claimed-room tower defense before adding more early roads', () => {
     const spawn = makeStructure('spawn1', TEST_GLOBALS.STRUCTURE_SPAWN, 10, 10);
     const source = makeSource('source-a', 20, 10);
