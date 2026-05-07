@@ -133,6 +133,9 @@ describe('sourceHarvester', () => {
 
     expect(creep.transfer).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
     expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect((creep.transfer as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (creep.harvest as jest.Mock).mock.invocationCallOrder[0]
+    );
   });
 
   it('transfers full carried energy into an adjacent source link before the container', () => {
