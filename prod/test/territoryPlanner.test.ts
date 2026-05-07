@@ -1192,14 +1192,16 @@ describe('planTerritoryIntent', () => {
     ).toEqual({
       colony: 'W1N1',
       targetRoom: 'W2N1',
-      action: 'reserve'
+      action: 'reserve',
+      createdBy: 'expansionPlanner'
     });
     expect(describeExits).toHaveBeenCalledWith('W1N1');
     expect(Memory.territory?.targets).toEqual([
       {
         colony: 'W1N1',
         roomName: 'W2N1',
-        action: 'reserve'
+        action: 'reserve',
+        createdBy: 'expansionPlanner'
       }
     ]);
   });

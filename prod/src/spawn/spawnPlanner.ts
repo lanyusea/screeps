@@ -1460,7 +1460,7 @@ function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boole
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
 }
 
-function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryIntentPlan): BodyPartConstant[] {
+export function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryIntentPlan): BodyPartConstant[] {
   if (intent.action === 'scout') {
     return energyAvailable >= TERRITORY_SCOUT_BODY_COST ? [...TERRITORY_SCOUT_BODY] : [];
   }

@@ -1624,6 +1624,7 @@ function isTerritoryAutomationSource(source: unknown): source is TerritoryAutoma
     source === 'occupationRecommendation' ||
     source === 'autonomousExpansionClaim' ||
     source === 'colonyExpansion' ||
+    source === 'expansionPlanner' ||
     source === 'nextExpansionScoring' ||
     source === 'adjacentRoomReservation'
   );
