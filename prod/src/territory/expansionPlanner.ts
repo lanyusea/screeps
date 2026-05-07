@@ -10,6 +10,14 @@ const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const SOURCE_SCORE_WEIGHT = 1_000;
 const DISTANCE_SCORE_WEIGHT = 100;
 export const EXPANSION_PLANNER_TARGET_CREATOR = 'expansionPlanner';
+export const EXPANSION_TOWER_DEFAULT_MAX_PLACEMENTS = 6;
+
+const EXPANSION_TOWER_ROOM_EDGE_MIN = 1;
+const EXPANSION_TOWER_ROOM_EDGE_MAX = 48;
+const EXPANSION_TOWER_CONTROLLER_WEIGHT = 6;
+const EXPANSION_TOWER_SOURCE_WEIGHT = 3;
+const EXPANSION_TOWER_ENTRANCE_WEIGHT = 1;
+const DEFAULT_TERRAIN_WALL_MASK = 1;
 
 type TerminalExpansionIntentStatus = Extract<TerritoryIntentMemory['status'], 'inactive' | 'completed'>;
 
@@ -97,6 +105,45 @@ interface ExpansionReservationUpgradeContext {
   colony: string;
   targetRoom: string;
   action: TerritoryControlAction;
+}
+
+export type ExpansionTowerPlacementAnchorKind = 'controller' | 'source' | 'entrance';
+
+export interface ExpansionTowerPlacementOptions {
+  maxPlacements?: number;
+}
+
+export interface ExpansionTowerPlacement {
+  roomName: string;
+  x: number;
+  y: number;
+  score: number;
+  controllerRange?: number;
+  nearestSourceRange?: number;
+  nearestEntranceRange?: number;
+}
+
+interface ExpansionTowerAnchor {
+  kind: ExpansionTowerPlacementAnchorKind;
+  position: RoomPositionLike;
+  weight: number;
+}
+
+interface RoomPositionLike {
+  x: number;
+  y: number;
+  roomName?: string;
+}
+
+interface ExpansionTowerPlacementLookups {
+  terrain: RoomTerrain | null;
+  blockedPositions: Set<string>;
+  anchors: ExpansionTowerAnchor[];
+}
+
+interface ExitGroup {
+  side: 'top' | 'right' | 'bottom' | 'left';
+  positions: RoomPositionLike[];
 }
 
 export function evaluateExpansionRoomSuitability(
@@ -480,6 +527,396 @@ export function createExpansionIntent(
     score: candidate.score,
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
   };
+}
+
+export function planExpansionTowerPlacements(
+  room: Room,
+  options: ExpansionTowerPlacementOptions = {}
+): ExpansionTowerPlacement[] {
+  if (!isNonEmptyString(room.name)) {
+    return [];
+  }
+
+  const lookups = createExpansionTowerPlacementLookups(room);
+  if (lookups.anchors.length === 0) {
+    return [];
+  }
+
+  const placements: ExpansionTowerPlacement[] = [];
+  for (let y = EXPANSION_TOWER_ROOM_EDGE_MIN; y <= EXPANSION_TOWER_ROOM_EDGE_MAX; y += 1) {
+    for (let x = EXPANSION_TOWER_ROOM_EDGE_MIN; x <= EXPANSION_TOWER_ROOM_EDGE_MAX; x += 1) {
+      const position = { x, y, roomName: room.name };
+      if (!canPlaceExpansionTower(lookups, position)) {
+        continue;
+      }
+
+      placements.push(scoreExpansionTowerPlacement(position, lookups.anchors, room.name));
+    }
+  }
+
+  return placements
+    .sort(compareExpansionTowerPlacements)
+    .slice(0, getExpansionTowerMaxPlacements(options.maxPlacements));
+}
+
+function createExpansionTowerPlacementLookups(room: Room): ExpansionTowerPlacementLookups {
+  const blockedPositions = new Set<string>();
+  for (const object of [
+    room.controller,
+    ...findRoomObjects<Source>(room, getFindConstant('FIND_SOURCES')),
+    ...findRoomObjects<AnyStructure>(room, getFindConstant('FIND_STRUCTURES')),
+    ...findRoomObjects<ConstructionSite>(room, getFindConstant('FIND_CONSTRUCTION_SITES'))
+  ]) {
+    addExpansionTowerBlockedPosition(blockedPositions, object, room.name);
+  }
+
+  return {
+    terrain: getExpansionTowerRoomTerrain(room.name),
+    blockedPositions,
+    anchors: buildExpansionTowerAnchors(room)
+  };
+}
+
+function buildExpansionTowerAnchors(room: Room): ExpansionTowerAnchor[] {
+  const anchors: ExpansionTowerAnchor[] = [];
+  addExpansionTowerAnchor(
+    anchors,
+    room.controller,
+    'controller',
+    EXPANSION_TOWER_CONTROLLER_WEIGHT,
+    room.name
+  );
+
+  for (const source of findRoomObjects<Source>(room, getFindConstant('FIND_SOURCES')).sort(compareExpansionTowerObjectIds)) {
+    addExpansionTowerAnchor(anchors, source, 'source', EXPANSION_TOWER_SOURCE_WEIGHT, room.name);
+  }
+
+  for (const entrancePosition of getExpansionTowerEntranceAnchors(room)) {
+    anchors.push({
+      kind: 'entrance',
+      position: entrancePosition,
+      weight: EXPANSION_TOWER_ENTRANCE_WEIGHT
+    });
+  }
+
+  return anchors;
+}
+
+function addExpansionTowerAnchor(
+  anchors: ExpansionTowerAnchor[],
+  object: unknown,
+  kind: ExpansionTowerPlacementAnchorKind,
+  weight: number,
+  roomName: string
+): void {
+  const position = getExpansionTowerObjectPosition(object);
+  if (!isExpansionTowerSameRoomPosition(position, roomName)) {
+    return;
+  }
+
+  anchors.push({
+    kind,
+    position,
+    weight
+  });
+}
+
+function getExpansionTowerEntranceAnchors(room: Room): RoomPositionLike[] {
+  const exitPositions = findRoomObjects<RoomPosition>(room, getFindConstant('FIND_EXIT'))
+    .map(getExpansionTowerObjectPosition)
+    .filter((position): position is RoomPositionLike =>
+      isExpansionTowerSameRoomPosition(position, room.name)
+    );
+
+  if (exitPositions.length > 0) {
+    return selectRepresentativeExpansionTowerExits(exitPositions);
+  }
+
+  return getExpansionTowerFallbackEntranceAnchors(room.name);
+}
+
+function selectRepresentativeExpansionTowerExits(exitPositions: RoomPositionLike[]): RoomPositionLike[] {
+  const groups = groupExpansionTowerExits(exitPositions);
+  return groups.map((group) => {
+    const sortedPositions = [...group.positions].sort(compareExpansionTowerExitPositions);
+    const middle = sortedPositions[Math.floor(sortedPositions.length / 2)];
+    return {
+      x: middle.x,
+      y: middle.y,
+      roomName: middle.roomName
+    };
+  });
+}
+
+function groupExpansionTowerExits(exitPositions: RoomPositionLike[]): ExitGroup[] {
+  const groups: ExitGroup[] = [];
+  for (const position of [...exitPositions].sort(compareExpansionTowerExitPositions)) {
+    const side = getExpansionTowerExitSide(position);
+    if (!side) {
+      continue;
+    }
+
+    const previous = groups[groups.length - 1];
+    if (
+      previous &&
+      previous.side === side &&
+      areContiguousExpansionTowerExits(previous.positions[previous.positions.length - 1], position)
+    ) {
+      previous.positions.push(position);
+    } else {
+      groups.push({ side, positions: [position] });
+    }
+  }
+
+  return groups;
+}
+
+function getExpansionTowerFallbackEntranceAnchors(roomName: string): RoomPositionLike[] {
+  const exits = (globalThis as { Game?: Partial<Game> }).Game?.map?.describeExits?.(roomName) as
+    | Record<string, string>
+    | null
+    | undefined;
+  if (!isRecord(exits)) {
+    return [];
+  }
+
+  const anchors: RoomPositionLike[] = [];
+  if (isNonEmptyString(exits['1'])) {
+    anchors.push({ x: 25, y: 0, roomName });
+  }
+  if (isNonEmptyString(exits['3'])) {
+    anchors.push({ x: 49, y: 25, roomName });
+  }
+  if (isNonEmptyString(exits['5'])) {
+    anchors.push({ x: 25, y: 49, roomName });
+  }
+  if (isNonEmptyString(exits['7'])) {
+    anchors.push({ x: 0, y: 25, roomName });
+  }
+
+  return anchors;
+}
+
+function areContiguousExpansionTowerExits(
+  left: RoomPositionLike | undefined,
+  right: RoomPositionLike
+): boolean {
+  if (!left || getExpansionTowerExitSide(left) !== getExpansionTowerExitSide(right)) {
+    return false;
+  }
+
+  if (left.x === right.x) {
+    return Math.abs(left.y - right.y) <= 1;
+  }
+
+  if (left.y === right.y) {
+    return Math.abs(left.x - right.x) <= 1;
+  }
+
+  return false;
+}
+
+function compareExpansionTowerExitPositions(left: RoomPositionLike, right: RoomPositionLike): number {
+  const leftSide = getExpansionTowerExitSide(left) ?? '';
+  const rightSide = getExpansionTowerExitSide(right) ?? '';
+  return (
+    getExpansionTowerExitSideOrder(leftSide) - getExpansionTowerExitSideOrder(rightSide) ||
+    left.y - right.y ||
+    left.x - right.x
+  );
+}
+
+function getExpansionTowerExitSide(position: RoomPositionLike): ExitGroup['side'] | null {
+  if (position.y <= 0) {
+    return 'top';
+  }
+  if (position.x >= 49) {
+    return 'right';
+  }
+  if (position.y >= 49) {
+    return 'bottom';
+  }
+  if (position.x <= 0) {
+    return 'left';
+  }
+
+  return null;
+}
+
+function getExpansionTowerExitSideOrder(side: string): number {
+  switch (side) {
+    case 'top':
+      return 0;
+    case 'right':
+      return 1;
+    case 'bottom':
+      return 2;
+    case 'left':
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function canPlaceExpansionTower(
+  lookups: ExpansionTowerPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (
+    position.x >= EXPANSION_TOWER_ROOM_EDGE_MIN &&
+    position.x <= EXPANSION_TOWER_ROOM_EDGE_MAX &&
+    position.y >= EXPANSION_TOWER_ROOM_EDGE_MIN &&
+    position.y <= EXPANSION_TOWER_ROOM_EDGE_MAX &&
+    !lookups.blockedPositions.has(getExpansionTowerPositionKey(position)) &&
+    !isExpansionTowerTerrainWall(lookups.terrain, position)
+  );
+}
+
+function scoreExpansionTowerPlacement(
+  position: RoomPositionLike,
+  anchors: ExpansionTowerAnchor[],
+  roomName: string
+): ExpansionTowerPlacement {
+  const controllerRange = getNearestExpansionTowerAnchorRange(position, anchors, 'controller');
+  const nearestSourceRange = getNearestExpansionTowerAnchorRange(position, anchors, 'source');
+  const nearestEntranceRange = getNearestExpansionTowerAnchorRange(position, anchors, 'entrance');
+  return {
+    roomName,
+    x: position.x,
+    y: position.y,
+    score: anchors.reduce(
+      (score, anchor) => score + getExpansionTowerRange(position, anchor.position) * anchor.weight,
+      0
+    ),
+    ...(controllerRange !== null ? { controllerRange } : {}),
+    ...(nearestSourceRange !== null ? { nearestSourceRange } : {}),
+    ...(nearestEntranceRange !== null ? { nearestEntranceRange } : {})
+  };
+}
+
+function getNearestExpansionTowerAnchorRange(
+  position: RoomPositionLike,
+  anchors: ExpansionTowerAnchor[],
+  kind: ExpansionTowerPlacementAnchorKind
+): number | null {
+  let nearestRange: number | null = null;
+  for (const anchor of anchors) {
+    if (anchor.kind !== kind) {
+      continue;
+    }
+
+    const range = getExpansionTowerRange(position, anchor.position);
+    if (nearestRange === null || range < nearestRange) {
+      nearestRange = range;
+    }
+  }
+
+  return nearestRange;
+}
+
+function compareExpansionTowerPlacements(
+  left: ExpansionTowerPlacement,
+  right: ExpansionTowerPlacement
+): number {
+  return (
+    left.score - right.score ||
+    compareOptionalNumbers(left.controllerRange, right.controllerRange) ||
+    compareOptionalNumbers(left.nearestSourceRange, right.nearestSourceRange) ||
+    compareOptionalNumbers(left.nearestEntranceRange, right.nearestEntranceRange) ||
+    left.y - right.y ||
+    left.x - right.x
+  );
+}
+
+function addExpansionTowerBlockedPosition(
+  blockedPositions: Set<string>,
+  object: unknown,
+  roomName: string
+): void {
+  const position = getExpansionTowerObjectPosition(object);
+  if (isExpansionTowerSameRoomPosition(position, roomName)) {
+    blockedPositions.add(getExpansionTowerPositionKey(position));
+  }
+}
+
+function getExpansionTowerObjectPosition(object: unknown): RoomPositionLike | null {
+  if (!isRecord(object)) {
+    return null;
+  }
+
+  if (typeof object.x === 'number' && Number.isFinite(object.x) && typeof object.y === 'number' && Number.isFinite(object.y)) {
+    return {
+      x: object.x,
+      y: object.y,
+      ...(typeof object.roomName === 'string' ? { roomName: object.roomName } : {})
+    };
+  }
+
+  const position = object.pos;
+  if (
+    isRecord(position) &&
+    typeof position.x === 'number' &&
+    Number.isFinite(position.x) &&
+    typeof position.y === 'number' &&
+    Number.isFinite(position.y)
+  ) {
+    return {
+      x: position.x,
+      y: position.y,
+      ...(typeof position.roomName === 'string' ? { roomName: position.roomName } : {})
+    };
+  }
+
+  return null;
+}
+
+function isExpansionTowerSameRoomPosition(
+  position: RoomPositionLike | null,
+  roomName: string
+): position is RoomPositionLike {
+  return position !== null && (position.roomName === undefined || position.roomName === roomName);
+}
+
+function getExpansionTowerRange(left: RoomPositionLike, right: RoomPositionLike): number {
+  return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
+}
+
+function getExpansionTowerPositionKey(position: RoomPositionLike): string {
+  return `${position.x},${position.y}`;
+}
+
+function getExpansionTowerRoomTerrain(roomName: string): RoomTerrain | null {
+  const gameMap = (globalThis as { Game?: Partial<Game> }).Game?.map;
+  return typeof gameMap?.getRoomTerrain === 'function' ? gameMap.getRoomTerrain(roomName) : null;
+}
+
+function isExpansionTowerTerrainWall(terrain: RoomTerrain | null, position: RoomPositionLike): boolean {
+  return terrain !== null && (terrain.get(position.x, position.y) & getExpansionTowerTerrainWallMask()) !== 0;
+}
+
+function getExpansionTowerTerrainWallMask(): number {
+  const terrainWallMask = (globalThis as { TERRAIN_MASK_WALL?: number }).TERRAIN_MASK_WALL;
+  return typeof terrainWallMask === 'number' ? terrainWallMask : DEFAULT_TERRAIN_WALL_MASK;
+}
+
+function getExpansionTowerMaxPlacements(maxPlacements: number | undefined): number {
+  if (typeof maxPlacements !== 'number' || !Number.isFinite(maxPlacements)) {
+    return EXPANSION_TOWER_DEFAULT_MAX_PLACEMENTS;
+  }
+
+  return Math.max(1, Math.floor(maxPlacements));
+}
+
+function compareExpansionTowerObjectIds(left: unknown, right: unknown): number {
+  return getExpansionTowerObjectId(left).localeCompare(getExpansionTowerObjectId(right));
+}
+
+function getExpansionTowerObjectId(object: unknown): string {
+  if (!isRecord(object)) {
+    return '';
+  }
+
+  return typeof object.id === 'string' ? object.id : '';
 }
 
 function evaluateExpansionSuitability({

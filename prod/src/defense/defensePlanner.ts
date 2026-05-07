@@ -7,6 +7,8 @@ const HOSTILES_PER_DEFENDER = 3;
 const MAX_CREEP_PARTS = 50;
 export const SAFE_MODE_HOSTILE_COUNT_THRESHOLD = 2;
 export const CRITICAL_SPAWN_LOSS_HITS_RATIO = 0.25;
+export const TOWER_CONTROLLER_THREAT_RANGE = 3;
+export const TOWER_STRUCTURE_THREAT_RANGE = 3;
 
 export type DefenseTarget = Creep | Structure;
 
@@ -36,6 +38,11 @@ export interface SafeModePlanInput {
   controller?: StructureController;
   hostileCreeps: Creep[];
   ownedSpawns: StructureSpawn[];
+}
+
+export interface TowerAttackTargetOptions {
+  controller?: StructureController;
+  protectedStructures?: Structure[];
 }
 
 export function hasDefensePressure(summary: DefensePressureSummary): boolean {
@@ -100,10 +107,23 @@ export function planDefenderSpawn(input: DefenderSpawnPlanInput): DefenderSpawnP
 export function selectTowerAttackTarget(
   origin: { pos?: RoomPosition },
   hostileCreeps: Creep[],
-  hostileStructures: Structure[]
+  hostileStructures: Structure[],
+  options: TowerAttackTargetOptions = {}
 ): DefenseTarget | null {
+  const controller = options.controller ?? (origin as { room?: Room }).room?.controller;
+  const protectedStructures = options.protectedStructures ?? [];
+  const sameRoomHostileCreeps = hostileCreeps.filter((hostile) => isTargetInOriginRoom(origin, hostile));
+
   return (
-    selectClosestTarget(origin, hostileCreeps, { sameRoomOnly: true }) ??
+    selectClosestTarget(
+      origin,
+      sameRoomHostileCreeps.filter((hostile) => isHostileNearController(hostile, controller))
+    ) ??
+    selectClosestTarget(
+      origin,
+      sameRoomHostileCreeps.filter((hostile) => isHostileNearProtectedStructure(hostile, protectedStructures))
+    ) ??
+    selectClosestTarget(origin, sameRoomHostileCreeps) ??
     selectClosestTarget(origin, hostileStructures, { sameRoomOnly: true })
   );
 }
@@ -170,6 +190,32 @@ function isTargetInOriginRoom(origin: { pos?: RoomPosition }, target: { pos?: Ro
   return origin.pos.roomName === target.pos.roomName;
 }
 
+function isHostileNearController(
+  hostile: { pos?: RoomPosition },
+  controller: StructureController | undefined
+): boolean {
+  if (!controller?.pos || !hostile.pos || hostile.pos.roomName !== controller.pos.roomName) {
+    return false;
+  }
+
+  return getRangeBetweenPositions(hostile.pos, controller.pos) <= TOWER_CONTROLLER_THREAT_RANGE;
+}
+
+function isHostileNearProtectedStructure(
+  hostile: { pos?: RoomPosition },
+  structures: Structure[]
+): boolean {
+  if (!hostile.pos) {
+    return false;
+  }
+
+  return structures.some(
+    (structure) =>
+      structure.pos?.roomName === hostile.pos?.roomName &&
+      getRangeBetweenPositions(hostile.pos as RoomPosition, structure.pos) <= TOWER_STRUCTURE_THREAT_RANGE
+  );
+}
+
 function compareRange(
   origin: { pos?: RoomPosition },
   left: { pos?: RoomPosition },
@@ -183,6 +229,10 @@ function compareRange(
   const leftRange = left.pos ? getRangeTo.call(origin.pos, left.pos) : Infinity;
   const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
+}
+
+function getRangeBetweenPositions(left: RoomPosition, right: RoomPosition): number {
+  return Math.max(Math.abs(left.x - right.x), Math.abs(left.y - right.y));
 }
 
 function compareObjectIds(left: unknown, right: unknown): number {

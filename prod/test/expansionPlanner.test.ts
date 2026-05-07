@@ -5,6 +5,7 @@ import {
   createExpansionIntent,
   evaluateExpansionCandidate,
   evaluateExpansionRoomSuitability,
+  planExpansionTowerPlacements,
   prioritizeExpansionCandidates,
   refreshExpansionPlannerIntent
 } from '../src/territory/expansionPlanner';
@@ -15,6 +16,10 @@ describe('expansion planner', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 2;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 3;
+    (globalThis as unknown as { FIND_STRUCTURES: number }).FIND_STRUCTURES = 4;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 5;
+    (globalThis as unknown as { FIND_EXIT: number }).FIND_EXIT = 6;
+    (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     delete (globalThis as { Game?: Partial<Game> }).Game;
   });
@@ -100,6 +105,45 @@ describe('expansion planner', () => {
     ]);
 
     expect(orderedCandidates.map((candidate) => candidate.roomName)).toEqual(['W4N1', 'W1N2', 'W2N1']);
+  });
+
+  it('plans valid strategic tower placements from controller, source, and entrance anchors', () => {
+    const blockedStructure = makePositionedStructure('blocking-road', 25, 24, 'W2N1');
+    const wallPositions = new Set(['24,24']);
+    const room = makeTowerPlanningRoom('W2N1', {
+      controllerPosition: { x: 25, y: 25 },
+      sourcePositions: [
+        { x: 20, y: 25 },
+        { x: 30, y: 25 }
+      ],
+      exitPositions: [
+        { x: 24, y: 0 },
+        { x: 25, y: 0 },
+        { x: 26, y: 0 }
+      ],
+      structures: [blockedStructure],
+      wallPositions
+    });
+    installTerrain(room.name, wallPositions);
+
+    const placements = planExpansionTowerPlacements(room, { maxPlacements: 3 });
+
+    expect(placements).toHaveLength(3);
+    expect(placements[0]).toMatchObject({
+      roomName: 'W2N1',
+      controllerRange: expect.any(Number),
+      nearestSourceRange: expect.any(Number),
+      nearestEntranceRange: expect.any(Number)
+    });
+    expect(placements[0].score).toBeLessThanOrEqual(placements[1].score);
+    for (const placement of placements) {
+      expect(placement.x).toBeGreaterThanOrEqual(1);
+      expect(placement.x).toBeLessThanOrEqual(48);
+      expect(placement.y).toBeGreaterThanOrEqual(1);
+      expect(placement.y).toBeLessThanOrEqual(48);
+      expect(`${placement.x},${placement.y}`).not.toBe('25,24');
+      expect(wallPositions.has(`${placement.x},${placement.y}`)).toBe(false);
+    }
   });
 
   it('creates expansion targets and intents through territory planning', () => {
@@ -890,6 +934,77 @@ function makeExpansionRoom(
       }
     })
   } as unknown as Room;
+}
+
+function makeTowerPlanningRoom(
+  roomName: string,
+  {
+    controllerPosition,
+    sourcePositions,
+    exitPositions,
+    structures = [],
+    constructionSites = [],
+    wallPositions = new Set<string>()
+  }: {
+    controllerPosition: { x: number; y: number };
+    sourcePositions: Array<{ x: number; y: number }>;
+    exitPositions: Array<{ x: number; y: number }>;
+    structures?: Structure[];
+    constructionSites?: ConstructionSite[];
+    wallPositions?: Set<string>;
+  }
+): Room {
+  const sources = sourcePositions.map((position, index) => ({
+    id: `source-${roomName}-${index}`,
+    pos: makePosition(position.x, position.y, roomName)
+  }));
+  const room = {
+    name: roomName,
+    controller: {
+      id: `controller-${roomName}` as Id<StructureController>,
+      my: true,
+      pos: makePosition(controllerPosition.x, controllerPosition.y, roomName)
+    },
+    find: jest.fn((findType: number): unknown[] => {
+      switch (findType) {
+        case FIND_SOURCES:
+          return sources;
+        case FIND_STRUCTURES:
+          return structures;
+        case FIND_CONSTRUCTION_SITES:
+          return constructionSites;
+        case FIND_EXIT:
+          return exitPositions.map((position) => makePosition(position.x, position.y, roomName));
+        default:
+          return [];
+      }
+    }),
+    __wallPositions: wallPositions
+  } as unknown as Room;
+
+  return room;
+}
+
+function makePositionedStructure(id: string, x: number, y: number, roomName: string): Structure {
+  return {
+    id,
+    pos: makePosition(x, y, roomName)
+  } as unknown as Structure;
+}
+
+function makePosition(x: number, y: number, roomName: string): RoomPosition {
+  return { x, y, roomName } as RoomPosition;
+}
+
+function installTerrain(roomName: string, wallPositions: Set<string>): void {
+  (globalThis as unknown as { Game: Partial<Game> }).Game = {
+    map: {
+      getRoomTerrain: jest.fn().mockReturnValue({
+        get: jest.fn((x: number, y: number) => (wallPositions.has(`${x},${y}`) ? 1 : 0))
+      })
+    } as unknown as GameMap,
+    rooms: {}
+  };
 }
 
 function installGame(

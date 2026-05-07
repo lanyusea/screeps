@@ -3,6 +3,7 @@ import {
   buildDefenseTelemetryContext,
   compareObjectIds,
   findMyCreeps,
+  findOwnedStructures,
   getEnergyResource,
   getObjectId,
   getOwnedTowers,
@@ -103,7 +104,10 @@ function runTowerAttack(
 
   const target =
     selectPriorityTowerAttackTarget(tower, priorityTargetGroups) ??
-    selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures);
+    selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures, {
+      controller: context.room.controller,
+      protectedStructures: findOwnedStructures(context.room)
+    });
   if (!target) {
     return false;
   }
@@ -139,7 +143,11 @@ function selectPriorityTowerAttackTarget(
     const target = selectTowerAttackTarget(
       tower,
       group.hostileCreeps.filter((creep) => creep.room?.name === tower.room.name),
-      group.hostileStructures.filter((structure) => structure.room?.name === tower.room.name)
+      group.hostileStructures.filter((structure) => structure.room?.name === tower.room.name),
+      {
+        controller: tower.room.controller,
+        protectedStructures: findOwnedStructures(tower.room)
+      }
     );
     if (target) {
       return target;
