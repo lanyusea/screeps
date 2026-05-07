@@ -83,6 +83,16 @@ export interface ExpansionPlannerClaimRecommendation {
   controllerId?: Id<StructureController>;
 }
 
+export interface ExpansionPlannerReservationRecommendation {
+  colony: string;
+  targetRoom: string;
+  action: 'reserve';
+  createdBy: typeof EXPANSION_PLANNER_TARGET_CREATOR;
+  status: Extract<TerritoryIntentMemory['status'], 'planned' | 'active'>;
+  updatedAt?: number;
+  controllerId?: Id<StructureController>;
+}
+
 interface ExpansionReservationUpgradeContext {
   colony: string;
   targetRoom: string;
@@ -343,6 +353,65 @@ export function getExpansionPlannerClaimRecommendations(
   }
 
   return Array.from(recommendations.values()).sort(compareExpansionPlannerClaimRecommendations);
+}
+
+export function getExpansionPlannerReservationRecommendations(
+  colony?: string
+): ExpansionPlannerReservationRecommendation[] {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return [];
+  }
+
+  const recommendations = new Map<string, ExpansionPlannerReservationRecommendation>();
+  const blockedKeys = new Set<string>();
+  for (const intent of normalizeTerritoryIntents(territoryMemory.intents)) {
+    if (!isExpansionPlannerReservationIntentForColony(intent, colony)) {
+      continue;
+    }
+
+    const key = getExpansionPlanKey(intent.colony, intent.targetRoom, 'reserve');
+    if (!isRunnableExpansionPlannerControlStatus(intent.status)) {
+      blockedKeys.add(key);
+      recommendations.delete(key);
+      continue;
+    }
+
+    recommendations.set(key, {
+      colony: intent.colony,
+      targetRoom: intent.targetRoom,
+      action: 'reserve',
+      createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+      status: intent.status,
+      updatedAt: intent.updatedAt,
+      ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+    });
+  }
+
+  if (Array.isArray(territoryMemory.targets)) {
+    for (const rawTarget of territoryMemory.targets) {
+      const target = normalizeTerritoryTarget(rawTarget);
+      if (!isExpansionPlannerReservationTargetForColony(target, colony)) {
+        continue;
+      }
+
+      const key = getExpansionPlanKey(target.colony, target.roomName, 'reserve');
+      if (blockedKeys.has(key) || recommendations.has(key)) {
+        continue;
+      }
+
+      recommendations.set(key, {
+        colony: target.colony,
+        targetRoom: target.roomName,
+        action: 'reserve',
+        createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+        status: 'planned',
+        ...(target.controllerId ? { controllerId: target.controllerId } : {})
+      });
+    }
+  }
+
+  return Array.from(recommendations.values()).sort(compareExpansionPlannerReservationRecommendations);
 }
 
 export function createExpansionIntent(
@@ -924,12 +993,53 @@ function isExpansionPlannerClaimTargetForColony(
 function isRunnableExpansionPlannerClaimStatus(
   status: TerritoryIntentMemory['status']
 ): status is Extract<TerritoryIntentMemory['status'], 'planned' | 'active'> {
+  return isRunnableExpansionPlannerControlStatus(status);
+}
+
+function isRunnableExpansionPlannerControlStatus(
+  status: TerritoryIntentMemory['status']
+): status is Extract<TerritoryIntentMemory['status'], 'planned' | 'active'> {
   return status === 'planned' || status === 'active';
+}
+
+function isExpansionPlannerReservationIntentForColony(
+  intent: TerritoryIntentMemory,
+  colony: string | undefined
+): boolean {
+  return (
+    intent.createdBy === EXPANSION_PLANNER_TARGET_CREATOR &&
+    intent.action === 'reserve' &&
+    (!isNonEmptyString(colony) || intent.colony === colony)
+  );
+}
+
+function isExpansionPlannerReservationTargetForColony(
+  target: TerritoryTargetMemory | null,
+  colony: string | undefined
+): target is TerritoryTargetMemory & { action: 'reserve'; createdBy: typeof EXPANSION_PLANNER_TARGET_CREATOR } {
+  return (
+    target !== null &&
+    target.createdBy === EXPANSION_PLANNER_TARGET_CREATOR &&
+    target.action === 'reserve' &&
+    target.enabled !== false &&
+    (!isNonEmptyString(colony) || target.colony === colony)
+  );
 }
 
 function compareExpansionPlannerClaimRecommendations(
   left: ExpansionPlannerClaimRecommendation,
   right: ExpansionPlannerClaimRecommendation
+): number {
+  return (
+    left.colony.localeCompare(right.colony) ||
+    left.targetRoom.localeCompare(right.targetRoom) ||
+    compareOptionalNumbers(left.updatedAt, right.updatedAt)
+  );
+}
+
+function compareExpansionPlannerReservationRecommendations(
+  left: ExpansionPlannerReservationRecommendation,
+  right: ExpansionPlannerReservationRecommendation
 ): number {
   return (
     left.colony.localeCompare(right.colony) ||
