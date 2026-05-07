@@ -8325,8 +8325,10 @@ function refreshExpansionPlannerIntent(colony, gameTime = getGameTime11()) {
     };
   }
   const candidates = buildRuntimeExpansionPlannerCandidates(colony);
-  const candidate = candidates[0];
-  const action = candidate ? selectExpansionIntentAction(colony) : null;
+  const selectedAction = candidates.length > 0 ? selectExpansionIntentAction(colony) : null;
+  const preferredUpgradeCandidates = selectedAction === "claim" && potentialReservationUpgradeRooms.size > 0 ? candidates.filter((candidate2) => potentialReservationUpgradeRooms.has(candidate2.roomName)) : [];
+  const candidate = preferredUpgradeCandidates.length > 0 ? preferredUpgradeCandidates[0] : candidates[0];
+  const action = candidate ? selectedAction : null;
   const reservationUpgrade = candidate && action ? getExpansionReservationUpgradeContext(candidate, action) : null;
   if (territoryMemory && hasBlockingTerritoryPlan(territoryMemory, colonyName, reservationUpgrade)) {
     return {

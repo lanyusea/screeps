@@ -5,7 +5,8 @@ import {
   createExpansionIntent,
   evaluateExpansionCandidate,
   evaluateExpansionRoomSuitability,
-  prioritizeExpansionCandidates
+  prioritizeExpansionCandidates,
+  refreshExpansionPlannerIntent
 } from '../src/territory/expansionPlanner';
 import { planTerritoryIntent, type TerritoryIntentPlan } from '../src/territory/territoryPlanner';
 
@@ -222,6 +223,93 @@ describe('expansion planner', () => {
         updatedAt: 110,
         createdBy: 'expansionPlanner',
         controllerId
+      }
+    ]);
+  });
+
+  it('prefers reserved expansion targets over higher scoring new claim candidates', () => {
+    const reservedControllerId = 'controller-W2N1' as Id<StructureController>;
+    const higherScoringControllerId = 'controller-W3N1' as Id<StructureController>;
+    const { colony } = makeColony({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 3
+    });
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          action: 'reserve',
+          createdBy: 'expansionPlanner',
+          controllerId: reservedControllerId
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'reserve',
+          status: 'planned',
+          updatedAt: 90,
+          createdBy: 'expansionPlanner',
+          controllerId: reservedControllerId
+        }
+      ]
+    };
+    installGame(colony, {
+      gclLevel: 2,
+      exits: { W1N1: { '1': 'W3N1', '3': 'W2N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', {
+          controller: {
+            id: reservedControllerId,
+            my: false
+          } as StructureController
+        }),
+        W3N1: makeExpansionRoom('W3N1', {
+          sourceCount: 3,
+          controller: {
+            id: higherScoringControllerId,
+            my: false
+          } as StructureController
+        })
+      }
+    });
+
+    expect(buildRuntimeExpansionPlannerCandidates(colony).map((candidate) => candidate.roomName)).toEqual([
+      'W3N1',
+      'W2N1'
+    ]);
+
+    const plan = refreshExpansionPlannerIntent(colony, 111);
+
+    expect(plan).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      controllerId: reservedControllerId
+    });
+    expect(plan.candidates.map((candidate) => candidate.roomName)).toEqual(['W3N1', 'W2N1']);
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId: reservedControllerId
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 111,
+        createdBy: 'expansionPlanner',
+        controllerId: reservedControllerId
       }
     ]);
   });
