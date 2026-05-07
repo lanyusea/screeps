@@ -56,8 +56,11 @@ import {
   clearNextExpansionTargetIntent,
   NEXT_EXPANSION_TARGET_CREATOR,
   type NextExpansionTargetSelection,
-  refreshNextExpansionTargetSelection
+  refreshNextExpansionTargetSelection,
+  selectExpansionScoutTargets
 } from '../territory/expansionScoring';
+import { refreshExpansionRoomScouting } from '../territory/roomScouting';
+import { runPlannedClaimReservation } from '../territory/roomReservation';
 import {
   clearAutonomousExpansionClaimIntent,
   refreshAutonomousExpansionClaimIntent,
@@ -247,7 +250,9 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     } else if (creep.memory.role === MINERAL_HARVESTER_ROLE) {
       runMineralHarvester(creep);
     } else if (creep.memory.role === TERRITORY_CLAIMER_ROLE) {
-      runClaimer(creep, telemetryEvents);
+      if (!runPlannedClaimReservation(creep)) {
+        runClaimer(creep, telemetryEvents);
+      }
     } else if (creep.memory.role === TERRITORY_SCOUT_ROLE) {
       runTerritoryControllerCreep(creep, telemetryEvents);
     }
@@ -400,7 +405,7 @@ function refreshExecutableTerritoryRecommendation(
   );
   let report = buildRuntimeOccupationRecommendationReport(colony, colonyWorkers);
   if (territoryReady) {
-    const expansionSelection = refreshNextExpansionTargetSelectionIfDue(colony, Game.time);
+    const expansionSelection = refreshNextExpansionTargetSelectionIfDue(colony, Game.time, telemetryEvents);
     if (expansionSelection.status === 'planned') {
       clearAdjacentRoomReservationIntent(colony.room.name);
       persistOccupationRecommendationFollowUpIntent(clearOccupationRecommendationFollowUpIntent(report), Game.time);
@@ -447,7 +452,8 @@ function refreshExecutableTerritoryRecommendation(
 
 function refreshNextExpansionTargetSelectionIfDue(
   colony: ColonySnapshot,
-  gameTime: number
+  gameTime: number,
+  telemetryEvents: RuntimeTelemetryEvent[]
 ): NextExpansionTargetSelection {
   const colonyName = colony.room.name;
   const colonyMemory = getWritableColonyMemory(colony);
@@ -460,11 +466,11 @@ function refreshNextExpansionTargetSelectionIfDue(
     return cachedSelection.selection;
   }
 
-  const selection = refreshNextExpansionTargetSelection(
-    colony,
-    buildRuntimeExpansionCandidateReport(colony),
-    gameTime
-  );
+  const report = buildRuntimeExpansionCandidateReport(colony);
+  const selection = refreshNextExpansionTargetSelection(colony, report, gameTime);
+  if (selection.status === 'skipped' && selection.reason === 'insufficientEvidence') {
+    refreshExpansionRoomScouting(colony, selectExpansionScoutTargets(report), gameTime, telemetryEvents);
+  }
   logBestClaimTarget(colony.room);
   colonyMemory.lastExpansionScoreTime = gameTime;
   colonyMemory.cachedExpansionSelection = { ...selection, stateKey: getNextExpansionSelectionCacheStateKey(colony) };
