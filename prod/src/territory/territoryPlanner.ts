@@ -124,6 +124,10 @@ export interface TerritoryIntentPlanningOptions {
   followUpOnly?: boolean;
 }
 
+export interface RemoteMiningSetupOptions {
+  focusRoomName?: string | null;
+}
+
 interface TerritoryTargetSelectionOptions {
   controllerPressureOnly?: boolean;
   followUpOnly?: boolean;
@@ -931,14 +935,20 @@ export function recordAutonomousExpansionClaimReserveFallbackIntent(
   );
 }
 
-export function refreshRemoteMiningSetup(colony: ColonySnapshot, gameTime = getGameTime()): void {
+export function refreshRemoteMiningSetup(
+  colony: ColonySnapshot,
+  gameTime = getGameTime(),
+  options: RemoteMiningSetupOptions = {}
+): void {
   const territoryMemory = getWritableTerritoryMemoryRecord();
   if (!territoryMemory) {
     return;
   }
 
   const colonyName = colony.room.name;
-  const records = getRemoteMiningBootstrapRecords(territoryMemory, colonyName);
+  const allRecords = getRemoteMiningBootstrapRecords(territoryMemory, colonyName);
+  const records = allRecords
+    .filter((record) => shouldRefreshRemoteMiningBootstrapRecord(record, options.focusRoomName));
   const storedRemoteMining = territoryMemory.remoteMining;
   if (storedRemoteMining === undefined && records.length === 0) {
     return;
@@ -951,11 +961,10 @@ export function refreshRemoteMiningSetup(colony: ColonySnapshot, gameTime = getG
     remoteMining = {};
     territoryMemory.remoteMining = remoteMining;
   }
-  const activeKeys = new Set<string>();
+  const activeKeys = new Set(allRecords.map((record) => getRemoteMiningMemoryKey(record.colony, record.roomName)));
 
   for (const record of records) {
     const key = getRemoteMiningMemoryKey(record.colony, record.roomName);
-    activeKeys.add(key);
 
     const room = getVisibleRoom(record.roomName);
     if (!room) {
@@ -1044,6 +1053,13 @@ export function refreshRemoteMiningSetup(colony: ColonySnapshot, gameTime = getG
       delete remoteMining[key];
     }
   }
+}
+
+function shouldRefreshRemoteMiningBootstrapRecord(
+  record: TerritoryPostClaimBootstrapMemory,
+  focusRoomName: string | null | undefined
+): boolean {
+  return record.status === 'ready' || !isNonEmptyString(focusRoomName) || record.roomName === focusRoomName;
 }
 
 export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
