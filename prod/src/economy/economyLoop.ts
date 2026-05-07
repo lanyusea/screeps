@@ -769,6 +769,7 @@ function createSpawnPlanningColony(
     ...colony,
     energyAvailable,
     energyCapacityAvailable: normalizeNonNegativeInteger(sourceColony.energyCapacityAvailable),
+    spawnEnergyBudget: normalizeNonNegativeInteger(energyAvailable),
     spawns: sourceColony.spawns.filter((spawn) => !spawn.spawning && !usedSpawns.has(spawn))
   };
 }

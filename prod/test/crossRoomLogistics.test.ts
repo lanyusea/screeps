@@ -546,7 +546,8 @@ describe('cross-room energy logistics', () => {
       room,
       spawns,
       energyAvailable: room.energyAvailable,
-      energyCapacityAvailable: room.energyCapacityAvailable
+      energyCapacityAvailable: room.energyCapacityAvailable,
+      spawnEnergyBudget: room.energyAvailable
     };
   }
 

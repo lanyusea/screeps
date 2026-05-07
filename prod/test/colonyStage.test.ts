@@ -206,7 +206,8 @@ function makeColony({
       room,
       spawns: [spawn],
       energyAvailable,
-      energyCapacityAvailable
+      energyCapacityAvailable,
+      spawnEnergyBudget: energyAvailable
     },
     spawn
   };

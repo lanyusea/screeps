@@ -25,6 +25,11 @@ import {
   planDefenderSpawn
 } from '../defense/defensePlanner';
 import {
+  selectDynamicCreepBody,
+  type DynamicCreepBodyDemand,
+  type SpawnBufferBudgetPolicy
+} from '../economy/creepBodyScaling';
+import {
   buildEmergencyWorkerBody,
   buildRemoteHarvesterBody,
   buildRemoteHaulerBody,
@@ -816,7 +821,12 @@ function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | n
 
   const remoteHarvesterAssignment = selectRemoteHarvesterAssignment(context.colony.room.name);
   if (remoteHarvesterAssignment) {
-    const body = buildRemoteHarvesterBody(getSpawnEnergyBudget(context.colony));
+    const body = selectDynamicBodyForColony(
+      context.colony,
+      REMOTE_HARVESTER_ROLE,
+      'standard',
+      buildRemoteHarvesterBody
+    );
     if (body.length > 0) {
       return {
         spawn,
@@ -844,7 +854,12 @@ function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | n
     return null;
   }
 
-  const body = buildRemoteHaulerBody(getSpawnEnergyBudget(context.colony), remoteHaulerAssignment.routeDistance);
+  const body = selectDynamicBodyForColony(
+    context.colony,
+    HAULER_ROLE,
+    'standard',
+    (energyBudget) => buildRemoteHaulerBody(energyBudget, remoteHaulerAssignment.routeDistance)
+  );
   if (body.length === 0) {
     return null;
   }
@@ -1242,28 +1257,87 @@ function isWorkerOnlyFollowUpPass(options: SpawnPlanningOptions): boolean {
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {
-  const spawnEnergyBudget = getSpawnEnergyBudget(colony);
   if (shouldUseSourceHarvesterBody(colony, roleCounts)) {
-    const sourceDistance = estimateLocalSourceDistance(colony);
-    const fullCapacityBody = generateHarvesterBody(colony.energyCapacityAvailable, sourceDistance);
-    if (canAffordBody(fullCapacityBody, spawnEnergyBudget)) {
-      return fullCapacityBody;
-    }
-
-    return generateHarvesterBody(spawnEnergyBudget, sourceDistance);
+    const localSpawns = colony.spawns.filter((spawn) => spawn.room?.name === colony.room.name);
+    const sourceDistance =
+      localSpawns.length > 0 ? estimateLocalSourceDistance({ ...colony, spawns: localSpawns }) : 1;
+    return selectDynamicBodyForColony(
+      colony,
+      'sourceHarvester',
+      getWorkerDynamicBodyDemand(colony, roleCounts),
+      (energyBudget) => generateHarvesterBody(energyBudget, sourceDistance)
+    );
   }
 
+  return selectDynamicBodyForColony(
+    colony,
+    'worker',
+    getWorkerDynamicBodyDemand(colony, roleCounts),
+    (energyBudget) => buildWorkerBodyForDemandBudget(colony, roleCounts, energyBudget)
+  );
+}
+
+function buildWorkerBodyForDemandBudget(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  energyBudget: number
+): BodyPartConstant[] {
   const controllerLevel = colony.room.controller?.level;
   const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
-  if (canAffordBody(normalBody, spawnEnergyBudget)) {
+  if (canAffordBody(normalBody, energyBudget)) {
     return normalBody;
   }
 
   if (roleCounts.worker === 0) {
-    return buildEmergencyWorkerBody(spawnEnergyBudget);
+    return buildEmergencyWorkerBody(energyBudget);
   }
 
-  return buildWorkerBody(spawnEnergyBudget, controllerLevel);
+  return buildWorkerBody(energyBudget, controllerLevel);
+}
+
+function selectDynamicBodyForColony(
+  colony: ColonySnapshot,
+  role: string,
+  demand: DynamicCreepBodyDemand,
+  buildBody: (energyBudget: number) => BodyPartConstant[]
+): BodyPartConstant[] {
+  const selection = selectDynamicCreepBody({
+    room: colony.room,
+    spawns: colony.spawns,
+    energyAvailable: colony.energyAvailable,
+    energyCapacityAvailable: colony.energyCapacityAvailable,
+    spawnEnergyBudget: colony.spawnEnergyBudget,
+    spawnBufferPolicy: getSpawnBufferBudgetPolicy(colony),
+    candidates: [
+      {
+        role,
+        demand,
+        needed: true,
+        buildBody
+      }
+    ]
+  });
+
+  return selection?.body ?? [];
+}
+
+function getSpawnBufferBudgetPolicy(colony: ColonySnapshot): SpawnBufferBudgetPolicy {
+  return colony.spawnEnergyBudget === undefined ? 'respect' : 'alreadyReserved';
+}
+
+function getWorkerDynamicBodyDemand(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts
+): DynamicCreepBodyDemand {
+  if (roleCounts.worker === 0) {
+    return 'critical';
+  }
+
+  if (getWorkerCapacity(roleCounts) < getWorkerTarget(colony, roleCounts)) {
+    return 'recovery';
+  }
+
+  return 'surplus';
 }
 
 function getSpawnEnergyBudget(colony: ColonySnapshot): number {
