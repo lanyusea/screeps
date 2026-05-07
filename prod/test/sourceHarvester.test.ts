@@ -13,6 +13,16 @@ describe('sourceHarvester', () => {
       FIND_SOURCES: 2,
       FIND_STRUCTURES: 3,
       RESOURCE_ENERGY: 'energy',
+      BODYPART_COST: {
+        move: 50,
+        work: 100,
+        carry: 50,
+        attack: 80,
+        ranged_attack: 150,
+        heal: 250,
+        claim: 600,
+        tough: 10
+      },
       STRUCTURE_CONTAINER: 'container',
       STRUCTURE_EXTENSION: 'extension',
       STRUCTURE_LINK: 'link',
@@ -207,6 +217,29 @@ describe('buildSourceHarvesterBody', () => {
       'work',
       'carry',
       'move',
+      'move'
+    ]);
+  });
+
+  it('uses the runtime body part cost table when scaling movement', () => {
+    (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST = {
+      move: 100,
+      work: 100,
+      carry: 50,
+      attack: 80,
+      ranged_attack: 150,
+      heal: 250,
+      claim: 600,
+      tough: 10
+    };
+
+    expect(buildSourceHarvesterBody(650, { sourceDistance: 20 })).toEqual([
+      'work',
+      'work',
+      'work',
+      'work',
+      'work',
+      'carry',
       'move'
     ]);
   });

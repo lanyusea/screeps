@@ -634,7 +634,7 @@ function shouldReplaceTask(creep: Creep, task: CreepTaskMemory): boolean {
   const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
 
   if (task.type === 'harvest' || task.type === 'pickup' || task.type === 'withdraw') {
-    if (task.type === 'harvest') {
+    if (isSourceContainerAssignedHarvestTask(task)) {
       const sourceContainer = findHarvestTaskSourceContainer(creep, task);
       if (sourceContainer) {
         return freeEnergyCapacity === 0 || getFreeTransferEnergyCapacity(sourceContainer) <= 0;
@@ -1181,7 +1181,7 @@ function shouldReplaceTarget(
   target: Source | Resource<ResourceConstant> | AnyStoreStructure | ConstructionSite | StructureController | Structure
 ): boolean {
   if (task.type === 'harvest' && isDepletedHarvestSource(target)) {
-    return !findVisibleHarvestSourceContainer(creep, target);
+    return !(isSourceContainerAssignedHarvestTask(task) && findVisibleHarvestSourceContainer(creep, target));
   }
 
   if (task.type === 'transfer' && 'store' in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
@@ -1211,7 +1211,7 @@ function executeTask(
 ): TaskExecutionResult {
   switch (task.type) {
     case 'harvest':
-      return executeHarvestTask(creep, target as Source);
+      return executeHarvestTask(creep, task, target as Source);
     case 'pickup':
       return toTaskExecutionResult(creep.pickup(target as Resource<ResourceConstant>), 'work', {
         energyAcquisitionMethod: 'pickedUp'
@@ -1265,8 +1265,14 @@ function executeTask(
   }
 }
 
-function executeHarvestTask(creep: Creep, source: Source): TaskExecutionResult {
-  const sourceContainer = findVisibleHarvestSourceContainer(creep, source);
+function executeHarvestTask(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'harvest' }>,
+  source: Source
+): TaskExecutionResult {
+  const sourceContainer = isSourceContainerAssignedHarvestTask(task)
+    ? findVisibleHarvestSourceContainer(creep, source)
+    : null;
   if (!sourceContainer) {
     return toTaskExecutionResult(creep.harvest(source), 'work', { energyAcquisitionMethod: 'harvested' });
   }
@@ -1414,7 +1420,13 @@ function isDedicatedSourceContainerHarvestTask(
   creep: Creep,
   task: CreepTaskMemory
 ): task is Extract<CreepTaskMemory, { type: 'harvest' }> {
-  return task.type === 'harvest' && findHarvestTaskSourceContainer(creep, task) !== null;
+  return isSourceContainerAssignedHarvestTask(task) && findHarvestTaskSourceContainer(creep, task) !== null;
+}
+
+function isSourceContainerAssignedHarvestTask(
+  task: CreepTaskMemory
+): task is Extract<CreepTaskMemory, { type: 'harvest' }> {
+  return task.type === 'harvest' && task.sourceContainerAssigned === true;
 }
 
 function findHarvestTaskSourceContainer(

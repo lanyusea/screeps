@@ -13,16 +13,6 @@ const DEFAULT_SOURCE_ENERGY_CAPACITY = 3_000;
 const DEFAULT_SOURCE_REGEN_TICKS = 300;
 const SOURCE_HARVESTER_MIN_WORK_PARTS = 4;
 const MAX_CREEP_PARTS = 50;
-const BODY_PART_COSTS: Record<BodyPartConstant, number> = {
-  move: 50,
-  work: 100,
-  carry: 50,
-  attack: 80,
-  ranged_attack: 150,
-  heal: 250,
-  claim: 600,
-  tough: 10
-};
 
 type MobileFallbackEnergySink = StructureSpawn | StructureExtension | StructureTower;
 
@@ -190,8 +180,9 @@ function selectSourceHarvesterMoveParts(
   sourceDistance: number | undefined
 ): number {
   const desiredMoveParts = getSourceHarvesterMoveTarget(workParts, carryParts, sourceDistance);
-  const nonMoveCost = workParts * BODY_PART_COSTS.work + carryParts * BODY_PART_COSTS.carry;
-  const affordableMoveParts = Math.floor(Math.max(0, energyBudget - nonMoveCost) / BODY_PART_COSTS.move);
+  const bodyPartCosts = getBodyPartCosts();
+  const nonMoveCost = workParts * bodyPartCosts.work + carryParts * bodyPartCosts.carry;
+  const affordableMoveParts = Math.floor(Math.max(0, energyBudget - nonMoveCost) / bodyPartCosts.move);
   return Math.max(
     1,
     Math.min(desiredMoveParts, affordableMoveParts, MAX_CREEP_PARTS - workParts - carryParts)
@@ -229,7 +220,12 @@ function buildSourceHarvesterBodyParts(
 }
 
 function getSourceHarvesterBodyCost(workParts: number, carryParts: number, moveParts: number): number {
-  return workParts * BODY_PART_COSTS.work + carryParts * BODY_PART_COSTS.carry + moveParts * BODY_PART_COSTS.move;
+  const bodyPartCosts = getBodyPartCosts();
+  return workParts * bodyPartCosts.work + carryParts * bodyPartCosts.carry + moveParts * bodyPartCosts.move;
+}
+
+function getBodyPartCosts(): Record<BodyPartConstant, number> {
+  return (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST;
 }
 
 function getDefaultSourceEnergyCapacity(): number {

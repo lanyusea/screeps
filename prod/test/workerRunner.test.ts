@@ -234,7 +234,10 @@ describe('runWorker', () => {
       })
     } as unknown as Room;
     const creep = {
-      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      memory: {
+        role: 'worker',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source>, sourceContainerAssigned: true }
+      },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -280,7 +283,10 @@ describe('runWorker', () => {
       })
     } as unknown as Room;
     const creep = {
-      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      memory: {
+        role: 'worker',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source>, sourceContainerAssigned: true }
+      },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(10),
         getFreeCapacity: jest.fn().mockReturnValue(40)
@@ -299,6 +305,52 @@ describe('runWorker', () => {
     runWorker(creep);
 
     expect(creep.transfer).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
+    expect(creep.harvest).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('does not flush partial ordinary harvest energy into a source container', () => {
+    const source = {
+      id: 'source1',
+      energy: 300,
+      pos: { x: 10, y: 10, roomName: 'W1N1' } as RoomPosition
+    } as Source;
+    const container = {
+      id: 'container1',
+      structureType: 'container',
+      pos: { x: 10, y: 11, roomName: 'W1N1' } as RoomPosition,
+      store: { getFreeCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureContainer;
+    const room = {
+      name: 'W1N1',
+      find: jest.fn((type: number) => {
+        if (type === FIND_SOURCES) {
+          return [source];
+        }
+
+        return type === FIND_STRUCTURES ? [container] : [];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(10),
+        getFreeCapacity: jest.fn().mockReturnValue(40)
+      },
+      pos: { getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'container1' ? 0 : 1)) },
+      room,
+      harvest: jest.fn().mockReturnValue(0),
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : null))
+    };
+
+    runWorker(creep);
+
+    expect(creep.transfer).not.toHaveBeenCalled();
     expect(creep.harvest).toHaveBeenCalledWith(source);
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
@@ -482,7 +534,10 @@ describe('runWorker', () => {
       })
     } as unknown as Room;
     const creep = {
-      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      memory: {
+        role: 'worker',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source>, sourceContainerAssigned: true }
+      },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(50),
         getFreeCapacity: jest.fn().mockReturnValue(0)
@@ -533,7 +588,10 @@ describe('runWorker', () => {
       })
     } as unknown as Room;
     const creep = {
-      memory: { role: 'worker', task: { type: 'harvest', targetId: 'source1' as Id<Source> } },
+      memory: {
+        role: 'worker',
+        task: { type: 'harvest', targetId: 'source1' as Id<Source>, sourceContainerAssigned: true }
+      },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(49),
         getFreeCapacity: jest.fn().mockReturnValue(1)
@@ -660,7 +718,10 @@ describe('runWorker', () => {
       find: jest.fn((type: number) => (type === FIND_STRUCTURES ? [remoteContainer] : []))
     } as unknown as Room;
     const creep = {
-      memory: { role: 'worker', task: { type: 'harvest', targetId: 'remote-source' as Id<Source> } },
+      memory: {
+        role: 'worker',
+        task: { type: 'harvest', targetId: 'remote-source' as Id<Source>, sourceContainerAssigned: true }
+      },
       store: {
         getUsedCapacity: jest.fn().mockReturnValue(0),
         getFreeCapacity: jest.fn().mockReturnValue(50)
@@ -680,7 +741,11 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'remote-source' });
+    expect(creep.memory.task).toEqual({
+      type: 'harvest',
+      targetId: 'remote-source',
+      sourceContainerAssigned: true
+    });
     expect(creep.moveTo).toHaveBeenCalledWith(remoteContainer);
     expect(creep.harvest).not.toHaveBeenCalled();
   });

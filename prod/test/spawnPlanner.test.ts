@@ -43,6 +43,9 @@ describe('planSpawn', () => {
     (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST = {
+      ...BODY_PART_COSTS
+    };
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
     delete (globalThis as { Game?: Partial<Game> }).Game;

@@ -15803,16 +15803,6 @@ var DEFAULT_SOURCE_ENERGY_CAPACITY = 3e3;
 var DEFAULT_SOURCE_REGEN_TICKS = 300;
 var SOURCE_HARVESTER_MIN_WORK_PARTS = 4;
 var MAX_CREEP_PARTS4 = 50;
-var BODY_PART_COSTS2 = {
-  move: 50,
-  work: 100,
-  carry: 50,
-  attack: 80,
-  ranged_attack: 150,
-  heal: 250,
-  claim: 600,
-  tough: 10
-};
 var sourceHarvesterAssignmentCountCache = null;
 function buildSourceHarvesterBody(energyAvailable, options = {}) {
   const energyBudget = normalizeNonNegativeInteger6(energyAvailable);
@@ -15910,8 +15900,9 @@ function getSourceHarvesterTargetWorkParts(options) {
 }
 function selectSourceHarvesterMoveParts(energyBudget, workParts, carryParts, sourceDistance) {
   const desiredMoveParts = getSourceHarvesterMoveTarget(workParts, carryParts, sourceDistance);
-  const nonMoveCost = workParts * BODY_PART_COSTS2.work + carryParts * BODY_PART_COSTS2.carry;
-  const affordableMoveParts = Math.floor(Math.max(0, energyBudget - nonMoveCost) / BODY_PART_COSTS2.move);
+  const bodyPartCosts = getBodyPartCosts();
+  const nonMoveCost = workParts * bodyPartCosts.work + carryParts * bodyPartCosts.carry;
+  const affordableMoveParts = Math.floor(Math.max(0, energyBudget - nonMoveCost) / bodyPartCosts.move);
   return Math.max(
     1,
     Math.min(desiredMoveParts, affordableMoveParts, MAX_CREEP_PARTS4 - workParts - carryParts)
@@ -15936,7 +15927,11 @@ function buildSourceHarvesterBodyParts(workParts, carryParts, moveParts) {
   ];
 }
 function getSourceHarvesterBodyCost(workParts, carryParts, moveParts) {
-  return workParts * BODY_PART_COSTS2.work + carryParts * BODY_PART_COSTS2.carry + moveParts * BODY_PART_COSTS2.move;
+  const bodyPartCosts = getBodyPartCosts();
+  return workParts * bodyPartCosts.work + carryParts * bodyPartCosts.carry + moveParts * bodyPartCosts.move;
+}
+function getBodyPartCosts() {
+  return globalThis.BODYPART_COST;
 }
 function getDefaultSourceEnergyCapacity() {
   var _a;
@@ -21738,7 +21733,7 @@ function shouldReplaceTask(creep, task) {
   const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   const freeEnergyCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
   if (task.type === "harvest" || task.type === "pickup" || task.type === "withdraw") {
-    if (task.type === "harvest") {
+    if (isSourceContainerAssignedHarvestTask(task)) {
       const sourceContainer = findHarvestTaskSourceContainer(creep, task);
       if (sourceContainer) {
         return freeEnergyCapacity === 0 || getFreeTransferEnergyCapacity(sourceContainer) <= 0;
@@ -22086,7 +22081,7 @@ function matchesCapacityConstructionStructureType(actual, globalName, fallback) 
 function shouldReplaceTarget(creep, task, target) {
   var _a;
   if (task.type === "harvest" && isDepletedHarvestSource(target)) {
-    return !findVisibleHarvestSourceContainer(creep, target);
+    return !(isSourceContainerAssignedHarvestTask(task) && findVisibleHarvestSourceContainer(creep, target));
   }
   if (task.type === "transfer" && "store" in target && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
     return true;
@@ -22106,7 +22101,7 @@ function isDepletedHarvestSource(target) {
 function executeTask(creep, task, target) {
   switch (task.type) {
     case "harvest":
-      return executeHarvestTask(creep, target);
+      return executeHarvestTask(creep, task, target);
     case "pickup":
       return toTaskExecutionResult(creep.pickup(target), "work", {
         energyAcquisitionMethod: "pickedUp"
@@ -22149,8 +22144,8 @@ function executeTask(creep, task, target) {
       return toTaskExecutionResult(runUpgrader(creep, target), "work");
   }
 }
-function executeHarvestTask(creep, source) {
-  const sourceContainer = findVisibleHarvestSourceContainer(creep, source);
+function executeHarvestTask(creep, task, source) {
+  const sourceContainer = isSourceContainerAssignedHarvestTask(task) ? findVisibleHarvestSourceContainer(creep, source) : null;
   if (!sourceContainer) {
     return toTaskExecutionResult(creep.harvest(source), "work", { energyAcquisitionMethod: "harvested" });
   }
@@ -22257,7 +22252,10 @@ function getRoomObjectRoomName(object) {
   return typeof roomName === "string" && roomName.length > 0 ? roomName : null;
 }
 function isDedicatedSourceContainerHarvestTask(creep, task) {
-  return task.type === "harvest" && findHarvestTaskSourceContainer(creep, task) !== null;
+  return isSourceContainerAssignedHarvestTask(task) && findHarvestTaskSourceContainer(creep, task) !== null;
+}
+function isSourceContainerAssignedHarvestTask(task) {
+  return task.type === "harvest" && task.sourceContainerAssigned === true;
 }
 function findHarvestTaskSourceContainer(creep, task) {
   const source = findHarvestTaskSource(creep, task);
@@ -22953,7 +22951,7 @@ function isNonEmptyString15(value) {
 
 // src/economy/creepBodyScaling.ts
 var MAX_CREEP_PARTS5 = 50;
-var BODY_PART_COSTS3 = {
+var BODY_PART_COSTS2 = {
   move: 50,
   work: 100,
   carry: 50,
@@ -23011,7 +23009,7 @@ function getDynamicCreepBodyEnergyBudget(input, candidate) {
   );
 }
 function getDynamicBodyCost(body) {
-  return body.reduce((cost, part) => cost + BODY_PART_COSTS3[part], 0);
+  return body.reduce((cost, part) => cost + BODY_PART_COSTS2[part], 0);
 }
 function compareDynamicCreepBodyCandidates(left, right) {
   return getDemandRank(left.demand) - getDemandRank(right.demand);
@@ -23033,7 +23031,7 @@ function getCandidateBuildEnergyBudget(candidate, energyBudget) {
   return maxEnergyBudget === void 0 ? energyBudget : Math.min(energyBudget, maxEnergyBudget);
 }
 function isValidDynamicBody(body, bodyCost, energyBudget) {
-  return body.length > 0 && body.length <= MAX_CREEP_PARTS5 && bodyCost <= energyBudget && body.every((part) => BODY_PART_COSTS3[part] !== void 0);
+  return body.length > 0 && body.length <= MAX_CREEP_PARTS5 && bodyCost <= energyBudget && body.every((part) => BODY_PART_COSTS2[part] !== void 0);
 }
 function getReserveEnergy(input, candidate, policy) {
   if (policy !== "respect" || candidate.allowSpawnBufferBypass) {
