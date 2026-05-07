@@ -29,7 +29,9 @@ import {
 } from '../construction/constructionPriority';
 import {
   checkEnergyBufferForSpending,
+  getEffectiveRoomEnergyBufferThreshold,
   getStorageEnergyAvailableForWithdrawal,
+  STORAGE_EMERGENCY_RESERVE,
   withdrawFromStorage
 } from '../economy/energyBuffer';
 import {
@@ -59,6 +61,7 @@ export const IDLE_RAMPART_REPAIR_HITS_CEILING = 100_000;
 export const TOWER_REFILL_ENERGY_FLOOR = 500;
 export const CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD = 200;
 export const URGENT_SPAWN_REFILL_ENERGY_THRESHOLD = CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
+export const WORKER_PRE_HARVEST_REGEN_THRESHOLD = 50;
 export const NEAR_TERM_SPAWN_EXTENSION_REFILL_RESERVE_TICKS = 50;
 export const MINIMUM_USEFUL_LOAD_RATIO = 0.4;
 export const LOW_LOAD_NEARBY_ENERGY_RANGE = 3;
@@ -87,6 +90,7 @@ const FINISHABLE_CONSTRUCTION_SITE_PRIORITY_MULTIPLIER = 2;
 const MAX_DROPPED_ENERGY_REACHABILITY_CHECKS = 5;
 const DEFAULT_SOURCE_ENERGY_CAPACITY = 3_000;
 const DEFAULT_SOURCE_ENERGY_REGEN_TICKS = 300;
+const MAX_WORKER_PRE_HARVEST_WAITERS_PER_SOURCE = 1;
 const MAX_CONTROLLER_LEVEL = 8;
 const UPGRADER_BOOST_CONTROLLER_PROGRESS_RATIO = 0.9;
 const UPGRADER_BOOST_LOW_ENERGY_RATIO = 0.5;
@@ -233,6 +237,10 @@ interface HarvestSourceAssignmentLoad {
   assignedWorkParts: number;
   assignmentCount: number;
   hasContainerAssignment: boolean;
+}
+
+export interface HarvestSourceSelectionOptions {
+  allowPreHarvest?: boolean;
 }
 
 interface SourceContainerWithdrawalContext {
@@ -3251,6 +3259,7 @@ interface SpawnRecoveryEnergyAcquisitionCandidate extends WorkerEnergyAcquisitio
 }
 
 interface SpawnRecoveryHarvestCandidate {
+  availabilityPriority: number;
   deliveryEta: number;
   load: HarvestSourceLoad;
   source: Source;
@@ -3474,7 +3483,10 @@ function getGameObjectById<T extends RoomObject>(
   return object ? ((object as unknown) as T) : null;
 }
 
-export function selectWorkerEnergyFallbackTask(creep: Creep): CreepTaskMemory | null {
+export function selectWorkerEnergyFallbackTask(
+  creep: Creep,
+  harvestOptions: HarvestSourceSelectionOptions = {}
+): CreepTaskMemory | null {
   const sourceContainerWithdrawTask = selectSourceContainerWithdrawTask(creep);
   if (sourceContainerWithdrawTask) {
     return sourceContainerWithdrawTask;
@@ -3495,9 +3507,9 @@ export function selectWorkerEnergyFallbackTask(creep: Creep): CreepTaskMemory | 
     return nearbyLinkRefillTask;
   }
 
-  const source = selectHarvestSource(creep);
-  if (source) {
-    return { type: 'harvest', targetId: source.id };
+  const harvestTask = selectWorkerHarvestTask(creep, harvestOptions);
+  if (harvestTask) {
+    return harvestTask;
   }
 
   return selectWorkerLinkEnergyFallbackTask(creep);
@@ -3511,7 +3523,7 @@ export function selectWorkerEnergyCriticalAcquisitionTask(
   creep: Creep,
   options: WorkerEnergyCriticalAcquisitionOptions = {}
 ): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
-  const fallbackTask = selectWorkerEnergyFallbackTask(creep);
+  const fallbackTask = selectWorkerEnergyFallbackTask(creep, { allowPreHarvest: false });
   if (!fallbackTask) {
     return null;
   }
@@ -3519,9 +3531,9 @@ export function selectWorkerEnergyCriticalAcquisitionTask(
   if (options.avoidStorageWithdrawal && fallbackTask.type === 'withdraw') {
     const target = getGameObjectById<AnyStoreStructure>(String(fallbackTask.targetId));
     if (target && isStorageEnergySource(target as LowLoadWorkerEnergyAcquisitionSource)) {
-      const preHarvestTask = selectWorkerPreHarvestTask(creep);
-      if (preHarvestTask) {
-        return preHarvestTask;
+      const harvestTask = selectWorkerHarvestTask(creep, { allowPreHarvest: false });
+      if (harvestTask) {
+        return harvestTask;
       }
     }
   }
@@ -3530,7 +3542,14 @@ export function selectWorkerEnergyCriticalAcquisitionTask(
 }
 
 export function selectWorkerPreHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
-  const source = selectHarvestSource(creep);
+  return selectWorkerHarvestTask(creep);
+}
+
+function selectWorkerHarvestTask(
+  creep: Creep,
+  options: HarvestSourceSelectionOptions = {}
+): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
+  const source = selectHarvestSource(creep, options);
   return source ? { type: 'harvest', targetId: source.id } : null;
 }
 
@@ -4014,7 +4033,8 @@ function selectSpawnRecoveryHarvestCandidate(
 
   const viableSources = selectViableHarvestSources(
     sources,
-    getSpawnRecoveryHarvestEnergyTarget(creep, energySink)
+    getSpawnRecoveryHarvestEnergyTarget(creep, energySink),
+    creep
   );
   const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectAssignableHarvestSources(creep, viableSources, assignmentLoads);
@@ -4048,6 +4068,12 @@ function createSpawnRecoveryHarvestCandidate(
   }
 
   return {
+    availabilityPriority: getHarvestSourceAvailabilityPriority(
+      creep,
+      source,
+      getSpawnRecoveryHarvestEnergyTarget(creep, energySink),
+      {}
+    ),
     deliveryEta,
     load: createHarvestSourceLoad(source, assignmentLoad),
     source
@@ -4601,6 +4627,10 @@ function estimateHarvestSourceAvailabilityDelay(source: Source): number | null {
     return 0;
   }
 
+  return getHarvestSourceRegenerationDelay(source);
+}
+
+function getHarvestSourceRegenerationDelay(source: Source): number | null {
   const ticksToRegeneration = source.ticksToRegeneration;
   return Number.isFinite(ticksToRegeneration) && ticksToRegeneration > 0 ? Math.ceil(ticksToRegeneration) : null;
 }
@@ -4788,6 +4818,11 @@ function compareSpawnRecoveryHarvestCandidates(
   left: SpawnRecoveryHarvestCandidate,
   right: SpawnRecoveryHarvestCandidate
 ): number {
+  const availabilityPriorityComparison = left.availabilityPriority - right.availabilityPriority;
+  if (availabilityPriorityComparison !== 0) {
+    return availabilityPriorityComparison;
+  }
+
   const deliveryEtaComparison = left.deliveryEta - right.deliveryEta;
   if (Math.abs(deliveryEtaComparison) > SPAWN_RECOVERY_SOURCE_LOAD_BALANCE_ETA_TOLERANCE) {
     return deliveryEtaComparison;
@@ -6191,7 +6226,7 @@ function hasAssignableHarvestSource(
   sources: Source[],
   assignmentLoads: Map<Id<Source>, HarvestSourceAssignmentLoad>
 ): boolean {
-  const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
+  const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep), creep);
   if (viableSources.length === 0) {
     return false;
   }
@@ -6238,21 +6273,29 @@ function findVisibleSourceRoom(creep: Creep, source: Source): Room | null {
   return (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[sourceRoomName] ?? null;
 }
 
-function selectHarvestSource(creep: Creep): Source | null {
+function selectHarvestSource(
+  creep: Creep,
+  options: HarvestSourceSelectionOptions = {}
+): Source | null {
   const sources = findVisibleHarvestSources(creep);
   if (sources.length === 0) {
     return null;
   }
 
-  return selectBestHarvestSource(creep, sources);
+  return selectBestHarvestSource(creep, sources, options);
 }
 
-function selectBestHarvestSource(creep: Creep, sources: Source[]): Source | null {
+function selectBestHarvestSource(
+  creep: Creep,
+  sources: Source[],
+  options: HarvestSourceSelectionOptions = {}
+): Source | null {
   if (sources.length === 0) {
     return null;
   }
 
-  const viableSources = selectViableHarvestSources(sources, getHarvestEnergyTarget(creep));
+  const harvestEnergyTarget = getHarvestEnergyTarget(creep);
+  const viableSources = selectViableHarvestSources(sources, harvestEnergyTarget, creep, options);
   const assignmentLoads = getWorkerHarvestLoads(viableSources);
   const assignableSources = selectReachableHarvestSources(
     creep,
@@ -6268,7 +6311,7 @@ function selectBestHarvestSource(creep: Creep, sources: Source[]): Source | null
   let selectedLoad = sourceLoads[0];
 
   for (const sourceLoad of sourceLoads.slice(1)) {
-    if (compareHarvestSourceLoads(creep, sourceLoad, selectedLoad) < 0) {
+    if (compareHarvestSourceLoads(creep, sourceLoad, selectedLoad, harvestEnergyTarget, options) < 0) {
       selectedLoad = sourceLoad;
     }
   }
@@ -6299,6 +6342,16 @@ function isAssignableHarvestSource(
   source: Source,
   assignmentLoad: HarvestSourceAssignmentLoad
 ): boolean {
+  if (isWorkerPreHarvestSource(source)) {
+    if (isWorkerAssignedToHarvestSource(creep, source)) {
+      return true;
+    }
+
+    if (assignmentLoad.assignmentCount >= MAX_WORKER_PRE_HARVEST_WAITERS_PER_SOURCE) {
+      return false;
+    }
+  }
+
   if (!findVisibleSourceContainer(creep, source)) {
     return true;
   }
@@ -6315,7 +6368,24 @@ function isWorkerAssignedToHarvestSource(creep: Creep, source: Source): boolean 
   return task?.type === 'harvest' && String(task.targetId) === String(source.id);
 }
 
-function compareHarvestSourceLoads(creep: Creep, left: HarvestSourceLoad, right: HarvestSourceLoad): number {
+function compareHarvestSourceLoads(
+  creep: Creep,
+  left: HarvestSourceLoad,
+  right: HarvestSourceLoad,
+  harvestEnergyTarget = getHarvestEnergyTarget(creep),
+  options: HarvestSourceSelectionOptions = {}
+): number {
+  const availabilityPriorityComparison = compareHarvestSourceAvailabilityPriority(
+    creep,
+    left.source,
+    right.source,
+    harvestEnergyTarget,
+    options
+  );
+  if (availabilityPriorityComparison !== 0) {
+    return availabilityPriorityComparison;
+  }
+
   const workLoadRatioComparison = compareHarvestSourceWorkLoadRatio(left, right);
   if (workLoadRatioComparison !== 0) {
     return workLoadRatioComparison;
@@ -6601,21 +6671,93 @@ function isWalkableRampartStructure(structure: Structure): boolean {
   );
 }
 
-function selectViableHarvestSources(sources: Source[], harvestEnergyTarget: number): Source[] {
-  const sourcesWithEnergy = sources.filter(hasHarvestableEnergy);
-  if (sourcesWithEnergy.length === 0) {
-    return [];
+function selectViableHarvestSources(
+  sources: Source[],
+  harvestEnergyTarget: number,
+  creep: Creep,
+  options: HarvestSourceSelectionOptions = {}
+): Source[] {
+  return sources.filter((source) =>
+    getHarvestSourceAvailabilityPriority(creep, source, harvestEnergyTarget, options) <
+    getFullyDepletedHarvestSourcePriority()
+  );
+}
+
+export function isWorkerPreHarvestSource(source: Source): boolean {
+  if (source.energy !== 0) {
+    return false;
+  }
+
+  const ticksToRegeneration = getHarvestSourceRegenerationDelay(source);
+  return (
+    ticksToRegeneration !== null &&
+    ticksToRegeneration <= WORKER_PRE_HARVEST_REGEN_THRESHOLD
+  );
+}
+
+function compareHarvestSourceAvailabilityPriority(
+  creep: Creep,
+  left: Source,
+  right: Source,
+  harvestEnergyTarget: number,
+  options: HarvestSourceSelectionOptions
+): number {
+  return (
+    getHarvestSourceAvailabilityPriority(creep, left, harvestEnergyTarget, options) -
+    getHarvestSourceAvailabilityPriority(creep, right, harvestEnergyTarget, options)
+  );
+}
+
+function getHarvestSourceAvailabilityPriority(
+  creep: Creep,
+  source: Source,
+  harvestEnergyTarget: number,
+  options: HarvestSourceSelectionOptions
+): number {
+  const preHarvestAllowed = isWorkerPreHarvestAllowed(creep, options);
+  const preHarvestSource = preHarvestAllowed && isWorkerPreHarvestSource(source);
+  if (preHarvestSource) {
+    return 0;
+  }
+
+  const availableEnergy = getHarvestSourceAvailableEnergy(source);
+  if (availableEnergy <= 0) {
+    return getFullyDepletedHarvestSourcePriority();
   }
 
   const targetEnergy = Math.max(1, Math.ceil(harvestEnergyTarget));
-  const loadReadySources = sourcesWithEnergy.filter(
-    (source) => getHarvestSourceAvailableEnergy(source) >= targetEnergy
-  );
-  return loadReadySources.length > 0 ? loadReadySources : sourcesWithEnergy;
+  return availableEnergy >= targetEnergy ? 1 : 2;
 }
 
-function hasHarvestableEnergy(source: Source): boolean {
-  return getHarvestSourceAvailableEnergy(source) > 0;
+function getFullyDepletedHarvestSourcePriority(): number {
+  return 3;
+}
+
+function isWorkerPreHarvestAllowed(creep: Creep, options: HarvestSourceSelectionOptions): boolean {
+  return options.allowPreHarvest !== false && !isWorkerPreHarvestSuppressedByCriticalEnergy(creep);
+}
+
+function isWorkerPreHarvestSuppressedByCriticalEnergy(creep: Creep): boolean {
+  if (creep.memory?.workerEnergyCriticalPolicy?.active === true) {
+    return true;
+  }
+
+  return isRoomSpawnEnergyCriticalNow(creep.room) || isRoomStorageEnergyCriticalNow(creep.room);
+}
+
+function isRoomSpawnEnergyCriticalNow(room: Room): boolean {
+  const energyAvailable = getRoomEnergyAvailable(room);
+  return energyAvailable !== null && energyAvailable < CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD;
+}
+
+function isRoomStorageEnergyCriticalNow(room: Room): boolean {
+  const storage = (room as Room & { storage?: StructureStorage }).storage;
+  if (!storage || !matchesStructureType(storage.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+    return false;
+  }
+
+  const enterThreshold = Math.min(getEffectiveRoomEnergyBufferThreshold(room), STORAGE_EMERGENCY_RESERVE);
+  return enterThreshold > 0 && getStoredEnergy(storage) < enterThreshold;
 }
 
 function getHarvestSourceAvailableEnergy(source: Source): number {
