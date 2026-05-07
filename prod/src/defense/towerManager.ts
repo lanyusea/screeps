@@ -19,15 +19,24 @@ export interface TowerRunResult {
   actedTowerIds: Set<string>;
 }
 
+export interface TowerPriorityTargetGroup {
+  hostileCreeps: Creep[];
+  hostileStructures: Structure[];
+}
+
+export interface TowerRunOptions {
+  priorityTargetGroups?: TowerPriorityTargetGroup[];
+}
+
 export const TOWER_RECOVERY_ENERGY_RESERVE = 250;
 
 const OK_CODE = 0 as ScreepsReturnCode;
 
-export function runTowers(room: Room): RuntimeTelemetryEvent[] {
-  return runTowersWithResult(room).events;
+export function runTowers(room: Room, options: TowerRunOptions = {}): RuntimeTelemetryEvent[] {
+  return runTowersWithResult(room, options).events;
 }
 
-export function runTowersWithResult(room: Room): TowerRunResult {
+export function runTowersWithResult(room: Room, options: TowerRunOptions = {}): TowerRunResult {
   const context = buildDefenseTelemetryContext(room);
   const events: RuntimeTelemetryEvent[] = [];
   const result: TowerRunResult = {
@@ -38,7 +47,7 @@ export function runTowersWithResult(room: Room): TowerRunResult {
   };
 
   for (const tower of getUsableTowers(room)) {
-    if (runTowerAttack(tower, context, result)) {
+    if (runTowerAttack(tower, context, result, options.priorityTargetGroups ?? [])) {
       continue;
     }
 
@@ -85,13 +94,16 @@ function runTowerHeal(
 function runTowerAttack(
   tower: StructureTower,
   context: DefenseTelemetryContext,
-  result: TowerRunResult
+  result: TowerRunResult,
+  priorityTargetGroups: TowerPriorityTargetGroup[]
 ): boolean {
   if (typeof tower.attack !== 'function') {
     return false;
   }
 
-  const target = selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures);
+  const target =
+    selectPriorityTowerAttackTarget(tower, priorityTargetGroups) ??
+    selectTowerAttackTarget(tower, context.hostileCreeps, context.hostileStructures);
   if (!target) {
     return false;
   }
@@ -117,6 +129,20 @@ function runTowerAttack(
   result.attackSucceeded = true;
   result.attackingTowerIds.add(getObjectId(tower));
   return true;
+}
+
+function selectPriorityTowerAttackTarget(
+  tower: StructureTower,
+  priorityTargetGroups: TowerPriorityTargetGroup[]
+): Creep | Structure | null {
+  for (const group of priorityTargetGroups) {
+    const target = selectTowerAttackTarget(tower, group.hostileCreeps, group.hostileStructures);
+    if (target) {
+      return target;
+    }
+  }
+
+  return null;
 }
 
 function runTowerRepair(
