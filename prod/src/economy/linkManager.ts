@@ -3,7 +3,6 @@ import {
   getRoomObjectPosition,
   isSameRoomPosition
 } from './sourceContainers';
-import { getStorageBalanceState } from './storageBalancer';
 
 type LinkStructureConstantGlobal = 'STRUCTURE_LINK' | 'STRUCTURE_SPAWN' | 'STRUCTURE_STORAGE';
 
@@ -31,18 +30,6 @@ export interface LinkTransferResult {
   destinationRole: LinkDestinationRole;
   result: ScreepsReturnCode;
   sourceId: string;
-}
-
-export interface InterRoomLinkTransferResult extends LinkTransferResult {
-  plannedAmount: number;
-  sourceRoom: string;
-  targetRoom: string;
-}
-
-interface LinkDestination {
-  link: StructureLink;
-  priority: number;
-  role: LinkDestinationRole;
 }
 
 interface ProjectedLinkState {
@@ -93,58 +80,6 @@ export function transferEnergy(room: Room): LinkTransferResult[] {
   return results;
 }
 
-export function transferInterRoomEnergy(rooms: Room[] = findVisibleOwnedRooms()): InterRoomLinkTransferResult[] {
-  const ownedRoomsByName = new Map(
-    rooms
-      .filter((room) => room.controller?.my === true)
-      .map((room) => [room.name, room] as const)
-  );
-  if (ownedRoomsByName.size < 2) {
-    return [];
-  }
-
-  const storageBalance = getStorageBalanceState();
-  const transferPlans = selectInterRoomLinkTransferPlans(storageBalance);
-  if (transferPlans.length === 0) {
-    return [];
-  }
-
-  const networksByRoom = new Map(
-    [...ownedRoomsByName].map(([roomName, room]) => [roomName, classifyLinks(room)] as const)
-  );
-  const projectedState = createProjectedLinkState(
-    [...networksByRoom.values()].flatMap((network) => network.links)
-  );
-  const remainingExportByRoom = createRemainingInterRoomExportByRoom(storageBalance);
-  const remainingImportByRoom = createRemainingInterRoomImportByRoom(storageBalance);
-  const spentSourceIds = new Set<string>();
-  const results: InterRoomLinkTransferResult[] = [];
-
-  for (const transfer of transferPlans) {
-    const sourceRoom = ownedRoomsByName.get(transfer.sourceRoom);
-    const targetRoom = ownedRoomsByName.get(transfer.targetRoom);
-    const sourceNetwork = networksByRoom.get(transfer.sourceRoom);
-    const targetNetwork = networksByRoom.get(transfer.targetRoom);
-    if (!sourceRoom || !targetRoom || !sourceNetwork || !targetNetwork) {
-      continue;
-    }
-
-    transferInterRoomEnergyForPlan(
-      transfer,
-      targetRoom,
-      sourceNetwork,
-      targetNetwork,
-      projectedState,
-      spentSourceIds,
-      remainingExportByRoom,
-      remainingImportByRoom,
-      results
-    );
-  }
-
-  return results;
-}
-
 export function classifyLinks(room: Room): LinkNetwork {
   const links = findOwnedLinks(room);
   const controllerLink = selectControllerLink(room, links);
@@ -187,92 +122,6 @@ export function getSourceLinkWorkerEnergyAvailable(room: Room, link: StructureLi
 
 function transferLinkEnergy(sourceLink: StructureLink, destinationLink: StructureLink, amount: number): ScreepsReturnCode {
   return sourceLink.transferEnergy(destinationLink, amount);
-}
-
-function transferInterRoomEnergyForPlan(
-  transfer: EconomyStorageTransferMemory,
-  targetRoom: Room,
-  sourceNetwork: LinkNetwork,
-  targetNetwork: LinkNetwork,
-  projectedState: ProjectedLinkState,
-  spentSourceIds: Set<string>,
-  remainingExportByRoom: Map<string, number>,
-  remainingImportByRoom: Map<string, number>,
-  results: InterRoomLinkTransferResult[]
-): void {
-  let remainingTransfer = Math.min(
-    transfer.amount,
-    remainingExportByRoom.get(transfer.sourceRoom) ?? transfer.amount,
-    remainingImportByRoom.get(transfer.targetRoom) ?? transfer.amount
-  );
-  if (remainingTransfer <= 0) {
-    return;
-  }
-
-  for (const destination of selectInterRoomDestinationLinks(targetRoom, targetNetwork, projectedState)) {
-    let destinationFreeCapacity = projectedState.freeCapacityById.get(getObjectId(destination.link)) ?? 0;
-    while (remainingTransfer > 0 && destinationFreeCapacity > 0) {
-      const sourceLink = selectInterRoomSourceLink(sourceNetwork, projectedState, spentSourceIds);
-      if (!sourceLink) {
-        return;
-      }
-
-      const sourceId = getObjectId(sourceLink);
-      const destinationId = getObjectId(destination.link);
-      if (sourceId === destinationId) {
-        spentSourceIds.add(sourceId);
-        continue;
-      }
-
-      if (sourceLink.room.name !== destination.link.room.name) {
-        spentSourceIds.add(sourceId);
-        continue;
-      }
-
-      const amount = Math.min(
-        remainingTransfer,
-        projectedState.storedEnergyById.get(sourceId) ?? 0,
-        destinationFreeCapacity
-      );
-      if (amount <= 0) {
-        spentSourceIds.add(sourceId);
-        continue;
-      }
-
-      const result = transferLinkEnergy(sourceLink, destination.link, amount);
-      results.push({
-        amount,
-        destinationId,
-        destinationRole: destination.role,
-        plannedAmount: transfer.amount,
-        result,
-        sourceId,
-        sourceRoom: transfer.sourceRoom,
-        targetRoom: transfer.targetRoom
-      });
-
-      spentSourceIds.add(sourceId);
-      if (result !== OK_CODE) {
-        continue;
-      }
-
-      projectedState.storedEnergyById.set(
-        sourceId,
-        Math.max(0, (projectedState.storedEnergyById.get(sourceId) ?? 0) - amount)
-      );
-      projectedState.freeCapacityById.set(destinationId, Math.max(0, destinationFreeCapacity - amount));
-      destinationFreeCapacity = projectedState.freeCapacityById.get(destinationId) ?? 0;
-      remainingTransfer -= amount;
-      remainingExportByRoom.set(
-        transfer.sourceRoom,
-        Math.max(0, (remainingExportByRoom.get(transfer.sourceRoom) ?? 0) - amount)
-      );
-      remainingImportByRoom.set(
-        transfer.targetRoom,
-        Math.max(0, (remainingImportByRoom.get(transfer.targetRoom) ?? 0) - amount)
-      );
-    }
-  }
 }
 
 function transferSourceLinksToDestination(
@@ -434,90 +283,6 @@ function createSourceLinkRoutingReserve(
   return reserveById;
 }
 
-function selectInterRoomLinkTransferPlans(
-  storageBalance: EconomyStorageBalanceMemory
-): EconomyStorageTransferMemory[] {
-  return [...storageBalance.transfers]
-    .filter((transfer) => transfer.amount > 0 && transfer.sourceRoom !== transfer.targetRoom)
-    .filter((transfer) => isInterRoomLinkTransferPlanLive(storageBalance, transfer))
-    .sort((left, right) => compareInterRoomLinkTransferPlans(storageBalance, left, right));
-}
-
-function isInterRoomLinkTransferPlanLive(
-  storageBalance: EconomyStorageBalanceMemory,
-  transfer: EconomyStorageTransferMemory
-): boolean {
-  const sourceState = storageBalance.rooms[transfer.sourceRoom];
-  const targetState = storageBalance.rooms[transfer.targetRoom];
-  if (sourceState && (sourceState.mode !== 'export' || sourceState.exportableEnergy <= 0)) {
-    return false;
-  }
-
-  if (targetState && (targetState.mode !== 'import' || targetState.importDemand <= 0)) {
-    return false;
-  }
-
-  return true;
-}
-
-function compareInterRoomLinkTransferPlans(
-  storageBalance: EconomyStorageBalanceMemory,
-  left: EconomyStorageTransferMemory,
-  right: EconomyStorageTransferMemory
-): number {
-  return (
-    getInterRoomImportDemand(storageBalance, right.targetRoom) -
-      getInterRoomImportDemand(storageBalance, left.targetRoom) ||
-    getInterRoomExportableEnergy(storageBalance, right.sourceRoom) -
-      getInterRoomExportableEnergy(storageBalance, left.sourceRoom) ||
-    right.amount - left.amount ||
-    left.sourceRoom.localeCompare(right.sourceRoom) ||
-    left.targetRoom.localeCompare(right.targetRoom)
-  );
-}
-
-function createRemainingInterRoomExportByRoom(
-  storageBalance: EconomyStorageBalanceMemory
-): Map<string, number> {
-  const remaining = new Map<string, number>();
-  for (const [roomName, roomState] of Object.entries(storageBalance.rooms)) {
-    remaining.set(roomName, Math.max(0, roomState.exportableEnergy));
-  }
-
-  for (const transfer of storageBalance.transfers) {
-    if (!remaining.has(transfer.sourceRoom)) {
-      remaining.set(transfer.sourceRoom, Math.max(0, transfer.amount));
-    }
-  }
-
-  return remaining;
-}
-
-function createRemainingInterRoomImportByRoom(
-  storageBalance: EconomyStorageBalanceMemory
-): Map<string, number> {
-  const remaining = new Map<string, number>();
-  for (const [roomName, roomState] of Object.entries(storageBalance.rooms)) {
-    remaining.set(roomName, Math.max(0, roomState.importDemand));
-  }
-
-  for (const transfer of storageBalance.transfers) {
-    if (!remaining.has(transfer.targetRoom)) {
-      remaining.set(transfer.targetRoom, Math.max(0, transfer.amount));
-    }
-  }
-
-  return remaining;
-}
-
-function getInterRoomImportDemand(storageBalance: EconomyStorageBalanceMemory, roomName: string): number {
-  return Math.max(0, storageBalance.rooms[roomName]?.importDemand ?? 0);
-}
-
-function getInterRoomExportableEnergy(storageBalance: EconomyStorageBalanceMemory, roomName: string): number {
-  return Math.max(0, storageBalance.rooms[roomName]?.exportableEnergy ?? 0);
-}
-
 function reserveSourceLinksForDestination(
   sourceLinks: StructureLink[],
   destinationLink: StructureLink,
@@ -595,110 +360,6 @@ function sortSourceLinksBySurplusPriority(
         (projectedState.storedEnergyById.get(getObjectId(left)) ?? 0) ||
       getObjectId(left).localeCompare(getObjectId(right))
   );
-}
-
-function selectInterRoomSourceLink(
-  network: LinkNetwork,
-  projectedState: ProjectedLinkState,
-  spentSourceIds: Set<string>
-): StructureLink | null {
-  const sourceLinksById = new Map<string, StructureLink>();
-  for (const link of [network.storageLink, ...network.sourceLinks]) {
-    if (!link) {
-      continue;
-    }
-
-    const linkId = getObjectId(link);
-    if (linkId.length > 0) {
-      sourceLinksById.set(linkId, link);
-    }
-  }
-
-  return (
-    [...sourceLinksById.values()]
-      .filter((link) => !spentSourceIds.has(getObjectId(link)))
-      .filter((link) => canLinkSendEnergy(link, projectedState))
-      .sort(
-        (left, right) =>
-          getInterRoomSourcePriority(right, network) - getInterRoomSourcePriority(left, network) ||
-          (projectedState.storedEnergyById.get(getObjectId(right)) ?? 0) -
-            (projectedState.storedEnergyById.get(getObjectId(left)) ?? 0) ||
-          getObjectId(left).localeCompare(getObjectId(right))
-      )[0] ?? null
-  );
-}
-
-function getInterRoomSourcePriority(link: StructureLink, network: LinkNetwork): number {
-  if (getObjectId(link) === getObjectId(network.storageLink)) {
-    return 2;
-  }
-
-  return network.sourceLinks.some((sourceLink) => getObjectId(sourceLink) === getObjectId(link)) ? 1 : 0;
-}
-
-function selectInterRoomDestinationLinks(
-  room: Room,
-  network: LinkNetwork,
-  projectedState: ProjectedLinkState
-): LinkDestination[] {
-  const destinationsById = new Map<string, LinkDestination>();
-  addInterRoomDestination(
-    destinationsById,
-    shouldSpawnLinkReceiveEnergy(room, network.spawnLink, projectedState)
-      ? { link: network.spawnLink, priority: 3, role: 'spawn' }
-      : null,
-    projectedState
-  );
-  addInterRoomDestination(
-    destinationsById,
-    shouldControllerLinkReceiveEnergy(room, network.controllerLink, projectedState)
-      ? { link: network.controllerLink, priority: 2, role: 'controller' }
-      : null,
-    projectedState
-  );
-  addInterRoomDestination(
-    destinationsById,
-    shouldStorageLinkReceiveInterRoomEnergy(network.storageLink, projectedState)
-      ? { link: network.storageLink, priority: 1, role: 'storage' }
-      : null,
-    projectedState
-  );
-
-  return [...destinationsById.values()].sort(
-    (left, right) =>
-      right.priority - left.priority ||
-      (projectedState.freeCapacityById.get(getObjectId(right.link)) ?? 0) -
-        (projectedState.freeCapacityById.get(getObjectId(left.link)) ?? 0) ||
-      getObjectId(left.link).localeCompare(getObjectId(right.link))
-  );
-}
-
-function addInterRoomDestination(
-  destinationsById: Map<string, LinkDestination>,
-  destination: LinkDestination | null,
-  projectedState: ProjectedLinkState
-): void {
-  if (!destination) {
-    return;
-  }
-
-  const destinationId = getObjectId(destination.link);
-  if (destinationId.length === 0 || destinationsById.has(destinationId)) {
-    return;
-  }
-
-  if ((projectedState.freeCapacityById.get(destinationId) ?? 0) <= 0) {
-    return;
-  }
-
-  destinationsById.set(destinationId, destination);
-}
-
-function shouldStorageLinkReceiveInterRoomEnergy(
-  storageLink: StructureLink | null,
-  projectedState: ProjectedLinkState
-): storageLink is StructureLink {
-  return !!storageLink && (projectedState.freeCapacityById.get(getObjectId(storageLink)) ?? 0) > 0;
 }
 
 function canLinkSendEnergy(link: StructureLink, projectedState: ProjectedLinkState): boolean {
@@ -873,17 +534,6 @@ function findRoomSpawns(room: Room): StructureSpawn[] {
     }
   }
   return [...spawnsById.values()].sort(compareObjectIds);
-}
-
-function findVisibleOwnedRooms(): Room[] {
-  const rooms = (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms;
-  if (!rooms) {
-    return [];
-  }
-
-  return Object.values(rooms)
-    .filter((room): room is Room => room?.controller?.my === true)
-    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function findSources(room: Room): Source[] {

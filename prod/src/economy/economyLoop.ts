@@ -32,10 +32,7 @@ import { recordSourceWorkloads } from './sourceWorkload';
 import {
   ensureRemoteSourceContainersForAssignedHarvesters
 } from './sourceContainerPlanner';
-import {
-  transferEnergy as transferLinkEnergy,
-  transferInterRoomEnergy as transferInterRoomLinkEnergy
-} from './linkManager';
+import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
 import { balanceStorage } from './storageBalancer';
 import {
@@ -273,7 +270,6 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
 
-  transferInterRoomLinkEnergy(colonies.map((colony) => colony.room));
   ensureRemoteSourceContainersForAssignedHarvesters(creeps);
   attemptCrossRoomHaulerSpawn(colonies, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
   attemptMineralHarvesterSpawns(colonies, creeps, telemetryEvents, usedSpawnsByRoom, reservedSpawnEnergyByRoom);
