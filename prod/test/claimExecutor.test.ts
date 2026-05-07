@@ -1,7 +1,9 @@
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import type { RuntimeTelemetryEvent } from '../src/telemetry/runtimeSummary';
+import { planSpawn } from '../src/spawn/spawnPlanner';
 import {
   clearAutonomousExpansionClaimIntent,
+  refreshClaimExecutionTargets,
   refreshAutonomousExpansionClaimIntent,
   runRecommendedExpansionClaimExecutor,
   shouldDeferOccupationRecommendationForExpansionClaim
@@ -139,6 +141,59 @@ describe('autonomous expansion claim executor', () => {
         score: evaluation.score
       }
     ]);
+  });
+
+  it('dispatches action-hint claim targets into claimer spawn planning', () => {
+    const colony = makeColony();
+    const spawn = { name: 'Spawn1', room: colony.room, spawning: null } as StructureSpawn;
+    colony.spawns = [spawn];
+    (Game.rooms as Record<string, Room>).W1N1 = colony.room;
+    (Game.rooms as Record<string, Room>).W2N1 = makeTargetRoom('W2N1', {
+      controllerId: 'controller2' as Id<StructureController>,
+      sourceCount: 2
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            actionHint: 'claim',
+            createdBy: 'expansionPlanner',
+            controllerId: 'controller2' as Id<StructureController>
+          } as unknown as TerritoryTargetMemory
+        ]
+      }
+    };
+
+    expect(refreshClaimExecutionTargets({ colony: 'W1N1', gameTime: 150 })).toEqual({
+      action: 'claim',
+      targetCount: 1,
+      intentCount: 1
+    });
+
+    expect(Memory.territory?.targets?.[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'claim',
+      actionHint: 'claim',
+      createdBy: 'expansionPlanner',
+      controllerId: 'controller2'
+    });
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 150)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W2N1-150',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W2N1',
+          action: 'claim',
+          controllerId: 'controller2'
+        }
+      }
+    });
   });
 
   it('uses claimed-room resource synergy when ranking autonomous expansion claims', () => {

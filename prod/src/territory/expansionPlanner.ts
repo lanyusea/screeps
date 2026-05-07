@@ -910,10 +910,11 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
     return null;
   }
 
+  const action = getTerritoryTargetAction(rawTarget);
   if (
     !isNonEmptyString(rawTarget.colony) ||
     !isNonEmptyString(rawTarget.roomName) ||
-    !isExpansionControlAction(rawTarget.action)
+    !action
   ) {
     return null;
   }
@@ -921,13 +922,21 @@ function normalizeTerritoryTarget(rawTarget: unknown): TerritoryTargetMemory | n
   return {
     colony: rawTarget.colony,
     roomName: rawTarget.roomName,
-    action: rawTarget.action,
+    action,
     ...(typeof rawTarget.controllerId === 'string'
       ? { controllerId: rawTarget.controllerId as Id<StructureController> }
       : {}),
     ...(rawTarget.enabled === false ? { enabled: false } : {}),
     ...(isTerritoryAutomationSource(rawTarget.createdBy) ? { createdBy: rawTarget.createdBy } : {})
   };
+}
+
+function getTerritoryTargetAction(rawTarget: Record<string, unknown>): TerritoryControlAction | null {
+  if (isExpansionControlAction(rawTarget.action)) {
+    return rawTarget.action;
+  }
+
+  return isExpansionControlAction(rawTarget.actionHint) ? rawTarget.actionHint : null;
 }
 
 function isExpansionControlAction(action: unknown): action is TerritoryControlAction {

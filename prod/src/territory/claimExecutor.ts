@@ -33,6 +33,11 @@ import {
   type TerritoryScoutValidationResult
 } from './scoutIntel';
 import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
+import {
+  refreshTerritoryExecutionTargets,
+  type TerritoryExecutionRefreshOptions,
+  type TerritoryExecutionRefreshResult
+} from './executionTargets';
 
 export const AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR: TerritoryAutomationSource =
   'autonomousExpansionClaim';
@@ -81,6 +86,12 @@ export interface AutonomousExpansionClaimEvaluation {
   targetRoom?: string;
   controllerId?: Id<StructureController>;
   score?: number;
+}
+
+export function refreshClaimExecutionTargets(
+  options: TerritoryExecutionRefreshOptions = {}
+): TerritoryExecutionRefreshResult {
+  return refreshTerritoryExecutionTargets('claim', options);
 }
 
 export function refreshAutonomousExpansionClaimIntent(
