@@ -47,6 +47,7 @@ import {
   type LinkNetwork,
   SOURCE_LINK_RANGE
 } from '../economy/linkManager';
+import { SOURCE_HARVESTER_ROLE } from '../creeps/sourceHarvester';
 import { recordWorkerTaskBehaviorTrace } from '../rl/workerTaskBehavior';
 import { selectWorkerTaskWithBcFallback } from '../rl/workerTaskPolicy';
 
@@ -4187,7 +4188,18 @@ function findOwnedSourceWorkerEnergyLinks(room: Room, network?: LinkNetwork): St
 }
 
 function selectOwnedSourceWorkerEnergyLinks(network: LinkNetwork, workerLinkIds: Set<string>): StructureLink[] {
-  return network.sourceLinks.filter((link) => workerLinkIds.has(String(link.id)));
+  const linksById = new Map<string, StructureLink>();
+  for (const link of network.sourceLinks) {
+    if (workerLinkIds.has(String(link.id))) {
+      linksById.set(String(link.id), link);
+    }
+  }
+
+  if (network.spawnLink && workerLinkIds.has(String(network.spawnLink.id))) {
+    linksById.set(String(network.spawnLink.id), network.spawnLink);
+  }
+
+  return [...linksById.values()].sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
 
 function getMinimumWorkerLinkWithdrawalEnergy(creep: Creep): number {
@@ -6604,21 +6616,31 @@ function getWorkerHarvestLoads(sources: Source[]): Map<Id<Source>, HarvestSource
     const task = assignedCreep.memory?.task as Partial<CreepTaskMemory> | undefined;
     const targetId = typeof task?.targetId === 'string' ? task.targetId : undefined;
 
-    if (
-      assignedCreep.memory?.role !== 'worker' ||
-      task?.type !== 'harvest' ||
-      !targetId ||
-      !sourceIds.has(targetId)
-    ) {
+    const sourceHarvesterTargetId =
+      assignedCreep.memory?.role === SOURCE_HARVESTER_ROLE &&
+      typeof assignedCreep.memory.sourceHarvester?.sourceId === 'string'
+        ? assignedCreep.memory.sourceHarvester.sourceId
+        : undefined;
+    const assignedSourceId =
+      assignedCreep.memory?.role === 'worker' &&
+      task?.type === 'harvest' &&
+      targetId &&
+      sourceIds.has(targetId)
+        ? targetId
+        : sourceHarvesterTargetId;
+    if (!assignedSourceId || !sourceIds.has(assignedSourceId)) {
       continue;
     }
 
-    const sourceId = targetId as Id<Source>;
+    const sourceId = assignedSourceId as Id<Source>;
     const currentLoad = assignmentLoads.get(sourceId) ?? createEmptyHarvestSourceAssignmentLoad();
     assignmentLoads.set(sourceId, {
       assignedWorkParts: currentLoad.assignedWorkParts + getActiveWorkParts(assignedCreep),
       assignmentCount: currentLoad.assignmentCount + 1,
-      hasContainerAssignment: currentLoad.hasContainerAssignment || isSourceContainerHarvestAssignment(task)
+      hasContainerAssignment:
+        currentLoad.hasContainerAssignment ||
+        assignedCreep.memory?.role === SOURCE_HARVESTER_ROLE ||
+        isSourceContainerHarvestAssignment(task)
     });
   }
 

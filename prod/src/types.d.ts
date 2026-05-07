@@ -42,6 +42,7 @@ declare global {
     territory?: CreepTerritoryMemory;
     controllerSustain?: CreepControllerSustainMemory;
     controllerUpgrade?: CreepControllerUpgradeMemory;
+    sourceHarvester?: CreepSourceHarvesterMemory;
     remoteHarvester?: CreepRemoteHarvesterMemory;
     remoteHauler?: CreepRemoteHaulerMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
@@ -148,6 +149,12 @@ declare global {
     controllerId: Id<StructureController>;
     priority: ControllerUpgradePriority;
     assignedAt?: number;
+  }
+
+  interface CreepSourceHarvesterMemory {
+    roomName: string;
+    sourceId: Id<Source>;
+    containerId: Id<StructureContainer>;
   }
 
   interface CreepRemoteHarvesterMemory {

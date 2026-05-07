@@ -3441,6 +3441,32 @@ describe('selectWorkerTask', () => {
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-source' });
   });
 
+  it('withdraws from a spawn-side link for local spawn recovery', () => {
+    const spawn = makeEnergySink('spawn1', 'spawn' as StructureConstant, 300, {
+      pos: makeRoomPosition(5, 5)
+    });
+    const spawnLink = makeStoredEnergyLink('link-spawn', 6, 5, 200);
+    const room = makeWorkerTaskRoom({
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      myStructures: [spawn as unknown as AnyOwnedStructure, spawnLink as unknown as AnyOwnedStructure],
+      structures: [spawn as unknown as AnyStructure, spawnLink as unknown as AnyStructure]
+    });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => (target.id === 'link-spawn' ? 1 : 2))
+      },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'link-spawn' });
+  });
+
   it('does not withdraw source-link energy reserved for controller link routing', () => {
     const emptySource = makeSource('source-empty', 10, 10, 0);
     const distantContainer = makeStoredEnergyStructure('container-distant', 'container' as StructureConstant, 200);
