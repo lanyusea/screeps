@@ -273,6 +273,54 @@ describe('runEconomy', () => {
     });
   });
 
+  it('keeps a secondary source room from bypassing its own spawn buffer for primary recovery', () => {
+    installSpawnCoordinationGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    const primaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W1N1',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controllerLevel: 1
+    });
+    const secondaryRoom = makeSpawnCoordinationRoom({
+      roomName: 'W2N1',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controllerLevel: 4
+    });
+    const primarySpawn = {
+      name: 'Spawn1',
+      room: primaryRoom,
+      spawning: { name: 'busy-worker' } as Spawning,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondarySpawn = {
+      name: 'Spawn2',
+      room: secondaryRoom,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const secondaryWorkers = {
+      Worker1: makeEconomyWorker(secondaryRoom),
+      Worker2: makeEconomyWorker(secondaryRoom),
+      Worker3: makeEconomyWorker(secondaryRoom)
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 135,
+      rooms: { W1N1: primaryRoom, W2N1: secondaryRoom },
+      spawns: { Spawn1: primarySpawn, Spawn2: secondarySpawn },
+      creeps: secondaryWorkers
+    };
+
+    runEconomy();
+
+    expect(primarySpawn.spawnCreep).not.toHaveBeenCalled();
+    expect(secondarySpawn.spawnCreep).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      '[spawn] warning: deferred worker-W1N1-135 in W2N1; available energy 650, body cost 200, required buffer 500'
+    );
+  });
+
   it('keeps secondary bootstrap energy local instead of borrowing it for primary territory control', () => {
     installSpawnCoordinationGlobals();
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {

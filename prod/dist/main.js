@@ -11614,7 +11614,15 @@ function getSpawnEnergyAvailableForWithdrawal(room, target, currentEnergy = getS
   if (!isSpawnStructure(target)) {
     return normalizeEnergyAmount2(currentEnergy);
   }
-  return Math.max(0, normalizeEnergyAmount2(currentEnergy) - getSpawnEnergyBufferThreshold(room));
+  const targetSpawnEnergy = normalizeEnergyAmount2(currentEnergy);
+  const spawns = ensureSpawnListIncludesTarget(getRoomSpawns(room), target);
+  const roomTotalSpawnEnergy = spawns.reduce(
+    (total, spawn) => total + (isSameSpawn(spawn, target) ? targetSpawnEnergy : getStoredEnergy3(spawn)),
+    0
+  );
+  const totalSpawnBuffer = getSpawnEnergyBufferThreshold(room) * spawns.length;
+  const roomSurplus = Math.max(0, roomTotalSpawnEnergy - totalSpawnBuffer);
+  return Math.min(targetSpawnEnergy, roomSurplus);
 }
 function getSpawnEnergyWithdrawalAmount(room, target, requestedAmount) {
   const requestedEnergy = normalizeEnergyAmount2(requestedAmount);
@@ -11652,6 +11660,28 @@ function normalizeConfiguredThreshold(value) {
 }
 function getSpawnBufferCount(spawns) {
   return spawns.length;
+}
+function getRoomSpawns(room) {
+  var _a, _b;
+  const findMyStructures = globalThis.FIND_MY_STRUCTURES;
+  const find = room.find;
+  if (typeof findMyStructures === "number" && typeof find === "function") {
+    return find.call(room, findMyStructures, { filter: (structure) => isSpawnStructure(structure) }).filter(isSpawnStructure);
+  }
+  return Object.values((_b = (_a = globalThis.Game) == null ? void 0 : _a.spawns) != null ? _b : {}).filter(
+    (spawn) => {
+      var _a2;
+      return ((_a2 = spawn.room) == null ? void 0 : _a2.name) === getRoomName3(room);
+    }
+  );
+}
+function ensureSpawnListIncludesTarget(spawns, target) {
+  return spawns.some((spawn) => isSameSpawn(spawn, target)) ? spawns : [...spawns, target];
+}
+function isSameSpawn(left, right) {
+  const leftKey = getSpawnStableKey(left);
+  const rightKey = getSpawnStableKey(right);
+  return leftKey.length > 0 && rightKey.length > 0 ? leftKey === rightKey : left === right;
 }
 function getRoomRcl2(room) {
   var _a;
@@ -17362,7 +17392,7 @@ function executeTask(creep, task, target) {
       if (!canWithdrawFromSpawnEnergyBuffer(creep.room, withdrawTarget, requestedAmount)) {
         return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
       }
-      const result = isSpawnEnergySource(withdrawTarget) ? creep.withdraw(withdrawTarget, RESOURCE_ENERGY, getSpawnEnergyWithdrawalAmount(creep.room, withdrawTarget, requestedAmount)) : creep.withdraw(withdrawTarget, RESOURCE_ENERGY);
+      const result = creep.withdraw(withdrawTarget, RESOURCE_ENERGY);
       return toTaskExecutionResult(result, "work", {
         energyAcquisitionMethod: "withdrawn",
         sourceContainerWithdrawal: isVisibleSourceContainer(creep, withdrawTarget)
@@ -20869,7 +20899,7 @@ function planInitialSpawnConstructionSite(room) {
 function planInitialSpawnConstructionSiteWithPlanner(room) {
   const result = planConstructionForColony({
     room,
-    spawns: getRoomSpawns(room.name),
+    spawns: getRoomSpawns2(room.name),
     energyAvailable: getRoomEnergyAvailable4(room),
     energyCapacityAvailable: getRoomEnergyCapacityAvailable2(room)
   });
@@ -20882,7 +20912,7 @@ function planInitialSpawnConstructionSiteWithPlanner(room) {
     ...spawnPlacement.result === OK_CODE9 && typeof spawnPlacement.x === "number" && typeof spawnPlacement.y === "number" ? { position: { roomName: room.name, x: spawnPlacement.x, y: spawnPlacement.y } } : {}
   };
 }
-function getRoomSpawns(roomName) {
+function getRoomSpawns2(roomName) {
   var _a;
   const spawns = (_a = globalThis.Game) == null ? void 0 : _a.spawns;
   if (!spawns) {
@@ -27060,6 +27090,8 @@ function planCoordinatedSpawn(colony, roleCounts, gameTime, options, colonies, c
     const sourceRoomName = sourceColony.room.name;
     const availableEnergy = getAvailableSpawnEnergy(sourceColony, reservedSpawnEnergyByRoom);
     const usedSpawns = (_a = usedSpawnsByRoom.get(sourceRoomName)) != null ? _a : /* @__PURE__ */ new Set();
+    const sourceRoleCounts = sourceRoomName === colony.room.name ? roleCounts : getPlannedOrCurrentRoleCounts(creeps, sourceRoomName, plannedRoleCountsByRoom);
+    const sourceSurvivalAssessment = sourceRoomName === colony.room.name ? survivalAssessment : assessColonySnapshotSurvival(sourceColony, sourceRoleCounts);
     const spawnPlan = selectSpawnPlanWithinEnergyBuffer(
       colony,
       sourceColony,
@@ -27068,7 +27100,8 @@ function planCoordinatedSpawn(colony, roleCounts, gameTime, options, colonies, c
       roleCounts,
       gameTime,
       options,
-      survivalAssessment
+      sourceRoleCounts,
+      sourceSurvivalAssessment
     );
     if (!spawnPlan) {
       continue;
@@ -27195,7 +27228,7 @@ function withCrossRoomSpawnSupportMemory(spawnRequest, sourceRoomName, targetRoo
     }
   };
 }
-function selectSpawnPlanWithinEnergyBuffer(colony, sourceColony, availableEnergy, usedSpawns, roleCounts, gameTime, options, survivalAssessment) {
+function selectSpawnPlanWithinEnergyBuffer(colony, sourceColony, availableEnergy, usedSpawns, roleCounts, gameTime, options, sourceRoleCounts, sourceSurvivalAssessment) {
   const spawnPlan = planSpawnWithEnergyBudget(
     colony,
     sourceColony,
@@ -27208,7 +27241,12 @@ function selectSpawnPlanWithinEnergyBuffer(colony, sourceColony, availableEnergy
   if (!spawnPlan) {
     return null;
   }
-  if (shouldBypassSpawnEnergyBuffer(spawnPlan.spawnRequest, roleCounts, availableEnergy, survivalAssessment) || !isSpawnEnergyBufferViolated(sourceColony.room, sourceColony.spawns, availableEnergy, spawnPlan.bodyCost)) {
+  if (shouldBypassSpawnEnergyBuffer(
+    spawnPlan.spawnRequest,
+    sourceRoleCounts,
+    availableEnergy,
+    sourceSurvivalAssessment
+  ) || !isSpawnEnergyBufferViolated(sourceColony.room, sourceColony.spawns, availableEnergy, spawnPlan.bodyCost)) {
     return spawnPlan;
   }
   const fallbackSpawnPlan = planSpawnWithEnergyBudget(

@@ -78,6 +78,46 @@ describe('spawnEnergyBuffer', () => {
     expect(getSpawnEnergyWithdrawalAmount(room, spawn, 100)).toBe(50);
   });
 
+  it('limits spawn withdrawal by room-level spawn surplus', () => {
+    const room = makeRoom({
+      level: 3,
+      memory: { spawnEnergyBuffer: { minimumEnergyPerSpawn: 250 } }
+    });
+    const spawn1 = makeSpawn('spawn1', room, 300);
+    const spawn2 = makeSpawn('spawn2', room, 300);
+    room.find = jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+      if (type !== FIND_MY_STRUCTURES) {
+        return [];
+      }
+
+      const spawns = [spawn1, spawn2] as unknown as AnyOwnedStructure[];
+      return options?.filter ? spawns.filter(options.filter) : spawns;
+    }) as Room['find'];
+
+    expect(getSpawnEnergyAvailableForWithdrawal(room, spawn1)).toBe(100);
+    expect(getSpawnEnergyAvailableForWithdrawal(room, spawn2, 200)).toBe(0);
+  });
+
+  it('caps spawn withdrawal surplus by the target spawn energy', () => {
+    const room = makeRoom({
+      level: 3,
+      memory: { spawnEnergyBuffer: { minimumEnergyPerSpawn: 100 } }
+    });
+    const spawn1 = makeSpawn('spawn1', room, 50);
+    const spawn2 = makeSpawn('spawn2', room, 300);
+    room.find = jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+      if (type !== FIND_MY_STRUCTURES) {
+        return [];
+      }
+
+      const spawns = [spawn1, spawn2] as unknown as AnyOwnedStructure[];
+      return options?.filter ? spawns.filter(options.filter) : spawns;
+    }) as Room['find'];
+
+    expect(getSpawnEnergyAvailableForWithdrawal(room, spawn1)).toBe(50);
+    expect(getSpawnEnergyAvailableForWithdrawal(room, spawn2)).toBe(150);
+  });
+
   it('persists current buffer health without overwriting memory-level configuration', () => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       economy: {

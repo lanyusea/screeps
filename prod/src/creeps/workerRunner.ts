@@ -10,11 +10,7 @@ import {
 import { runUpgrader } from './upgraderRunner';
 import { canCreepPressureTerritoryController } from '../territory/territoryPlanner';
 import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
-import {
-  canWithdrawFromSpawnEnergyBuffer,
-  getSpawnEnergyWithdrawalAmount,
-  isSpawnEnergySource
-} from '../economy/spawnEnergyBuffer';
+import { canWithdrawFromSpawnEnergyBuffer } from '../economy/spawnEnergyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
   observeCreepBehaviorTick,
@@ -1079,9 +1075,7 @@ function executeTask(
         return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
       }
 
-      const result = isSpawnEnergySource(withdrawTarget)
-        ? creep.withdraw(withdrawTarget, RESOURCE_ENERGY, getSpawnEnergyWithdrawalAmount(creep.room, withdrawTarget, requestedAmount))
-        : creep.withdraw(withdrawTarget, RESOURCE_ENERGY);
+      const result = creep.withdraw(withdrawTarget, RESOURCE_ENERGY);
       return toTaskExecutionResult(result, 'work', {
         energyAcquisitionMethod: 'withdrawn',
         sourceContainerWithdrawal: isVisibleSourceContainer(creep, withdrawTarget)

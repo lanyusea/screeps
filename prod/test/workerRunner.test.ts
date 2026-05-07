@@ -655,6 +655,48 @@ describe('runWorker', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(container);
   });
 
+  it('withdraws from spawn energy without passing an unsupported amount argument', () => {
+    const spawn = {
+      id: 'spawn1',
+      structureType: 'spawn',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(300) }
+    } as unknown as StructureSpawn;
+    const withdraw = jest.fn().mockReturnValue(0);
+    const room = {
+      name: 'W1N1',
+      memory: { spawnEnergyBuffer: { minimumEnergyPerSpawn: 250 } },
+      controller: { level: 1 } as StructureController,
+      find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
+        if (type !== FIND_MY_STRUCTURES) {
+          return [];
+        }
+
+        return options?.filter?.(spawn as unknown as AnyOwnedStructure) === false
+          ? []
+          : [spawn as unknown as AnyOwnedStructure];
+      })
+    } as unknown as Room;
+    const creep = {
+      memory: { task: { type: 'withdraw', targetId: 'spawn1' as Id<AnyStoreStructure> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room,
+      withdraw,
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      getObjectById: jest.fn().mockReturnValue(spawn)
+    };
+
+    runWorker(creep);
+
+    expect(creep.withdraw).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.withdraw).toHaveBeenCalledTimes(1);
+    expect(withdraw.mock.calls[0]).toEqual([spawn, 'energy']);
+  });
+
   it('records source container withdrawal telemetry on successful source-container withdraw', () => {
     const source = {
       id: 'source1',

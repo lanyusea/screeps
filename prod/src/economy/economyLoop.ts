@@ -711,6 +711,14 @@ function planCoordinatedSpawn(
     const sourceRoomName = sourceColony.room.name;
     const availableEnergy = getAvailableSpawnEnergy(sourceColony, reservedSpawnEnergyByRoom);
     const usedSpawns = usedSpawnsByRoom.get(sourceRoomName) ?? new Set<StructureSpawn>();
+    const sourceRoleCounts =
+      sourceRoomName === colony.room.name
+        ? roleCounts
+        : getPlannedOrCurrentRoleCounts(creeps, sourceRoomName, plannedRoleCountsByRoom);
+    const sourceSurvivalAssessment =
+      sourceRoomName === colony.room.name
+        ? survivalAssessment
+        : assessColonySnapshotSurvival(sourceColony, sourceRoleCounts);
     const spawnPlan = selectSpawnPlanWithinEnergyBuffer(
       colony,
       sourceColony,
@@ -719,7 +727,8 @@ function planCoordinatedSpawn(
       roleCounts,
       gameTime,
       options,
-      survivalAssessment
+      sourceRoleCounts,
+      sourceSurvivalAssessment
     );
     if (!spawnPlan) {
       continue;
@@ -945,7 +954,8 @@ function selectSpawnPlanWithinEnergyBuffer(
   roleCounts: RoleCounts,
   gameTime: number,
   options: SpawnPlanningOptions,
-  survivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
+  sourceRoleCounts: RoleCounts,
+  sourceSurvivalAssessment: ReturnType<typeof assessColonySnapshotSurvival>
 ): SpawnPlanSelection | null {
   const spawnPlan = planSpawnWithEnergyBudget(
     colony,
@@ -961,7 +971,12 @@ function selectSpawnPlanWithinEnergyBuffer(
   }
 
   if (
-    shouldBypassSpawnEnergyBuffer(spawnPlan.spawnRequest, roleCounts, availableEnergy, survivalAssessment) ||
+    shouldBypassSpawnEnergyBuffer(
+      spawnPlan.spawnRequest,
+      sourceRoleCounts,
+      availableEnergy,
+      sourceSurvivalAssessment
+    ) ||
     !isSpawnEnergyBufferViolated(sourceColony.room, sourceColony.spawns, availableEnergy, spawnPlan.bodyCost)
   ) {
     return spawnPlan;

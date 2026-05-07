@@ -124,7 +124,15 @@ export function getSpawnEnergyAvailableForWithdrawal(
     return normalizeEnergyAmount(currentEnergy);
   }
 
-  return Math.max(0, normalizeEnergyAmount(currentEnergy) - getSpawnEnergyBufferThreshold(room));
+  const targetSpawnEnergy = normalizeEnergyAmount(currentEnergy);
+  const spawns = ensureSpawnListIncludesTarget(getRoomSpawns(room), target);
+  const roomTotalSpawnEnergy = spawns.reduce(
+    (total, spawn) => total + (isSameSpawn(spawn, target) ? targetSpawnEnergy : getStoredEnergy(spawn)),
+    0
+  );
+  const totalSpawnBuffer = getSpawnEnergyBufferThreshold(room) * spawns.length;
+  const roomSurplus = Math.max(0, roomTotalSpawnEnergy - totalSpawnBuffer);
+  return Math.min(targetSpawnEnergy, roomSurplus);
 }
 
 export function getSpawnEnergyWithdrawalAmount(
@@ -180,6 +188,35 @@ function normalizeConfiguredThreshold(value: unknown): number | null {
 
 function getSpawnBufferCount(spawns: StructureSpawn[]): number {
   return spawns.length;
+}
+
+function getRoomSpawns(room: Room): StructureSpawn[] {
+  const findMyStructures = (globalThis as { FIND_MY_STRUCTURES?: number }).FIND_MY_STRUCTURES;
+  const find = (room as {
+    find?: (
+      type: number,
+      options?: { filter?: (structure: AnyOwnedStructure) => boolean }
+    ) => AnyOwnedStructure[];
+  }).find;
+  if (typeof findMyStructures === 'number' && typeof find === 'function') {
+    return find
+      .call(room, findMyStructures, { filter: (structure) => isSpawnStructure(structure) })
+      .filter(isSpawnStructure);
+  }
+
+  return Object.values((globalThis as { Game?: Partial<Game> }).Game?.spawns ?? {}).filter(
+    (spawn) => spawn.room?.name === getRoomName(room)
+  );
+}
+
+function ensureSpawnListIncludesTarget(spawns: StructureSpawn[], target: StructureSpawn): StructureSpawn[] {
+  return spawns.some((spawn) => isSameSpawn(spawn, target)) ? spawns : [...spawns, target];
+}
+
+function isSameSpawn(left: StructureSpawn, right: StructureSpawn): boolean {
+  const leftKey = getSpawnStableKey(left);
+  const rightKey = getSpawnStableKey(right);
+  return leftKey.length > 0 && rightKey.length > 0 ? leftKey === rightKey : left === right;
 }
 
 function getRoomRcl(room: Room): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 {
