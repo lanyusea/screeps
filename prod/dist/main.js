@@ -28786,8 +28786,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   }
   const visibleController = selectCurrentOrVisibleClaimTargetController(creep, assignment);
   if ((visibleController == null ? void 0 : visibleController.my) === true) {
-    recordRecommendedClaimSuccess(creep, assignment, visibleController, telemetryEvents);
-    completeClaimAssignment(creep);
+    completeRecommendedClaimIfSigned(creep, assignment, visibleController, telemetryEvents);
     return true;
   }
   if (!isVisibleTerritoryAssignmentSafe(assignment, creep.memory.colony, creep)) {
@@ -28822,8 +28821,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
     return true;
   }
   if (controller.my === true) {
-    recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
-    completeClaimAssignment(creep);
+    completeRecommendedClaimIfSigned(creep, assignment, controller, telemetryEvents);
     return true;
   }
   if (hasClaimExecutionTimedOut(execution, gameTime)) {
@@ -28865,8 +28863,7 @@ function runRecommendedExpansionClaimExecutor(creep, telemetryEvents = []) {
   execution.lastClaimAttemptAt = gameTime;
   execution.claimAttemptCount = ((_b = execution.claimAttemptCount) != null ? _b : 0) + 1;
   if (result === OK_CODE10 && isClaimVerified(assignment.targetRoom, controller)) {
-    recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
-    completeClaimAssignment(creep);
+    completeRecommendedClaimIfSigned(creep, assignment, controller, telemetryEvents);
     return true;
   }
   if (result === ERR_NOT_IN_RANGE_CODE10) {
@@ -29648,6 +29645,14 @@ function recordRecommendedClaimSuccess(creep, assignment, controller, telemetryE
     creepName: creep.name,
     updatedAt: getGameTime24()
   });
+}
+function completeRecommendedClaimIfSigned(creep, assignment, controller, telemetryEvents) {
+  const signingResult = isVisibleTerritoryAssignmentAwaitingUnsafeSigningRetry(assignment, creep) ? "skipped" : signOccupiedControllerIfNeeded(creep, controller);
+  if (signingResult === "moving") {
+    return;
+  }
+  recordRecommendedClaimSuccess(creep, assignment, controller, telemetryEvents);
+  completeClaimAssignment(creep);
 }
 function recordRecommendedClaimTerminalFailure(creep, assignment, result, reason, options) {
   var _a, _b, _c, _d, _e;
