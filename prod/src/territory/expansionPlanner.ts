@@ -15,10 +15,14 @@ export const EXPANSION_DEFENSE_BARRIER_DEFAULT_MAX_PLACEMENTS = 24;
 
 const EXPANSION_TOWER_ROOM_EDGE_MIN = 1;
 const EXPANSION_TOWER_ROOM_EDGE_MAX = 48;
-const EXPANSION_TOWER_CONTROLLER_WEIGHT = 6;
-const EXPANSION_TOWER_SOURCE_WEIGHT = 3;
+const EXPANSION_TOWER_SPAWN_WEIGHT = 10;
+const EXPANSION_TOWER_CONTROLLER_WEIGHT = 8;
+const EXPANSION_TOWER_CONTAINER_WEIGHT = 4;
+const EXPANSION_TOWER_SOURCE_WEIGHT = 2;
+const EXPANSION_TOWER_ROAD_WEIGHT = 1;
 const EXPANSION_TOWER_ENTRANCE_WEIGHT = 1;
-const EXPANSION_DEFENSE_BARRIER_MAX_SECONDARY_RAMPARTS = 12;
+const EXPANSION_TOWER_MAX_ROAD_ANCHORS = 12;
+const EXPANSION_DEFENSE_BARRIER_MAX_CORE_RAMPARTS = 16;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 
 type TerminalExpansionIntentStatus = Extract<TerritoryIntentMemory['status'], 'inactive' | 'completed'>;
@@ -109,7 +113,13 @@ interface ExpansionReservationUpgradeContext {
   action: TerritoryControlAction;
 }
 
-export type ExpansionTowerPlacementAnchorKind = 'controller' | 'source' | 'entrance';
+export type ExpansionTowerPlacementAnchorKind =
+  | 'spawn'
+  | 'controller'
+  | 'container'
+  | 'road'
+  | 'source'
+  | 'entrance';
 
 export interface ExpansionTowerPlacementOptions {
   maxPlacements?: number;
@@ -120,15 +130,19 @@ export interface ExpansionTowerPlacement {
   x: number;
   y: number;
   score: number;
+  spawnRange?: number;
   controllerRange?: number;
+  nearestContainerRange?: number;
+  nearestRoadRange?: number;
   nearestSourceRange?: number;
   nearestEntranceRange?: number;
 }
 
 export type ExpansionDefenseBarrierPlacementStage =
+  | 'towerRampart'
+  | 'coreRampart'
   | 'entranceRampart'
-  | 'entranceWall'
-  | 'secondaryRampart';
+  | 'entranceWall';
 
 export interface ExpansionDefenseBarrierPlacementOptions {
   maxPlacements?: number;
@@ -595,11 +609,23 @@ export function planExpansionDefenseBarrierPlacements(
   }
 
   const lookups = createExpansionDefenseBarrierPlacementLookups(room);
-  const entranceRampartTargets = getExpansionDefenseEntranceRampartTargets(room, lookups);
-  if (entranceRampartTargets.length === 0) {
-    return [];
+  const towerRampartPlacements = getExpansionDefenseTowerRampartTargets(room, lookups)
+    .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
+    .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
+    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'towerRampart'));
+  if (towerRampartPlacements.length > 0) {
+    return towerRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
   }
 
+  const coreRampartPlacements = getExpansionDefenseCoreRampartTargets(room, lookups)
+    .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
+    .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
+    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'coreRampart'));
+  if (coreRampartPlacements.length > 0) {
+    return coreRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+  }
+
+  const entranceRampartTargets = getExpansionDefenseEntranceRampartTargets(room, lookups);
   const entranceRampartPlacements = entranceRampartTargets
     .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
     .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
@@ -616,11 +642,7 @@ export function planExpansionDefenseBarrierPlacements(
     return entranceWallPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
   }
 
-  return getExpansionDefenseSecondaryRampartTargets(room, lookups)
-    .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
-    .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
-    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'secondaryRampart'))
-    .slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+  return [];
 }
 
 function createExpansionTowerPlacementLookups(room: Room): ExpansionTowerPlacementLookups {
@@ -651,8 +673,30 @@ function buildExpansionTowerAnchors(room: Room): ExpansionTowerAnchor[] {
     room.name
   );
 
+  const structures = findRoomObjects<AnyStructure>(room, getFindConstant('FIND_STRUCTURES')).sort(
+    compareExpansionTowerObjects
+  );
+  const constructionSites = findRoomObjects<ConstructionSite>(room, getFindConstant('FIND_CONSTRUCTION_SITES')).sort(
+    compareExpansionTowerObjects
+  );
+  const roadAnchorCandidates: unknown[] = [];
+  for (const object of [...structures, ...constructionSites]) {
+    const structureType = getExpansionTowerStructureType(object);
+    if (isExpansionTowerStructureType(structureType, 'STRUCTURE_SPAWN', 'spawn')) {
+      addExpansionTowerAnchor(anchors, object, 'spawn', EXPANSION_TOWER_SPAWN_WEIGHT, room.name);
+    } else if (isExpansionTowerStructureType(structureType, 'STRUCTURE_CONTAINER', 'container')) {
+      addExpansionTowerAnchor(anchors, object, 'container', EXPANSION_TOWER_CONTAINER_WEIGHT, room.name);
+    } else if (isExpansionTowerStructureType(structureType, 'STRUCTURE_ROAD', 'road')) {
+      roadAnchorCandidates.push(object);
+    }
+  }
+
   for (const source of findRoomObjects<Source>(room, getFindConstant('FIND_SOURCES')).sort(compareExpansionTowerObjectIds)) {
     addExpansionTowerAnchor(anchors, source, 'source', EXPANSION_TOWER_SOURCE_WEIGHT, room.name);
+  }
+
+  for (const road of selectExpansionTowerRoadAnchors(roadAnchorCandidates, anchors, room.name)) {
+    addExpansionTowerAnchor(anchors, road, 'road', EXPANSION_TOWER_ROAD_WEIGHT, room.name);
   }
 
   for (const entrancePosition of getExpansionTowerEntranceAnchors(room)) {
@@ -841,7 +885,10 @@ function scoreExpansionTowerPlacement(
   anchors: ExpansionTowerAnchor[],
   roomName: string
 ): ExpansionTowerPlacement {
+  const spawnRange = getNearestExpansionTowerAnchorRange(position, anchors, 'spawn');
   const controllerRange = getNearestExpansionTowerAnchorRange(position, anchors, 'controller');
+  const nearestContainerRange = getNearestExpansionTowerAnchorRange(position, anchors, 'container');
+  const nearestRoadRange = getNearestExpansionTowerAnchorRange(position, anchors, 'road');
   const nearestSourceRange = getNearestExpansionTowerAnchorRange(position, anchors, 'source');
   const nearestEntranceRange = getNearestExpansionTowerAnchorRange(position, anchors, 'entrance');
   return {
@@ -852,7 +899,10 @@ function scoreExpansionTowerPlacement(
       (score, anchor) => score + getExpansionTowerRange(position, anchor.position) * anchor.weight,
       0
     ),
+    ...(spawnRange !== null ? { spawnRange } : {}),
     ...(controllerRange !== null ? { controllerRange } : {}),
+    ...(nearestContainerRange !== null ? { nearestContainerRange } : {}),
+    ...(nearestRoadRange !== null ? { nearestRoadRange } : {}),
     ...(nearestSourceRange !== null ? { nearestSourceRange } : {}),
     ...(nearestEntranceRange !== null ? { nearestEntranceRange } : {})
   };
@@ -884,12 +934,62 @@ function compareExpansionTowerPlacements(
 ): number {
   return (
     left.score - right.score ||
+    compareOptionalNumbers(left.spawnRange, right.spawnRange) ||
     compareOptionalNumbers(left.controllerRange, right.controllerRange) ||
+    compareOptionalNumbers(left.nearestContainerRange, right.nearestContainerRange) ||
+    compareOptionalNumbers(left.nearestRoadRange, right.nearestRoadRange) ||
     compareOptionalNumbers(left.nearestSourceRange, right.nearestSourceRange) ||
     compareOptionalNumbers(left.nearestEntranceRange, right.nearestEntranceRange) ||
     left.y - right.y ||
     left.x - right.x
   );
+}
+
+function selectExpansionTowerRoadAnchors(
+  roadAnchorCandidates: unknown[],
+  anchors: ExpansionTowerAnchor[],
+  roomName: string
+): unknown[] {
+  return roadAnchorCandidates
+    .map((object) => ({ object, position: getExpansionTowerObjectPosition(object) }))
+    .filter((candidate): candidate is { object: unknown; position: RoomPositionLike } =>
+      isExpansionTowerSameRoomPosition(candidate.position, roomName)
+    )
+    .sort(
+      (left, right) =>
+        getNearestExpansionTowerAnyAnchorRange(left.position, anchors) -
+          getNearestExpansionTowerAnyAnchorRange(right.position, anchors) ||
+        compareExpansionTowerPositions(left.position, right.position) ||
+        compareExpansionTowerObjectIds(left.object, right.object)
+    )
+    .slice(0, EXPANSION_TOWER_MAX_ROAD_ANCHORS)
+    .map((candidate) => candidate.object);
+}
+
+function getNearestExpansionTowerAnyAnchorRange(
+  position: RoomPositionLike,
+  anchors: ExpansionTowerAnchor[]
+): number {
+  if (anchors.length === 0) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  return Math.min(...anchors.map((anchor) => getExpansionTowerRange(position, anchor.position)));
+}
+
+function getExpansionTowerStructureType(object: unknown): unknown {
+  return isRecord(object) ? object.structureType : undefined;
+}
+
+function isExpansionTowerStructureType(
+  actual: unknown,
+  globalName: 'STRUCTURE_SPAWN' | 'STRUCTURE_CONTAINER' | 'STRUCTURE_ROAD',
+  fallback: string
+): boolean {
+  const constants = globalThis as unknown as Partial<
+    Record<'STRUCTURE_SPAWN' | 'STRUCTURE_CONTAINER' | 'STRUCTURE_ROAD', StructureConstant>
+  >;
+  return actual === (constants[globalName] ?? fallback);
 }
 
 function addExpansionTowerBlockedPosition(
@@ -1078,7 +1178,24 @@ function getExpansionDefenseAdjacentWallTargets(position: RoomPositionLike): Roo
   return [];
 }
 
-function getExpansionDefenseSecondaryRampartTargets(
+function getExpansionDefenseTowerRampartTargets(
+  room: Room,
+  lookups: ExpansionDefenseBarrierPlacementLookups
+): RoomPositionLike[] {
+  const targets = findRoomObjects<AnyStructure>(room, getFindConstant('FIND_STRUCTURES'))
+    .filter((structure) => isExpansionDefenseStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower'))
+    .sort(compareExpansionTowerObjects)
+    .map(getExpansionTowerObjectPosition)
+    .filter((position): position is RoomPositionLike =>
+      isExpansionTowerSameRoomPosition(position, room.name)
+    );
+
+  return dedupeExpansionDefensePositions(targets).filter((position) =>
+    isExpansionDefenseRampartTargetAllowed(lookups, position)
+  );
+}
+
+function getExpansionDefenseCoreRampartTargets(
   room: Room,
   lookups: ExpansionDefenseBarrierPlacementLookups
 ): RoomPositionLike[] {
@@ -1102,7 +1219,7 @@ function getExpansionDefenseSecondaryRampartTargets(
 
   return dedupeExpansionDefensePositions(targets)
     .filter((position) => isExpansionDefenseRampartTargetAllowed(lookups, position))
-    .slice(0, EXPANSION_DEFENSE_BARRIER_MAX_SECONDARY_RAMPARTS);
+    .slice(0, EXPANSION_DEFENSE_BARRIER_MAX_CORE_RAMPARTS);
 }
 
 function getExpansionDefenseAdjacentPositions(
@@ -1244,12 +1361,14 @@ function createExpansionDefenseBarrierPlacement(
 
 function getExpansionDefenseBarrierStagePriority(stage: ExpansionDefenseBarrierPlacementStage): number {
   switch (stage) {
-    case 'entranceRampart':
+    case 'towerRampart':
       return 0;
-    case 'entranceWall':
+    case 'coreRampart':
       return 1;
-    case 'secondaryRampart':
+    case 'entranceRampart':
       return 2;
+    case 'entranceWall':
+      return 3;
   }
 }
 
@@ -1327,20 +1446,42 @@ function getExpansionDefenseBarrierMaxPlacements(maxPlacements: number | undefin
 
 function isExpansionDefenseStructureType(
   actual: unknown,
-  globalName: 'STRUCTURE_SPAWN' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
+  globalName: 'STRUCTURE_SPAWN' | 'STRUCTURE_TOWER' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
   fallback: string
 ): boolean {
   return actual === getExpansionDefenseStructureConstant(globalName, fallback);
 }
 
 function getExpansionDefenseStructureConstant(
-  globalName: 'STRUCTURE_SPAWN' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
+  globalName: 'STRUCTURE_SPAWN' | 'STRUCTURE_TOWER' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
   fallback: string
 ): BuildableStructureConstant {
   const constants = globalThis as unknown as Partial<
-    Record<'STRUCTURE_SPAWN' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL', BuildableStructureConstant>
+    Record<'STRUCTURE_SPAWN' | 'STRUCTURE_TOWER' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL', BuildableStructureConstant>
   >;
   return constants[globalName] ?? (fallback as BuildableStructureConstant);
+}
+
+function compareExpansionTowerObjects(left: unknown, right: unknown): number {
+  const leftPosition = getExpansionTowerObjectPosition(left);
+  const rightPosition = getExpansionTowerObjectPosition(right);
+  if (leftPosition && rightPosition) {
+    return compareExpansionTowerPositions(leftPosition, rightPosition) || compareExpansionTowerObjectIds(left, right);
+  }
+
+  if (leftPosition) {
+    return -1;
+  }
+
+  if (rightPosition) {
+    return 1;
+  }
+
+  return compareExpansionTowerObjectIds(left, right);
+}
+
+function compareExpansionTowerPositions(left: RoomPositionLike, right: RoomPositionLike): number {
+  return left.y - right.y || left.x - right.x || (left.roomName ?? '').localeCompare(right.roomName ?? '');
 }
 
 function compareExpansionTowerObjectIds(left: unknown, right: unknown): number {

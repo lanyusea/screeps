@@ -594,6 +594,8 @@ function createTowerPlacementLookups(colony: ColonySnapshot): TowerPlacementLook
       addTowerAnchor(anchors, structure, 3, room.name);
     } else if (matchesStructureType(structureType, 'STRUCTURE_CONTAINER', 'container')) {
       addTowerAnchor(anchors, structure, 2, room.name);
+    } else if (matchesStructureType(structureType, 'STRUCTURE_ROAD', 'road')) {
+      addTowerAnchor(anchors, structure, 1, room.name);
     }
   }
 
@@ -606,6 +608,8 @@ function createTowerPlacementLookups(colony: ColonySnapshot): TowerPlacementLook
       addTowerAnchor(anchors, site, 3, room.name);
     } else if (matchesStructureType(structureType, 'STRUCTURE_CONTAINER', 'container')) {
       addTowerAnchor(anchors, site, 2, room.name);
+    } else if (matchesStructureType(structureType, 'STRUCTURE_ROAD', 'road')) {
+      addTowerAnchor(anchors, site, 1, room.name);
     }
   }
 

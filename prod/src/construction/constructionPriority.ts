@@ -1107,7 +1107,8 @@ function getProtectedRampartAnchorPositions(
 
   for (const structure of ownedStructures ?? []) {
     if (
-      matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') &&
+      (matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+        matchesStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower')) &&
       isSameRoomPosition(structure.pos ?? null, room.name)
     ) {
       anchors.push(structure.pos);

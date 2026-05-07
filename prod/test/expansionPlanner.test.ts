@@ -23,6 +23,9 @@ describe('expansion planner', () => {
     (globalThis as unknown as { FIND_MINERALS: number }).FIND_MINERALS = 7;
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
+    (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
     (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
@@ -151,8 +154,41 @@ describe('expansion planner', () => {
     }
   });
 
-  it('plans entrance ramparts before other claimed-room defensive barriers', () => {
+  it('places claimed-room towers where they cover spawn, controller, roads, and containers', () => {
+    const spawn = makePositionedStructure('spawn1', 10, 12, 'W2N1', STRUCTURE_SPAWN);
+    const container = makePositionedStructure('container1', 12, 10, 'W2N1', STRUCTURE_CONTAINER);
+    const road = makePositionedStructure('road1', 11, 11, 'W2N1', STRUCTURE_ROAD);
+    const room = makeTowerPlanningRoom('W2N1', {
+      controllerPosition: { x: 10, y: 10 },
+      sourcePositions: [
+        { x: 40, y: 40 },
+        { x: 40, y: 42 }
+      ],
+      exitPositions: [],
+      structures: [spawn, container, road]
+    });
+    installTerrain(room.name, new Set());
+
+    const placements = planExpansionTowerPlacements(room, { maxPlacements: 1 });
+
+    expect(placements).toEqual([
+      {
+        roomName: 'W2N1',
+        x: 10,
+        y: 11,
+        score: expect.any(Number),
+        spawnRange: 1,
+        controllerRange: 1,
+        nearestContainerRange: 2,
+        nearestRoadRange: 1,
+        nearestSourceRange: 30
+      }
+    ]);
+  });
+
+  it('plans tower ramparts before other claimed-room defensive barriers', () => {
     const spawn = makePositionedStructure('spawn1', 20, 20, 'W2N1', STRUCTURE_SPAWN);
+    const tower = makePositionedStructure('tower1', 21, 20, 'W2N1', STRUCTURE_TOWER);
     const room = makeTowerPlanningRoom('W2N1', {
       controllerPosition: { x: 25, y: 25 },
       sourcePositions: [],
@@ -162,7 +198,73 @@ describe('expansion planner', () => {
         { x: 26, y: 0 },
         { x: 49, y: 25 }
       ],
-      structures: [spawn]
+      structures: [spawn, tower]
+    });
+    installTerrain(room.name, new Set());
+
+    const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 });
+
+    expect(placements).toEqual([
+      {
+        roomName: 'W2N1',
+        x: 21,
+        y: 20,
+        structureType: STRUCTURE_RAMPART,
+        stage: 'towerRampart',
+        priority: 0
+      }
+    ]);
+  });
+
+  it('plans spawn and controller ramparts after tower ramparts are covered', () => {
+    const structures = [
+      makePositionedStructure('spawn1', 20, 20, 'W2N1', STRUCTURE_SPAWN),
+      makePositionedStructure('tower1', 21, 20, 'W2N1', STRUCTURE_TOWER),
+      makePositionedStructure('tower-rampart', 21, 20, 'W2N1', STRUCTURE_RAMPART)
+    ];
+    const room = makeTowerPlanningRoom('W2N1', {
+      controllerPosition: { x: 25, y: 25 },
+      sourcePositions: [],
+      exitPositions: [
+        { x: 24, y: 0 },
+        { x: 25, y: 0 },
+        { x: 26, y: 0 },
+        { x: 49, y: 25 }
+      ],
+      structures
+    });
+    installTerrain(room.name, new Set());
+
+    const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 3 });
+
+    expect(placements[0]).toEqual({
+      roomName: 'W2N1',
+      x: 20,
+      y: 20,
+      structureType: STRUCTURE_RAMPART,
+      stage: 'coreRampart',
+      priority: 1
+    });
+    expect(placements.every((placement) => placement.stage === 'coreRampart')).toBe(true);
+  });
+
+  it('plans entrance ramparts after tower and core ramparts are covered', () => {
+    const structures = [
+      makePositionedStructure('spawn1', 20, 20, 'W2N1', STRUCTURE_SPAWN),
+      makePositionedStructure('tower1', 21, 20, 'W2N1', STRUCTURE_TOWER),
+      makePositionedStructure('tower-rampart', 21, 20, 'W2N1', STRUCTURE_RAMPART),
+      ...makeCoreRampartCoverage('core', { x: 20, y: 20 }, { x: 25, y: 25 }, 'W2N1')
+    ];
+    const room = makeTowerPlanningRoom('W2N1', {
+      controllerPosition: { x: 25, y: 25 },
+      sourcePositions: [],
+      exitPositions: [
+        { x: 24, y: 0 },
+        { x: 25, y: 0 },
+        { x: 26, y: 0 },
+        { x: 49, y: 25 }
+      ],
+      structures
     });
     installTerrain(room.name, new Set());
 
@@ -175,7 +277,7 @@ describe('expansion planner', () => {
         y: 1,
         structureType: STRUCTURE_RAMPART,
         stage: 'entranceRampart',
-        priority: 0
+        priority: 2
       },
       {
         roomName: 'W2N1',
@@ -183,14 +285,17 @@ describe('expansion planner', () => {
         y: 25,
         structureType: STRUCTURE_RAMPART,
         stage: 'entranceRampart',
-        priority: 0
+        priority: 2
       }
     ]);
   });
 
-  it('plans walls adjacent to covered entrance ramparts before secondary ramparts', () => {
+  it('plans walls adjacent to covered entrance ramparts after core ramparts', () => {
     const structures = [
       makePositionedStructure('spawn1', 20, 20, 'W2N1', STRUCTURE_SPAWN),
+      makePositionedStructure('tower1', 21, 20, 'W2N1', STRUCTURE_TOWER),
+      makePositionedStructure('tower-rampart', 21, 20, 'W2N1', STRUCTURE_RAMPART),
+      ...makeCoreRampartCoverage('core', { x: 20, y: 20 }, { x: 25, y: 25 }, 'W2N1'),
       makePositionedStructure('rampart-top', 25, 1, 'W2N1', STRUCTURE_RAMPART),
       makePositionedStructure('rampart-right', 48, 25, 'W2N1', STRUCTURE_RAMPART)
     ];
@@ -216,7 +321,7 @@ describe('expansion planner', () => {
         y: 1,
         structureType: STRUCTURE_WALL,
         stage: 'entranceWall',
-        priority: 1
+        priority: 3
       },
       {
         roomName: 'W2N1',
@@ -224,7 +329,7 @@ describe('expansion planner', () => {
         y: 1,
         structureType: STRUCTURE_WALL,
         stage: 'entranceWall',
-        priority: 1
+        priority: 3
       },
       {
         roomName: 'W2N1',
@@ -232,7 +337,7 @@ describe('expansion planner', () => {
         y: 24,
         structureType: STRUCTURE_WALL,
         stage: 'entranceWall',
-        priority: 1
+        priority: 3
       },
       {
         roomName: 'W2N1',
@@ -240,45 +345,9 @@ describe('expansion planner', () => {
         y: 26,
         structureType: STRUCTURE_WALL,
         stage: 'entranceWall',
-        priority: 1
+        priority: 3
       }
     ]);
-  });
-
-  it('plans spawn and controller ramparts after entrance ramparts and walls are covered', () => {
-    const structures = [
-      makePositionedStructure('spawn1', 20, 20, 'W2N1', STRUCTURE_SPAWN),
-      makePositionedStructure('rampart-top', 25, 1, 'W2N1', STRUCTURE_RAMPART),
-      makePositionedStructure('rampart-right', 48, 25, 'W2N1', STRUCTURE_RAMPART),
-      makePositionedStructure('wall-top-left', 24, 1, 'W2N1', STRUCTURE_WALL),
-      makePositionedStructure('wall-top-right', 26, 1, 'W2N1', STRUCTURE_WALL),
-      makePositionedStructure('wall-right-top', 48, 24, 'W2N1', STRUCTURE_WALL),
-      makePositionedStructure('wall-right-bottom', 48, 26, 'W2N1', STRUCTURE_WALL)
-    ];
-    const room = makeTowerPlanningRoom('W2N1', {
-      controllerPosition: { x: 25, y: 25 },
-      sourcePositions: [],
-      exitPositions: [
-        { x: 24, y: 0 },
-        { x: 25, y: 0 },
-        { x: 26, y: 0 },
-        { x: 49, y: 25 }
-      ],
-      structures
-    });
-    installTerrain(room.name, new Set());
-
-    const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 3 });
-
-    expect(placements[0]).toEqual({
-      roomName: 'W2N1',
-      x: 20,
-      y: 20,
-      structureType: STRUCTURE_RAMPART,
-      stage: 'secondaryRampart',
-      priority: 2
-    });
-    expect(placements.every((placement) => placement.stage === 'secondaryRampart')).toBe(true);
   });
 
   it('creates expansion targets and intents through territory planning', () => {
@@ -1118,6 +1187,42 @@ function makeTowerPlanningRoom(
   } as unknown as Room;
 
   return room;
+}
+
+function makeCoreRampartCoverage(
+  idPrefix: string,
+  spawn: { x: number; y: number },
+  controller: { x: number; y: number },
+  roomName: string
+): Structure[] {
+  const positions = [
+    { x: spawn.x, y: spawn.y },
+    ...getAdjacentPositions(spawn),
+    ...getAdjacentPositions(controller)
+  ];
+  const seen = new Set<string>();
+  return positions.flatMap((position, index) => {
+    const key = `${position.x},${position.y}`;
+    if (seen.has(key)) {
+      return [];
+    }
+
+    seen.add(key);
+    return [makePositionedStructure(`${idPrefix}-${index}`, position.x, position.y, roomName, STRUCTURE_RAMPART)];
+  });
+}
+
+function getAdjacentPositions(center: { x: number; y: number }): Array<{ x: number; y: number }> {
+  return [
+    { x: center.x, y: center.y - 1 },
+    { x: center.x + 1, y: center.y },
+    { x: center.x, y: center.y + 1 },
+    { x: center.x - 1, y: center.y },
+    { x: center.x - 1, y: center.y - 1 },
+    { x: center.x + 1, y: center.y - 1 },
+    { x: center.x + 1, y: center.y + 1 },
+    { x: center.x - 1, y: center.y + 1 }
+  ];
 }
 
 function makePositionedStructure(

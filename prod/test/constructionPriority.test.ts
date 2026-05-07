@@ -328,6 +328,37 @@ describe('impact-weighted construction site selection', () => {
     );
   });
 
+  it('treats rampart sites around towers as protected defense construction', () => {
+    installTestGlobals();
+    try {
+      const tower = makeOwnedStructure('tower1', TEST_GLOBALS.STRUCTURE_TOWER, 20, 20);
+      const towerRampartSite = makeConstructionSite('tower-rampart-site', 'rampart', 20, 20);
+      const genericRampartSite = makeConstructionSite('generic-rampart-site', 'rampart', 35, 35);
+      const room = {
+        name: 'W1N1',
+        controller: { my: true, pos: makeRoomPosition(40, 40) } as StructureController,
+        find: jest.fn((findType: number) => {
+          if (findType === TEST_GLOBALS.FIND_MY_STRUCTURES) {
+            return [tower];
+          }
+
+          return [];
+        })
+      } as unknown as Room;
+      const context = buildConstructionSiteImpactPriorityContext(room);
+      const origin = makeSelectionOrigin({
+        'tower-rampart-site': 5,
+        'generic-rampart-site': 5
+      });
+
+      expect(
+        selectImpactWeightedConstructionSite(origin, [genericRampartSite, towerRampartSite], context)?.id
+      ).toBe('tower-rampart-site');
+    } finally {
+      clearTestGlobals();
+    }
+  });
+
   it('chooses the closest site when multiple sites have the same impact', () => {
     const farExtensionSite = makeConstructionSite('extension-far', 'extension', 20, 20);
     const nearExtensionSite = makeConstructionSite('extension-near', 'extension', 21, 20);
