@@ -37,8 +37,10 @@ import {
 } from '../src/territory/territoryPlanner';
 
 const TEST_CRITICAL_SPAWN_REPAIR_HITS_RATIO = 0.25 as const;
+const TEST_ERR_NO_PATH = -2 as const;
 
 type TestEnergySink = StructureSpawn | StructureExtension | StructureTower;
+type TestInterRoomEnergyStoreType = 'storage' | 'terminal';
 
 function makeLoadedWorker(room: Room, task?: CreepTaskMemory): Creep {
   return {
@@ -289,6 +291,86 @@ function makeWorkerTaskRoom({
       return [];
     })
   } as unknown as Room;
+}
+
+function makeInterRoomEnergyRooms({
+  sourceStoreType = 'storage',
+  sourceStructures = [],
+  targetSources = [],
+  targetStoreType = 'storage'
+}: {
+  sourceStoreType?: TestInterRoomEnergyStoreType;
+  sourceStructures?: AnyStructure[];
+  targetSources?: Source[];
+  targetStoreType?: TestInterRoomEnergyStoreType;
+} = {}): { sourceRoom: Room; targetRoom: Room } {
+  const sourceStore = makeEnergySinkWithEnergy(
+    `W1N1-${sourceStoreType}`,
+    sourceStoreType as StructureConstant,
+    900,
+    100
+  ) as unknown as StructureStorage | StructureTerminal;
+  const targetStore = makeEnergySinkWithEnergy(
+    `W2N1-${targetStoreType}`,
+    targetStoreType as StructureConstant,
+    100,
+    900
+  ) as unknown as StructureStorage | StructureTerminal;
+  const sourceRoom = makeWorkerTaskRoom({
+    name: 'W1N1',
+    controller: { id: 'W1N1-controller', my: true, level: 8, ticksToDowngrade: 10_000 } as StructureController,
+    energyAvailable: 800,
+    energyCapacityAvailable: 800,
+    myStructures: [sourceStore as unknown as AnyOwnedStructure],
+    structures: [sourceStore as unknown as AnyStructure, ...sourceStructures]
+  });
+  const targetRoom = makeWorkerTaskRoom({
+    name: 'W2N1',
+    controller: { id: 'W2N1-controller', my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController,
+    energyAvailable: 300,
+    energyCapacityAvailable: 800,
+    myStructures: [targetStore as unknown as AnyOwnedStructure],
+    sources: targetSources,
+    structures: [targetStore as unknown as AnyStructure]
+  });
+
+  if (sourceStoreType === 'storage') {
+    (sourceRoom as { storage?: StructureStorage }).storage = sourceStore as StructureStorage;
+  } else {
+    (sourceRoom as { terminal?: StructureTerminal }).terminal = sourceStore as StructureTerminal;
+  }
+
+  if (targetStoreType === 'storage') {
+    (targetRoom as { storage?: StructureStorage }).storage = targetStore as StructureStorage;
+  } else {
+    (targetRoom as { terminal?: StructureTerminal }).terminal = targetStore as StructureTerminal;
+  }
+
+  return { sourceRoom, targetRoom };
+}
+
+function installInterRoomEnergyGame(
+  sourceRoom: Room,
+  targetRoom: Room,
+  creeps: Record<string, Creep> = {}
+): void {
+  (globalThis as unknown as { Game: Partial<Game> }).Game = {
+    time: 500,
+    rooms: { W1N1: sourceRoom, W2N1: targetRoom },
+    creeps,
+    map: {
+      findRoute: jest.fn((_fromRoom: string, toRoom: string) => [{ exit: 1, room: toRoom }])
+    } as unknown as GameMap
+  };
+  (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+    economy: {
+      storageBalance: {
+        updatedAt: 500,
+        rooms: {},
+        transfers: [{ sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 100, updatedAt: 500 }]
+      }
+    }
+  };
 }
 
 function makeFollowUpDemand(
@@ -3780,6 +3862,269 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'upgrade', targetId: 'controller1' });
+  });
+
+  it('withdraws from source storage for a planned inter-room energy haul', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms();
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'W1N1-storage' });
+    expect(creep.memory.interRoomEnergyHaul).toMatchObject({
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      sourceId: 'W1N1-storage'
+    });
+  });
+
+  it('delivers carried energy to target room storage when local productive work is exhausted', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms();
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'W2N1-storage' });
+    expect(creep.memory.interRoomEnergyHaul).toMatchObject({
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      targetId: 'W2N1-storage'
+    });
+  });
+
+  it('uses terminal stores for planned inter-room energy hauls', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms({
+      sourceStoreType: 'terminal',
+      targetStoreType: 'terminal'
+    });
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const collectingCreep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+    const deliveringCreep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(collectingCreep)).toEqual({ type: 'withdraw', targetId: 'W1N1-terminal' });
+    expect(collectingCreep.memory.interRoomEnergyHaul).toMatchObject({
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      sourceId: 'W1N1-terminal'
+    });
+    expect(selectWorkerTask(deliveringCreep)).toEqual({ type: 'transfer', targetId: 'W2N1-terminal' });
+    expect(deliveringCreep.memory.interRoomEnergyHaul).toMatchObject({
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      targetId: 'W2N1-terminal'
+    });
+  });
+
+  it('recalls an empty inter-room hauler from the target room to the source store', () => {
+    const targetSource = makeSource('target-source', 10, 10, 'W2N1');
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms({ targetSources: [targetSource] });
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const creep = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        interRoomEnergyHaul: {
+          sourceRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: 'W1N1-storage' as Id<AnyStoreStructure>,
+          targetId: 'W2N1-storage' as Id<AnyStoreStructure>
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: targetRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'W1N1-storage' });
+  });
+
+  it('memoizes live inter-room transfer checks by room pair within a tick', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms();
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const findRoute = ((globalThis as unknown as { Game: Partial<Game> }).Game.map as Partial<GameMap> & {
+      findRoute: jest.Mock;
+    }).findRoute;
+    const firstCreep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+    const secondCreep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(50)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(firstCreep)).toEqual({ type: 'withdraw', targetId: 'W1N1-storage' });
+    expect(selectWorkerTask(secondCreep)).toEqual({ type: 'withdraw', targetId: 'W1N1-storage' });
+    expect(findRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not create an inter-room energy haul when the logistics route is unreachable', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms();
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const findRoute = jest.fn(() => TEST_ERR_NO_PATH);
+    ((globalThis as unknown as { Game: Partial<Game> }).Game.map as Partial<GameMap> & {
+      findRoute: jest.Mock;
+    }).findRoute = findRoute;
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).not.toEqual({ type: 'transfer', targetId: 'W2N1-storage' });
+    expect(creep.memory.interRoomEnergyHaul).toBeUndefined();
+    expect(findRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts only carried energy for diverted inter-room haul workers', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms();
+    const divertedWorker = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'repair', targetId: 'road-diversion' as Id<Structure> },
+        interRoomEnergyHaul: {
+          sourceRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: 'W1N1-storage' as Id<AnyStoreStructure>,
+          targetId: 'W2N1-storage' as Id<AnyStoreStructure>
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(75)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+    installInterRoomEnergyGame(sourceRoom, targetRoom, { DivertedWorker: divertedWorker });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(70)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'W1N1-storage' });
+    expect(creep.memory.interRoomEnergyHaul).toMatchObject({
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      sourceId: 'W1N1-storage'
+    });
+  });
+
+  it('reserves full capacity for workers actively on an inter-room haul leg', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms();
+    const activeWorker = {
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'withdraw', targetId: 'W1N1-storage' as Id<AnyStoreStructure> },
+        interRoomEnergyHaul: {
+          sourceRoom: 'W1N1',
+          targetRoom: 'W2N1',
+          sourceId: 'W1N1-storage' as Id<AnyStoreStructure>,
+          targetId: 'W2N1-storage' as Id<AnyStoreStructure>
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(20),
+        getFreeCapacity: jest.fn().mockReturnValue(30)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+    installInterRoomEnergyGame(sourceRoom, targetRoom, { ActiveWorker: activeWorker });
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(60)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    selectWorkerTask(creep);
+
+    expect(creep.memory.interRoomEnergyHaul).toBeUndefined();
+  });
+
+  it('uses direct target-room storage references for inter-room delivery selection', () => {
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms();
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const originalTargetFind = targetRoom.find.bind(targetRoom);
+    targetRoom.find = jest.fn((type: number, options?: unknown) => {
+      if (type === FIND_STRUCTURES) {
+        throw new Error('target room structure search should not run for inter-room stores');
+      }
+
+      return originalTargetFind(type as FindConstant, options as never);
+    }) as Room['find'];
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'transfer', targetId: 'W2N1-storage' });
+  });
+
+  it('keeps local repair before inter-room energy hauling', () => {
+    const road = makeStructure('road1', STRUCTURE_ROAD, 100, 1_000);
+    const { sourceRoom, targetRoom } = makeInterRoomEnergyRooms({ sourceStructures: [road] });
+    installInterRoomEnergyGame(sourceRoom, targetRoom);
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room: sourceRoom
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'road1' });
   });
 
   it('clears stale worker efficiency telemetry when selecting a normal refill task', () => {

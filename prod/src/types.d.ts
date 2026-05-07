@@ -47,6 +47,7 @@ declare global {
     workerEfficiency?: WorkerEfficiencySampleMemory;
     refillTelemetry?: WorkerRefillTelemetryMemory;
     constructionPreBuffer?: WorkerConstructionPreBufferMemory;
+    interRoomEnergyHaul?: CreepInterRoomEnergyHaulMemory;
     spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
     workerBehavior?: WorkerTaskBehaviorSampleMemory;
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
@@ -134,6 +135,14 @@ declare global {
     targetRoom: string;
     sourceId: Id<Source>;
     containerId: Id<StructureContainer>;
+  }
+
+  interface CreepInterRoomEnergyHaulMemory {
+    sourceRoom: string;
+    targetRoom: string;
+    sourceId?: Id<AnyStoreStructure>;
+    targetId?: Id<AnyStoreStructure>;
+    updatedAt?: number;
   }
 
   interface EconomyMemory {
