@@ -17183,7 +17183,10 @@ function selectWorkerEnergyCriticalAcquisitionTask(creep, options = {}) {
   if (options.avoidStorageWithdrawal && fallbackTask.type === "withdraw") {
     const target = getGameObjectById(String(fallbackTask.targetId));
     if (target && isStorageEnergySource(target)) {
-      return selectWorkerPreHarvestTask(creep);
+      const preHarvestTask = selectWorkerPreHarvestTask(creep);
+      if (preHarvestTask) {
+        return preHarvestTask;
+      }
     }
   }
   return fallbackTask;

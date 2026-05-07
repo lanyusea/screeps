@@ -3519,7 +3519,10 @@ export function selectWorkerEnergyCriticalAcquisitionTask(
   if (options.avoidStorageWithdrawal && fallbackTask.type === 'withdraw') {
     const target = getGameObjectById<AnyStoreStructure>(String(fallbackTask.targetId));
     if (target && isStorageEnergySource(target as LowLoadWorkerEnergyAcquisitionSource)) {
-      return selectWorkerPreHarvestTask(creep);
+      const preHarvestTask = selectWorkerPreHarvestTask(creep);
+      if (preHarvestTask) {
+        return preHarvestTask;
+      }
     }
   }
 
