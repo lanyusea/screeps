@@ -1,6 +1,5 @@
 import { classifyLinks } from '../economy/linkManager';
 import { findSourceContainer, getRangeBetweenPositions, getRoomObjectPosition } from '../economy/sourceContainers';
-import { buildRemoteHarvesterBody } from '../spawn/bodyBuilder';
 import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from './roleCounts';
 
 export const SOURCE_HARVESTER_ROLE = 'sourceHarvester';
@@ -9,6 +8,11 @@ const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const ERR_NOT_ENOUGH_RESOURCES_CODE = -6 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 const SOURCE_LINK_DEPOSIT_RANGE = 1;
+const HARVEST_ENERGY_PER_WORK_PART = 2;
+const DEFAULT_SOURCE_ENERGY_CAPACITY = 3_000;
+const DEFAULT_SOURCE_REGEN_TICKS = 300;
+const SOURCE_HARVESTER_MIN_WORK_PARTS = 4;
+const MAX_CREEP_PARTS = 50;
 
 type MobileFallbackEnergySink = StructureSpawn | StructureExtension | StructureTower;
 
@@ -24,20 +28,61 @@ export interface SourceHarvesterAssignment {
   containerId: Id<StructureContainer>;
 }
 
+export interface SourceHarvesterAssignmentSelectionOptions {
+  origin?: RoomPosition | null;
+}
+
+export interface SourceHarvesterBodyOptions {
+  sourceDistance?: number;
+  sourceEnergyCapacity?: number;
+  sourceEnergyRegenTicks?: number;
+}
+
+interface SourceHarvesterAssignmentCandidate {
+  assignment: SourceHarvesterAssignment;
+  rangeFromOrigin: number;
+}
+
 let sourceHarvesterAssignmentCountCache: SourceHarvesterAssignmentCountCache | null = null;
 
-export { buildRemoteHarvesterBody as buildSourceHarvesterBody };
+export function buildSourceHarvesterBody(
+  energyAvailable: number,
+  options: SourceHarvesterBodyOptions = {}
+): BodyPartConstant[] {
+  const energyBudget = normalizeNonNegativeInteger(energyAvailable);
+  const targetWorkParts = getSourceHarvesterTargetWorkParts(options);
+  const minimumWorkParts = Math.min(targetWorkParts, SOURCE_HARVESTER_MIN_WORK_PARTS);
 
-export function selectSourceHarvesterAssignment(room: Room): SourceHarvesterAssignment | null {
+  for (let workParts = targetWorkParts; workParts >= minimumWorkParts; workParts -= 1) {
+    const carryParts = 1;
+    const minimumMoveParts = 1;
+    if (getSourceHarvesterBodyCost(workParts, carryParts, minimumMoveParts) > energyBudget) {
+      continue;
+    }
+
+    const moveParts = selectSourceHarvesterMoveParts(energyBudget, workParts, carryParts, options.sourceDistance);
+    return buildSourceHarvesterBodyParts(workParts, carryParts, moveParts);
+  }
+
+  return [];
+}
+
+export function selectSourceHarvesterAssignment(
+  room: Room,
+  options: SourceHarvesterAssignmentSelectionOptions = {}
+): SourceHarvesterAssignment | null {
   const assignmentCounts = getSourceHarvesterAssignmentCounts();
   return (
-    getSourceHarvesterAssignments(room).find(
+    getSourceHarvesterAssignments(room, options).find(
       (assignment) => countAssignedSourceHarvesters(assignment, assignmentCounts) < 1
     ) ?? null
   );
 }
 
-export function getSourceHarvesterAssignments(room: Room): SourceHarvesterAssignment[] {
+export function getSourceHarvesterAssignments(
+  room: Room,
+  options: SourceHarvesterAssignmentSelectionOptions = {}
+): SourceHarvesterAssignment[] {
   if (typeof FIND_SOURCES !== 'number' || typeof room.find !== 'function') {
     return [];
   }
@@ -48,14 +93,18 @@ export function getSourceHarvesterAssignments(room: Room): SourceHarvesterAssign
       return container
         ? [
             {
-              roomName: room.name,
-              sourceId: source.id,
-              containerId: container.id
+              assignment: {
+                roomName: room.name,
+                sourceId: source.id,
+                containerId: container.id
+              },
+              rangeFromOrigin: getSourceRangeFromOrigin(source, options.origin)
             }
           ]
         : [];
     })
-    .sort(compareAssignments);
+    .sort(compareAssignmentCandidates)
+    .map((candidate) => candidate.assignment);
 }
 
 export function runSourceHarvester(creep: Creep): void {
@@ -92,15 +141,19 @@ export function runSourceHarvester(creep: Creep): void {
     return;
   }
 
-  if (isSourceDepleted(source)) {
-    if (getCarriedEnergy(creep) > 0) {
-      transferHarvestedEnergy(creep, source, container);
+  const carriedEnergy = getCarriedEnergy(creep);
+  if (carriedEnergy > 0) {
+    const transferResult = transferHarvestedEnergy(creep, source, container);
+    if (transferResult === getErrNotInRangeCode()) {
+      return;
     }
+  }
+
+  if (isSourceDepleted(source)) {
     return;
   }
 
-  if (getFreeEnergyCapacity(creep) <= 0 && getCarriedEnergy(creep) > 0) {
-    transferHarvestedEnergy(creep, source, container);
+  if (getFreeEnergyCapacity(creep) <= 0) {
     return;
   }
 
@@ -111,6 +164,78 @@ export function runSourceHarvester(creep: Creep): void {
   ) {
     transferHarvestedEnergy(creep, source, container);
   }
+}
+
+function getSourceHarvesterTargetWorkParts(options: SourceHarvesterBodyOptions): number {
+  const sourceEnergyCapacity = normalizePositiveNumber(options.sourceEnergyCapacity) ?? getDefaultSourceEnergyCapacity();
+  const sourceEnergyRegenTicks = normalizePositiveNumber(options.sourceEnergyRegenTicks) ?? getDefaultSourceRegenTicks();
+  const workParts = Math.ceil(sourceEnergyCapacity / sourceEnergyRegenTicks / HARVEST_ENERGY_PER_WORK_PART);
+  return Math.max(1, Math.min(MAX_CREEP_PARTS - 2, workParts));
+}
+
+function selectSourceHarvesterMoveParts(
+  energyBudget: number,
+  workParts: number,
+  carryParts: number,
+  sourceDistance: number | undefined
+): number {
+  const desiredMoveParts = getSourceHarvesterMoveTarget(workParts, carryParts, sourceDistance);
+  const bodyPartCosts = getBodyPartCosts();
+  const nonMoveCost = workParts * bodyPartCosts.work + carryParts * bodyPartCosts.carry;
+  const affordableMoveParts = Math.floor(Math.max(0, energyBudget - nonMoveCost) / bodyPartCosts.move);
+  return Math.max(
+    1,
+    Math.min(desiredMoveParts, affordableMoveParts, MAX_CREEP_PARTS - workParts - carryParts)
+  );
+}
+
+function getSourceHarvesterMoveTarget(
+  workParts: number,
+  carryParts: number,
+  sourceDistance: number | undefined
+): number {
+  const nonMoveParts = workParts + carryParts;
+  const normalizedDistance = normalizeNonNegativeInteger(sourceDistance ?? 0);
+  if (normalizedDistance <= 5) {
+    return 1;
+  }
+
+  if (normalizedDistance <= 12) {
+    return Math.ceil(nonMoveParts / 3);
+  }
+
+  return Math.ceil(nonMoveParts / 2);
+}
+
+function buildSourceHarvesterBodyParts(
+  workParts: number,
+  carryParts: number,
+  moveParts: number
+): BodyPartConstant[] {
+  return [
+    ...Array.from({ length: workParts }, () => 'work' as BodyPartConstant),
+    ...Array.from({ length: carryParts }, () => 'carry' as BodyPartConstant),
+    ...Array.from({ length: moveParts }, () => 'move' as BodyPartConstant)
+  ];
+}
+
+function getSourceHarvesterBodyCost(workParts: number, carryParts: number, moveParts: number): number {
+  const bodyPartCosts = getBodyPartCosts();
+  return workParts * bodyPartCosts.work + carryParts * bodyPartCosts.carry + moveParts * bodyPartCosts.move;
+}
+
+function getBodyPartCosts(): Record<BodyPartConstant, number> {
+  return (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST;
+}
+
+function getDefaultSourceEnergyCapacity(): number {
+  const sourceEnergyCapacity = (globalThis as unknown as { SOURCE_ENERGY_CAPACITY?: number }).SOURCE_ENERGY_CAPACITY;
+  return normalizePositiveNumber(sourceEnergyCapacity) ?? DEFAULT_SOURCE_ENERGY_CAPACITY;
+}
+
+function getDefaultSourceRegenTicks(): number {
+  const regenTicks = (globalThis as unknown as { ENERGY_REGEN_TIME?: number }).ENERGY_REGEN_TIME;
+  return normalizePositiveNumber(regenTicks) ?? DEFAULT_SOURCE_REGEN_TICKS;
 }
 
 function runMobileFallback(creep: Creep, source: Source): void {
@@ -421,6 +546,34 @@ function getVisibleRoom(roomName: string): Room | undefined {
   return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
 }
 
+function getSourceRangeFromOrigin(source: Source, origin: RoomPosition | null | undefined): number {
+  if (!origin) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const sourcePosition = getRoomObjectPosition(source);
+  if (!sourcePosition) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (
+    typeof origin.roomName === 'string' &&
+    typeof sourcePosition.roomName === 'string' &&
+    origin.roomName !== sourcePosition.roomName
+  ) {
+    return 50;
+  }
+
+  return getRangeBetweenPositions(origin, sourcePosition);
+}
+
+function compareAssignmentCandidates(
+  left: SourceHarvesterAssignmentCandidate,
+  right: SourceHarvesterAssignmentCandidate
+): number {
+  return left.rangeFromOrigin - right.rangeFromOrigin || compareAssignments(left.assignment, right.assignment);
+}
+
 function compareAssignments(left: SourceHarvesterAssignment, right: SourceHarvesterAssignment): number {
   return left.roomName.localeCompare(right.roomName) || String(left.sourceId).localeCompare(String(right.sourceId));
 }
@@ -440,4 +593,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function normalizePositiveNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }

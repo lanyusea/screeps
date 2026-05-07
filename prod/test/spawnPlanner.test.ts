@@ -43,6 +43,9 @@ describe('planSpawn', () => {
     (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
+    (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST = {
+      ...BODY_PART_COSTS
+    };
     delete (globalThis as { FIND_HOSTILE_CREEPS?: number }).FIND_HOSTILE_CREEPS;
     delete (globalThis as { FIND_HOSTILE_STRUCTURES?: number }).FIND_HOSTILE_STRUCTURES;
     delete (globalThis as { Game?: Partial<Game> }).Game;
@@ -64,6 +67,7 @@ describe('planSpawn', () => {
     spawnEnergyBudget = energyAvailable,
     omitSpawnEnergyBudget = false,
     sourcePositions,
+    spawnPosition,
     structures = [],
     ownedStructures = []
   }: {
@@ -81,6 +85,7 @@ describe('planSpawn', () => {
     spawnEnergyBudget?: number;
     omitSpawnEnergyBudget?: boolean;
     sourcePositions?: RoomPosition[];
+    spawnPosition?: RoomPosition;
     structures?: AnyStructure[];
     ownedStructures?: AnyOwnedStructure[];
   } = {}): { colony: ColonySnapshot; spawn: StructureSpawn; find: jest.Mock<unknown[], [number]> } {
@@ -139,7 +144,7 @@ describe('planSpawn', () => {
         ? { storage: makeStorage(storageEnergy, storageCapacity) }
         : {})
     } as unknown as Room;
-    const spawn = { name: 'Spawn1', room, spawning } as StructureSpawn;
+    const spawn = { name: 'Spawn1', room, spawning, ...(spawnPosition ? { pos: spawnPosition } : {}) } as StructureSpawn;
     const colony: ColonySnapshot = {
       room,
       spawns: [spawn],
@@ -507,6 +512,70 @@ describe('planSpawn', () => {
         colony: 'W1N28',
         sourceHarvester: {
           roomName: 'W1N28',
+          sourceId: 'source0',
+          containerId: 'container0'
+        }
+      }
+    });
+  });
+
+  it('assigns a local source harvester to the closest unreserved source container', () => {
+    const farSourcePosition = makeRoomPosition(40, 40, 'W1N31');
+    const nearSourcePosition = makeRoomPosition(12, 10, 'W1N31');
+    const farContainer = makeRemoteContainer('container0', 0, 40, 41, 'W1N31') as unknown as AnyStructure;
+    const nearContainer = makeRemoteContainer('container1', 0, 12, 11, 'W1N31') as unknown as AnyStructure;
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N31',
+      sourceCount: 2,
+      sourcePositions: [farSourcePosition, nearSourcePosition],
+      spawnPosition: makeRoomPosition(10, 10, 'W1N31'),
+      structures: [farContainer, nearContainer],
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 600,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 164)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'sourceHarvester-W1N31-source1-164',
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'W1N31',
+        sourceHarvester: {
+          roomName: 'W1N31',
+          sourceId: 'source1',
+          containerId: 'container1'
+        }
+      }
+    });
+  });
+
+  it('adds move support to local source harvesters for distant sources', () => {
+    const sourcePosition = makeRoomPosition(35, 35, 'W1N32');
+    const container = makeRemoteContainer('container0', 0, 35, 36, 'W1N32') as unknown as AnyStructure;
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N32',
+      sourceCount: 1,
+      sourcePositions: [sourcePosition],
+      spawnPosition: makeRoomPosition(10, 10, 'W1N32'),
+      structures: [container],
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      spawnEnergyBudget: 650,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 165)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move', 'move'],
+      name: 'sourceHarvester-W1N32-source0-165',
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'W1N32',
+        sourceHarvester: {
+          roomName: 'W1N32',
           sourceId: 'source0',
           containerId: 'container0'
         }
