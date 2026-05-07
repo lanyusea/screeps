@@ -8,6 +8,7 @@ import {
   validateTerritoryScoutIntelForClaim,
   type TerritoryScoutValidationResult
 } from './scoutIntel';
+import { collectVisibleRoomScoutingSnapshot, type RoomScoutingTarget } from './roomScouting';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
@@ -26,8 +27,6 @@ const DOWNGRADE_GUARD_TICKS = 5_000;
 const MIN_CONTROLLER_LEVEL = 2;
 const MAX_PERSISTED_EXPANSION_CANDIDATES = 5;
 const EXPANSION_SCOUT_INTEL_TTL = 10_000;
-const EXPANSION_CLAIM_ROUTE_ROOM_TICKS = 50;
-const EXPANSION_CLAIM_READY_BUFFER_TICKS = 10;
 const EXPANSION_SOURCE_COVERAGE_TARGET_PER_ROOM = 2;
 const EXPANSION_ENERGY_CAPACITY_CONSTRAINED_THRESHOLD = 800;
 const SYNERGY_MINERAL_GAP_BONUS = 220;
@@ -170,6 +169,28 @@ export interface NextExpansionTargetSelection {
   targetRoom?: string;
   controllerId?: Id<StructureController>;
   score?: number;
+}
+
+export function selectExpansionScoutTargets(
+  report: ExpansionCandidateReport,
+  limit = 1
+): RoomScoutingTarget[] {
+  const boundedLimit = Math.max(0, Math.floor(limit));
+  if (boundedLimit <= 0) {
+    return [];
+  }
+
+  return report.candidates
+    .filter((candidate) =>
+      candidate.evidenceStatus === 'insufficient-evidence' &&
+      candidate.adjacentToOwnedRoom &&
+      candidate.visible === false
+    )
+    .slice(0, boundedLimit)
+    .map((candidate) => ({
+      roomName: candidate.roomName,
+      ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
+    }));
 }
 
 export function buildRuntimeExpansionCandidateReport(colony: ColonySnapshot): ExpansionCandidateReport {
@@ -387,13 +408,12 @@ function buildUnseenExpansionCandidateEvidence(
 function buildVisibleExpansionCandidateEvidence(
   room: Room
 ): Omit<ExpansionCandidateInput, 'roomName' | 'order' | 'adjacentToOwnedRoom'> {
-  const controller = room.controller;
-  const sources = findRoomObjects<Source>(room, getFindConstant('FIND_SOURCES'));
+  const scouting = collectVisibleRoomScoutingSnapshot(room);
+  const controller = scouting.controller;
+  const sources = scouting.sources;
   const mineral = findRoomObjects<Mineral>(room, getFindConstant('FIND_MINERALS'))[0];
   const controllerSourceRange = calculateAverageControllerSourceRange(controller, sources);
-  const roomTerrain = getRoomTerrain(room);
-  const terrain = summarizeRoomTerrainFromTerrain(roomTerrain);
-  const sourceAccessPoints = calculateAverageSourceAccessPoints(roomTerrain, sources);
+  const sourceAccessPoints = calculateAverageSourceAccessPoints(scouting.terrain, sources);
   const hostileCreepCount = findRoomObjects<Creep>(room, getFindConstant('FIND_HOSTILE_CREEPS')).length;
   const hostileStructureCount = findRoomObjects<AnyStructure>(
     room,
@@ -407,7 +427,7 @@ function buildVisibleExpansionCandidateEvidence(
     sourceCount: sources.length,
     ...(typeof sourceAccessPoints === 'number' ? { sourceAccessPoints } : {}),
     ...(typeof controllerSourceRange === 'number' ? { controllerSourceRange } : {}),
-    ...(terrain ? { terrain } : {}),
+    ...(scouting.terrainQuality ? { terrain: scouting.terrainQuality } : {}),
     ...(mineral ? { mineral: summarizeExpansionMineral(mineral) } : {}),
     hostileCreepCount,
     hostileStructureCount
@@ -907,30 +927,8 @@ function isViableExpansionCandidate(candidate: ExpansionCandidateScore): boolean
     candidate.evidenceStatus === 'sufficient' &&
     candidate.preconditions.length === 0 &&
     typeof candidate.sourceCount === 'number' &&
-    candidate.sourceCount > 0 &&
-    isExpansionControllerAvailableForClaim(candidate)
+    candidate.sourceCount > 0
   );
-}
-
-function isExpansionControllerAvailableForClaim(candidate: ExpansionCandidateScore): boolean {
-  if (candidate.reservation?.relation !== 'own') {
-    return true;
-  }
-
-  return isOwnReservationClaimArrivalWindowOpen(candidate);
-}
-
-function isOwnReservationClaimArrivalWindowOpen(candidate: ExpansionCandidateScore): boolean {
-  const ticksToEnd = candidate.reservation?.ticksToEnd;
-  return typeof ticksToEnd === 'number' && ticksToEnd <= estimateExpansionClaimArrivalTicks(candidate);
-}
-
-function estimateExpansionClaimArrivalTicks(candidate: ExpansionCandidateScore): number {
-  const roomDistance =
-    candidate.routeDistance ??
-    candidate.nearestOwnedRoomDistance ??
-    (candidate.adjacentToOwnedRoom ? 1 : MAX_NEARBY_EXPANSION_ROUTE_DISTANCE);
-  return Math.max(1, Math.ceil(roomDistance)) * EXPANSION_CLAIM_ROUTE_ROOM_TICKS + EXPANSION_CLAIM_READY_BUFFER_TICKS;
 }
 
 function getSelectionSkipReason(report: ExpansionCandidateReport): NextExpansionTargetSelectionReason {

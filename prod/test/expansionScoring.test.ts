@@ -777,7 +777,7 @@ describe('next expansion scoring', () => {
     });
   });
 
-  it('does not persist own-reserved rooms before the claim arrival window opens', () => {
+  it('persists own-reserved rooms as next expansion claim targets immediately', () => {
     const colony = makeSafeColony();
     const report = scoreExpansionCandidates(
       makeInput([
@@ -795,14 +795,43 @@ describe('next expansion scoring', () => {
       evidenceStatus: 'sufficient',
       reservation: { relation: 'own', ticksToEnd: 4_500 }
     });
+    expect(report.next?.requiresControllerPressure).toBeUndefined();
+    expect(report.next?.risks).not.toContain('foreign reservation requires controller pressure');
     expect(refreshNextExpansionTargetSelection(colony, report, 103)).toEqual({
-      status: 'skipped',
+      status: 'planned',
       colony: 'W1N1',
-      reason: 'unavailable'
+      targetRoom: 'W3N1',
+      controllerId: 'controller3',
+      score: report.candidates[0].score
     });
-    expect(Memory.territory?.targets).toBeUndefined();
-    expect(Memory.territory?.intents).toBeUndefined();
-    expect(getExpansionCandidateMemory()[0]).not.toHaveProperty('recommendedAction');
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W3N1',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller3'
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W3N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 103,
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller3'
+      }
+    ]);
+    expect(getExpansionCandidateMemory()[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W3N1',
+      evidenceStatus: 'sufficient',
+      recommendedAction: 'claim',
+      visible: true,
+      updatedAt: 103
+    });
   });
 
   it('persists own-reserved rooms when the reservation will expire before arrival', () => {
