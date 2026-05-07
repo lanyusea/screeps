@@ -2402,6 +2402,112 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts a low-yield active pickup for a higher-yield stored source when spawn energy is stable', () => {
+    const currentDrop = { id: 'drop-low', resourceType: 'energy', amount: 5 } as Resource<ResourceConstant>;
+    const container = {
+      id: 'container-rich',
+      structureType: 'container',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureContainer;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'container-rich': 3,
+        'drop-low': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      memory: { role: 'worker', task: { type: 'pickup', targetId: 'drop-low' as Id<Resource<ResourceConstant>> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(5),
+        getFreeCapacity: jest.fn().mockReturnValue(45)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD,
+        find: jest.fn((type: number) => {
+          if (type === FIND_DROPPED_RESOURCES) {
+            return [currentDrop];
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [container];
+          }
+
+          return [];
+        })
+      },
+      pickup: jest.fn(),
+      withdraw: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      time: 779,
+      getObjectById: jest.fn((id: string) => (id === 'container-rich' ? container : currentDrop))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'container-rich' });
+    expect(creep.withdraw).toHaveBeenCalledWith(container, RESOURCE_ENERGY, 45);
+    expect(creep.pickup).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps a low-yield active pickup when spawn energy is scarce', () => {
+    const currentDrop = { id: 'drop-low', resourceType: 'energy', amount: 5 } as Resource<ResourceConstant>;
+    const container = {
+      id: 'container-rich',
+      structureType: 'container',
+      store: { getUsedCapacity: jest.fn().mockReturnValue(100) }
+    } as unknown as StructureContainer;
+    const getRangeTo = jest.fn((target: { id: string }) => {
+      const ranges: Record<string, number> = {
+        'container-rich': 3,
+        'drop-low': 1
+      };
+      return ranges[String(target.id)] ?? 99;
+    });
+    const creep = {
+      memory: { role: 'worker', task: { type: 'pickup', targetId: 'drop-low' as Id<Resource<ResourceConstant>> } },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(5),
+        getFreeCapacity: jest.fn().mockReturnValue(45)
+      },
+      pos: { getRangeTo },
+      room: {
+        energyAvailable: URGENT_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+        find: jest.fn((type: number) => {
+          if (type === FIND_DROPPED_RESOURCES) {
+            return [currentDrop];
+          }
+
+          if (type === FIND_STRUCTURES) {
+            return [container];
+          }
+
+          return [];
+        })
+      },
+      pickup: jest.fn().mockReturnValue(0),
+      withdraw: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker: creep },
+      time: 780,
+      getObjectById: jest.fn((id: string) => (id === 'container-rich' ? container : currentDrop))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'pickup', targetId: 'drop-low' });
+    expect(creep.pickup).toHaveBeenCalledWith(currentDrop);
+    expect(creep.withdraw).not.toHaveBeenCalled();
+    expect(creep.moveTo).not.toHaveBeenCalled();
+  });
+
   it('preempts a stale non-urgent refill task when a low-load worker can keep harvesting', () => {
     const source = { id: 'source1', energy: 300 } as Source;
     const spawn = {

@@ -17032,6 +17032,8 @@ var SWAMP_TRAVEL_COST = 10;
 var HARVEST_SOURCE_RANGE = 1;
 var HARVEST_SOURCE_CONTAINER_RANGE = 0;
 var MAX_HARVEST_PATH_OPS = 2e3;
+var LOW_LOAD_YIELD_SWITCH_MIN_IMPROVEMENT_RATIO = 1.1;
+var LOW_LOAD_YIELD_SWITCH_MIN_ABSOLUTE_GAIN = 0.25;
 var nearTermSpawnExtensionRefillReserveCache = null;
 var interRoomLiveTransferCandidateCache = null;
 var interRoomHaulReservationCache = null;
@@ -19304,6 +19306,14 @@ function getWorkerEnergyAcquisitionSourceTypePriority(source) {
 function selectLowLoadWorkerEnergyAcquisitionCandidate(creep) {
   return selectLowLoadWorkerEnergyContinuationCandidate(creep);
 }
+function shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield(creep, currentTask, selectedTask) {
+  if (!isLowLoadWorkerEnergyAcquisitionTask(currentTask) || !isLowLoadWorkerEnergyAcquisitionTask(selectedTask) || isSameLowLoadWorkerEnergyAcquisitionTask(currentTask, selectedTask) || getLowLoadWorkerEnergyContext(creep) === null || !hasAbundantEnergyForLowLoadYieldSwitch(creep.room)) {
+    return false;
+  }
+  const currentCandidate = createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, currentTask);
+  const selectedCandidate = createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, selectedTask);
+  return currentCandidate !== null && selectedCandidate !== null && isLowLoadWorkerEnergyYieldSwitchBetter(creep, currentCandidate, selectedCandidate);
+}
 function selectLowLoadWorkerEnergyContinuationTask(creep) {
   const candidate = selectLowLoadWorkerEnergyContinuationCandidate(creep);
   if (!candidate) {
@@ -19343,12 +19353,162 @@ function selectLowLoadWorkerEnergyContinuationCandidate(creep, maximumRange = LO
   }
   const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep, maximumRange).filter((candidate) => isLowLoadWorkerEnergyContinuationCandidateInRange(candidate, maximumRange)).filter((candidate) => isLowLoadWorkerEnergyContinuationCandidateReachable(creep, candidate));
   if (candidates.length === 0) {
-    return null;
+    return selectCurrentLowLoadWorkerEnergyAcquisitionCandidate(creep, maximumRange);
   }
-  return candidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0];
+  return selectLowLoadWorkerEnergyYieldAwareCandidate(
+    creep,
+    candidates,
+    candidates.sort(compareLowLoadWorkerEnergyAcquisitionCandidates)[0],
+    maximumRange
+  );
 }
 function shouldKeepLowLoadWorkerAcquiringEnergy(creep) {
   return getLowLoadWorkerEnergyContext(creep) !== null && !hasVisibleHostilePresence(creep.room);
+}
+function selectLowLoadWorkerEnergyYieldAwareCandidate(creep, candidates, defaultCandidate, maximumRange) {
+  const currentCandidate = selectCurrentLowLoadWorkerEnergyAcquisitionCandidate(creep, maximumRange);
+  if (!currentCandidate) {
+    return defaultCandidate;
+  }
+  if (!hasAbundantEnergyForLowLoadYieldSwitch(creep.room)) {
+    return currentCandidate;
+  }
+  const bestYieldCandidate = selectBestLowLoadWorkerEnergyYieldCandidate(creep, [
+    currentCandidate,
+    ...candidates
+  ]);
+  if (bestYieldCandidate && !isSameLowLoadWorkerEnergyAcquisitionTask(currentCandidate.task, bestYieldCandidate.task) && isLowLoadWorkerEnergyYieldSwitchBetter(creep, currentCandidate, bestYieldCandidate)) {
+    return bestYieldCandidate;
+  }
+  return currentCandidate;
+}
+function selectCurrentLowLoadWorkerEnergyAcquisitionCandidate(creep, maximumRange) {
+  var _a;
+  const task = (_a = creep.memory) == null ? void 0 : _a.task;
+  if (!isLowLoadWorkerEnergyAcquisitionTask(task)) {
+    return null;
+  }
+  const candidate = createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, task);
+  if (!candidate || !isLowLoadWorkerEnergyContinuationCandidateInRange(candidate, maximumRange) || !isLowLoadWorkerEnergyContinuationCandidateReachable(creep, candidate)) {
+    return null;
+  }
+  return candidate;
+}
+function selectBestLowLoadWorkerEnergyYieldCandidate(creep, candidates) {
+  const scoredCandidates = candidates.map((candidate) => ({
+    candidate,
+    energyPerTick: estimateLowLoadWorkerEnergyAcquisitionYield(creep, candidate)
+  })).filter(
+    (entry) => entry.energyPerTick !== null
+  );
+  if (scoredCandidates.length === 0) {
+    return null;
+  }
+  return scoredCandidates.sort(
+    (left, right) => right.energyPerTick - left.energyPerTick || compareLowLoadWorkerEnergyAcquisitionCandidates(left.candidate, right.candidate)
+  )[0].candidate;
+}
+function isLowLoadWorkerEnergyYieldSwitchBetter(creep, currentCandidate, selectedCandidate) {
+  const currentYield = estimateLowLoadWorkerEnergyAcquisitionYield(creep, currentCandidate);
+  const selectedYield = estimateLowLoadWorkerEnergyAcquisitionYield(creep, selectedCandidate);
+  return currentYield !== null && selectedYield !== null && selectedYield - currentYield >= LOW_LOAD_YIELD_SWITCH_MIN_ABSOLUTE_GAIN && selectedYield >= currentYield * LOW_LOAD_YIELD_SWITCH_MIN_IMPROVEMENT_RATIO;
+}
+function estimateLowLoadWorkerEnergyAcquisitionYield(creep, candidate) {
+  const range = candidate.range;
+  if (range === null) {
+    return null;
+  }
+  const tripEnergy = Math.min(candidate.energy, getFreeEnergyCapacity7(creep));
+  if (tripEnergy <= 0) {
+    return null;
+  }
+  const actionTicks = candidate.task.type === "harvest" && isHarvestSourceObject(candidate.source) ? estimateHarvestEnergyAcquisitionTicks(creep, candidate.source) : ENERGY_ACQUISITION_ACTION_TICKS;
+  if (!Number.isFinite(actionTicks) || actionTicks <= 0) {
+    return null;
+  }
+  return tripEnergy / Math.max(1, range + actionTicks);
+}
+function hasAbundantEnergyForLowLoadYieldSwitch(room) {
+  const energyAvailable = getRoomEnergyAvailable5(room);
+  if (energyAvailable === null) {
+    return false;
+  }
+  const energyCapacityAvailable = getRoomEnergyCapacityAvailable2(room);
+  if (energyCapacityAvailable !== null && energyCapacityAvailable <= 0) {
+    return false;
+  }
+  const abundanceThreshold = energyCapacityAvailable === null ? URGENT_SPAWN_REFILL_ENERGY_THRESHOLD : Math.min(URGENT_SPAWN_REFILL_ENERGY_THRESHOLD, energyCapacityAvailable);
+  return energyAvailable >= abundanceThreshold;
+}
+function createLowLoadWorkerEnergyAcquisitionCandidateForTask(creep, task) {
+  const source = findLowLoadWorkerEnergyAcquisitionSourceForTask(creep, task);
+  if (!source) {
+    return null;
+  }
+  if (isHarvestSourceObject(source)) {
+    if (getActiveWorkParts(creep) <= 0 || isSourceDepleted2(source)) {
+      return null;
+    }
+    return createLowLoadWorkerEnergyAcquisitionCandidate(
+      creep,
+      source,
+      getHarvestCandidateEnergy(creep, source),
+      task
+    );
+  }
+  if (isDroppedEnergySourceObject(source)) {
+    if (source.amount <= 0) {
+      return null;
+    }
+    return createLowLoadWorkerEnergyAcquisitionCandidate(creep, source, source.amount, task);
+  }
+  const energy = getUnreservedWorkerEnergyAcquisitionAmount(
+    source,
+    getStoredEnergy11(source),
+    createWorkerEnergyAcquisitionReservationContext(creep),
+    creep
+  );
+  return energy > 0 ? createLowLoadWorkerEnergyAcquisitionCandidate(creep, source, energy, task) : null;
+}
+function findLowLoadWorkerEnergyAcquisitionSourceForTask(creep, task) {
+  const targetId = String(task.targetId);
+  const gameObject = getGameObjectById2(targetId);
+  return gameObject && isLowLoadWorkerEnergyAcquisitionSourceForTask(creep, gameObject, task) ? gameObject : null;
+}
+function isLowLoadWorkerEnergyAcquisitionSourceForTask(creep, source, task) {
+  switch (task.type) {
+    case "harvest":
+      return isHarvestSourceObject(source);
+    case "pickup":
+      return isDroppedEnergySourceObject(source);
+    case "withdraw":
+      return hasEnergyStore(source) && isSafePersistedLowLoadWorkerWithdrawSource(creep, source);
+  }
+}
+function isSafePersistedLowLoadWorkerWithdrawSource(creep, source) {
+  var _a;
+  if (!isStructureEnergySourceObject(source)) {
+    return true;
+  }
+  const room = (_a = source.room) != null ? _a : creep.room;
+  return isSafeStoredEnergySource(source, {
+    creepOwnerUsername: getCreepOwnerUsername2(creep),
+    hasHostilePresence: hasVisibleHostilePresence(room),
+    room
+  });
+}
+function isStructureEnergySourceObject(source) {
+  return typeof (source == null ? void 0 : source.structureType) === "string";
+}
+function hasEnergyStore(source) {
+  var _a;
+  return typeof ((_a = source == null ? void 0 : source.store) == null ? void 0 : _a.getUsedCapacity) === "function";
+}
+function isLowLoadWorkerEnergyAcquisitionTask(task) {
+  return (task == null ? void 0 : task.type) === "harvest" || (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
+}
+function isSameLowLoadWorkerEnergyAcquisitionTask(left, right) {
+  return left.type === right.type && String(left.targetId) === String(right.targetId);
 }
 function findLowLoadWorkerEnergyContinuationCandidates(creep, maximumRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE) {
   const reservationContext = createWorkerEnergyAcquisitionReservationContext(creep);
@@ -19885,6 +20045,9 @@ function getRangeToWorkerEnergyAcquisitionSource(creep, source) {
   return getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
 }
 function getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source) {
+  if (isHarvestSourceObject(source)) {
+    return getHarvestSourceTravelCost(creep, source);
+  }
   const position = creep.pos;
   if (typeof (position == null ? void 0 : position.getRangeTo) !== "function") {
     return null;
@@ -22313,7 +22476,7 @@ function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, task, se
     return false;
   }
   const sample = (_a = creep.memory) == null ? void 0 : _a.workerEfficiency;
-  return (sample == null ? void 0 : sample.type) === "nearbyEnergyChoice" && sample.selectedTask === selectedTask.type && sample.targetId === String(selectedTask.targetId) && isCurrentWorkerEfficiencySample(sample);
+  return (sample == null ? void 0 : sample.type) === "nearbyEnergyChoice" && sample.selectedTask === selectedTask.type && sample.targetId === String(selectedTask.targetId) && isCurrentWorkerEfficiencySample(sample) && shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield(creep, task, selectedTask);
 }
 function shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, task, selectedTask) {
   var _a;

@@ -6,6 +6,7 @@ import {
   isUpgraderBoostActive,
   isWorkerRepairTargetComplete,
   selectWorkerTask,
+  shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield,
   shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill
 } from '../tasks/workerTasks';
 import {
@@ -809,7 +810,8 @@ function shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(
     sample?.type === 'nearbyEnergyChoice' &&
     sample.selectedTask === selectedTask.type &&
     sample.targetId === String(selectedTask.targetId) &&
-    isCurrentWorkerEfficiencySample(sample)
+    isCurrentWorkerEfficiencySample(sample) &&
+    shouldSwitchLowLoadWorkerEnergyAcquisitionTaskForYield(creep, task, selectedTask)
   );
 }
 
