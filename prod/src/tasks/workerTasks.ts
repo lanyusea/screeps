@@ -20,6 +20,7 @@ import {
   isSelfReservedRoom,
   type CriticalRoadLogisticsContext
 } from '../construction/criticalRoads';
+import { isColonyRoomThreatened } from '../defense/colonyThreats';
 import {
   CONSTRUCTION_SITE_IMPACT_PRIORITY,
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
@@ -107,7 +108,12 @@ const HARVEST_SOURCE_RANGE = 1;
 const HARVEST_SOURCE_CONTAINER_RANGE = 0;
 const MAX_HARVEST_PATH_OPS = 2_000;
 
-type RepairableWorkerStructure = StructureRoad | StructureContainer | StructureRampart | StructureSpawn;
+type RepairableWorkerStructure =
+  | StructureRoad
+  | StructureContainer
+  | StructureRampart
+  | StructureSpawn
+  | StructureWall;
 type CriticalInfrastructureRepairTarget = StructureRoad | StructureContainer | StructureSpawn;
 type StoredWorkerEnergySource = StructureContainer | StructureStorage | StructureTerminal | StructureLink | StructureSpawn;
 type UpgraderBoostStoredEnergySource = StructureContainer | StructureStorage;
@@ -564,6 +570,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     });
   }
 
+  const threatenedBarrierRepairTarget = selectThreatenedBarrierRepairTarget(creep);
+  if (threatenedBarrierRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: threatenedBarrierRepairTarget.id as Id<Structure>
+    });
+  }
+
   if (shouldReserveCarriedEnergyForNearTermSpawnExtensionRefill(creep)) {
     return null;
   }
@@ -852,6 +866,14 @@ function selectBootstrapSurvivalSpendingTask(
     return applyMinimumUsefulLoadPolicy(creep, {
       type: 'repair',
       targetId: criticalRepairTarget.id as Id<Structure>
+    });
+  }
+
+  const threatenedBarrierRepairTarget = selectThreatenedBarrierRepairTarget(creep);
+  if (threatenedBarrierRepairTarget) {
+    return applyMinimumUsefulLoadPolicy(creep, {
+      type: 'repair',
+      targetId: threatenedBarrierRepairTarget.id as Id<Structure>
     });
   }
 
@@ -3066,6 +3088,7 @@ type StructureConstantGlobal =
   | 'STRUCTURE_LINK'
   | 'STRUCTURE_STORAGE'
   | 'STRUCTURE_TERMINAL'
+  | 'STRUCTURE_WALL'
   | 'STRUCTURE_RAMPART';
 
 function matchesStructureType(actual: string | undefined, globalName: StructureConstantGlobal, fallback: string): boolean {
@@ -4816,6 +4839,19 @@ function selectRepairTarget(creep: Creep): RepairableWorkerStructure | null {
   return repairTargets.sort(compareRepairTargets)[0];
 }
 
+function selectThreatenedBarrierRepairTarget(creep: Creep): StructureRampart | StructureWall | null {
+  if (creep.room.controller?.my !== true || !isColonyRoomThreatened(creep.room.name)) {
+    return null;
+  }
+
+  const repairTargets = findVisibleRoomStructures(creep.room).filter(isThreatenedBarrierRepairTarget);
+  if (repairTargets.length === 0) {
+    return null;
+  }
+
+  return repairTargets.sort(compareRepairTargets)[0];
+}
+
 function selectCriticalInfrastructureRepairTarget(creep: Creep): CriticalInfrastructureRepairTarget | null {
   const visibleStructures = findVisibleRoomStructures(creep.room);
   const criticalSpawnRepairTarget = selectCriticalOwnedSpawnRepairTarget(creep, visibleStructures);
@@ -4910,6 +4946,12 @@ function isSafeRepairTarget(structure: AnyStructure): structure is RepairableWor
   return matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure);
 }
 
+function isThreatenedBarrierRepairTarget(
+  structure: AnyStructure
+): structure is StructureRampart | StructureWall {
+  return isBarrierRepairTarget(structure) && !isWorkerRepairTargetComplete(structure);
+}
+
 function isSafeRepairTargetForWorkerRoom(
   creep: Creep,
   structure: AnyStructure
@@ -4950,12 +4992,23 @@ function isRoadOrContainerRepairTarget(structure: AnyStructure): structure is St
   return isRoadRepairTarget(structure) || isContainerRepairTarget(structure);
 }
 
+function isBarrierRepairTarget(structure: AnyStructure): structure is StructureRampart | StructureWall {
+  return (
+    (matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure)) ||
+    isWallRepairTarget(structure)
+  );
+}
+
 function isRoadRepairTarget(structure: AnyStructure): structure is StructureRoad {
   return matchesStructureType(structure.structureType, 'STRUCTURE_ROAD', 'road');
 }
 
 function isContainerRepairTarget(structure: AnyStructure): structure is StructureContainer {
   return matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container');
+}
+
+function isWallRepairTarget(structure: AnyStructure): structure is StructureWall {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_WALL', 'constructedWall');
 }
 
 function isCriticalOwnedSpawnRepairTarget(structure: AnyStructure): structure is StructureSpawn {
@@ -4979,11 +5032,18 @@ export function isWorkerRepairTargetComplete(structure: Structure): boolean {
 }
 
 function getWorkerRepairHitsCeiling(structure: Structure): number {
-  if (matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure)) {
+  if (isWorkerBarrierRepairStructure(structure)) {
     return Math.min(structure.hitsMax, IDLE_RAMPART_REPAIR_HITS_CEILING);
   }
 
   return structure.hitsMax;
+}
+
+function isWorkerBarrierRepairStructure(structure: Structure): boolean {
+  return (
+    (matchesStructureType(structure.structureType, 'STRUCTURE_RAMPART', 'rampart') && isOwnedRampart(structure)) ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_WALL', 'constructedWall')
+  );
 }
 
 function isOwnedRampart(structure: Structure): structure is StructureRampart {

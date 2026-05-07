@@ -66,12 +66,14 @@ declare global {
     | 'defenderMove'
     | 'workerFallback';
   type DefenseUnsafeRoomReason = 'enemyTower' | 'hostilePresence';
+  type DefenseThreatLevel = 'none' | 'hostile_present' | 'under_attack';
   type TerritoryIntentSuppressionReason = 'deadZoneTarget' | 'deadZoneRoute';
 
   interface DefenseMemory {
     actions?: DefenseActionMemory[];
     rooms?: Record<string, DefenseActionMemory>;
     unsafeRooms?: Record<string, DefenseUnsafeRoomMemory>;
+    colonyThreats?: DefenseColonyThreatMemory;
   }
 
   interface DefenseActionMemory {
@@ -95,6 +97,20 @@ declare global {
     hostileCreepCount: number;
     hostileStructureCount: number;
     hostileTowerCount: number;
+  }
+
+  interface DefenseColonyThreatMemory {
+    updatedAt: number;
+    rooms: Record<string, DefenseColonyThreatRoomMemory>;
+  }
+
+  interface DefenseColonyThreatRoomMemory {
+    roomName: string;
+    level: DefenseThreatLevel;
+    updatedAt: number;
+    hostileCreepCount: number;
+    hostileStructureCount: number;
+    damagedCriticalStructureCount: number;
   }
 
   interface CreepDefenseMemory {

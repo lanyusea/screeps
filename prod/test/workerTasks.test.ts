@@ -438,7 +438,7 @@ function recordSurvivalMode(
 describe('selectWorkerTask', () => {
   beforeEach(() => {
     clearColonySurvivalAssessmentCache();
-    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; FIND_HOSTILE_CREEPS: number; FIND_HOSTILE_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_TOWER: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_LINK: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
+    (globalThis as unknown as { FIND_SOURCES: number; FIND_CONSTRUCTION_SITES: number; FIND_MY_STRUCTURES: number; FIND_DROPPED_RESOURCES: number; FIND_STRUCTURES: number; FIND_HOSTILE_CREEPS: number; FIND_HOSTILE_STRUCTURES: number; RESOURCE_ENERGY: ResourceConstant; STRUCTURE_SPAWN: StructureConstant; STRUCTURE_EXTENSION: StructureConstant; STRUCTURE_TOWER: StructureConstant; STRUCTURE_ROAD: StructureConstant; STRUCTURE_CONTAINER: StructureConstant; STRUCTURE_LINK: StructureConstant; STRUCTURE_STORAGE: StructureConstant; STRUCTURE_TERMINAL: StructureConstant; STRUCTURE_WALL: StructureConstant; STRUCTURE_RAMPART: StructureConstant }).FIND_SOURCES = 1;
     (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 3;
     (globalThis as unknown as { FIND_DROPPED_RESOURCES: number }).FIND_DROPPED_RESOURCES = 4;
@@ -456,6 +456,7 @@ describe('selectWorkerTask', () => {
     (globalThis as unknown as { STRUCTURE_LINK: StructureConstant }).STRUCTURE_LINK = 'link';
     (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
+    (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
     (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
     (globalThis as unknown as { CLAIM: BodyPartConstant }).CLAIM = 'claim';
     (globalThis as unknown as { WORK: BodyPartConstant }).WORK = 'work';
@@ -11404,6 +11405,45 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'rampart-low' });
+  });
+
+  it('prioritizes barrier repair in threatened rooms before ordinary repair work', () => {
+    const controller = { id: 'controller1', my: true } as StructureController;
+    const wall = makeStructure(
+      'wall-low',
+      'constructedWall' as StructureConstant,
+      IDLE_RAMPART_REPAIR_HITS_CEILING - 1,
+      300_000_000
+    );
+    const road = makeStructure('road-damaged', 'road' as StructureConstant, 3_000, 5_000);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      defense: {
+        colonyThreats: {
+          updatedAt: 200,
+          rooms: {
+            W1N1: {
+              roomName: 'W1N1',
+              level: 'hostile_present',
+              updatedAt: 200,
+              hostileCreepCount: 1,
+              hostileStructureCount: 0,
+              damagedCriticalStructureCount: 0
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {}, time: 200 };
+    const creep = {
+      store: { getUsedCapacity: jest.fn().mockReturnValue(50) },
+      room: {
+        name: 'W1N1',
+        controller,
+        find: jest.fn((type) => (type === FIND_STRUCTURES ? [road, wall] : []))
+      }
+    } as unknown as Creep;
+
+    expect(selectWorkerTask(creep)).toEqual({ type: 'repair', targetId: 'wall-low' });
   });
 
   it('skips owned ramparts at the idle repair ceiling without blocking container repair', () => {

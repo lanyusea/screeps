@@ -123,6 +123,129 @@ describe('runDefense', () => {
     ]);
   });
 
+  it('records cross-room colony threat levels for sibling rooms', () => {
+    const homeRoom = makeRoom({
+      roomName: 'W1N1',
+      controller: makeController()
+    });
+    const threatenedRoom = makeRoom({
+      roomName: 'W2N1',
+      controller: makeController({ upgradeBlocked: 12 }),
+      hostiles: [makeHostile('threat-hostile', 25, 25, 'W2N1')]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 105,
+      rooms: { W1N1: homeRoom, W2N1: threatenedRoom },
+      spawns: {},
+      creeps: {}
+    };
+
+    runDefense();
+
+    expect(Memory.defense?.colonyThreats).toMatchObject({
+      updatedAt: 105,
+      rooms: {
+        W1N1: {
+          roomName: 'W1N1',
+          level: 'none',
+          hostileCreepCount: 0,
+          hostileStructureCount: 0
+        },
+        W2N1: {
+          roomName: 'W2N1',
+          level: 'under_attack',
+          hostileCreepCount: 1,
+          hostileStructureCount: 0
+        }
+      }
+    });
+  });
+
+  it('keeps attacked sibling room priority targets from skipping local tower defense', () => {
+    const localHostile = makeHostile('local-hostile', 25, 25, 'W1N1');
+    const siblingHostile = makeHostile('sibling-hostile', 26, 25, 'W1N1');
+    let homeTowers: StructureTower[] = [];
+    const homeRoom = makeRoom({
+      roomName: 'W1N1',
+      controller: makeController(),
+      hostiles: [localHostile],
+      getTowers: () => homeTowers
+    });
+    const threatenedRoom = makeRoom({
+      roomName: 'W2N1',
+      controller: makeController({ upgradeBlocked: 12 }),
+      hostiles: [siblingHostile]
+    });
+    const homeTower = makeTower(homeRoom, {
+      id: 'home-tower',
+      attack: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    homeTowers = [homeTower];
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 106,
+      rooms: { W1N1: homeRoom, W2N1: threatenedRoom },
+      spawns: {},
+      creeps: {}
+    };
+
+    runDefense();
+
+    expect(homeTower.attack).toHaveBeenCalledWith(localHostile);
+    expect(homeTower.attack).not.toHaveBeenCalledWith(siblingHostile);
+  });
+
+  it('records damaged critical structures as under attack without visible hostiles', () => {
+    makeOwnedRoom({
+      spawnHits: 2_000,
+      spawnHitsMax: 5_000
+    });
+
+    runDefense();
+
+    expect(Memory.defense?.colonyThreats?.rooms?.W1N1).toMatchObject({
+      roomName: 'W1N1',
+      level: 'under_attack',
+      hostileCreepCount: 0,
+      hostileStructureCount: 0,
+      damagedCriticalStructureCount: 1
+    });
+  });
+
+  it('falls back to local hostiles when attacked sibling room targets are out of tower range', () => {
+    const localHostile = makeHostile('local-hostile', 25, 25, 'W1N1');
+    const siblingHostile = makeHostile('sibling-hostile', 26, 25, 'W2N1');
+    let homeTowers: StructureTower[] = [];
+    const homeRoom = makeRoom({
+      roomName: 'W1N1',
+      controller: makeController(),
+      hostiles: [localHostile],
+      getTowers: () => homeTowers
+    });
+    const threatenedRoom = makeRoom({
+      roomName: 'W2N1',
+      controller: makeController({ upgradeBlocked: 12 }),
+      hostiles: [siblingHostile]
+    });
+    const homeTower = makeTower(homeRoom, {
+      id: 'home-tower',
+      attack: jest.fn().mockReturnValue(OK_CODE),
+      energy: 500
+    });
+    homeTowers = [homeTower];
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 107,
+      rooms: { W1N1: homeRoom, W2N1: threatenedRoom },
+      spawns: {},
+      creeps: {}
+    };
+
+    runDefense();
+
+    expect(homeTower.attack).toHaveBeenCalledWith(localHostile);
+    expect(homeTower.attack).not.toHaveBeenCalledWith(siblingHostile);
+  });
+
   it('falls back to the nearest hostile structure when no hostile creep is visible', () => {
     const farStructure = makeHostileStructure('structure-a', 34, 25);
     const nearStructure = makeHostileStructure('structure-z', 26, 25);
@@ -718,12 +841,21 @@ function makeRoom({
     })
   } as unknown as Room;
 
+  for (const hostile of hostiles) {
+    (hostile as unknown as { room: Room }).room = room;
+  }
+
+  for (const hostileStructure of hostileStructures) {
+    (hostileStructure as unknown as { room: Room }).room = room;
+  }
+
   return room;
 }
 
 function makeController({
   my = true,
   level = 3,
+  upgradeBlocked = 0,
   safeModeAvailable = 0,
   safeMode,
   safeModeCooldown,
@@ -731,6 +863,7 @@ function makeController({
 }: {
   my?: boolean;
   level?: number;
+  upgradeBlocked?: number;
   safeModeAvailable?: number;
   safeMode?: number;
   safeModeCooldown?: number;
@@ -740,6 +873,7 @@ function makeController({
     id: 'controller1',
     my,
     level,
+    upgradeBlocked,
     safeModeAvailable,
     safeMode,
     safeModeCooldown,
