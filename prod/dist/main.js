@@ -18241,7 +18241,7 @@ function createRefillCandidates(context, config) {
         type: "transfer",
         targetId: structure.id
       },
-      isSpawnRefillStructure(structure) ? 0 : 1,
+      isPrimaryRefillStructure(structure) ? 0 : 1,
       config
     )
   );
@@ -18339,7 +18339,13 @@ function canReceiveControllerUpgradeEnergy(controller, config) {
   return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && Number.isFinite(controller.level) && controller.level < config.maxControllerLevel;
 }
 function isRefillStructure(structure, config) {
-  return (isSpawnRefillStructure(structure) || isTowerRefillStructure(structure)) && getFreeEnergyCapacity6(structure) >= config.minRefillFreeCapacity;
+  return (isPrimaryRefillStructure(structure) || isTowerRefillStructure(structure)) && getFreeEnergyCapacity6(structure) >= config.minRefillFreeCapacity;
+}
+function isPrimaryRefillStructure(structure) {
+  return isExtensionRefillStructure(structure) || isSpawnRefillStructure(structure);
+}
+function isExtensionRefillStructure(structure) {
+  return matchesStructureType13(structure.structureType, "STRUCTURE_EXTENSION", "extension") && "store" in structure;
 }
 function isSpawnRefillStructure(structure) {
   return matchesStructureType13(structure.structureType, "STRUCTURE_SPAWN", "spawn") && "store" in structure;
@@ -18412,36 +18418,40 @@ function runWorker(creep) {
   observeCreepBehaviorTick(creep);
   const selectedTask = selectWorkerTaskForRunner(creep);
   const currentTask = creep.memory.task;
+  let taskAssignedThisTick = false;
   if (!currentTask) {
-    assignSelectedTask(creep, selectedTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask) !== null;
   } else if (shouldReplaceTask(creep, currentTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
+  } else if (shouldRetainAssignedEnergyDropoffOptimization(creep, currentTask, selectedTask)) {
   } else if (shouldPreemptForVisibleTerritoryControllerTask(currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForSpawnRecovery(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForUrgentEnergySpending(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTaskForUpgraderBoost(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptEnergyAcquisitionTaskForNearbyEnergyChoice(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptLowLoadReturnTaskForEnergyAcquisition(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTransferTaskForControllerDowngradeGuard(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptTransferTaskForBetterEnergySink(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptSpendingTaskForNearTermSpawnExtensionRefill(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptSpendingTaskForEnergySink(currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptSpendingTaskForControllerPressure(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   } else if (shouldPreemptUpgradeTask(creep, currentTask, selectedTask)) {
-    assignSelectedTask(creep, selectedTask, currentTask);
+    taskAssignedThisTick = assignSelectedTask(creep, selectedTask, currentTask) !== null;
   }
-  optimizeAssignedEnergyDropoffTask(creep);
+  if (taskAssignedThisTick || isAssignedEnergyDropoffOptimizationTask(creep, creep.memory.task)) {
+    optimizeAssignedEnergyDropoffTask(creep);
+  }
   executeAssignedTask(creep, selectedTask);
 }
 function selectWorkerTaskForRunner(creep) {
@@ -18508,6 +18518,7 @@ function runControllerSustainMovement(creep) {
   if (sustain.role === "hauler" && shouldControllerSustainHaulerLoadAtHome(creep, sustain, roomName)) {
     const energyTask = selectControllerSustainHaulerEnergyTask(creep);
     if (energyTask) {
+      clearEnergyDropoffOptimizationMemory(creep);
       creep.memory.task = energyTask;
       executeAssignedTask(creep, energyTask);
       return true;
@@ -18548,6 +18559,7 @@ function isSpawnSupportMemory(value) {
 }
 function clearAssignedTask(creep) {
   delete creep.memory.task;
+  clearEnergyDropoffOptimizationMemory(creep);
 }
 function moveTowardRoom2(creep, roomName) {
   if (typeof creep.moveTo !== "function") {
@@ -18632,8 +18644,41 @@ function optimizeAssignedEnergyDropoffTask(creep) {
   const dropoff = findVisibleAssignedDurableEnergyDropoff(creep, task);
   const optimizedTask = selectEnergyDropoffOptimizationTask(creep, dropoff);
   if (optimizedTask && !isSameTask(task, optimizedTask)) {
+    rememberEnergyDropoffOptimization(creep, task, optimizedTask);
     creep.memory.task = optimizedTask;
+    return;
   }
+  clearEnergyDropoffOptimizationMemory(creep);
+}
+function shouldRetainAssignedEnergyDropoffOptimization(creep, currentTask, selectedTask) {
+  var _a;
+  if (!isAssignedEnergyDropoffOptimizationTask(creep, currentTask) || !selectedTask) {
+    return false;
+  }
+  const sourceTask = (_a = creep.memory.energyDropoffOptimization) == null ? void 0 : _a.sourceTask;
+  return (sourceTask == null ? void 0 : sourceTask.type) === selectedTask.type && sourceTask.targetId === String(selectedTask.targetId);
+}
+function isAssignedEnergyDropoffOptimizationTask(creep, task) {
+  var _a;
+  const optimizedTask = (_a = creep.memory.energyDropoffOptimization) == null ? void 0 : _a.optimizedTask;
+  return Boolean(
+    task && optimizedTask && optimizedTask.type === task.type && optimizedTask.targetId === String(task.targetId)
+  );
+}
+function rememberEnergyDropoffOptimization(creep, sourceTask, optimizedTask) {
+  creep.memory.energyDropoffOptimization = {
+    sourceTask: {
+      type: sourceTask.type,
+      targetId: String(sourceTask.targetId)
+    },
+    optimizedTask: {
+      type: optimizedTask.type,
+      targetId: String(optimizedTask.targetId)
+    }
+  };
+}
+function clearEnergyDropoffOptimizationMemory(creep) {
+  delete creep.memory.energyDropoffOptimization;
 }
 function findVisibleAssignedDurableEnergyDropoff(creep, task) {
   var _a;
@@ -18722,8 +18767,10 @@ function isUnavailableEnergyAcquisitionResult(result) {
 function assignSelectedTask(creep, selectedTask, previousTask) {
   if (!selectedTask || previousTask && isSameTask(previousTask, selectedTask)) {
     delete creep.memory.task;
+    clearEnergyDropoffOptimizationMemory(creep);
     return null;
   }
+  clearEnergyDropoffOptimizationMemory(creep);
   creep.memory.task = selectedTask;
   return selectedTask;
 }
@@ -18751,10 +18798,7 @@ function canExecuteTask(creep, task) {
 }
 function assignNextTask(creep) {
   const task = selectWorkerTaskForRunner(creep);
-  if (task) {
-    creep.memory.task = task;
-  }
-  return task;
+  return assignSelectedTask(creep, task);
 }
 function shouldReplaceTask(creep, task) {
   var _a, _b;

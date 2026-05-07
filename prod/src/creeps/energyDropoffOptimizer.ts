@@ -1,5 +1,6 @@
-type EnergyDropoffRefillStructure = StructureSpawn | StructureTower;
+type EnergyDropoffRefillStructure = StructureExtension | StructureSpawn | StructureTower;
 type EnergyDropoffStructureGlobal =
+  | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_SPAWN'
   | 'STRUCTURE_STORAGE'
   | 'STRUCTURE_TERMINAL'
@@ -114,7 +115,7 @@ function createRefillCandidates(
           type: 'transfer',
           targetId: structure.id as Id<AnyStoreStructure>
         },
-        isSpawnRefillStructure(structure) ? 0 : 1,
+        isPrimaryRefillStructure(structure) ? 0 : 1,
         config
       )
     );
@@ -271,9 +272,17 @@ function isRefillStructure(
   config: EnergyDropoffOptimizerConfig
 ): structure is EnergyDropoffRefillStructure {
   return (
-    (isSpawnRefillStructure(structure) || isTowerRefillStructure(structure)) &&
+    (isPrimaryRefillStructure(structure) || isTowerRefillStructure(structure)) &&
     getFreeEnergyCapacity(structure) >= config.minRefillFreeCapacity
   );
+}
+
+function isPrimaryRefillStructure(structure: AnyOwnedStructure): structure is StructureExtension | StructureSpawn {
+  return isExtensionRefillStructure(structure) || isSpawnRefillStructure(structure);
+}
+
+function isExtensionRefillStructure(structure: AnyOwnedStructure): structure is StructureExtension {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension') && 'store' in structure;
 }
 
 function isSpawnRefillStructure(structure: AnyOwnedStructure): structure is StructureSpawn {

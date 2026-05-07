@@ -2,6 +2,7 @@ import {
   selectEnergyDropoffOptimizationTask
 } from '../src/creeps/energyDropoffOptimizer';
 import { runWorker } from '../src/creeps/workerRunner';
+import * as workerTasks from '../src/tasks/workerTasks';
 
 function makePosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
   return { x, y, roomName } as RoomPosition;
@@ -45,7 +46,7 @@ function makeRefillStructure(
   structureType: StructureConstant,
   x = 4,
   y = 4
-): StructureSpawn | StructureTower {
+): StructureExtension | StructureSpawn | StructureTower {
   return {
     id,
     structureType,
@@ -53,7 +54,7 @@ function makeRefillStructure(
     store: {
       getFreeCapacity: jest.fn().mockReturnValue(100)
     }
-  } as unknown as StructureSpawn | StructureTower;
+  } as unknown as StructureExtension | StructureSpawn | StructureTower;
 }
 
 function makeRoom({
@@ -156,6 +157,7 @@ describe('energy dropoff optimizer', () => {
 
   it.each([
     ['spawn', 'spawn1' as const],
+    ['extension', 'extension1' as const],
     ['tower', 'tower1' as const]
   ])('selects a nearby %s refill before storage dropoff', (structureType, targetId) => {
     const storage = makeStorage();
@@ -171,6 +173,21 @@ describe('energy dropoff optimizer', () => {
     });
   });
 
+  it('prefers extension refill before tower refill on the storage return path', () => {
+    const storage = makeStorage();
+    const extension = makeRefillStructure('extension1', STRUCTURE_EXTENSION);
+    const tower = makeRefillStructure('tower1', STRUCTURE_TOWER);
+    const room = makeRoom({
+      myStructures: [tower as AnyOwnedStructure, extension as AnyOwnedStructure]
+    });
+    const creep = makeCreep(room);
+
+    expect(selectEnergyDropoffOptimizationTask(creep, storage)).toEqual({
+      type: 'transfer',
+      targetId: 'extension1'
+    });
+  });
+
   it('falls back to storage when no better target is near the return path', () => {
     const storage = makeStorage('storage1', 3, 3);
     const farSite = makeConstructionSite('site1', 12, 12);
@@ -183,7 +200,41 @@ describe('energy dropoff optimizer', () => {
     expect(selectEnergyDropoffOptimizationTask(creep, storage)).toBeNull();
   });
 
-  it('redirects an assigned storage transfer to the optimized dropoff target in the worker runner', () => {
+  it('redirects a newly assigned storage transfer to the optimized dropoff target in the worker runner', () => {
+    const storage = makeStorage();
+    const site = makeConstructionSite();
+    const room = makeRoom({
+      constructionSites: [site],
+      myStructures: [storage as unknown as AnyOwnedStructure]
+    });
+    const creep = {
+      ...makeCreep(room),
+      memory: {
+        role: 'worker',
+        colony: 'W1N1'
+      },
+      build: jest.fn().mockReturnValue(0),
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue({
+      type: 'transfer',
+      targetId: 'storage1' as Id<AnyStoreStructure>
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'storage1' ? storage : site))
+    };
+
+    runWorker(creep);
+    selectWorkerTask.mockRestore();
+
+    expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
+    expect(creep.build).toHaveBeenCalledWith(site);
+    expect(creep.transfer).not.toHaveBeenCalled();
+  });
+
+  it('does not re-optimize a retained storage transfer that was not assigned this tick', () => {
     const storage = makeStorage();
     const site = makeConstructionSite();
     const room = makeRoom({
@@ -201,12 +252,55 @@ describe('energy dropoff optimizer', () => {
       transfer: jest.fn().mockReturnValue(0),
       moveTo: jest.fn()
     } as unknown as Creep;
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue({
+      type: 'transfer',
+      targetId: 'storage1' as Id<AnyStoreStructure>
+    });
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       creeps: { Worker1: creep },
       getObjectById: jest.fn((id: string) => (id === 'storage1' ? storage : site))
     };
 
     runWorker(creep);
+    selectWorkerTask.mockRestore();
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'storage1' });
+    expect(creep.transfer).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
+    expect(creep.build).not.toHaveBeenCalled();
+  });
+
+  it('retains an existing optimized dropoff task when selection still points at the source dropoff', () => {
+    const storage = makeStorage();
+    const site = makeConstructionSite();
+    const room = makeRoom({
+      myStructures: [storage as unknown as AnyOwnedStructure]
+    });
+    const creep = {
+      ...makeCreep(room),
+      memory: {
+        role: 'worker',
+        colony: 'W1N1',
+        task: { type: 'build', targetId: 'site1' as Id<ConstructionSite> },
+        energyDropoffOptimization: {
+          sourceTask: { type: 'transfer', targetId: 'storage1' },
+          optimizedTask: { type: 'build', targetId: 'site1' }
+        }
+      },
+      build: jest.fn().mockReturnValue(0),
+      transfer: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    const selectWorkerTask = jest.spyOn(workerTasks, 'selectWorkerTask').mockReturnValue({
+      type: 'transfer',
+      targetId: 'storage1' as Id<AnyStoreStructure>
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Worker1: creep },
+      getObjectById: jest.fn((id: string) => (id === 'site1' ? site : storage))
+    };
+
+    runWorker(creep);
+    selectWorkerTask.mockRestore();
 
     expect(creep.memory.task).toEqual({ type: 'build', targetId: 'site1' });
     expect(creep.build).toHaveBeenCalledWith(site);
