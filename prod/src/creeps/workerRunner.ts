@@ -13,6 +13,10 @@ import { checkEnergyBufferForSpending } from '../economy/energyBuffer';
 import { getSpawnEnergyWithdrawalAmount } from '../economy/spawnEnergyBuffer';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
+  isDurableEnergyDropoff,
+  selectEnergyDropoffOptimizationTask
+} from './energyDropoffOptimizer';
+import {
   observeCreepBehaviorTick,
   recordCreepBehaviorContainerTransfer,
   recordCreepBehaviorEnergyAcquisition,
@@ -99,6 +103,7 @@ export function runWorker(creep: Creep): void {
     assignSelectedTask(creep, selectedTask, currentTask);
   }
 
+  optimizeAssignedEnergyDropoffTask(creep);
   executeAssignedTask(creep, selectedTask);
 }
 
@@ -372,6 +377,46 @@ function getStoredEnergy(target: unknown): number {
 
 function getCarriedEnergy(creep: Creep): number {
   return getStoredEnergy(creep);
+}
+
+function optimizeAssignedEnergyDropoffTask(creep: Creep): void {
+  const task = creep.memory.task;
+  if (task?.type !== 'transfer' || getUsedTransferEnergy(creep) <= 0) {
+    return;
+  }
+
+  const dropoff = findVisibleAssignedDurableEnergyDropoff(creep, task);
+  const optimizedTask = selectEnergyDropoffOptimizationTask(creep, dropoff);
+  if (optimizedTask && !isSameTask(task, optimizedTask)) {
+    creep.memory.task = optimizedTask;
+  }
+}
+
+function findVisibleAssignedDurableEnergyDropoff(
+  creep: Creep,
+  task: Extract<CreepTaskMemory, { type: 'transfer' }>
+): StructureStorage | StructureTerminal | null {
+  const targetId = String(task.targetId);
+  const room = creep.room;
+  const directDropoff = [room.storage, room.terminal].find(
+    (dropoff): dropoff is StructureStorage | StructureTerminal =>
+      isDurableEnergyDropoff(dropoff) && String(dropoff.id) === targetId
+  );
+  if (directDropoff) {
+    return directDropoff;
+  }
+
+  if (typeof FIND_MY_STRUCTURES !== 'number' || typeof room.find !== 'function') {
+    return null;
+  }
+
+  const structures = room.find(FIND_MY_STRUCTURES);
+  return (
+    structures.find(
+      (structure): structure is StructureStorage | StructureTerminal =>
+        isDurableEnergyDropoff(structure) && String(structure.id) === targetId
+    ) ?? null
+  );
 }
 
 function isControllerSustainMemory(value: unknown): value is CreepControllerSustainMemory {
