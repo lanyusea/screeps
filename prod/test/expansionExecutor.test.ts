@@ -109,13 +109,67 @@ describe('expansion executor', () => {
       }
     ]);
   });
+
+  it('skips and clears claim targets when the colony is not ready to bootstrap an expansion', () => {
+    const colony = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          action: 'claim',
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller2' as Id<StructureController>
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'claim',
+          status: 'planned',
+          updatedAt: 190,
+          createdBy: 'nextExpansionScoring',
+          controllerId: 'controller2' as Id<StructureController>
+        }
+      ]
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 300,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeExpansionRoom('W2N1', 'controller2' as Id<StructureController>, 2)
+      },
+      map: {
+        describeExits: jest.fn((roomName: string) => (roomName === 'W1N1' ? { '3': 'W2N1' } : {})),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0))
+      } as unknown as GameMap
+    };
+
+    expect(refreshExpansionExecutorIntent(colony, 300)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([]);
+  });
 });
 
-function makeColony(): ColonySnapshot {
+function makeColony({
+  energyAvailable = 1_300,
+  energyCapacityAvailable = 1_300,
+  spawns = [makeActiveSpawn('spawn-W1N1')]
+}: {
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
+  spawns?: StructureSpawn[];
+} = {}): ColonySnapshot {
   const room = {
     name: 'W1N1',
-    energyAvailable: 650,
-    energyCapacityAvailable: 650,
+    energyAvailable,
+    energyCapacityAvailable,
     controller: {
       id: 'controller1' as Id<StructureController>,
       my: true,
@@ -129,11 +183,20 @@ function makeColony(): ColonySnapshot {
 
   return {
     room,
-    spawns: [],
-    energyAvailable: 650,
-    energyCapacityAvailable: 650,
+    spawns,
+    energyAvailable,
+    energyCapacityAvailable,
     memory: room.memory
   };
+}
+
+function makeActiveSpawn(name: string): StructureSpawn {
+  return {
+    id: `${name}-id` as Id<StructureSpawn>,
+    name,
+    spawning: null,
+    isActive: jest.fn(() => true)
+  } as unknown as StructureSpawn;
 }
 
 function makeExpansionRoom(

@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
 import { maxRoomsForRcl } from './expansionScoring';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
 
@@ -9,6 +10,8 @@ const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'];
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const SOURCE_SCORE_WEIGHT = 1_000;
 const DISTANCE_SCORE_WEIGHT = 100;
+const DIRECT_ADJACENCY_SCORE_BONUS = 1_500;
+const NEARBY_ADJACENCY_SCORE_BONUS = 500;
 export const EXPANSION_PLANNER_TARGET_CREATOR = 'expansionPlanner';
 export const EXPANSION_TOWER_DEFAULT_MAX_PLACEMENTS = 6;
 export const EXPANSION_DEFENSE_BARRIER_DEFAULT_MAX_PLACEMENTS = 24;
@@ -53,6 +56,7 @@ export interface ExpansionPlannerCandidateInput {
   distance: number;
   sourceCount: number;
   order?: number;
+  adjacencyBonus?: number;
   hostileCreepCount?: number;
   hostileStructureCount?: number;
   controllerId?: Id<StructureController>;
@@ -65,6 +69,7 @@ export interface ExpansionPlannerCandidate extends ExpansionRoomSuitability {
   roomName: string;
   distance: number;
   order: number;
+  adjacencyBonus?: number;
   score: number;
 }
 
@@ -225,13 +230,15 @@ export function evaluateExpansionCandidate(
   });
   const order = normalizeNonNegativeInteger(candidate.order ?? 0);
   const distance = Math.max(1, normalizeNonNegativeInteger(candidate.distance));
+  const adjacencyBonus = normalizeExpansionPlannerAdjacencyBonus(candidate.adjacencyBonus, distance);
 
   return {
     colony: candidate.colony,
     roomName: candidate.roomName,
     distance,
     order,
-    score: scoreExpansionPlannerCandidate(suitability.sourceCount, distance),
+    adjacencyBonus,
+    score: scoreExpansionPlannerCandidate(suitability.sourceCount, distance, adjacencyBonus),
     ...suitability
   };
 }
@@ -239,10 +246,11 @@ export function evaluateExpansionCandidate(
 export function prioritizeExpansionCandidates(
   candidates: ExpansionPlannerCandidateInput[]
 ): ExpansionPlannerCandidate[] {
-  return candidates
-    .map(evaluateExpansionCandidate)
-    .filter((candidate) => candidate.suitable)
-    .sort(compareExpansionPlannerCandidates);
+  return dedupeExpansionPlannerCandidates(
+    candidates
+      .map(evaluateExpansionCandidate)
+      .filter((candidate) => candidate.suitable)
+  ).sort(compareExpansionPlannerCandidates);
 }
 
 export function buildRuntimeExpansionPlannerCandidates(
@@ -257,22 +265,29 @@ export function buildRuntimeExpansionPlannerCandidates(
   const ownerUsername = getControllerOwnerUsername(colony.room.controller);
   const ownedRoomNames = getVisibleOwnedRoomNames(colonyName, ownerUsername);
   const candidates: ExpansionPlannerCandidate[] = [];
-  const seenRooms = new Set<string>();
   let order = 0;
 
   for (const ownedRoomName of ownedRoomNames) {
     for (const adjacentRoomName of getAdjacentRoomNames(ownedRoomName)) {
-      if (seenRooms.has(adjacentRoomName) || ownedRoomNames.has(adjacentRoomName)) {
+      if (ownedRoomNames.has(adjacentRoomName)) {
         continue;
       }
 
-      seenRooms.add(adjacentRoomName);
       const room = rooms[adjacentRoomName];
       if (!room) {
         continue;
       }
 
-      candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, 1, order, ownerUsername));
+      candidates.push(
+        toRuntimeExpansionPlannerCandidate(
+          colonyName,
+          room,
+          1,
+          order,
+          ownerUsername,
+          getExpansionPlannerAdjacencyBonus(1)
+        )
+      );
       order += 1;
     }
   }
@@ -282,8 +297,7 @@ export function buildRuntimeExpansionPlannerCandidates(
       !room ||
       !isNonEmptyString(room.name) ||
       room.name === colonyName ||
-      ownedRoomNames.has(room.name) ||
-      seenRooms.has(room.name)
+      ownedRoomNames.has(room.name)
     ) {
       continue;
     }
@@ -293,14 +307,22 @@ export function buildRuntimeExpansionPlannerCandidates(
       continue;
     }
 
-    seenRooms.add(room.name);
-    candidates.push(toRuntimeExpansionPlannerCandidate(colonyName, room, distance, order, ownerUsername));
+    candidates.push(
+      toRuntimeExpansionPlannerCandidate(
+        colonyName,
+        room,
+        distance,
+        order,
+        ownerUsername,
+        getExpansionPlannerAdjacencyBonus(distance)
+      )
+    );
     order += 1;
   }
 
-  return candidates
-    .filter((candidate) => candidate.suitable)
-    .sort(compareExpansionPlannerCandidates);
+  return dedupeExpansionPlannerCandidates(
+    candidates.filter((candidate) => candidate.suitable)
+  ).sort(compareExpansionPlannerCandidates);
 }
 
 export function refreshExpansionPlannerIntent(
@@ -540,6 +562,7 @@ export function createExpansionIntent(
 
   if (action === 'claim') {
     removeSupersededExpansionReservationPlan(territoryMemory, intents, candidate.colony, candidate.roomName);
+    disableLowerPriorityExpansionClaimPlans(territoryMemory, intents, candidate, gameTime);
   }
 
   const target: TerritoryTargetMemory = {
@@ -1575,16 +1598,26 @@ function toRuntimeExpansionPlannerCandidate(
   room: Room,
   distance: number,
   order: number,
-  colonyOwnerUsername: string | undefined
+  colonyOwnerUsername: string | undefined,
+  adjacencyBonus?: number
 ): ExpansionPlannerCandidate {
   const suitability = evaluateExpansionRoomSuitability(room, colonyOwnerUsername);
   const normalizedDistance = Math.max(1, normalizeNonNegativeInteger(distance));
+  const normalizedAdjacencyBonus = normalizeExpansionPlannerAdjacencyBonus(
+    adjacencyBonus,
+    normalizedDistance
+  );
   return {
     colony,
     roomName: room.name,
     distance: normalizedDistance,
     order,
-    score: scoreExpansionPlannerCandidate(suitability.sourceCount, normalizedDistance),
+    adjacencyBonus: normalizedAdjacencyBonus,
+    score: scoreExpansionPlannerCandidate(
+      suitability.sourceCount,
+      normalizedDistance,
+      normalizedAdjacencyBonus
+    ),
     ...suitability
   };
 }
@@ -1594,16 +1627,58 @@ function compareExpansionPlannerCandidates(
   right: ExpansionPlannerCandidate
 ): number {
   return (
+    right.score - left.score ||
     right.sourceCount - left.sourceCount ||
     left.distance - right.distance ||
-    right.score - left.score ||
+    getExpansionPlannerCandidateAdjacencyBonus(right) - getExpansionPlannerCandidateAdjacencyBonus(left) ||
     left.order - right.order ||
     left.roomName.localeCompare(right.roomName)
   );
 }
 
-function scoreExpansionPlannerCandidate(sourceCount: number, distance: number): number {
-  return sourceCount * SOURCE_SCORE_WEIGHT - distance * DISTANCE_SCORE_WEIGHT;
+function scoreExpansionPlannerCandidate(
+  sourceCount: number,
+  distance: number,
+  adjacencyBonus: number
+): number {
+  return sourceCount * SOURCE_SCORE_WEIGHT + adjacencyBonus - distance * DISTANCE_SCORE_WEIGHT;
+}
+
+function dedupeExpansionPlannerCandidates(
+  candidates: ExpansionPlannerCandidate[]
+): ExpansionPlannerCandidate[] {
+  const candidatesByRoom = new Map<string, ExpansionPlannerCandidate>();
+  for (const candidate of candidates) {
+    const existingCandidate = candidatesByRoom.get(candidate.roomName);
+    if (!existingCandidate || compareExpansionPlannerCandidates(candidate, existingCandidate) < 0) {
+      candidatesByRoom.set(candidate.roomName, candidate);
+    }
+  }
+
+  return Array.from(candidatesByRoom.values());
+}
+
+function normalizeExpansionPlannerAdjacencyBonus(
+  adjacencyBonus: number | undefined,
+  distance: number
+): number {
+  if (typeof adjacencyBonus === 'number' && Number.isFinite(adjacencyBonus)) {
+    return Math.max(0, Math.floor(adjacencyBonus));
+  }
+
+  return getExpansionPlannerAdjacencyBonus(distance);
+}
+
+function getExpansionPlannerAdjacencyBonus(distance: number): number {
+  return distance <= 1
+    ? DIRECT_ADJACENCY_SCORE_BONUS
+    : distance <= EXPANSION_PLANNER_MAX_ROUTE_DISTANCE
+      ? NEARBY_ADJACENCY_SCORE_BONUS
+      : 0;
+}
+
+function getExpansionPlannerCandidateAdjacencyBonus(candidate: ExpansionPlannerCandidate): number {
+  return normalizeExpansionPlannerAdjacencyBonus(candidate.adjacencyBonus, candidate.distance);
 }
 
 function selectExpansionIntentAction(colony: ColonySnapshot): TerritoryControlAction {
@@ -1622,7 +1697,52 @@ function selectExpansionIntentAction(colony: ColonySnapshot): TerritoryControlAc
     return 'reserve';
   }
 
-  return 'claim';
+  return isExpansionPlannerClaimReady(colony) ? 'claim' : 'reserve';
+}
+
+function isExpansionPlannerClaimReady(colony: ColonySnapshot): boolean {
+  const controller = colony.room.controller;
+  return (
+    controller?.my === true &&
+    typeof controller.level === 'number' &&
+    controller.level >= 2 &&
+    hasActiveExpansionPlannerSpawn(colony) &&
+    !hasExpansionPlannerActiveHostiles(colony.room) &&
+    !hasExpansionPlannerPendingThreat(colony.room.name, getGameTime()) &&
+    colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY &&
+    colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+  );
+}
+
+function hasActiveExpansionPlannerSpawn(colony: ColonySnapshot): boolean {
+  return colony.spawns.some((spawn) => {
+    if (typeof spawn.isActive !== 'function') {
+      return true;
+    }
+
+    try {
+      return spawn.isActive() !== false;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function hasExpansionPlannerActiveHostiles(room: Room): boolean {
+  return (
+    findRoomObjects<Creep>(room, getFindConstant('FIND_HOSTILE_CREEPS')).length > 0 ||
+    findRoomObjects<AnyStructure>(room, getFindConstant('FIND_HOSTILE_STRUCTURES')).length > 0
+  );
+}
+
+function hasExpansionPlannerPendingThreat(roomName: string, gameTime: number): boolean {
+  const threatMemory = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense?.colonyThreats;
+  const roomThreat = threatMemory?.rooms?.[roomName];
+  return (
+    threatMemory?.updatedAt === gameTime &&
+    roomThreat?.updatedAt === gameTime &&
+    roomThreat.level !== 'none'
+  );
 }
 
 function refreshTerminalExpansionPlans(
@@ -1992,6 +2112,50 @@ function removeSupersededExpansionReservationPlan(
     ) {
       intents.splice(index, 1);
     }
+  }
+}
+
+function disableLowerPriorityExpansionClaimPlans(
+  territoryMemory: TerritoryMemory,
+  intents: TerritoryIntentMemory[],
+  selectedCandidate: ExpansionPlannerCandidate,
+  gameTime: number
+): void {
+  if (Array.isArray(territoryMemory.targets)) {
+    for (const rawTarget of territoryMemory.targets) {
+      const target = normalizeTerritoryTarget(rawTarget);
+      if (
+        !target ||
+        target.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR ||
+        target.action !== 'claim' ||
+        target.roomName !== selectedCandidate.roomName ||
+        target.enabled === false ||
+        target.colony === selectedCandidate.colony
+      ) {
+        continue;
+      }
+
+      rawTarget.enabled = false;
+    }
+  }
+
+  for (let index = 0; index < intents.length; index += 1) {
+    const intent = intents[index];
+    if (
+      intent.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR ||
+      intent.action !== 'claim' ||
+      intent.targetRoom !== selectedCandidate.roomName ||
+      (intent.status !== 'planned' && intent.status !== 'active') ||
+      intent.colony === selectedCandidate.colony
+    ) {
+      continue;
+    }
+
+    intents[index] = {
+      ...intent,
+      status: 'inactive',
+      updatedAt: gameTime
+    };
   }
 }
 

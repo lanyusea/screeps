@@ -1288,7 +1288,10 @@ describe('runEconomy', () => {
   it('turns a safe occupation recommendation into same-tick expansion claim pressure', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
     const targetRoom = makeVisibleReserveRoom('W2N1', 'controller2' as Id<StructureController>);
     const spawn = {
       name: 'Spawn1',
@@ -1314,17 +1317,21 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W2N1-320', {
-      memory: {
-        role: 'claimer',
-        colony: 'W1N1',
-        territory: {
-          targetRoom: 'W2N1',
-          action: 'claim',
-          controllerId: 'controller2'
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['claim', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      'claimer-W1N1-W2N1-320',
+      {
+        memory: {
+          role: 'claimer',
+          colony: 'W1N1',
+          territory: {
+            targetRoom: 'W2N1',
+            action: 'claim',
+            controllerId: 'controller2'
+          }
         }
       }
-    });
+    );
     expect(Memory.territory?.targets).toEqual([
       {
         colony: 'W1N1',
@@ -1369,7 +1376,10 @@ describe('runEconomy', () => {
         }
       }
     };
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
     const spawn = {
       name: 'Spawn1',
       room,
@@ -1396,17 +1406,21 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(spawn.spawnCreep).toHaveBeenCalledWith(['claim', 'move'], 'claimer-W1N1-W2N1-505', {
-      memory: {
-        role: 'claimer',
-        colony: 'W1N1',
-        territory: {
-          targetRoom: 'W2N1',
-          action: 'claim',
-          controllerId: 'controller2'
+    expect(spawn.spawnCreep).toHaveBeenCalledWith(
+      ['claim', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      'claimer-W1N1-W2N1-505',
+      {
+        memory: {
+          role: 'claimer',
+          colony: 'W1N1',
+          territory: {
+            targetRoom: 'W2N1',
+            action: 'claim',
+            controllerId: 'controller2'
+          }
         }
       }
-    });
+    );
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
       colony: 'W1N1',
@@ -1438,8 +1452,17 @@ describe('runEconomy', () => {
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
     const workers = {
       Worker1: makeEconomyWorker(room),
       Worker2: makeEconomyWorker(room),
@@ -1449,7 +1472,7 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 501,
       rooms: { W1N1: room, W2N1: targetRoom },
-      spawns: {},
+      spawns: { Spawn1: spawn },
       creeps: workers,
       getObjectById: jest.fn().mockReturnValue(null),
       map: {
@@ -1461,7 +1484,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
     expect(room.memory.lastExpansionScoreTime).toBe(501);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
@@ -1482,11 +1505,15 @@ describe('runEconomy', () => {
     getRoomTerrain.mockImplementation(() => {
       throw new Error('next expansion scoring should reuse the cached selection between refresh ticks');
     });
+    (spawn as StructureSpawn & { spawning: Spawning | null }).spawning = {
+      name: 'claimer-W1N1-W2N1-501',
+      remainingTime: 1
+    } as Spawning;
     (globalThis as unknown as { Game: Partial<Game> }).Game.time = 502;
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
     expect(room.memory.lastExpansionScoreTime).toBe(501);
   });
 
@@ -1504,8 +1531,17 @@ describe('runEconomy', () => {
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
     const workers = {
       Worker1: makeEconomyWorker(room),
       Worker2: makeEconomyWorker(room),
@@ -1515,7 +1551,7 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 501,
       rooms: { W1N1: room, W2N1: targetRoom },
-      spawns: {},
+      spawns: { Spawn1: spawn },
       creeps: workers,
       getObjectById: jest.fn().mockReturnValue(null),
       map: {
@@ -1527,12 +1563,12 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    room.energyCapacityAvailable = 750;
+    room.energyCapacityAvailable = 1_400;
     (globalThis as unknown as { Game: Partial<Game> }).Game.time = 502;
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(4);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(6);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
@@ -1555,8 +1591,17 @@ describe('runEconomy', () => {
     (globalThis as unknown as { TERRAIN_MASK_WALL: number }).TERRAIN_MASK_WALL = 1;
     (globalThis as unknown as { TERRAIN_MASK_SWAMP: number }).TERRAIN_MASK_SWAMP = 2;
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
-    const room = makeTerritoryReadyEconomyRoom();
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300
+    });
     const targetRoom = makeVisibleExpansionScoringRoom('W2N1', 'controller2' as Id<StructureController>);
+    const spawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
     const workers = {
       Worker1: makeEconomyWorker(room),
       Worker2: makeEconomyWorker(room),
@@ -1566,7 +1611,7 @@ describe('runEconomy', () => {
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       time: 501,
       rooms: { W1N1: room, W2N1: targetRoom },
-      spawns: {},
+      spawns: { Spawn1: spawn },
       creeps: workers,
       getObjectById: jest.fn().mockReturnValue(null),
       map: {
@@ -1587,7 +1632,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(6);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'skipped',

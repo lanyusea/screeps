@@ -1,8 +1,10 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
 import { runRecommendedExpansionClaimExecutor } from './claimExecutor';
 import {
   buildRuntimeExpansionCandidateReport,
+  clearNextExpansionTargetIntent,
   NEXT_EXPANSION_TARGET_CREATOR,
   refreshNextExpansionTargetSelection,
   selectExpansionScoutTargets,
@@ -38,7 +40,15 @@ export function refreshExpansionExecutorIntent(
   }
 
   const report = buildRuntimeExpansionCandidateReport(colony);
-  const selection = refreshNextExpansionTargetSelection(colony, report, gameTime);
+  let selection = refreshNextExpansionTargetSelection(colony, report, gameTime);
+  if (selection.status === 'planned' && !isExpansionExecutorClaimReady(colony, gameTime)) {
+    clearNextExpansionTargetIntent(colonyName);
+    selection = {
+      status: 'skipped',
+      colony: colonyName,
+      reason: 'unmetPreconditions'
+    };
+  }
   const scoutTargetRooms: string[] = [];
   if (selection.targetRoom) {
     scoutTargetRooms.push(selection.targetRoom);
@@ -204,14 +214,76 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot): string {
 
   return [
     colony.room.name,
+    colony.energyAvailable,
     colony.energyCapacityAvailable,
     controllerLevel,
     getGclLevel() ?? 'unknown',
     countVisibleOwnedRooms(),
     downgradeState,
+    countActiveExpansionExecutorSpawns(colony),
+    getExpansionExecutorThreatState(colony.room.name, getGameTime()),
     countActivePostClaimBootstraps(),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join('|');
+}
+
+function isExpansionExecutorClaimReady(colony: ColonySnapshot, gameTime: number): boolean {
+  const controller = colony.room.controller;
+  return (
+    controller?.my === true &&
+    isFiniteNumber(controller.level) &&
+    controller.level >= 2 &&
+    countActiveExpansionExecutorSpawns(colony) > 0 &&
+    !hasExpansionExecutorActiveHostiles(colony.room) &&
+    getExpansionExecutorThreatState(colony.room.name, gameTime) === 'none' &&
+    colony.energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY &&
+    colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY
+  );
+}
+
+function countActiveExpansionExecutorSpawns(colony: ColonySnapshot): number {
+  const snapshotSpawnCount = colony.spawns.filter(isActiveExpansionExecutorSpawn).length;
+  if (snapshotSpawnCount > 0) {
+    return snapshotSpawnCount;
+  }
+
+  const gameSpawns = (globalThis as { Game?: Partial<Game> }).Game?.spawns;
+  if (!gameSpawns) {
+    return 0;
+  }
+
+  return Object.values(gameSpawns).filter(
+    (spawn) => spawn?.room?.name === colony.room.name && isActiveExpansionExecutorSpawn(spawn)
+  ).length;
+}
+
+function isActiveExpansionExecutorSpawn(spawn: StructureSpawn): boolean {
+  if (typeof spawn.isActive !== 'function') {
+    return true;
+  }
+
+  try {
+    return spawn.isActive() !== false;
+  } catch {
+    return false;
+  }
+}
+
+function hasExpansionExecutorActiveHostiles(room: Room): boolean {
+  return (
+    findRoomObjects<Creep>(room, getFindConstant('FIND_HOSTILE_CREEPS')).length > 0 ||
+    findRoomObjects<AnyStructure>(room, getFindConstant('FIND_HOSTILE_STRUCTURES')).length > 0
+  );
+}
+
+function getExpansionExecutorThreatState(roomName: string, gameTime: number): DefenseThreatLevel {
+  const threatMemory = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense?.colonyThreats;
+  const roomThreat = threatMemory?.rooms?.[roomName];
+  if (threatMemory?.updatedAt !== gameTime || roomThreat?.updatedAt !== gameTime) {
+    return 'none';
+  }
+
+  return roomThreat.level ?? 'none';
 }
 
 function refreshExpansionExecutorCacheStateKeyAfterCurrentTickScoutIntel(
@@ -286,6 +358,24 @@ function getLatestTerritoryScoutIntelUpdatedAt(colony: string): number {
 function getGameTime(): number {
   const gameTime = (globalThis as { Game?: Partial<Game> }).Game?.time;
   return typeof gameTime === 'number' ? gameTime : 0;
+}
+
+function findRoomObjects<T>(room: Room, findConstant: number | undefined): T[] {
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = room.find(findConstant as FindConstant);
+    return Array.isArray(result) ? (result as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getFindConstant(name: string): number | undefined {
+  const value = (globalThis as Record<string, unknown>)[name];
+  return typeof value === 'number' ? value : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
