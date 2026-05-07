@@ -146,7 +146,80 @@ describe('expansion planner', () => {
     ]);
   });
 
-  it('does not reactivate completed expansion intents', () => {
+  it('upgrades existing expansion planner reservations to claim targets when claim capacity opens', () => {
+    const controllerId = 'controller-W2N1' as Id<StructureController>;
+    const { colony } = makeColony({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 3
+    });
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          action: 'reserve',
+          createdBy: 'expansionPlanner',
+          controllerId
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'reserve',
+          status: 'planned',
+          updatedAt: 90,
+          createdBy: 'expansionPlanner',
+          controllerId
+        }
+      ]
+    };
+    installGame(colony, {
+      gclLevel: 2,
+      exits: { W1N1: { '3': 'W2N1' } },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1')
+      }
+    });
+
+    const plan = planTerritoryIntent(
+      colony,
+      { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+      3,
+      110
+    );
+
+    expect(plan).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      createdBy: 'expansionPlanner',
+      controllerId
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        controllerId
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 110,
+        createdBy: 'expansionPlanner',
+        controllerId
+      }
+    ]);
+  });
+
+  it('does not reactivate completed expansion intents while the candidate remains unsuitable', () => {
     const controllerId = 'controller-W2N1' as Id<StructureController>;
     Memory.territory = {
       targets: [
@@ -178,7 +251,8 @@ describe('expansion planner', () => {
         roomName: 'W2N1',
         distance: 1,
         sourceCount: 2,
-        controllerId
+        controllerId,
+        ownerUsername: 'me'
       }),
       'claim',
       120
@@ -203,6 +277,73 @@ describe('expansion planner', () => {
         action: 'claim',
         status: 'completed',
         updatedAt: 120,
+        createdBy: 'expansionPlanner',
+        controllerId
+      }
+    ]);
+  });
+
+  it('ignores stale terminal intent status when the current candidate is suitable', () => {
+    const controllerId = 'controller-W2N1' as Id<StructureController>;
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          action: 'claim',
+          createdBy: 'expansionPlanner',
+          controllerId,
+          enabled: false
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'claim',
+          status: 'inactive',
+          updatedAt: 100,
+          createdBy: 'expansionPlanner',
+          controllerId
+        }
+      ]
+    };
+
+    const intent = createExpansionIntent(
+      evaluateExpansionCandidate({
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        distance: 1,
+        sourceCount: 2,
+        controllerId
+      }),
+      'claim',
+      121
+    );
+
+    const territory = Memory.territory as TerritoryMemory;
+    expect(intent).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      score: 1_900,
+      controllerId
+    });
+    expect(territory.targets?.[0]).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      action: 'claim',
+      createdBy: 'expansionPlanner',
+      controllerId
+    });
+    expect(territory.targets?.[0]?.enabled).toBeUndefined();
+    expect(territory.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 121,
         createdBy: 'expansionPlanner',
         controllerId
       }

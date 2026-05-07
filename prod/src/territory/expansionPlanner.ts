@@ -73,6 +73,12 @@ export interface ExpansionPlannerEvaluation {
   controllerId?: Id<StructureController>;
 }
 
+interface ExpansionReservationUpgradeContext {
+  colony: string;
+  targetRoom: string;
+  action: TerritoryControlAction;
+}
+
 export function evaluateExpansionRoomSuitability(room: Room): ExpansionRoomSuitability {
   const ownerUsername = getControllerOwnerUsername(room.controller);
   const reservationUsername = getControllerReservationUsername(room.controller);
@@ -204,7 +210,10 @@ export function refreshExpansionPlannerIntent(
     refreshTerminalExpansionPlans(territoryMemory, colonyName, gameTime);
   }
 
-  if (territoryMemory && hasBlockingTerritoryPlan(territoryMemory, colonyName)) {
+  const potentialReservationUpgradeRooms = territoryMemory
+    ? getPotentialExpansionReservationUpgradeRooms(territoryMemory, colonyName)
+    : new Set<string>();
+  if (potentialReservationUpgradeRooms === null) {
     return {
       status: 'skipped',
       colony: colonyName,
@@ -215,7 +224,19 @@ export function refreshExpansionPlannerIntent(
 
   const candidates = buildRuntimeExpansionPlannerCandidates(colony);
   const candidate = candidates[0];
-  if (!candidate) {
+  const action = candidate ? selectExpansionIntentAction(colony) : null;
+  const reservationUpgrade = candidate && action ? getExpansionReservationUpgradeContext(candidate, action) : null;
+
+  if (territoryMemory && hasBlockingTerritoryPlan(territoryMemory, colonyName, reservationUpgrade)) {
+    return {
+      status: 'skipped',
+      colony: colonyName,
+      reason: 'existingTerritoryPlan',
+      candidates: []
+    };
+  }
+
+  if (!candidate || !action) {
     return {
       status: 'skipped',
       colony: colonyName,
@@ -224,7 +245,6 @@ export function refreshExpansionPlannerIntent(
     };
   }
 
-  const action = selectExpansionIntentAction(colony);
   const intent = createExpansionIntent(candidate, action, gameTime);
   if (!intent) {
     return {
@@ -280,6 +300,10 @@ export function createExpansionIntent(
 
   if (!candidate.suitable) {
     return null;
+  }
+
+  if (action === 'claim') {
+    removeSupersededExpansionReservationPlan(territoryMemory, intents, candidate.colony, candidate.roomName);
   }
 
   const target: TerritoryTargetMemory = {
@@ -486,7 +510,61 @@ function refreshTerminalExpansionPlans(
   }
 }
 
-function hasBlockingTerritoryPlan(territoryMemory: TerritoryMemory, colony: string): boolean {
+function getPotentialExpansionReservationUpgradeRooms(
+  territoryMemory: TerritoryMemory,
+  colony: string
+): Set<string> | null {
+  const intents = normalizeTerritoryIntents(territoryMemory.intents);
+  const roomNames = new Set<string>();
+
+  for (const intent of intents) {
+    if (
+      intent.colony !== colony ||
+      intent.targetRoom === colony ||
+      (intent.action !== 'claim' && intent.action !== 'reserve' && intent.action !== 'scout') ||
+      (intent.status !== 'planned' && intent.status !== 'active')
+    ) {
+      continue;
+    }
+
+    if (isPotentialExpansionReservationUpgradeIntent(intent)) {
+      roomNames.add(intent.targetRoom);
+      continue;
+    }
+
+    return null;
+  }
+
+  for (const rawTarget of Array.isArray(territoryMemory.targets) ? territoryMemory.targets : []) {
+    const target = normalizeTerritoryTarget(rawTarget);
+    if (
+      !target ||
+      target.colony !== colony ||
+      target.roomName === colony ||
+      target.enabled === false ||
+      !isExpansionControlAction(target.action)
+    ) {
+      continue;
+    }
+
+    if (isPotentialExpansionReservationUpgradeTarget(target, intents)) {
+      roomNames.add(target.roomName);
+      continue;
+    }
+
+    if (isBlockingExpansionTarget(rawTarget, colony, intents, null)) {
+      return null;
+    }
+  }
+
+  return roomNames;
+}
+
+function hasBlockingTerritoryPlan(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  reservationUpgrade: ExpansionReservationUpgradeContext | null
+): boolean {
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   if (
     intents.some(
@@ -494,17 +572,15 @@ function hasBlockingTerritoryPlan(territoryMemory: TerritoryMemory, colony: stri
         intent.colony === colony &&
         intent.targetRoom !== colony &&
         (intent.action === 'claim' || intent.action === 'reserve' || intent.action === 'scout') &&
-        (intent.status === 'planned' || intent.status === 'active')
+        (intent.status === 'planned' || intent.status === 'active') &&
+        !isUpgradeableExpansionReservationIntent(intent, reservationUpgrade)
     )
   ) {
     return true;
   }
 
   return Array.isArray(territoryMemory.targets)
-    ? territoryMemory.targets.some(
-        (target) =>
-          isBlockingExpansionTarget(target, colony, intents)
-      )
+    ? territoryMemory.targets.some((target) => isBlockingExpansionTarget(target, colony, intents, reservationUpgrade))
     : false;
 }
 
@@ -618,7 +694,8 @@ function findExpansionTarget(
 function isBlockingExpansionTarget(
   rawTarget: unknown,
   colony: string,
-  intents: TerritoryIntentMemory[]
+  intents: TerritoryIntentMemory[],
+  reservationUpgrade: ExpansionReservationUpgradeContext | null
 ): boolean {
   if (!isRecord(rawTarget)) {
     return false;
@@ -635,12 +712,100 @@ function isBlockingExpansionTarget(
     return false;
   }
 
+  if (isUpgradeableExpansionReservationTarget(target, reservationUpgrade)) {
+    return false;
+  }
+
   if (target.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR) {
     return true;
   }
 
   const matchingIntent = findExpansionIntent(intents, target.colony, target.roomName, target.action);
   return getTerminalIntentStatus(matchingIntent) === null;
+}
+
+function getExpansionReservationUpgradeContext(
+  candidate: ExpansionPlannerCandidate,
+  action: TerritoryControlAction
+): ExpansionReservationUpgradeContext | null {
+  return candidate.suitable && action === 'claim'
+    ? { colony: candidate.colony, targetRoom: candidate.roomName, action }
+    : null;
+}
+
+function isUpgradeableExpansionReservationIntent(
+  intent: TerritoryIntentMemory,
+  reservationUpgrade: ExpansionReservationUpgradeContext | null
+): boolean {
+  return (
+    reservationUpgrade !== null &&
+    reservationUpgrade.action === 'claim' &&
+    intent.createdBy === EXPANSION_PLANNER_TARGET_CREATOR &&
+    intent.colony === reservationUpgrade.colony &&
+    intent.targetRoom === reservationUpgrade.targetRoom &&
+    intent.action === 'reserve'
+  );
+}
+
+function isPotentialExpansionReservationUpgradeIntent(intent: TerritoryIntentMemory): boolean {
+  return intent.createdBy === EXPANSION_PLANNER_TARGET_CREATOR && intent.action === 'reserve';
+}
+
+function isUpgradeableExpansionReservationTarget(
+  target: TerritoryTargetMemory,
+  reservationUpgrade: ExpansionReservationUpgradeContext | null
+): boolean {
+  return (
+    reservationUpgrade !== null &&
+    reservationUpgrade.action === 'claim' &&
+    target.createdBy === EXPANSION_PLANNER_TARGET_CREATOR &&
+    target.colony === reservationUpgrade.colony &&
+    target.roomName === reservationUpgrade.targetRoom &&
+    target.action === 'reserve'
+  );
+}
+
+function isPotentialExpansionReservationUpgradeTarget(
+  target: TerritoryTargetMemory,
+  intents: TerritoryIntentMemory[]
+): boolean {
+  if (target.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR || target.action !== 'reserve') {
+    return false;
+  }
+
+  const matchingIntent = findExpansionIntent(intents, target.colony, target.roomName, target.action);
+  return getTerminalIntentStatus(matchingIntent) === null;
+}
+
+function removeSupersededExpansionReservationPlan(
+  territoryMemory: TerritoryMemory,
+  intents: TerritoryIntentMemory[],
+  colony: string,
+  roomName: string
+): void {
+  if (Array.isArray(territoryMemory.targets)) {
+    territoryMemory.targets = territoryMemory.targets.filter((rawTarget) => {
+      const target = normalizeTerritoryTarget(rawTarget);
+      return !(
+        target?.createdBy === EXPANSION_PLANNER_TARGET_CREATOR &&
+        target.colony === colony &&
+        target.roomName === roomName &&
+        target.action === 'reserve'
+      );
+    });
+  }
+
+  for (let index = intents.length - 1; index >= 0; index -= 1) {
+    const intent = intents[index];
+    if (
+      intent.createdBy === EXPANSION_PLANNER_TARGET_CREATOR &&
+      intent.colony === colony &&
+      intent.targetRoom === roomName &&
+      intent.action === 'reserve'
+    ) {
+      intents.splice(index, 1);
+    }
+  }
 }
 
 function getExpansionPlanKey(colony: string, targetRoom: string, action: TerritoryControlAction): string {
@@ -652,13 +817,13 @@ function getCandidateTerminalExpansionStatus(
   action: TerritoryControlAction,
   existingIntent: TerritoryIntentMemory | undefined
 ): TerminalExpansionIntentStatus | null {
+  if (candidate.suitable) {
+    return null;
+  }
+
   const terminalStatus = getTerminalIntentStatus(existingIntent);
   if (terminalStatus) {
     return terminalStatus;
-  }
-
-  if (candidate.suitable) {
-    return null;
   }
 
   const ownerUsername = getVisibleColonyOwnerUsername(candidate.colony);
