@@ -9,6 +9,7 @@ import {
 import { planConstructionForColony } from '../construction/planner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
+import { SOURCE_HARVESTER_ROLE, runSourceHarvester } from '../creeps/sourceHarvester';
 import { HAULER_ROLE, runHauler } from '../creeps/hauler';
 import { REMOTE_HARVESTER_ROLE, runRemoteHarvester } from '../creeps/remoteHarvester';
 import { getBodyCost, TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS } from '../spawn/bodyBuilder';
@@ -255,6 +256,8 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   for (const creep of creeps) {
     if (creep.memory.role === 'worker') {
       runWorker(creep);
+    } else if (creep.memory.role === SOURCE_HARVESTER_ROLE) {
+      runSourceHarvester(creep);
     } else if (creep.memory.role === REMOTE_HARVESTER_ROLE) {
       runRemoteHarvester(creep);
     } else if (creep.memory.role === HAULER_ROLE) {

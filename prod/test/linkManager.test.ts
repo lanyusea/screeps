@@ -15,6 +15,7 @@ describe('linkManager', () => {
       FIND_SOURCES: 2,
       RESOURCE_ENERGY: 'energy',
       STRUCTURE_LINK: 'link',
+      STRUCTURE_SPAWN: 'spawn',
       STRUCTURE_STORAGE: 'storage'
     });
   });
@@ -87,6 +88,50 @@ describe('linkManager', () => {
       }
     ]);
     expect(sourceLink.transferEnergy).toHaveBeenCalledWith(storageLink, 200);
+  });
+
+  it('routes source link energy to a spawn-side link when spawn extensions need refill', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const controllerLink = makeLink('controller-link', 25, 23, 800, 0);
+    const spawnLink = makeLink('spawn-link', 6, 5, 0, 800);
+    const spawn = makeSpawn('spawn1', 5, 5);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      links: [sourceLink, controllerLink, spawnLink],
+      sources: [makeSource('source1', 10, 10)],
+      spawns: [spawn]
+    });
+
+    expect(transferEnergy(room)).toEqual([
+      {
+        amount: 400,
+        destinationId: 'spawn-link',
+        destinationRole: 'spawn',
+        result: OK_CODE,
+        sourceId: 'source-link'
+      }
+    ]);
+    expect(sourceLink.transferEnergy).toHaveBeenCalledWith(spawnLink, 400);
+  });
+
+  it('does not route source link energy to a spawn-side link when room energy is full', () => {
+    const sourceLink = makeLink('source-link', 11, 10, 400, 400);
+    const controllerLink = makeLink('controller-link', 25, 23, 800, 0);
+    const spawnLink = makeLink('spawn-link', 6, 5, 0, 800);
+    const spawn = makeSpawn('spawn1', 5, 5);
+    const room = makeRoom({
+      controller: makeController(25, 25),
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      links: [sourceLink, controllerLink, spawnLink],
+      sources: [makeSource('source1', 10, 10)],
+      spawns: [spawn]
+    });
+
+    expect(transferEnergy(room)).toEqual([]);
+    expect(sourceLink.transferEnergy).not.toHaveBeenCalled();
   });
 
   it('respects source cooldown and empty or full link edge cases', () => {
@@ -256,19 +301,27 @@ describe('linkManager', () => {
 
 function makeRoom({
   controller = makeController(25, 25),
+  energyAvailable,
+  energyCapacityAvailable,
   links = [],
   sources = [],
+  spawns = [],
   storage
 }: {
   controller?: StructureController;
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
   links?: TestStructureLink[];
   sources?: Source[];
+  spawns?: StructureSpawn[];
   storage?: StructureStorage;
 }): Room {
-  const structures = storage ? [...links, storage] : links;
+  const structures = storage ? [...links, storage, ...spawns] : [...links, ...spawns];
   return {
     name: 'W1N1',
     controller,
+    ...(typeof energyAvailable === 'number' ? { energyAvailable } : {}),
+    ...(typeof energyCapacityAvailable === 'number' ? { energyCapacityAvailable } : {}),
     ...(storage ? { storage } : {}),
     find: jest.fn((type: number) => {
       if (type === FIND_MY_STRUCTURES) {
@@ -331,6 +384,15 @@ function makeSource(id: string, x: number, y: number): Source {
 
 function makeController(x: number, y: number): StructureController {
   return { id: 'controller1', my: true, pos: makeRoomPosition(x, y) } as unknown as StructureController;
+}
+
+function makeSpawn(id: string, x: number, y: number): StructureSpawn {
+  return {
+    id,
+    name: id,
+    structureType: 'spawn',
+    pos: makeRoomPosition(x, y)
+  } as unknown as StructureSpawn;
 }
 
 function makeRoomPosition(x: number, y: number): RoomPosition {

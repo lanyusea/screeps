@@ -128,6 +128,45 @@ describe('countCreepsByRole', () => {
     });
   });
 
+  it('counts local source harvesters as replacement-aware colony energy capacity', () => {
+    const worker = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+    } as Creep;
+    const sourceHarvester = {
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'W1N1',
+        sourceHarvester: {
+          roomName: 'W1N1',
+          sourceId: 'source1' as Id<Source>,
+          containerId: 'container1' as Id<StructureContainer>
+        }
+      },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+    } as Creep;
+    const expiringSourceHarvester = {
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'W1N1',
+        sourceHarvester: {
+          roomName: 'W1N1',
+          sourceId: 'source2' as Id<Source>,
+          containerId: 'container2' as Id<StructureContainer>
+        }
+      },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE
+    } as Creep;
+
+    expect(countCreepsByRole([worker, sourceHarvester, expiringSourceHarvester], 'W1N1')).toEqual({
+      worker: 1,
+      workerCapacity: 2,
+      sourceHarvester: 2,
+      claimer: 0,
+      claimersByTargetRoom: {}
+    });
+  });
+
   it('excludes colony claimers at replacement age from territory capacity', () => {
     const healthyClaimer = {
       memory: { role: 'claimer', colony: 'W1N1', territory: { targetRoom: 'W2N1', action: 'claim' } },
