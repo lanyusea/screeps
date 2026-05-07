@@ -1176,6 +1176,55 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('plans persisted expansion planner claim recommendations as claim execution work', () => {
+    const colony = makeSafeColony();
+    const controllerId = 'controller2' as Id<StructureController>;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W2N1: makeRecommendationRoom('W2N1', {
+          sourceCount: 2,
+          controller: { id: controllerId, my: false } as StructureController
+        })
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 580,
+            createdBy: 'expansionPlanner',
+            controllerId
+          }
+        ]
+      }
+    };
+
+    expect(
+      planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 581)
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      action: 'claim',
+      createdBy: 'expansionPlanner',
+      controllerId
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 581,
+        createdBy: 'expansionPlanner',
+        controllerId
+      }
+    ]);
+  });
+
   it('uses recommendation scoring to seed the strongest sufficient visible reserve candidate', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
