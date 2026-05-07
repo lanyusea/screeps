@@ -341,6 +341,83 @@ describe('expansion planner', () => {
     expect(Memory.territory).toBeUndefined();
   });
 
+  it('keeps existing reserve targets active when the controller is reserved by us', () => {
+    const controllerId = 'controller-W2N1' as Id<StructureController>;
+    const { colony } = makeColony({
+      energyAvailable: 1_300,
+      energyCapacityAvailable: 1_300,
+      controllerLevel: 3
+    });
+    Memory.territory = {
+      targets: [
+        {
+          colony: 'W1N1',
+          roomName: 'W2N1',
+          action: 'reserve',
+          createdBy: 'expansionPlanner',
+          controllerId
+        }
+      ],
+      intents: [
+        {
+          colony: 'W1N1',
+          targetRoom: 'W2N1',
+          action: 'reserve',
+          status: 'active',
+          updatedAt: 100,
+          createdBy: 'expansionPlanner',
+          controllerId
+        }
+      ]
+    };
+    installGame(colony, {
+      gclLevel: 1,
+      exits: { W1N1: {} },
+      rooms: {
+        W2N1: makeExpansionRoom('W2N1', {
+          controller: {
+            id: controllerId,
+            my: false,
+            reservation: { username: 'me', ticksToEnd: 3_000 }
+          } as StructureController
+        })
+      }
+    });
+    (Game.map.findRoute as jest.Mock).mockReturnValue([
+      { exit: 3, room: 'W1N2' },
+      { exit: 3, room: 'W2N2' },
+      { exit: 3, room: 'W2N1' }
+    ]);
+
+    const plan = refreshExpansionPlannerIntent(colony, 116);
+
+    expect(plan).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'existingTerritoryPlan'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        createdBy: 'expansionPlanner',
+        controllerId
+      }
+    ]);
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 100,
+        createdBy: 'expansionPlanner',
+        controllerId
+      }
+    ]);
+  });
+
   it('does not reactivate completed expansion intents while the candidate remains unsuitable', () => {
     const controllerId = 'controller-W2N1' as Id<StructureController>;
     Memory.territory = {
