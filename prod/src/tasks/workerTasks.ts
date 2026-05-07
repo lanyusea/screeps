@@ -3797,9 +3797,9 @@ function selectLowLoadWorkerEnergyContinuationCandidate(
     return null;
   }
 
-  const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep, maximumRange).filter((candidate) =>
-    isLowLoadWorkerEnergyContinuationCandidateInRange(candidate, maximumRange)
-  );
+  const candidates = findLowLoadWorkerEnergyContinuationCandidates(creep, maximumRange)
+    .filter((candidate) => isLowLoadWorkerEnergyContinuationCandidateInRange(candidate, maximumRange))
+    .filter((candidate) => isLowLoadWorkerEnergyContinuationCandidateReachable(creep, candidate));
   if (candidates.length === 0) {
     return null;
   }
@@ -3835,6 +3835,13 @@ function isLowLoadWorkerEnergyContinuationCandidateInRange(
   maximumRange = LOW_LOAD_WORKER_ENERGY_CONTINUATION_MAX_RANGE
 ): boolean {
   return candidate.range !== null && candidate.range <= maximumRange;
+}
+
+function isLowLoadWorkerEnergyContinuationCandidateReachable(
+  creep: Creep,
+  candidate: LowLoadWorkerEnergyAcquisitionCandidate
+): boolean {
+  return candidate.task.type !== 'withdraw' || isReachable(creep, candidate.source);
 }
 
 function toLowLoadWorkerEnergyAcquisitionCandidate(
