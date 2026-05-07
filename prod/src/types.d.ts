@@ -214,9 +214,12 @@ declare global {
   }
 
   interface EconomySpawnEnergyBufferRoomMemory {
+    baseThresholdPerSpawn?: number;
     currentEnergy: number;
     healthy: boolean;
     minimumEnergyPerSpawn?: number;
+    minerOutputBufferCredit?: number;
+    minerOutputEnergyPerTick?: number;
     rcl: number;
     reservedEnergy?: number;
     roomName: string;
