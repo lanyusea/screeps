@@ -16,6 +16,9 @@ import { logBestClaimTarget } from './territoryRunner';
 
 const EXPANSION_EXECUTOR_REFRESH_INTERVAL = 50;
 const EXPANSION_EXECUTOR_DOWNGRADE_GUARD_TICKS = 5_000;
+const EXPANSION_EXECUTOR_THREAT_MEMORY_STALE_TICKS = 5;
+
+type ExpansionExecutorThreatState = DefenseThreatLevel | 'unknown';
 
 interface CachedExpansionExecutorSelection {
   refreshedAt: number;
@@ -30,11 +33,11 @@ export function refreshExpansionExecutorIntent(
 ): NextExpansionTargetSelection {
   const colonyName = colony.room.name;
   const colonyMemory = getWritableColonyMemory(colony);
-  let stateKey = getExpansionExecutorCacheStateKey(colony);
+  let stateKey = getExpansionExecutorCacheStateKey(colony, gameTime);
   const cachedSelection = getCachedExpansionExecutorSelection(colonyMemory, colonyName);
   if (
     cachedSelection &&
-    isExpansionExecutorCacheReusable(cachedSelection, colonyName, gameTime, stateKey)
+    isExpansionExecutorCacheReusable(cachedSelection, colony, gameTime, stateKey)
   ) {
     return cachedSelection.selection;
   }
@@ -167,7 +170,7 @@ function normalizeExpansionExecutorSkipReason(
 
 function isExpansionExecutorCacheReusable(
   cachedSelection: CachedExpansionExecutorSelection,
-  colony: string,
+  colony: ColonySnapshot,
   gameTime: number,
   stateKey: string
 ): boolean {
@@ -179,9 +182,13 @@ function isExpansionExecutorCacheReusable(
     return false;
   }
 
+  if (cachedSelection.selection.status !== 'planned') {
+    return true;
+  }
+
   return (
-    cachedSelection.selection.status !== 'planned' ||
-    hasExpansionExecutorTarget(colony, cachedSelection.selection.targetRoom)
+    hasExpansionExecutorTarget(colony.room.name, cachedSelection.selection.targetRoom) &&
+    isExpansionExecutorClaimReady(colony, gameTime)
   );
 }
 
@@ -203,7 +210,7 @@ function hasExpansionExecutorTarget(colony: string, targetRoom: string | undefin
     : false;
 }
 
-function getExpansionExecutorCacheStateKey(colony: ColonySnapshot): string {
+function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = getGameTime()): string {
   const controller = colony.room.controller;
   const controllerLevel = isFiniteNumber(controller?.level) ? controller.level : 'unknown';
   const downgradeState =
@@ -214,17 +221,21 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot): string {
 
   return [
     colony.room.name,
-    colony.energyAvailable,
+    getExpansionExecutorAvailableEnergyState(colony.energyAvailable),
     colony.energyCapacityAvailable,
     controllerLevel,
     getGclLevel() ?? 'unknown',
     countVisibleOwnedRooms(),
     downgradeState,
     countActiveExpansionExecutorSpawns(colony),
-    getExpansionExecutorThreatState(colony.room.name, getGameTime()),
+    getExpansionExecutorThreatState(colony.room.name, gameTime),
     countActivePostClaimBootstraps(),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join('|');
+}
+
+function getExpansionExecutorAvailableEnergyState(energyAvailable: number): string {
+  return energyAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY ? 'availableReady' : 'availableWaiting';
 }
 
 function isExpansionExecutorClaimReady(colony: ColonySnapshot, gameTime: number): boolean {
@@ -276,14 +287,30 @@ function hasExpansionExecutorActiveHostiles(room: Room): boolean {
   );
 }
 
-function getExpansionExecutorThreatState(roomName: string, gameTime: number): DefenseThreatLevel {
+function getExpansionExecutorThreatState(roomName: string, gameTime: number): ExpansionExecutorThreatState {
   const threatMemory = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense?.colonyThreats;
-  const roomThreat = threatMemory?.rooms?.[roomName];
-  if (threatMemory?.updatedAt !== gameTime || roomThreat?.updatedAt !== gameTime) {
+  if (!threatMemory) {
     return 'none';
   }
 
-  return roomThreat.level ?? 'none';
+  const roomThreat = threatMemory?.rooms?.[roomName];
+  if (
+    !isRecentExpansionExecutorThreatMemory(threatMemory.updatedAt, gameTime) ||
+    !roomThreat ||
+    !isRecentExpansionExecutorThreatMemory(roomThreat.updatedAt, gameTime)
+  ) {
+    return 'unknown';
+  }
+
+  return roomThreat.level ?? 'unknown';
+}
+
+function isRecentExpansionExecutorThreatMemory(updatedAt: unknown, gameTime: number): boolean {
+  return (
+    isFiniteNumber(updatedAt) &&
+    updatedAt <= gameTime &&
+    gameTime - updatedAt <= EXPANSION_EXECUTOR_THREAT_MEMORY_STALE_TICKS
+  );
 }
 
 function refreshExpansionExecutorCacheStateKeyAfterCurrentTickScoutIntel(

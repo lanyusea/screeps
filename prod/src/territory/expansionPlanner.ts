@@ -27,6 +27,7 @@ const EXPANSION_TOWER_ENTRANCE_WEIGHT = 1;
 const EXPANSION_TOWER_MAX_ROAD_ANCHORS = 12;
 const EXPANSION_DEFENSE_BARRIER_MAX_CORE_RAMPARTS = 16;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
+const EXPANSION_PLANNER_THREAT_MEMORY_STALE_TICKS = 5;
 
 type TerminalExpansionIntentStatus = Extract<TerritoryIntentMemory['status'], 'inactive' | 'completed'>;
 
@@ -1715,17 +1716,30 @@ function isExpansionPlannerClaimReady(colony: ColonySnapshot): boolean {
 }
 
 function hasActiveExpansionPlannerSpawn(colony: ColonySnapshot): boolean {
-  return colony.spawns.some((spawn) => {
-    if (typeof spawn.isActive !== 'function') {
-      return true;
-    }
+  if (colony.spawns.some(isActiveExpansionPlannerSpawn)) {
+    return true;
+  }
 
-    try {
-      return spawn.isActive() !== false;
-    } catch {
-      return false;
-    }
-  });
+  const gameSpawns = (globalThis as { Game?: Partial<Game> }).Game?.spawns;
+  if (!gameSpawns) {
+    return false;
+  }
+
+  return Object.values(gameSpawns).some(
+    (spawn) => spawn?.room?.name === colony.room.name && isActiveExpansionPlannerSpawn(spawn)
+  );
+}
+
+function isActiveExpansionPlannerSpawn(spawn: StructureSpawn): boolean {
+  if (typeof spawn.isActive !== 'function') {
+    return true;
+  }
+
+  try {
+    return spawn.isActive() !== false;
+  } catch {
+    return false;
+  }
 }
 
 function hasExpansionPlannerActiveHostiles(room: Room): boolean {
@@ -1737,11 +1751,25 @@ function hasExpansionPlannerActiveHostiles(room: Room): boolean {
 
 function hasExpansionPlannerPendingThreat(roomName: string, gameTime: number): boolean {
   const threatMemory = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense?.colonyThreats;
+  if (!threatMemory) {
+    return false;
+  }
+
   const roomThreat = threatMemory?.rooms?.[roomName];
   return (
-    threatMemory?.updatedAt === gameTime &&
-    roomThreat?.updatedAt === gameTime &&
+    !isRecentExpansionPlannerThreatMemory(threatMemory.updatedAt, gameTime) ||
+    !roomThreat ||
+    !isRecentExpansionPlannerThreatMemory(roomThreat.updatedAt, gameTime) ||
     roomThreat.level !== 'none'
+  );
+}
+
+function isRecentExpansionPlannerThreatMemory(updatedAt: unknown, gameTime: number): boolean {
+  return (
+    typeof updatedAt === 'number' &&
+    Number.isFinite(updatedAt) &&
+    updatedAt <= gameTime &&
+    gameTime - updatedAt <= EXPANSION_PLANNER_THREAT_MEMORY_STALE_TICKS
   );
 }
 
@@ -2128,9 +2156,9 @@ function disableLowerPriorityExpansionClaimPlans(
         !target ||
         target.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR ||
         target.action !== 'claim' ||
-        target.roomName !== selectedCandidate.roomName ||
-        target.enabled === false ||
-        target.colony === selectedCandidate.colony
+        target.colony !== selectedCandidate.colony ||
+        target.roomName === selectedCandidate.roomName ||
+        target.enabled === false
       ) {
         continue;
       }
@@ -2144,9 +2172,9 @@ function disableLowerPriorityExpansionClaimPlans(
     if (
       intent.createdBy !== EXPANSION_PLANNER_TARGET_CREATOR ||
       intent.action !== 'claim' ||
-      intent.targetRoom !== selectedCandidate.roomName ||
-      (intent.status !== 'planned' && intent.status !== 'active') ||
-      intent.colony === selectedCandidate.colony
+      intent.colony !== selectedCandidate.colony ||
+      intent.targetRoom === selectedCandidate.roomName ||
+      (intent.status !== 'planned' && intent.status !== 'active')
     ) {
       continue;
     }

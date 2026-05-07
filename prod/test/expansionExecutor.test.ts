@@ -64,11 +64,95 @@ describe('expansion executor', () => {
     getRoomTerrain.mockImplementation(() => {
       throw new Error('cached expansion executor selection should avoid rescoring');
     });
+    colony.energyAvailable = 1_299;
+    (colony.room as Room & { energyAvailable: number }).energyAvailable = 1_299;
+    ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 101;
 
     expect(refreshExpansionExecutorIntent(colony, 101)).toMatchObject({
       status: 'planned',
       targetRoom: 'W3N1'
     });
+  });
+
+  it('revalidates claim readiness before reusing a cached planned selection', () => {
+    const colony = makeColony();
+    const homeSources = makeSources('W1N1', 2);
+    let hostileCreepCount = 0;
+    (colony.room.find as jest.Mock).mockImplementation((findType: number) => {
+      if (findType === FIND_SOURCES) {
+        return homeSources;
+      }
+      if (findType === FIND_HOSTILE_CREEPS) {
+        return Array.from({ length: hostileCreepCount }, (_value, index) => ({ id: `hostile-${index}` }));
+      }
+
+      return [];
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 150,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeExpansionRoom('W2N1', 'controller2' as Id<StructureController>, 2)
+      },
+      map: {
+        describeExits: jest.fn((roomName: string) => (roomName === 'W1N1' ? { '3': 'W2N1' } : {})),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0))
+      } as unknown as GameMap
+    };
+
+    expect(refreshExpansionExecutorIntent(colony, 150)).toMatchObject({
+      status: 'planned',
+      targetRoom: 'W2N1'
+    });
+
+    hostileCreepCount = 1;
+    ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 151;
+
+    expect(refreshExpansionExecutorIntent(colony, 151)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.targets).toEqual([]);
+  });
+
+  it('blocks claiming when recent threat memory was not refreshed on the current tick', () => {
+    const colony = makeColony();
+    Memory.defense = {
+      colonyThreats: {
+        updatedAt: 199,
+        rooms: {
+          W1N1: {
+            roomName: 'W1N1',
+            level: 'hostile_present',
+            updatedAt: 199,
+            hostileCreepCount: 1,
+            hostileStructureCount: 0,
+            damagedCriticalStructureCount: 0
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 200,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeExpansionRoom('W2N1', 'controller2' as Id<StructureController>, 2)
+      },
+      map: {
+        describeExits: jest.fn((roomName: string) => (roomName === 'W1N1' ? { '3': 'W2N1' } : {})),
+        findRoute: jest.fn(() => [{ exit: 3, room: 'W2N1' }]),
+        getRoomTerrain: jest.fn(() => makeTerrain(0))
+      } as unknown as GameMap
+    };
+
+    expect(refreshExpansionExecutorIntent(colony, 200)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.targets).toEqual([]);
   });
 
   it('requests scouting for the highest-ranked unseen expansion candidate', () => {
