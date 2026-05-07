@@ -11,6 +11,7 @@ const TERRAIN_SCAN_MIN = 2;
 const TERRAIN_SCAN_MAX = 47;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const DEFAULT_TERRAIN_SWAMP_MASK = 2;
+export const ROOM_SCOUTING_MAX_DISTANCE = 2;
 
 export type RoomScoutingTerrainType = 'plain' | 'swamp' | 'wall' | 'mixed' | 'unknown';
 export type RoomScoutingStatus = 'observed' | 'requested';
@@ -30,6 +31,7 @@ export interface VisibleRoomScoutingSnapshot {
 export interface RoomScoutingTarget {
   roomName: string;
   controllerId?: Id<StructureController>;
+  distance?: number;
 }
 
 export interface RoomScoutingRecord {
@@ -37,6 +39,7 @@ export interface RoomScoutingRecord {
   roomName: string;
   status: RoomScoutingStatus;
   updatedAt: number;
+  distance?: number;
   sourceCount?: number;
   controllerPresent?: boolean;
   controllerId?: Id<StructureController>;
@@ -82,6 +85,20 @@ export function refreshAdjacentRoomScouting(
   );
 }
 
+export function refreshNearbyRoomScouting(
+  colony: ColonySnapshot,
+  gameTime = getGameTime(),
+  telemetryEvents: RuntimeTelemetryEvent[] = [],
+  maxDistance = ROOM_SCOUTING_MAX_DISTANCE
+): RoomScoutingRefreshResult {
+  return refreshExpansionRoomScouting(
+    colony,
+    getNearbyRoomScoutingTargets(colony.room.name, maxDistance),
+    gameTime,
+    telemetryEvents
+  );
+}
+
 export function refreshExpansionRoomScouting(
   colony: ColonySnapshot,
   targets: RoomScoutingTarget[],
@@ -109,6 +126,7 @@ export function refreshExpansionRoomScouting(
         roomName: target.roomName,
         status: 'observed',
         updatedAt: gameTime,
+        ...(target.distance !== undefined ? { distance: target.distance } : {}),
         sourceCount: intel?.sourceCount ?? snapshot.sourceCount,
         controllerPresent: snapshot.controllerPresent,
         ...(intel?.controller?.id ?? snapshot.controllerId
@@ -125,6 +143,7 @@ export function refreshExpansionRoomScouting(
       roomName: target.roomName,
       status: 'requested',
       updatedAt: gameTime,
+      ...(target.distance !== undefined ? { distance: target.distance } : {}),
       ...(target.controllerId ? { controllerId: target.controllerId } : {})
     });
   }
@@ -134,6 +153,47 @@ export function refreshExpansionRoomScouting(
 
 export function getAdjacentRoomScoutingTargets(roomName: string): RoomScoutingTarget[] {
   return getAdjacentRoomNames(roomName).map((adjacentRoomName) => ({ roomName: adjacentRoomName }));
+}
+
+export function getNearbyRoomScoutingTargets(
+  roomName: string,
+  maxDistance = ROOM_SCOUTING_MAX_DISTANCE
+): RoomScoutingTarget[] {
+  if (!isNonEmptyString(roomName)) {
+    return [];
+  }
+
+  const boundedMaxDistance = Math.max(0, Math.floor(maxDistance));
+  if (boundedMaxDistance <= 0) {
+    return [];
+  }
+
+  const distances = new Map<string, number>([[roomName, 0]]);
+  const queue: Array<{ roomName: string; distance: number }> = [{ roomName, distance: 0 }];
+  const targets: RoomScoutingTarget[] = [];
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    if (current.distance >= boundedMaxDistance) {
+      continue;
+    }
+
+    for (const adjacentRoomName of getAdjacentRoomNames(current.roomName)) {
+      const distance = current.distance + 1;
+      const previousDistance = distances.get(adjacentRoomName);
+      if (previousDistance !== undefined && previousDistance <= distance) {
+        continue;
+      }
+
+      distances.set(adjacentRoomName, distance);
+      queue.push({ roomName: adjacentRoomName, distance });
+      if (adjacentRoomName !== roomName) {
+        targets.push({ roomName: adjacentRoomName, distance });
+      }
+    }
+  }
+
+  return targets;
 }
 
 export function classifyRoomTerrain(
