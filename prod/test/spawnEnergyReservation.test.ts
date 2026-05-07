@@ -1,4 +1,7 @@
-import { reserveSpawnEnergyForNextRequest } from '../src/economy/spawnEnergyReservation';
+import {
+  getReservedSpawnEnergy,
+  reserveSpawnEnergyForNextRequest
+} from '../src/economy/spawnEnergyReservation';
 
 describe('spawnEnergyReservation', () => {
   beforeEach(() => {
@@ -32,4 +35,34 @@ describe('spawnEnergyReservation', () => {
         roomName: 'W1N1'
       });
   });
+
+  it.each(['reservedAt', 'updatedAt'] as const)(
+    'ignores corrupt reservations missing %s',
+    (missingTimestamp) => {
+      (globalThis as unknown as { Game: Partial<Game> }).Game = {
+        rooms: { W1N1: {} as Room },
+        time: 100
+      };
+      (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+        economy: {
+          spawnEnergyReservation: {
+            updatedAt: 99,
+            rooms: {
+              W1N1: {
+                bodyCost: 400,
+                creepName: 'claimer-W1N1-W2N1-99',
+                ...(missingTimestamp === 'reservedAt' ? {} : { reservedAt: 99 }),
+                reservedEnergy: 400,
+                role: 'claimer',
+                roomName: 'W1N1',
+                ...(missingTimestamp === 'updatedAt' ? {} : { updatedAt: 99 })
+              } as EconomySpawnEnergyReservationRoomMemory
+            }
+          }
+        }
+      };
+
+      expect(getReservedSpawnEnergy('W1N1')).toBe(0);
+    }
+  );
 });

@@ -173,8 +173,17 @@ function normalizeSpawnEnergyReservation(
   const roomName = typeof value.roomName === 'string' && value.roomName.length > 0
     ? value.roomName
     : fallbackRoomName;
+  if (
+    typeof value.reservedAt !== 'number' ||
+    !Number.isFinite(value.reservedAt) ||
+    typeof value.updatedAt !== 'number' ||
+    !Number.isFinite(value.updatedAt)
+  ) {
+    return null;
+  }
+
   const reservedAt = normalizeNonNegativeInteger(value.reservedAt);
-  const updatedAt = normalizeNonNegativeInteger(value.updatedAt ?? reservedAt);
+  const updatedAt = normalizeNonNegativeInteger(value.updatedAt);
   const idleSince = normalizeOptionalNonNegativeInteger(value.idleSince);
   const idleTicks = normalizeOptionalNonNegativeInteger(value.idleTicks);
   const sourceCreepName = typeof value.sourceCreepName === 'string' && value.sourceCreepName.length > 0

@@ -13368,7 +13368,7 @@ function ensureSpawnEnergyReservationMemory(memory, gameTime) {
   return memory.spawnEnergyReservation;
 }
 function normalizeSpawnEnergyReservation(value, fallbackRoomName) {
-  var _a, _b, _c;
+  var _a, _b;
   if (!isPlainObject(value)) {
     return null;
   }
@@ -13380,8 +13380,11 @@ function normalizeSpawnEnergyReservation(value, fallbackRoomName) {
     return null;
   }
   const roomName = typeof value.roomName === "string" && value.roomName.length > 0 ? value.roomName : fallbackRoomName;
+  if (typeof value.reservedAt !== "number" || !Number.isFinite(value.reservedAt) || typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt)) {
+    return null;
+  }
   const reservedAt = normalizeNonNegativeInteger5(value.reservedAt);
-  const updatedAt = normalizeNonNegativeInteger5((_c = value.updatedAt) != null ? _c : reservedAt);
+  const updatedAt = normalizeNonNegativeInteger5(value.updatedAt);
   const idleSince = normalizeOptionalNonNegativeInteger(value.idleSince);
   const idleTicks = normalizeOptionalNonNegativeInteger(value.idleTicks);
   const sourceCreepName = typeof value.sourceCreepName === "string" && value.sourceCreepName.length > 0 ? value.sourceCreepName : void 0;
