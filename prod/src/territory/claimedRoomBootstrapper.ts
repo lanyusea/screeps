@@ -130,8 +130,13 @@ export function runClaimedRoomBootstrapper(colonies: ColonySnapshot[]): ClaimedR
   const refreshResult = refreshClaimedRoomBootstrapperOwnership();
   const activeRoomNames: string[] = [];
   const planned: ClaimedRoomBootstrapPlanResult[] = [];
+  const focusRoomName = selectClaimedRoomBootstrapFocusRoomName(colonies);
 
   for (const colony of colonies) {
+    if (focusRoomName !== null && colony.room.name !== focusRoomName && isClaimedRoomBootstrapActive(colony.room.name)) {
+      continue;
+    }
+
     const result = runClaimedRoomBootstrapperForColony(colony);
     if (!result) {
       continue;
@@ -202,6 +207,30 @@ export function runClaimedRoomBootstrapperForColony(
   }
 
   return { roomName: room.name, phase: 'complete' };
+}
+
+function selectClaimedRoomBootstrapFocusRoomName(colonies: ColonySnapshot[]): string | null {
+  return colonies
+    .filter((colony) => colony.room.controller?.my === true && isClaimedRoomBootstrapActive(colony.room.name))
+    .sort(compareClaimedRoomBootstrapFocusColonies)[0]?.room.name ?? null;
+}
+
+function compareClaimedRoomBootstrapFocusColonies(left: ColonySnapshot, right: ColonySnapshot): number {
+  const leftRecord = getBootstrapperRoomRecord(left.room.name);
+  const rightRecord = getBootstrapperRoomRecord(right.room.name);
+  return (
+    getClaimedRoomBootstrapFocusClaimedAt(leftRecord) - getClaimedRoomBootstrapFocusClaimedAt(rightRecord) ||
+    (leftRecord?.updatedAt ?? 0) - (rightRecord?.updatedAt ?? 0) ||
+    left.room.name.localeCompare(right.room.name)
+  );
+}
+
+function getClaimedRoomBootstrapFocusClaimedAt(
+  record: TerritoryClaimedRoomBootstrapMemory | null
+): number {
+  return typeof record?.claimedAt === 'number' && Number.isFinite(record.claimedAt)
+    ? record.claimedAt
+    : Number.MAX_SAFE_INTEGER;
 }
 
 export function isClaimedRoomBootstrapActive(roomName: string): boolean {

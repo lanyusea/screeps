@@ -97,7 +97,8 @@ import { recordPlannedMultiRoomUpgraderSpawn } from '../territory/multiRoomUpgra
 import { refreshControllerManagement } from '../territory/controllerManager';
 import {
   recordPostClaimBootstrapWorkerSpawn,
-  refreshPostClaimBootstrap
+  refreshPostClaimBootstrap,
+  selectPostClaimBootstrapFocusRoomName
 } from '../territory/postClaimBootstrap';
 import {
   buildStrategyRecommendationRoomState,
@@ -148,6 +149,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   const plannedRoleCountsByRoom = new Map<string, RoleCounts>(initialRoleCountsByRoom);
   clearColonySurvivalAssessmentCache();
   refreshClaimedRoomBootstrapperOwnership();
+  const postClaimBootstrapFocusRoomName = selectPostClaimBootstrapFocusRoomName(colonies);
 
   for (const colony of colonies) {
     recordSourceWorkloads(colony.room, creeps, Game.time);
@@ -169,12 +171,20 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
           survivalAssessment.controllerDowngradeGuard
       }
     );
-    refreshPostClaimBootstrap(colony, roleCounts, Game.time, telemetryEvents);
+    const postClaimBootstrapRefresh = refreshPostClaimBootstrap(
+      colony,
+      roleCounts,
+      Game.time,
+      telemetryEvents,
+      { focusRoomName: postClaimBootstrapFocusRoomName }
+    );
     runTowerConstructionExecutorForColony(colony, { requireExpansionMemory: true });
     runRampartWallConstructionExecutorForColony(colony, { requireExpansionMemory: true });
-    planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+    if (postClaimBootstrapRefresh.deferred !== true) {
+      planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+    }
     if (survivalAssessment.mode === 'TERRITORY_READY') {
-      refreshRemoteMiningSetup(colony, Game.time);
+      refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });
     }
     refreshExecutableTerritoryRecommendation(colony, creeps, survivalAssessment.territoryReady, telemetryEvents);
     if (survivalAssessment.territoryReady) {

@@ -253,6 +253,27 @@ describe('claimed room bootstrapper', () => {
     expect(result.planned).toEqual([]);
     expect(room.createConstructionSite).not.toHaveBeenCalled();
   });
+
+  it('limits claimed-room bootstrap planning to the oldest active room', () => {
+    const older = makeBootstrapRoom({ controllerLevel: 1 });
+    const newer = makeBootstrapRoom({ controllerLevel: 1, roomName: 'W3N1' });
+    Memory.territory = {
+      claimedRoomBootstrapper: {
+        rooms: {
+          W3N1: { roomName: 'W3N1', owned: true, claimedAt: 90, updatedAt: 90 },
+          W2N1: { roomName: 'W2N1', owned: true, claimedAt: 80, updatedAt: 90 }
+        }
+      }
+    };
+    installGameRooms([newer.room, older.room], 101);
+
+    const result = runClaimedRoomBootstrapper([newer.colony, older.colony]);
+
+    expect(result.activeRoomNames).toEqual(['W2N1']);
+    expect(result.planned).toEqual([{ roomName: 'W2N1', phase: 'spawn', result: OK_CODE }]);
+    expect(older.room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(newer.room.createConstructionSite).not.toHaveBeenCalled();
+  });
 });
 
 interface MockRoom extends Room {
@@ -268,6 +289,7 @@ interface TestPosition {
 
 interface BootstrapRoomOptions {
   controllerLevel: number;
+  roomName?: string;
   controllerPosition?: TestPosition;
   sources?: Source[];
   structures?: Structure[];
@@ -307,7 +329,7 @@ function makeBootstrapRoom(options: BootstrapRoomOptions): { room: MockRoom; col
   const constructionSites = [...(options.constructionSites ?? [])];
   const structures = [...(options.structures ?? [])];
   const sources = options.sources ?? [];
-  const roomName = 'W2N1';
+  const roomName = options.roomName ?? 'W2N1';
   const controller = {
     id: 'controller1',
     my: true,
@@ -402,16 +424,28 @@ function installActiveBootstrapMemory(updatedAt = 90, owned = true): void {
 }
 
 function installGame(room: Room, time = 100): void {
-  const wallPositions = (room as Room & { __wallPositions?: Set<string> }).__wallPositions ?? new Set<string>();
+  installGameRooms([room], time);
+}
+
+function installGameRooms(rooms: Room[], time = 100): void {
+  const roomsByName = Object.fromEntries(rooms.map((room) => [room.name, room]));
+  const wallPositionsByRoom = new Map(
+    rooms.map((room) => [
+      room.name,
+      (room as Room & { __wallPositions?: Set<string> }).__wallPositions ?? new Set<string>()
+    ])
+  );
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
     time,
-    rooms: { [room.name]: room },
+    rooms: roomsByName,
     map: {
-      getRoomTerrain: jest.fn().mockReturnValue({
+      getRoomTerrain: jest.fn((roomName: string) => ({
         get: jest.fn((x: number, y: number) =>
-          wallPositions.has(`${x},${y}`) ? TEST_GLOBALS.TERRAIN_MASK_WALL : 0
+          (wallPositionsByRoom.get(roomName) ?? new Set<string>()).has(`${x},${y}`)
+            ? TEST_GLOBALS.TERRAIN_MASK_WALL
+            : 0
         )
-      })
+      }))
     } as unknown as GameMap
   };
 }
