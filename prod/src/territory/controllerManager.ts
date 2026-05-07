@@ -1,14 +1,26 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
-import { getWorkerCapacity, WORKER_REPLACEMENT_TICKS_TO_LIVE, type RoleCounts } from '../creeps/roleCounts';
+import {
+  getUpgraderCapacity,
+  getWorkerCapacity,
+  WORKER_REPLACEMENT_TICKS_TO_LIVE,
+  type RoleCounts
+} from '../creeps/roleCounts';
 import {
   getControllerUpgradePriority,
   isControllerProgressPressure,
+  UPGRADER_ROLE,
   type ControllerUpgradePriority
 } from '../creeps/upgraderRunner';
+import { getBufferedSpawnEnergyBudget } from '../economy/spawnEnergyBuffer';
+import { MIN_UPGRADER_BODY_COST } from '../spawn/bodyBuilder';
 import { shouldSignOccupiedController } from './controllerSigning';
 
 export interface ControllerManagementOptions {
   competingSpawnDemand?: boolean;
+  constructionDemand?: boolean;
+  defenseDemand?: boolean;
+  energyBufferHealthy?: boolean;
+  hasEnergySurplus?: boolean;
   activeUpgraderCount?: number;
   allowReservedSpawnEnergy?: boolean;
 }
@@ -34,8 +46,9 @@ export interface ControllerManagementPlan {
   spawnDemand?: ControllerUpgradeSpawnDemand;
 }
 
-const CONTROLLER_PROGRESS_DEMAND_UPGRADERS = 1;
-const CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY = 550;
+const CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY = 550;
+const CONTROLLER_UPGRADE_MEDIUM_ENERGY_CAPACITY = 1_300;
+const CONTROLLER_UPGRADE_HIGH_ENERGY_CAPACITY = 2_300;
 
 export function refreshControllerManagement(
   colony: ColonySnapshot,
@@ -64,7 +77,7 @@ export function buildControllerUpgradeCreepMemory(
   gameTime: number
 ): CreepMemory {
   return {
-    role: 'worker',
+    role: UPGRADER_ROLE,
     colony: demand.roomName,
     controllerUpgrade: {
       roomName: demand.roomName,
@@ -97,14 +110,22 @@ export function buildControllerManagementPlan(
 
   const controllerId = controller.id;
   const activeUpgraderCount =
-    options.activeUpgraderCount ?? countActiveControllerUpgraders(roomName, controllerId);
+    options.activeUpgraderCount ??
+    Math.max(getUpgraderCapacity(roleCounts), countActiveControllerUpgraders(roomName, controllerId));
+  const competingSpawnDemand = options.competingSpawnDemand ?? getWorkerCapacity(roleCounts) < workerTarget;
+  const constructionDemand = options.constructionDemand ?? hasVisibleConstructionDemand(colony.room);
+  const energyBufferHealthy = options.energyBufferHealthy ?? hasControllerUpgradeSpawnEnergy(colony);
   const upgradePriority = getControllerUpgradePriority(controller, {
     energyAvailable:
       options.allowReservedSpawnEnergy === true ? colony.energyCapacityAvailable : colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
-    competingSpawnDemand: options.competingSpawnDemand
+    competingSpawnDemand,
+    constructionDemand,
+    defenseDemand: options.defenseDemand,
+    energyBufferHealthy,
+    hasEnergySurplus: options.hasEnergySurplus ?? hasRecordedEnergySurplus(roomName)
   });
-  const desiredUpgraderCount = getDesiredControllerUpgraderCount(upgradePriority);
+  const desiredUpgraderCount = getDesiredControllerUpgraderCount(upgradePriority, colony);
   const plan: ControllerManagementPlan = {
     roomName,
     updatedAt: gameTime,
@@ -150,31 +171,61 @@ function shouldCreateControllerUpgradeSpawnDemand(
   options: ControllerManagementOptions
 ): boolean {
   return (
-    upgradePriority === 'rclProgress' &&
+    isControllerUpgradeSpawnPriority(upgradePriority) &&
     desiredUpgraderCount > activeUpgraderCount &&
     options.competingSpawnDemand !== true &&
     getWorkerCapacity(roleCounts) >= workerTarget &&
-    hasControllerProgressDemandSpawnEnergy(colony, options)
+    hasControllerUpgradeSpawnEnergy(colony)
   );
 }
 
-function hasControllerProgressDemandSpawnEnergy(
-  colony: ColonySnapshot,
-  options: ControllerManagementOptions
-): boolean {
-  if (colony.energyCapacityAvailable < CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY) {
+function hasControllerUpgradeSpawnEnergy(colony: ColonySnapshot): boolean {
+  if (colony.energyCapacityAvailable < CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY) {
     return false;
   }
 
-  if (options.allowReservedSpawnEnergy === true) {
-    return colony.energyAvailable >= CONTROLLER_PROGRESS_DEMAND_MIN_ENERGY_CAPACITY;
-  }
-
-  return colony.energyAvailable >= colony.energyCapacityAvailable;
+  return getBufferedSpawnEnergyBudget(colony.room, colony.spawns, colony.energyAvailable) >= MIN_UPGRADER_BODY_COST;
 }
 
-function getDesiredControllerUpgraderCount(priority: ControllerUpgradePriority): number {
-  return priority === 'rclProgress' ? CONTROLLER_PROGRESS_DEMAND_UPGRADERS : 0;
+function isControllerUpgradeSpawnPriority(priority: ControllerUpgradePriority): boolean {
+  return (
+    priority === 'rcl1Rush' ||
+    priority === 'rclProgress' ||
+    priority === 'energySurplus' ||
+    priority === 'steady'
+  );
+}
+
+function getDesiredControllerUpgraderCount(
+  priority: ControllerUpgradePriority,
+  colony: ColonySnapshot
+): number {
+  switch (priority) {
+    case 'rcl1Rush':
+      return 1;
+    case 'rclProgress':
+      return Math.max(1, Math.min(2, getScaledControllerUpgraderCount(colony)));
+    case 'energySurplus':
+    case 'steady':
+      return getScaledControllerUpgraderCount(colony);
+    case 'downgradeGuard':
+    case 'fallback':
+    case 'none':
+      return 0;
+  }
+}
+
+function getScaledControllerUpgraderCount(colony: ColonySnapshot): number {
+  const energyCapacity = normalizeNonNegativeInteger(colony.energyCapacityAvailable);
+  if (energyCapacity >= CONTROLLER_UPGRADE_HIGH_ENERGY_CAPACITY) {
+    return 3;
+  }
+
+  if (energyCapacity >= CONTROLLER_UPGRADE_MEDIUM_ENERGY_CAPACITY) {
+    return 2;
+  }
+
+  return energyCapacity >= CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY ? 1 : 0;
 }
 
 function countActiveControllerUpgraders(
@@ -202,7 +253,7 @@ function canSatisfyControllerUpgradeDemand(
 
   const upgradeMemory = creep.memory.controllerUpgrade;
   if (
-    creep.memory.role === 'worker' &&
+    (creep.memory.role === UPGRADER_ROLE || creep.memory.role === 'worker') &&
     upgradeMemory?.roomName === roomName &&
     upgradeMemory.controllerId === controllerId
   ) {
@@ -216,6 +267,34 @@ function canSatisfyControllerUpgradeDemand(
     creep.room?.name === roomName &&
     task?.type === 'upgrade' &&
     task.targetId === controllerId
+  );
+}
+
+function hasVisibleConstructionDemand(room: Room): boolean {
+  return (
+    findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES').length > 0 ||
+    findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES').filter((site) => site.my !== false).length > 0
+  );
+}
+
+function findRoomObjects<T>(room: Room, globalName: string): T[] {
+  const findConstant = (globalThis as Record<string, unknown>)[globalName];
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = (room.find as unknown as (type: number) => unknown[])(findConstant);
+    return Array.isArray(result) ? (result as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function hasRecordedEnergySurplus(roomName: string): boolean {
+  return (
+    (globalThis as unknown as { Memory?: Partial<Memory> }).Memory?.economy?.energySurplus?.rooms?.[roomName]
+      ?.surplus === true
   );
 }
 
@@ -287,4 +366,8 @@ function getControllerTicksToDowngradeField(
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }

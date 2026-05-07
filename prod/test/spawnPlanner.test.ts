@@ -742,21 +742,35 @@ describe('planSpawn', () => {
     ).toEqual(['W1N17', 'W2N17']);
   });
 
-  it('plans one surplus worker for controller progress when stable room energy is full', () => {
+  it('plans a steady dedicated upgrader when stable room buffers can fund it', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N17',
       energyAvailable: 650,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller1' as Id<StructureController>,
+        progress: 100,
+        progressTotal: 1_000
+      } as StructureController
     });
 
     expect(planSpawn(colony, { worker: 3 }, 126)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
-      name: 'worker-W1N17-126',
-      memory: { role: 'worker', colony: 'W1N17' }
+      body: ['work', 'carry', 'move'],
+      name: 'upgrader-W1N17-controller-126',
+      memory: {
+        role: 'upgrader',
+        colony: 'W1N17',
+        controllerUpgrade: {
+          roomName: 'W1N17',
+          controllerId: 'controller1',
+          priority: 'steady',
+          assignedAt: 126
+        }
+      }
     });
-    expect(planSpawn(colony, { worker: 4 }, 127)).toBeNull();
+    expect(planSpawn(colony, { worker: 3, upgrader: 1 }, 127)).toBeNull();
   });
 
   it('plans a dedicated local controller upgrader when RCL progress is near completion', () => {
@@ -776,10 +790,10 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 129)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
-      name: 'worker-W1N19-controller-upgrader-129',
+      body: ['work', 'carry', 'move'],
+      name: 'upgrader-W1N19-controller-129',
       memory: {
-        role: 'worker',
+        role: 'upgrader',
         colony: 'W1N19',
         controllerUpgrade: {
           roomName: 'W1N19',
@@ -808,10 +822,10 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 130, { workersOnly: true, nameSuffix: '2' })).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
-      name: 'worker-W1N20-controller-upgrader-130-2',
+      body: ['work', 'carry', 'move'],
+      name: 'upgrader-W1N20-controller-130-2',
       memory: {
-        role: 'worker',
+        role: 'upgrader',
         colony: 'W1N20',
         controllerUpgrade: {
           roomName: 'W1N20',
@@ -823,7 +837,7 @@ describe('planSpawn', () => {
     });
   });
 
-  it('allows controller-upgrade demand to use reserved-energy worker-only follow-up budget', () => {
+  it('allows controller-upgrade demand when the remaining room buffer can fund a minimum body', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N21',
       energyAvailable: 600,
@@ -840,10 +854,10 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 131, { workersOnly: true, nameSuffix: '2' })).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
-      name: 'worker-W1N21-controller-upgrader-131-2',
+      body: ['work', 'carry', 'move'],
+      name: 'upgrader-W1N21-controller-131-2',
       memory: {
-        role: 'worker',
+        role: 'upgrader',
         colony: 'W1N21',
         controllerUpgrade: {
           roomName: 'W1N21',
@@ -855,12 +869,41 @@ describe('planSpawn', () => {
     });
   });
 
-  it('waits on surplus controller workers until spawn energy is full', () => {
+  it('keeps construction worker demand ahead of controller-upgrade demand', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N22',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      constructionSiteCount: 1,
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller1' as Id<StructureController>,
+        progress: 900,
+        progressTotal: 1_000
+      } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+
+    expect(planSpawn(colony, { worker: 3 }, 132)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      name: 'worker-W1N22-132',
+      memory: { role: 'worker', colony: 'W1N22' }
+    });
+  });
+
+  it('waits on controller upgraders until spawn energy buffers can fund the body', () => {
     const { colony } = makeColony({
       roomName: 'W1N18',
-      energyAvailable: 600,
+      energyAvailable: 599,
       energyCapacityAvailable: 650,
-      controller: makeSafeOwnedController()
+      controller: {
+        ...makeSafeOwnedController(),
+        id: 'controller1' as Id<StructureController>,
+        progress: 900,
+        progressTotal: 1_000
+      } as StructureController
     });
 
     expect(planSpawn(colony, { worker: 3 }, 128)).toBeNull();

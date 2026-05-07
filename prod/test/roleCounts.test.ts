@@ -128,6 +128,29 @@ describe('countCreepsByRole', () => {
     });
   });
 
+  it('tracks dedicated upgrader capacity separately from general workers', () => {
+    const worker = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+    } as Creep;
+    const upgrader = {
+      memory: { role: 'upgrader', colony: 'W1N1' },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE + 1
+    } as Creep;
+    const expiringUpgrader = {
+      memory: { role: 'upgrader', colony: 'W1N1' },
+      ticksToLive: WORKER_REPLACEMENT_TICKS_TO_LIVE
+    } as Creep;
+
+    expect(countCreepsByRole([worker, upgrader, expiringUpgrader], 'W1N1')).toEqual({
+      worker: 1,
+      upgrader: 2,
+      upgraderCapacity: 1,
+      claimer: 0,
+      claimersByTargetRoom: {}
+    });
+  });
+
   it('counts local source harvesters as replacement-aware colony energy capacity', () => {
     const worker = {
       memory: { role: 'worker', colony: 'W1N1' },

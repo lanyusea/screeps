@@ -1,6 +1,8 @@
 export interface RoleCounts {
   worker: number;
   workerCapacity?: number;
+  upgrader?: number;
+  upgraderCapacity?: number;
   sourceHarvester?: number;
   defender?: number;
   claimer?: number;
@@ -30,6 +32,12 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
           counts.workerCapacity = (counts.workerCapacity ?? 0) + 1;
         }
       }
+      if (isColonyUpgrader(creep, colonyName)) {
+        counts.upgrader = (counts.upgrader ?? 0) + 1;
+        if (canSatisfyRoleCapacity(creep)) {
+          counts.upgraderCapacity = (counts.upgraderCapacity ?? 0) + 1;
+        }
+      }
       if (canSatisfyDefenderCapacity(creep, colonyName)) {
         counts.defender = (counts.defender ?? 0) + 1;
       }
@@ -54,11 +62,16 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
       }
       return counts;
     },
-    { worker: 0, workerCapacity: 0, claimer: 0, claimersByTargetRoom: {} }
+    { worker: 0, workerCapacity: 0, upgraderCapacity: 0, claimer: 0, claimersByTargetRoom: {} }
   );
 
   if (counts.workerCapacity === counts.worker) {
     delete counts.workerCapacity;
+  }
+  if (counts.upgrader === undefined) {
+    delete counts.upgraderCapacity;
+  } else if (counts.upgraderCapacity === counts.upgrader) {
+    delete counts.upgraderCapacity;
   }
 
   return counts;
@@ -66,6 +79,10 @@ export function countCreepsByRole(creeps: Creep[], colonyName: string): RoleCoun
 
 export function getWorkerCapacity(roleCounts: RoleCounts): number {
   return roleCounts.workerCapacity ?? roleCounts.worker;
+}
+
+export function getUpgraderCapacity(roleCounts: RoleCounts): number {
+  return roleCounts.upgraderCapacity ?? roleCounts.upgrader ?? 0;
 }
 
 function incrementTargetRoomActionCount(
@@ -90,6 +107,10 @@ function isColonyWorker(creep: Creep, colonyName: string): boolean {
 
 function isColonySourceHarvester(creep: Creep, colonyName: string): boolean {
   return creep.memory.colony === colonyName && creep.memory.role === 'sourceHarvester';
+}
+
+function isColonyUpgrader(creep: Creep, colonyName: string): boolean {
+  return creep.memory.colony === colonyName && creep.memory.role === 'upgrader';
 }
 
 function isColonyClaimer(creep: Creep, colonyName: string): boolean {

@@ -1,10 +1,29 @@
 import {
   getControllerUpgradePriority,
-  runUpgrader
+  runUpgrader,
+  runUpgraderCreep
 } from '../src/creeps/upgraderRunner';
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 
 describe('upgrader runner', () => {
+  beforeEach(() => {
+    Object.assign(globalThis, {
+      FIND_CONSTRUCTION_SITES: 1,
+      FIND_DROPPED_RESOURCES: 2,
+      FIND_HOSTILE_CREEPS: 3,
+      FIND_MY_CONSTRUCTION_SITES: 4,
+      FIND_MY_STRUCTURES: 5,
+      FIND_SOURCES: 6,
+      FIND_STRUCTURES: 7,
+      RESOURCE_ENERGY: 'energy',
+      STRUCTURE_CONTAINER: 'container',
+      STRUCTURE_EXTENSION: 'extension',
+      STRUCTURE_LINK: 'link',
+      STRUCTURE_SPAWN: 'spawn',
+      STRUCTURE_STORAGE: 'storage'
+    });
+  });
+
   it('prioritizes near-level controller progress only when spawn energy is ready', () => {
     const controller = makeController({ progress: 900, progressTotal: 1_000 });
 
@@ -28,6 +47,24 @@ describe('upgrader runner', () => {
         energyAvailable: 650,
         energyCapacityAvailable: 650,
         competingSpawnDemand: true
+      })
+    ).toBe('fallback');
+  });
+
+  it('uses steady upgrade priority only after construction pressure clears', () => {
+    const controller = makeController({ progress: 100, progressTotal: 1_000 });
+
+    expect(
+      getControllerUpgradePriority(controller, {
+        energyAvailable: 650,
+        energyCapacityAvailable: 650
+      })
+    ).toBe('steady');
+    expect(
+      getControllerUpgradePriority(controller, {
+        energyAvailable: 650,
+        energyCapacityAvailable: 650,
+        constructionDemand: true
       })
     ).toBe('fallback');
   });
@@ -56,6 +93,45 @@ describe('upgrader runner', () => {
     expect(creep.upgradeController).toHaveBeenCalledWith(controller);
   });
 
+  it('withdraws stored energy before upgrading with a dedicated upgrader creep', () => {
+    const container = makeEnergyStructure('container1', 'container', 500, 0);
+    const controller = makeController();
+    const room = makeRoom({ controller, structures: [container] });
+    const creep = makeUpgraderCreep(room, { usedEnergy: 0, freeEnergy: 50 });
+
+    runUpgraderCreep(creep);
+
+    expect(creep.withdraw).toHaveBeenCalledWith(container, 'energy');
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+  });
+
+  it('upgrades the assigned controller when loaded and energy buffers are healthy', () => {
+    const controller = makeController();
+    const room = makeRoom({ controller });
+    const creep = makeUpgraderCreep(room, { usedEnergy: 50, freeEnergy: 0 });
+
+    runUpgraderCreep(creep);
+
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+  });
+
+  it('returns carried energy instead of upgrading when room energy is no longer healthy', () => {
+    const controller = makeController();
+    const spawn = makeEnergyStructure('spawn1', 'spawn', 0, 300);
+    const room = makeRoom({
+      controller,
+      energyAvailable: 400,
+      energyCapacityAvailable: 650,
+      ownedStructures: [spawn]
+    });
+    const creep = makeUpgraderCreep(room, { usedEnergy: 50, freeEnergy: 0 });
+
+    runUpgraderCreep(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+  });
+
   function makeController(overrides: Partial<StructureController> = {}): StructureController {
     return {
       id: 'controller1',
@@ -66,5 +142,89 @@ describe('upgrader runner', () => {
       ticksToDowngrade: 10_000,
       ...overrides
     } as StructureController;
+  }
+
+  function makeRoom({
+    controller = makeController(),
+    energyAvailable = 650,
+    energyCapacityAvailable = 650,
+    structures = [],
+    ownedStructures = []
+  }: {
+    controller?: StructureController;
+    energyAvailable?: number;
+    energyCapacityAvailable?: number;
+    structures?: Structure[];
+    ownedStructures?: Structure[];
+  } = {}): Room {
+    return {
+      name: 'W1N1',
+      controller,
+      energyAvailable,
+      energyCapacityAvailable,
+      find: jest.fn((type: number) => {
+        if (type === FIND_STRUCTURES) {
+          return structures;
+        }
+
+        if (type === FIND_MY_STRUCTURES) {
+          return ownedStructures;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
+  }
+
+  function makeUpgraderCreep(
+    room: Room,
+    {
+      usedEnergy,
+      freeEnergy
+    }: {
+      usedEnergy: number;
+      freeEnergy: number;
+    }
+  ): Creep {
+    return {
+      memory: {
+        role: 'upgrader',
+        colony: 'W1N1',
+        controllerUpgrade: {
+          roomName: 'W1N1',
+          controllerId: 'controller1' as Id<StructureController>,
+          priority: 'steady'
+        }
+      },
+      room,
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      store: {
+        getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? usedEnergy : 0)),
+        getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeEnergy : 0))
+      },
+      harvest: jest.fn().mockReturnValue(0),
+      moveTo: jest.fn().mockReturnValue(0),
+      pickup: jest.fn().mockReturnValue(0),
+      signController: jest.fn().mockReturnValue(0),
+      transfer: jest.fn().mockReturnValue(0),
+      upgradeController: jest.fn().mockReturnValue(0),
+      withdraw: jest.fn().mockReturnValue(0)
+    } as unknown as Creep;
+  }
+
+  function makeEnergyStructure(
+    id: string,
+    structureType: StructureConstant,
+    energy: number,
+    freeCapacity: number
+  ): AnyStoreStructure {
+    return {
+      id,
+      structureType,
+      store: {
+        getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
+        getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeCapacity : 0))
+      }
+    } as unknown as AnyStoreStructure;
   }
 });

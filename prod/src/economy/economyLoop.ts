@@ -9,6 +9,7 @@ import {
 import { planConstructionForColony } from '../construction/planner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
+import { runUpgraderCreep, UPGRADER_ROLE } from '../creeps/upgraderRunner';
 import { SOURCE_HARVESTER_ROLE, runSourceHarvester } from '../creeps/sourceHarvester';
 import { HAULER_ROLE, runHauler } from '../creeps/hauler';
 import { REMOTE_HARVESTER_ROLE, runRemoteHarvester } from '../creeps/remoteHarvester';
@@ -284,6 +285,8 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   for (const creep of creeps) {
     if (creep.memory.role === 'worker') {
       runWorker(creep);
+    } else if (creep.memory.role === UPGRADER_ROLE) {
+      runUpgraderCreep(creep);
     } else if (creep.memory.role === SOURCE_HARVESTER_ROLE) {
       runSourceHarvester(creep);
     } else if (creep.memory.role === REMOTE_HARVESTER_ROLE) {
@@ -1243,13 +1246,17 @@ function getSpawnPlanningOptions(
 function isAllowedPostSpawnRequest(spawnRequest: SpawnRequest): boolean {
   return (
     spawnRequest.memory.role === 'worker' ||
+    isControllerUpgradeSpawnRequest(spawnRequest) ||
     isTerritoryControllerPressureSpawnRequest(spawnRequest) ||
     isTerritoryControllerFollowUpSpawnRequest(spawnRequest)
   );
 }
 
 function isControllerUpgradeSpawnRequest(spawnRequest: SpawnRequest): boolean {
-  return spawnRequest.memory.role === 'worker' && spawnRequest.memory.controllerUpgrade !== undefined;
+  return (
+    (spawnRequest.memory.role === UPGRADER_ROLE || spawnRequest.memory.role === 'worker') &&
+    spawnRequest.memory.controllerUpgrade !== undefined
+  );
 }
 
 function isTerritoryControllerPressureSpawnRequest(spawnRequest: SpawnRequest): boolean {
