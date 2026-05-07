@@ -11,12 +11,14 @@ const SOURCE_SCORE_WEIGHT = 1_000;
 const DISTANCE_SCORE_WEIGHT = 100;
 export const EXPANSION_PLANNER_TARGET_CREATOR = 'expansionPlanner';
 export const EXPANSION_TOWER_DEFAULT_MAX_PLACEMENTS = 6;
+export const EXPANSION_DEFENSE_BARRIER_DEFAULT_MAX_PLACEMENTS = 24;
 
 const EXPANSION_TOWER_ROOM_EDGE_MIN = 1;
 const EXPANSION_TOWER_ROOM_EDGE_MAX = 48;
 const EXPANSION_TOWER_CONTROLLER_WEIGHT = 6;
 const EXPANSION_TOWER_SOURCE_WEIGHT = 3;
 const EXPANSION_TOWER_ENTRANCE_WEIGHT = 1;
+const EXPANSION_DEFENSE_BARRIER_MAX_SECONDARY_RAMPARTS = 12;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 
 type TerminalExpansionIntentStatus = Extract<TerritoryIntentMemory['status'], 'inactive' | 'completed'>;
@@ -123,6 +125,24 @@ export interface ExpansionTowerPlacement {
   nearestEntranceRange?: number;
 }
 
+export type ExpansionDefenseBarrierPlacementStage =
+  | 'entranceRampart'
+  | 'entranceWall'
+  | 'secondaryRampart';
+
+export interface ExpansionDefenseBarrierPlacementOptions {
+  maxPlacements?: number;
+}
+
+export interface ExpansionDefenseBarrierPlacement {
+  roomName: string;
+  x: number;
+  y: number;
+  structureType: BuildableStructureConstant;
+  stage: ExpansionDefenseBarrierPlacementStage;
+  priority: number;
+}
+
 interface ExpansionTowerAnchor {
   kind: ExpansionTowerPlacementAnchorKind;
   position: RoomPositionLike;
@@ -139,6 +159,13 @@ interface ExpansionTowerPlacementLookups {
   terrain: RoomTerrain | null;
   blockedPositions: Set<string>;
   anchors: ExpansionTowerAnchor[];
+}
+
+interface ExpansionDefenseBarrierPlacementLookups {
+  terrain: RoomTerrain | null;
+  reservedPositions: Set<string>;
+  structuresByPosition: Map<string, AnyStructure[]>;
+  constructionSitesByPosition: Map<string, ConstructionSite[]>;
 }
 
 interface ExitGroup {
@@ -559,6 +586,43 @@ export function planExpansionTowerPlacements(
     .slice(0, getExpansionTowerMaxPlacements(options.maxPlacements));
 }
 
+export function planExpansionDefenseBarrierPlacements(
+  room: Room,
+  options: ExpansionDefenseBarrierPlacementOptions = {}
+): ExpansionDefenseBarrierPlacement[] {
+  if (!isNonEmptyString(room.name)) {
+    return [];
+  }
+
+  const lookups = createExpansionDefenseBarrierPlacementLookups(room);
+  const entranceRampartTargets = getExpansionDefenseEntranceRampartTargets(room, lookups);
+  if (entranceRampartTargets.length === 0) {
+    return [];
+  }
+
+  const entranceRampartPlacements = entranceRampartTargets
+    .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
+    .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
+    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'entranceRampart'));
+  if (entranceRampartPlacements.length > 0) {
+    return entranceRampartPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+  }
+
+  const entranceWallPlacements = getExpansionDefenseEntranceWallTargets(entranceRampartTargets, lookups)
+    .filter((position) => !hasExpansionDefenseWallCoverage(lookups, position))
+    .filter((position) => canPlaceExpansionDefenseWall(lookups, position))
+    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'entranceWall'));
+  if (entranceWallPlacements.length > 0) {
+    return entranceWallPlacements.slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+  }
+
+  return getExpansionDefenseSecondaryRampartTargets(room, lookups)
+    .filter((position) => !hasExpansionDefenseRampartCoverage(lookups, position))
+    .filter((position) => canPlaceExpansionDefenseRampart(lookups, position))
+    .map((position) => createExpansionDefenseBarrierPlacement(room.name, position, 'secondaryRampart'))
+    .slice(0, getExpansionDefenseBarrierMaxPlacements(options.maxPlacements));
+}
+
 function createExpansionTowerPlacementLookups(room: Room): ExpansionTowerPlacementLookups {
   const blockedPositions = new Set<string>();
   for (const object of [
@@ -905,6 +969,378 @@ function getExpansionTowerMaxPlacements(maxPlacements: number | undefined): numb
   }
 
   return Math.max(1, Math.floor(maxPlacements));
+}
+
+function createExpansionDefenseBarrierPlacementLookups(room: Room): ExpansionDefenseBarrierPlacementLookups {
+  const structuresByPosition = new Map<string, AnyStructure[]>();
+  const constructionSitesByPosition = new Map<string, ConstructionSite[]>();
+  const reservedPositions = new Set<string>();
+
+  addExpansionDefenseReservedPosition(reservedPositions, room.controller, room.name);
+  for (const source of findRoomObjects<Source>(room, getFindConstant('FIND_SOURCES'))) {
+    addExpansionDefenseReservedPosition(reservedPositions, source, room.name);
+  }
+
+  for (const mineral of findRoomObjects<Mineral>(room, getFindConstant('FIND_MINERALS'))) {
+    addExpansionDefenseReservedPosition(reservedPositions, mineral, room.name);
+  }
+
+  for (const structure of findRoomObjects<AnyStructure>(room, getFindConstant('FIND_STRUCTURES'))) {
+    addExpansionDefenseObjectAtPosition(structuresByPosition, structure, room.name);
+  }
+
+  for (const site of findRoomObjects<ConstructionSite>(room, getFindConstant('FIND_CONSTRUCTION_SITES'))) {
+    addExpansionDefenseObjectAtPosition(constructionSitesByPosition, site, room.name);
+  }
+
+  return {
+    terrain: getExpansionTowerRoomTerrain(room.name),
+    reservedPositions,
+    structuresByPosition,
+    constructionSitesByPosition
+  };
+}
+
+function getExpansionDefenseEntranceRampartTargets(
+  room: Room,
+  lookups: ExpansionDefenseBarrierPlacementLookups
+): RoomPositionLike[] {
+  return dedupeExpansionDefensePositions(
+    getExpansionTowerEntranceAnchors(room)
+      .map((position) => projectExpansionDefenseEntranceInsideRoom(position, room.name))
+      .filter((position): position is RoomPositionLike => position !== null)
+      .filter((position) => isExpansionDefenseRampartTargetAllowed(lookups, position))
+  );
+}
+
+function projectExpansionDefenseEntranceInsideRoom(
+  position: RoomPositionLike,
+  roomName: string
+): RoomPositionLike | null {
+  const side = getExpansionTowerExitSide(position);
+  switch (side) {
+    case 'top':
+      return { x: clampExpansionDefenseBuildCoordinate(position.x), y: 1, roomName };
+    case 'right':
+      return { x: 48, y: clampExpansionDefenseBuildCoordinate(position.y), roomName };
+    case 'bottom':
+      return { x: clampExpansionDefenseBuildCoordinate(position.x), y: 48, roomName };
+    case 'left':
+      return { x: 1, y: clampExpansionDefenseBuildCoordinate(position.y), roomName };
+    default:
+      return null;
+  }
+}
+
+function isExpansionDefenseRampartTargetAllowed(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (
+    isExpansionDefenseBuildablePosition(lookups, position) &&
+    !lookups.reservedPositions.has(getExpansionTowerPositionKey(position)) &&
+    !hasExpansionDefenseStructureTypeAt(lookups, position, 'STRUCTURE_WALL', 'constructedWall')
+  );
+}
+
+function getExpansionDefenseEntranceWallTargets(
+  entranceRampartTargets: RoomPositionLike[],
+  lookups: ExpansionDefenseBarrierPlacementLookups
+): RoomPositionLike[] {
+  const positions: RoomPositionLike[] = [];
+  for (const rampartPosition of entranceRampartTargets) {
+    if (!hasExpansionDefenseRampartCoverage(lookups, rampartPosition)) {
+      continue;
+    }
+
+    positions.push(...getExpansionDefenseAdjacentWallTargets(rampartPosition));
+  }
+
+  return dedupeExpansionDefensePositions(positions);
+}
+
+function getExpansionDefenseAdjacentWallTargets(position: RoomPositionLike): RoomPositionLike[] {
+  const side = getExpansionDefenseInteriorSide(position);
+  if (side === 'top' || side === 'bottom') {
+    return [
+      { x: position.x - 1, y: position.y, roomName: position.roomName },
+      { x: position.x + 1, y: position.y, roomName: position.roomName }
+    ];
+  }
+
+  if (side === 'left' || side === 'right') {
+    return [
+      { x: position.x, y: position.y - 1, roomName: position.roomName },
+      { x: position.x, y: position.y + 1, roomName: position.roomName }
+    ];
+  }
+
+  return [];
+}
+
+function getExpansionDefenseSecondaryRampartTargets(
+  room: Room,
+  lookups: ExpansionDefenseBarrierPlacementLookups
+): RoomPositionLike[] {
+  const targets: RoomPositionLike[] = [];
+  const structures = findRoomObjects<AnyStructure>(room, getFindConstant('FIND_STRUCTURES'));
+  for (const spawn of structures
+    .filter((structure) => isExpansionDefenseStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn'))
+    .sort(compareExpansionTowerObjectIds)) {
+    const spawnPosition = getExpansionTowerObjectPosition(spawn);
+    if (!isExpansionTowerSameRoomPosition(spawnPosition, room.name)) {
+      continue;
+    }
+
+    targets.push(spawnPosition, ...getExpansionDefenseAdjacentPositions(spawnPosition, true));
+  }
+
+  const controllerPosition = getExpansionTowerObjectPosition(room.controller);
+  if (isExpansionTowerSameRoomPosition(controllerPosition, room.name)) {
+    targets.push(...getExpansionDefenseAdjacentPositions(controllerPosition, false));
+  }
+
+  return dedupeExpansionDefensePositions(targets)
+    .filter((position) => isExpansionDefenseRampartTargetAllowed(lookups, position))
+    .slice(0, EXPANSION_DEFENSE_BARRIER_MAX_SECONDARY_RAMPARTS);
+}
+
+function getExpansionDefenseAdjacentPositions(
+  center: RoomPositionLike,
+  includeCenter: boolean
+): RoomPositionLike[] {
+  const positions: RoomPositionLike[] = includeCenter ? [{ ...center }] : [];
+  const offsets = [
+    { dx: 0, dy: -1 },
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 },
+    { dx: -1, dy: -1 },
+    { dx: 1, dy: -1 },
+    { dx: 1, dy: 1 },
+    { dx: -1, dy: 1 }
+  ];
+
+  for (const offset of offsets) {
+    positions.push({
+      x: center.x + offset.dx,
+      y: center.y + offset.dy,
+      roomName: center.roomName
+    });
+  }
+
+  return positions;
+}
+
+function canPlaceExpansionDefenseRampart(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (
+    isExpansionDefenseRampartTargetAllowed(lookups, position) &&
+    !hasExpansionDefenseConstructionAt(lookups, position)
+  );
+}
+
+function canPlaceExpansionDefenseWall(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (
+    isExpansionDefenseBuildablePosition(lookups, position) &&
+    !lookups.reservedPositions.has(getExpansionTowerPositionKey(position)) &&
+    !hasExpansionDefenseStructureAt(lookups, position) &&
+    !hasExpansionDefenseConstructionAt(lookups, position)
+  );
+}
+
+function isExpansionDefenseBuildablePosition(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (
+    position.x >= EXPANSION_TOWER_ROOM_EDGE_MIN &&
+    position.x <= EXPANSION_TOWER_ROOM_EDGE_MAX &&
+    position.y >= EXPANSION_TOWER_ROOM_EDGE_MIN &&
+    position.y <= EXPANSION_TOWER_ROOM_EDGE_MAX &&
+    !isExpansionTowerTerrainWall(lookups.terrain, position)
+  );
+}
+
+function hasExpansionDefenseRampartCoverage(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (
+    hasExpansionDefenseStructureTypeAt(lookups, position, 'STRUCTURE_RAMPART', 'rampart') ||
+    hasExpansionDefenseConstructionTypeAt(lookups, position, 'STRUCTURE_RAMPART', 'rampart')
+  );
+}
+
+function hasExpansionDefenseWallCoverage(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (
+    hasExpansionDefenseStructureTypeAt(lookups, position, 'STRUCTURE_WALL', 'constructedWall') ||
+    hasExpansionDefenseConstructionTypeAt(lookups, position, 'STRUCTURE_WALL', 'constructedWall')
+  );
+}
+
+function hasExpansionDefenseStructureAt(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (lookups.structuresByPosition.get(getExpansionTowerPositionKey(position)) ?? []).length > 0;
+}
+
+function hasExpansionDefenseConstructionAt(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike
+): boolean {
+  return (lookups.constructionSitesByPosition.get(getExpansionTowerPositionKey(position)) ?? []).length > 0;
+}
+
+function hasExpansionDefenseStructureTypeAt(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike,
+  globalName: 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
+  fallback: string
+): boolean {
+  return (lookups.structuresByPosition.get(getExpansionTowerPositionKey(position)) ?? []).some((structure) =>
+    isExpansionDefenseStructureType(structure.structureType, globalName, fallback)
+  );
+}
+
+function hasExpansionDefenseConstructionTypeAt(
+  lookups: ExpansionDefenseBarrierPlacementLookups,
+  position: RoomPositionLike,
+  globalName: 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
+  fallback: string
+): boolean {
+  return (lookups.constructionSitesByPosition.get(getExpansionTowerPositionKey(position)) ?? []).some((site) =>
+    isExpansionDefenseStructureType(String(site.structureType), globalName, fallback)
+  );
+}
+
+function createExpansionDefenseBarrierPlacement(
+  roomName: string,
+  position: RoomPositionLike,
+  stage: ExpansionDefenseBarrierPlacementStage
+): ExpansionDefenseBarrierPlacement {
+  const isWall = stage === 'entranceWall';
+  return {
+    roomName,
+    x: position.x,
+    y: position.y,
+    structureType: getExpansionDefenseStructureConstant(
+      isWall ? 'STRUCTURE_WALL' : 'STRUCTURE_RAMPART',
+      isWall ? 'constructedWall' : 'rampart'
+    ),
+    stage,
+    priority: getExpansionDefenseBarrierStagePriority(stage)
+  };
+}
+
+function getExpansionDefenseBarrierStagePriority(stage: ExpansionDefenseBarrierPlacementStage): number {
+  switch (stage) {
+    case 'entranceRampart':
+      return 0;
+    case 'entranceWall':
+      return 1;
+    case 'secondaryRampart':
+      return 2;
+  }
+}
+
+function getExpansionDefenseInteriorSide(position: RoomPositionLike): ExitGroup['side'] | null {
+  if (position.y <= EXPANSION_TOWER_ROOM_EDGE_MIN) {
+    return 'top';
+  }
+  if (position.x >= EXPANSION_TOWER_ROOM_EDGE_MAX) {
+    return 'right';
+  }
+  if (position.y >= EXPANSION_TOWER_ROOM_EDGE_MAX) {
+    return 'bottom';
+  }
+  if (position.x <= EXPANSION_TOWER_ROOM_EDGE_MIN) {
+    return 'left';
+  }
+
+  return null;
+}
+
+function addExpansionDefenseReservedPosition(
+  reservedPositions: Set<string>,
+  object: unknown,
+  roomName: string
+): void {
+  const position = getExpansionTowerObjectPosition(object);
+  if (isExpansionTowerSameRoomPosition(position, roomName)) {
+    reservedPositions.add(getExpansionTowerPositionKey(position));
+  }
+}
+
+function addExpansionDefenseObjectAtPosition<T extends { pos?: RoomPosition; structureType?: unknown }>(
+  objectsByPosition: Map<string, T[]>,
+  object: T,
+  roomName: string
+): void {
+  const position = getExpansionTowerObjectPosition(object);
+  if (!isExpansionTowerSameRoomPosition(position, roomName)) {
+    return;
+  }
+
+  const key = getExpansionTowerPositionKey(position);
+  const objects = objectsByPosition.get(key) ?? [];
+  objects.push(object);
+  objectsByPosition.set(key, objects);
+}
+
+function dedupeExpansionDefensePositions(positions: RoomPositionLike[]): RoomPositionLike[] {
+  const seen = new Set<string>();
+  const deduped: RoomPositionLike[] = [];
+  for (const position of positions) {
+    const key = getExpansionTowerPositionKey(position);
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(position);
+  }
+
+  return deduped;
+}
+
+function clampExpansionDefenseBuildCoordinate(value: number): number {
+  return Math.max(EXPANSION_TOWER_ROOM_EDGE_MIN, Math.min(EXPANSION_TOWER_ROOM_EDGE_MAX, value));
+}
+
+function getExpansionDefenseBarrierMaxPlacements(maxPlacements: number | undefined): number {
+  if (typeof maxPlacements !== 'number' || !Number.isFinite(maxPlacements)) {
+    return EXPANSION_DEFENSE_BARRIER_DEFAULT_MAX_PLACEMENTS;
+  }
+
+  return Math.max(1, Math.floor(maxPlacements));
+}
+
+function isExpansionDefenseStructureType(
+  actual: unknown,
+  globalName: 'STRUCTURE_SPAWN' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
+  fallback: string
+): boolean {
+  return actual === getExpansionDefenseStructureConstant(globalName, fallback);
+}
+
+function getExpansionDefenseStructureConstant(
+  globalName: 'STRUCTURE_SPAWN' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL',
+  fallback: string
+): BuildableStructureConstant {
+  const constants = globalThis as unknown as Partial<
+    Record<'STRUCTURE_SPAWN' | 'STRUCTURE_RAMPART' | 'STRUCTURE_WALL', BuildableStructureConstant>
+  >;
+  return constants[globalName] ?? (fallback as BuildableStructureConstant);
 }
 
 function compareExpansionTowerObjectIds(left: unknown, right: unknown): number {
