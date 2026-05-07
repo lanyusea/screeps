@@ -248,19 +248,15 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
         plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
       }
 
-      if (spawnedLocalWorker) {
-        updateNextSpawnEnergyReservation(
-          colony,
-          coordinatedPlan.sourceColony,
-          roleCounts,
-          Game.time,
-          getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp),
-          spawnRequest,
-          reservedSpawnEnergyByRoom.get(spawnRoomName) ?? bodyCost
-        );
-      } else {
-        clearSpawnEnergyReservation(spawnRoomName, Game.time);
-      }
+      updateNextSpawnEnergyReservation(
+        colony,
+        coordinatedPlan.sourceColony,
+        roleCounts,
+        Game.time,
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp),
+        spawnRequest,
+        reservedSpawnEnergyByRoom.get(spawnRoomName) ?? bodyCost
+      );
 
       if (!shouldContinueAfterWorkerSpawn) {
         break;

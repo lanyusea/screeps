@@ -2008,6 +2008,70 @@ describe('runEconomy', () => {
     expect(Memory.economy?.spawnEnergyReservation?.rooms.W1N1).toBeUndefined();
   });
 
+  it('keeps reserved spawn energy while any spawn in the room is still busy', () => {
+    installSpawnCoordinationGlobals();
+    const reservedAt = 410;
+    const room = makeTerritoryReadyEconomyRoom({
+      energyAvailable: 650,
+      energyCapacityAvailable: 650
+    });
+    const idleSpawn = {
+      name: 'Spawn1',
+      room,
+      spawning: null,
+      spawnCreep: jest.fn().mockReturnValue(OK_CODE)
+    } as unknown as StructureSpawn;
+    const busySpawn = {
+      name: 'Spawn2',
+      room,
+      spawning: { name: 'worker-W1N1-410', remainingTime: 3 } as Spawning,
+      spawnCreep: jest.fn().mockReturnValue(ERR_BUSY_CODE)
+    } as unknown as StructureSpawn;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      economy: {
+        spawnEnergyReservation: {
+          updatedAt: reservedAt,
+          rooms: {
+            W1N1: {
+              bodyCost: 650,
+              creepName: 'claimer-W1N1-W2N1-410',
+              idleSince: reservedAt,
+              idleTicks: 0,
+              reservedAt,
+              reservedEnergy: 650,
+              role: 'claimer',
+              roomName: 'W1N1',
+              updatedAt: reservedAt
+            }
+          }
+        }
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: reservedAt + SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS + 1,
+      rooms: { W1N1: room },
+      spawns: { Spawn1: idleSpawn, Spawn2: busySpawn },
+      creeps: {
+        Worker1: makeEconomyWorker(room),
+        Worker2: makeEconomyWorker(room),
+        Worker3: makeEconomyWorker(room)
+      }
+    };
+
+    runEconomy();
+
+    expect(Memory.economy?.spawnEnergyReservation?.rooms.W1N1).toMatchObject({
+      bodyCost: 650,
+      creepName: 'claimer-W1N1-W2N1-410',
+      reservedEnergy: 650,
+      role: 'claimer',
+      roomName: 'W1N1',
+      updatedAt: reservedAt + SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS + 1
+    });
+    expect(Memory.economy?.spawnEnergyReservation?.rooms.W1N1?.idleSince).toBeUndefined();
+    expect(Memory.economy?.spawnEnergyReservation?.rooms.W1N1?.idleTicks).toBeUndefined();
+  });
+
   it('uses a second idle spawn for a non-pressure follow-up after spawning support', () => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
     const followUp: TerritoryFollowUpMemory = {

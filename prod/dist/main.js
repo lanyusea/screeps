@@ -13058,8 +13058,8 @@ function refreshSpawnEnergyReservationState(room, spawns, gameTime = getGameTime
     clearSpawnEnergyReservation(roomName, gameTime);
     return buildInactiveReservationState(room);
   }
-  const hasIdleSpawn = spawns.some((spawn) => !spawn.spawning);
-  const nextIdleSince = hasIdleSpawn ? getReservationIdleSince(reservation, gameTime) : void 0;
+  const allSpawnsIdle = spawns.every((spawn) => !spawn.spawning);
+  const nextIdleSince = allSpawnsIdle ? getReservationIdleSince(reservation, gameTime) : void 0;
   const idleTicks = nextIdleSince === void 0 ? void 0 : Math.max(0, gameTime - nextIdleSince);
   if (idleTicks !== void 0 && idleTicks > SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS) {
     clearSpawnEnergyReservation(roomName, gameTime);
@@ -31378,19 +31378,15 @@ function runEconomy(preludeTelemetryEvents = []) {
         roleCounts = addPlannedWorker(roleCounts);
         plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
       }
-      if (spawnedLocalWorker) {
-        updateNextSpawnEnergyReservation(
-          colony,
-          coordinatedPlan.sourceColony,
-          roleCounts,
-          Game.time,
-          getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp),
-          spawnRequest,
-          (_d = reservedSpawnEnergyByRoom.get(spawnRoomName)) != null ? _d : bodyCost
-        );
-      } else {
-        clearSpawnEnergyReservation(spawnRoomName, Game.time);
-      }
+      updateNextSpawnEnergyReservation(
+        colony,
+        coordinatedPlan.sourceColony,
+        roleCounts,
+        Game.time,
+        getSpawnPlanningOptions(successfulSpawnCount, hasPendingTerritoryFollowUp),
+        spawnRequest,
+        (_d = reservedSpawnEnergyByRoom.get(spawnRoomName)) != null ? _d : bodyCost
+      );
       if (!shouldContinueAfterWorkerSpawn) {
         break;
       }

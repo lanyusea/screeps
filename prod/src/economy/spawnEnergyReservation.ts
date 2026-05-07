@@ -81,8 +81,8 @@ export function refreshSpawnEnergyReservationState(
     return buildInactiveReservationState(room);
   }
 
-  const hasIdleSpawn = spawns.some((spawn) => !spawn.spawning);
-  const nextIdleSince = hasIdleSpawn ? getReservationIdleSince(reservation, gameTime) : undefined;
+  const allSpawnsIdle = spawns.every((spawn) => !spawn.spawning);
+  const nextIdleSince = allSpawnsIdle ? getReservationIdleSince(reservation, gameTime) : undefined;
   const idleTicks = nextIdleSince === undefined ? undefined : Math.max(0, gameTime - nextIdleSince);
   if (idleTicks !== undefined && idleTicks > SPAWN_ENERGY_RESERVATION_IDLE_RELEASE_TICKS) {
     clearSpawnEnergyReservation(roomName, gameTime);
