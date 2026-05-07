@@ -2526,6 +2526,123 @@ describe('runWorker', () => {
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
 
+  it('preempts active upgrading for harvest while spawn-critical hysteresis is active', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 50,
+      controller,
+      find: jest.fn((type: number) => (type === FIND_SOURCES ? [source] : []))
+    } as unknown as Room;
+    const harvest = jest.fn().mockReturnValue(ERR_NOT_IN_RANGE);
+    const creep = {
+      memory: {
+        role: 'worker',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> },
+        workerEnergyCriticalPolicy: {
+          type: 'workerEnergyCriticalPolicy',
+          schemaVersion: 1,
+          active: true,
+          reason: 'spawn',
+          enteredAt: 700,
+          updatedAt: 700,
+          spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+          spawnEnterThreshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+          spawnExitThreshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 100
+        }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(25),
+        getFreeCapacity: jest.fn().mockReturnValue(25)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room,
+      harvest,
+      moveTo: jest.fn(),
+      upgradeController: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 701,
+      creeps: { Worker: creep },
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : controller))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'harvest', targetId: 'source1' });
+    expect(creep.memory.workerEnergyCriticalPolicy).toMatchObject({
+      active: true,
+      reason: 'spawn',
+      spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 50
+    });
+    expect(harvest).toHaveBeenCalledWith(source);
+    expect(creep.moveTo).toHaveBeenCalledWith(source);
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+  });
+
+  it('routes a full worker to storage instead of upgrading when storage energy is critical', () => {
+    const controller = {
+      id: 'controller1',
+      my: true,
+      level: 3,
+      ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+    } as StructureController;
+    const storage = {
+      id: 'storage1',
+      structureType: 'storage',
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(499),
+        getFreeCapacity: jest.fn().mockReturnValue(1_000)
+      }
+    } as unknown as StructureStorage;
+    const room = {
+      name: 'W1N1',
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD + 100,
+      controller,
+      storage,
+      find: jest.fn((type: number) => (type === FIND_STRUCTURES ? [storage] : []))
+    } as unknown as Room;
+    const transfer = jest.fn().mockReturnValue(0);
+    const creep = {
+      memory: {
+        role: 'worker',
+        task: { type: 'upgrade', targetId: 'controller1' as Id<StructureController> }
+      },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(50),
+        getFreeCapacity: jest.fn().mockReturnValue(0)
+      },
+      room,
+      transfer,
+      upgradeController: jest.fn(),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 702,
+      creeps: { Worker: creep },
+      getObjectById: jest.fn((id: string) => (id === 'storage1' ? storage : controller))
+    };
+
+    runWorker(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'storage1' });
+    expect(creep.memory.workerEnergyCriticalPolicy).toMatchObject({
+      active: true,
+      reason: 'storage',
+      storageEnergy: 499,
+      storageEnterThreshold: 500,
+      storageExitThreshold: 750
+    });
+    expect(transfer).toHaveBeenCalledWith(storage, 'energy');
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+  });
+
   it('preempts an over-reserved primary refill target for uncovered spawn-extension demand', () => {
     const coveredSpawn = {
       id: 'spawn-covered',

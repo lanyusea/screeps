@@ -16,6 +16,7 @@ import {
   canLevelUpController,
   canUpgradeController,
   isUpgraderBoostActive,
+  selectWorkerEnergyCriticalAcquisitionTask,
   selectWorkerTask
 } from '../src/tasks/workerTasks';
 import type { ColonySnapshot } from '../src/colony/colonyRegistry';
@@ -4696,6 +4697,39 @@ describe('selectWorkerTask', () => {
     } as unknown as Creep;
 
     expect(selectWorkerTask(creep)).toEqual({ type: 'withdraw', targetId: 'storage1' });
+  });
+
+  it('preserves storage withdrawal fallback when pre-harvest is unavailable', () => {
+    const storage = makeStoredEnergyStructure('storage1', 'storage' as StructureConstant, 320, { my: true });
+    const room = makeWorkerTaskRoom({
+      controller: {
+        id: 'controller1' as Id<StructureController>,
+        level: 3,
+        my: true
+      } as StructureController,
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      energyCapacityAvailable: 500,
+      structures: [storage]
+    });
+    (room as { storage?: StructureStorage }).storage = storage as StructureStorage;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'storage1' ? storage : null))
+    };
+    const creep = {
+      memory: { role: 'worker', colony: 'W1N1' },
+      store: {
+        getUsedCapacity: jest.fn().mockReturnValue(0),
+        getFreeCapacity: jest.fn().mockReturnValue(30)
+      },
+      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      room
+    } as unknown as Creep;
+
+    expect(selectWorkerEnergyCriticalAcquisitionTask(creep, { avoidStorageWithdrawal: true })).toEqual({
+      type: 'withdraw',
+      targetId: 'storage1'
+    });
   });
 
   it('uses unreserved storage energy for spawn throughput refill even below the reserve floor', () => {

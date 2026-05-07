@@ -52,6 +52,7 @@ declare global {
     spawnCriticalRefill?: WorkerSpawnCriticalRefillMemory;
     workerBehavior?: WorkerTaskBehaviorSampleMemory;
     workerTaskPolicyShadow?: WorkerTaskPolicyShadowMemory;
+    workerEnergyCriticalPolicy?: WorkerEnergyCriticalPolicyMemory;
     energyDropoffOptimization?: WorkerEnergyDropoffOptimizationMemory;
     behaviorTelemetry?: CreepBehaviorTelemetryMemory;
     crossRoomHauler?: CreepCrossRoomHaulerMemory;
@@ -782,6 +783,23 @@ declare global {
     confidence?: number;
     matched: boolean;
     fallbackReason?: WorkerTaskPolicyShadowFallbackReason;
+  }
+
+  type WorkerEnergyCriticalPolicyReason = 'spawn' | 'storage' | 'spawnAndStorage';
+
+  interface WorkerEnergyCriticalPolicyMemory {
+    type: 'workerEnergyCriticalPolicy';
+    schemaVersion: 1;
+    active: true;
+    reason: WorkerEnergyCriticalPolicyReason;
+    enteredAt: number;
+    updatedAt: number;
+    spawnEnergy?: number;
+    spawnEnterThreshold?: number;
+    spawnExitThreshold?: number;
+    storageEnergy?: number;
+    storageEnterThreshold?: number;
+    storageExitThreshold?: number;
   }
 
   interface CreepBehaviorPositionMemory {

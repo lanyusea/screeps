@@ -3503,6 +3503,32 @@ export function selectWorkerEnergyFallbackTask(creep: Creep): CreepTaskMemory | 
   return selectWorkerLinkEnergyFallbackTask(creep);
 }
 
+export interface WorkerEnergyCriticalAcquisitionOptions {
+  avoidStorageWithdrawal?: boolean;
+}
+
+export function selectWorkerEnergyCriticalAcquisitionTask(
+  creep: Creep,
+  options: WorkerEnergyCriticalAcquisitionOptions = {}
+): Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }> | null {
+  const fallbackTask = selectWorkerEnergyFallbackTask(creep);
+  if (!fallbackTask) {
+    return null;
+  }
+
+  if (options.avoidStorageWithdrawal && fallbackTask.type === 'withdraw') {
+    const target = getGameObjectById<AnyStoreStructure>(String(fallbackTask.targetId));
+    if (target && isStorageEnergySource(target as LowLoadWorkerEnergyAcquisitionSource)) {
+      const preHarvestTask = selectWorkerPreHarvestTask(creep);
+      if (preHarvestTask) {
+        return preHarvestTask;
+      }
+    }
+  }
+
+  return fallbackTask as Extract<CreepTaskMemory, { type: 'harvest' | 'pickup' | 'withdraw' }>;
+}
+
 export function selectWorkerPreHarvestTask(creep: Creep): Extract<CreepTaskMemory, { type: 'harvest' }> | null {
   const source = selectHarvestSource(creep);
   return source ? { type: 'harvest', targetId: source.id } : null;

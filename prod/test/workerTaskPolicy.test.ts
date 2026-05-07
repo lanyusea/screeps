@@ -4,7 +4,19 @@ import {
   setWorkerTaskBcModelForTesting,
   type WorkerTaskBcModel
 } from '../src/rl/workerTaskPolicy';
-import { selectWorkerTask } from '../src/tasks/workerTasks';
+import {
+  assessWorkerEnergyCriticalState,
+  selectWorkerEnergyCriticalTask,
+  WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD,
+  WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN
+} from '../src/creeps/workerTaskPolicy';
+import {
+  CONTROLLER_DOWNGRADE_GUARD_TICKS,
+  CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+  selectWorkerTask
+} from '../src/tasks/workerTasks';
+
+type MutableRoom = Room & { energyAvailable?: number; storage?: StructureStorage };
 
 const TEST_MODEL: WorkerTaskBcModel = {
   type: 'worker-task-bc-decision-tree',
@@ -38,6 +50,178 @@ const TEST_MODEL: WorkerTaskBcModel = {
     }
   }
 };
+
+describe('worker energy-critical policy', () => {
+  beforeEach(() => {
+    installWorkerTaskGlobals();
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    (globalThis as unknown as { Game: Partial<Game> }).Game = { time: 200, creeps: {} };
+  });
+
+  it('enters below the spawn threshold and reassigns non-critical upgrading to acquisition', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const controller = makeController();
+    const room = makeEnergyCriticalRoom({
+      controller,
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      sources: [source]
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 25,
+      freeCapacity: 25,
+      task: { type: 'upgrade', targetId: controller.id }
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 201,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : controller))
+    };
+
+    expect(selectWorkerEnergyCriticalTask(creep, creep.memory.task, creep.memory.task ?? null)).toEqual({
+      type: 'harvest',
+      targetId: 'source1'
+    });
+    expect(creep.memory.workerEnergyCriticalPolicy).toMatchObject({
+      type: 'workerEnergyCriticalPolicy',
+      active: true,
+      reason: 'spawn',
+      spawnEnergy: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      spawnEnterThreshold: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD,
+      spawnExitThreshold: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD
+    });
+  });
+
+  it('preempts repair tasks during an energy crisis', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const repairTarget = { id: 'road1', structureType: 'road' } as StructureRoad;
+    const controller = makeController();
+    const room = makeEnergyCriticalRoom({
+      controller,
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      sources: [source],
+      structures: [repairTarget as unknown as AnyStructure]
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 25,
+      freeCapacity: 25,
+      task: { type: 'repair', targetId: repairTarget.id as Id<Structure> }
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 201,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'source1' ? source : repairTarget))
+    };
+
+    expect(selectWorkerEnergyCriticalTask(creep, creep.memory.task, creep.memory.task ?? null)).toEqual({
+      type: 'harvest',
+      targetId: 'source1'
+    });
+  });
+
+  it('keeps spawn-critical mode active until the hysteresis exit threshold is reached', () => {
+    const room = makeEnergyCriticalRoom({
+      controller: makeController(),
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 25,
+      freeCapacity: 25
+    });
+
+    expect(assessWorkerEnergyCriticalState(creep).active).toBe(true);
+
+    room.energyAvailable = WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD - 1;
+    expect(assessWorkerEnergyCriticalState(creep)).toMatchObject({
+      active: true,
+      reason: 'spawn',
+      spawnEnergy: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD - 1
+    });
+
+    room.energyAvailable = WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD;
+    expect(assessWorkerEnergyCriticalState(creep).active).toBe(false);
+    expect(creep.memory.workerEnergyCriticalPolicy).toBeUndefined();
+  });
+
+  it('keeps storage-critical mode active through its hysteresis band without withdrawing from storage', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    let storageEnergy = 499;
+    const storage = makeStorage('storage1', () => storageEnergy);
+    const controller = makeController();
+    const room = makeEnergyCriticalRoom({
+      controller,
+      energyAvailable: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD,
+      sources: [source],
+      structures: [storage as unknown as AnyStructure],
+      storage
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 25,
+      freeCapacity: 25,
+      task: { type: 'upgrade', targetId: controller.id }
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 202,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'storage1') {
+          return storage;
+        }
+
+        return id === 'source1' ? source : controller;
+      })
+    };
+
+    const entered = assessWorkerEnergyCriticalState(creep);
+    expect(entered).toMatchObject({
+      active: true,
+      reason: 'storage',
+      storageEnergy: 499,
+      storageEnterThreshold: 500,
+      storageExitThreshold: 500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN
+    });
+
+    storageEnergy = 600;
+    expect(selectWorkerEnergyCriticalTask(creep, creep.memory.task, creep.memory.task ?? null)).toEqual({
+      type: 'harvest',
+      targetId: 'source1'
+    });
+    expect(creep.memory.workerEnergyCriticalPolicy).toMatchObject({
+      active: true,
+      reason: 'storage',
+      storageEnergy: 600
+    });
+
+    storageEnergy = 500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN;
+    expect(assessWorkerEnergyCriticalState(creep).active).toBe(false);
+  });
+
+  it('preempts a running storage withdrawal during storage-critical acquisition', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const storage = makeStorage('storage1', () => 499);
+    const room = makeEnergyCriticalRoom({
+      controller: makeController(),
+      energyAvailable: WORKER_ENERGY_CRITICAL_SPAWN_EXIT_THRESHOLD,
+      sources: [source],
+      structures: [storage as unknown as AnyStructure],
+      storage
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 0,
+      freeCapacity: 30,
+      task: { type: 'withdraw', targetId: storage.id as Id<AnyStoreStructure> }
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 203,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'storage1' ? storage : source))
+    };
+
+    expect(selectWorkerEnergyCriticalTask(creep, creep.memory.task, creep.memory.task ?? null)).toEqual({
+      type: 'harvest',
+      targetId: 'source1'
+    });
+  });
+});
 
 describe('worker task BC policy', () => {
   afterEach(() => {
@@ -212,5 +396,81 @@ function installWorkerTaskGlobals(): void {
   (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
   (globalThis as unknown as { STRUCTURE_ROAD: StructureConstant }).STRUCTURE_ROAD = 'road';
   (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+  (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
+  (globalThis as unknown as { STRUCTURE_WALL: StructureConstant }).STRUCTURE_WALL = 'constructedWall';
   (globalThis as unknown as { STRUCTURE_RAMPART: StructureConstant }).STRUCTURE_RAMPART = 'rampart';
+}
+
+function makeController(): StructureController {
+  return {
+    id: 'controller1',
+    my: true,
+    level: 3,
+    ticksToDowngrade: CONTROLLER_DOWNGRADE_GUARD_TICKS + 1
+  } as StructureController;
+}
+
+function makeStorage(id: string, getEnergy: () => number): StructureStorage {
+  return {
+    id,
+    structureType: 'storage',
+    store: {
+      getUsedCapacity: jest.fn(() => getEnergy()),
+      getFreeCapacity: jest.fn().mockReturnValue(10_000)
+    }
+  } as unknown as StructureStorage;
+}
+
+function makeEnergyCriticalRoom({
+  controller,
+  energyAvailable,
+  sources = [],
+  storage,
+  structures = []
+}: {
+  controller: StructureController;
+  energyAvailable: number;
+  sources?: Source[];
+  storage?: StructureStorage;
+  structures?: AnyStructure[];
+}): MutableRoom {
+  return {
+    name: 'W1N1',
+    controller,
+    energyAvailable,
+    storage,
+    find: jest.fn((type: number) => {
+      if (type === FIND_SOURCES) {
+        return sources;
+      }
+
+      if (type === FIND_STRUCTURES || type === FIND_MY_STRUCTURES) {
+        return structures;
+      }
+
+      return [];
+    })
+  } as unknown as MutableRoom;
+}
+
+function makeEnergyCriticalWorker(
+  room: Room,
+  options: {
+    carriedEnergy: number;
+    freeCapacity: number;
+    task?: CreepTaskMemory;
+  }
+): Creep {
+  return {
+    memory: {
+      role: 'worker',
+      ...(options.task ? { task: options.task } : {})
+    },
+    store: {
+      getUsedCapacity: jest.fn().mockReturnValue(options.carriedEnergy),
+      getFreeCapacity: jest.fn().mockReturnValue(options.freeCapacity)
+    },
+    pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+    room
+  } as unknown as Creep;
 }
