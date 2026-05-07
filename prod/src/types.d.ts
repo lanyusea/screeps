@@ -137,6 +137,7 @@ declare global {
     | 'rcl1Rush'
     | 'rclProgress'
     | 'energySurplus'
+    | 'steady'
     | 'fallback';
 
   interface CreepControllerSustainMemory {

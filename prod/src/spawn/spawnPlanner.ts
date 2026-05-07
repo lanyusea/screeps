@@ -42,6 +42,7 @@ import {
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildTerritoryReserverBody,
+  buildUpgraderBody,
   buildWorkerBody,
   getBodyCost,
   TERRITORY_SCOUT_BODY,
@@ -67,6 +68,7 @@ import {
   selectControllerUpgradeSpawnDemand
 } from '../territory/controllerManager';
 import { isLiveTransferCandidate } from '../economy/crossRoomHauler';
+import { UPGRADER_ROLE } from '../creeps/upgraderRunner';
 
 type SpawnPriorityTier =
   | 'emergencyBootstrap'
@@ -184,8 +186,7 @@ const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'remoteEconomy',
   'territoryRemote',
   'controllerUpgradeDemand',
-  'multiRoomControllerUpgrade',
-  'controllerUpgradeSurplus'
+  'multiRoomControllerUpgrade'
 ];
 
 export function planSpawn(
@@ -1104,7 +1105,11 @@ function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnR
     context.roleCounts,
     context.workerTarget,
     context.gameTime,
-    { allowReservedSpawnEnergy: isWorkerOnlyFollowUpPass(context.options) }
+    {
+      competingSpawnDemand: context.workerCapacity < context.workerTarget,
+      constructionDemand: hasVisibleControllerUpgradeConstructionDemand(context.colony.room),
+      defenseDemand: context.survival.hostilePresence
+    }
   );
   if (!demand) {
     return null;
@@ -1115,7 +1120,7 @@ function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnR
     return null;
   }
 
-  const body = selectWorkerBody(context.colony, context.roleCounts);
+  const body = selectUpgraderBody(context.colony);
   if (body.length === 0) {
     return null;
   }
@@ -1124,11 +1129,18 @@ function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnR
     spawn,
     body,
     name: appendSpawnNameSuffix(
-      `worker-${context.colony.room.name}-controller-upgrader-${context.gameTime}`,
+      `${UPGRADER_ROLE}-${context.colony.room.name}-controller-${context.gameTime}`,
       context.options
     ),
     memory: buildControllerUpgradeCreepMemory(demand, context.gameTime)
   };
+}
+
+function hasVisibleControllerUpgradeConstructionDemand(room: Room): boolean {
+  return (
+    findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES').length > 0 ||
+    findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES').filter((site) => site.my !== false).length > 0
+  );
 }
 
 function planMultiRoomControllerUpgradeSpawn(context: SpawnPlanningContext): SpawnRequest | null {
@@ -1441,6 +1453,28 @@ function selectDynamicBodyForColony(
         demand,
         needed: true,
         buildBody
+      }
+    ]
+  });
+
+  return selection?.body ?? [];
+}
+
+function selectUpgraderBody(colony: ColonySnapshot): BodyPartConstant[] {
+  const controllerLevel = colony.room.controller?.level;
+  const selection = selectDynamicCreepBody({
+    room: colony.room,
+    spawns: colony.spawns,
+    energyAvailable: colony.energyAvailable,
+    energyCapacityAvailable: colony.energyCapacityAvailable,
+    spawnEnergyBudget: colony.spawnEnergyBudget,
+    spawnBufferPolicy: 'respect',
+    candidates: [
+      {
+        role: UPGRADER_ROLE,
+        demand: 'surplus',
+        needed: true,
+        buildBody: (energyBudget) => buildUpgraderBody(energyBudget, controllerLevel)
       }
     ]
   });
@@ -1778,6 +1812,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function findRoomObjects<T>(room: Room, globalName: string): T[] {
+  const findConstant = (globalThis as Record<string, unknown>)[globalName];
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = (room.find as unknown as (type: number) => unknown[])(findConstant);
+    return Array.isArray(result) ? (result as T[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function getGlobalNumber(name: string): number | undefined {

@@ -6,6 +6,7 @@ import {
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildTerritoryReserverBody,
+  buildUpgraderBody,
   buildWorkerBody,
   getBodyCost,
   TERRITORY_SCOUT_BODY,
@@ -162,6 +163,33 @@ describe('buildEmergencyWorkerBody', () => {
 
   it('returns one worker pattern at the worker pattern energy cost', () => {
     expect(buildEmergencyWorkerBody(200)).toEqual(WORKER_PATTERN);
+  });
+});
+
+describe('buildUpgraderBody', () => {
+  it('starts with the minimal upgrade body and scales work throughput by RCL budget', () => {
+    expect(buildUpgraderBody(199, 3)).toEqual([]);
+    expect(buildUpgraderBody(200, 3)).toEqual(['work', 'carry', 'move']);
+    expect(buildUpgraderBody(250, 3)).toEqual(['work', 'carry', 'move']);
+    expect(buildUpgraderBody(300, 2)).toEqual(['work', 'work', 'carry', 'move']);
+    expect(buildUpgraderBody(550, 3)).toEqual([
+      'work',
+      'work',
+      'carry',
+      'move',
+      'work',
+      'move',
+      'carry',
+      'move'
+    ]);
+  });
+
+  it('caps dedicated upgrader bodies by controller level and creep size', () => {
+    expect(getBodyCost(buildUpgraderBody(650, 3))).toBe(600);
+    expect(getBodyCost(buildUpgraderBody(1_300, 4))).toBe(900);
+    expect(getBodyCost(buildUpgraderBody(2_300, 6))).toBe(1_800);
+    expect(getBodyCost(buildUpgraderBody(5_600, 8))).toBe(2_400);
+    expect(buildUpgraderBody(5_600, 8)).toHaveLength(32);
   });
 });
 

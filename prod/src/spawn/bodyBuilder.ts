@@ -10,6 +10,12 @@ const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'mo
 const MID_RCL_WORKER_PATTERN_COST = 350;
 const HIGH_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'work', 'carry', 'move', 'move'];
 const HIGH_RCL_WORKER_PATTERN_COST = 450;
+const UPGRADER_MIN_BODY: BodyPartConstant[] = ['work', 'carry', 'move'];
+export const MIN_UPGRADER_BODY_COST = WORKER_PATTERN_COST;
+const UPGRADER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move'];
+const UPGRADER_PATTERN_COST = 300;
+const UPGRADER_WORK_MOVE_PAIR: BodyPartConstant[] = ['work', 'move'];
+const UPGRADER_WORK_MOVE_PAIR_COST = 150;
 const EMERGENCY_DEFENDER_BODY: BodyPartConstant[] = ['tough', 'attack', 'move'];
 const EMERGENCY_DEFENDER_BODY_COST = 140;
 export const TERRITORY_SCOUT_BODY: BodyPartConstant[] = ['move'];
@@ -227,6 +233,27 @@ export function buildEmergencyWorkerBody(energyAvailable: number): BodyPartConst
   return [...WORKER_PATTERN];
 }
 
+export function buildUpgraderBody(
+  energyAvailable: number,
+  controllerLevel?: number
+): BodyPartConstant[] {
+  const energyBudget = Math.min(normalizeEnergyBudget(energyAvailable), getUpgraderMaxCost(controllerLevel));
+  if (energyBudget < MIN_UPGRADER_BODY_COST) {
+    return [];
+  }
+
+  if (energyBudget < UPGRADER_PATTERN_COST) {
+    return [...UPGRADER_MIN_BODY];
+  }
+
+  const maxPatternCountByEnergy = Math.floor(energyBudget / UPGRADER_PATTERN_COST);
+  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS / UPGRADER_PATTERN.length);
+  const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize);
+  const body = Array.from({ length: patternCount }).flatMap(() => UPGRADER_PATTERN);
+
+  return addUpgraderRemainderParts(body, energyBudget, patternCount * UPGRADER_PATTERN_COST);
+}
+
 export function buildEmergencyDefenderBody(energyAvailable: number): BodyPartConstant[] {
   if (energyAvailable < EMERGENCY_DEFENDER_BODY_COST) {
     return [];
@@ -292,6 +319,66 @@ export function buildRemoteHaulerBody(energyAvailable: number, routeDistance = 1
 
 export function getBodyCost(body: BodyPartConstant[]): number {
   return body.reduce((cost, part) => cost + BODY_PART_COSTS[part], 0);
+}
+
+function addUpgraderRemainderParts(
+  body: BodyPartConstant[],
+  energyBudget: number,
+  bodyCost: number
+): BodyPartConstant[] {
+  const additions = [
+    { parts: UPGRADER_WORK_MOVE_PAIR, cost: UPGRADER_WORK_MOVE_PAIR_COST },
+    { parts: WORKER_LOGISTICS_PAIR, cost: WORKER_LOGISTICS_PAIR_COST },
+    { parts: WORKER_SURPLUS_MOVE, cost: WORKER_SURPLUS_MOVE_COST }
+  ];
+  let nextBody = [...body];
+  let nextCost = bodyCost;
+
+  for (const addition of additions) {
+    if (
+      nextCost + addition.cost <= energyBudget &&
+      nextBody.length + addition.parts.length <= MAX_CREEP_PARTS
+    ) {
+      nextBody = [...nextBody, ...addition.parts];
+      nextCost += addition.cost;
+    }
+  }
+
+  return nextBody;
+}
+
+function getUpgraderMaxCost(controllerLevel: number | undefined): number {
+  if (typeof controllerLevel !== 'number' || !Number.isFinite(controllerLevel)) {
+    return 800;
+  }
+
+  if (controllerLevel <= 1) {
+    return 200;
+  }
+
+  if (controllerLevel === 2) {
+    return 300;
+  }
+
+  if (controllerLevel === 3) {
+    return 600;
+  }
+
+  if (controllerLevel <= 5) {
+    return 900;
+  }
+
+  if (controllerLevel === 6) {
+    return 1_800;
+  }
+
+  return 2_400;
+}
+
+function normalizeEnergyBudget(energyAvailable: number): number {
+  return typeof energyAvailable === 'number' && Number.isFinite(energyAvailable)
+    ? Math.max(0, Math.floor(energyAvailable))
+    : 0;
 }
 
 function getRemoteHaulerCarryMovePairLimit(routeDistance: number): number {

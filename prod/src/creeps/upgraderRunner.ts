@@ -1,4 +1,8 @@
 import { signOccupiedControllerIfNeeded } from '../territory/controllerSigning';
+import {
+  checkEnergyBufferForSpending,
+  getStorageEnergyAvailableForWithdrawal
+} from '../economy/energyBuffer';
 
 export type ControllerUpgradePriority =
   | 'none'
@@ -6,23 +10,71 @@ export type ControllerUpgradePriority =
   | 'rcl1Rush'
   | 'rclProgress'
   | 'energySurplus'
+  | 'steady'
   | 'fallback';
 
 export interface ControllerUpgradePriorityContext {
   energyAvailable?: number;
   energyCapacityAvailable?: number;
   competingSpawnDemand?: boolean;
+  constructionDemand?: boolean;
+  defenseDemand?: boolean;
+  energyBufferHealthy?: boolean;
   hasEnergySurplus?: boolean;
+  enableSteadyUpgrade?: boolean;
 }
 
+export const UPGRADER_ROLE = 'upgrader';
 export const CONTROLLER_UPGRADE_PROGRESS_PRESSURE_RATIO = 0.85;
 export const CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS = 5_000;
 
 const MAX_CONTROLLER_LEVEL = 8;
+const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const MIN_DROPPED_UPGRADER_ENERGY = 25;
 
 export function runUpgrader(creep: Creep, controller: StructureController): ScreepsReturnCode {
   signOccupiedControllerIfNeeded(creep, controller);
   return creep.upgradeController(controller);
+}
+
+export function runUpgraderCreep(creep: Creep): void {
+  if (moveToAssignedControllerRoom(creep)) {
+    return;
+  }
+
+  const controller = getAssignedController(creep);
+  if (!controller) {
+    return;
+  }
+
+  const carriedEnergy = getStoredEnergy(creep);
+  const upgradeAllowed = shouldSpendUpgraderEnergy(creep, controller);
+  if (carriedEnergy > 0) {
+    if (!upgradeAllowed) {
+      runUpgraderEnergyReturn(creep);
+      return;
+    }
+
+    const result = runUpgrader(creep, controller);
+    if (result === ERR_NOT_IN_RANGE_CODE) {
+      creep.moveTo(controller);
+    }
+    return;
+  }
+
+  if (!upgradeAllowed || getFreeEnergyCapacity(creep) <= 0) {
+    return;
+  }
+
+  const source = selectUpgraderEnergySource(creep);
+  if (!source) {
+    return;
+  }
+
+  const result = executeUpgraderEnergyAcquisition(creep, source);
+  if (result === ERR_NOT_IN_RANGE_CODE) {
+    creep.moveTo(source.target as RoomObject);
+  }
 }
 
 export function getControllerUpgradePriority(
@@ -41,23 +93,28 @@ export function getControllerUpgradePriority(
     return 'fallback';
   }
 
+  if (
+    context.competingSpawnDemand === true ||
+    context.defenseDemand === true ||
+    context.constructionDemand === true ||
+    !hasHealthyUpgradeEnergy(context)
+  ) {
+    return 'fallback';
+  }
+
   if (controller.level === 1) {
     return 'rcl1Rush';
   }
 
-  if (
-    isControllerProgressPressure(controller) &&
-    hasFullRoomSpawnEnergy(context) &&
-    context.competingSpawnDemand !== true
-  ) {
+  if (isControllerProgressPressure(controller)) {
     return 'rclProgress';
   }
 
-  if (context.hasEnergySurplus === true && context.competingSpawnDemand !== true) {
+  if (context.hasEnergySurplus === true) {
     return 'energySurplus';
   }
 
-  return 'fallback';
+  return context.enableSteadyUpgrade === false ? 'fallback' : 'steady';
 }
 
 export function isControllerProgressPressure(controller: StructureController | undefined): boolean {
@@ -90,6 +147,308 @@ function shouldGuardControllerDowngrade(controller: StructureController): boolea
   return (
     typeof controller.ticksToDowngrade === 'number' &&
     controller.ticksToDowngrade <= CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS
+  );
+}
+
+function moveToAssignedControllerRoom(creep: Creep): boolean {
+  const roomName = creep.memory.controllerUpgrade?.roomName ?? creep.memory.colony;
+  if (!roomName || creep.room?.name === roomName) {
+    return false;
+  }
+
+  const visibleController = getVisibleRoomController(roomName);
+  if (visibleController) {
+    creep.moveTo(visibleController);
+    return true;
+  }
+
+  const RoomPositionCtor = (
+    globalThis as { RoomPosition?: new (x: number, y: number, roomName: string) => RoomPosition }
+  ).RoomPosition;
+  if (typeof RoomPositionCtor === 'function') {
+    creep.moveTo(new RoomPositionCtor(25, 25, roomName));
+  }
+  return true;
+}
+
+function getAssignedController(creep: Creep): StructureController | null {
+  const assignedControllerId = creep.memory.controllerUpgrade?.controllerId;
+  if (assignedControllerId) {
+    const assignedController = getGameObjectById<StructureController>(assignedControllerId);
+    if (assignedController?.my === true) {
+      return assignedController;
+    }
+  }
+
+  const controller = creep.room?.controller;
+  return controller?.my === true ? controller : null;
+}
+
+function shouldSpendUpgraderEnergy(creep: Creep, controller: StructureController): boolean {
+  if (shouldGuardControllerDowngrade(controller) || creep.memory.controllerUpgrade?.priority === 'downgradeGuard') {
+    return true;
+  }
+
+  return (
+    canLevelUpController(controller) &&
+    hasHealthyRuntimeUpgradeEnergy(creep.room) &&
+    !hasVisibleHostileCreeps(creep.room) &&
+    !hasVisibleConstructionDemand(creep.room)
+  );
+}
+
+function hasHealthyRuntimeUpgradeEnergy(room: Room): boolean {
+  const energyAvailable = room.energyAvailable;
+  const energyCapacityAvailable = room.energyCapacityAvailable;
+  if (
+    typeof energyAvailable === 'number' &&
+    Number.isFinite(energyAvailable) &&
+    typeof energyCapacityAvailable === 'number' &&
+    Number.isFinite(energyCapacityAvailable) &&
+    energyCapacityAvailable > 0
+  ) {
+    return energyAvailable >= energyCapacityAvailable;
+  }
+
+  return checkEnergyBufferForSpending(room, 0);
+}
+
+interface UpgraderEnergySource {
+  action: 'harvest' | 'pickup' | 'withdraw';
+  target: Source | Resource<ResourceConstant> | AnyStoreStructure;
+  energy: number;
+  priority: number;
+}
+
+function selectUpgraderEnergySource(creep: Creep): UpgraderEnergySource | null {
+  const candidates = [
+    ...selectDroppedUpgraderEnergySources(creep),
+    ...selectStoredUpgraderEnergySources(creep),
+    ...selectHarvestUpgraderEnergySources(creep)
+  ];
+
+  return candidates.sort(compareUpgraderEnergySources(creep))[0] ?? null;
+}
+
+function selectDroppedUpgraderEnergySources(creep: Creep): UpgraderEnergySource[] {
+  return findRoomObjects<Resource<ResourceConstant>>(creep.room, 'FIND_DROPPED_RESOURCES')
+    .filter(
+      (resource) =>
+        resource.resourceType === getEnergyResource() &&
+        resource.amount >= MIN_DROPPED_UPGRADER_ENERGY
+    )
+    .map((resource) => ({
+      action: 'pickup' as const,
+      target: resource,
+      energy: resource.amount,
+      priority: 0
+    }));
+}
+
+function selectStoredUpgraderEnergySources(creep: Creep): UpgraderEnergySource[] {
+  return findRoomObjects<Structure>(creep.room, 'FIND_STRUCTURES')
+    .filter(isUpgraderStoredEnergySource)
+    .map((structure) => ({
+      action: 'withdraw' as const,
+      target: structure,
+      energy: getUpgraderWithdrawableEnergy(creep.room, structure),
+      priority: getStoredUpgraderEnergySourcePriority(structure)
+    }))
+    .filter((candidate) => candidate.energy > 0);
+}
+
+function selectHarvestUpgraderEnergySources(creep: Creep): UpgraderEnergySource[] {
+  return findRoomObjects<Source>(creep.room, 'FIND_SOURCES')
+    .filter((source) => source.energy === undefined || source.energy > 0)
+    .map((source) => ({
+      action: 'harvest' as const,
+      target: source,
+      energy: source.energy ?? 0,
+      priority: 4
+    }));
+}
+
+function executeUpgraderEnergyAcquisition(
+  creep: Creep,
+  source: UpgraderEnergySource
+): ScreepsReturnCode {
+  if (source.action === 'pickup') {
+    return creep.pickup(source.target as Resource<ResourceConstant>);
+  }
+
+  if (source.action === 'harvest') {
+    return creep.harvest(source.target as Source);
+  }
+
+  return creep.withdraw(source.target as AnyStoreStructure, getEnergyResource());
+}
+
+function runUpgraderEnergyReturn(creep: Creep): void {
+  const sink = selectUpgraderEnergyReturnSink(creep);
+  if (!sink) {
+    return;
+  }
+
+  const result = creep.transfer(sink, getEnergyResource());
+  if (result === ERR_NOT_IN_RANGE_CODE) {
+    creep.moveTo(sink);
+  }
+}
+
+function selectUpgraderEnergyReturnSink(creep: Creep): AnyStoreStructure | null {
+  return findRoomObjects<Structure>(creep.room, 'FIND_MY_STRUCTURES')
+    .filter(isUpgraderEnergyReturnSink)
+    .filter((structure) => getFreeEnergyCapacity(structure) > 0)
+    .sort((left, right) =>
+      getEnergyReturnSinkPriority(left) - getEnergyReturnSinkPriority(right) ||
+      compareRoomObjectsByRangeAndId(creep, left, right)
+    )[0] ?? null;
+}
+
+function compareUpgraderEnergySources(
+  creep: Creep
+): (left: UpgraderEnergySource, right: UpgraderEnergySource) => number {
+  return (left, right) =>
+    left.priority - right.priority ||
+    getRangeToRoomObject(creep, left.target) - getRangeToRoomObject(creep, right.target) ||
+    right.energy - left.energy ||
+    getStableId(left.target).localeCompare(getStableId(right.target));
+}
+
+function isUpgraderStoredEnergySource(structure: Structure): structure is AnyStoreStructure {
+  const structureType = structure.structureType;
+  return (
+    (matchesStructureType(structureType, 'STRUCTURE_STORAGE', 'storage') ||
+      matchesStructureType(structureType, 'STRUCTURE_CONTAINER', 'container') ||
+      matchesStructureType(structureType, 'STRUCTURE_LINK', 'link')) &&
+    getStoredEnergy(structure) > 0
+  );
+}
+
+function getStoredUpgraderEnergySourcePriority(structure: AnyStoreStructure): number {
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+    return 1;
+  }
+
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container')) {
+    return 2;
+  }
+
+  return 3;
+}
+
+function getUpgraderWithdrawableEnergy(room: Room, structure: AnyStoreStructure): number {
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage')) {
+    return getStorageEnergyAvailableForWithdrawal(room, structure as StructureStorage);
+  }
+
+  return getStoredEnergy(structure);
+}
+
+function isUpgraderEnergyReturnSink(structure: Structure): structure is AnyStoreStructure {
+  return (
+    matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension') ||
+    matchesStructureType(structure.structureType, 'STRUCTURE_STORAGE', 'storage')
+  );
+}
+
+function getEnergyReturnSinkPriority(structure: AnyStoreStructure): number {
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_SPAWN', 'spawn')) {
+    return 0;
+  }
+
+  if (matchesStructureType(structure.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
+    return 1;
+  }
+
+  return 2;
+}
+
+function hasVisibleHostileCreeps(room: Room): boolean {
+  return findRoomObjects<Creep>(room, 'FIND_HOSTILE_CREEPS').length > 0;
+}
+
+function hasVisibleConstructionDemand(room: Room): boolean {
+  return (
+    findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES').length > 0 ||
+    findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES').filter((site) => site.my !== false).length > 0
+  );
+}
+
+function findRoomObjects<T>(room: Room, globalName: string): T[] {
+  const findConstant = (globalThis as Record<string, unknown>)[globalName];
+  if (typeof findConstant !== 'number' || typeof room.find !== 'function') {
+    return [];
+  }
+
+  try {
+    const result = (room.find as unknown as (type: number) => unknown[])(findConstant);
+    return Array.isArray(result) ? (result as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getVisibleRoomController(roomName: string): StructureController | null {
+  return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName]?.controller ?? null;
+}
+
+function getGameObjectById<T>(id: string): T | null {
+  const getObjectById = (globalThis as { Game?: Partial<Pick<Game, 'getObjectById'>> }).Game?.getObjectById as
+    | ((id: string) => T | null)
+    | undefined;
+  return typeof getObjectById === 'function' ? getObjectById(String(id)) : null;
+}
+
+function getStoredEnergy(target: unknown): number {
+  const store = (
+    target as { store?: { getUsedCapacity?: (resource?: ResourceConstant) => number | null } } | null
+  )?.store;
+  const usedCapacity = store?.getUsedCapacity?.(getEnergyResource());
+  return typeof usedCapacity === 'number' && Number.isFinite(usedCapacity) ? Math.max(0, usedCapacity) : 0;
+}
+
+function getFreeEnergyCapacity(target: unknown): number {
+  const store = (
+    target as { store?: { getFreeCapacity?: (resource?: ResourceConstant) => number | null } } | null
+  )?.store;
+  const freeCapacity = store?.getFreeCapacity?.(getEnergyResource());
+  return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
+}
+
+function getRangeToRoomObject(creep: Creep, target: RoomObject): number {
+  const range = creep.pos?.getRangeTo?.(target);
+  return typeof range === 'number' ? range : Number.MAX_SAFE_INTEGER;
+}
+
+function compareRoomObjectsByRangeAndId(creep: Creep, left: RoomObject, right: RoomObject): number {
+  return getRangeToRoomObject(creep, left) - getRangeToRoomObject(creep, right) ||
+    getStableId(left).localeCompare(getStableId(right));
+}
+
+function getStableId(object: RoomObject): string {
+  const id = (object as { id?: unknown }).id;
+  return typeof id === 'string' ? id : '';
+}
+
+function matchesStructureType(
+  actual: string | undefined,
+  globalName: string,
+  fallback: string
+): boolean {
+  return actual === ((globalThis as Record<string, unknown>)[globalName] ?? fallback);
+}
+
+function getEnergyResource(): ResourceConstant {
+  return ((globalThis as { RESOURCE_ENERGY?: ResourceConstant }).RESOURCE_ENERGY ?? 'energy') as ResourceConstant;
+}
+
+function hasHealthyUpgradeEnergy(context: ControllerUpgradePriorityContext): boolean {
+  return (
+    context.energyBufferHealthy === true ||
+    context.hasEnergySurplus === true ||
+    hasFullRoomSpawnEnergy(context)
   );
 }
 

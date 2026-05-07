@@ -9,6 +9,8 @@ describe('controller manager', () => {
   beforeEach(() => {
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
     (globalThis as unknown as { Game: Partial<Game> }).Game = { creeps: {} };
+    (globalThis as unknown as { FIND_MY_CONSTRUCTION_SITES: number }).FIND_MY_CONSTRUCTION_SITES = 1;
+    (globalThis as unknown as { FIND_CONSTRUCTION_SITES: number }).FIND_CONSTRUCTION_SITES = 2;
   });
 
   it('records owned controller sign state and near-level upgrade demand', () => {
@@ -68,6 +70,41 @@ describe('controller manager', () => {
     expect(plan.spawnDemand).toBeUndefined();
   });
 
+  it('suppresses upgrade demand while construction work is visible', () => {
+    const plan = buildControllerManagementPlan(
+      makeColony({ constructionSiteCount: 1 }),
+      { worker: 3 },
+      3,
+      205
+    );
+
+    expect(plan.upgradePriority).toBe('fallback');
+    expect(plan.desiredUpgraderCount).toBe(0);
+    expect(plan.spawnDemand).toBeUndefined();
+  });
+
+  it('scales steady upgrader demand with room energy capacity', () => {
+    const plan = buildControllerManagementPlan(
+      makeColony({
+        energyAvailable: 1_300,
+        energyCapacityAvailable: 1_300,
+        controller: makeController({ progress: 100, progressTotal: 1_000 })
+      }),
+      { worker: 3 },
+      3,
+      206
+    );
+
+    expect(plan).toMatchObject({
+      upgradePriority: 'steady',
+      desiredUpgraderCount: 2,
+      spawnDemand: {
+        priority: 'steady',
+        desiredUpgraderCount: 2
+      }
+    });
+  });
+
   it('treats missing Game state as no active controller upgraders', () => {
     delete (globalThis as { Game?: Partial<Game> }).Game;
 
@@ -87,7 +124,7 @@ describe('controller manager', () => {
         Upgrader1: {
           ticksToLive: 1_000,
           memory: {
-            role: 'worker',
+            role: 'upgrader',
             colony: 'W1N1',
             controllerUpgrade: {
               roomName: 'W1N1',
@@ -118,7 +155,7 @@ describe('controller manager', () => {
         203
       )
     ).toEqual({
-      role: 'worker',
+      role: 'upgrader',
       colony: 'W1N1',
       controllerUpgrade: {
         roomName: 'W1N1',
@@ -132,16 +169,29 @@ describe('controller manager', () => {
   function makeColony({
     controller = makeController(),
     energyAvailable = 650,
-    energyCapacityAvailable = 650
+    energyCapacityAvailable = 650,
+    constructionSiteCount = 0
   }: {
     controller?: StructureController;
     energyAvailable?: number;
     energyCapacityAvailable?: number;
+    constructionSiteCount?: number;
   } = {}): ColonySnapshot {
+    const constructionSites = Array.from(
+      { length: constructionSiteCount },
+      (_, index) => ({ id: `site${index}`, my: true }) as ConstructionSite
+    );
     const room = {
       name: 'W1N1',
-      controller
-    } as Room;
+      controller,
+      find: jest.fn((type: number) => {
+        if (type === FIND_MY_CONSTRUCTION_SITES || type === FIND_CONSTRUCTION_SITES) {
+          return constructionSites;
+        }
+
+        return [];
+      })
+    } as unknown as Room;
     const spawn = { name: 'Spawn1', room } as StructureSpawn;
     return {
       room,
