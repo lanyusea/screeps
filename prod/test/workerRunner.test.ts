@@ -664,7 +664,7 @@ describe('runWorker', () => {
     const withdraw = jest.fn().mockReturnValue(0);
     const room = {
       name: 'W1N1',
-      memory: { spawnEnergyBuffer: { minimumEnergyPerSpawn: 250 } },
+      memory: { spawnEnergyBuffer: { minimumEnergyPerSpawn: 275 } },
       controller: { level: 1 } as StructureController,
       find: jest.fn((type: number, options?: { filter?: (structure: AnyOwnedStructure) => boolean }) => {
         if (type !== FIND_MY_STRUCTURES) {
@@ -692,9 +692,9 @@ describe('runWorker', () => {
 
     runWorker(creep);
 
-    expect(creep.withdraw).toHaveBeenCalledWith(spawn, 'energy', 50);
+    expect(creep.withdraw).toHaveBeenCalledWith(spawn, 'energy', 25);
     expect(creep.withdraw).toHaveBeenCalledTimes(1);
-    expect(withdraw.mock.calls[0]).toEqual([spawn, 'energy', 50]);
+    expect(withdraw.mock.calls[0]).toEqual([spawn, 'energy', 25]);
   });
 
   it('records source container withdrawal telemetry on successful source-container withdraw', () => {

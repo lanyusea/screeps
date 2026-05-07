@@ -11770,15 +11770,12 @@ function getSpawnEnergyAvailableForWithdrawal(room, target, currentEnergy = getS
   const roomSurplus = Math.max(0, roomTotalSpawnEnergy - totalSpawnBuffer);
   return Math.min(targetSpawnEnergy, roomSurplus);
 }
-function canWithdrawFromSpawnEnergyBuffer(room, target, requestedAmount) {
-  if (!isSpawnStructure(target)) {
-    return true;
-  }
+function getSpawnEnergyWithdrawalAmount(room, target, requestedAmount) {
   const requestedEnergy = normalizeEnergyAmount2(requestedAmount);
-  if (requestedEnergy <= 0) {
-    return false;
+  if (!isSpawnStructure(target)) {
+    return requestedEnergy;
   }
-  return getSpawnEnergyAvailableForWithdrawal(room, target) >= requestedEnergy;
+  return Math.min(requestedEnergy, getSpawnEnergyAvailableForWithdrawal(room, target));
 }
 function isSpawnEnergySource(target) {
   return isSpawnStructure(target);
@@ -18744,10 +18741,11 @@ function executeTask(creep, task, target) {
     case "withdraw": {
       const withdrawTarget = target;
       const requestedAmount = getFreeTransferEnergyCapacity(creep);
-      if (!canWithdrawFromSpawnEnergyBuffer(creep.room, withdrawTarget, requestedAmount)) {
+      const safeAmount = getSpawnEnergyWithdrawalAmount(creep.room, withdrawTarget, requestedAmount);
+      if (safeAmount <= 0) {
         return { result: ERR_NOT_ENOUGH_RESOURCES_CODE };
       }
-      const result = creep.withdraw(withdrawTarget, RESOURCE_ENERGY, requestedAmount);
+      const result = creep.withdraw(withdrawTarget, RESOURCE_ENERGY, safeAmount);
       return toTaskExecutionResult(result, "work", {
         energyAcquisitionMethod: "withdrawn",
         sourceContainerWithdrawal: isVisibleSourceContainer(creep, withdrawTarget)
