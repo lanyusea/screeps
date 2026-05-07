@@ -143,6 +143,47 @@ describe('worker energy-critical policy', () => {
     expect(creep.memory.workerEnergyCriticalPolicy).toBeUndefined();
   });
 
+  it('allows storage withdrawal during spawn-critical recovery before storage critical mode enters', () => {
+    const source = { id: 'source1', energy: 300 } as Source;
+    const storage = makeStorage('storage1', () => 600);
+    const controller = makeController();
+    const room = makeEnergyCriticalRoom({
+      controller,
+      energyAvailable: CRITICAL_SPAWN_REFILL_ENERGY_THRESHOLD - 1,
+      sources: [source],
+      structures: [storage as unknown as AnyStructure],
+      storage
+    });
+    const creep = makeEnergyCriticalWorker(room, {
+      carriedEnergy: 0,
+      freeCapacity: 30,
+      task: { type: 'upgrade', targetId: controller.id }
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 202,
+      creeps: {},
+      getObjectById: jest.fn((id: string) => {
+        if (id === 'storage1') {
+          return storage;
+        }
+
+        return id === 'source1' ? source : controller;
+      })
+    };
+
+    expect(assessWorkerEnergyCriticalState(creep)).toMatchObject({
+      active: true,
+      reason: 'spawn',
+      storageEnergy: 600,
+      storageEnterThreshold: 500,
+      storageExitThreshold: 500 + WORKER_ENERGY_CRITICAL_STORAGE_EXIT_MARGIN
+    });
+    expect(selectWorkerEnergyCriticalTask(creep, creep.memory.task, creep.memory.task ?? null)).toEqual({
+      type: 'withdraw',
+      targetId: storage.id
+    });
+  });
+
   it('keeps storage-critical mode active through its hysteresis band without withdrawing from storage', () => {
     const source = { id: 'source1', energy: 300 } as Source;
     let storageEnergy = 499;
