@@ -9,6 +9,7 @@ import {
   type NextExpansionTargetSelection
 } from './expansionScoring';
 import { refreshExpansionRoomScouting } from './roomScouting';
+import { getTerritoryScoutIntel } from './scoutIntel';
 import { logBestClaimTarget } from './territoryRunner';
 
 const EXPANSION_EXECUTOR_REFRESH_INTERVAL = 50;
@@ -27,7 +28,7 @@ export function refreshExpansionExecutorIntent(
 ): NextExpansionTargetSelection {
   const colonyName = colony.room.name;
   const colonyMemory = getWritableColonyMemory(colony);
-  const stateKey = getExpansionExecutorCacheStateKey(colony);
+  let stateKey = getExpansionExecutorCacheStateKey(colony);
   const cachedSelection = getCachedExpansionExecutorSelection(colonyMemory, colonyName);
   if (
     cachedSelection &&
@@ -38,15 +39,27 @@ export function refreshExpansionExecutorIntent(
 
   const report = buildRuntimeExpansionCandidateReport(colony);
   const selection = refreshNextExpansionTargetSelection(colony, report, gameTime);
-  if (selection.status === 'skipped' && selection.reason === 'insufficientEvidence') {
-    refreshExpansionRoomScouting(colony, selectExpansionScoutTargets(report), gameTime, telemetryEvents);
+  const scoutTargetRooms: string[] = [];
+  if (selection.targetRoom) {
+    scoutTargetRooms.push(selection.targetRoom);
   }
+  if (selection.status === 'skipped' && selection.reason === 'insufficientEvidence') {
+    const scoutTargets = selectExpansionScoutTargets(report);
+    scoutTargetRooms.push(...scoutTargets.map((target) => target.roomName));
+    refreshExpansionRoomScouting(colony, scoutTargets, gameTime, telemetryEvents);
+  }
+  stateKey = refreshExpansionExecutorCacheStateKeyAfterCurrentTickScoutIntel(
+    stateKey,
+    colonyName,
+    scoutTargetRooms,
+    gameTime
+  );
 
   logBestClaimTarget(colony.room);
   colonyMemory.lastExpansionScoreTime = gameTime;
   colonyMemory.cachedExpansionSelection = {
     ...selection,
-    stateKey: getExpansionExecutorCacheStateKey(colony)
+    stateKey
   };
   return selection;
 }
@@ -199,6 +212,29 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot): string {
     countActivePostClaimBootstraps(),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join('|');
+}
+
+function refreshExpansionExecutorCacheStateKeyAfterCurrentTickScoutIntel(
+  stateKey: string,
+  colony: string,
+  roomNames: string[],
+  gameTime: number
+): string {
+  const recordedCurrentTickScoutIntel = roomNames.some(
+    (roomName) => getTerritoryScoutIntel(colony, roomName)?.updatedAt === gameTime
+  );
+  return recordedCurrentTickScoutIntel ? replaceExpansionExecutorCacheScoutIntelUpdatedAt(stateKey, gameTime) : stateKey;
+}
+
+function replaceExpansionExecutorCacheScoutIntelUpdatedAt(stateKey: string, updatedAt: number): string {
+  const separatorIndex = stateKey.lastIndexOf('|');
+  if (separatorIndex < 0) {
+    return stateKey;
+  }
+
+  const currentUpdatedAt = Number(stateKey.slice(separatorIndex + 1));
+  const nextUpdatedAt = Math.max(Number.isFinite(currentUpdatedAt) ? currentUpdatedAt : 0, updatedAt);
+  return `${stateKey.slice(0, separatorIndex + 1)}${nextUpdatedAt}`;
 }
 
 function countVisibleOwnedRooms(): number {
