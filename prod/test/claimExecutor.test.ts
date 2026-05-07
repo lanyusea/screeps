@@ -8,6 +8,7 @@ import {
   runRecommendedExpansionClaimExecutor,
   shouldDeferOccupationRecommendationForExpansionClaim
 } from '../src/territory/claimExecutor';
+import { getExpansionPlannerClaimRecommendations } from '../src/territory/expansionPlanner';
 import type {
   OccupationRecommendationReport,
   OccupationRecommendationScore
@@ -193,6 +194,123 @@ describe('autonomous expansion claim executor', () => {
           controllerId: 'controller2'
         }
       }
+    });
+  });
+
+  it('exports expansion planner claim recommendations for execution', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'claim',
+            createdBy: 'expansionPlanner',
+            controllerId
+          }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 151,
+            createdBy: 'expansionPlanner',
+            controllerId
+          }
+        ]
+      }
+    };
+
+    expect(getExpansionPlannerClaimRecommendations('W1N1')).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W2N1',
+        action: 'claim',
+        createdBy: 'expansionPlanner',
+        status: 'active',
+        updatedAt: 151,
+        controllerId
+      }
+    ]);
+  });
+
+  it('claims an external expansion planner target and marks the new room for bootstrap', () => {
+    const controllerId = 'controller2' as Id<StructureController>;
+    (Game as { time: number }).time = 2_200;
+    const targetRoom = makeTargetRoom('W2N1', { controllerId });
+    (targetRoom as Room & { memory?: RoomMemory }).memory = {};
+    const controller = targetRoom.controller as StructureController & { my: boolean; room: Room };
+    controller.room = targetRoom;
+    (Game.rooms as Record<string, Room>) = {
+      W1N1: makeColony().room,
+      W2N1: targetRoom
+    };
+    (Game as unknown as { getObjectById: jest.Mock }).getObjectById = jest.fn((id: Id<StructureController>) =>
+      id === controllerId ? controller : null
+    );
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'claim',
+            createdBy: 'expansionPlanner',
+            controllerId
+          }
+        ],
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 2_199,
+            createdBy: 'expansionPlanner',
+            controllerId
+          }
+        ]
+      }
+    };
+    const events: RuntimeTelemetryEvent[] = [];
+    const creep = makeRecommendedClaimCreep({
+      controllerId,
+      room: targetRoom
+    });
+    creep.claimController.mockImplementation(() => {
+      controller.my = true;
+      return 0 as ScreepsReturnCode;
+    });
+
+    expect(runRecommendedExpansionClaimExecutor(creep, events)).toBe(true);
+
+    expect(creep.claimController).toHaveBeenCalledWith(controller);
+    expect(creep.memory.territory).toBeUndefined();
+    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.intents).toEqual([]);
+    expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
+      colony: 'W1N1',
+      roomName: 'W2N1',
+      status: 'detected',
+      claimedAt: 2_200,
+      updatedAt: 2_200,
+      controllerId
+    });
+    expect((targetRoom as Room & { memory: RoomMemory }).memory.colonyStage).toEqual({
+      mode: 'BOOTSTRAP',
+      updatedAt: 2_200,
+      suppressionReasons: ['bootstrapWorkerFloor', 'spawnEnergyCritical']
+    });
+    expect(events).toContainEqual({
+      type: 'postClaimBootstrap',
+      roomName: 'W2N1',
+      colony: 'W1N1',
+      phase: 'detected',
+      controllerId,
+      workerTarget: 2
     });
   });
 

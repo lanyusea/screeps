@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { recordClaimedRoomBootstrapStage } from '../colony/colonyStage';
 import {
   TERRITORY_CONTROLLER_BODY_COST,
   TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS
@@ -38,6 +39,11 @@ import {
   type TerritoryExecutionRefreshOptions,
   type TerritoryExecutionRefreshResult
 } from './executionTargets';
+import {
+  EXPANSION_PLANNER_TARGET_CREATOR,
+  getExpansionPlannerClaimRecommendations,
+  type ExpansionPlannerClaimRecommendation
+} from './expansionPlanner';
 
 export const AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR: TerritoryAutomationSource =
   'autonomousExpansionClaim';
@@ -54,7 +60,8 @@ const ERR_GCL_NOT_ENOUGH_CODE = -15 as ScreepsReturnCode;
 const RECOMMENDED_EXPANSION_CLAIM_SOURCES = new Set<TerritoryAutomationSource>([
   NEXT_EXPANSION_TARGET_CREATOR,
   AUTONOMOUS_EXPANSION_CLAIM_TARGET_CREATOR,
-  'colonyExpansion'
+  'colonyExpansion',
+  EXPANSION_PLANNER_TARGET_CREATOR
 ]);
 let autonomousExpansionClaimTickContext: AutonomousExpansionClaimTickContext | null = null;
 
@@ -76,6 +83,11 @@ interface ClaimExecutionAssignment extends CreepTerritoryMemory {
   claimStartedAt?: number;
   lastClaimAttemptAt?: number;
   claimAttemptCount?: number;
+}
+interface RecommendedClaimExecutionGate {
+  intent: TerritoryIntentMemory | null;
+  source?: TerritoryAutomationSource;
+  targetOnly: boolean;
 }
 type RoomPositionConstructor = new (x: number, y: number, roomName: string) => RoomPosition;
 
@@ -148,7 +160,7 @@ export function runRecommendedExpansionClaimExecutor(
     return false;
   }
 
-  if (!isRecommendedClaimIntentRunnable(recommendedClaim.intent, gameTime)) {
+  if (!isRecommendedClaimExecutionGateRunnable(recommendedClaim, gameTime)) {
     completeClaimAssignment(creep);
     return true;
   }
@@ -1137,7 +1149,7 @@ function isClaimExecutionAssignment(assignment: CreepTerritoryMemory | undefined
 function getRecommendedExpansionClaimExecutionGate(
   colony: string | undefined,
   assignment: CreepTerritoryMemory
-): { intent: TerritoryIntentMemory | null } | null {
+): RecommendedClaimExecutionGate | null {
   if (!isNonEmptyString(colony)) {
     return null;
   }
@@ -1147,7 +1159,10 @@ function getRecommendedExpansionClaimExecutionGate(
     return null;
   }
 
-  const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
+  const targetSource = getRecommendedClaimTargetSource(territoryMemory, colony, assignment.targetRoom);
+  const expansionPlannerRecommendation = getMatchingExpansionPlannerClaimRecommendation(colony, assignment);
+  const source = targetSource ?? expansionPlannerRecommendation?.createdBy;
+  const allowUnscopedIntent = source !== undefined;
   const intent =
     normalizeTerritoryIntents(territoryMemory.intents).find((candidate) =>
       isMatchingRecommendedClaimIntent(
@@ -1159,18 +1174,29 @@ function getRecommendedExpansionClaimExecutionGate(
       )
     ) ?? null;
   if (intent) {
-    return { intent };
+    return {
+      intent,
+      ...(intent.createdBy ? { source: intent.createdBy } : source ? { source } : {}),
+      targetOnly: false
+    };
   }
 
-  return allowUnscopedIntent ? { intent: null } : null;
+  return allowUnscopedIntent ? { intent: null, ...(source ? { source } : {}), targetOnly: true } : null;
 }
 
-function isRecommendedClaimIntentRunnable(intent: TerritoryIntentMemory | null, gameTime: number): boolean {
-  if (!intent || (intent.status !== 'planned' && intent.status !== 'active')) {
+function isRecommendedClaimExecutionGateRunnable(
+  gate: RecommendedClaimExecutionGate,
+  gameTime: number
+): boolean {
+  if (!gate.intent) {
+    return gate.targetOnly;
+  }
+
+  if (gate.intent.status !== 'planned' && gate.intent.status !== 'active') {
     return false;
   }
 
-  return !isTerritoryIntentSuspensionActive(intent, gameTime);
+  return !isTerritoryIntentSuspensionActive(gate.intent, gameTime);
 }
 
 function isTerritoryIntentSuspensionActive(intent: TerritoryIntentMemory, gameTime: number): boolean {
@@ -1333,6 +1359,7 @@ function recordRecommendedClaimSuccess(
     },
     telemetryEvents
   );
+  recordClaimedRoomBootstrapStage(targetRoom, getGameTime());
   completeRecommendedClaimIntent(colony, targetRoom, controller.id);
   recordColonyExpansionClaimVerification({
     colony,
@@ -1429,12 +1456,17 @@ function updateRecommendedClaimIntentForRetry(
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
   const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
+  const fallbackSource =
+    getRecommendedClaimTargetSource(territoryMemory, colony, assignment.targetRoom) ??
+    getMatchingExpansionPlannerClaimRecommendation(colony, assignment)?.createdBy;
+  let matchedIntent = false;
   for (let i = 0; i < intents.length; i += 1) {
     const intent = intents[i];
     if (!isMatchingRecommendedClaimIntent(intent, colony, assignment.targetRoom, undefined, allowUnscopedIntent)) {
       continue;
     }
 
+    matchedIntent = true;
     intents[i] = {
       ...intent,
       status: options.releaseAssignment ? 'planned' : 'active',
@@ -1447,6 +1479,22 @@ function updateRecommendedClaimIntentForRetry(
         ? { requiresControllerPressure: true }
         : {})
     };
+  }
+
+  if (!matchedIntent && fallbackSource) {
+    intents.push({
+      colony,
+      targetRoom: assignment.targetRoom,
+      action: 'claim',
+      status: options.releaseAssignment ? 'planned' : 'active',
+      updatedAt: gameTime,
+      lastAttemptAt: gameTime,
+      createdBy: fallbackSource,
+      ...(options.controllerId ?? assignment.controllerId
+        ? { controllerId: (options.controllerId ?? assignment.controllerId) as Id<StructureController> }
+        : {}),
+      ...(options.requiresControllerPressure ? { requiresControllerPressure: true } : {})
+    });
   }
 }
 
@@ -1465,12 +1513,17 @@ function suppressRecommendedClaimIntent(
   const intents = normalizeTerritoryIntents(territoryMemory.intents);
   territoryMemory.intents = intents;
   const allowUnscopedIntent = hasRecommendedClaimTarget(territoryMemory, colony, assignment.targetRoom);
+  const fallbackSource =
+    getRecommendedClaimTargetSource(territoryMemory, colony, assignment.targetRoom) ??
+    getMatchingExpansionPlannerClaimRecommendation(colony, assignment)?.createdBy;
+  let matchedIntent = false;
   for (let i = 0; i < intents.length; i += 1) {
     const intent = intents[i];
     if (!isMatchingRecommendedClaimIntent(intent, colony, assignment.targetRoom, undefined, allowUnscopedIntent)) {
       continue;
     }
 
+    matchedIntent = true;
     intents[i] = {
       ...intent,
       status: 'suppressed',
@@ -1483,6 +1536,22 @@ function suppressRecommendedClaimIntent(
         ? { requiresControllerPressure: true }
         : {})
     };
+  }
+
+  if (!matchedIntent && fallbackSource) {
+    intents.push({
+      colony,
+      targetRoom: assignment.targetRoom,
+      action: 'claim',
+      status: 'suppressed',
+      updatedAt: gameTime,
+      lastAttemptAt: gameTime,
+      createdBy: fallbackSource,
+      ...(controllerId ?? assignment.controllerId
+        ? { controllerId: (controllerId ?? assignment.controllerId) as Id<StructureController> }
+        : {}),
+      ...(reason === 'controllerReserved' ? { requiresControllerPressure: true } : {})
+    });
   }
 }
 
@@ -1526,9 +1595,18 @@ function isMatchingRecommendedClaimIntent(
 }
 
 function hasRecommendedClaimTarget(territoryMemory: TerritoryMemory, colony: string, targetRoom: string): boolean {
+  return getRecommendedClaimTargetSource(territoryMemory, colony, targetRoom) !== undefined;
+}
+
+function getRecommendedClaimTargetSource(
+  territoryMemory: TerritoryMemory,
+  colony: string,
+  targetRoom: string
+): TerritoryAutomationSource | undefined {
   return Array.isArray(territoryMemory.targets)
-    ? territoryMemory.targets.some((target) => isMatchingRecommendedClaimTarget(target, colony, targetRoom))
-    : false;
+    ? territoryMemory.targets.find((target) => isMatchingRecommendedClaimTarget(target, colony, targetRoom))
+        ?.createdBy
+    : undefined;
 }
 
 function isMatchingRecommendedClaimTarget(target: unknown, colony: string, targetRoom: string): boolean {
@@ -1539,6 +1617,19 @@ function isMatchingRecommendedClaimTarget(target: unknown, colony: string, targe
     target.action === 'claim' &&
     isTerritoryAutomationSource(target.createdBy) &&
     RECOMMENDED_EXPANSION_CLAIM_SOURCES.has(target.createdBy)
+  );
+}
+
+function getMatchingExpansionPlannerClaimRecommendation(
+  colony: string,
+  assignment: CreepTerritoryMemory
+): ExpansionPlannerClaimRecommendation | undefined {
+  return getExpansionPlannerClaimRecommendations(colony).find(
+    (recommendation) =>
+      recommendation.targetRoom === assignment.targetRoom &&
+      (!assignment.controllerId ||
+        !recommendation.controllerId ||
+        recommendation.controllerId === assignment.controllerId)
   );
 }
 

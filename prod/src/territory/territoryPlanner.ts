@@ -1874,6 +1874,7 @@ function getPersistedTerritoryIntentCandidates(
       colony: intent.colony,
       roomName: intent.targetRoom,
       action: intent.action,
+      ...(intent.createdBy ? { createdBy: intent.createdBy } : {}),
       ...(intent.controllerId ? { controllerId: intent.controllerId } : {}),
       ...(intent.postClaimBootstrapReserveEnergy
         ? { postClaimBootstrapReserveEnergy: intent.postClaimBootstrapReserveEnergy }

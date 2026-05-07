@@ -9,7 +9,7 @@ const EXIT_DIRECTION_ORDER = ['1', '3', '5', '7'];
 const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const SOURCE_SCORE_WEIGHT = 1_000;
 const DISTANCE_SCORE_WEIGHT = 100;
-const EXPANSION_PLANNER_TARGET_CREATOR: TerritoryAutomationSource = 'expansionPlanner';
+export const EXPANSION_PLANNER_TARGET_CREATOR = 'expansionPlanner';
 
 type TerminalExpansionIntentStatus = Extract<TerritoryIntentMemory['status'], 'inactive' | 'completed'>;
 
@@ -70,6 +70,16 @@ export interface ExpansionPlannerEvaluation {
   targetRoom?: string;
   action?: TerritoryControlAction;
   score?: number;
+  controllerId?: Id<StructureController>;
+}
+
+export interface ExpansionPlannerClaimRecommendation {
+  colony: string;
+  targetRoom: string;
+  action: 'claim';
+  createdBy: typeof EXPANSION_PLANNER_TARGET_CREATOR;
+  status: Extract<TerritoryIntentMemory['status'], 'planned' | 'active'>;
+  updatedAt?: number;
   controllerId?: Id<StructureController>;
 }
 
@@ -274,6 +284,65 @@ export function refreshExpansionPlannerIntent(
     score: intent.score,
     ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
   };
+}
+
+export function getExpansionPlannerClaimRecommendations(
+  colony?: string
+): ExpansionPlannerClaimRecommendation[] {
+  const territoryMemory = getTerritoryMemoryRecord();
+  if (!territoryMemory) {
+    return [];
+  }
+
+  const recommendations = new Map<string, ExpansionPlannerClaimRecommendation>();
+  const blockedKeys = new Set<string>();
+  for (const intent of normalizeTerritoryIntents(territoryMemory.intents)) {
+    if (!isExpansionPlannerClaimIntentForColony(intent, colony)) {
+      continue;
+    }
+
+    const key = getExpansionPlanKey(intent.colony, intent.targetRoom, 'claim');
+    if (!isRunnableExpansionPlannerClaimStatus(intent.status)) {
+      blockedKeys.add(key);
+      recommendations.delete(key);
+      continue;
+    }
+
+    recommendations.set(key, {
+      colony: intent.colony,
+      targetRoom: intent.targetRoom,
+      action: 'claim',
+      createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+      status: intent.status,
+      updatedAt: intent.updatedAt,
+      ...(intent.controllerId ? { controllerId: intent.controllerId } : {})
+    });
+  }
+
+  if (Array.isArray(territoryMemory.targets)) {
+    for (const rawTarget of territoryMemory.targets) {
+      const target = normalizeTerritoryTarget(rawTarget);
+      if (!isExpansionPlannerClaimTargetForColony(target, colony)) {
+        continue;
+      }
+
+      const key = getExpansionPlanKey(target.colony, target.roomName, 'claim');
+      if (blockedKeys.has(key) || recommendations.has(key)) {
+        continue;
+      }
+
+      recommendations.set(key, {
+        colony: target.colony,
+        targetRoom: target.roomName,
+        action: 'claim',
+        createdBy: EXPANSION_PLANNER_TARGET_CREATOR,
+        status: 'planned',
+        ...(target.controllerId ? { controllerId: target.controllerId } : {})
+      });
+    }
+  }
+
+  return Array.from(recommendations.values()).sort(compareExpansionPlannerClaimRecommendations);
 }
 
 export function createExpansionIntent(
@@ -828,6 +897,47 @@ function getExpansionPlanKey(colony: string, targetRoom: string, action: Territo
   return `${colony}:${targetRoom}:${action}`;
 }
 
+function isExpansionPlannerClaimIntentForColony(
+  intent: TerritoryIntentMemory,
+  colony: string | undefined
+): boolean {
+  return (
+    intent.createdBy === EXPANSION_PLANNER_TARGET_CREATOR &&
+    intent.action === 'claim' &&
+    (!isNonEmptyString(colony) || intent.colony === colony)
+  );
+}
+
+function isExpansionPlannerClaimTargetForColony(
+  target: TerritoryTargetMemory | null,
+  colony: string | undefined
+): target is TerritoryTargetMemory & { action: 'claim'; createdBy: typeof EXPANSION_PLANNER_TARGET_CREATOR } {
+  return (
+    target !== null &&
+    target.createdBy === EXPANSION_PLANNER_TARGET_CREATOR &&
+    target.action === 'claim' &&
+    target.enabled !== false &&
+    (!isNonEmptyString(colony) || target.colony === colony)
+  );
+}
+
+function isRunnableExpansionPlannerClaimStatus(
+  status: TerritoryIntentMemory['status']
+): status is Extract<TerritoryIntentMemory['status'], 'planned' | 'active'> {
+  return status === 'planned' || status === 'active';
+}
+
+function compareExpansionPlannerClaimRecommendations(
+  left: ExpansionPlannerClaimRecommendation,
+  right: ExpansionPlannerClaimRecommendation
+): number {
+  return (
+    left.colony.localeCompare(right.colony) ||
+    left.targetRoom.localeCompare(right.targetRoom) ||
+    compareOptionalNumbers(left.updatedAt, right.updatedAt)
+  );
+}
+
 function getCandidateTerminalExpansionStatus(
   candidate: ExpansionPlannerCandidate,
   action: TerritoryControlAction,
@@ -1128,6 +1238,10 @@ function getMemoryRecord(): Partial<Memory> | undefined {
 
 function normalizeNonNegativeInteger(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function compareOptionalNumbers(left: number | undefined, right: number | undefined): number {
+  return (left ?? Number.POSITIVE_INFINITY) - (right ?? Number.POSITIVE_INFINITY);
 }
 
 function isNonEmptyString(value: unknown): value is string {
