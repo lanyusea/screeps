@@ -74,6 +74,7 @@ export interface LabManagementOptions {
 
 export interface LabManagementResult {
   boost?: LabBoostResult;
+  boosts?: LabBoostResult[];
   boostRequests: LabBoostPlan[];
   inventory: LabInventory;
   labs: StructureLab[];
@@ -136,12 +137,12 @@ export function manageLabs(room: Room, options: LabManagementOptions = {}): LabM
   const inventory = buildLabInventory(room, labs);
   const creeps = options.creeps ?? Object.values((globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps ?? {});
   const boostRequests = selectBoostPlans(room, labs, creeps, inventory);
-  const boostPlan = boostRequests[0];
-  const boost = boostPlan ? executeBoostPlan(boostPlan, options) : undefined;
+  const boosts = runBoostManager(boostRequests, options);
+  const boost = selectPrimaryBoostResult(boosts);
   const previousRoomMemory = getExistingLabRoomMemory(room.name);
   const reaction =
-    shouldRunReactionAfterBoost(boost)
-      ? runSelectedReaction(room, labs, inventory, boostPlan, previousRoomMemory, options)
+    shouldRunReactionAfterBoost(boosts)
+      ? runSelectedReaction(room, labs, inventory, selectBoostReactionPlan(boostRequests), previousRoomMemory, options)
       : undefined;
   const result: LabManagementResult = {
     roomName: room.name,
@@ -149,6 +150,7 @@ export function manageLabs(room: Room, options: LabManagementOptions = {}): LabM
     inventory,
     boostRequests,
     ...(boost ? { boost } : {}),
+    ...(boosts.length > 0 ? { boosts } : {}),
     ...(reaction ? { reaction } : {})
   };
 
@@ -273,6 +275,14 @@ function buildExplicitCreepBoostRequests(creeps: Creep[]): LabBoostRequest[] {
   }
 
   return requests;
+}
+
+function runBoostManager(boostRequests: LabBoostPlan[], options: LabManagementOptions): LabBoostResult[] {
+  return boostRequests.map((boostRequest) => executeBoostPlan(boostRequest, options));
+}
+
+function selectPrimaryBoostResult(boosts: LabBoostResult[]): LabBoostResult | undefined {
+  return boosts.find((boost) => boost.status === 'boosted' || boost.status === 'moving') ?? boosts[0];
 }
 
 function buildBoostPlan(request: LabBoostRequest, labs: StructureLab[]): LabBoostPlan {
@@ -436,11 +446,15 @@ function selectReactionTarget(
   return options.reactionTarget ?? previousRoomMemory?.reactionTarget ?? null;
 }
 
-function shouldRunReactionAfterBoost(boost: LabBoostResult | undefined): boolean {
+function shouldRunReactionAfterBoost(boosts: LabBoostResult[]): boolean {
   return (
-    boost === undefined ||
-    (boost.status === 'blocked' && boost.reason === 'resourceUnavailable')
+    boosts.length === 0 ||
+    boosts.every((boost) => boost.status === 'blocked' && boost.reason === 'resourceUnavailable')
   );
+}
+
+function selectBoostReactionPlan(boostRequests: LabBoostPlan[]): LabBoostPlan | undefined {
+  return boostRequests.find((boostRequest) => boostRequest.reason === 'resourceUnavailable');
 }
 
 function selectNextReactionStep(
@@ -464,41 +478,88 @@ function selectReactionExecution(
   sourceLabA?: StructureLab;
   sourceLabB?: StructureLab;
 } {
-  const sourceLabA = selectInputLab(labs, step.reagents[0]);
-  const sourceLabB = selectInputLab(labs, step.reagents[1], sourceLabA ? new Set([getObjectId(sourceLabA)]) : undefined);
-  if (!sourceLabA || !sourceLabB) {
-    return { reason: 'inputLabsNeedReagents', sourceLabA, sourceLabB };
+  const sourceLabAs = selectInputLabs(labs, step.reagents[0]);
+  const fallbackSourceLabA = sourceLabAs[0];
+  if (!fallbackSourceLabA) {
+    return { reason: 'inputLabsNeedReagents' };
   }
 
-  const excludedIds = new Set([getObjectId(sourceLabA), getObjectId(sourceLabB)]);
-  const candidateOutputLabs = labs
-    .filter((lab) => !excludedIds.has(getObjectId(lab)) && canLabReceiveResource(lab, step.product))
-    .sort(compareObjectsById);
-  const readyOutputLab = candidateOutputLabs.find((lab) => getLabCooldown(lab) <= 0);
-  if (!readyOutputLab) {
-    return {
-      reason: candidateOutputLabs.length > 0 ? 'cooldown' : 'outputLabUnavailable',
-      sourceLabA,
-      sourceLabB
-    };
+  let fallbackSourceLabB: StructureLab | undefined;
+  let hasCompatibleOutputLab = false;
+  for (const sourceLabA of sourceLabAs) {
+    const sourceLabBs = selectInputLabs(labs, step.reagents[1], new Set([getObjectId(sourceLabA)]));
+    if (!fallbackSourceLabB) {
+      fallbackSourceLabB = sourceLabBs[0];
+    }
+    for (const sourceLabB of sourceLabBs) {
+      const excludedIds = new Set([getObjectId(sourceLabA), getObjectId(sourceLabB)]);
+      const candidateOutputLabs = labs
+        .filter((lab) => !excludedIds.has(getObjectId(lab)) && canLabReceiveResource(lab, step.product))
+        .sort(compareObjectsById)
+        .filter((outputLab) => areReactionLabsCompatible(sourceLabA, sourceLabB, outputLab));
+      if (candidateOutputLabs.length > 0) {
+        hasCompatibleOutputLab = true;
+      }
+
+      const readyOutputLab = candidateOutputLabs.find((lab) => getLabCooldown(lab) <= 0);
+      if (readyOutputLab) {
+        return {
+          outputLab: readyOutputLab,
+          reason: 'none',
+          sourceLabA,
+          sourceLabB
+        };
+      }
+    }
+  }
+
+  if (!fallbackSourceLabB) {
+    return { reason: 'inputLabsNeedReagents', sourceLabA: fallbackSourceLabA };
   }
 
   return {
-    outputLab: readyOutputLab,
-    reason: 'none',
-    sourceLabA,
-    sourceLabB
+    reason: hasCompatibleOutputLab ? 'cooldown' : 'outputLabUnavailable',
+    sourceLabA: fallbackSourceLabA,
+    sourceLabB: fallbackSourceLabB
   };
 }
 
-function selectInputLab(
+function selectInputLabs(
   labs: StructureLab[],
   reagent: ResourceConstant,
   excludedIds: ReadonlySet<string> = new Set()
-): StructureLab | undefined {
+): StructureLab[] {
   return labs
     .filter((lab) => !excludedIds.has(getObjectId(lab)) && getLabResourceAmount(lab, reagent) >= getLabReactionAmount())
-    .sort(compareObjectsById)[0];
+    .sort(compareObjectsById);
+}
+
+function areReactionLabsCompatible(
+  sourceLabA: StructureLab,
+  sourceLabB: StructureLab,
+  outputLab: StructureLab
+): boolean {
+  return (
+    areLabsWithinReactionRange(sourceLabA, sourceLabB) &&
+    areLabsWithinReactionRange(sourceLabA, outputLab) &&
+    areLabsWithinReactionRange(sourceLabB, outputLab)
+  );
+}
+
+function areLabsWithinReactionRange(left: StructureLab, right: StructureLab): boolean {
+  const range = getLabRangeTo(left, right);
+  return range === null || range <= 2;
+}
+
+function getLabRangeTo(left: StructureLab, right: StructureLab): number | null {
+  const leftPos = (left as { pos?: Pick<RoomPosition, 'getRangeTo'> }).pos;
+  const rightPos = (right as { pos?: RoomPosition }).pos;
+  if (!leftPos || !rightPos || typeof leftPos.getRangeTo !== 'function') {
+    return null;
+  }
+
+  const range = leftPos.getRangeTo(right);
+  return typeof range === 'number' && Number.isFinite(range) ? range : null;
 }
 
 function canLabReceiveResource(lab: StructureLab, resource: ResourceConstant): boolean {

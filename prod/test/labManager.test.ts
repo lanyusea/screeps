@@ -50,7 +50,7 @@ describe('labManager', () => {
     ]);
   });
 
-  it('boosts controller upgraders before lower-priority creep boost requests', () => {
+  it('prioritizes controller upgrader boosts while processing lower-priority requests', () => {
     const creepBoostLab = makeLab({ id: 'lab-a', mineralType: 'UH', mineralAmount: 30, energy: 20 });
     const upgraderBoostLab = makeLab({ id: 'lab-b', mineralType: 'XGH2O', mineralAmount: 30, energy: 20 });
     const room = makeRoom({ structures: [creepBoostLab, upgraderBoostLab] });
@@ -66,13 +66,20 @@ describe('labManager', () => {
     const result = manageLabs(room, { creeps: [fighter, upgrader] });
 
     expect(upgraderBoostLab.boostCreep).toHaveBeenCalledWith(upgrader, 1);
-    expect(creepBoostLab.boostCreep).not.toHaveBeenCalled();
+    expect(creepBoostLab.boostCreep).toHaveBeenCalledWith(fighter, 1);
+    expect(upgraderBoostLab.boostCreep.mock.invocationCallOrder[0]).toBeLessThan(
+      creepBoostLab.boostCreep.mock.invocationCallOrder[0]
+    );
     expect(result.boost).toMatchObject({
       creepName: 'Upgrader1',
       priority: 'controllerUpgrade',
       resource: 'XGH2O',
       status: 'boosted'
     });
+    expect(result.boosts).toEqual([
+      expect.objectContaining({ creepName: 'Upgrader1', status: 'boosted' }),
+      expect.objectContaining({ creepName: 'Fighter1', status: 'boosted' })
+    ]);
   });
 
   it('runs reactions and accumulates reaction progress in memory', () => {
@@ -116,6 +123,93 @@ describe('labManager', () => {
     manageLabs(room, { creeps: [] });
 
     expect(Memory.economy?.labManagement?.rooms.W1N1.reaction?.producedAmount).toBe(10);
+  });
+
+  it('skips non-adjacent reaction output labs and accepts a range-compatible trio', () => {
+    const hLab = makeLab({ id: 'lab-h', mineralType: 'H', mineralAmount: 100, x: 10, y: 10 });
+    const oLab = makeLab({ id: 'lab-o', mineralType: 'O', mineralAmount: 100, x: 12, y: 10 });
+    const farOutputLab = makeLab({ id: 'lab-aa-far', freeCapacity: 3_000, x: 20, y: 20 });
+    const validOutputLab = makeLab({ id: 'lab-zz-valid', freeCapacity: 3_000, x: 11, y: 11 });
+    const room = makeRoom({ structures: [hLab, oLab, farOutputLab, validOutputLab] });
+    setReactionTargetMemory('OH' as ResourceConstant, 50);
+
+    const result = manageLabs(room, { creeps: [] });
+
+    expect(farOutputLab.runReaction).not.toHaveBeenCalled();
+    expect(validOutputLab.runReaction).toHaveBeenCalledWith(hLab, oLab);
+    expect(result.reaction).toMatchObject({
+      outputLabId: 'lab-zz-valid',
+      status: 'running'
+    });
+  });
+
+  it('rejects reaction trios when any positioned lab pair is outside range 2', () => {
+    const hLab = makeLab({ id: 'lab-h', mineralType: 'H', mineralAmount: 100, x: 10, y: 10 });
+    const oLab = makeLab({ id: 'lab-o', mineralType: 'O', mineralAmount: 100, x: 13, y: 10 });
+    const outputLab = makeLab({ id: 'lab-out', freeCapacity: 3_000, x: 11, y: 10 });
+    const room = makeRoom({ structures: [hLab, oLab, outputLab] });
+    setReactionTargetMemory('OH' as ResourceConstant, 50);
+
+    const result = manageLabs(room, { creeps: [] });
+
+    expect(outputLab.runReaction).not.toHaveBeenCalled();
+    expect(result.reaction).toMatchObject({
+      product: 'OH',
+      reason: 'outputLabUnavailable',
+      status: 'blocked'
+    });
+  });
+
+  it('falls back to reaction selection when lab positions are missing', () => {
+    const hLab = makeLab({ id: 'lab-h', mineralType: 'H', mineralAmount: 100 });
+    const oLab = makeLab({ id: 'lab-o', mineralType: 'O', mineralAmount: 100 });
+    const outputLab = makeLab({ id: 'lab-out', freeCapacity: 3_000 });
+    const room = makeRoom({ structures: [hLab, oLab, outputLab] });
+    setReactionTargetMemory('OH' as ResourceConstant, 50);
+
+    const result = manageLabs(room, { creeps: [] });
+
+    expect(outputLab.runReaction).toHaveBeenCalledWith(hLab, oLab);
+    expect(result.reaction).toMatchObject({
+      outputLabId: 'lab-out',
+      status: 'running'
+    });
+  });
+
+  it('continues boost processing after a blocked higher-priority request', () => {
+    const fighterBoostLab = makeLab({ id: 'lab-uh', mineralType: 'UH', mineralAmount: 30, energy: 20 });
+    const room = makeRoom({ structures: [fighterBoostLab] });
+    const upgrader = makeCreep('Upgrader1', ['work'], { role: 'upgrader', colony: 'W1N1' });
+    const fighter = makeCreep('Fighter1', ['attack'], {
+      lab: { boosts: [{ part: 'attack', resource: 'UH' as MineralBoostConstant }] }
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 150,
+      creeps: { Fighter1: fighter, Upgrader1: upgrader }
+    };
+
+    const result = manageLabs(room, { creeps: [upgrader, fighter] });
+
+    expect(fighterBoostLab.boostCreep).toHaveBeenCalledWith(fighter, 1);
+    expect(upgrader.memory.lab).toMatchObject({
+      boostState: 'blocked',
+      updatedAt: 150
+    });
+    expect(fighter.memory.lab).toMatchObject({
+      boostState: 'complete',
+      updatedAt: 150
+    });
+    expect(result.boosts).toEqual([
+      expect.objectContaining({
+        creepName: 'Upgrader1',
+        reason: 'resourceUnavailable',
+        status: 'blocked'
+      }),
+      expect.objectContaining({
+        creepName: 'Fighter1',
+        status: 'boosted'
+      })
+    ]);
   });
 
   it('enforces boost energy budgets and reaction cooldowns', () => {
@@ -191,7 +285,9 @@ function makeLab({
   mineralAmount = 0,
   energy = 0,
   cooldown = 0,
-  freeCapacity = 3_000
+  freeCapacity = 3_000,
+  x,
+  y
 }: {
   id: string;
   mineralType?: ResourceConstant | null;
@@ -199,6 +295,8 @@ function makeLab({
   energy?: number;
   cooldown?: number;
   freeCapacity?: number;
+  x?: number;
+  y?: number;
 }): TestLab {
   return {
     id,
@@ -213,7 +311,8 @@ function makeLab({
       ...(mineralType && mineralAmount > 0 ? { [mineralType]: mineralAmount } : {})
     }, freeCapacity),
     boostCreep: jest.fn().mockReturnValue(OK_CODE),
-    runReaction: jest.fn().mockReturnValue(OK_CODE)
+    runReaction: jest.fn().mockReturnValue(OK_CODE),
+    ...(x !== undefined && y !== undefined ? { pos: makeRoomPosition(x, y) } : {})
   } as unknown as TestLab;
 }
 
@@ -242,4 +341,40 @@ function makeStore(resources: Record<string, number>, freeCapacity: number): Sto
     ),
     getCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? 2_000 : 3_000))
   } as unknown as StoreDefinition;
+}
+
+function makeRoomPosition(x: number, y: number): RoomPosition {
+  return {
+    x,
+    y,
+    roomName: 'W1N1',
+    getRangeTo: jest.fn((target: RoomObject | RoomPosition) => {
+      const targetPos =
+        typeof (target as RoomPosition).x === 'number' && typeof (target as RoomPosition).y === 'number'
+          ? (target as RoomPosition)
+          : (target as RoomObject).pos;
+
+      return Math.max(Math.abs(x - targetPos.x), Math.abs(y - targetPos.y));
+    })
+  } as unknown as RoomPosition;
+}
+
+function setReactionTargetMemory(target: ResourceConstant, desiredAmount?: number): void {
+  Memory.economy = {
+    labManagement: {
+      updatedAt: 100,
+      rooms: {
+        W1N1: {
+          roomName: 'W1N1',
+          rcl: 6,
+          updatedAt: 100,
+          labs: [],
+          inventory: {},
+          boostDemand: [],
+          reactionTarget: target,
+          ...(desiredAmount !== undefined ? { reactionDesiredAmount: desiredAmount } : {})
+        }
+      }
+    }
+  };
 }
