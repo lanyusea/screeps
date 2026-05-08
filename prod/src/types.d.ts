@@ -6,6 +6,7 @@ declare global {
       version: number;
     };
     defense?: DefenseMemory;
+    enableMarketTrading?: boolean;
     economy?: EconomyMemory;
     territory?: TerritoryMemory;
     strategyRollback?: Record<

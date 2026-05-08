@@ -29097,7 +29097,8 @@ function runMarketTrading() {
     return null;
   }
   const rooms = buildMarketTradingRoomStates(gameTime);
-  const orders = getMarketOrdersSafely(market);
+  const orderResourceTypes = collectMarketOrderResourceTypes(rooms, gameTime);
+  const orders = getMarketOrdersSafely(market, orderResourceTypes);
   const plan = selectMarketTradePlan({
     rooms,
     orders,
@@ -29497,9 +29498,36 @@ function compareBuyOrders(left, right) {
 function compareSellOrders(left, right) {
   return normalizeNonNegativeNumber2(left.price) - normalizeNonNegativeNumber2(right.price) || getOrderRemainingAmount(right) - getOrderRemainingAmount(left) || left.id.localeCompare(right.id);
 }
-function getMarketOrdersSafely(market) {
+function collectMarketOrderResourceTypes(rooms, gameTime) {
+  const resources = /* @__PURE__ */ new Set();
+  const minOrderAmount = normalizePositiveInteger(MARKET_TRADING_MIN_ORDER_AMOUNT);
+  for (const room of rooms) {
+    if (!isRoomReadyForMarketTrade(room, gameTime)) {
+      continue;
+    }
+    const roomResourceTypes = Object.keys(room.resources).sort();
+    const postures = buildResourcePostureByResource(room, roomResourceTypes);
+    for (const [resourceType, posture] of postures) {
+      if (posture.excessAmount >= minOrderAmount || posture.neededAmount >= minOrderAmount) {
+        resources.add(resourceType);
+      }
+    }
+  }
+  return Array.from(resources).sort();
+}
+function getMarketOrdersSafely(market, resourceTypes) {
+  const orders = [];
+  const buyType = getOrderBuyConstant();
+  const sellType = getOrderSellConstant();
+  for (const resourceType of resourceTypes) {
+    orders.push(...getMarketOrdersForFilterSafely(market, { type: buyType, resourceType }));
+    orders.push(...getMarketOrdersForFilterSafely(market, { type: sellType, resourceType }));
+  }
+  return orders;
+}
+function getMarketOrdersForFilterSafely(market, filter) {
   try {
-    return market.getAllOrders();
+    return market.getAllOrders(filter);
   } catch {
     return [];
   }
@@ -35514,7 +35542,7 @@ function runEconomy(preludeTelemetryEvents = []) {
   const creeps = Object.values(Game.creeps);
   balanceStorage();
   manageTerminalEnergy();
-  if (shouldRunMarketTrading(Game.time)) {
+  if (Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
     runMarketTrading();
   }
   const ownedColonies = getOwnedColonies();

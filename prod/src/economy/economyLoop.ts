@@ -140,7 +140,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   const creeps = Object.values(Game.creeps);
   balanceStorage();
   manageTerminalEnergy();
-  if (shouldRunMarketTrading(Game.time)) {
+  if (Memory.enableMarketTrading === true && shouldRunMarketTrading(Game.time)) {
     runMarketTrading();
   }
   const ownedColonies = getOwnedColonies();

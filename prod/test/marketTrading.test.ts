@@ -145,15 +145,16 @@ describe('marketTrading', () => {
 
   it('tracks projected cooldown after a successful market deal', () => {
     const deal = jest.fn().mockReturnValue(OK_CODE);
+    const getAllOrders = makeMarketOrderGetter([
+      makeOrder({ id: 'buy-H', type: 'buy', resourceType: 'H', price: 2, roomName: 'W2N1', remainingAmount: 5_000 }),
+      makeOrder({ id: 'sell-H', type: 'sell', resourceType: 'H', price: 1, roomName: 'W3N1', remainingAmount: 5_000 })
+    ]);
     installGame({
       time: 100,
       market: {
         credits: 20_000,
         deal,
-        getAllOrders: jest.fn().mockReturnValue([
-          makeOrder({ id: 'buy-H', type: 'buy', resourceType: 'H', price: 2, roomName: 'W2N1', remainingAmount: 5_000 }),
-          makeOrder({ id: 'sell-H', type: 'sell', resourceType: 'H', price: 1, roomName: 'W3N1', remainingAmount: 5_000 })
-        ]),
+        getAllOrders,
         calcTransactionCost: jest.fn().mockReturnValue(0)
       },
       room: makeOwnedRoom({ terminalResources: { energy: 80_000, H: 30_000 } })
@@ -161,6 +162,9 @@ describe('marketTrading', () => {
 
     const result = runMarketTrading();
 
+    expect(getAllOrders).toHaveBeenCalledTimes(2);
+    expect(getAllOrders).toHaveBeenNthCalledWith(1, { type: 'buy', resourceType: 'H' });
+    expect(getAllOrders).toHaveBeenNthCalledWith(2, { type: 'sell', resourceType: 'H' });
     expect(deal).toHaveBeenCalledWith('buy-H', 5_000, 'W1N1');
     expect(result).toMatchObject({
       availableAt: 150,
@@ -178,6 +182,10 @@ describe('marketTrading', () => {
 
   it('does not trade while memory says the terminal is cooling down', () => {
     const deal = jest.fn().mockReturnValue(OK_CODE);
+    const getAllOrders = makeMarketOrderGetter([
+      makeOrder({ id: 'buy-H', type: 'buy', resourceType: 'H', price: 2, roomName: 'W2N1' }),
+      makeOrder({ id: 'sell-H', type: 'sell', resourceType: 'H', price: 1, roomName: 'W3N1' })
+    ]);
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
       economy: {
         marketTrading: {
@@ -205,16 +213,14 @@ describe('marketTrading', () => {
       market: {
         credits: 20_000,
         deal,
-        getAllOrders: jest.fn().mockReturnValue([
-          makeOrder({ id: 'buy-H', type: 'buy', resourceType: 'H', price: 2, roomName: 'W2N1' }),
-          makeOrder({ id: 'sell-H', type: 'sell', resourceType: 'H', price: 1, roomName: 'W3N1' })
-        ]),
+        getAllOrders,
         calcTransactionCost: jest.fn().mockReturnValue(0)
       },
       room: makeOwnedRoom({ terminalResources: { energy: 80_000, H: 30_000 } })
     });
 
     expect(runMarketTrading()).toBeNull();
+    expect(getAllOrders).not.toHaveBeenCalled();
     expect(deal).not.toHaveBeenCalled();
     expect(Memory.economy?.marketTrading?.rooms.W1N1.availableAt).toBe(115);
   });
@@ -311,6 +317,23 @@ function makeOrder({
     remainingAmount,
     price
   } as Order;
+}
+
+function makeMarketOrderGetter(orders: Order[]) {
+  return jest.fn((filter?: OrderFilter | ((order: Order) => boolean)) => {
+    if (typeof filter === 'function') {
+      return orders.filter(filter);
+    }
+
+    if (!filter) {
+      return orders;
+    }
+
+    return orders.filter((order) => (
+      (filter.type === undefined || order.type === filter.type) &&
+      (filter.resourceType === undefined || order.resourceType === filter.resourceType)
+    ));
+  });
 }
 
 function installGame({

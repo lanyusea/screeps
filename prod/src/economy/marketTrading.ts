@@ -115,7 +115,8 @@ export function runMarketTrading(): MarketTradeResult | null {
   }
 
   const rooms = buildMarketTradingRoomStates(gameTime);
-  const orders = getMarketOrdersSafely(market);
+  const orderResourceTypes = collectMarketOrderResourceTypes(rooms, gameTime);
+  const orders = getMarketOrdersSafely(market, orderResourceTypes);
   const plan = selectMarketTradePlan({
     rooms,
     orders,
@@ -636,9 +637,46 @@ function compareSellOrders(left: Order, right: Order): number {
   );
 }
 
-function getMarketOrdersSafely(market: Market): Order[] {
+function collectMarketOrderResourceTypes(
+  rooms: MarketTradingRoomState[],
+  gameTime: number
+): MarketResourceConstant[] {
+  const resources = new Set<MarketResourceConstant>();
+  const minOrderAmount = normalizePositiveInteger(MARKET_TRADING_MIN_ORDER_AMOUNT);
+
+  for (const room of rooms) {
+    if (!isRoomReadyForMarketTrade(room, gameTime)) {
+      continue;
+    }
+
+    const roomResourceTypes = Object.keys(room.resources).sort() as MarketResourceConstant[];
+    const postures = buildResourcePostureByResource(room, roomResourceTypes);
+    for (const [resourceType, posture] of postures) {
+      if (posture.excessAmount >= minOrderAmount || posture.neededAmount >= minOrderAmount) {
+        resources.add(resourceType);
+      }
+    }
+  }
+
+  return Array.from(resources).sort();
+}
+
+function getMarketOrdersSafely(market: Market, resourceTypes: MarketResourceConstant[]): Order[] {
+  const orders: Order[] = [];
+  const buyType = getOrderBuyConstant();
+  const sellType = getOrderSellConstant();
+
+  for (const resourceType of resourceTypes) {
+    orders.push(...getMarketOrdersForFilterSafely(market, { type: buyType, resourceType }));
+    orders.push(...getMarketOrdersForFilterSafely(market, { type: sellType, resourceType }));
+  }
+
+  return orders;
+}
+
+function getMarketOrdersForFilterSafely(market: Market, filter: OrderFilter): Order[] {
   try {
-    return market.getAllOrders();
+    return market.getAllOrders(filter);
   } catch {
     return [];
   }

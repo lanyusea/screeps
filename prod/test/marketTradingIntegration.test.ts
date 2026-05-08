@@ -21,9 +21,9 @@ describe('market trading economy integration', () => {
     delete (globalThis as { Game?: Partial<Game> }).Game;
   });
 
-  it('runs terminal market trading on the configured economy cadence only', () => {
+  it('runs terminal market trading only when explicitly enabled and on the configured cadence', () => {
     const deal = jest.fn().mockReturnValue(OK_CODE);
-    const getAllOrders = jest.fn().mockReturnValue([
+    const getAllOrders = makeMarketOrderGetter([
       makeOrder({ id: 'buy-H', type: 'buy', resourceType: 'H', price: 2, roomName: 'W2N1' }),
       makeOrder({ id: 'sell-H', type: 'sell', resourceType: 'H', price: 1, roomName: 'W3N1' })
     ]);
@@ -35,10 +35,26 @@ describe('market trading economy integration', () => {
 
     runEconomy();
 
-    expect(getAllOrders).toHaveBeenCalledTimes(1);
+    expect(getAllOrders).not.toHaveBeenCalled();
+    expect(deal).not.toHaveBeenCalled();
+
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = { enableMarketTrading: true };
+    deal.mockClear();
+    getAllOrders.mockClear();
+    installEconomyGame({
+      time: MARKET_TRADING_INTERVAL * 4,
+      deal,
+      getAllOrders
+    });
+
+    runEconomy();
+
+    expect(getAllOrders).toHaveBeenCalledTimes(2);
+    expect(getAllOrders).toHaveBeenNthCalledWith(1, { type: 'buy', resourceType: 'H' });
+    expect(getAllOrders).toHaveBeenNthCalledWith(2, { type: 'sell', resourceType: 'H' });
     expect(deal).toHaveBeenCalledWith('buy-H', 5_000, 'W1N1');
 
-    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = { enableMarketTrading: true };
     deal.mockClear();
     getAllOrders.mockClear();
     installEconomyGame({
@@ -143,6 +159,23 @@ function makeOrder({
     remainingAmount,
     price
   } as Order;
+}
+
+function makeMarketOrderGetter(orders: Order[]) {
+  return jest.fn((filter?: OrderFilter | ((order: Order) => boolean)) => {
+    if (typeof filter === 'function') {
+      return orders.filter(filter);
+    }
+
+    if (!filter) {
+      return orders;
+    }
+
+    return orders.filter((order) => (
+      (filter.type === undefined || order.type === filter.type) &&
+      (filter.resourceType === undefined || order.resourceType === filter.resourceType)
+    ));
+  });
 }
 
 function sumResources(resources: Record<string, number>): number {
