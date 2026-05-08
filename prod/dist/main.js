@@ -28427,10 +28427,7 @@ function clampSendAmountForEnergyBudget(requestedAmount, distance, energyBudget)
   if (normalizedBudget <= 0) {
     return 0;
   }
-  let amount = Math.min(
-    normalizeNonNegativeInteger9(requestedAmount),
-    Math.floor(normalizedBudget / (1 + 0.1 * Math.max(0, distance)))
-  );
+  let amount = normalizeNonNegativeInteger9(requestedAmount);
   while (amount > 0 && amount + calculateTerminalEnergyCostForDistance(distance, amount) > normalizedBudget) {
     amount -= 1;
   }

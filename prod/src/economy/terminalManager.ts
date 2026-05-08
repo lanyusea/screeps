@@ -271,10 +271,7 @@ function clampSendAmountForEnergyBudget(
     return 0;
   }
 
-  let amount = Math.min(
-    normalizeNonNegativeInteger(requestedAmount),
-    Math.floor(normalizedBudget / (1 + 0.1 * Math.max(0, distance)))
-  );
+  let amount = normalizeNonNegativeInteger(requestedAmount);
   while (amount > 0 && amount + calculateTerminalEnergyCostForDistance(distance, amount) > normalizedBudget) {
     amount -= 1;
   }
