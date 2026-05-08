@@ -166,7 +166,7 @@ export function calculateTerminalEnergyCost(
 export function calculateTerminalEnergyCostForDistance(distance: number, amount: number): number {
   const normalizedDistance = normalizeNonNegativeInteger(distance);
   const normalizedAmount = normalizeNonNegativeInteger(amount);
-  return Math.floor(0.1 * normalizedDistance * normalizedAmount);
+  return Math.ceil(normalizedAmount * (1 - Math.exp(-normalizedDistance / 30)));
 }
 
 export function getTerminalSendCooldown(amount: number): number {

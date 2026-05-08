@@ -27,7 +27,7 @@ describe('terminalManager', () => {
       } as unknown as GameMap
     };
 
-    expect(calculateTerminalEnergyCost('W1N1', 'W4N1', 333)).toBe(99);
+    expect(calculateTerminalEnergyCost('W1N1', 'W4N1', 333)).toBe(32);
     expect(getTerminalSendCooldown(0)).toBe(0);
     expect(getTerminalSendCooldown(1)).toBe(1);
     expect(getTerminalSendCooldown(100)).toBe(1);
@@ -56,7 +56,7 @@ describe('terminalManager', () => {
         cooldown: 100,
         description: 'energy-balance W1N1->W2N1',
         distance: 2,
-        energyCost: 2_000,
+        energyCost: 645,
         result: OK_CODE,
         sourceRoom: 'W1N1',
         targetRoom: 'W2N1'
@@ -78,7 +78,7 @@ describe('terminalManager', () => {
         sourceRoom: 'W1N1',
         targetRoom: 'W2N1',
         amount: 10_000,
-        energyCost: 2_000,
+        energyCost: 645,
         cooldown: 100
       }
     ]);

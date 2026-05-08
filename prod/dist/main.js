@@ -28350,7 +28350,7 @@ function selectTerminalEnergyTransfers(filter = {}) {
 function calculateTerminalEnergyCostForDistance(distance, amount) {
   const normalizedDistance = normalizeNonNegativeInteger9(distance);
   const normalizedAmount = normalizeNonNegativeInteger9(amount);
-  return Math.floor(0.1 * normalizedDistance * normalizedAmount);
+  return Math.ceil(normalizedAmount * (1 - Math.exp(-normalizedDistance / 30)));
 }
 function getTerminalSendCooldown(amount) {
   const normalizedAmount = normalizeNonNegativeInteger9(amount);
