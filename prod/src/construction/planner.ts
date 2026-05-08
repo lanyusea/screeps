@@ -85,6 +85,8 @@ const DEFAULT_SITE_ENERGY_RESERVATION = 50;
 const SPAWN_SITE_ENERGY_RESERVATION = 0;
 const DEFAULT_MAX_ROAD_SITES_PER_TICK = 1;
 const DEFAULT_MAX_CONTAINER_SITES_PER_TICK = 1;
+const MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY = 4;
+const SOURCE_LOGISTICS_STARVATION_ENERGY_RATIO = 0.5;
 const ROOM_EDGE_MIN = 1;
 const ROOM_EDGE_MAX = 48;
 const SPAWN_EDGE_MIN = 2;
@@ -153,11 +155,28 @@ export function planConstructionForColony(
   if (rcl <= 0 || typeof room.createConstructionSite !== 'function') {
     return result;
   }
+  const sourceLogisticsStarved = shouldPrioritizeSourceLogisticsBeforeCapacity(
+    rcl,
+    energyAvailable,
+    getRoomEnergyCapacityAvailable(colony)
+  );
 
   const spawnPlacement = planSpawnIfMissing(colony);
   if (spawnPlacement) {
     recordPlacement(result, budgetState, 'spawn', spawnPlacement.result, options, spawnPlacement.position);
     if (spawnPlacement.result !== getOkCode()) {
+      return result;
+    }
+  }
+
+  if (sourceLogisticsStarved) {
+    planContainers(colony, result, budgetState, options);
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
+
+    planRoads(colony, result, budgetState, buildSourceLogisticsStarvationRoadOptions(colony, options));
+    if (hasBlockingPlacementFailure(result)) {
       return result;
     }
   }
@@ -172,14 +191,16 @@ export function planConstructionForColony(
     }
   }
 
-  planRoads(colony, result, budgetState, options);
-  if (hasBlockingPlacementFailure(result)) {
-    return result;
-  }
+  if (!sourceLogisticsStarved) {
+    planRoads(colony, result, budgetState, options);
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
 
-  planContainers(colony, result, budgetState, options);
-  if (hasBlockingPlacementFailure(result)) {
-    return result;
+    planContainers(colony, result, budgetState, options);
+    if (hasBlockingPlacementFailure(result)) {
+      return result;
+    }
   }
 
   if (hasRemainingStructureCapacity(room, 'tower') && canReserveConstructionEnergy(room, budgetState, 'tower', options)) {
@@ -190,6 +211,23 @@ export function planConstructionForColony(
   }
 
   return result;
+}
+
+function buildSourceLogisticsStarvationRoadOptions(
+  colony: ColonySnapshot,
+  options: ConstructionPlannerOptions
+): ConstructionPlannerOptions {
+  const sourceCount = getSortedSources(colony.room).length;
+  const configuredMaxTargets = options.roadOptions?.maxTargetsPerTick;
+
+  return {
+    ...options,
+    roadOptions: {
+      ...options.roadOptions,
+      countOnlyRouteRoadSitesForPendingLimit: true,
+      maxTargetsPerTick: Math.max(sourceCount, resolvePositiveInteger(configuredMaxTargets, sourceCount))
+    }
+  };
 }
 
 function planSpawnIfMissing(colony: ColonySnapshot): SpawnPlacementResult | null {
@@ -389,7 +427,10 @@ function getRemainingEnergySlots(
   }
 
   const budgetSlots = Math.floor(Math.max(0, budgetState.energyBudget - budgetState.energyReserved) / reservation);
-  if (options.respectRoomEnergyBuffer !== true) {
+  if (
+    options.respectRoomEnergyBuffer !== true ||
+    shouldBypassEnergyBufferForSourceLogisticsConstruction(room, priority)
+  ) {
     return budgetSlots;
   }
 
@@ -415,6 +456,20 @@ function getConstructionEnergyReservation(
   return resolvePositiveInteger(options.siteEnergyReservation, DEFAULT_SITE_ENERGY_RESERVATION);
 }
 
+function shouldBypassEnergyBufferForSourceLogisticsConstruction(
+  room: Room,
+  priority: ConstructionPlannerPriority
+): boolean {
+  return (
+    (priority === 'container' || priority === 'road') &&
+    shouldPrioritizeSourceLogisticsBeforeCapacity(
+      getOwnedRoomRcl(room),
+      getRoomEnergyAvailableFromRoom(room),
+      getRoomEnergyCapacityAvailableFromRoom(room)
+    )
+  );
+}
+
 function resolveEnergyBudgetRatio(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return DEFAULT_ENERGY_BUDGET_RATIO;
@@ -432,14 +487,59 @@ function resolvePositiveInteger(value: number | undefined, fallback: number): nu
 }
 
 function getRoomEnergyAvailable(colony: ColonySnapshot): number {
-  const roomEnergy = (colony.room as Partial<Room>).energyAvailable;
-  if (typeof roomEnergy === 'number' && Number.isFinite(roomEnergy)) {
-    return Math.max(0, roomEnergy);
+  const roomEnergy = getOptionalRoomEnergyAvailable(colony.room);
+  if (roomEnergy !== null) {
+    return roomEnergy;
   }
 
   return typeof colony.energyAvailable === 'number' && Number.isFinite(colony.energyAvailable)
     ? Math.max(0, colony.energyAvailable)
     : 0;
+}
+
+function getRoomEnergyCapacityAvailable(colony: ColonySnapshot): number {
+  const roomEnergyCapacity = getOptionalRoomEnergyCapacityAvailable(colony.room);
+  if (roomEnergyCapacity !== null) {
+    return roomEnergyCapacity;
+  }
+
+  return typeof colony.energyCapacityAvailable === 'number' && Number.isFinite(colony.energyCapacityAvailable)
+    ? Math.max(0, colony.energyCapacityAvailable)
+    : 0;
+}
+
+function getRoomEnergyAvailableFromRoom(room: Room): number {
+  return getOptionalRoomEnergyAvailable(room) ?? 0;
+}
+
+function getRoomEnergyCapacityAvailableFromRoom(room: Room): number {
+  return getOptionalRoomEnergyCapacityAvailable(room) ?? 0;
+}
+
+function getOptionalRoomEnergyAvailable(room: Room): number | null {
+  const roomEnergy = (room as Partial<Room>).energyAvailable;
+  return typeof roomEnergy === 'number' && Number.isFinite(roomEnergy)
+    ? Math.max(0, roomEnergy)
+    : null;
+}
+
+function getOptionalRoomEnergyCapacityAvailable(room: Room): number | null {
+  const roomEnergyCapacity = (room as Partial<Room>).energyCapacityAvailable;
+  return typeof roomEnergyCapacity === 'number' && Number.isFinite(roomEnergyCapacity)
+    ? Math.max(0, roomEnergyCapacity)
+    : null;
+}
+
+function shouldPrioritizeSourceLogisticsBeforeCapacity(
+  rcl: number,
+  energyAvailable: number,
+  energyCapacityAvailable: number
+): boolean {
+  return (
+    rcl >= MIN_RCL_FOR_SOURCE_LOGISTICS_STARVATION_PRIORITY &&
+    energyCapacityAvailable > 0 &&
+    energyAvailable < energyCapacityAvailable * SOURCE_LOGISTICS_STARVATION_ENERGY_RATIO
+  );
 }
 
 function getOwnedRoomRcl(room: Room): number {

@@ -25,6 +25,7 @@ import {
   CONSTRUCTION_SITE_IMPACT_PRIORITY,
   DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE,
   getConstructionSiteImpactPriority,
+  shouldPrioritizeSourceLogisticsConstruction,
   type ConstructionSiteImpactPriorityContext
 } from '../construction/constructionPriority';
 import {
@@ -2297,13 +2298,11 @@ function selectConstructionSite(
   constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext(),
   options: ConstructionSiteSelectionOptions = {}
 ): ConstructionSite | null {
-  if (!canSpendCreepEnergyOnConstruction(creep)) {
-    return null;
-  }
-
+  const priorityContext = options.priorityContext ?? buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
   const candidates = constructionSites.filter(
     (site) =>
       predicate(site) &&
+      canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) &&
       (!options.requireReasonableRange ||
         isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
   );
@@ -2311,7 +2310,6 @@ function selectConstructionSite(
     return null;
   }
 
-  const priorityContext = options.priorityContext ?? buildWorkerConstructionSiteImpactPriorityContext(creep, candidates);
   const position = (creep as Creep & {
     pos?: {
       findClosestByRange?: (objects: ConstructionSite[]) => ConstructionSite | null;
@@ -2365,6 +2363,9 @@ function buildWorkerConstructionSiteImpactPriorityContext(
 ): ConstructionSiteImpactPriorityContext {
   const context: ConstructionSiteImpactPriorityContext =
     creep.room.controller?.my === true ? { claimedRoomName: creep.room.name } : {};
+  if (shouldPrioritizeSourceLogisticsConstruction(creep.room)) {
+    context.prioritizeSourceLogisticsForEnergyStarvation = true;
+  }
   if (constructionSites.some(isRoadConstructionSite)) {
     context.criticalRoadContext = buildWorkerCriticalRoadLogisticsContext(creep);
   }
@@ -2664,6 +2665,33 @@ function canSpendCreepEnergyOnConstruction(creep: Creep): boolean {
   return checkEnergyBufferForSpending(creep.room, getUsedEnergy(creep));
 }
 
+function canSpendCreepEnergyOnConstructionSite(
+  creep: Creep,
+  site: ConstructionSite,
+  priorityContext: ConstructionSiteImpactPriorityContext
+): boolean {
+  return (
+    canSpendCreepEnergyOnConstruction(creep) ||
+    (getUsedEnergy(creep) > 0 && isEnergyStarvationSourceLogisticsConstructionSite(site, priorityContext))
+  );
+}
+
+function isEnergyStarvationSourceLogisticsConstructionSite(
+  site: ConstructionSite,
+  priorityContext: ConstructionSiteImpactPriorityContext
+): boolean {
+  if (priorityContext.prioritizeSourceLogisticsForEnergyStarvation !== true) {
+    return false;
+  }
+
+  const priority = getConstructionSiteImpactPriority(site, priorityContext);
+  if (isContainerConstructionSite(site)) {
+    return priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedSourceContainer;
+  }
+
+  return isRoadConstructionSite(site) && priority === CONSTRUCTION_SITE_IMPACT_PRIORITY.energyStarvedCriticalRoad;
+}
+
 function getUnreservedConstructionProgressForWorker(
   creep: Creep,
   site: ConstructionSite,
@@ -2872,14 +2900,28 @@ function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
     return null;
   }
 
+  const logisticsPriorityContext = priorityContext ?? buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  if (shouldPrioritizeSourceLogisticsConstruction(creep.room)) {
+    return (
+      selectUnreservedConstructionSite(
+        creep,
+        constructionSites,
+        constructionReservationContext,
+        isContainerConstructionSite,
+        { priorityContext: logisticsPriorityContext, requireReasonableRange: true }
+      ) ??
+      selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext, logisticsPriorityContext)
+    );
+  }
+
   return (
-    selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext, priorityContext) ??
+    selectCriticalRoadConstructionSite(creep, constructionSites, constructionReservationContext, logisticsPriorityContext) ??
     selectUnreservedConstructionSite(
       creep,
       constructionSites,
       constructionReservationContext,
       isContainerConstructionSite,
-      { priorityContext: priorityContext ?? {}, requireReasonableRange: true }
+      { priorityContext: logisticsPriorityContext, requireReasonableRange: true }
     )
   );
 }
@@ -3042,8 +3084,9 @@ function isOwnedRoomStructure(structure: AnyStructure): boolean {
 function shouldPrioritizeExtensionCapacity(room: Room): boolean {
   const energyCapacityAvailable = getRoomEnergyCapacityAvailable(room);
   return (
-    energyCapacityAvailable === null ||
-    energyCapacityAvailable < BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY
+    !shouldPrioritizeSourceLogisticsConstruction(room) &&
+    (energyCapacityAvailable === null ||
+      energyCapacityAvailable < BASELINE_WORKER_THROUGHPUT_ENERGY_CAPACITY)
   );
 }
 
