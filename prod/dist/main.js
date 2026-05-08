@@ -1285,12 +1285,12 @@ function isHostileNearProtectedStructure(hostile, structures) {
 }
 function compareRange(origin, left, right) {
   var _a;
-  const getRangeTo = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo !== "function") {
+  const getRangeTo2 = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo2 !== "function") {
     return 0;
   }
-  const leftRange = left.pos ? getRangeTo.call(origin.pos, left.pos) : Infinity;
-  const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
+  const leftRange = left.pos ? getRangeTo2.call(origin.pos, left.pos) : Infinity;
+  const rightRange = right.pos ? getRangeTo2.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
 }
 function getRangeBetweenPositions(left, right) {
@@ -1555,12 +1555,12 @@ function isTargetInTowerRoom(origin, target) {
 }
 function compareRange2(origin, left, right) {
   var _a;
-  const getRangeTo = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo !== "function") {
+  const getRangeTo2 = (_a = origin.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo2 !== "function") {
     return 0;
   }
-  const leftRange = left.pos ? getRangeTo.call(origin.pos, left.pos) : Infinity;
-  const rightRange = right.pos ? getRangeTo.call(origin.pos, right.pos) : Infinity;
+  const leftRange = left.pos ? getRangeTo2.call(origin.pos, left.pos) : Infinity;
+  const rightRange = right.pos ? getRangeTo2.call(origin.pos, right.pos) : Infinity;
   return leftRange - rightRange;
 }
 function isWoundedCreep(creep) {
@@ -16403,11 +16403,11 @@ function isNearRoomObject3(left, right, range) {
 }
 function compareRangeToCreep(creep, left, right) {
   var _a;
-  const getRangeTo = (_a = creep.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo !== "function") {
+  const getRangeTo2 = (_a = creep.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo2 !== "function") {
     return 0;
   }
-  return normalizeRange(getRangeTo.call(creep.pos, left)) - normalizeRange(getRangeTo.call(creep.pos, right));
+  return normalizeRange(getRangeTo2.call(creep.pos, left)) - normalizeRange(getRangeTo2.call(creep.pos, right));
 }
 function normalizeRange(range) {
   return typeof range === "number" && Number.isFinite(range) ? range : Number.POSITIVE_INFINITY;
@@ -28655,12 +28655,12 @@ function compareDemandTargets(left, right) {
 }
 function compareOptionalRange(worker, left, right) {
   var _a;
-  const getRangeTo = (_a = worker.pos) == null ? void 0 : _a.getRangeTo;
-  if (typeof getRangeTo !== "function") {
+  const getRangeTo2 = (_a = worker.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo2 !== "function") {
     return 0;
   }
-  const leftRange = getRangeTo.call(worker.pos, left);
-  const rightRange = getRangeTo.call(worker.pos, right);
+  const leftRange = getRangeTo2.call(worker.pos, left);
+  const rightRange = getRangeTo2.call(worker.pos, right);
   return normalizeRange2(leftRange) - normalizeRange2(rightRange);
 }
 function normalizeRange2(range) {
@@ -29071,640 +29071,728 @@ function normalizeNonNegativeInteger10(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
-// src/economy/marketTrading.ts
-var MARKET_TRADING_INTERVAL = 25;
-var MARKET_TRADING_MIN_ORDER_AMOUNT = 100;
-var MARKET_TRADING_MAX_DEAL_AMOUNT = 5e3;
-var MARKET_TRADING_MIN_CREDITS_RESERVE = 5e3;
-var MARKET_TRADING_CREDIT_SPEND_RATIO = 0.25;
-var MARKET_TRADING_ENERGY_CREDIT_VALUE = 0.1;
+// src/economy/labManager.ts
+var DEFAULT_LAB_REACTION_DESIRED_AMOUNT = 1e3;
+var CONTROLLER_UPGRADE_BOOSTS = [
+  "XGH2O",
+  "GH2O",
+  "GH"
+];
 var OK_CODE11 = 0;
-var DEFAULT_RESOURCE_RESERVE = 3e3;
-var DEFAULT_RESOURCE_TARGET = 5e3;
-var DEFAULT_RESOURCE_EXCESS = 2e4;
-var ENERGY_RESOURCE_TARGET = 75e3;
-var ENERGY_RESOURCE_EXCESS = 15e4;
-var MAX_ORDERS_PER_RESOURCE_SIDE = 5;
-function shouldRunMarketTrading(gameTime = getGameTime24(), interval = MARKET_TRADING_INTERVAL) {
-  const normalizedInterval = normalizePositiveInteger(interval);
-  return gameTime > 0 && gameTime % normalizedInterval === 0;
-}
-function runMarketTrading() {
-  const gameTime = getGameTime24();
-  const market = getMarket();
-  if (!market) {
-    recordMarketTradingState([], gameTime, { skippedReason: "missingMarket" });
-    return null;
-  }
-  const rooms = buildMarketTradingRoomStates(gameTime);
-  const orderResourceTypes = collectMarketOrderResourceTypes(rooms, gameTime);
-  const orders = getMarketOrdersSafely(market, orderResourceTypes);
-  const plan = selectMarketTradePlan({
-    rooms,
-    orders,
-    credits: normalizeNonNegativeNumber2(market.credits),
-    gameTime,
-    calcTransactionCost: (amount, roomName1, roomName2) => calculateMarketTransactionCost(amount, roomName1, roomName2)
-  });
-  if (!plan) {
-    recordMarketTradingState(rooms, gameTime, { skippedReason: rooms.length === 0 ? "missingTerminal" : "noTrade" });
-    return null;
-  }
-  const result = market.deal(plan.orderId, plan.amount, plan.roomName);
-  const cooldown = result === OK_CODE11 ? getTerminalSendCooldown(plan.amount) : 0;
-  const tradeResult = {
-    action: plan.action,
-    amount: plan.amount,
-    availableAt: gameTime + cooldown,
-    cooldown,
-    creditsDelta: plan.creditsDelta,
-    energyCost: plan.energyCost,
-    expectedProfit: plan.expectedProfit,
-    orderId: plan.orderId,
-    price: plan.price,
-    reason: plan.reason,
-    ...plan.referenceOrderId ? { referenceOrderId: plan.referenceOrderId } : {},
-    referencePrice: plan.referencePrice,
-    resourceType: plan.resourceType,
-    result,
-    roomName: plan.roomName,
-    spread: plan.spread,
-    updatedAt: gameTime
+var DEFAULT_LAB_BOOST_ENERGY = 20;
+var DEFAULT_LAB_BOOST_MINERAL = 30;
+var DEFAULT_LAB_REACTION_AMOUNT = 5;
+var DEFAULT_LAB_MINERAL_CAPACITY = 3e3;
+var FALLBACK_REACTION_PAIRS = [
+  ["H", "O", "OH"],
+  ["Z", "K", "ZK"],
+  ["U", "L", "UL"],
+  ["ZK", "UL", "G"],
+  ["H", "U", "UH"],
+  ["O", "U", "UO"],
+  ["H", "K", "KH"],
+  ["O", "K", "KO"],
+  ["H", "L", "LH"],
+  ["O", "L", "LO"],
+  ["H", "Z", "ZH"],
+  ["O", "Z", "ZO"],
+  ["H", "G", "GH"],
+  ["O", "G", "GO"],
+  ["OH", "UH", "UH2O"],
+  ["OH", "UO", "UHO2"],
+  ["OH", "KH", "KH2O"],
+  ["OH", "KO", "KHO2"],
+  ["OH", "LH", "LH2O"],
+  ["OH", "LO", "LHO2"],
+  ["OH", "ZH", "ZH2O"],
+  ["OH", "ZO", "ZHO2"],
+  ["OH", "GH", "GH2O"],
+  ["OH", "GO", "GHO2"],
+  ["X", "UH2O", "XUH2O"],
+  ["X", "UHO2", "XUHO2"],
+  ["X", "KH2O", "XKH2O"],
+  ["X", "KHO2", "XKHO2"],
+  ["X", "LH2O", "XLH2O"],
+  ["X", "LHO2", "XLHO2"],
+  ["X", "ZH2O", "XZH2O"],
+  ["X", "ZHO2", "XZHO2"],
+  ["X", "GH2O", "XGH2O"],
+  ["X", "GHO2", "XGHO2"]
+];
+function manageLabs(room, options = {}) {
+  var _a, _b, _c, _d;
+  const labs = [...(_a = options.labs) != null ? _a : detectOwnedLabs(room)].sort(compareObjectsById);
+  const inventory = buildLabInventory(room, labs);
+  const creeps = (_d = options.creeps) != null ? _d : Object.values((_c = (_b = globalThis.Game) == null ? void 0 : _b.creeps) != null ? _c : {});
+  const boostRequests = selectBoostPlans(room, labs, creeps, inventory);
+  const boosts = runBoostManager(boostRequests, options);
+  const boost = selectPrimaryBoostResult(boosts);
+  const previousRoomMemory = getExistingLabRoomMemory(room.name);
+  const reaction = shouldRunReactionAfterBoost(boosts) ? runSelectedReaction(room, labs, inventory, selectBoostReactionPlan(boostRequests), previousRoomMemory, options) : void 0;
+  const result = {
+    roomName: room.name,
+    labs,
+    inventory,
+    boostRequests,
+    ...boost ? { boost } : {},
+    ...boosts.length > 0 ? { boosts } : {},
+    ...reaction ? { reaction } : {}
   };
-  recordMarketTradingState(rooms, gameTime, { result: tradeResult });
-  return tradeResult;
+  recordLabManagementState(room, result, previousRoomMemory, options);
+  return result;
 }
-function selectMarketTradePlan(input) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
-  const gameTime = normalizeNonNegativeInteger11((_a = input.gameTime) != null ? _a : 0);
-  const minOrderAmount = normalizePositiveInteger((_b = input.minOrderAmount) != null ? _b : MARKET_TRADING_MIN_ORDER_AMOUNT);
-  const maxDealAmount = normalizePositiveInteger((_c = input.maxDealAmount) != null ? _c : MARKET_TRADING_MAX_DEAL_AMOUNT);
-  const minCreditsReserve = normalizeNonNegativeNumber2(
-    (_d = input.minCreditsReserve) != null ? _d : MARKET_TRADING_MIN_CREDITS_RESERVE
-  );
-  const creditSpendRatio = normalizeRatio2((_e = input.creditSpendRatio) != null ? _e : MARKET_TRADING_CREDIT_SPEND_RATIO);
-  const energyCreditValue = normalizeNonNegativeNumber2(
-    (_f = input.energyCreditValue) != null ? _f : MARKET_TRADING_ENERGY_CREDIT_VALUE
-  );
-  const orders = normalizeOrders(input.orders, minOrderAmount);
-  const orderBook = buildMarketOrderBook(orders);
-  const resources = collectAnalyzedResources(input.rooms, orders);
-  const candidates = [];
-  for (const room of input.rooms) {
-    if (!isRoomReadyForMarketTrade(room, gameTime)) {
+function detectOwnedLabs(room) {
+  return findRoomObjects20(room, "FIND_MY_STRUCTURES").filter(isLabStructure).sort(compareObjectsById);
+}
+function buildLabInventory(room, labs) {
+  const inventory = {};
+  for (const lab of labs) {
+    addResourceAmount(inventory, getEnergyResource20(), getLabEnergy(lab));
+    const mineralType = getLabMineralType(lab);
+    if (mineralType) {
+      addResourceAmount(inventory, mineralType, getLabResourceAmount(lab, mineralType));
+    }
+  }
+  addStoreInventory(inventory, room.storage);
+  addStoreInventory(inventory, room.terminal);
+  return inventory;
+}
+function planReactionChain(targetResource, inventory, desiredAmount = DEFAULT_LAB_REACTION_DESIRED_AMOUNT) {
+  const steps = [];
+  const missingResources = [];
+  const normalizedDesiredAmount = Math.max(0, normalizeNonNegativeInteger11(desiredAmount));
+  appendReactionSteps(targetResource, normalizedDesiredAmount, inventory, steps, missingResources, /* @__PURE__ */ new Set(), 0);
+  return {
+    targetResource,
+    desiredAmount: normalizedDesiredAmount,
+    steps: dedupeReactionSteps(steps),
+    missingResources: dedupeMissingResources(missingResources)
+  };
+}
+function selectBoostPlans(room, labs, creeps, inventory) {
+  return buildBoostRequests(room, creeps, inventory).map((request) => buildBoostPlan(request, labs)).sort(compareBoostPlans);
+}
+function shouldYieldCreepToLabManager(creep, gameTime = getGameTime24()) {
+  const labMemory = creep.memory.lab;
+  return (labMemory == null ? void 0 : labMemory.boostState) === "moving" && labMemory.updatedAt === gameTime;
+}
+function buildBoostRequests(room, creeps, inventory) {
+  const roomCreeps = creeps.filter((creep) => {
+    var _a;
+    return ((_a = creep.room) == null ? void 0 : _a.name) === room.name;
+  });
+  return [
+    ...buildControllerUpgradeBoostRequests(roomCreeps, inventory),
+    ...buildExplicitCreepBoostRequests(roomCreeps)
+  ].sort(compareBoostRequests);
+}
+function buildControllerUpgradeBoostRequests(creeps, inventory) {
+  const requests = [];
+  for (const creep of creeps) {
+    if (!isControllerUpgradeBoostCandidate(creep)) {
       continue;
     }
-    const resourcePostures = buildResourcePostureByResource(room, resources);
-    const hasNeededResource = Array.from(resourcePostures.values()).some((posture) => posture.neededAmount > 0);
-    for (const resourceType of resources) {
-      const posture = resourcePostures.get(resourceType);
-      if (!posture) {
+    const requestedParts = countUnboostedBodyParts(creep, "work");
+    if (requestedParts <= 0) {
+      continue;
+    }
+    requests.push({
+      creep,
+      part: "work",
+      priority: "controllerUpgrade",
+      requestedParts,
+      resource: selectControllerUpgradeBoostResource(inventory)
+    });
+  }
+  return requests;
+}
+function buildExplicitCreepBoostRequests(creeps) {
+  var _a, _b;
+  const requests = [];
+  for (const creep of creeps) {
+    const boostRequests = normalizeCreepBoostRequests((_a = creep.memory.lab) == null ? void 0 : _a.boosts);
+    for (const request of boostRequests) {
+      const requestedParts = countUnboostedBodyParts(creep, request.part);
+      if (requestedParts <= 0) {
         continue;
       }
-      if (posture.excessAmount >= minOrderAmount) {
-        candidates.push(
-          ...buildSellCandidates({
-            room,
-            resourceType,
-            excessAmount: posture.excessAmount,
-            buyOrders: (_g = orderBook.buyOrdersByResource.get(resourceType)) != null ? _g : [],
-            sellOrders: (_h = orderBook.sellOrdersByResource.get(resourceType)) != null ? _h : [],
-            minOrderAmount,
-            maxDealAmount,
-            energyCreditValue,
-            calcTransactionCost: input.calcTransactionCost,
-            hasNeededResource
-          })
-        );
-      }
-      if (posture.neededAmount >= minOrderAmount) {
-        candidates.push(
-          ...buildBuyCandidates({
-            room,
-            resourceType,
-            neededAmount: posture.neededAmount,
-            sellOrders: (_i = orderBook.sellOrdersByResource.get(resourceType)) != null ? _i : [],
-            buyOrders: (_j = orderBook.buyOrdersByResource.get(resourceType)) != null ? _j : [],
-            credits: normalizeNonNegativeNumber2(input.credits),
-            minCreditsReserve,
-            creditSpendRatio,
-            minOrderAmount,
-            maxDealAmount,
-            energyCreditValue,
-            calcTransactionCost: input.calcTransactionCost
-          })
-        );
-      }
+      requests.push({
+        creep,
+        part: request.part,
+        priority: (_b = request.priority) != null ? _b : "creepBoost",
+        requestedParts,
+        resource: request.resource
+      });
     }
   }
-  candidates.sort(compareMarketTradeCandidates);
-  const selected = candidates[0];
-  if (!selected) {
-    return null;
-  }
-  const { priority: _priority, ...plan } = selected;
-  return plan;
+  return requests;
 }
-function buildSellCandidates({
-  room,
-  resourceType,
-  excessAmount,
-  buyOrders,
-  sellOrders,
-  minOrderAmount,
-  maxDealAmount,
-  energyCreditValue,
-  calcTransactionCost,
-  hasNeededResource
-}) {
+function runBoostManager(boostRequests, options) {
+  return boostRequests.map((boostRequest) => executeBoostPlan(boostRequest, options));
+}
+function selectPrimaryBoostResult(boosts) {
   var _a;
-  const terminalResourceAmount = getRecordAmount(room.terminalResources, resourceType);
-  const reserve = getResourcePolicy(resourceType).reserve;
-  const resourceBudget = Math.max(0, terminalResourceAmount - reserve);
-  const maxResourceAmount = Math.min(resourceBudget, excessAmount, maxDealAmount);
-  if (maxResourceAmount < minOrderAmount) {
-    return [];
-  }
-  const referenceSellOrder = sellOrders[0];
-  const referencePrice = normalizeNonNegativeNumber2((_a = referenceSellOrder == null ? void 0 : referenceSellOrder.price) != null ? _a : 0);
-  const candidates = [];
-  for (const order of buyOrders.slice(0, MAX_ORDERS_PER_RESOURCE_SIDE)) {
-    const amount = clampAmountForOrderAndEnergyBudget({
-      action: "sell",
-      resourceType,
-      requestedAmount: Math.min(maxResourceAmount, getOrderRemainingAmount(order)),
-      room,
-      order,
-      minOrderAmount,
-      calcTransactionCost
-    });
-    if (amount < minOrderAmount) {
-      continue;
-    }
-    const energyCost = calculateOrderEnergyCost(order, room.roomName, amount, calcTransactionCost);
-    const spread = normalizeNonNegativeNumber2(order.price) - referencePrice;
-    const expectedProfit = (referenceSellOrder ? spread : normalizeNonNegativeNumber2(order.price)) * amount - energyCost * energyCreditValue;
-    if (expectedProfit <= 0) {
-      continue;
-    }
-    const priority = hasNeededResource ? 2 : 1;
-    candidates.push({
-      action: "sell",
-      amount,
-      creditsDelta: normalizeNonNegativeNumber2(order.price) * amount,
-      energyCost,
-      expectedProfit,
-      orderId: order.id,
-      price: normalizeNonNegativeNumber2(order.price),
-      priority,
-      reason: "sellExcess",
-      ...referenceSellOrder ? { referenceOrderId: referenceSellOrder.id } : {},
-      referencePrice,
-      resourceType,
-      roomName: room.roomName,
-      score: priority * 1e9 + expectedProfit,
-      spread,
-      terminal: room.terminal
-    });
-  }
-  return candidates;
+  return (_a = boosts.find((boost) => boost.status === "boosted" || boost.status === "moving")) != null ? _a : boosts[0];
 }
-function buildBuyCandidates({
-  room,
-  resourceType,
-  neededAmount,
-  sellOrders,
-  buyOrders,
-  credits,
-  minCreditsReserve,
-  creditSpendRatio,
-  minOrderAmount,
-  maxDealAmount,
-  energyCreditValue,
-  calcTransactionCost
-}) {
-  const referenceBuyOrder = buyOrders[0];
-  if (!referenceBuyOrder || room.terminalFreeCapacity < minOrderAmount) {
-    return [];
-  }
-  const spendBudget = Math.min(
-    Math.max(0, credits - minCreditsReserve),
-    Math.floor(Math.max(0, credits) * creditSpendRatio)
-  );
-  if (spendBudget <= 0) {
-    return [];
-  }
-  const referencePrice = normalizeNonNegativeNumber2(referenceBuyOrder.price);
-  const candidates = [];
-  for (const order of sellOrders.slice(0, MAX_ORDERS_PER_RESOURCE_SIDE)) {
-    const price = normalizeNonNegativeNumber2(order.price);
-    if (price <= 0) {
-      continue;
-    }
-    const amountByCredits = Math.floor(spendBudget / price);
-    const requestedAmount = Math.min(
-      neededAmount,
-      room.terminalFreeCapacity,
-      maxDealAmount,
-      amountByCredits,
-      getOrderRemainingAmount(order)
-    );
-    const amount = clampAmountForOrderAndEnergyBudget({
-      action: "buy",
-      resourceType,
-      requestedAmount,
-      room,
-      order,
-      minOrderAmount,
-      calcTransactionCost
-    });
-    if (amount < minOrderAmount) {
-      continue;
-    }
-    const energyCost = calculateOrderEnergyCost(order, room.roomName, amount, calcTransactionCost);
-    const spread = referencePrice - price;
-    const expectedProfit = spread * amount - energyCost * energyCreditValue;
-    if (expectedProfit <= 0) {
-      continue;
-    }
-    const priority = 3;
-    candidates.push({
-      action: "buy",
-      amount,
-      creditsDelta: -price * amount,
-      energyCost,
-      expectedProfit,
-      orderId: order.id,
-      price,
-      priority,
-      reason: "buyNeeded",
-      referenceOrderId: referenceBuyOrder.id,
-      referencePrice,
-      resourceType,
-      roomName: room.roomName,
-      score: priority * 1e9 + expectedProfit,
-      spread,
-      terminal: room.terminal
-    });
-  }
-  return candidates;
-}
-function clampAmountForOrderAndEnergyBudget({
-  action,
-  resourceType,
-  requestedAmount,
-  room,
-  order,
-  minOrderAmount,
-  calcTransactionCost
-}) {
-  const maxAmount = normalizeNonNegativeInteger11(requestedAmount);
-  if (maxAmount < minOrderAmount || !order.roomName) {
-    return 0;
-  }
-  const energyResource = getEnergyResource20();
-  const terminalEnergy = getRecordAmount(room.terminalResources, energyResource);
-  const energyBudget = Math.max(0, terminalEnergy - TERMINAL_ENERGY_MIN_RESERVE);
-  if (energyBudget <= 0) {
-    return 0;
-  }
-  let low = 0;
-  let high = maxAmount;
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2);
-    const energyCost = calculateOrderEnergyCost(order, room.roomName, mid, calcTransactionCost);
-    const totalEnergySpend = action === "sell" && resourceType === energyResource ? mid + energyCost : energyCost;
-    if (totalEnergySpend <= energyBudget) {
-      low = mid;
-    } else {
-      high = mid - 1;
-    }
-  }
-  return low >= minOrderAmount ? low : 0;
-}
-function buildMarketTradingRoomStates(gameTime) {
-  return getOwnedRooms3().map((room) => buildMarketTradingRoomState(room, gameTime)).filter((state) => state !== null);
-}
-function buildMarketTradingRoomState(room, gameTime) {
-  const terminal = room.terminal;
-  if (!terminal) {
-    return null;
-  }
-  const terminalResources = collectStoredResources([terminal]);
-  const storageResources = collectStoredResources([room.storage]);
-  const resources = mergeResourceRecords(storageResources, terminalResources);
-  const energyResource = getEnergyResource20();
-  const terminalEnergy = getRecordAmount(terminalResources, energyResource);
-  const terminalFreeCapacity = getStoreFreeCapacity(terminal);
-  const memoryAvailableAt = getProjectedMarketAvailableAt(room.name, gameTime);
-  const terminalLogisticsAvailableAt = getProjectedTerminalLogisticsAvailableAt(room.name, gameTime);
-  const availableAt = Math.max(memoryAvailableAt, terminalLogisticsAvailableAt);
-  return {
-    roomName: room.name,
-    terminal,
-    terminalId: getObjectId14(terminal),
-    terminalCooldown: getTerminalCooldown2(terminal),
-    terminalEnergy,
-    terminalFreeCapacity,
-    terminalResources,
-    resources,
-    ...availableAt > gameTime ? { availableAt } : {}
-  };
-}
-function buildMarketOrderBook(orders) {
-  const buyOrdersByResource = /* @__PURE__ */ new Map();
-  const sellOrdersByResource = /* @__PURE__ */ new Map();
-  const buyType = getOrderBuyConstant();
-  const sellType = getOrderSellConstant();
-  for (const order of orders) {
-    if (order.type === buyType) {
-      appendOrder(buyOrdersByResource, order.resourceType, order);
-    } else if (order.type === sellType) {
-      appendOrder(sellOrdersByResource, order.resourceType, order);
-    }
-  }
-  for (const ordersForResource of buyOrdersByResource.values()) {
-    ordersForResource.sort(compareBuyOrders);
-  }
-  for (const ordersForResource of sellOrdersByResource.values()) {
-    ordersForResource.sort(compareSellOrders);
-  }
-  return { buyOrdersByResource, sellOrdersByResource };
-}
-function appendOrder(ordersByResource, resourceType, order) {
+function buildBoostPlan(request, labs) {
   var _a;
-  const orders = (_a = ordersByResource.get(resourceType)) != null ? _a : [];
-  orders.push(order);
-  ordersByResource.set(resourceType, orders);
-}
-function normalizeOrders(orders, minOrderAmount) {
-  return orders.filter((order) => order.active !== false && typeof order.id === "string" && order.id.length > 0 && typeof order.roomName === "string" && order.roomName.length > 0 && getOrderRemainingAmount(order) >= minOrderAmount && normalizeNonNegativeNumber2(order.price) > 0);
-}
-function collectAnalyzedResources(rooms, orders) {
-  const resources = /* @__PURE__ */ new Set();
-  for (const order of orders) {
-    resources.add(order.resourceType);
-  }
-  for (const room of rooms) {
-    for (const resourceType of Object.keys(room.resources)) {
-      resources.add(resourceType);
-    }
-  }
-  return Array.from(resources).sort();
-}
-function buildResourcePostureByResource(room, resources) {
-  const postures = /* @__PURE__ */ new Map();
-  for (const resourceType of resources) {
-    const totalAmount = getRecordAmount(room.resources, resourceType);
-    const terminalAmount = getRecordAmount(room.terminalResources, resourceType);
-    const policy = getResourcePolicy(resourceType);
-    postures.set(resourceType, {
-      excessAmount: Math.min(
-        Math.max(0, totalAmount - policy.excess),
-        Math.max(0, terminalAmount - policy.reserve)
-      ),
-      neededAmount: Math.max(0, policy.target - totalAmount)
-    });
-  }
-  return postures;
-}
-function getResourcePolicy(resourceType) {
-  if (resourceType === getEnergyResource20()) {
+  const boostMineralCost = getLabBoostMineralCost();
+  const boostEnergyCost = getLabBoostEnergyCost();
+  const requiredMineral = request.requestedParts * boostMineralCost;
+  const requiredEnergy = request.requestedParts * boostEnergyCost;
+  const labsWithResource = labs.filter((lab) => getLabResourceAmount(lab, request.resource) >= boostMineralCost);
+  if (labsWithResource.length === 0) {
     return {
-      reserve: TERMINAL_ENERGY_MIN_RESERVE,
-      target: ENERGY_RESOURCE_TARGET,
-      excess: ENERGY_RESOURCE_EXCESS
+      ...request,
+      boostParts: 0,
+      lab: null,
+      reason: "resourceUnavailable",
+      requiredEnergy,
+      requiredMineral,
+      status: "blocked"
     };
   }
+  const readyLabs = labsWithResource.map((lab) => ({
+    lab,
+    boostParts: getBoostablePartCount(lab, request.resource, request.requestedParts)
+  })).filter((candidate) => candidate.boostParts > 0 && getLabCooldown(candidate.lab) <= 0).sort((left, right) => right.boostParts - left.boostParts || compareObjectsById(left.lab, right.lab));
+  if (readyLabs.length > 0) {
+    return {
+      ...request,
+      boostParts: readyLabs[0].boostParts,
+      lab: readyLabs[0].lab,
+      requiredEnergy,
+      requiredMineral,
+      status: "ready"
+    };
+  }
+  const hasEnoughEnergy = labsWithResource.some((lab) => getLabEnergy(lab) >= boostEnergyCost);
   return {
-    reserve: DEFAULT_RESOURCE_RESERVE,
-    target: DEFAULT_RESOURCE_TARGET,
-    excess: DEFAULT_RESOURCE_EXCESS
+    ...request,
+    boostParts: 0,
+    lab: (_a = labsWithResource.sort(compareObjectsById)[0]) != null ? _a : null,
+    reason: hasEnoughEnergy ? "cooldown" : "insufficientEnergy",
+    requiredEnergy,
+    requiredMineral,
+    status: "blocked"
   };
 }
-function isRoomReadyForMarketTrade(room, gameTime) {
+function executeBoostPlan(plan, options) {
+  if (plan.status === "blocked" || !plan.lab) {
+    markCreepBoostState(plan.creep, "blocked");
+    return {
+      boostParts: 0,
+      creepName: plan.creep.name,
+      part: plan.part,
+      priority: plan.priority,
+      reason: plan.reason,
+      resource: plan.resource,
+      status: "blocked",
+      ...plan.lab ? { labId: getObjectId14(plan.lab) } : {}
+    };
+  }
+  const range = getRangeTo(plan.creep, plan.lab);
+  if (range !== null && range > 1) {
+    markCreepBoostState(plan.creep, "moving", plan);
+    if (!options.dryRun && typeof plan.creep.moveTo === "function") {
+      plan.creep.moveTo(plan.lab);
+    }
+    return {
+      boostParts: 0,
+      creepName: plan.creep.name,
+      labId: getObjectId14(plan.lab),
+      part: plan.part,
+      priority: plan.priority,
+      reason: "notInRange",
+      resource: plan.resource,
+      status: "moving"
+    };
+  }
+  const result = options.dryRun ? OK_CODE11 : plan.lab.boostCreep(plan.creep, plan.boostParts);
+  markCreepBoostState(plan.creep, result === OK_CODE11 ? "complete" : "blocked", plan);
+  return {
+    boostParts: result === OK_CODE11 ? plan.boostParts : 0,
+    creepName: plan.creep.name,
+    labId: getObjectId14(plan.lab),
+    part: plan.part,
+    priority: plan.priority,
+    resource: plan.resource,
+    result,
+    status: result === OK_CODE11 ? "boosted" : "blocked"
+  };
+}
+function runSelectedReaction(room, labs, inventory, boostPlan, previousRoomMemory, options) {
+  var _a, _b;
+  const target = selectReactionTarget(boostPlan, previousRoomMemory, options);
+  if (!target) {
+    return { status: "idle", reason: "noTarget" };
+  }
+  const desiredAmount = normalizeNonNegativeInteger11(
+    (_b = (_a = options.desiredAmount) != null ? _a : previousRoomMemory == null ? void 0 : previousRoomMemory.reactionDesiredAmount) != null ? _b : DEFAULT_LAB_REACTION_DESIRED_AMOUNT
+  );
+  if (getInventoryAmount(inventory, target) >= desiredAmount) {
+    return { status: "complete", reason: "complete", targetResource: target };
+  }
+  const chain = planReactionChain(target, inventory, desiredAmount);
+  const step = selectNextReactionStep(chain, inventory);
+  if (!step) {
+    return { status: "blocked", reason: "resourceUnavailable", targetResource: target };
+  }
+  const execution = selectReactionExecution(labs, step);
+  if (!execution.outputLab || !execution.sourceLabA || !execution.sourceLabB) {
+    const reason = execution.reason === "none" ? "outputLabUnavailable" : execution.reason;
+    return {
+      status: "blocked",
+      reason,
+      targetResource: target,
+      product: step.product,
+      reagents: step.reagents
+    };
+  }
+  const result = options.dryRun ? OK_CODE11 : execution.outputLab.runReaction(execution.sourceLabA, execution.sourceLabB);
+  return {
+    status: result === OK_CODE11 ? "running" : "blocked",
+    targetResource: target,
+    product: step.product,
+    reagents: step.reagents,
+    outputLabId: getObjectId14(execution.outputLab),
+    sourceLabIds: [getObjectId14(execution.sourceLabA), getObjectId14(execution.sourceLabB)],
+    result,
+    ...result === OK_CODE11 ? {} : { reason: "resourceUnavailable" }
+  };
+}
+function selectReactionTarget(boostPlan, previousRoomMemory, options) {
+  var _a, _b;
+  if ((boostPlan == null ? void 0 : boostPlan.reason) === "resourceUnavailable") {
+    return boostPlan.resource;
+  }
+  return (_b = (_a = options.reactionTarget) != null ? _a : previousRoomMemory == null ? void 0 : previousRoomMemory.reactionTarget) != null ? _b : null;
+}
+function shouldRunReactionAfterBoost(boosts) {
+  return boosts.length === 0 || boosts.every((boost) => boost.status === "blocked" && boost.reason === "resourceUnavailable");
+}
+function selectBoostReactionPlan(boostRequests) {
+  return boostRequests.find((boostRequest) => boostRequest.reason === "resourceUnavailable");
+}
+function selectNextReactionStep(chain, inventory) {
   var _a;
-  if (room.terminalCooldown > 0 || room.terminalEnergy <= TERMINAL_ENERGY_MIN_RESERVE) {
+  const reactionAmount = getLabReactionAmount();
+  return (_a = chain.steps.find(
+    (step) => getInventoryAmount(inventory, step.product) < chain.desiredAmount && getInventoryAmount(inventory, step.reagents[0]) >= reactionAmount && getInventoryAmount(inventory, step.reagents[1]) >= reactionAmount
+  )) != null ? _a : null;
+}
+function selectReactionExecution(labs, step) {
+  const sourceLabAs = selectInputLabs(labs, step.reagents[0]);
+  const fallbackSourceLabA = sourceLabAs[0];
+  if (!fallbackSourceLabA) {
+    return { reason: "inputLabsNeedReagents" };
+  }
+  let fallbackSourceLabB;
+  let hasCompatibleOutputLab = false;
+  for (const sourceLabA of sourceLabAs) {
+    const sourceLabBs = selectInputLabs(labs, step.reagents[1], /* @__PURE__ */ new Set([getObjectId14(sourceLabA)]));
+    if (!fallbackSourceLabB) {
+      fallbackSourceLabB = sourceLabBs[0];
+    }
+    for (const sourceLabB of sourceLabBs) {
+      const excludedIds = /* @__PURE__ */ new Set([getObjectId14(sourceLabA), getObjectId14(sourceLabB)]);
+      const candidateOutputLabs = labs.filter((lab) => !excludedIds.has(getObjectId14(lab)) && canLabReceiveResource(lab, step.product)).sort(compareObjectsById).filter((outputLab) => areReactionLabsCompatible(sourceLabA, sourceLabB, outputLab));
+      if (candidateOutputLabs.length > 0) {
+        hasCompatibleOutputLab = true;
+      }
+      const readyOutputLab = candidateOutputLabs.find((lab) => getLabCooldown(lab) <= 0);
+      if (readyOutputLab) {
+        return {
+          outputLab: readyOutputLab,
+          reason: "none",
+          sourceLabA,
+          sourceLabB
+        };
+      }
+    }
+  }
+  if (!fallbackSourceLabB) {
+    return { reason: "inputLabsNeedReagents", sourceLabA: fallbackSourceLabA };
+  }
+  return {
+    reason: hasCompatibleOutputLab ? "cooldown" : "outputLabUnavailable",
+    sourceLabA: fallbackSourceLabA,
+    sourceLabB: fallbackSourceLabB
+  };
+}
+function selectInputLabs(labs, reagent, excludedIds = /* @__PURE__ */ new Set()) {
+  return labs.filter((lab) => !excludedIds.has(getObjectId14(lab)) && getLabResourceAmount(lab, reagent) >= getLabReactionAmount()).sort(compareObjectsById);
+}
+function areReactionLabsCompatible(sourceLabA, sourceLabB, outputLab) {
+  return areLabsWithinReactionRange(sourceLabA, sourceLabB) && areLabsWithinReactionRange(sourceLabA, outputLab) && areLabsWithinReactionRange(sourceLabB, outputLab);
+}
+function areLabsWithinReactionRange(left, right) {
+  const range = getLabRangeTo(left, right);
+  return range === null || range <= 2;
+}
+function getLabRangeTo(left, right) {
+  const leftPos = left.pos;
+  const rightPos = right.pos;
+  if (!leftPos || !rightPos || typeof leftPos.getRangeTo !== "function") {
+    return null;
+  }
+  const range = leftPos.getRangeTo(right);
+  return typeof range === "number" && Number.isFinite(range) ? range : null;
+}
+function canLabReceiveResource(lab, resource) {
+  const mineralType = getLabMineralType(lab);
+  if (mineralType && mineralType !== resource && getLabResourceAmount(lab, mineralType) > 0) {
     return false;
   }
-  return normalizeNonNegativeInteger11((_a = room.availableAt) != null ? _a : 0) <= gameTime;
+  return getLabFreeMineralCapacity(lab, resource) >= getLabReactionAmount();
 }
-function compareMarketTradeCandidates(left, right) {
-  return right.priority - left.priority || right.expectedProfit - left.expectedProfit || right.amount - left.amount || left.roomName.localeCompare(right.roomName) || left.resourceType.localeCompare(right.resourceType) || left.orderId.localeCompare(right.orderId);
+function appendReactionSteps(resource, desiredAmount, inventory, steps, missingResources, seen, depth) {
+  const neededAmount = Math.max(0, desiredAmount - getInventoryAmount(inventory, resource));
+  if (neededAmount <= 0) {
+    return;
+  }
+  const reagents = findReactionReagents(resource);
+  if (!reagents || seen.has(resource)) {
+    missingResources.push({ resource, amount: neededAmount });
+    return;
+  }
+  seen.add(resource);
+  appendReactionSteps(reagents[0], neededAmount, inventory, steps, missingResources, new Set(seen), depth + 1);
+  appendReactionSteps(reagents[1], neededAmount, inventory, steps, missingResources, new Set(seen), depth + 1);
+  steps.push({
+    amount: neededAmount,
+    depth,
+    product: resource,
+    ready: getInventoryAmount(inventory, reagents[0]) > 0 && getInventoryAmount(inventory, reagents[1]) > 0,
+    reagents
+  });
 }
-function compareBuyOrders(left, right) {
-  return normalizeNonNegativeNumber2(right.price) - normalizeNonNegativeNumber2(left.price) || getOrderRemainingAmount(right) - getOrderRemainingAmount(left) || left.id.localeCompare(right.id);
-}
-function compareSellOrders(left, right) {
-  return normalizeNonNegativeNumber2(left.price) - normalizeNonNegativeNumber2(right.price) || getOrderRemainingAmount(right) - getOrderRemainingAmount(left) || left.id.localeCompare(right.id);
-}
-function collectMarketOrderResourceTypes(rooms, gameTime) {
-  const resources = /* @__PURE__ */ new Set();
-  const minOrderAmount = normalizePositiveInteger(MARKET_TRADING_MIN_ORDER_AMOUNT);
-  for (const room of rooms) {
-    if (!isRoomReadyForMarketTrade(room, gameTime)) {
-      continue;
-    }
-    const roomResourceTypes = Object.keys(room.resources).sort();
-    const postures = buildResourcePostureByResource(room, roomResourceTypes);
-    for (const [resourceType, posture] of postures) {
-      if (posture.excessAmount >= minOrderAmount || posture.neededAmount >= minOrderAmount) {
-        resources.add(resourceType);
+function findReactionReagents(product) {
+  var _a;
+  const table = getReactionTable();
+  const pairs = [];
+  for (const [left, outputs] of Object.entries(table)) {
+    for (const [right, output] of Object.entries(outputs)) {
+      if (output === product) {
+        pairs.push([left, right]);
       }
     }
   }
-  return Array.from(resources).sort();
+  return (_a = pairs.sort((left, right) => `${left[0]}:${left[1]}`.localeCompare(`${right[0]}:${right[1]}`))[0]) != null ? _a : null;
 }
-function getMarketOrdersSafely(market, resourceTypes) {
-  const orders = [];
-  const buyType = getOrderBuyConstant();
-  const sellType = getOrderSellConstant();
-  for (const resourceType of resourceTypes) {
-    orders.push(...getMarketOrdersForFilterSafely(market, { type: buyType, resourceType }));
-    orders.push(...getMarketOrdersForFilterSafely(market, { type: sellType, resourceType }));
+function dedupeReactionSteps(steps) {
+  const byProduct = /* @__PURE__ */ new Map();
+  for (const step of steps) {
+    const existing = byProduct.get(step.product);
+    if (!existing || step.depth > existing.depth) {
+      byProduct.set(step.product, step);
+    }
   }
-  return orders;
+  return [...byProduct.values()].sort((left, right) => right.depth - left.depth);
 }
-function getMarketOrdersForFilterSafely(market, filter) {
-  try {
-    return market.getAllOrders(filter);
-  } catch {
-    return [];
-  }
-}
-function calculateMarketTransactionCost(amount, roomName1, roomName2) {
+function dedupeMissingResources(resources) {
   var _a;
-  const calcTransactionCost = (_a = getMarket()) == null ? void 0 : _a.calcTransactionCost;
-  if (typeof calcTransactionCost === "function") {
-    return normalizeNonNegativeInteger11(calcTransactionCost(amount, roomName1, roomName2));
+  const byResource = /* @__PURE__ */ new Map();
+  for (const missing of resources) {
+    byResource.set(missing.resource, Math.max((_a = byResource.get(missing.resource)) != null ? _a : 0, missing.amount));
   }
-  return 0;
+  return [...byResource.entries()].map(([resource, amount]) => ({ resource, amount })).sort((left, right) => left.resource.localeCompare(right.resource));
 }
-function calculateOrderEnergyCost(order, roomName, amount, calcTransactionCost) {
-  if (!order.roomName) {
-    return Number.POSITIVE_INFINITY;
-  }
-  const cost = calcTransactionCost ? calcTransactionCost(amount, roomName, order.roomName) : calculateMarketTransactionCost(amount, roomName, order.roomName);
-  return normalizeNonNegativeInteger11(cost);
-}
-function recordMarketTradingState(rooms, gameTime, options = {}) {
-  var _a, _b, _c, _d, _e, _f;
+function recordLabManagementState(room, result, previousRoomMemory, options) {
+  var _a, _b, _c, _d, _e, _f, _g;
   const memory = getEconomyMemory4();
-  const existingMarketTrading = memory.marketTrading;
-  const existingRooms = (_a = existingMarketTrading == null ? void 0 : existingMarketTrading.rooms) != null ? _a : {};
-  const roomsMemory = {};
-  for (const room of rooms) {
-    const resourcePostures = buildResourcePostureByResource(
-      room,
-      Object.keys(room.resources).sort()
-    );
-    const existingRoom = existingRooms[room.roomName];
-    const resultForRoom = ((_b = options.result) == null ? void 0 : _b.roomName) === room.roomName ? options.result : void 0;
-    const availableAt = (resultForRoom == null ? void 0 : resultForRoom.result) === OK_CODE11 ? resultForRoom.availableAt : normalizeNonNegativeInteger11((_d = (_c = existingRoom == null ? void 0 : existingRoom.availableAt) != null ? _c : room.availableAt) != null ? _d : 0);
-    roomsMemory[room.roomName] = {
-      roomName: room.roomName,
-      terminalId: room.terminalId,
-      credits: normalizeNonNegativeNumber2((_f = (_e = getMarket()) == null ? void 0 : _e.credits) != null ? _f : 0),
-      cooldown: (resultForRoom == null ? void 0 : resultForRoom.result) === OK_CODE11 ? resultForRoom.cooldown : room.terminalCooldown,
-      energyBudget: Math.max(0, room.terminalEnergy - TERMINAL_ENERGY_MIN_RESERVE),
-      terminalEnergy: room.terminalEnergy,
-      terminalFreeCapacity: room.terminalFreeCapacity,
-      neededResources: recordResourcePosture(resourcePostures, "neededAmount"),
-      excessResources: recordResourcePosture(resourcePostures, "excessAmount"),
-      ...availableAt > gameTime ? { availableAt } : {},
-      updatedAt: gameTime
-    };
-  }
-  memory.marketTrading = {
+  const gameTime = getGameTime24();
+  const rooms = (_b = (_a = memory.labManagement) == null ? void 0 : _a.rooms) != null ? _b : {};
+  const reactionMemory = buildReactionMemory(result.reaction, previousRoomMemory == null ? void 0 : previousRoomMemory.reaction, result.inventory, gameTime);
+  const roomMemory = {
+    roomName: room.name,
+    rcl: normalizeNonNegativeInteger11((_c = room.controller) == null ? void 0 : _c.level),
     updatedAt: gameTime,
-    nextRunAt: gameTime + MARKET_TRADING_INTERVAL,
-    rooms: roomsMemory,
-    ...options.result ? { lastDeal: toMarketDealMemory(options.result) } : (existingMarketTrading == null ? void 0 : existingMarketTrading.lastDeal) ? { lastDeal: existingMarketTrading.lastDeal } : {},
-    ...options.skippedReason ? { skippedReason: options.skippedReason } : {}
+    labs: result.labs.map((lab) => {
+      var _a2;
+      return {
+        id: getObjectId14(lab),
+        cooldown: getLabCooldown(lab),
+        energy: getLabEnergy(lab),
+        mineralAmount: getLabMineralType(lab) ? getLabResourceAmount(lab, getLabMineralType(lab)) : 0,
+        mineralType: (_a2 = getLabMineralType(lab)) != null ? _a2 : void 0
+      };
+    }),
+    inventory: serializeInventory(result.inventory),
+    boostDemand: result.boostRequests.map((request) => ({
+      creepName: request.creep.name,
+      part: request.part,
+      priority: request.priority,
+      requestedParts: request.requestedParts,
+      resource: request.resource,
+      requiredEnergy: request.requiredEnergy,
+      requiredMineral: request.requiredMineral,
+      status: request.status,
+      ...request.reason ? { reason: request.reason } : {},
+      ...request.lab ? { labId: getObjectId14(request.lab) } : {}
+    })),
+    ...result.boost ? { activeBoost: buildActiveBoostMemory(result.boost, gameTime) } : {},
+    ...reactionMemory ? { reaction: reactionMemory } : {},
+    ...((_d = options.reactionTarget) != null ? _d : previousRoomMemory == null ? void 0 : previousRoomMemory.reactionTarget) ? { reactionTarget: (_e = options.reactionTarget) != null ? _e : previousRoomMemory == null ? void 0 : previousRoomMemory.reactionTarget } : {},
+    reactionDesiredAmount: (_g = (_f = options.desiredAmount) != null ? _f : previousRoomMemory == null ? void 0 : previousRoomMemory.reactionDesiredAmount) != null ? _g : DEFAULT_LAB_REACTION_DESIRED_AMOUNT
+  };
+  memory.labManagement = {
+    updatedAt: gameTime,
+    rooms: {
+      ...rooms,
+      [room.name]: roomMemory
+    }
   };
 }
-function recordResourcePosture(resourcePostures, field) {
+function buildActiveBoostMemory(boost, gameTime) {
+  return {
+    boostParts: boost.boostParts,
+    creepName: boost.creepName,
+    part: boost.part,
+    priority: boost.priority,
+    resource: boost.resource,
+    status: boost.status,
+    updatedAt: gameTime,
+    ...boost.labId ? { labId: boost.labId } : {},
+    ...boost.reason ? { reason: boost.reason } : {},
+    ...boost.result !== void 0 ? { result: boost.result } : {}
+  };
+}
+function buildReactionMemory(reaction, previousReaction, inventory, gameTime) {
+  var _a, _b, _c, _d;
+  if (!reaction || reaction.status === "idle") {
+    return previousReaction;
+  }
+  const activeProduct = (_a = reaction.product) != null ? _a : reaction.targetResource;
+  const previousProducedAmount = previousReaction && previousReaction.activeProduct === activeProduct ? previousReaction.producedAmount : 0;
+  const producedAmount = reaction.status === "running" && reaction.result === OK_CODE11 ? previousProducedAmount + getLabReactionAmount() : previousProducedAmount;
+  const reason = reaction.reason === "noTarget" ? void 0 : reaction.reason;
+  return {
+    status: reaction.status,
+    targetResource: (_d = (_c = (_b = reaction.targetResource) != null ? _b : previousReaction == null ? void 0 : previousReaction.targetResource) != null ? _c : activeProduct) != null ? _d : "energy",
+    updatedAt: gameTime,
+    producedAmount,
+    availableAmount: activeProduct ? getInventoryAmount(inventory, activeProduct) : 0,
+    ...activeProduct ? { activeProduct } : {},
+    ...reaction.reagents ? { reagents: reaction.reagents } : {},
+    ...reaction.outputLabId ? { outputLabId: reaction.outputLabId } : {},
+    ...reaction.sourceLabIds ? { sourceLabIds: reaction.sourceLabIds } : {},
+    ...reason ? { reason } : {},
+    ...reaction.result !== void 0 ? { result: reaction.result } : {}
+  };
+}
+function serializeInventory(inventory) {
   return Object.fromEntries(
-    Array.from(resourcePostures.entries()).map(([resourceType, posture]) => [resourceType, normalizeNonNegativeInteger11(posture[field])]).filter(([, amount]) => amount > 0)
+    Object.entries(inventory).filter(([, amount]) => typeof amount === "number" && amount > 0).sort(([left], [right]) => left.localeCompare(right))
   );
 }
-function toMarketDealMemory(result) {
-  return {
-    action: result.action,
-    amount: result.amount,
-    availableAt: result.availableAt,
-    cooldown: result.cooldown,
-    creditsDelta: result.creditsDelta,
-    energyCost: result.energyCost,
-    expectedProfit: result.expectedProfit,
-    orderId: result.orderId,
-    price: result.price,
-    reason: result.reason,
-    ...result.referenceOrderId ? { referenceOrderId: result.referenceOrderId } : {},
-    referencePrice: result.referencePrice,
-    resourceType: result.resourceType,
-    result: result.result,
-    roomName: result.roomName,
-    spread: result.spread,
-    updatedAt: result.updatedAt
+function markCreepBoostState(creep, boostState, plan) {
+  creep.memory.lab = {
+    ...creep.memory.lab,
+    boostState,
+    updatedAt: getGameTime24(),
+    ...plan ? {
+      activeBoost: {
+        labId: plan.lab ? getObjectId14(plan.lab) : void 0,
+        part: plan.part,
+        resource: plan.resource
+      }
+    } : {}
   };
 }
-function collectStoredResources(targets) {
-  var _a, _b;
-  const resources = {};
-  for (const target of targets) {
-    const store = getStore3(target);
-    if (!store) {
-      continue;
-    }
-    for (const [key, value] of Object.entries(store)) {
-      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-        resources[key] = ((_a = resources[key]) != null ? _a : 0) + Math.floor(value);
-      }
-    }
-    for (const resourceType of Object.keys(resources)) {
-      const amount = getStoreUsedCapacity(store, resourceType);
-      if (amount > resources[resourceType]) {
-        resources[resourceType] = amount;
-      }
-    }
-    const energyResource = getEnergyResource20();
-    const energyAmount = getStoreUsedCapacity(store, energyResource);
-    if (energyAmount > 0) {
-      resources[energyResource] = Math.max((_b = resources[energyResource]) != null ? _b : 0, energyAmount);
-    }
+function normalizeCreepBoostRequests(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
   }
-  return resources;
+  return raw.map((request) => normalizeCreepBoostRequest(request)).filter((request) => request !== null);
 }
-function mergeResourceRecords(...records) {
+function normalizeCreepBoostRequest(raw) {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const candidate = raw;
+  if (typeof candidate.part !== "string" || typeof candidate.resource !== "string") {
+    return null;
+  }
+  return {
+    part: candidate.part,
+    resource: candidate.resource,
+    ...candidate.priority === "controllerUpgrade" || candidate.priority === "creepBoost" ? { priority: candidate.priority } : {}
+  };
+}
+function isControllerUpgradeBoostCandidate(creep) {
+  var _a, _b;
+  return creep.memory.role === "upgrader" || creep.memory.controllerUpgrade !== void 0 || ((_b = (_a = creep.memory.lab) == null ? void 0 : _a.boosts) == null ? void 0 : _b.some((request) => request.priority === "controllerUpgrade")) === true;
+}
+function selectControllerUpgradeBoostResource(inventory) {
   var _a;
-  const merged = {};
-  for (const record of records) {
-    for (const [resourceType, amount] of Object.entries(record)) {
-      merged[resourceType] = ((_a = merged[resourceType]) != null ? _a : 0) + normalizeNonNegativeInteger11(amount);
-    }
-  }
-  return merged;
+  return (_a = CONTROLLER_UPGRADE_BOOSTS.find((resource) => getInventoryAmount(inventory, resource) >= getLabBoostMineralCost())) != null ? _a : CONTROLLER_UPGRADE_BOOSTS[0];
 }
-function getStoreFreeCapacity(target) {
-  var _a, _b;
-  const store = getStore3(target);
-  if (!store) {
+function countUnboostedBodyParts(creep, part) {
+  var _a;
+  return ((_a = creep.body) != null ? _a : []).filter((bodyPart) => bodyPart.type === part && bodyPart.boost === void 0).length;
+}
+function getBoostablePartCount(lab, resource, requestedParts) {
+  return Math.min(
+    requestedParts,
+    Math.floor(getLabResourceAmount(lab, resource) / getLabBoostMineralCost()),
+    Math.floor(getLabEnergy(lab) / getLabBoostEnergyCost())
+  );
+}
+function compareBoostPlans(left, right) {
+  return getBoostPriorityRank(left.priority) - getBoostPriorityRank(right.priority) || getBoostPlanStatusRank(left) - getBoostPlanStatusRank(right) || right.boostParts - left.boostParts || left.creep.name.localeCompare(right.creep.name) || left.resource.localeCompare(right.resource);
+}
+function compareBoostRequests(left, right) {
+  return getBoostPriorityRank(left.priority) - getBoostPriorityRank(right.priority) || left.creep.name.localeCompare(right.creep.name) || left.resource.localeCompare(right.resource);
+}
+function getBoostPriorityRank(priority) {
+  return priority === "controllerUpgrade" ? 0 : 1;
+}
+function getBoostPlanStatusRank(plan) {
+  if (plan.status === "ready") {
     return 0;
   }
-  const genericFreeCapacity = (_a = store.getFreeCapacity) == null ? void 0 : _a.call(store);
-  if (typeof genericFreeCapacity === "number" && Number.isFinite(genericFreeCapacity)) {
-    return Math.max(0, Math.floor(genericFreeCapacity));
+  return plan.reason === "resourceUnavailable" ? 1 : 2;
+}
+function getRangeTo(creep, target) {
+  var _a;
+  const getRangeTo2 = (_a = creep.pos) == null ? void 0 : _a.getRangeTo;
+  if (typeof getRangeTo2 !== "function") {
+    return null;
   }
-  const energyFreeCapacity = (_b = store.getFreeCapacity) == null ? void 0 : _b.call(store, getEnergyResource20());
-  if (typeof energyFreeCapacity === "number" && Number.isFinite(energyFreeCapacity)) {
-    return Math.max(0, Math.floor(energyFreeCapacity));
+  const range = getRangeTo2.call(creep.pos, target);
+  return typeof range === "number" && Number.isFinite(range) ? range : null;
+}
+function findRoomObjects20(room, globalConstantName) {
+  if (!room || typeof room.find !== "function") {
+    return [];
+  }
+  const findConstant = globalThis[globalConstantName];
+  if (typeof findConstant !== "number") {
+    return [];
+  }
+  return room.find(findConstant);
+}
+function isLabStructure(structure) {
+  return matchesStructureType24(structure.structureType, "STRUCTURE_LAB", "lab");
+}
+function matchesStructureType24(structureType, globalConstantName, fallback) {
+  const globalConstant = globalThis[globalConstantName];
+  return structureType === globalConstant || structureType === fallback;
+}
+function getLabResourceAmount(lab, resource) {
+  const storeAmount = getStoredResourceAmount(lab, resource);
+  if (storeAmount > 0) {
+    return storeAmount;
+  }
+  if (resource === getEnergyResource20()) {
+    return normalizeNonNegativeInteger11(lab.energy);
+  }
+  if (getLabMineralType(lab) === resource) {
+    return normalizeNonNegativeInteger11(lab.mineralAmount);
   }
   return 0;
 }
-function getStoreUsedCapacity(store, resourceType) {
+function getStoredResourceAmount(target, resource) {
   var _a;
-  const usedCapacity = (_a = store.getUsedCapacity) == null ? void 0 : _a.call(store, resourceType);
+  const store = getStore3(target);
+  const usedCapacity = (_a = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a.call(store, resource);
   if (typeof usedCapacity === "number" && Number.isFinite(usedCapacity)) {
     return Math.max(0, Math.floor(usedCapacity));
   }
-  const directAmount = store[resourceType];
-  return typeof directAmount === "number" && Number.isFinite(directAmount) ? Math.max(0, Math.floor(directAmount)) : 0;
+  const directAmount = store == null ? void 0 : store[resource];
+  return normalizeNonNegativeInteger11(directAmount);
+}
+function getLabFreeMineralCapacity(lab, resource) {
+  var _a, _b;
+  const store = getStore3(lab);
+  const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, resource);
+  if (typeof freeCapacity === "number" && Number.isFinite(freeCapacity)) {
+    return Math.max(0, Math.floor(freeCapacity));
+  }
+  const capacity = (_b = store == null ? void 0 : store.getCapacity) == null ? void 0 : _b.call(store, resource);
+  if (typeof capacity === "number" && Number.isFinite(capacity)) {
+    return Math.max(0, Math.floor(capacity) - getLabResourceAmount(lab, resource));
+  }
+  const mineralCapacity = normalizeNonNegativeInteger11(lab.mineralCapacity);
+  if (mineralCapacity > 0) {
+    return Math.max(0, mineralCapacity - getLabResourceAmount(lab, resource));
+  }
+  return Math.max(0, DEFAULT_LAB_MINERAL_CAPACITY - getLabResourceAmount(lab, resource));
+}
+function getLabEnergy(lab) {
+  return getLabResourceAmount(lab, getEnergyResource20());
+}
+function getLabMineralType(lab) {
+  const mineralType = lab.mineralType;
+  return typeof mineralType === "string" && mineralType.length > 0 ? mineralType : null;
+}
+function getLabCooldown(lab) {
+  return normalizeNonNegativeInteger11(lab.cooldown);
+}
+function addStoreInventory(inventory, target) {
+  const store = getStore3(target);
+  if (!store) {
+    return;
+  }
+  for (const key of Object.keys(store)) {
+    if (key === "getUsedCapacity" || key === "getFreeCapacity" || key === "getCapacity") {
+      continue;
+    }
+    addResourceAmount(inventory, key, normalizeNonNegativeInteger11(store[key]));
+  }
+}
+function addResourceAmount(inventory, resource, amount) {
+  const normalizedAmount = normalizeNonNegativeInteger11(amount);
+  if (normalizedAmount <= 0) {
+    return;
+  }
+  inventory[resource] = getInventoryAmount(inventory, resource) + normalizedAmount;
+}
+function getInventoryAmount(inventory, resource) {
+  return normalizeNonNegativeInteger11(inventory[resource]);
 }
 function getStore3(target) {
   return target == null ? void 0 : target.store;
 }
-function getRecordAmount(record, resourceType) {
-  return normalizeNonNegativeInteger11(record[resourceType]);
-}
-function getOrderRemainingAmount(order) {
+function getEnergyResource20() {
   var _a;
-  return normalizeNonNegativeInteger11((_a = order.remainingAmount) != null ? _a : order.amount);
+  return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
-function getProjectedMarketAvailableAt(roomName, gameTime) {
-  var _a, _b, _c;
-  const availableAt = (_c = (_b = (_a = getEconomyMemory4().marketTrading) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName]) == null ? void 0 : _c.availableAt;
-  return normalizeNonNegativeInteger11(availableAt) > gameTime ? normalizeNonNegativeInteger11(availableAt) : 0;
+function getLabBoostEnergyCost() {
+  return getGlobalPositiveInteger("LAB_BOOST_ENERGY", DEFAULT_LAB_BOOST_ENERGY);
 }
-function getProjectedTerminalLogisticsAvailableAt(roomName, gameTime) {
-  var _a, _b, _c;
-  const availableAt = (_c = (_b = (_a = getEconomyMemory4().terminalLogistics) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName]) == null ? void 0 : _c.availableAt;
-  return normalizeNonNegativeInteger11(availableAt) > gameTime ? normalizeNonNegativeInteger11(availableAt) : 0;
+function getLabBoostMineralCost() {
+  return getGlobalPositiveInteger("LAB_BOOST_MINERAL", DEFAULT_LAB_BOOST_MINERAL);
 }
-function getOwnedRooms3() {
-  var _a;
-  const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
-  if (!rooms) {
-    return [];
+function getLabReactionAmount() {
+  return getGlobalPositiveInteger("LAB_REACTION_AMOUNT", DEFAULT_LAB_REACTION_AMOUNT);
+}
+function getGlobalPositiveInteger(globalName, fallback) {
+  const value = globalThis[globalName];
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+function getReactionTable() {
+  const globalReactionTable = globalThis.REACTIONS;
+  return globalReactionTable != null ? globalReactionTable : buildFallbackReactionTable();
+}
+function buildFallbackReactionTable() {
+  const table = {};
+  for (const [left, right, product] of FALLBACK_REACTION_PAIRS) {
+    if (!table[left]) {
+      table[left] = {};
+    }
+    if (!table[right]) {
+      table[right] = {};
+    }
+    table[left][right] = product;
+    table[right][left] = product;
   }
-  return Object.values(rooms).filter((room) => {
-    var _a2;
-    return ((_a2 = room == null ? void 0 : room.controller) == null ? void 0 : _a2.my) === true;
-  });
+  return table;
 }
-function getMarket() {
-  var _a;
-  return (_a = globalThis.Game) == null ? void 0 : _a.market;
+function getExistingLabRoomMemory(roomName) {
+  var _a, _b;
+  return (_b = (_a = getEconomyMemory4().labManagement) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
 function getEconomyMemory4() {
   const memory = getMemory4();
@@ -29725,45 +29813,21 @@ function getGameTime24() {
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return normalizeNonNegativeInteger11(gameTime);
 }
-function getTerminalCooldown2(terminal) {
-  const cooldown = terminal.cooldown;
-  return normalizeNonNegativeInteger11(cooldown);
-}
-function getEnergyResource20() {
-  var _a;
-  return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
-}
-function getOrderBuyConstant() {
-  var _a;
-  return (_a = globalThis.ORDER_BUY) != null ? _a : "buy";
-}
-function getOrderSellConstant() {
-  var _a;
-  return (_a = globalThis.ORDER_SELL) != null ? _a : "sell";
-}
 function getObjectId14(object) {
   if (typeof object !== "object" || object === null) {
-    return void 0;
+    return "";
   }
   const candidate = object;
   if (typeof candidate.id === "string") {
     return candidate.id;
   }
-  return typeof candidate.name === "string" ? candidate.name : void 0;
+  return typeof candidate.name === "string" ? candidate.name : "";
 }
-function normalizePositiveInteger(value) {
-  const normalized = normalizeNonNegativeInteger11(value);
-  return normalized > 0 ? normalized : 1;
+function compareObjectsById(left, right) {
+  return getObjectId14(left).localeCompare(getObjectId14(right));
 }
 function normalizeNonNegativeInteger11(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
-}
-function normalizeNonNegativeNumber2(value) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
-}
-function normalizeRatio2(value) {
-  const normalized = normalizeNonNegativeNumber2(value);
-  return Math.max(0, Math.min(1, normalized));
 }
 
 // src/economy/mineral-harvesting.ts
@@ -29901,19 +29965,19 @@ function selectAvailableSpawn(spawns, usedSpawns) {
 }
 function selectExtractor(room) {
   var _a;
-  const ownedStructures = findRoomObjects20(room, "FIND_MY_STRUCTURES");
+  const ownedStructures = findRoomObjects21(room, "FIND_MY_STRUCTURES");
   const extractor = ownedStructures.find(isExtractorStructure);
   if (extractor) {
     return extractor;
   }
-  return (_a = findRoomObjects20(room, "FIND_STRUCTURES").find(isExtractorStructure)) != null ? _a : null;
+  return (_a = findRoomObjects21(room, "FIND_STRUCTURES").find(isExtractorStructure)) != null ? _a : null;
 }
 function selectAvailableMineral(room) {
   var _a;
-  return (_a = findRoomObjects20(room, "FIND_MINERALS").find(isMineralAvailable)) != null ? _a : null;
+  return (_a = findRoomObjects21(room, "FIND_MINERALS").find(isMineralAvailable)) != null ? _a : null;
 }
 function isExtractorStructure(structure) {
-  return matchesStructureType24(structure.structureType, "STRUCTURE_EXTRACTOR", "extractor");
+  return matchesStructureType25(structure.structureType, "STRUCTURE_EXTRACTOR", "extractor");
 }
 function isMineralAvailable(mineral) {
   return normalizeNonNegativeInteger12(mineral.mineralAmount) > 0;
@@ -29939,7 +30003,7 @@ function compareMineralDeliveryTargets(left, right) {
   return getDeliveryPriority3(right) - getDeliveryPriority3(left) || getObjectId15(left).localeCompare(getObjectId15(right));
 }
 function getDeliveryPriority3(target) {
-  return matchesStructureType24(target.structureType, "STRUCTURE_TERMINAL", "terminal") ? 2 : 1;
+  return matchesStructureType25(target.structureType, "STRUCTURE_TERMINAL", "terminal") ? 2 : 1;
 }
 function getMutableMineralHarvesterMemory(creep) {
   var _a;
@@ -29967,7 +30031,7 @@ function normalizeMineralHarvesterMemory(value) {
 }
 function getAssignedMineral(assignment, room) {
   var _a, _b;
-  return (_b = (_a = getObjectById5(assignment.mineralId)) != null ? _a : findRoomObjects20(room, "FIND_MINERALS").find((mineral) => mineral.id === assignment.mineralId)) != null ? _b : null;
+  return (_b = (_a = getObjectById5(assignment.mineralId)) != null ? _a : findRoomObjects21(room, "FIND_MINERALS").find((mineral) => mineral.id === assignment.mineralId)) != null ? _b : null;
 }
 function deliverMineral(creep, assignment, resourceType) {
   var _a;
@@ -30046,7 +30110,7 @@ function getVisibleRoom9(roomName) {
   var _a, _b;
   return (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
 }
-function findRoomObjects20(room, constantName) {
+function findRoomObjects21(room, constantName) {
   const findConstant = globalThis[constantName];
   if (typeof findConstant !== "number" || typeof room.find !== "function") {
     return [];
@@ -30058,7 +30122,7 @@ function findRoomObjects20(room, constantName) {
     return [];
   }
 }
-function matchesStructureType24(actual, globalName, fallback) {
+function matchesStructureType25(actual, globalName, fallback) {
   var _a;
   const constants = globalThis;
   return actual === ((_a = constants[globalName]) != null ? _a : fallback);
@@ -32056,9 +32120,9 @@ function isRecentThreatMemory(updatedAt, gameTime) {
   return isFiniteNumber9(updatedAt) && updatedAt <= gameTime && gameTime - updatedAt <= EXPANSION_TRIGGER_THREAT_MEMORY_STALE_TICKS;
 }
 function hasVisibleHostiles2(room) {
-  return findRoomObjects21(room, getFindConstant8("FIND_HOSTILE_CREEPS")).length > 0 || findRoomObjects21(room, getFindConstant8("FIND_HOSTILE_STRUCTURES")).length > 0;
+  return findRoomObjects22(room, getFindConstant8("FIND_HOSTILE_CREEPS")).length > 0 || findRoomObjects22(room, getFindConstant8("FIND_HOSTILE_STRUCTURES")).length > 0;
 }
-function findRoomObjects21(room, findConstant) {
+function findRoomObjects22(room, findConstant) {
   if (typeof findConstant !== "number" || typeof room.find !== "function") {
     return [];
   }
@@ -32231,14 +32295,14 @@ function getScoutIntel(homeRoomName, roomName) {
 }
 function countSources(room, scoutIntel) {
   if (room) {
-    return findRoomObjects22(room, "FIND_SOURCES").length;
+    return findRoomObjects23(room, "FIND_SOURCES").length;
   }
   return typeof (scoutIntel == null ? void 0 : scoutIntel.sourceCount) === "number" ? scoutIntel.sourceCount : 0;
 }
 function countHostiles(room, scoutIntel) {
   var _a, _b, _c;
   if (room) {
-    return findRoomObjects22(room, "FIND_HOSTILE_CREEPS").length + findRoomObjects22(room, "FIND_HOSTILE_STRUCTURES").length;
+    return findRoomObjects23(room, "FIND_HOSTILE_CREEPS").length + findRoomObjects23(room, "FIND_HOSTILE_STRUCTURES").length;
   }
   return ((_a = scoutIntel == null ? void 0 : scoutIntel.hostileCreepCount) != null ? _a : 0) + ((_b = scoutIntel == null ? void 0 : scoutIntel.hostileStructureCount) != null ? _b : 0) + ((_c = scoutIntel == null ? void 0 : scoutIntel.hostileSpawnCount) != null ? _c : 0);
 }
@@ -32249,7 +32313,7 @@ function scoreControllerDistance(room, details) {
     details.push("controller distance unknown");
     return 0;
   }
-  const ranges = findRoomObjects22(room, "FIND_SOURCES").map((source) => getRange2(controllerPos, source.pos)).filter((range) => typeof range === "number" && Number.isFinite(range));
+  const ranges = findRoomObjects23(room, "FIND_SOURCES").map((source) => getRange2(controllerPos, source.pos)).filter((range) => typeof range === "number" && Number.isFinite(range));
   if (ranges.length === 0) {
     details.push("controller distance unknown");
     return 0;
@@ -32360,7 +32424,7 @@ function getRoomTerrain12(roomName) {
   }
   return gameMap.getRoomTerrain(roomName);
 }
-function findRoomObjects22(room, constantName) {
+function findRoomObjects23(room, constantName) {
   const findConstant = getGlobalNumber14(constantName);
   if (!room || typeof room.find !== "function" || typeof findConstant !== "number") {
     return [];
@@ -32880,7 +32944,7 @@ function isActiveExpansionExecutorSpawn(spawn) {
   }
 }
 function hasExpansionExecutorActiveHostiles(room) {
-  return findRoomObjects23(room, getFindConstant9("FIND_HOSTILE_CREEPS")).length > 0 || findRoomObjects23(room, getFindConstant9("FIND_HOSTILE_STRUCTURES")).length > 0;
+  return findRoomObjects24(room, getFindConstant9("FIND_HOSTILE_CREEPS")).length > 0 || findRoomObjects24(room, getFindConstant9("FIND_HOSTILE_STRUCTURES")).length > 0;
 }
 function getExpansionExecutorThreatState(roomName, gameTime) {
   var _a, _b, _c, _d;
@@ -32966,7 +33030,7 @@ function getGameTime30() {
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
 }
-function findRoomObjects23(room, findConstant) {
+function findRoomObjects24(room, findConstant) {
   if (typeof findConstant !== "number" || typeof room.find !== "function") {
     return [];
   }
@@ -34910,9 +34974,9 @@ function getTowerLimitForRcl2(rcl) {
   return (_b = FALLBACK_TOWER_LIMITS_BY_RCL[normalizedRcl]) != null ? _b : 0;
 }
 function countExistingAndPendingTowers(room) {
-  return findRoomObjects24(room, "FIND_MY_STRUCTURES").filter(isTowerLike).length + findRoomObjects24(room, "FIND_MY_CONSTRUCTION_SITES").filter(isTowerLike).length;
+  return findRoomObjects25(room, "FIND_MY_STRUCTURES").filter(isTowerLike).length + findRoomObjects25(room, "FIND_MY_CONSTRUCTION_SITES").filter(isTowerLike).length;
 }
-function findRoomObjects24(room, globalName) {
+function findRoomObjects25(room, globalName) {
   const findConstant = getGlobalNumber15(globalName);
   if (findConstant === null || typeof room.find !== "function") {
     return [];
@@ -35041,27 +35105,27 @@ function hasTowerCoverage(room, rcl) {
   return towerLimit <= 0 || countExistingAndPendingStructures2(room, "STRUCTURE_TOWER", "tower") >= Math.min(1, towerLimit);
 }
 function hasSourceContainerCoverage3(room) {
-  const sources = findRoomObjects25(room, "FIND_SOURCES").filter(
+  const sources = findRoomObjects26(room, "FIND_SOURCES").filter(
     (source) => isSameRoomPosition7(getRoomObjectPosition5(source), room.name)
   );
   if (sources.length === 0) {
     return true;
   }
   const containers = [
-    ...findRoomObjects25(room, "FIND_STRUCTURES"),
-    ...findRoomObjects25(room, "FIND_CONSTRUCTION_SITES")
+    ...findRoomObjects26(room, "FIND_STRUCTURES"),
+    ...findRoomObjects26(room, "FIND_CONSTRUCTION_SITES")
   ].filter(
-    (object) => matchesStructureType25(object.structureType, "STRUCTURE_CONTAINER", "container")
+    (object) => matchesStructureType26(object.structureType, "STRUCTURE_CONTAINER", "container")
   );
   return sources.every(
     (source) => containers.some((container) => isNearRoomObject5(source, container))
   );
 }
 function countExistingAndPendingStructures2(room, globalName, fallback) {
-  return findRoomObjects25(room, "FIND_MY_STRUCTURES").filter(
-    (structure) => matchesStructureType25(structure.structureType, globalName, fallback)
-  ).length + findRoomObjects25(room, "FIND_MY_CONSTRUCTION_SITES").filter(
-    (site) => matchesStructureType25(String(site.structureType), globalName, fallback)
+  return findRoomObjects26(room, "FIND_MY_STRUCTURES").filter(
+    (structure) => matchesStructureType26(structure.structureType, globalName, fallback)
+  ).length + findRoomObjects26(room, "FIND_MY_CONSTRUCTION_SITES").filter(
+    (site) => matchesStructureType26(String(site.structureType), globalName, fallback)
   ).length;
 }
 function isExpansionControlledRoom2(roomName) {
@@ -35111,7 +35175,7 @@ function getStructureLimitForRcl(globalName, fallback, rcl, fallbackLimits) {
   }
   return (_b = fallbackLimits[normalizedRcl]) != null ? _b : 0;
 }
-function findRoomObjects25(room, globalName) {
+function findRoomObjects26(room, globalName) {
   const findConstant = getGlobalNumber16(globalName);
   if (findConstant === null || typeof room.find !== "function") {
     return [];
@@ -35145,7 +35209,7 @@ function isNearRoomObject5(left, right) {
 function isSameRoomPosition7(position, roomName) {
   return position !== null && (position.roomName === void 0 || roomName === void 0 || position.roomName === roomName);
 }
-function matchesStructureType25(actual, globalName, fallback) {
+function matchesStructureType26(actual, globalName, fallback) {
   return actual === getStructureConstant4(globalName, fallback);
 }
 function getStructureConstant4(globalName, fallback) {
@@ -35299,11 +35363,11 @@ function buildStrategyRecommendationRoomState(colony, creeps) {
       return creep.memory.colony === room.name || ((_a2 = creep.room) == null ? void 0 : _a2.name) === room.name;
     }
   );
-  const hostileCreeps = findRoomObjects26(room, "FIND_HOSTILE_CREEPS");
-  const hostileStructures = findRoomObjects26(room, "FIND_HOSTILE_STRUCTURES");
-  const ownedStructures = findRoomObjects26(room, "FIND_MY_STRUCTURES");
-  const constructionSites = findRoomObjects26(room, "FIND_MY_CONSTRUCTION_SITES");
-  const sources = findRoomObjects26(room, "FIND_SOURCES");
+  const hostileCreeps = findRoomObjects27(room, "FIND_HOSTILE_CREEPS");
+  const hostileStructures = findRoomObjects27(room, "FIND_HOSTILE_STRUCTURES");
+  const ownedStructures = findRoomObjects27(room, "FIND_MY_STRUCTURES");
+  const constructionSites = findRoomObjects27(room, "FIND_MY_CONSTRUCTION_SITES");
+  const sources = findRoomObjects27(room, "FIND_SOURCES");
   return {
     roomName: room.name,
     controllerLevel: (_a = room.controller) == null ? void 0 : _a.level,
@@ -35456,7 +35520,7 @@ function countVisibleOwnedRooms7() {
 }
 function countStructuresByType3(structures, globalName, fallback) {
   return structures.filter(
-    (structure) => isRecord34(structure) && matchesStructureType26(structure.structureType, globalName, fallback)
+    (structure) => isRecord34(structure) && matchesStructureType27(structure.structureType, globalName, fallback)
   ).length;
 }
 function estimateRepairBacklogHits(structures) {
@@ -35488,7 +35552,7 @@ function getEnergyInStore2(object) {
   }
   return finiteNumberOrZero(object.store[resourceEnergy]);
 }
-function findRoomObjects26(room, constantName) {
+function findRoomObjects27(room, constantName) {
   const findConstant = getGlobalNumber17(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {
@@ -35501,7 +35565,7 @@ function findRoomObjects26(room, constantName) {
     return [];
   }
 }
-function matchesStructureType26(value, globalName, fallback) {
+function matchesStructureType27(value, globalName, fallback) {
   const globalValue = globalThis[globalName];
   return value === globalValue || value === fallback;
 }
@@ -35666,6 +35730,10 @@ function runEconomy(preludeTelemetryEvents = []) {
     transferEnergy(colony.room);
     manageStorage(colony.room);
     refreshRoomEnergySurplusState(colony.room);
+    const labStructures = shouldRunLabManagement(colony.room);
+    if (labStructures.length > 0) {
+      manageLabs(colony.room, { creeps, labs: labStructures });
+    }
     recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
   ensureRemoteSourceContainersForAssignedHarvesters(creeps);
@@ -35674,6 +35742,9 @@ function runEconomy(preludeTelemetryEvents = []) {
   refreshSpawnEnergyReservationStates(colonies);
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
   for (const creep of creeps) {
+    if (shouldYieldCreepToLabManager(creep, Game.time)) {
+      continue;
+    }
     if (creep.memory.role === "worker") {
       runWorker(creep);
     } else if (creep.memory.role === UPGRADER_ROLE) {
@@ -35697,6 +35768,13 @@ function runEconomy(preludeTelemetryEvents = []) {
     }
   }
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+function shouldRunLabManagement(room) {
+  var _a, _b;
+  if (((_a = room.controller) == null ? void 0 : _a.my) !== true || ((_b = room.controller.level) != null ? _b : 0) < 6) {
+    return [];
+  }
+  return detectOwnedLabs(room);
 }
 function recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents) {
   if (!shouldRecordStrategyRecommendationTelemetry(Game.time)) {
