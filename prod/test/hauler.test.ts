@@ -302,6 +302,7 @@ function makeStoreStructure(
   return {
     id,
     structureType,
+    ...(structureType === STRUCTURE_CONTAINER ? {} : { my: true }),
     pos: makeRoomPosition(x, y),
     store: {
       getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? usedEnergy : 0)),

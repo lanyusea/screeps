@@ -167,7 +167,15 @@ export function isLocalEnergyHauler(creep: Creep, roomName: string): boolean {
 function findEnergyHaulingSources(room: Room, options: EnergyHaulingOptions): EnergyHaulingSource[] {
   const includeDurableSources = options.includeDurableSources !== false;
   return findRoomStructures(room).filter((structure): structure is EnergyHaulingSource => {
-    if (isContainerStructure(structure) || isLinkStructure(structure)) {
+    if (isContainerStructure(structure)) {
+      return true;
+    }
+
+    if (!isOwnedEnergyHaulingStructure(structure)) {
+      return false;
+    }
+
+    if (isLinkStructure(structure)) {
       return true;
     }
 
@@ -178,7 +186,7 @@ function findEnergyHaulingSources(room: Room, options: EnergyHaulingOptions): En
 function findEnergyHaulingBacklogSources(room: Room): EnergyHaulingBacklogSource[] {
   return findRoomStructures(room).filter(
     (structure): structure is EnergyHaulingBacklogSource =>
-      isContainerStructure(structure) || isLinkStructure(structure)
+      isContainerStructure(structure) || (isLinkStructure(structure) && isOwnedEnergyHaulingStructure(structure))
   );
 }
 
@@ -416,6 +424,10 @@ function isStorageStructure(structure: Structure): structure is StructureStorage
 
 function isTerminalStructure(structure: Structure): structure is StructureTerminal {
   return matchesStructureType(structure.structureType, 'STRUCTURE_TERMINAL', 'terminal');
+}
+
+function isOwnedEnergyHaulingStructure(structure: Structure): boolean {
+  return (structure as { my?: unknown }).my === true;
 }
 
 function isSpawnStructure(structure: Structure): structure is StructureSpawn {

@@ -253,6 +253,7 @@ describe('planSpawn', () => {
     return {
       id,
       structureType,
+      ...(structureType === STRUCTURE_CONTAINER ? {} : { my: true }),
       pos: makeRoomPosition(x, y, 'W1N1'),
       store: {
         getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
