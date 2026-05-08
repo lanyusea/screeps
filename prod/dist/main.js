@@ -13571,11 +13571,11 @@ function runUpgraderCreep(creep) {
   if (moveToAssignedControllerRoom(creep)) {
     return;
   }
-  if (renewExpiringUpgrader(creep)) {
-    return;
-  }
   const controller = getAssignedController(creep);
   if (!controller) {
+    return;
+  }
+  if (canLevelUpController(controller) && renewExpiringUpgrader(creep)) {
     return;
   }
   const carriedEnergy = getStoredEnergy3(creep);

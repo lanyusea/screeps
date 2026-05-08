@@ -40,12 +40,12 @@ export function runUpgraderCreep(creep: Creep): void {
     return;
   }
 
-  if (renewExpiringUpgrader(creep)) {
+  const controller = getAssignedController(creep);
+  if (!controller) {
     return;
   }
 
-  const controller = getAssignedController(creep);
-  if (!controller) {
+  if (canLevelUpController(controller) && renewExpiringUpgrader(creep)) {
     return;
   }
 

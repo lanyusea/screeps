@@ -115,7 +115,7 @@ describe('upgrader runner', () => {
     expect(creep.upgradeController).toHaveBeenCalledWith(controller);
   });
 
-  it('renews at an idle spawn before expiring', () => {
+  it('renews at an idle spawn only while assigned controller can level up', () => {
     const controller = makeController();
     const spawn = makeRenewSpawn('Spawn1');
     const room = makeRoom({ controller, ownedStructures: [spawn] });
@@ -125,6 +125,16 @@ describe('upgrader runner', () => {
 
     expect(spawn.renewCreep).toHaveBeenCalledWith(creep);
     expect(creep.upgradeController).not.toHaveBeenCalled();
+
+    const maxLevelController = makeController({ level: 8 });
+    const maxLevelSpawn = makeRenewSpawn('Spawn2');
+    const maxLevelRoom = makeRoom({ controller: maxLevelController, ownedStructures: [maxLevelSpawn] });
+    const maxLevelCreep = makeUpgraderCreep(maxLevelRoom, { usedEnergy: 50, freeEnergy: 0, ticksToLive: 100 });
+
+    runUpgraderCreep(maxLevelCreep);
+
+    expect(maxLevelSpawn.renewCreep).not.toHaveBeenCalled();
+    expect(maxLevelCreep.upgradeController).not.toHaveBeenCalled();
   });
 
   it('keeps upgrading with carried energy even when spawn energy is not full', () => {
