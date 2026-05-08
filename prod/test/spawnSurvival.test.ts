@@ -7,6 +7,8 @@ const ERR_NOT_ENOUGH_RESOURCES_CODE = -6 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
+const SCALED_WORKER_300: BodyPartConstant[] = ['work', 'work', 'carry', 'move'];
+const SCALED_WORKER_550: BodyPartConstant[] = ['work', 'work', 'carry', 'carry', 'move', 'move'];
 
 describe('spawn survival integration', () => {
   let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
@@ -97,7 +99,7 @@ describe('spawn survival integration', () => {
 
     harness.runTick(106, 300);
     expectSpawnHasEnergyOrWorker(harness);
-    expect(harness.spawnedBodies()[3]).toEqual(['work', 'carry', 'move', 'move']);
+    expect(harness.spawnedBodies()[3]).toEqual(SCALED_WORKER_300);
     expect(harness.room.memory.colonyStage).toMatchObject({
       mode: 'BOOTSTRAP',
       updatedAt: 106,
@@ -106,7 +108,7 @@ describe('spawn survival integration', () => {
 
     harness.runTick(107, 500);
     expectSpawnHasEnergyOrWorker(harness);
-    expect(harness.spawnedBodies()[4]).toEqual(['work', 'work', 'work', 'carry', 'move', 'move', 'move']);
+    expect(harness.spawnedBodies()[4]).toEqual(SCALED_WORKER_550);
     expect(harness.workerNames()).toHaveLength(5);
     expect(harness.room.memory.colonyStage).toMatchObject({
       mode: 'BOOTSTRAP',
