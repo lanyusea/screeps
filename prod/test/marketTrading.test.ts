@@ -180,6 +180,43 @@ describe('marketTrading', () => {
     });
   });
 
+  it('queries orders for resources known by rooms that are not ready to trade', () => {
+    const deal = jest.fn().mockReturnValue(OK_CODE);
+    const getAllOrders = makeMarketOrderGetter([
+      makeOrder({ id: 'sell-needed-O', type: 'sell', resourceType: 'O', price: 2, roomName: 'W3N1', remainingAmount: 5_000 }),
+      makeOrder({ id: 'buy-reference-O', type: 'buy', resourceType: 'O', price: 4, roomName: 'W4N1', remainingAmount: 5_000 })
+    ]);
+    const readyRoom = makeOwnedRoom({ roomName: 'W1N1', terminalResources: { energy: 80_000 } });
+    const coolingRoom = makeOwnedRoom({ roomName: 'W2N1', terminalResources: { energy: 80_000, O: 1_000 } });
+    (coolingRoom.terminal as unknown as { cooldown: number }).cooldown = 10;
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 100,
+      rooms: {
+        W1N1: readyRoom,
+        W2N1: coolingRoom
+      },
+      market: {
+        credits: 20_000,
+        deal,
+        getAllOrders,
+        calcTransactionCost: jest.fn().mockReturnValue(0)
+      } as unknown as Market
+    };
+
+    const result = runMarketTrading();
+
+    expect(getAllOrders).toHaveBeenCalledWith({ type: 'buy', resourceType: 'O' });
+    expect(getAllOrders).toHaveBeenCalledWith({ type: 'sell', resourceType: 'O' });
+    expect(deal).toHaveBeenCalledWith('sell-needed-O', 2_500, 'W1N1');
+    expect(result).toMatchObject({
+      action: 'buy',
+      orderId: 'sell-needed-O',
+      reason: 'buyNeeded',
+      resourceType: 'O',
+      roomName: 'W1N1'
+    });
+  });
+
   it('does not trade while memory says the terminal is cooling down', () => {
     const deal = jest.fn().mockReturnValue(OK_CODE);
     const getAllOrders = makeMarketOrderGetter([

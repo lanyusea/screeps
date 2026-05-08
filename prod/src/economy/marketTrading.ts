@@ -643,13 +643,21 @@ function collectMarketOrderResourceTypes(
 ): MarketResourceConstant[] {
   const resources = new Set<MarketResourceConstant>();
   const minOrderAmount = normalizePositiveInteger(MARKET_TRADING_MIN_ORDER_AMOUNT);
+  const knownResourceTypes = new Set<MarketResourceConstant>();
+
+  for (const room of rooms) {
+    for (const resourceType of Object.keys(room.resources)) {
+      knownResourceTypes.add(resourceType as MarketResourceConstant);
+    }
+  }
+
+  const roomResourceTypes = Array.from(knownResourceTypes).sort();
 
   for (const room of rooms) {
     if (!isRoomReadyForMarketTrade(room, gameTime)) {
       continue;
     }
 
-    const roomResourceTypes = Object.keys(room.resources).sort() as MarketResourceConstant[];
     const postures = buildResourcePostureByResource(room, roomResourceTypes);
     for (const [resourceType, posture] of postures) {
       if (posture.excessAmount >= minOrderAmount || posture.neededAmount >= minOrderAmount) {
