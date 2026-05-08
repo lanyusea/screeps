@@ -103,6 +103,7 @@ export interface TerritoryIntentPlan {
   requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
   postClaimBootstrapReserveEnergy?: number;
+  routeDistance?: number;
 }
 
 export interface TerritoryIntentProgressSummary {
@@ -145,6 +146,7 @@ interface SelectedTerritoryTarget {
   requiresControllerPressure?: boolean;
   followUp?: TerritoryFollowUpMemory;
   postClaimBootstrapReserveEnergy?: number;
+  routeDistance?: number;
   persistedFollowUp?: boolean;
   recoveredFollowUp?: boolean;
   recoveredFollowUpSuppressedAt?: number;
@@ -198,6 +200,7 @@ const recoveredTerritoryFollowUpRetryMetadata = new WeakMap<
   TerritoryIntentPlan,
   RecoveredTerritoryFollowUpRetryMetadata
 >();
+const territoryIntentRouteDistances = new WeakMap<TerritoryIntentPlan, number>();
 
 export function planTerritoryIntent(
   colony: ColonySnapshot,
@@ -229,6 +232,10 @@ export function planTerritoryIntent(
       : {})
   };
 
+  if (selection.routeDistance !== undefined) {
+    territoryIntentRouteDistances.set(plan, selection.routeDistance);
+  }
+
   if (selection.recoveredFollowUp === true && typeof selection.recoveredFollowUpSuppressedAt === 'number') {
     recoveredTerritoryFollowUpRetryMetadata.set(plan, { suppressedAt: selection.recoveredFollowUpSuppressedAt });
   }
@@ -242,6 +249,10 @@ export function planTerritoryIntent(
   );
 
   return plan;
+}
+
+export function getTerritoryIntentRouteDistance(plan: TerritoryIntentPlan): number | undefined {
+  return plan.routeDistance ?? territoryIntentRouteDistances.get(plan);
 }
 
 export function recordRecoveredTerritoryFollowUpRetryCooldown(
@@ -1355,6 +1366,7 @@ function toSelectedTerritoryTarget(
         ...(candidate.postClaimBootstrapReserveEnergy
           ? { postClaimBootstrapReserveEnergy: candidate.postClaimBootstrapReserveEnergy }
           : {}),
+        ...(candidate.routeDistance !== undefined ? { routeDistance: candidate.routeDistance } : {}),
         ...(candidate.recoveredFollowUp ? { recoveredFollowUp: true } : {}),
         ...(typeof candidate.recoveredFollowUpSuppressedAt === 'number'
           ? { recoveredFollowUpSuppressedAt: candidate.recoveredFollowUpSuppressedAt }

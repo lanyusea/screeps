@@ -50,6 +50,7 @@ import {
 } from './bodyBuilder';
 import {
   buildTerritoryCreepMemory,
+  getTerritoryIntentRouteDistance,
   getTerritoryFollowUpPreparationWorkerDemand,
   planTerritoryIntent,
   recordRecoveredTerritoryFollowUpRetryCooldown,
@@ -1693,13 +1694,15 @@ export function buildTerritorySpawnBody(energyAvailable: number, intent: Territo
     return buildTerritoryReserverBody(energyAvailable);
   }
 
+  const routeDistance = getTerritoryIntentRouteDistance(intent);
   if (hasPostClaimBootstrapReserve(intent)) {
     return buildTerritoryControllerBody(
-      Math.max(0, energyAvailable - Math.floor(intent.postClaimBootstrapReserveEnergy ?? 0))
+      Math.max(0, energyAvailable - Math.floor(intent.postClaimBootstrapReserveEnergy ?? 0)),
+      routeDistance
     );
   }
 
-  return buildTerritoryControllerBody(energyAvailable);
+  return buildTerritoryControllerBody(energyAvailable, routeDistance);
 }
 
 function hasPostClaimBootstrapReserve(intent: TerritoryIntentPlan): boolean {
