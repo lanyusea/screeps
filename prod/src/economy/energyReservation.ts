@@ -19,6 +19,14 @@ export interface EnergyReservationScoreOptions {
   energyCapacityAvailable?: number;
 }
 
+interface PendingHaulerDeliveryEnergyCache {
+  gameTime: number;
+  creeps: Partial<Game['creeps']>;
+  energyByRoomName: Map<string, number>;
+}
+
+let pendingHaulerDeliveryEnergyCache: PendingHaulerDeliveryEnergyCache | undefined;
+
 export function getEnergyReservationScore(
   room: Room,
   options: EnergyReservationScoreOptions = {}
@@ -74,34 +82,71 @@ function getConfirmedStorageReserveEnergy(
 }
 
 function getPendingHaulerDeliveryEnergy(roomName: string): number {
-  const creeps = (globalThis as { Game?: Partial<Pick<Game, 'creeps'>> }).Game?.creeps;
-  if (!creeps) {
+  const game = (globalThis as { Game?: Partial<Pick<Game, 'creeps' | 'time'>> }).Game;
+  if (!game?.creeps) {
     return 0;
   }
 
-  return Object.values(creeps).reduce((total, creep) => {
-    if (!isHaulerDeliveringEnergyToRoom(creep, roomName)) {
-      return total;
-    }
+  const gameTime = typeof game.time === 'number' && Number.isFinite(game.time) ? game.time : undefined;
+  if (gameTime === undefined) {
+    return getPendingHaulerDeliveryEnergyByRoomName(game.creeps).get(roomName) ?? 0;
+  }
 
-    return total + getStoredEnergy(creep);
-  }, 0);
+  if (
+    pendingHaulerDeliveryEnergyCache?.gameTime !== gameTime ||
+    pendingHaulerDeliveryEnergyCache.creeps !== game.creeps
+  ) {
+    pendingHaulerDeliveryEnergyCache = {
+      gameTime,
+      creeps: game.creeps,
+      energyByRoomName: getPendingHaulerDeliveryEnergyByRoomName(game.creeps)
+    };
+  }
+
+  return pendingHaulerDeliveryEnergyCache.energyByRoomName.get(roomName) ?? 0;
 }
 
-function isHaulerDeliveringEnergyToRoom(creep: Creep, roomName: string): boolean {
+function getPendingHaulerDeliveryEnergyByRoomName(creeps: Partial<Game['creeps']>): Map<string, number> {
+  const energyByRoomName = new Map<string, number>();
+  for (const creep of Object.values(creeps)) {
+    if (creep === undefined) {
+      continue;
+    }
+
+    const roomName = getHaulerDeliveryRoomName(creep);
+    if (roomName === undefined) {
+      continue;
+    }
+
+    energyByRoomName.set(roomName, (energyByRoomName.get(roomName) ?? 0) + getStoredEnergy(creep));
+  }
+
+  return energyByRoomName;
+}
+
+function getHaulerDeliveryRoomName(creep: Creep): string | undefined {
   if (creep.memory?.role !== 'hauler' || isCollectingEnergyTask(creep.memory.task)) {
-    return false;
+    return undefined;
   }
 
-  if (creep.memory.energyHauler?.roomName === roomName) {
-    return creep.room?.name === undefined || creep.room.name === roomName || creep.memory.task?.type === 'transfer';
+  const localRoomName = creep.memory.energyHauler?.roomName;
+  if (
+    isNonEmptyString(localRoomName) &&
+    (creep.room?.name === undefined || creep.room.name === localRoomName || creep.memory.task?.type === 'transfer')
+  ) {
+    return localRoomName;
   }
 
-  return creep.memory.remoteHauler?.homeRoom === roomName;
+  const remoteHomeRoom = creep.memory.remoteHauler?.homeRoom;
+  return isNonEmptyString(remoteHomeRoom) ? remoteHomeRoom : undefined;
 }
 
 function isCollectingEnergyTask(task: CreepTaskMemory | undefined): boolean {
   return task?.type === 'harvest' || task?.type === 'pickup' || task?.type === 'withdraw';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function getStoredEnergy(target: unknown): number {

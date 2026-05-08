@@ -4,6 +4,7 @@ import {
   orderColoniesForSpawnPlanning,
   planSpawn
 } from '../src/spawn/spawnPlanner';
+import { getEnergyReservationScore } from '../src/economy/energyReservation';
 import { ColonySnapshot } from '../src/colony/colonyRegistry';
 import {
   persistOccupationRecommendationFollowUpIntent,
@@ -729,7 +730,7 @@ describe('planSpawn', () => {
     });
   });
 
-  it('upgrades worker body size when terminal reserves confirm the room can refill', () => {
+  it('keeps recovery worker body size affordable when terminal reserves can refill later', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N34',
       energyAvailable: 600,
@@ -740,13 +741,13 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 167)).toEqual({
       spawn,
-      body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 3), 'work', 'move', 'carry', 'move'],
+      body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
       name: 'worker-W1N34-167',
       memory: { role: 'worker', colony: 'W1N34' }
     });
   });
 
-  it('upgrades worker body size when storage reserves can cover the refill deficit', () => {
+  it('keeps recovery worker body size affordable when storage reserves can refill later', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N37',
       energyAvailable: 600,
@@ -758,13 +759,27 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 170)).toEqual({
       spawn,
-      body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 3), 'work', 'move', 'carry', 'move'],
+      body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
       name: 'worker-W1N37-170',
       memory: { role: 'worker', colony: 'W1N37' }
     });
   });
 
-  it('counts loaded local energy haulers as pending spawn-energy deliveries', () => {
+  it('keeps reservation-aware sizing from forcing recovery workers without an explicit spawn budget', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N39',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      storageEnergy: 500,
+      storageCapacity: 1_000,
+      omitSpawnEnergyBudget: true,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 171)).toBeNull();
+  });
+
+  it('keeps recovery worker body size affordable when haulers are delivering refill energy', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N35',
       energyAvailable: 300,
@@ -777,10 +792,42 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 168)).toEqual({
       spawn,
-      body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 2), 'carry', 'move'],
+      body: ['work', 'carry', 'move'],
       name: 'worker-W1N35-168',
       memory: { role: 'worker', colony: 'W1N35' }
     });
+  });
+
+  it('caches pending hauler delivery energy by room for the current tick', () => {
+    const { colony: firstColony } = makeColony({
+      roomName: 'W1N38',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    const { colony: secondColony } = makeColony({
+      roomName: 'W2N38',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    const creeps = {
+      Hauler1: makeLoadedLocalEnergyHauler('W1N38', 500),
+      Hauler2: makeLoadedLocalEnergyHauler('W2N38', 200)
+    };
+    const ownKeys = jest.fn(() => Reflect.ownKeys(creeps));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 38,
+      creeps: new Proxy(creeps, {
+        ownKeys,
+        get: (target, property) => target[property as keyof typeof target],
+        getOwnPropertyDescriptor: (target, property) => Object.getOwnPropertyDescriptor(target, property)
+      }) as unknown as Game['creeps']
+    };
+
+    expect(getEnergyReservationScore(firstColony.room).pendingHaulerDeliveryEnergy).toBe(500);
+    expect(getEnergyReservationScore(secondColony.room).pendingHaulerDeliveryEnergy).toBe(200);
+    expect(ownKeys).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the current-energy fallback when no reservation evidence exists', () => {
@@ -2118,7 +2165,12 @@ describe('planSpawn', () => {
   it('waits instead of emitting an invalid defender body when hostile defense energy is unavailable', () => {
     installHostileFindGlobals();
     const hostile = { id: 'hostile1' } as Creep;
-    const { colony } = makeColony({ energyAvailable: 139, hostileCreeps: [hostile] });
+    const { colony } = makeColony({
+      energyAvailable: 139,
+      storageEnergy: 1_000,
+      storageCapacity: 1_000,
+      hostileCreeps: [hostile]
+    });
 
     expect(planSpawn(colony, { worker: 3 }, 162)).toBeNull();
   });

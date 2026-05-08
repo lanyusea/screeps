@@ -1555,7 +1555,7 @@ function selectDynamicBodyForColony(
   demand: DynamicCreepBodyDemand,
   buildBody: (energyBudget: number) => BodyPartConstant[]
 ): BodyPartConstant[] {
-  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony);
+  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony, demand);
   const selection = selectDynamicCreepBody({
     room: colony.room,
     spawns: colony.spawns,
@@ -1578,7 +1578,7 @@ function selectDynamicBodyForColony(
 
 function selectUpgraderBody(colony: ColonySnapshot): BodyPartConstant[] {
   const controllerLevel = colony.room.controller?.level;
-  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony);
+  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony, 'surplus');
   const selection = selectDynamicCreepBody({
     room: colony.room,
     spawns: colony.spawns,
@@ -1599,21 +1599,30 @@ function selectUpgraderBody(colony: ColonySnapshot): BodyPartConstant[] {
   return selection?.body ?? [];
 }
 
-function getSpawnPlanningBodyEnergyBudget(colony: ColonySnapshot): number | undefined {
+function getSpawnPlanningBodyEnergyBudget(
+  colony: ColonySnapshot,
+  demand: DynamicCreepBodyDemand
+): number | undefined {
   const explicitBudget = normalizeOptionalNonNegativeInteger(colony.spawnEnergyBudget);
   const currentEnergy = normalizeNonNegativeInteger(colony.energyAvailable);
+  if (explicitBudget !== undefined) {
+    return Math.min(explicitBudget, currentEnergy);
+  }
+
+  if (isCriticalRecoveryDemand(demand)) {
+    return undefined;
+  }
+
   const reservationScore = getEnergyReservationScore(colony.room, {
     energyAvailable: currentEnergy,
     energyCapacityAvailable: colony.energyCapacityAvailable
   }).reservationScore;
 
-  if (explicitBudget !== undefined) {
-    return explicitBudget === currentEnergy && reservationScore > explicitBudget
-      ? reservationScore
-      : explicitBudget;
-  }
-
   return reservationScore > currentEnergy ? reservationScore : undefined;
+}
+
+function isCriticalRecoveryDemand(demand: DynamicCreepBodyDemand): boolean {
+  return demand === 'critical' || demand === 'recovery';
 }
 
 function getSpawnBufferBudgetPolicy(spawnEnergyBudget: number | undefined): SpawnBufferBudgetPolicy {
@@ -1636,7 +1645,9 @@ function getWorkerDynamicBodyDemand(
 }
 
 function getSpawnEnergyBudget(colony: ColonySnapshot): number {
-  return getSpawnPlanningBodyEnergyBudget(colony) ?? normalizeNonNegativeInteger(colony.energyAvailable);
+  const currentEnergy = normalizeNonNegativeInteger(colony.energyAvailable);
+  const explicitBudget = normalizeOptionalNonNegativeInteger(colony.spawnEnergyBudget);
+  return explicitBudget !== undefined ? Math.min(explicitBudget, currentEnergy) : currentEnergy;
 }
 
 export function generateHarvesterBody(

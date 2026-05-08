@@ -24118,6 +24118,7 @@ function normalizeEnergyAmount3(value) {
 }
 
 // src/economy/energyReservation.ts
+var pendingHaulerDeliveryEnergyCache;
 function getEnergyReservationScore(room, options = {}) {
   var _a, _b;
   const roomName = getRoomName7(room);
@@ -24156,30 +24157,56 @@ function getConfirmedStorageReserveEnergy(spawnEnergy, storageEnergy, energyCapa
   return refillDeficit <= 0 || storageEnergy >= refillDeficit ? storageEnergy : 0;
 }
 function getPendingHaulerDeliveryEnergy(roomName) {
-  var _a;
-  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
-  if (!creeps) {
+  var _a, _b;
+  const game = globalThis.Game;
+  if (!(game == null ? void 0 : game.creeps)) {
     return 0;
   }
-  return Object.values(creeps).reduce((total, creep) => {
-    if (!isHaulerDeliveringEnergyToRoom(creep, roomName)) {
-      return total;
-    }
-    return total + getStoredEnergy17(creep);
-  }, 0);
+  const gameTime = typeof game.time === "number" && Number.isFinite(game.time) ? game.time : void 0;
+  if (gameTime === void 0) {
+    return (_a = getPendingHaulerDeliveryEnergyByRoomName(game.creeps).get(roomName)) != null ? _a : 0;
+  }
+  if ((pendingHaulerDeliveryEnergyCache == null ? void 0 : pendingHaulerDeliveryEnergyCache.gameTime) !== gameTime || pendingHaulerDeliveryEnergyCache.creeps !== game.creeps) {
+    pendingHaulerDeliveryEnergyCache = {
+      gameTime,
+      creeps: game.creeps,
+      energyByRoomName: getPendingHaulerDeliveryEnergyByRoomName(game.creeps)
+    };
+  }
+  return (_b = pendingHaulerDeliveryEnergyCache.energyByRoomName.get(roomName)) != null ? _b : 0;
 }
-function isHaulerDeliveringEnergyToRoom(creep, roomName) {
+function getPendingHaulerDeliveryEnergyByRoomName(creeps) {
+  var _a;
+  const energyByRoomName = /* @__PURE__ */ new Map();
+  for (const creep of Object.values(creeps)) {
+    if (creep === void 0) {
+      continue;
+    }
+    const roomName = getHaulerDeliveryRoomName(creep);
+    if (roomName === void 0) {
+      continue;
+    }
+    energyByRoomName.set(roomName, ((_a = energyByRoomName.get(roomName)) != null ? _a : 0) + getStoredEnergy17(creep));
+  }
+  return energyByRoomName;
+}
+function getHaulerDeliveryRoomName(creep) {
   var _a, _b, _c, _d, _e;
   if (((_a = creep.memory) == null ? void 0 : _a.role) !== "hauler" || isCollectingEnergyTask(creep.memory.task)) {
-    return false;
+    return void 0;
   }
-  if (((_b = creep.memory.energyHauler) == null ? void 0 : _b.roomName) === roomName) {
-    return ((_c = creep.room) == null ? void 0 : _c.name) === void 0 || creep.room.name === roomName || ((_d = creep.memory.task) == null ? void 0 : _d.type) === "transfer";
+  const localRoomName = (_b = creep.memory.energyHauler) == null ? void 0 : _b.roomName;
+  if (isNonEmptyString16(localRoomName) && (((_c = creep.room) == null ? void 0 : _c.name) === void 0 || creep.room.name === localRoomName || ((_d = creep.memory.task) == null ? void 0 : _d.type) === "transfer")) {
+    return localRoomName;
   }
-  return ((_e = creep.memory.remoteHauler) == null ? void 0 : _e.homeRoom) === roomName;
+  const remoteHomeRoom = (_e = creep.memory.remoteHauler) == null ? void 0 : _e.homeRoom;
+  return isNonEmptyString16(remoteHomeRoom) ? remoteHomeRoom : void 0;
 }
 function isCollectingEnergyTask(task) {
   return (task == null ? void 0 : task.type) === "harvest" || (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
+}
+function isNonEmptyString16(value) {
+  return typeof value === "string" && value.length > 0;
 }
 function getStoredEnergy17(target) {
   var _a;
@@ -24224,7 +24251,7 @@ var ROUTE_DISTANCE_CACHE_TTL_TICKS = 300;
 function recordPlannedMultiRoomUpgraderSpawn(memory) {
   var _a, _b;
   const sustain = memory.controllerSustain;
-  if (memory.role !== "worker" || (sustain == null ? void 0 : sustain.role) !== "upgrader" || !isNonEmptyString16(sustain.homeRoom) || !isNonEmptyString16(sustain.targetRoom)) {
+  if (memory.role !== "worker" || (sustain == null ? void 0 : sustain.role) !== "upgrader" || !isNonEmptyString17(sustain.homeRoom) || !isNonEmptyString17(sustain.targetRoom)) {
     return;
   }
   const cache = getActiveMultiRoomUpgraderCountCache();
@@ -24311,11 +24338,11 @@ function getVisibleMultiRoomUpgradeCandidates(colony, config) {
 }
 function getVisibleMultiRoomUpgradeCandidate(homeRoom, room, config, activeUpgraderCounts, order) {
   var _a;
-  if (!isNonEmptyString16(room.name) || room.name === homeRoom || isKnownDeadZoneRoom(room.name)) {
+  if (!isNonEmptyString17(room.name) || room.name === homeRoom || isKnownDeadZoneRoom(room.name)) {
     return null;
   }
   const controller = room.controller;
-  if (!controller || !isNonEmptyString16(controller.id)) {
+  if (!controller || !isNonEmptyString17(controller.id)) {
     return null;
   }
   const controllerState = getEligibleControllerState(controller);
@@ -24455,7 +24482,7 @@ function countActiveMultiRoomUpgradersByHomeRoom(creeps) {
   const countsByHomeRoom = {};
   for (const creep of Object.values(creeps)) {
     const sustain = (_a = creep.memory) == null ? void 0 : _a.controllerSustain;
-    if ((sustain == null ? void 0 : sustain.role) !== "upgrader" || !isNonEmptyString16(sustain.homeRoom) || !isNonEmptyString16(sustain.targetRoom) || !isActiveMultiRoomUpgrader(creep)) {
+    if ((sustain == null ? void 0 : sustain.role) !== "upgrader" || !isNonEmptyString17(sustain.homeRoom) || !isNonEmptyString17(sustain.targetRoom) || !isActiveMultiRoomUpgrader(creep)) {
       continue;
     }
     const countsByTarget = (_b = countsByHomeRoom[sustain.homeRoom]) != null ? _b : {};
@@ -24625,7 +24652,7 @@ function getGameTime20() {
 function isRecord17(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString16(value) {
+function isNonEmptyString17(value) {
   return typeof value === "string" && value.length > 0;
 }
 
@@ -24658,7 +24685,7 @@ function buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTim
   var _a, _b, _c, _d, _e;
   const roomName = colony.room.name;
   const controller = colony.room.controller;
-  if ((controller == null ? void 0 : controller.my) !== true || !isNonEmptyString17(controller.id)) {
+  if ((controller == null ? void 0 : controller.my) !== true || !isNonEmptyString18(controller.id)) {
     return {
       roomName,
       updatedAt: gameTime,
@@ -24835,7 +24862,7 @@ function getControllerProgressRatioField(controller) {
 function getControllerTicksToDowngradeField(controller) {
   return typeof controller.ticksToDowngrade === "number" && Number.isFinite(controller.ticksToDowngrade) ? { ticksToDowngrade: controller.ticksToDowngrade } : {};
 }
-function isNonEmptyString17(value) {
+function isNonEmptyString18(value) {
   return typeof value === "string" && value.length > 0;
 }
 function normalizeNonNegativeInteger8(value) {
@@ -25294,7 +25321,7 @@ function getPostClaimControllerSustainRecords(colonyName) {
   ).sort(comparePostClaimControllerSustainRecords);
 }
 function isPostClaimControllerSustainRecord(record, colonyName) {
-  return isRecord18(record) && record.colony === colonyName && record.roomName !== colonyName && isNonEmptyString18(record.roomName) && (record.status === "detected" || record.status === "spawnSitePending" || record.status === "spawnSiteBlocked" || record.status === "spawningWorkers" || record.status === "ready");
+  return isRecord18(record) && record.colony === colonyName && record.roomName !== colonyName && isNonEmptyString19(record.roomName) && (record.status === "detected" || record.status === "spawnSitePending" || record.status === "spawnSiteBlocked" || record.status === "spawningWorkers" || record.status === "ready");
 }
 function comparePostClaimControllerSustainRecords(left, right) {
   const leftHasSpawn = hasOperationalSpawnInRoom(left.roomName);
@@ -25810,7 +25837,7 @@ function buildWorkerBodyForDemandBudget(colony, roleCounts, energyBudget) {
 }
 function selectDynamicBodyForColony(colony, role, demand, buildBody) {
   var _a;
-  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony);
+  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony, demand);
   const selection = selectDynamicCreepBody({
     room: colony.room,
     spawns: colony.spawns,
@@ -25832,7 +25859,7 @@ function selectDynamicBodyForColony(colony, role, demand, buildBody) {
 function selectUpgraderBody(colony) {
   var _a, _b;
   const controllerLevel = (_a = colony.room.controller) == null ? void 0 : _a.level;
-  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony);
+  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony, "surplus");
   const selection = selectDynamicCreepBody({
     room: colony.room,
     spawns: colony.spawns,
@@ -25851,17 +25878,23 @@ function selectUpgraderBody(colony) {
   });
   return (_b = selection == null ? void 0 : selection.body) != null ? _b : [];
 }
-function getSpawnPlanningBodyEnergyBudget(colony) {
+function getSpawnPlanningBodyEnergyBudget(colony, demand) {
   const explicitBudget = normalizeOptionalNonNegativeInteger2(colony.spawnEnergyBudget);
   const currentEnergy = normalizeNonNegativeInteger9(colony.energyAvailable);
+  if (explicitBudget !== void 0) {
+    return Math.min(explicitBudget, currentEnergy);
+  }
+  if (isCriticalRecoveryDemand(demand)) {
+    return void 0;
+  }
   const reservationScore = getEnergyReservationScore(colony.room, {
     energyAvailable: currentEnergy,
     energyCapacityAvailable: colony.energyCapacityAvailable
   }).reservationScore;
-  if (explicitBudget !== void 0) {
-    return explicitBudget === currentEnergy && reservationScore > explicitBudget ? reservationScore : explicitBudget;
-  }
   return reservationScore > currentEnergy ? reservationScore : void 0;
+}
+function isCriticalRecoveryDemand(demand) {
+  return demand === "critical" || demand === "recovery";
 }
 function getSpawnBufferBudgetPolicy(spawnEnergyBudget) {
   return spawnEnergyBudget === void 0 ? "respect" : "alreadyReserved";
@@ -25876,8 +25909,9 @@ function getWorkerDynamicBodyDemand(colony, roleCounts) {
   return "surplus";
 }
 function getSpawnEnergyBudget(colony) {
-  var _a;
-  return (_a = getSpawnPlanningBodyEnergyBudget(colony)) != null ? _a : normalizeNonNegativeInteger9(colony.energyAvailable);
+  const currentEnergy = normalizeNonNegativeInteger9(colony.energyAvailable);
+  const explicitBudget = normalizeOptionalNonNegativeInteger2(colony.spawnEnergyBudget);
+  return explicitBudget !== void 0 ? Math.min(explicitBudget, currentEnergy) : currentEnergy;
 }
 function generateHarvesterBody(availableEnergy, sourceDistance) {
   const energyBudget = normalizeNonNegativeInteger9(availableEnergy);
@@ -26090,7 +26124,7 @@ function getStorageBalanceMemory() {
 function isRecord18(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString18(value) {
+function isNonEmptyString19(value) {
   return typeof value === "string" && value.length > 0;
 }
 function findRoomObjects17(room, globalName) {
@@ -26119,7 +26153,7 @@ var ROOM_EDGE_MAX6 = 47;
 var DEFAULT_TERRAIN_WALL_MASK10 = 1;
 function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   var _a, _b;
-  if (!isNonEmptyString19(input.colony) || !isNonEmptyString19(input.roomName)) {
+  if (!isNonEmptyString20(input.colony) || !isNonEmptyString20(input.roomName)) {
     return;
   }
   const bootstraps = getWritablePostClaimBootstrapRecords();
@@ -26270,10 +26304,10 @@ function selectPostClaimBootstrapFocusRoomName(colonies) {
   return (_b = (_a = getVisibleActivePostClaimBootstrapRecords(colonies)[0]) == null ? void 0 : _a.roomName) != null ? _b : null;
 }
 function isPostClaimBootstrapDeferred(roomName, focusRoomName) {
-  return isNonEmptyString19(focusRoomName) && roomName !== focusRoomName && getPostClaimBootstrapRecord(roomName) !== null;
+  return isNonEmptyString20(focusRoomName) && roomName !== focusRoomName && getPostClaimBootstrapRecord(roomName) !== null;
 }
 function recordPostClaimBootstrapWorkerSpawn(roomName, spawnName, creepName, result, telemetryEvents = []) {
-  if (!isNonEmptyString19(roomName)) {
+  if (!isNonEmptyString20(roomName)) {
     return;
   }
   const record = getPostClaimBootstrapRecord(roomName);
@@ -26658,10 +26692,10 @@ function getWritablePostClaimBootstrapRecords() {
   return memory.territory.postClaimBootstraps;
 }
 function isPostClaimBootstrapRecord(value, expectedRoomName) {
-  return isRecord19(value) && value.roomName === expectedRoomName && isNonEmptyString19(value.colony) && isPostClaimBootstrapStatus(value.status) && isFiniteNumber8(value.claimedAt) && isFiniteNumber8(value.updatedAt);
+  return isRecord19(value) && value.roomName === expectedRoomName && isNonEmptyString20(value.colony) && isPostClaimBootstrapStatus(value.status) && isFiniteNumber8(value.claimedAt) && isFiniteNumber8(value.updatedAt);
 }
 function isAnyPostClaimBootstrapRecord(value) {
-  return isRecord19(value) && isNonEmptyString19(value.roomName) && isPostClaimBootstrapRecord(value, value.roomName);
+  return isRecord19(value) && isNonEmptyString20(value.roomName) && isPostClaimBootstrapRecord(value, value.roomName);
 }
 function isPostClaimBootstrapStatus(value) {
   return value === "detected" || value === "spawnSitePending" || value === "spawnSiteBlocked" || value === "spawningWorkers" || value === "ready";
@@ -26724,7 +26758,7 @@ function getGameTime21() {
 function isRecord19(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString19(value) {
+function isNonEmptyString20(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isFiniteNumber8(value) {
@@ -29336,10 +29370,10 @@ function getMutableMineralHarvesterMemory(creep) {
   return memory;
 }
 function normalizeMineralHarvesterMemory(value) {
-  if (!isRecord22(value) || !isNonEmptyString20(value.homeRoom) || !isNonEmptyString20(value.mineralId)) {
+  if (!isRecord22(value) || !isNonEmptyString21(value.homeRoom) || !isNonEmptyString21(value.mineralId)) {
     return null;
   }
-  const targetId = isNonEmptyString20(value.targetId) ? value.targetId : void 0;
+  const targetId = isNonEmptyString21(value.targetId) ? value.targetId : void 0;
   if (!targetId) {
     return null;
   }
@@ -29347,7 +29381,7 @@ function normalizeMineralHarvesterMemory(value) {
     homeRoom: value.homeRoom,
     mineralId: value.mineralId,
     targetId,
-    ...isNonEmptyString20(value.mineralType) ? { mineralType: value.mineralType } : {}
+    ...isNonEmptyString21(value.mineralType) ? { mineralType: value.mineralType } : {}
   };
 }
 function getAssignedMineral(assignment, room) {
@@ -29470,7 +29504,7 @@ function normalizeNonNegativeInteger11(value) {
 function isRecord22(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString20(value) {
+function isNonEmptyString21(value) {
   return typeof value === "string" && value.length > 0;
 }
 
@@ -29512,7 +29546,7 @@ function normalizeExecutionTarget(rawTarget, action, colonyFilter) {
     return null;
   }
   const targetAction = getExecutionTargetAction(rawTarget);
-  if (targetAction !== action || !isNonEmptyString21(rawTarget.colony) || !isNonEmptyString21(rawTarget.roomName) || rawTarget.enabled === false || rawTarget.roomName === rawTarget.colony || isNonEmptyString21(colonyFilter) && rawTarget.colony !== colonyFilter) {
+  if (targetAction !== action || !isNonEmptyString22(rawTarget.colony) || !isNonEmptyString22(rawTarget.roomName) || rawTarget.enabled === false || rawTarget.roomName === rawTarget.colony || isNonEmptyString22(colonyFilter) && rawTarget.colony !== colonyFilter) {
     return null;
   }
   return {
@@ -29587,7 +29621,7 @@ function isTerritoryControlAction4(action) {
 function isPositiveFiniteNumber3(value) {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
-function isNonEmptyString21(value) {
+function isNonEmptyString22(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isRecord23(value) {
@@ -30017,11 +30051,11 @@ function buildAutonomousExpansionScoringInput(colony, report, context) {
   const ownedRoomNames = getVisibleOwnedRoomNames5(colonyName, colonyOwnerUsername);
   const adjacentRoomNamesByOwnedRoom = getAdjacentRoomNamesByOwnedRoom(ownedRoomNames, context);
   const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, colonyOwnerUsername);
-  const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString22(room.mineralType));
+  const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString23(room.mineralType));
   const seenRooms = /* @__PURE__ */ new Set();
   const candidates = [];
   report.candidates.forEach((candidate, order) => {
-    if (!isNonEmptyString22(candidate.roomName) || seenRooms.has(candidate.roomName)) {
+    if (!isNonEmptyString23(candidate.roomName) || seenRooms.has(candidate.roomName)) {
       return;
     }
     seenRooms.add(candidate.roomName);
@@ -30087,7 +30121,7 @@ function summarizeExpansionController2(controller) {
   return {
     ...typeof controller.my === "boolean" ? { my: controller.my } : {},
     ...ownerUsername ? { ownerUsername } : {},
-    ...isNonEmptyString22(reservationUsername) ? { reservationUsername } : {},
+    ...isNonEmptyString23(reservationUsername) ? { reservationUsername } : {},
     ...typeof ((_b = controller.reservation) == null ? void 0 : _b.ticksToEnd) === "number" ? { reservationTicksToEnd: controller.reservation.ticksToEnd } : {}
   };
 }
@@ -30108,7 +30142,7 @@ function getVisibleOwnedRoomNames5(colonyName, ownerUsername) {
     return ownedRoomNames;
   }
   for (const room of Object.values(rooms)) {
-    if (((_b = room == null ? void 0 : room.controller) == null ? void 0 : _b.my) === true && isNonEmptyString22(room.name) && (!ownerUsername || getControllerOwnerUsername7(room.controller) === ownerUsername)) {
+    if (((_b = room == null ? void 0 : room.controller) == null ? void 0 : _b.my) === true && isNonEmptyString23(room.name) && (!ownerUsername || getControllerOwnerUsername7(room.controller) === ownerUsername)) {
       ownedRoomNames.add(room.name);
     }
   }
@@ -30152,7 +30186,7 @@ function getAdjacentRoomNames6(roomName, gameMap = ((_a) => (_a = globalThis.Gam
   }
   return EXIT_DIRECTION_ORDER5.flatMap((direction) => {
     const exitRoom = exits[direction];
-    return isNonEmptyString22(exitRoom) ? [exitRoom] : [];
+    return isNonEmptyString23(exitRoom) ? [exitRoom] : [];
   });
 }
 function countActivePostClaimBootstraps2() {
@@ -30268,7 +30302,7 @@ function pruneAutonomousExpansionClaimTargets(colony, territoryMemory = getTerri
     if (activeTarget && isSameTarget2(target, activeTarget)) {
       return true;
     }
-    if (isRecord24(target) && isNonEmptyString22(target.roomName) && target.action === "claim") {
+    if (isRecord24(target) && isNonEmptyString23(target.roomName) && target.action === "claim") {
       removedTargetKeys.add(getTargetKey2(target.roomName, "claim"));
     }
     return false;
@@ -30355,7 +30389,7 @@ function isClaimExecutionAssignment(assignment) {
 }
 function getRecommendedExpansionClaimExecutionGate(colony, assignment) {
   var _a;
-  if (!isNonEmptyString22(colony)) {
+  if (!isNonEmptyString23(colony)) {
     return null;
   }
   const territoryMemory = getTerritoryMemoryRecord8();
@@ -30729,12 +30763,12 @@ function getClaimColony(creep, controller) {
   return (_e = (_d = (_b = creep.memory.colony) != null ? _b : (_a = creep.room) == null ? void 0 : _a.name) != null ? _d : (_c = controller == null ? void 0 : controller.room) == null ? void 0 : _c.name) != null ? _e : "unknown";
 }
 function isForeignOwnedController(controller) {
-  return controller.my !== true && isNonEmptyString22(getControllerOwnerUsername7(controller));
+  return controller.my !== true && isNonEmptyString23(getControllerOwnerUsername7(controller));
 }
 function isForeignReservedController3(controller, colony) {
   var _a, _b;
   const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
-  if (!isNonEmptyString22(reservationUsername)) {
+  if (!isNonEmptyString23(reservationUsername)) {
     return false;
   }
   return reservationUsername !== getControllerOwnerUsername7((_b = getVisibleRoom11(colony != null ? colony : "")) == null ? void 0 : _b.controller);
@@ -30810,17 +30844,17 @@ function isControllerOwned3(controller) {
 function isControllerReserved(controller, colonyOwnerUsername) {
   var _a;
   const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
-  return isNonEmptyString22(reservationUsername) && reservationUsername !== colonyOwnerUsername;
+  return isNonEmptyString23(reservationUsername) && reservationUsername !== colonyOwnerUsername;
 }
 function getControllerOwnerUsername7(controller) {
   var _a;
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString22(username) ? username : void 0;
+  return isNonEmptyString23(username) ? username : void 0;
 }
 function isRecord24(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString22(value) {
+function isNonEmptyString23(value) {
   return typeof value === "string" && value.length > 0;
 }
 
@@ -30984,20 +31018,20 @@ function getControllerStatus2(room, scoutIntel) {
     if (!controller) {
       return "missing";
     }
-    if (controller.my === true || isNonEmptyString23((_a = controller.owner) == null ? void 0 : _a.username)) {
+    if (controller.my === true || isNonEmptyString24((_a = controller.owner) == null ? void 0 : _a.username)) {
       return "owned";
     }
-    if (isNonEmptyString23((_b = controller.reservation) == null ? void 0 : _b.username)) {
+    if (isNonEmptyString24((_b = controller.reservation) == null ? void 0 : _b.username)) {
       return "reserved";
     }
     return "neutral";
   }
   if (scoutIntel == null ? void 0 : scoutIntel.controller) {
     const controller = scoutIntel.controller;
-    if (controller.my === true || isNonEmptyString23(controller.ownerUsername)) {
+    if (controller.my === true || isNonEmptyString24(controller.ownerUsername)) {
       return "owned";
     }
-    if (isNonEmptyString23(controller.reservationUsername)) {
+    if (isNonEmptyString24(controller.reservationUsername)) {
       return "reserved";
     }
     return "neutral";
@@ -31040,7 +31074,7 @@ function getAdjacentRoomNames7(roomName) {
   }
   return EXIT_DIRECTION_ORDER6.flatMap((direction) => {
     const adjacentRoom = exits[direction];
-    return isNonEmptyString23(adjacentRoom) ? [adjacentRoom] : [];
+    return isNonEmptyString24(adjacentRoom) ? [adjacentRoom] : [];
   });
 }
 function getRoomTerrain12(roomName) {
@@ -31077,7 +31111,7 @@ function getGlobalNumber13(name) {
 function isRecord25(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString23(value) {
+function isNonEmptyString24(value) {
   return typeof value === "string" && value.length > 0;
 }
 
@@ -31460,7 +31494,7 @@ function getCachedExpansionExecutorSelection(colonyMemory, colonyName) {
   const refreshedAt = colonyMemory.lastExpansionScoreTime;
   const rawSelection = colonyMemory.cachedExpansionSelection;
   const selection = normalizeExpansionExecutorSelection(rawSelection, colonyName);
-  if (!isFiniteNumber9(refreshedAt) || !isRecord27(rawSelection) || !isNonEmptyString24(rawSelection.stateKey) || !selection) {
+  if (!isFiniteNumber9(refreshedAt) || !isRecord27(rawSelection) || !isNonEmptyString25(rawSelection.stateKey) || !selection) {
     return null;
   }
   return { refreshedAt, stateKey: rawSelection.stateKey, selection };
@@ -31470,7 +31504,7 @@ function normalizeExpansionExecutorSelection(rawSelection, colonyName) {
     return null;
   }
   if (rawSelection.status === "planned") {
-    if (!isNonEmptyString24(rawSelection.targetRoom)) {
+    if (!isNonEmptyString25(rawSelection.targetRoom)) {
       return null;
     }
     return {
@@ -31675,7 +31709,7 @@ function getFindConstant8(name) {
 function isRecord27(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString24(value) {
+function isNonEmptyString25(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isFiniteNumber9(value) {
@@ -31787,7 +31821,7 @@ function reserveRoomForPlannedClaim(creep) {
   };
 }
 function isPlannedClaimAssignment(assignment) {
-  return isNonEmptyString25(assignment == null ? void 0 : assignment.targetRoom) && assignment.action === "claim";
+  return isNonEmptyString26(assignment == null ? void 0 : assignment.targetRoom) && assignment.action === "claim";
 }
 function selectClaimReservationController(creep, assignment) {
   var _a, _b, _c, _d, _e;
@@ -31816,7 +31850,7 @@ function countVisibleOwnedRooms3(colony) {
     return 0;
   }
   const colonyOwnerUsername = getControllerOwnerUsername8(
-    isNonEmptyString25(colony) ? (_b = rooms[colony]) == null ? void 0 : _b.controller : void 0
+    isNonEmptyString26(colony) ? (_b = rooms[colony]) == null ? void 0 : _b.controller : void 0
   );
   let ownedRoomCount = 0;
   for (const room of Object.values(rooms)) {
@@ -31832,10 +31866,10 @@ function canReserveControllerForColony(controller, creep) {
     return true;
   }
   const actorUsername = getActorUsername(creep);
-  return isNonEmptyString25(actorUsername) && reservationUsername === actorUsername;
+  return isNonEmptyString26(actorUsername) && reservationUsername === actorUsername;
 }
 function isControllerOwned4(controller) {
-  return controller.my === true || isNonEmptyString25(getControllerOwnerUsername8(controller));
+  return controller.my === true || isNonEmptyString26(getControllerOwnerUsername8(controller));
 }
 function getActiveClaimPartCount(creep) {
   var _a;
@@ -31852,22 +31886,22 @@ function getActiveClaimPartCount(creep) {
 function getActorUsername(creep) {
   var _a, _b, _c;
   const creepOwner = (_a = creep.owner) == null ? void 0 : _a.username;
-  if (isNonEmptyString25(creepOwner)) {
+  if (isNonEmptyString26(creepOwner)) {
     return creepOwner;
   }
   const colony = creep.memory.colony;
-  const room = isNonEmptyString25(colony) ? (_c = (_b = globalThis.Game) == null ? void 0 : _b.rooms) == null ? void 0 : _c[colony] : void 0;
+  const room = isNonEmptyString26(colony) ? (_c = (_b = globalThis.Game) == null ? void 0 : _b.rooms) == null ? void 0 : _c[colony] : void 0;
   return getControllerOwnerUsername8(room == null ? void 0 : room.controller);
 }
 function getControllerOwnerUsername8(controller) {
   var _a;
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString25(username) ? username : void 0;
+  return isNonEmptyString26(username) ? username : void 0;
 }
 function getControllerReservationUsername5(controller) {
   var _a;
   const username = (_a = controller.reservation) == null ? void 0 : _a.username;
-  return isNonEmptyString25(username) ? username : void 0;
+  return isNonEmptyString26(username) ? username : void 0;
 }
 function getClaimBodyPartConstant() {
   var _a;
@@ -31878,7 +31912,7 @@ function getGameTime29() {
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
 }
-function isNonEmptyString25(value) {
+function isNonEmptyString26(value) {
   return typeof value === "string" && value.length > 0;
 }
 
@@ -32110,11 +32144,11 @@ function getReservationControllerState(colonyName, roomName, ownerUsername) {
   if (!controller) {
     return { kind: "missing" };
   }
-  if (controller.my === true || isNonEmptyString26(controller.ownerUsername)) {
+  if (controller.my === true || isNonEmptyString27(controller.ownerUsername)) {
     return { kind: "owned", ...controller.id ? { controllerId: controller.id } : {} };
   }
-  if (isNonEmptyString26(controller.reservationUsername)) {
-    if (isNonEmptyString26(ownerUsername) && controller.reservationUsername === ownerUsername) {
+  if (isNonEmptyString27(controller.reservationUsername)) {
+    if (isNonEmptyString27(ownerUsername) && controller.reservationUsername === ownerUsername) {
       return {
         kind: "ownReserved",
         ...controller.id ? { controllerId: controller.id } : {},
@@ -32128,12 +32162,12 @@ function getReservationControllerState(colonyName, roomName, ownerUsername) {
 function getVisibleControllerReservationState(controller, ownerUsername) {
   var _a;
   const controllerId = controller.id;
-  if (controller.my === true || isNonEmptyString26((_a = controller.owner) == null ? void 0 : _a.username)) {
+  if (controller.my === true || isNonEmptyString27((_a = controller.owner) == null ? void 0 : _a.username)) {
     return { kind: "owned", controllerId };
   }
   const reservation = controller.reservation;
-  if (isNonEmptyString26(reservation == null ? void 0 : reservation.username)) {
-    if (isNonEmptyString26(ownerUsername) && reservation.username === ownerUsername) {
+  if (isNonEmptyString27(reservation == null ? void 0 : reservation.username)) {
+    if (isNonEmptyString27(ownerUsername) && reservation.username === ownerUsername) {
       return {
         kind: "ownReserved",
         controllerId,
@@ -32276,7 +32310,7 @@ function getAdjacentRoomNames8(roomName) {
   }
   return EXIT_DIRECTION_ORDER7.flatMap((direction) => {
     const exitRoom = exits[direction];
-    return isNonEmptyString26(exitRoom) ? [exitRoom] : [];
+    return isNonEmptyString27(exitRoom) ? [exitRoom] : [];
   });
 }
 function getPersistedExpansionCandidatePriorities(colony) {
@@ -32287,7 +32321,7 @@ function getPersistedExpansionCandidatePriorities(colony) {
   }
   const priorities = /* @__PURE__ */ new Map();
   for (const [index, rawCandidate] of rawCandidates.entries()) {
-    if (!isRecord28(rawCandidate) || rawCandidate.colony !== colony || !isNonEmptyString26(rawCandidate.roomName) || rawCandidate.evidenceStatus === "unavailable" || priorities.has(rawCandidate.roomName)) {
+    if (!isRecord28(rawCandidate) || rawCandidate.colony !== colony || !isNonEmptyString27(rawCandidate.roomName) || rawCandidate.evidenceStatus === "unavailable" || priorities.has(rawCandidate.roomName)) {
       continue;
     }
     priorities.set(rawCandidate.roomName, {
@@ -32305,7 +32339,7 @@ function countVisibleOwnedRooms4(colonyName, ownerUsername) {
   }
   let ownedRoomCount = 0;
   for (const room of Object.values(rooms)) {
-    if (((_b = room == null ? void 0 : room.controller) == null ? void 0 : _b.my) === true && isNonEmptyString26(room.name) && (!ownerUsername || getControllerOwnerUsername9(room.controller) === ownerUsername)) {
+    if (((_b = room == null ? void 0 : room.controller) == null ? void 0 : _b.my) === true && isNonEmptyString27(room.name) && (!ownerUsername || getControllerOwnerUsername9(room.controller) === ownerUsername)) {
       ownedRoomCount += 1;
     }
   }
@@ -32341,7 +32375,7 @@ function getFindConstant9(name) {
 function getControllerOwnerUsername9(controller) {
   var _a;
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString26(username) ? username : void 0;
+  return isNonEmptyString27(username) ? username : void 0;
 }
 function compareOptionalNumbers7(left, right) {
   return (left != null ? left : Number.POSITIVE_INFINITY) - (right != null ? right : Number.POSITIVE_INFINITY);
@@ -32377,7 +32411,7 @@ function getGameTime30() {
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" ? gameTime : 0;
 }
-function isNonEmptyString26(value) {
+function isNonEmptyString27(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isRecord28(value) {
@@ -32471,7 +32505,7 @@ function clearColonyExpansionClaimIntent(colony) {
 function selectColonyExpansionCandidate(colony) {
   const ownerUsername = getControllerOwnerUsername10(colony.room.controller);
   const claimedRooms = buildRuntimeClaimedRoomSynergyEvidence(colony.room, ownerUsername);
-  const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString27(room.mineralType));
+  const includeMineralSynergyEvidence = claimedRooms.some((room) => isNonEmptyString28(room.mineralType));
   const candidates = getAdjacentRoomNames9(colony.room.name).flatMap((roomName, order) => {
     const room = getVisibleRoom14(roomName);
     if (!room && !getScoutIntel3(colony.room.name, roomName)) {
@@ -32622,11 +32656,11 @@ function getColonyExpansionControllerState(colonyName, roomName, ownerUsername) 
       return { kind: "missing" };
     }
     const controllerId = controller2.id;
-    if (controller2.my === true || isNonEmptyString27((_a = controller2.owner) == null ? void 0 : _a.username)) {
+    if (controller2.my === true || isNonEmptyString28((_a = controller2.owner) == null ? void 0 : _a.username)) {
       return { kind: "owned", controllerId };
     }
     const reservationUsername = (_b = controller2.reservation) == null ? void 0 : _b.username;
-    if (isNonEmptyString27(reservationUsername)) {
+    if (isNonEmptyString28(reservationUsername)) {
       return reservationUsername === ownerUsername ? {
         kind: "ownReserved",
         controllerId,
@@ -32643,10 +32677,10 @@ function getColonyExpansionControllerState(colonyName, roomName, ownerUsername) 
   if (!controller) {
     return { kind: "missing" };
   }
-  if (controller.my === true || isNonEmptyString27(controller.ownerUsername)) {
+  if (controller.my === true || isNonEmptyString28(controller.ownerUsername)) {
     return { kind: "owned", ...controller.id ? { controllerId: controller.id } : {} };
   }
-  if (isNonEmptyString27(controller.reservationUsername)) {
+  if (isNonEmptyString28(controller.reservationUsername)) {
     return controller.reservationUsername === ownerUsername ? {
       kind: "ownReserved",
       ...controller.id ? { controllerId: controller.id } : {},
@@ -32713,7 +32747,7 @@ function pruneColonyExpansionClaimTargets(colony, territoryMemory, activeTarget)
       if (activeTarget && isSameTarget4(target, activeTarget)) {
         return true;
       }
-      if (isNonEmptyString27(target.roomName)) {
+      if (isNonEmptyString28(target.roomName)) {
         removedRooms.add(target.roomName);
       }
       return false;
@@ -32787,7 +32821,7 @@ function getAdjacentRoomNames9(roomName) {
   }
   return EXIT_DIRECTION_ORDER8.flatMap((direction) => {
     const exitRoom = exits[direction];
-    return isNonEmptyString27(exitRoom) ? [exitRoom] : [];
+    return isNonEmptyString28(exitRoom) ? [exitRoom] : [];
   });
 }
 function getVisibleRoom14(roomName) {
@@ -32806,7 +32840,7 @@ function countVisibleOwnedRooms5(colonyName, ownerUsername) {
   }
   let ownedRoomCount = 0;
   for (const room of Object.values(rooms)) {
-    if (((_b = room == null ? void 0 : room.controller) == null ? void 0 : _b.my) === true && isNonEmptyString27(room.name) && (!ownerUsername || getControllerOwnerUsername10(room.controller) === ownerUsername)) {
+    if (((_b = room == null ? void 0 : room.controller) == null ? void 0 : _b.my) === true && isNonEmptyString28(room.name) && (!ownerUsername || getControllerOwnerUsername10(room.controller) === ownerUsername)) {
       ownedRoomCount += 1;
     }
   }
@@ -32830,7 +32864,7 @@ function hasActivePostClaimBootstrap2(colonyName) {
 function getControllerOwnerUsername10(controller) {
   var _a;
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString27(username) ? username : void 0;
+  return isNonEmptyString28(username) ? username : void 0;
 }
 function getTerritoryMemoryRecord10() {
   var _a;
@@ -32854,7 +32888,7 @@ function getGameTime31() {
 function isRecord29(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString27(value) {
+function isNonEmptyString28(value) {
   return typeof value === "string" && value.length > 0;
 }
 
@@ -32890,7 +32924,7 @@ function runAssignedReservation(creep, assignment, gate) {
   var _a;
   const colony = creep.memory.colony;
   const gameTime = getGameTime32();
-  if (!isNonEmptyString28(colony) || !isReservationExecutionGateRunnable(gate, gameTime)) {
+  if (!isNonEmptyString29(colony) || !isReservationExecutionGateRunnable(gate, gameTime)) {
     completeReservationAssignment(creep);
     return true;
   }
@@ -32972,7 +33006,7 @@ function selectReservationAssignment(creep) {
     return null;
   }
   const colony = creep.memory.colony;
-  if (!isNonEmptyString28(colony) || !hasReservationEnergyBudget(colony)) {
+  if (!isNonEmptyString29(colony) || !hasReservationEnergyBudget(colony)) {
     return null;
   }
   const territoryMemory = getTerritoryMemoryRecord11();
@@ -33087,7 +33121,7 @@ function getReservationRenewalPriority(selection) {
   return selection.renewalTicksToEnd !== void 0 ? 0 : 1;
 }
 function getReservationExecutionGate(colony, assignment) {
-  if (!isNonEmptyString28(colony)) {
+  if (!isNonEmptyString29(colony)) {
     return null;
   }
   const territoryMemory = getTerritoryMemoryRecord11();
@@ -33225,7 +33259,7 @@ function normalizeTerritoryReservation2(rawReservation) {
   if (!isRecord30(rawReservation)) {
     return null;
   }
-  if (!isNonEmptyString28(rawReservation.colony) || !isNonEmptyString28(rawReservation.roomName) || !isFiniteNumber10(rawReservation.ticksToEnd) || !isFiniteNumber10(rawReservation.updatedAt)) {
+  if (!isNonEmptyString29(rawReservation.colony) || !isNonEmptyString29(rawReservation.roomName) || !isFiniteNumber10(rawReservation.ticksToEnd) || !isFiniteNumber10(rawReservation.updatedAt)) {
     return null;
   }
   return {
@@ -33359,11 +33393,11 @@ function isMatchingExpansionPlannerReservationIntent(intent, colony, targetRoom,
 }
 function hasMatchingExpansionPlannerReservationTarget(territoryMemory, colony, targetRoom, controllerId) {
   return Array.isArray(territoryMemory.targets) ? territoryMemory.targets.some(
-    (target) => isRecord30(target) && target.colony === colony && target.roomName === targetRoom && target.action === "reserve" && target.createdBy === EXPANSION_PLANNER_TARGET_CREATOR && target.enabled !== false && (!controllerId || !isNonEmptyString28(target.controllerId) || target.controllerId === controllerId)
+    (target) => isRecord30(target) && target.colony === colony && target.roomName === targetRoom && target.action === "reserve" && target.createdBy === EXPANSION_PLANNER_TARGET_CREATOR && target.enabled !== false && (!controllerId || !isNonEmptyString29(target.controllerId) || target.controllerId === controllerId)
   ) : false;
 }
 function isReservationExecutionAssignment(assignment) {
-  return isNonEmptyString28(assignment == null ? void 0 : assignment.targetRoom) && assignment.action === "reserve";
+  return isNonEmptyString29(assignment == null ? void 0 : assignment.targetRoom) && assignment.action === "reserve";
 }
 function isTerritoryIntentSuspensionActive3(intent, gameTime) {
   if (!intent.suspended) {
@@ -33372,19 +33406,19 @@ function isTerritoryIntentSuspensionActive3(intent, gameTime) {
   return gameTime - intent.suspended.updatedAt <= TERRITORY_HOSTILE_INTENT_SUSPENSION_TICKS;
 }
 function isControllerOwned5(controller) {
-  return controller.my === true || isNonEmptyString28(getControllerOwnerUsername11(controller));
+  return controller.my === true || isNonEmptyString29(getControllerOwnerUsername11(controller));
 }
 function isControllerOwnedByActor(controller, actorUsername) {
-  return controller.my === true || isNonEmptyString28(actorUsername) && getControllerOwnerUsername11(controller) === actorUsername;
+  return controller.my === true || isNonEmptyString29(actorUsername) && getControllerOwnerUsername11(controller) === actorUsername;
 }
 function isForeignReservedController4(controller, actorUsername) {
   var _a;
   const reservationUsername = (_a = controller.reservation) == null ? void 0 : _a.username;
-  return isNonEmptyString28(reservationUsername) && reservationUsername !== actorUsername;
+  return isNonEmptyString29(reservationUsername) && reservationUsername !== actorUsername;
 }
 function getOwnReservationTicksToEnd2(controller, actorUsername) {
   const reservation = controller.reservation;
-  if (!isNonEmptyString28(actorUsername) || !isNonEmptyString28(reservation == null ? void 0 : reservation.username) || reservation.username !== actorUsername || !isFiniteNumber10(reservation.ticksToEnd)) {
+  if (!isNonEmptyString29(actorUsername) || !isNonEmptyString29(reservation == null ? void 0 : reservation.username) || reservation.username !== actorUsername || !isFiniteNumber10(reservation.ticksToEnd)) {
     return null;
   }
   return Math.floor(Math.max(0, reservation.ticksToEnd));
@@ -33392,7 +33426,7 @@ function getOwnReservationTicksToEnd2(controller, actorUsername) {
 function getReservationActorUsername(creep, colony) {
   var _a, _b, _c, _d;
   const creepOwner = (_a = creep.owner) == null ? void 0 : _a.username;
-  if (isNonEmptyString28(creepOwner)) {
+  if (isNonEmptyString29(creepOwner)) {
     return creepOwner;
   }
   return getControllerOwnerUsername11((_d = (_c = (_b = globalThis.Game) == null ? void 0 : _b.rooms) == null ? void 0 : _c[colony]) == null ? void 0 : _d.controller);
@@ -33400,7 +33434,7 @@ function getReservationActorUsername(creep, colony) {
 function getControllerOwnerUsername11(controller) {
   var _a;
   const username = (_a = controller == null ? void 0 : controller.owner) == null ? void 0 : _a.username;
-  return isNonEmptyString28(username) ? username : void 0;
+  return isNonEmptyString29(username) ? username : void 0;
 }
 function getActiveClaimPartCount2(creep) {
   var _a;
@@ -33474,7 +33508,7 @@ function isPositiveFiniteNumber4(value) {
 function isFiniteNumber10(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
-function isNonEmptyString28(value) {
+function isNonEmptyString29(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isRecord30(value) {
@@ -35862,7 +35896,7 @@ function normalizeHistoricalReplay(rawReplay) {
   if (!isRecord34(rawReplay)) {
     return null;
   }
-  if (!isNonEmptyString29(rawReplay.replayId) || !isNonEmptyString29(rawReplay.room) || !isFiniteNumber11(rawReplay.startTick) || !isFiniteNumber11(rawReplay.endTick) || !isFiniteNumber11(rawReplay.finalScore) || !isRecord34(rawReplay.kpiHistory)) {
+  if (!isNonEmptyString30(rawReplay.replayId) || !isNonEmptyString30(rawReplay.room) || !isFiniteNumber11(rawReplay.startTick) || !isFiniteNumber11(rawReplay.endTick) || !isFiniteNumber11(rawReplay.finalScore) || !isRecord34(rawReplay.kpiHistory)) {
     return null;
   }
   const kpiHistory = Object.entries(rawReplay.kpiHistory).reduce(
@@ -35890,7 +35924,7 @@ function formatCorrelation(correlation) {
 function isRecord34(value) {
   return typeof value === "object" && value !== null;
 }
-function isNonEmptyString29(value) {
+function isNonEmptyString30(value) {
   return typeof value === "string" && value.length > 0;
 }
 function isFiniteNumber11(value) {
