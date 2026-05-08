@@ -1029,7 +1029,7 @@ function hasRoomLimitPrecondition(candidate: ExpansionCandidateScore): boolean {
   );
 }
 
-function persistExpansionCandidateScores(
+export function persistExpansionCandidateScores(
   colony: string,
   report: ExpansionCandidateReport,
   gameTime: number

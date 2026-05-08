@@ -1382,7 +1382,8 @@ describe('next expansion scoring', () => {
     expect(planTerritoryIntent(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 3, 211)).toEqual({
       colony: 'W1N1',
       targetRoom: 'W2N1',
-      action: 'reserve'
+      action: 'reserve',
+      controllerId: 'W2N1-controller'
     });
   });
 

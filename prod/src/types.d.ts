@@ -403,6 +403,19 @@ declare global {
     | 'sourcesMissing';
   type TerritoryExpansionCandidateEvidenceStatus = 'sufficient' | 'insufficient-evidence' | 'unavailable';
   type TerritoryExpansionCandidateRecommendedAction = 'claim' | 'reserve' | 'scout';
+  type TerritoryExpansionPipelineStage = 'scouting' | 'reserving' | 'claiming' | 'bootstrapping';
+  type TerritoryExpansionPipelineStatus = 'active' | 'aborted' | 'completed';
+  type TerritoryExpansionAbortReason =
+    | 'homeUnstable'
+    | 'existingExpansion'
+    | 'scoreBelowThreshold'
+    | 'scoutTimedOut'
+    | 'controllerMissing'
+    | 'controllerOwned'
+    | 'controllerReserved'
+    | 'reservationLost'
+    | 'targetHostile'
+    | 'sourcesMissing';
   type TerritoryPostClaimBootstrapStatus =
     | 'detected'
     | 'spawnSitePending'
@@ -471,6 +484,8 @@ declare global {
     scoutAttempts?: Record<string, TerritoryScoutAttemptMemory>;
     scoutIntel?: Record<string, TerritoryScoutIntelMemory>;
     expansionCandidates?: TerritoryExpansionCandidateMemory[];
+    expansionPipelines?: Record<string, TerritoryExpansionPipelineMemory>;
+    expansionReevaluations?: Record<string, TerritoryExpansionReevaluationMemory>;
     routeDistancesUpdatedAt?: Record<string, number>;
     routeDistances?: Record<string, number | null>;
   }
@@ -628,6 +643,31 @@ declare global {
     risks?: string[];
     preconditions?: string[];
     rationale?: string[];
+  }
+
+  interface TerritoryExpansionPipelineMemory {
+    colony: string;
+    targetRoom: string;
+    status: TerritoryExpansionPipelineStatus;
+    stage: TerritoryExpansionPipelineStage;
+    score: number;
+    threshold: number;
+    startedAt: number;
+    updatedAt: number;
+    controllerId?: Id<StructureController>;
+    reservationConfirmedAt?: number;
+    claimedAt?: number;
+    completedAt?: number;
+    abortReason?: TerritoryExpansionAbortReason;
+    abortedAt?: number;
+  }
+
+  interface TerritoryExpansionReevaluationMemory {
+    colony: string;
+    roomName: string;
+    reason: TerritoryExpansionAbortReason;
+    updatedAt: number;
+    score?: number;
   }
 
   interface TerritoryFollowUpMemory {
