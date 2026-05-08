@@ -24117,6 +24117,96 @@ function normalizeEnergyAmount3(value) {
   return (_a = normalizeOptionalEnergyAmount(value)) != null ? _a : 0;
 }
 
+// src/economy/energyReservation.ts
+function getEnergyReservationScore(room, options = {}) {
+  var _a, _b;
+  const roomName = getRoomName7(room);
+  const spawnEnergy = normalizeEnergyAmount4((_a = options.energyAvailable) != null ? _a : room.energyAvailable);
+  const energyCapacityAvailable = normalizeEnergyAmount4(
+    (_b = options.energyCapacityAvailable) != null ? _b : room.energyCapacityAvailable
+  );
+  const storageEnergy = getRoomStorageEnergy(room);
+  const terminalEnergy = getRoomTerminalEnergy(room);
+  const pendingHaulerDeliveryEnergy = getPendingHaulerDeliveryEnergy(roomName);
+  const confirmedReserveEnergy = getConfirmedStorageReserveEnergy(spawnEnergy, storageEnergy, energyCapacityAvailable) + terminalEnergy + pendingHaulerDeliveryEnergy;
+  const uncappedReservationScore = spawnEnergy + confirmedReserveEnergy;
+  const reservationScore = energyCapacityAvailable > 0 ? Math.min(energyCapacityAvailable, uncappedReservationScore) : uncappedReservationScore;
+  return {
+    roomName,
+    spawnEnergy,
+    storageEnergy,
+    terminalEnergy,
+    pendingHaulerDeliveryEnergy,
+    confirmedReserveEnergy,
+    energyCapacityAvailable,
+    reservationScore
+  };
+}
+function getRoomStorageEnergy(room) {
+  return getStoredEnergy17(room.storage);
+}
+function getRoomTerminalEnergy(room) {
+  return getStoredEnergy17(room.terminal);
+}
+function getConfirmedStorageReserveEnergy(spawnEnergy, storageEnergy, energyCapacityAvailable) {
+  if (storageEnergy <= 0) {
+    return 0;
+  }
+  const refillDeficit = Math.max(0, energyCapacityAvailable - spawnEnergy);
+  return refillDeficit <= 0 || storageEnergy >= refillDeficit ? storageEnergy : 0;
+}
+function getPendingHaulerDeliveryEnergy(roomName) {
+  var _a;
+  const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
+  if (!creeps) {
+    return 0;
+  }
+  return Object.values(creeps).reduce((total, creep) => {
+    if (!isHaulerDeliveringEnergyToRoom(creep, roomName)) {
+      return total;
+    }
+    return total + getStoredEnergy17(creep);
+  }, 0);
+}
+function isHaulerDeliveringEnergyToRoom(creep, roomName) {
+  var _a, _b, _c, _d, _e;
+  if (((_a = creep.memory) == null ? void 0 : _a.role) !== "hauler" || isCollectingEnergyTask(creep.memory.task)) {
+    return false;
+  }
+  if (((_b = creep.memory.energyHauler) == null ? void 0 : _b.roomName) === roomName) {
+    return ((_c = creep.room) == null ? void 0 : _c.name) === void 0 || creep.room.name === roomName || ((_d = creep.memory.task) == null ? void 0 : _d.type) === "transfer";
+  }
+  return ((_e = creep.memory.remoteHauler) == null ? void 0 : _e.homeRoom) === roomName;
+}
+function isCollectingEnergyTask(task) {
+  return (task == null ? void 0 : task.type) === "harvest" || (task == null ? void 0 : task.type) === "pickup" || (task == null ? void 0 : task.type) === "withdraw";
+}
+function getStoredEnergy17(target) {
+  var _a;
+  const store = target == null ? void 0 : target.store;
+  const energyResource = getEnergyResource15();
+  const usedCapacity = (_a = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a.call(store, energyResource);
+  if (typeof usedCapacity === "number" && Number.isFinite(usedCapacity)) {
+    return Math.max(0, Math.floor(usedCapacity));
+  }
+  const storedEnergy = store == null ? void 0 : store[energyResource];
+  if (typeof storedEnergy === "number" && Number.isFinite(storedEnergy)) {
+    return Math.max(0, Math.floor(storedEnergy));
+  }
+  const legacyEnergy = target == null ? void 0 : target.energy;
+  return typeof legacyEnergy === "number" && Number.isFinite(legacyEnergy) ? Math.max(0, Math.floor(legacyEnergy)) : 0;
+}
+function getEnergyResource15() {
+  var _a;
+  return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
+}
+function getRoomName7(room) {
+  return typeof room.name === "string" ? room.name : "";
+}
+function normalizeEnergyAmount4(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
 // src/territory/multiRoomUpgrader.ts
 var MULTI_ROOM_UPGRADER_DEFAULT_STORAGE_THRESHOLD_RATIO = 0.8;
 var MULTI_ROOM_UPGRADER_DEFAULT_PER_ROOM_CAP = 1;
@@ -24264,7 +24354,7 @@ function hasPrimaryRoomStorageSurplus(colony, storageEnergyThresholdRatio) {
   if (!storage) {
     return false;
   }
-  const storedEnergy = getStoredEnergy17(storage);
+  const storedEnergy = getStoredEnergy18(storage);
   const storageCapacity = getStorageEnergyCapacity(storage);
   return storageCapacity > 0 && storedEnergy > storageCapacity * storageEnergyThresholdRatio;
 }
@@ -24415,7 +24505,7 @@ function getControllerLevel(controller) {
 function getControllerTicksToDowngradePlanField(controller) {
   return typeof controller.ticksToDowngrade === "number" && Number.isFinite(controller.ticksToDowngrade) ? { controllerTicksToDowngrade: Math.max(0, Math.floor(controller.ticksToDowngrade)) } : {};
 }
-function getStoredEnergy17(storage) {
+function getStoredEnergy18(storage) {
   const storedEnergy = storage.store.getUsedCapacity(RESOURCE_ENERGY);
   return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
 }
@@ -25720,13 +25810,14 @@ function buildWorkerBodyForDemandBudget(colony, roleCounts, energyBudget) {
 }
 function selectDynamicBodyForColony(colony, role, demand, buildBody) {
   var _a;
+  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony);
   const selection = selectDynamicCreepBody({
     room: colony.room,
     spawns: colony.spawns,
-    energyAvailable: colony.energyAvailable,
+    energyAvailable: spawnEnergyBudget != null ? spawnEnergyBudget : colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
-    spawnEnergyBudget: colony.spawnEnergyBudget,
-    spawnBufferPolicy: getSpawnBufferBudgetPolicy(colony),
+    spawnEnergyBudget,
+    spawnBufferPolicy: getSpawnBufferBudgetPolicy(spawnEnergyBudget),
     candidates: [
       {
         role,
@@ -25741,12 +25832,13 @@ function selectDynamicBodyForColony(colony, role, demand, buildBody) {
 function selectUpgraderBody(colony) {
   var _a, _b;
   const controllerLevel = (_a = colony.room.controller) == null ? void 0 : _a.level;
+  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony);
   const selection = selectDynamicCreepBody({
     room: colony.room,
     spawns: colony.spawns,
-    energyAvailable: colony.energyAvailable,
+    energyAvailable: spawnEnergyBudget != null ? spawnEnergyBudget : colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
-    spawnEnergyBudget: colony.spawnEnergyBudget,
+    spawnEnergyBudget,
     spawnBufferPolicy: "respect",
     candidates: [
       {
@@ -25759,8 +25851,20 @@ function selectUpgraderBody(colony) {
   });
   return (_b = selection == null ? void 0 : selection.body) != null ? _b : [];
 }
-function getSpawnBufferBudgetPolicy(colony) {
-  return colony.spawnEnergyBudget === void 0 ? "respect" : "alreadyReserved";
+function getSpawnPlanningBodyEnergyBudget(colony) {
+  const explicitBudget = normalizeOptionalNonNegativeInteger2(colony.spawnEnergyBudget);
+  const currentEnergy = normalizeNonNegativeInteger9(colony.energyAvailable);
+  const reservationScore = getEnergyReservationScore(colony.room, {
+    energyAvailable: currentEnergy,
+    energyCapacityAvailable: colony.energyCapacityAvailable
+  }).reservationScore;
+  if (explicitBudget !== void 0) {
+    return explicitBudget === currentEnergy && reservationScore > explicitBudget ? reservationScore : explicitBudget;
+  }
+  return reservationScore > currentEnergy ? reservationScore : void 0;
+}
+function getSpawnBufferBudgetPolicy(spawnEnergyBudget) {
+  return spawnEnergyBudget === void 0 ? "respect" : "alreadyReserved";
 }
 function getWorkerDynamicBodyDemand(colony, roleCounts) {
   if (roleCounts.worker === 0) {
@@ -25773,7 +25877,7 @@ function getWorkerDynamicBodyDemand(colony, roleCounts) {
 }
 function getSpawnEnergyBudget(colony) {
   var _a;
-  return normalizeNonNegativeInteger9((_a = colony.spawnEnergyBudget) != null ? _a : colony.energyAvailable);
+  return (_a = getSpawnPlanningBodyEnergyBudget(colony)) != null ? _a : normalizeNonNegativeInteger9(colony.energyAvailable);
 }
 function generateHarvesterBody(availableEnergy, sourceDistance) {
   const energyBudget = normalizeNonNegativeInteger9(availableEnergy);
@@ -25849,6 +25953,9 @@ function getApproximateRange(left, right) {
 }
 function normalizeNonNegativeInteger9(value) {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+function normalizeOptionalNonNegativeInteger2(value) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : void 0;
 }
 function canAffordBody(body, energyAvailable) {
   return body.length > 0 && getBodyCost(body) <= energyAvailable;
@@ -26987,21 +27094,21 @@ function hasDroppedEnergyDecayingAtSource(room, source) {
 function isDroppedEnergy2(resource) {
   const amount = resource.amount;
   const ticksToDecay = resource.ticksToDecay;
-  return resource.resourceType === getEnergyResource15() && typeof amount === "number" && Number.isFinite(amount) && amount > 0 && (typeof ticksToDecay !== "number" || ticksToDecay > 0);
+  return resource.resourceType === getEnergyResource16() && typeof amount === "number" && Number.isFinite(amount) && amount > 0 && (typeof ticksToDecay !== "number" || ticksToDecay > 0);
 }
 function getUsedEnergy3(creep) {
   var _a;
   const store = creep.store;
-  const used = (_a = store.getUsedCapacity) == null ? void 0 : _a.call(store, getEnergyResource15());
+  const used = (_a = store.getUsedCapacity) == null ? void 0 : _a.call(store, getEnergyResource16());
   return typeof used === "number" && Number.isFinite(used) ? Math.max(0, used) : 0;
 }
 function getFreeEnergyCapacity12(creep) {
   var _a;
   const store = creep.store;
-  const free = (_a = store.getFreeCapacity) == null ? void 0 : _a.call(store, getEnergyResource15());
+  const free = (_a = store.getFreeCapacity) == null ? void 0 : _a.call(store, getEnergyResource16());
   return typeof free === "number" && Number.isFinite(free) ? Math.max(0, free) : null;
 }
-function getEnergyResource15() {
+function getEnergyResource16() {
   var _a;
   return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
@@ -28111,7 +28218,7 @@ function getRoomEventLog(room) {
     return void 0;
   }
   try {
-    const eventLog = getEventLog.call(room, getEnergyResource16());
+    const eventLog = getEventLog.call(room, getEnergyResource17());
     return Array.isArray(eventLog) ? eventLog : void 0;
   } catch {
     return void 0;
@@ -28124,13 +28231,13 @@ function getEnergyInStore(object) {
   if (!isRecord21(object) || !isRecord21(object.store)) {
     return 0;
   }
-  const storedEnergy = object.store[getEnergyResource16()];
+  const storedEnergy = object.store[getEnergyResource17()];
   if (typeof storedEnergy === "number") {
     return storedEnergy;
   }
   const getUsedCapacity = object.store.getUsedCapacity;
   if (typeof getUsedCapacity === "function") {
-    const usedCapacity = getUsedCapacity.call(object.store, getEnergyResource16());
+    const usedCapacity = getUsedCapacity.call(object.store, getEnergyResource17());
     return typeof usedCapacity === "number" ? usedCapacity : 0;
   }
   return 0;
@@ -28141,12 +28248,12 @@ function getEnergyCapacityInStore(object) {
   }
   const getCapacity = object.store.getCapacity;
   if (typeof getCapacity === "function") {
-    const capacity2 = getCapacity.call(object.store, getEnergyResource16());
+    const capacity2 = getCapacity.call(object.store, getEnergyResource17());
     return typeof capacity2 === "number" && Number.isFinite(capacity2) ? Math.max(0, capacity2) : 0;
   }
   const getFreeCapacity = object.store.getFreeCapacity;
   if (typeof getFreeCapacity === "function") {
-    const freeCapacity = getFreeCapacity.call(object.store, getEnergyResource16());
+    const freeCapacity = getFreeCapacity.call(object.store, getEnergyResource17());
     if (typeof freeCapacity === "number" && Number.isFinite(freeCapacity)) {
       return Math.max(0, getEnergyInStore(object) + freeCapacity);
     }
@@ -28155,7 +28262,7 @@ function getEnergyCapacityInStore(object) {
   return typeof capacity === "number" && Number.isFinite(capacity) ? Math.max(0, capacity) : 0;
 }
 function sumDroppedEnergy2(droppedResources) {
-  const energyResource = getEnergyResource16();
+  const energyResource = getEnergyResource17();
   return droppedResources.reduce((total, droppedResource) => {
     if (!isRecord21(droppedResource) || droppedResource.resourceType !== energyResource) {
       return total;
@@ -28164,7 +28271,7 @@ function sumDroppedEnergy2(droppedResources) {
   }, 0);
 }
 function isEnergyEventData(data) {
-  return data.resourceType === void 0 || data.resourceType === getEnergyResource16();
+  return data.resourceType === void 0 || data.resourceType === getEnergyResource17();
 }
 function getNumericEventData(data, key) {
   const value = data[key];
@@ -28182,7 +28289,7 @@ function matchesStructureType22(value, globalName, fallback) {
 function getFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
-function getEnergyResource16() {
+function getEnergyResource17() {
   const value = globalThis.RESOURCE_ENERGY;
   return typeof value === "string" ? value : "energy";
 }
@@ -28216,7 +28323,7 @@ var DEFAULT_TERRAIN_WALL_MASK12 = 1;
 function recordSourceWorkloads(room, creeps, tick) {
   var _a, _b, _c;
   const memory = globalThis.Memory;
-  const roomName = getRoomName7(room);
+  const roomName = getRoomName8(room);
   if (!memory || !roomName) {
     return;
   }
@@ -28234,7 +28341,7 @@ function recordSourceWorkloads(room, creeps, tick) {
   };
 }
 function buildSourceWorkloadRecords(room, sources = findSources4(room), creeps = getGameCreeps3()) {
-  const roomName = getRoomName7(room);
+  const roomName = getRoomName8(room);
   const assignmentLoads = getSourceAssignmentLoads(roomName, sources, creeps);
   return sources.filter((source) => hasSourcePositionInRoom(source, room)).sort((left, right) => String(left.id).localeCompare(String(right.id))).map((source) => {
     var _a;
@@ -28377,7 +28484,7 @@ function getGameCreeps3() {
   const creeps = (_a = globalThis.Game) == null ? void 0 : _a.creeps;
   return creeps ? Object.values(creeps) : [];
 }
-function getRoomName7(room) {
+function getRoomName8(room) {
   return typeof room.name === "string" && room.name.length > 0 ? room.name : null;
 }
 
@@ -28389,7 +28496,7 @@ function manageStorage(room) {
     return { assignedTasks: 0, linkTransfers: [] };
   }
   const linkTransfers = transferStorageLinkEnergy(room);
-  const storageEnergy = getStoredEnergy18(storage);
+  const storageEnergy = getStoredEnergy19(storage);
   if (storageEnergy <= 0) {
     return { assignedTasks: 0, linkTransfers };
   }
@@ -28410,7 +28517,7 @@ function transferStorageLinkEnergy(room) {
   if (getLinkCooldown2(storageLink) > 0) {
     return [];
   }
-  const storedEnergy = getStoredEnergy18(storageLink);
+  const storedEnergy = getStoredEnergy19(storageLink);
   const destinationFreeCapacity = getFreeEnergyCapacity13(controllerLink);
   const amount = Math.min(storedEnergy, destinationFreeCapacity);
   if (amount <= 0) {
@@ -28455,7 +28562,7 @@ function findSpawnExtensionRefillTargets(room) {
 }
 function findTowerRefillTargets(room) {
   return findOwnedStructures7(room).filter(
-    (structure) => matchesStructureType23(structure.structureType, "STRUCTURE_TOWER", "tower") && getStoredEnergy18(structure) < TOWER_REFILL_THRESHOLD && getFreeEnergyCapacity13(structure) > 0
+    (structure) => matchesStructureType23(structure.structureType, "STRUCTURE_TOWER", "tower") && getStoredEnergy19(structure) < TOWER_REFILL_THRESHOLD && getFreeEnergyCapacity13(structure) > 0
   ).map((target) => ({
     freeCapacity: getFreeEnergyCapacity13(target),
     id: getObjectId12(target),
@@ -28673,25 +28780,25 @@ function findMyCreeps2(room) {
   const result = room.find(FIND_MY_CREEPS);
   return Array.isArray(result) ? result : [];
 }
-function getStoredEnergy18(target) {
+function getStoredEnergy19(target) {
   var _a;
   const store = target == null ? void 0 : target.store;
-  const storedEnergy = (_a = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a.call(store, getEnergyResource17());
+  const storedEnergy = (_a = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a.call(store, getEnergyResource18());
   return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
 }
 function getFreeEnergyCapacity13(target) {
   var _a;
   const store = target == null ? void 0 : target.store;
-  const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, getEnergyResource17());
+  const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, getEnergyResource18());
   return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
 }
 function getCarriedEnergy7(creep) {
-  return getStoredEnergy18(creep);
+  return getStoredEnergy19(creep);
 }
 function getLinkCooldown2(link) {
   return typeof link.cooldown === "number" && Number.isFinite(link.cooldown) ? link.cooldown : 0;
 }
-function getEnergyResource17() {
+function getEnergyResource18() {
   var _a;
   return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
@@ -28722,7 +28829,7 @@ function manageTerminalEnergy() {
   const gameTime = getGameTime23();
   for (const plan of plans) {
     const result = plan.sourceTerminal.send(
-      getEnergyResource18(),
+      getEnergyResource19(),
       plan.amount,
       plan.targetRoom,
       plan.description
@@ -28832,7 +28939,7 @@ function buildProjectedTerminalRoomState(room) {
     return null;
   }
   const state = getRoomStoredEnergyState(room);
-  const terminalEnergy = getStoredEnergy19(terminal);
+  const terminalEnergy = getStoredEnergy20(terminal);
   const terminalFreeCapacity = getFreeEnergyCapacity14(terminal);
   const terminalTargetEnergy = getTerminalEnergyTarget(terminal);
   const sourceBudget = Math.min(
@@ -28914,7 +29021,7 @@ function recordTerminalLogisticsState(results, gameTime) {
         {
           roomName: room.name,
           terminalId: getObjectId13(terminal),
-          energy: getStoredEnergy19(terminal),
+          energy: getStoredEnergy20(terminal),
           freeCapacity: getFreeEnergyCapacity14(terminal),
           cooldown,
           ...(result == null ? void 0 : result.result) === OK_CODE10 ? {
@@ -28954,10 +29061,10 @@ function getOwnedRooms2() {
     return ((_a2 = room == null ? void 0 : room.controller) == null ? void 0 : _a2.my) === true;
   });
 }
-function getStoredEnergy19(target) {
+function getStoredEnergy20(target) {
   var _a;
   const store = getStore2(target);
-  const resource = getEnergyResource18();
+  const resource = getEnergyResource19();
   const usedCapacity = (_a = store == null ? void 0 : store.getUsedCapacity) == null ? void 0 : _a.call(store, resource);
   if (typeof usedCapacity === "number" && Number.isFinite(usedCapacity)) {
     return Math.max(0, usedCapacity);
@@ -28968,18 +29075,18 @@ function getStoredEnergy19(target) {
 function getFreeEnergyCapacity14(target) {
   var _a;
   const store = getStore2(target);
-  const resource = getEnergyResource18();
+  const resource = getEnergyResource19();
   const freeCapacity = (_a = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _a.call(store, resource);
   if (typeof freeCapacity === "number" && Number.isFinite(freeCapacity)) {
     return Math.max(0, freeCapacity);
   }
   const capacity = getEnergyCapacity4(target);
-  return capacity > 0 ? Math.max(0, capacity - getStoredEnergy19(target)) : 0;
+  return capacity > 0 ? Math.max(0, capacity - getStoredEnergy20(target)) : 0;
 }
 function getEnergyCapacity4(target) {
   var _a, _b, _c;
   const store = getStore2(target);
-  const resource = getEnergyResource18();
+  const resource = getEnergyResource19();
   const capacity = (_a = store == null ? void 0 : store.getCapacity) == null ? void 0 : _a.call(store, resource);
   if (typeof capacity === "number" && Number.isFinite(capacity)) {
     return Math.max(0, capacity);
@@ -28989,7 +29096,7 @@ function getEnergyCapacity4(target) {
     return Math.max(0, genericCapacity);
   }
   const freeCapacity = (_c = store == null ? void 0 : store.getFreeCapacity) == null ? void 0 : _c.call(store, resource);
-  return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? getStoredEnergy19(target) + Math.max(0, freeCapacity) : 0;
+  return typeof freeCapacity === "number" && Number.isFinite(freeCapacity) ? getStoredEnergy20(target) + Math.max(0, freeCapacity) : 0;
 }
 function getStore2(target) {
   return target == null ? void 0 : target.store;
@@ -29026,7 +29133,7 @@ function getGameTime23() {
   const gameTime = (_a = globalThis.Game) == null ? void 0 : _a.time;
   return typeof gameTime === "number" && Number.isFinite(gameTime) ? gameTime : 0;
 }
-function getEnergyResource18() {
+function getEnergyResource19() {
   var _a;
   return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
@@ -33895,7 +34002,7 @@ function buildStrategyRecommendationRoomState(colony, creeps) {
     workerCount: colonyCreeps.filter((creep) => creep.memory.role === "worker").length,
     energyAvailable: colony.energyAvailable,
     energyCapacity: colony.energyCapacityAvailable,
-    storedEnergy: getStoredEnergy20(room),
+    storedEnergy: getStoredEnergy21(room),
     sourceCount: sources.length,
     hostileCreepCount: hostileCreeps.length,
     hostileStructureCount: hostileStructures.length,
@@ -34056,7 +34163,7 @@ function estimateRepairBacklogHits(structures) {
     return total + (hitsMax - hits);
   }, 0);
 }
-function getStoredEnergy20(room) {
+function getStoredEnergy21(room) {
   const storage = room.storage;
   return getEnergyInStore2(storage);
 }

@@ -175,6 +175,16 @@ describe('planSpawn', () => {
     } as unknown as StructureStorage;
   }
 
+  function makeTerminal(energy: number, capacity: number): StructureTerminal {
+    return {
+      structureType: 'terminal',
+      store: {
+        getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
+        getCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? capacity : 0))
+      }
+    } as unknown as StructureTerminal;
+  }
+
   function makeRemoteHaulerStorageSink(id: string): AnyOwnedStructure {
     return {
       id,
@@ -345,6 +355,22 @@ describe('planSpawn', () => {
       },
       ticksToLive: 1_000
     } as Creep;
+  }
+
+  function makeLoadedLocalEnergyHauler(roomName: string, energy: number): Creep {
+    return {
+      ...makeLocalEnergyHauler(roomName),
+      room: { name: roomName } as Room,
+      store: {
+        getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0))
+      },
+      memory: {
+        role: 'hauler',
+        colony: roomName,
+        energyHauler: { roomName },
+        task: { type: 'transfer', targetId: 'spawn1' as Id<AnyStoreStructure> }
+      }
+    } as unknown as Creep;
   }
 
   function makeActiveDefender(roomName = 'W1N1'): Creep {
@@ -684,6 +710,92 @@ describe('planSpawn', () => {
       body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
       name: 'worker-W1N20-153',
       memory: { role: 'worker', colony: 'W1N20' }
+    });
+  });
+
+  it('downgrades worker body size when energy is genuinely scarce', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N33',
+      energyAvailable: 600,
+      energyCapacityAvailable: 1300,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 166)).toEqual({
+      spawn,
+      body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
+      name: 'worker-W1N33-166',
+      memory: { role: 'worker', colony: 'W1N33' }
+    });
+  });
+
+  it('upgrades worker body size when terminal reserves confirm the room can refill', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N34',
+      energyAvailable: 600,
+      energyCapacityAvailable: 1300,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (colony.room as Room & { terminal: StructureTerminal }).terminal = makeTerminal(700, 100_000);
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 167)).toEqual({
+      spawn,
+      body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 3), 'work', 'move', 'carry', 'move'],
+      name: 'worker-W1N34-167',
+      memory: { role: 'worker', colony: 'W1N34' }
+    });
+  });
+
+  it('upgrades worker body size when storage reserves can cover the refill deficit', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N37',
+      energyAvailable: 600,
+      energyCapacityAvailable: 1300,
+      storageEnergy: 700,
+      storageCapacity: 1_000,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 170)).toEqual({
+      spawn,
+      body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 3), 'work', 'move', 'carry', 'move'],
+      name: 'worker-W1N37-170',
+      memory: { role: 'worker', colony: 'W1N37' }
+    });
+  });
+
+  it('counts loaded local energy haulers as pending spawn-energy deliveries', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N35',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      creeps: { Hauler1: makeLoadedLocalEnergyHauler('W1N35', 500) }
+    };
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 168)).toEqual({
+      spawn,
+      body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 2), 'carry', 'move'],
+      name: 'worker-W1N35-168',
+      memory: { role: 'worker', colony: 'W1N35' }
+    });
+  });
+
+  it('keeps the current-energy fallback when no reservation evidence exists', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N36',
+      energyAvailable: 300,
+      energyCapacityAvailable: 800,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 169)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'worker-W1N36-169',
+      memory: { role: 'worker', colony: 'W1N36' }
     });
   });
 
