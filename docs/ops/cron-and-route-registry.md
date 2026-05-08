@@ -1,13 +1,14 @@
 # Screeps Cron and Route Registry
 
-Last updated: 2026-05-05
+Last updated: 2026-05-09
 Tracking issue: https://github.com/lanyusea/screeps/issues/620
 
 This registry keeps the minimum cron/channel contract in one place. Cron prompts may embed short self-contained summaries, but their target/cadence/route expectations must match this file.
 
 ## Current target
 
-- Official target: `main / shardX / E26S49`
+- Official bot deployment and gameplay target: `main / shardX / E26S49`.
+- Runtime monitoring and alerting jobs (`befcbb7b2d60`, `1df5ef0c3835`) auto-discover all owned rooms via `/api/user/overview` and are not constrained to the single-room target.
 - Old room references (`E48S28`, `E48S29`) are historical/superseded unless explicitly retargeted by the owner.
 
 ## Discord routes
@@ -47,7 +48,7 @@ When using raw IDs and named channels together, this registry is the comparison 
 
 ## Cron prompt drift rules
 
-- Every cron prompt that reasons about room state must use `shardX/E26S49` as current target.
+- Every cron prompt that reasons about room state for gameplay/bot-deployment purposes must use `shardX/E26S49` as current target. Runtime monitoring/alerting jobs that auto-discover rooms via API are exempt from single-room targeting.
 - Gameplay Evolution cadence is 8h, not 12h.
 - The P0 monitor should audit this registry's expected jobs and should not treat intentional schedule/debug changes as abnormal unless the current registry says they are unhealthy.
 - Reporter state files and old cron outputs are caches/history, not rules authority.
