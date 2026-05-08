@@ -27,6 +27,7 @@ import {
   TERRITORY_CONTROLLER_PRESSURE_BODY_COST
 } from './bodyTemplates';
 export {
+  buildTerritoryClaimerBody,
   TERRITORY_CONTROLLER_BODY,
   TERRITORY_CONTROLLER_BODY_COST,
   TERRITORY_CONTROLLER_PRESSURE_BODY,
@@ -262,8 +263,11 @@ export function buildEmergencyDefenderBody(energyAvailable: number): BodyPartCon
   return [...EMERGENCY_DEFENDER_BODY];
 }
 
-export function buildTerritoryControllerBody(energyAvailable: number): BodyPartConstant[] {
-  return buildTerritoryClaimerBody(energyAvailable);
+export function buildTerritoryControllerBody(
+  energyAvailable: number,
+  routeDistance = 1
+): BodyPartConstant[] {
+  return buildTerritoryClaimerBody(energyAvailable, routeDistance);
 }
 
 export function buildTerritoryReserverBody(energyAvailable: number): BodyPartConstant[] {

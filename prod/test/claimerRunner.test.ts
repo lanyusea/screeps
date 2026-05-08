@@ -648,14 +648,13 @@ describe('runClaimer', () => {
     });
   });
 
-  it('keeps a large generated claimer body mobile enough to travel to the target', () => {
-    const generatedBody = buildTerritoryControllerBody(2000);
+  it('keeps a single-claim generated claimer body mobile enough to travel to the target', () => {
+    const generatedBody = buildTerritoryControllerBody(2000, 20);
     const movePartCount = generatedBody.filter((part) => part === 'move').length;
-    const nonMovePartCount = generatedBody.filter((part) => part !== 'move').length;
-    const upgradePairs = generatedBody.filter((part) => part === 'work').length;
+    const claimPartCount = generatedBody.filter((part) => part === 'claim').length;
 
-    expect(nonMovePartCount).toBeLessThanOrEqual(movePartCount * 3);
-    expect(movePartCount).toBe(1 + upgradePairs);
+    expect(generatedBody).toEqual(['claim', 'move']);
+    expect(movePartCount).toBe(claimPartCount);
 
     const controller = { id: 'controller1', my: false } as StructureController;
     const getObjectById = jest.fn().mockReturnValue(controller);

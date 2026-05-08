@@ -2152,7 +2152,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 143)).toEqual({
       spawn,
-      body: ['claim', 'move', 'work', 'carry', 'move'],
+      body: ['claim', 'move'],
       name: 'claimer-W1N1-W2N1-143',
       memory: {
         role: 'claimer',
@@ -2172,7 +2172,7 @@ describe('planSpawn', () => {
         postClaimBootstrapReserveEnergy: TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
       }
     ]);
-    expect(1_300 - getBodyCost(['claim', 'move', 'work', 'carry', 'move'])).toBeGreaterThanOrEqual(
+    expect(1_300 - getBodyCost(['claim', 'move'])).toBeGreaterThanOrEqual(
       TERRITORY_AUTO_CLAIM_BOOTSTRAP_RESERVE_ENERGY
     );
   });
@@ -2703,6 +2703,52 @@ describe('planSpawn', () => {
         controllerId: 'controller2'
       }
     ]);
+  });
+
+  it('uses a single-claim optimized claimer body for long claim intents', () => {
+    const { colony, spawn } = makeColony({
+      energyAvailable: 2_000,
+      energyCapacityAvailable: 2_000,
+      controller: makeSafeOwnedController()
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        W4N1: makeTerritoryRoom('W4N1', {
+          id: 'controller4' as Id<StructureController>,
+          my: false
+        } as StructureController)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        routeDistances: { 'W1N1>W4N1': 20 },
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W4N1',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 152,
+            controllerId: 'controller4' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 153)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-W1N1-W4N1-153',
+      memory: {
+        role: 'claimer',
+        colony: 'W1N1',
+        territory: {
+          targetRoom: 'W4N1',
+          action: 'claim',
+          controllerId: 'controller4' as Id<StructureController>
+        }
+      }
+    });
   });
 
   it('does not queue duplicate claimers for the same claim target while one is already active', () => {
