@@ -16,6 +16,7 @@ describe('cross-room energy logistics', () => {
   const OK_CODE = 0 as ScreepsReturnCode;
   const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
   const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
+  const SCALED_WORKER_300: BodyPartConstant[] = ['work', 'work', 'carry', 'move'];
   const objectRegistry = new Map<string, unknown>();
 
   beforeEach(() => {
@@ -264,7 +265,7 @@ describe('cross-room energy logistics', () => {
 
     expect(planSpawn(targetColony, { worker: 3, workerCapacity: 0 }, 102)).toEqual({
       spawn: targetSpawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W2N1-102',
       memory: { role: 'worker', colony: 'W2N1' }
     });
@@ -285,7 +286,7 @@ describe('cross-room energy logistics', () => {
 
     expect(planSpawn(targetColony, { worker: 3, workerCapacity: 2 }, 103)).toEqual({
       spawn: targetSpawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W2N1-103',
       memory: { role: 'worker', colony: 'W2N1' }
     });

@@ -25,6 +25,18 @@ import {
 describe('planSpawn', () => {
   const MID_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'carry', 'move', 'move'];
   const HIGH_RCL_WORKER_PATTERN: BodyPartConstant[] = ['work', 'work', 'work', 'carry', 'move', 'move'];
+  const SCALED_WORKER_300: BodyPartConstant[] = ['work', 'work', 'carry', 'move'];
+  const SCALED_WORKER_550: BodyPartConstant[] = ['work', 'work', 'carry', 'carry', 'move', 'move'];
+  const SCALED_WORKER_800: BodyPartConstant[] = [
+    'work',
+    'work',
+    'work',
+    'carry',
+    'carry',
+    'move',
+    'move',
+    'move'
+  ];
   const BODY_PART_COSTS: Record<BodyPartConstant, number> = {
     move: 50,
     work: 100,
@@ -421,7 +433,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 125)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N1-125',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -432,7 +444,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 134)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N1-134',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -447,7 +459,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 151)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'carry', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N13-151',
       memory: { role: 'worker', colony: 'W1N13' }
     });
@@ -469,13 +481,13 @@ describe('planSpawn', () => {
 
     expect(planSpawn(rcl2Colony, { worker: 3, workerCapacity: 2 }, 155)).toEqual({
       spawn: rcl2Spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N22-155',
       memory: { role: 'worker', colony: 'W1N22' }
     });
     expect(planSpawn(rcl3Colony, { worker: 3, workerCapacity: 2 }, 156)).toEqual({
       spawn: rcl3Spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N23-156',
       memory: { role: 'worker', colony: 'W1N23' }
     });
@@ -551,7 +563,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 160)).toEqual({
       spawn: helperSpawn,
-      body: ['work', 'work', 'work', 'work', 'carry', 'move', 'move', 'move', 'move', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W2N27-160',
       memory: { role: 'worker', colony: 'W2N27' }
     });
@@ -692,7 +704,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 152)).toEqual({
       spawn,
-      body: [...repeatBodyPattern(MID_RCL_WORKER_PATTERN, 3), 'work', 'move', 'carry', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N19-152',
       memory: { role: 'worker', colony: 'W1N19' }
     });
@@ -708,7 +720,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 153)).toEqual({
       spawn,
-      body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N20-153',
       memory: { role: 'worker', colony: 'W1N20' }
     });
@@ -724,7 +736,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 166)).toEqual({
       spawn,
-      body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N33-166',
       memory: { role: 'worker', colony: 'W1N33' }
     });
@@ -741,7 +753,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 167)).toEqual({
       spawn,
-      body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N34-167',
       memory: { role: 'worker', colony: 'W1N34' }
     });
@@ -759,7 +771,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 170)).toEqual({
       spawn,
-      body: [...MID_RCL_WORKER_PATTERN, 'work', 'move', 'carry', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N37-170',
       memory: { role: 'worker', colony: 'W1N37' }
     });
@@ -792,7 +804,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 168)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N35-168',
       memory: { role: 'worker', colony: 'W1N35' }
     });
@@ -840,7 +852,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 169)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N36-169',
       memory: { role: 'worker', colony: 'W1N36' }
     });
@@ -856,7 +868,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 154)).toEqual({
       spawn,
-      body: [...repeatBodyPattern(HIGH_RCL_WORKER_PATTERN, 8), 'work', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N21-154',
       memory: { role: 'worker', colony: 'W1N21' }
     });
@@ -1156,7 +1168,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 132)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N22-132',
       memory: { role: 'worker', colony: 'W1N22' }
     });
@@ -1341,7 +1353,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 172)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N1-W2N1-upgrader-172',
       memory: {
         role: 'worker',
@@ -1544,7 +1556,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 174)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N1-174',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1592,7 +1604,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 176)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N1-W2N1-hauler-176',
       memory: {
         role: 'worker',
@@ -1931,7 +1943,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, workerCapacity: 0 }, 135)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N1-135',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -1957,7 +1969,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 145)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N8-145',
       memory: { role: 'worker', colony: 'W1N8' }
     });
@@ -1974,7 +1986,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 146)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N16-146',
       memory: { role: 'worker', colony: 'W1N16' }
     });
@@ -1990,13 +2002,13 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 147)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N14-147',
       memory: { role: 'worker', colony: 'W1N14' }
     });
     expect(planSpawn(colony, { worker: 4 }, 148)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N14-148',
       memory: { role: 'worker', colony: 'W1N14' }
     });
@@ -2011,7 +2023,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 150)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N9-150',
       memory: { role: 'worker', colony: 'W1N9' }
     });
@@ -2030,7 +2042,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 151)).toEqual({
       spawn: homeSpawn,
-      body: ['work', 'carry', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W2N1-151',
       memory: { role: 'worker', colony: 'W2N1' }
     });
@@ -2067,7 +2079,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, defender: 1 }, 152)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N9-152',
       memory: { role: 'worker', colony: 'W1N9' }
     });
@@ -2105,7 +2117,7 @@ describe('planSpawn', () => {
     const { colony: localRefillColony, spawn: localRefillSpawn } = makeColony({ sourceCount: 2 });
     expect(planSpawn(localRefillColony, { worker: 3 }, 163)).toEqual({
       spawn: localRefillSpawn,
-      body: ['work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N1-163',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -2115,7 +2127,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 164)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N1-164',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -3134,7 +3146,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 155)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N1-155',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -4165,7 +4177,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 126)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N2-126',
       memory: { role: 'worker', colony: 'W1N2' }
     });
@@ -4188,7 +4200,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 152)).toEqual({
       spawn,
-      body: ['work', 'work', 'work', 'carry', 'move', 'move', 'move', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N15-152',
       memory: { role: 'worker', colony: 'W1N15' }
     });
@@ -4216,7 +4228,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 5 }, 127)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_300,
       name: 'worker-W1N3-127',
       memory: { role: 'worker', colony: 'W1N3' }
     });
@@ -4310,7 +4322,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 137)).toEqual({
       spawn,
-      body: ['work', 'work', 'carry', 'move', 'move', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N7-137',
       memory: { role: 'worker', colony: 'W1N7' }
     });
@@ -4326,7 +4338,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 2, sourceHarvester: 1, workerCapacity: 3 }, 139)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N8-139',
       memory: { role: 'worker', colony: 'W1N8' }
     });
@@ -4342,7 +4354,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 4, workerCapacity: 3 }, 150)).toEqual({
       spawn,
-      body: ['work', 'work', 'carry', 'move', 'move', 'move'],
+      body: SCALED_WORKER_550,
       name: 'worker-W1N12-150',
       memory: { role: 'worker', colony: 'W1N12' }
     });
