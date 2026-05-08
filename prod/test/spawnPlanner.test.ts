@@ -42,6 +42,12 @@ describe('planSpawn', () => {
     (globalThis as unknown as { FIND_MY_STRUCTURES: number }).FIND_MY_STRUCTURES = 6;
     (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 10;
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
+    (globalThis as unknown as { STRUCTURE_LINK: StructureConstant }).STRUCTURE_LINK = 'link';
+    (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
+    (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
+    (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
+    (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
     (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY = 'energy';
     (globalThis as unknown as { BODYPART_COST: Record<BodyPartConstant, number> }).BODYPART_COST = {
       ...BODY_PART_COSTS
@@ -235,6 +241,30 @@ describe('planSpawn', () => {
     } as unknown as StructureContainer;
   }
 
+  function makeEnergyHaulingStructure(
+    id: string,
+    structureType: StructureConstant,
+    energy: number,
+    freeCapacity: number,
+    x = 10,
+    y = 10,
+    capacity = energy + freeCapacity
+  ): AnyOwnedStructure {
+    return {
+      id,
+      structureType,
+      ...(structureType === STRUCTURE_CONTAINER ? {} : { my: true }),
+      pos: makeRoomPosition(x, y, 'W1N1'),
+      store: {
+        getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
+        getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeCapacity : 0)),
+        getCapacity: jest.fn((resource?: ResourceConstant) =>
+          resource === undefined || resource === RESOURCE_ENERGY ? capacity : 0
+        )
+      }
+    } as unknown as AnyOwnedStructure;
+  }
+
   function makeRemoteEconomyRoom({
     roomName = 'W2N1',
     source = makeRemoteSource(`${roomName}-source0`, 10, 10, roomName),
@@ -302,6 +332,17 @@ describe('planSpawn', () => {
         }
       },
       room: { name: 'W2N1' } as Room,
+      ticksToLive: 1_000
+    } as Creep;
+  }
+
+  function makeLocalEnergyHauler(roomName = 'W1N1'): Creep {
+    return {
+      memory: {
+        role: 'hauler',
+        colony: roomName,
+        energyHauler: { roomName }
+      },
       ticksToLive: 1_000
     } as Creep;
   }
@@ -1474,6 +1515,68 @@ describe('planSpawn', () => {
         }
       }
     });
+  });
+
+  it('spawns a local energy hauler when container and link backlog exceeds the threshold', () => {
+    const container = makeEnergyHaulingStructure('container1', STRUCTURE_CONTAINER, 350, 1_650, 5, 5, 2_000);
+    const link = makeEnergyHaulingStructure('link1', STRUCTURE_LINK, 300, 500, 6, 6, 800);
+    const storage = makeEnergyHaulingStructure('storage1', STRUCTURE_STORAGE, 1_000, 9_000, 12, 12, 10_000);
+    const { colony, spawn } = makeColony({
+      sourceCount: 0,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      controller: makeSafeOwnedController(),
+      structures: [container as unknown as AnyStructure, link as unknown as AnyStructure],
+      ownedStructures: [storage]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 504,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 504)).toEqual({
+      spawn,
+      body: [
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move'
+      ],
+      name: 'hauler-W1N1-energy-504',
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        energyHauler: {
+          roomName: 'W1N1'
+        }
+      }
+    });
+
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 505,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {
+        Hauler1: makeLocalEnergyHauler(),
+        Hauler2: makeLocalEnergyHauler()
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3 }, 505)?.memory.role).not.toBe('hauler');
   });
 
   it('plans a remote harvester for a newly claimed adjacent room source before container completion', () => {

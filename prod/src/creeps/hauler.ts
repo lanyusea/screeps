@@ -3,6 +3,11 @@ import {
   CONTAINER_OVERFLOW_RISK_FILL_RATIO,
   isContainerOverflowRisk
 } from '../economy/containerEnergy';
+import {
+  hasPriorityEnergyHaulingDeliveryDemand,
+  selectEnergyHaulingDeliveryTarget,
+  selectEnergyHaulingSource
+} from '../economy/energyHauling';
 import { recordCreepBehaviorEnergyAcquisition } from '../telemetry/behaviorTelemetry';
 import {
   getRemoteSourceAssignments,
@@ -55,7 +60,12 @@ function hasRemoteHaulerDeliveryDemand(homeRoom: string): boolean {
 
 export function runHauler(creep: Creep): void {
   const assignment = normalizeRemoteHaulerMemory(creep.memory?.remoteHauler);
+  if (!assignment && creep.memory?.remoteHauler !== undefined) {
+    return;
+  }
+
   if (!assignment) {
+    runLocalEnergyHauler(creep);
     return;
   }
 
@@ -75,6 +85,68 @@ export function runHauler(creep: Creep): void {
   }
 
   collectRemoteEnergy(creep, assignment);
+}
+
+function runLocalEnergyHauler(creep: Creep): void {
+  if (getCarriedEnergy(creep) > 0) {
+    deliverLocalEnergy(creep);
+    return;
+  }
+
+  collectLocalEnergy(creep);
+}
+
+function collectLocalEnergy(creep: Creep): void {
+  const room = creep.room;
+  if (!room) {
+    delete creep.memory.task;
+    return;
+  }
+
+  const source = selectEnergyHaulingSource(room, creep, {
+    includeDurableSources: hasPriorityEnergyHaulingDeliveryDemand(room)
+  });
+  if (!source) {
+    delete creep.memory.task;
+    return;
+  }
+
+  const task: Extract<CreepTaskMemory, { type: 'withdraw' }> = {
+    type: 'withdraw',
+    targetId: source.id as Id<AnyStoreStructure>
+  };
+  creep.memory.task = task;
+  const result = creep.withdraw?.(source, getEnergyResource());
+  if (result === OK_CODE) {
+    recordCreepBehaviorEnergyAcquisition(creep, 'withdrawn');
+  }
+  if (result === getErrNotInRangeCode()) {
+    moveTo(creep, source);
+  }
+}
+
+function deliverLocalEnergy(creep: Creep): void {
+  const room = creep.room;
+  if (!room) {
+    delete creep.memory.task;
+    return;
+  }
+
+  const target = selectEnergyHaulingDeliveryTarget(room, creep);
+  if (!target) {
+    delete creep.memory.task;
+    return;
+  }
+
+  const task: Extract<CreepTaskMemory, { type: 'transfer' }> = {
+    type: 'transfer',
+    targetId: target.id as Id<AnyStoreStructure>
+  };
+  creep.memory.task = task;
+  const result = creep.transfer?.(target, getEnergyResource());
+  if (result === getErrNotInRangeCode()) {
+    moveTo(creep, target);
+  }
 }
 
 function collectRemoteEnergy(creep: Creep, assignment: CreepRemoteHaulerMemory): void {
