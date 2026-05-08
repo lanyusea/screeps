@@ -46,6 +46,7 @@ ROLLBACK_TRIGGER_REASON_KINDS = {
     "no_owned_spawn",
     "postdeploy_no_owned_spawn",
 }
+DEPLOY_TARGET_KEYS = ("apiUrl", "branch", "shard", "room")
 ROLLBACK_SOURCE_PATHS = (
     "prod/src",
     "prod/package.json",
@@ -688,6 +689,35 @@ def paired_health_gate_path(deploy_path: Path) -> Path:
     return deploy_path.with_name("postdeploy-health-gate.json")
 
 
+def postdeploy_health_gate_path(cfg: DeployConfig) -> Path:
+    """Return the health-gate evidence path paired with this deploy."""
+    if cfg.evidence_path is None:
+        return cfg.evidence_dir / "postdeploy-health-gate.json"
+    return paired_health_gate_path(cfg.evidence_path)
+
+
+def deploy_target_values(target: Any) -> dict[str, str] | None:
+    """Return comparable deploy target values when all required fields exist."""
+    if not isinstance(target, dict):
+        return None
+    values: dict[str, str] = {}
+    for key in DEPLOY_TARGET_KEYS:
+        value = target.get(key)
+        if not isinstance(value, str) or not value:
+            return None
+        values[key] = value
+    return values
+
+
+def deploy_target_from_evidence(evidence: dict[str, Any]) -> dict[str, str]:
+    """Extract the complete target identity from deploy evidence."""
+    target = deploy_target_values(evidence.get("target"))
+    if target is None:
+        keys = ", ".join(DEPLOY_TARGET_KEYS)
+        raise DeployError(f"failed deploy evidence is missing complete target fields: {keys}")
+    return target
+
+
 def deploy_evidence_sort_key(path: Path, payload: dict[str, Any]) -> str:
     """Return a sortable key for deploy evidence recency."""
     timestamp = payload.get("timestampUtc")
@@ -740,13 +770,20 @@ def iter_successful_deploy_evidence(evidence_dir: Path) -> list[PreviousDeployEv
 def find_previous_healthy_deploy(
     evidence_dir: Path,
     *,
+    target: dict[str, Any],
     current_commit: str | None = None,
     current_evidence_path: Path | None = None,
 ) -> PreviousDeployEvidence:
     """Find the most recent healthy deploy before the failed deploy."""
+    target_values = deploy_target_values(target)
+    if target_values is None:
+        keys = ", ".join(DEPLOY_TARGET_KEYS)
+        raise DeployError(f"rollback target must include complete fields: {keys}")
     current_path = current_evidence_path.resolve() if current_evidence_path else None
     candidates = sorted(iter_successful_deploy_evidence(evidence_dir), key=lambda item: item.sort_key)
     for candidate in reversed(candidates):
+        if deploy_target_values(candidate.deploy.get("target")) != target_values:
+            continue
         if current_commit and candidate.commit == current_commit:
             continue
         if current_path is not None and candidate.deploy_path.resolve() == current_path:
@@ -880,7 +917,7 @@ def run_postdeploy_health_gate(
     out_dir = cfg.repo_root / "runtime-artifacts" / "screeps-monitor"
     summary_path = cfg.evidence_dir / "postdeploy-summary.json"
     alert_path = cfg.evidence_dir / "postdeploy-alert.json"
-    health_path = cfg.evidence_dir / "postdeploy-health-gate.json"
+    health_path = postdeploy_health_gate_path(cfg)
 
     run_monitor_json(cfg, ["summary", "--room", room, "--out-dir", str(out_dir)], summary_path, env=env, runner=runner)
     run_monitor_json(
@@ -1123,8 +1160,10 @@ def execute_auto_rollback(
     try:
         git_payload = failed_deploy_evidence.get("git")
         failed_commit = git_payload.get("commit") if isinstance(git_payload, dict) else None
+        failed_target = deploy_target_from_evidence(failed_deploy_evidence)
         previous = find_previous_healthy_deploy(
             cfg.evidence_dir,
+            target=failed_target,
             current_commit=failed_commit if isinstance(failed_commit, str) else None,
             current_evidence_path=cfg.evidence_path,
         )
@@ -1162,7 +1201,7 @@ def execute_auto_rollback(
             "rollbackCommit": previous.commit,
             "triggerReasonKinds": trigger_reason_kinds(failed_health_gate),
             "failedDeployEvidencePath": safe_path_for_repo(cfg.evidence_path, cfg.repo_root) if cfg.evidence_path else None,
-            "failedHealthGateEvidencePath": safe_path_for_repo(cfg.evidence_dir / "postdeploy-health-gate.json", cfg.repo_root),
+            "failedHealthGateEvidencePath": safe_path_for_repo(postdeploy_health_gate_path(cfg), cfg.repo_root),
             "previousDeployEvidencePath": safe_path_for_repo(previous.deploy_path, cfg.repo_root),
             "previousHealthGateEvidencePath": safe_path_for_repo(previous.health_gate_path, cfg.repo_root),
             "rollbackDeployEvidencePath": safe_path_for_repo(rollback_deploy_path, cfg.repo_root),

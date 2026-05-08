@@ -42,6 +42,7 @@ class OfficialDeployTest(unittest.TestCase):
         activate_world: bool = False,
         confirm: str | None = None,
         evidence_dir: Path | None = None,
+        evidence_path: Path | None = None,
         repo_root: Path | None = None,
     ) -> deploy.DeployConfig:
         return deploy.DeployConfig(
@@ -53,9 +54,20 @@ class OfficialDeployTest(unittest.TestCase):
             deploy=deploy_mode,
             activate_world=activate_world,
             confirm=confirm,
+            evidence_path=evidence_path,
             evidence_dir=evidence_dir or artifact.parent / "evidence",
             repo_root=repo_root or artifact.parent,
         )
+
+    def deploy_target(self, **overrides: str) -> dict[str, str]:
+        target = {
+            "apiUrl": "https://screeps.com",
+            "branch": "main",
+            "shard": "shardX",
+            "room": "E26S49",
+        }
+        target.update(overrides)
+        return target
 
     def write_deploy_evidence(
         self,
@@ -66,6 +78,7 @@ class OfficialDeployTest(unittest.TestCase):
         deploy_ok: bool = True,
         health_ok: bool = True,
         timestamp: str = "2026-05-01T00:00:00Z",
+        target: dict[str, str] | None = None,
     ) -> tuple[Path, Path]:
         deploy_path = evidence_dir / f"official-screeps-deploy-{run_id}.json"
         health_path = evidence_dir / f"postdeploy-health-gate-{run_id}.json"
@@ -76,6 +89,7 @@ class OfficialDeployTest(unittest.TestCase):
                     "mode": "deploy",
                     "timestampUtc": timestamp,
                     "git": {"commit": commit, "branch": "main", "dirty": False},
+                    "target": target or self.deploy_target(),
                 },
                 sort_keys=True,
             ),
@@ -345,16 +359,105 @@ class OfficialDeployTest(unittest.TestCase):
                 timestamp="2026-05-03T00:00:00Z",
             )
 
-            previous = deploy.find_previous_healthy_deploy(evidence_dir, current_commit="bad")
+            previous = deploy.find_previous_healthy_deploy(
+                evidence_dir,
+                target=self.deploy_target(),
+                current_commit="bad",
+            )
 
         self.assertEqual(previous.commit, "3333333333333333333333333333333333333333")
         self.assertEqual(previous.deploy_path, latest_deploy)
         self.assertEqual(previous.health_gate_path, latest_health)
 
+    def test_previous_evidence_lookup_filters_by_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp)
+            self.write_deploy_evidence(
+                evidence_dir,
+                "matching-target",
+                "1111111111111111111111111111111111111111",
+                timestamp="2026-05-01T00:00:00Z",
+            )
+            self.write_deploy_evidence(
+                evidence_dir,
+                "wrong-api",
+                "2222222222222222222222222222222222222222",
+                timestamp="2026-05-02T00:00:00Z",
+                target=self.deploy_target(apiUrl="https://screeps.example"),
+            )
+            self.write_deploy_evidence(
+                evidence_dir,
+                "wrong-branch",
+                "3333333333333333333333333333333333333333",
+                timestamp="2026-05-03T00:00:00Z",
+                target=self.deploy_target(branch="other"),
+            )
+            self.write_deploy_evidence(
+                evidence_dir,
+                "wrong-shard",
+                "4444444444444444444444444444444444444444",
+                timestamp="2026-05-04T00:00:00Z",
+                target=self.deploy_target(shard="shard0"),
+            )
+            self.write_deploy_evidence(
+                evidence_dir,
+                "wrong-room",
+                "5555555555555555555555555555555555555555",
+                timestamp="2026-05-05T00:00:00Z",
+                target=self.deploy_target(room="W1N1"),
+            )
+
+            previous = deploy.find_previous_healthy_deploy(
+                evidence_dir,
+                target=self.deploy_target(),
+                current_commit="bad",
+            )
+
+        self.assertEqual(previous.commit, "1111111111111111111111111111111111111111")
+
     def test_previous_evidence_lookup_handles_missing_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(deploy.DeployError, "no previous healthy deploy evidence"):
-                deploy.find_previous_healthy_deploy(Path(tmp), current_commit="bad")
+                deploy.find_previous_healthy_deploy(Path(tmp), target=self.deploy_target(), current_commit="bad")
+
+    def test_postdeploy_health_gate_uses_paired_deploy_evidence_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            artifact = self.write_artifact(repo_root)
+            evidence_dir = repo_root / "runtime-artifacts" / "official-screeps-deploy"
+            deploy_path = evidence_dir / "official-screeps-deploy-rollback.json"
+            cfg = self.config(
+                artifact,
+                evidence_dir=evidence_dir,
+                evidence_path=deploy_path,
+                repo_root=repo_root,
+            )
+
+            def command_runner(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(command, 0, stdout='{"ok": true}\n', stderr="")
+
+            health_gate = deploy.run_postdeploy_health_gate(cfg, env={}, runner=command_runner)
+            paired_path = evidence_dir / "postdeploy-health-gate-rollback.json"
+
+            self.assertTrue(health_gate["ok"])
+            self.assertTrue(paired_path.exists())
+            self.assertFalse((evidence_dir / "postdeploy-health-gate.json").exists())
+
+    def test_postdeploy_health_gate_uses_default_path_without_deploy_evidence_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            artifact = self.write_artifact(repo_root)
+            evidence_dir = repo_root / "runtime-artifacts" / "official-screeps-deploy"
+            cfg = self.config(artifact, evidence_dir=evidence_dir, repo_root=repo_root)
+
+            def command_runner(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(command, 0, stdout='{"ok": true}\n', stderr="")
+
+            health_gate = deploy.run_postdeploy_health_gate(cfg, env={}, runner=command_runner)
+            default_path = evidence_dir / "postdeploy-health-gate.json"
+
+            self.assertTrue(health_gate["ok"])
+            self.assertTrue(default_path.exists())
 
     def test_recovery_verification_requires_spawn_and_owned_creep(self) -> None:
         recovered = deploy.recovery_status_from_payload(
@@ -404,6 +507,13 @@ class OfficialDeployTest(unittest.TestCase):
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 timestamp="2026-05-01T00:00:00Z",
             )
+            self.write_deploy_evidence(
+                evidence_dir,
+                "wrong-target",
+                "cccccccccccccccccccccccccccccccccccccccc",
+                timestamp="2026-05-02T00:00:00Z",
+                target=self.deploy_target(branch="other"),
+            )
             cfg = self.config(
                 artifact,
                 deploy_mode=True,
@@ -432,7 +542,10 @@ class OfficialDeployTest(unittest.TestCase):
 
             summary = deploy.execute_auto_rollback(
                 cfg,
-                {"git": {"commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+                {
+                    "git": {"commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+                    "target": self.deploy_target(),
+                },
                 {"ok": False, "reasons": [{"kind": "postdeploy_room_dead"}]},
                 env={deploy.AUTH_TOKEN_ENV: "fixture-value"},
                 transport=fake,
@@ -467,7 +580,10 @@ class OfficialDeployTest(unittest.TestCase):
             with self.assertRaisesRegex(deploy.DeployError, "AUTO-ROLLBACK ESCALATION"):
                 deploy.execute_auto_rollback(
                     cfg,
-                    {"git": {"commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+                    {
+                        "git": {"commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+                        "target": self.deploy_target(),
+                    },
                     {"ok": False, "reasons": [{"kind": "postdeploy_room_dead"}]},
                     env={deploy.AUTH_TOKEN_ENV: "fixture-value"},
                     command_runner=lambda *args, **kwargs: self.fail("no commands expected"),
