@@ -4,12 +4,16 @@ import { TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY } from './autoClaim';
 import { runRecommendedExpansionClaimExecutor } from './claimExecutor';
 import {
   buildRuntimeExpansionCandidateReport,
-  clearNextExpansionTargetIntent,
   NEXT_EXPANSION_TARGET_CREATOR,
-  refreshNextExpansionTargetSelection,
+  persistExpansionCandidateScores,
   selectExpansionScoutTargets,
   type NextExpansionTargetSelection
 } from './expansionScoring';
+import {
+  getAutonomousExpansionPipelineStateKey,
+  hasActiveAutonomousExpansionPipeline,
+  refreshAutonomousExpansionPipeline
+} from './expansionTrigger';
 import { refreshExpansionRoomScouting } from './roomScouting';
 import { getTerritoryScoutIntel } from './scoutIntel';
 import { logBestClaimTarget } from './territoryRunner';
@@ -42,16 +46,14 @@ export function refreshExpansionExecutorIntent(
     return cachedSelection.selection;
   }
 
-  const report = buildRuntimeExpansionCandidateReport(colony);
-  let selection = refreshNextExpansionTargetSelection(colony, report, gameTime);
-  if (selection.status === 'planned' && !isExpansionExecutorClaimReady(colony, gameTime)) {
-    clearNextExpansionTargetIntent(colonyName);
-    selection = {
-      status: 'skipped',
-      colony: colonyName,
-      reason: 'unmetPreconditions'
-    };
+  const hasActivePipeline = hasActiveAutonomousExpansionPipeline(colonyName);
+  const report = hasActivePipeline
+    ? { candidates: [], next: null }
+    : buildRuntimeExpansionCandidateReport(colony);
+  if (!hasActivePipeline) {
+    persistExpansionCandidateScores(colonyName, report, gameTime);
   }
+  const selection = refreshAutonomousExpansionPipeline(colony, report, gameTime, telemetryEvents);
   const scoutTargetRooms: string[] = [];
   if (selection.targetRoom) {
     scoutTargetRooms.push(selection.targetRoom);
@@ -174,6 +176,10 @@ function isExpansionExecutorCacheReusable(
   gameTime: number,
   stateKey: string
 ): boolean {
+  if (hasActiveAutonomousExpansionPipeline(colony.room.name)) {
+    return false;
+  }
+
   if (
     cachedSelection.stateKey !== stateKey ||
     gameTime < cachedSelection.refreshedAt ||
@@ -231,6 +237,7 @@ function getExpansionExecutorCacheStateKey(colony: ColonySnapshot, gameTime = ge
     getExpansionExecutorVisibleHostileState(colony.room),
     getExpansionExecutorThreatState(colony.room.name, gameTime),
     countActivePostClaimBootstraps(),
+    getAutonomousExpansionPipelineStateKey(colony.room.name),
     getLatestTerritoryScoutIntelUpdatedAt(colony.room.name)
   ].join('|');
 }

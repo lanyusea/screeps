@@ -1407,7 +1407,7 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['claim', 'move'],
+      ['claim', 'claim', 'move', 'move'],
       'claimer-W1N1-W2N1-505',
       {
         memory: {
@@ -1415,7 +1415,7 @@ describe('runEconomy', () => {
           colony: 'W1N1',
           territory: {
             targetRoom: 'W2N1',
-            action: 'claim',
+            action: 'reserve',
             controllerId: 'controller2'
           }
         }
@@ -1431,7 +1431,7 @@ describe('runEconomy', () => {
       {
         colony: 'W1N1',
         roomName: 'W2N1',
-        action: 'claim',
+        action: 'reserve',
         createdBy: 'nextExpansionScoring',
         controllerId: 'controller2'
       }
@@ -1484,7 +1484,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
     expect(room.memory.lastExpansionScoreTime).toBe(501);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
@@ -1496,7 +1496,7 @@ describe('runEconomy', () => {
       {
         colony: 'W1N1',
         roomName: 'W2N1',
-        action: 'claim',
+        action: 'reserve',
         createdBy: 'nextExpansionScoring',
         controllerId: 'controller2'
       }
@@ -1513,8 +1513,8 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
-    expect(room.memory.lastExpansionScoreTime).toBe(501);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
+    expect(room.memory.lastExpansionScoreTime).toBe(502);
   });
 
   it('refreshes next expansion scoring before the interval when colony state changes', () => {
@@ -1568,7 +1568,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(6);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
@@ -1632,7 +1632,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(6);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(4);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'skipped',
@@ -2283,6 +2283,7 @@ describe('runEconomy', () => {
         territory: {
           targetRoom: 'W2N1',
           action: 'reserve',
+          controllerId: 'controller2',
           followUp
         }
       }
@@ -2294,6 +2295,7 @@ describe('runEconomy', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: 324,
+        controllerId: 'controller2',
         followUp
       }
     ]);

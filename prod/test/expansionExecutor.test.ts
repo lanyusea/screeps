@@ -24,7 +24,7 @@ describe('expansion executor', () => {
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
   });
 
-  it('persists the highest-scored scouted expansion as a claim target and reuses the cache', () => {
+  it('persists the highest-scored scouted expansion as a reserve target and reuses the active pipeline', () => {
     const colony = makeColony();
     const getRoomTerrain = jest.fn(() => makeTerrain(0));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -51,18 +51,26 @@ describe('expansion executor', () => {
       {
         colony: 'W1N1',
         roomName: 'W3N1',
-        action: 'claim',
+        action: 'reserve',
         createdBy: 'nextExpansionScoring',
         controllerId: 'controller3'
       }
     ]);
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      status: 'active',
+      stage: 'reserving',
+      score: expect.any(Number),
+      threshold: expect.any(Number)
+    });
     expect(colony.room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
       targetRoom: 'W3N1'
     });
 
     getRoomTerrain.mockImplementation(() => {
-      throw new Error('cached expansion executor selection should avoid rescoring');
+      throw new Error('active expansion pipeline should avoid rescoring');
     });
     colony.energyAvailable = 1_299;
     (colony.room as Room & { energyAvailable: number }).energyAvailable = 1_299;
@@ -109,12 +117,16 @@ describe('expansion executor', () => {
     hostileCreepCount = 1;
     ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 151;
 
-    expect(refreshExpansionExecutorIntent(colony, 151)).toEqual({
+    expect(refreshExpansionExecutorIntent(colony, 151)).toMatchObject({
       status: 'skipped',
       colony: 'W1N1',
       reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.targets ?? []).toEqual([]);
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      status: 'aborted',
+      abortReason: 'homeUnstable'
+    });
 
     hostileCreepCount = 0;
     ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 152;
@@ -160,7 +172,7 @@ describe('expansion executor', () => {
       colony: 'W1N1',
       reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.targets ?? []).toEqual([]);
   });
 
   it('allows claiming when recent threat memory omits the colony room', () => {
@@ -197,6 +209,15 @@ describe('expansion executor', () => {
       status: 'planned',
       targetRoom: 'W2N1'
     });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller2'
+      }
+    ]);
   });
 
   it('requests scouting for the highest-ranked unseen expansion candidate', () => {
@@ -280,8 +301,8 @@ describe('expansion executor', () => {
       colony: 'W1N1',
       reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.targets).toEqual([]);
-    expect(Memory.territory?.intents).toEqual([]);
+    expect(Memory.territory?.targets ?? []).toEqual([]);
+    expect(Memory.territory?.intents ?? []).toEqual([]);
   });
 });
 
