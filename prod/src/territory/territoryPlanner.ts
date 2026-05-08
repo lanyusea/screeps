@@ -219,11 +219,14 @@ export function planTerritoryIntent(
   }
 
   const target = selection.target;
+  const controllerId =
+    target.controllerId ??
+    (isTerritoryControlAction(selection.intentAction) ? getVisibleController(target.roomName)?.id : undefined);
   const plan: TerritoryIntentPlan = {
     colony: colony.room.name,
     targetRoom: target.roomName,
     action: selection.intentAction,
-    ...(target.controllerId ? { controllerId: target.controllerId } : {}),
+    ...(controllerId ? { controllerId } : {}),
     ...(target.createdBy ? { createdBy: target.createdBy } : {}),
     ...(selection.requiresControllerPressure ? { requiresControllerPressure: true } : {}),
     ...(selection.followUp ? { followUp: selection.followUp } : {}),
@@ -548,13 +551,16 @@ function isTerritoryIntentProgressVisibleForColony(
 }
 
 export function buildTerritoryCreepMemory(plan: TerritoryIntentPlan): CreepMemory {
+  const controllerId =
+    plan.controllerId ??
+    (isTerritoryControlAction(plan.action) ? getVisibleController(plan.targetRoom)?.id : undefined);
   return {
     role: plan.action === 'scout' ? TERRITORY_SCOUT_ROLE : TERRITORY_CLAIMER_ROLE,
     colony: plan.colony,
     territory: {
       targetRoom: plan.targetRoom,
       action: plan.action,
-      ...(plan.controllerId ? { controllerId: plan.controllerId } : {}),
+      ...(controllerId ? { controllerId } : {}),
       ...(plan.followUp ? { followUp: plan.followUp } : {})
     }
   };

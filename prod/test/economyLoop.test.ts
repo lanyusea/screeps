@@ -1314,6 +1314,7 @@ describe('runEconomy', () => {
         describeExits: jest.fn(() => ({ '3': 'W2N1' }))
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 320);
 
     runEconomy();
 
@@ -1403,11 +1404,12 @@ describe('runEconomy', () => {
         getRoomTerrain: jest.fn(() => ({ get: jest.fn().mockReturnValue(0) } as unknown as RoomTerrain))
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 505);
 
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['claim', 'move'],
+      ['claim', 'claim', 'move', 'move'],
       'claimer-W1N1-W2N1-505',
       {
         memory: {
@@ -1415,7 +1417,7 @@ describe('runEconomy', () => {
           colony: 'W1N1',
           territory: {
             targetRoom: 'W2N1',
-            action: 'claim',
+            action: 'reserve',
             controllerId: 'controller2'
           }
         }
@@ -1431,7 +1433,7 @@ describe('runEconomy', () => {
       {
         colony: 'W1N1',
         roomName: 'W2N1',
-        action: 'claim',
+        action: 'reserve',
         createdBy: 'nextExpansionScoring',
         controllerId: 'controller2'
       }
@@ -1481,10 +1483,11 @@ describe('runEconomy', () => {
         getRoomTerrain
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 501);
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
     expect(room.memory.lastExpansionScoreTime).toBe(501);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
@@ -1496,7 +1499,7 @@ describe('runEconomy', () => {
       {
         colony: 'W1N1',
         roomName: 'W2N1',
-        action: 'claim',
+        action: 'reserve',
         createdBy: 'nextExpansionScoring',
         controllerId: 'controller2'
       }
@@ -1513,8 +1516,8 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
-    expect(room.memory.lastExpansionScoreTime).toBe(501);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(2);
+    expect(room.memory.lastExpansionScoreTime).toBe(502);
   });
 
   it('refreshes next expansion scoring before the interval when colony state changes', () => {
@@ -1560,6 +1563,7 @@ describe('runEconomy', () => {
         getRoomTerrain
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 501);
 
     runEconomy();
 
@@ -1568,7 +1572,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(6);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(3);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
@@ -1620,6 +1624,7 @@ describe('runEconomy', () => {
         getRoomTerrain
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 501);
 
     runEconomy();
 
@@ -1632,7 +1637,7 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(getRoomTerrain).toHaveBeenCalledTimes(6);
+    expect(getRoomTerrain).toHaveBeenCalledTimes(4);
     expect(room.memory.lastExpansionScoreTime).toBe(502);
     expect(room.memory.cachedExpansionSelection).toMatchObject({
       status: 'skipped',
@@ -2283,6 +2288,7 @@ describe('runEconomy', () => {
         territory: {
           targetRoom: 'W2N1',
           action: 'reserve',
+          controllerId: 'controller2',
           followUp
         }
       }
@@ -2294,6 +2300,7 @@ describe('runEconomy', () => {
         action: 'reserve',
         status: 'planned',
         updatedAt: 324,
+        controllerId: 'controller2',
         followUp
       }
     ]);
@@ -3464,4 +3471,24 @@ function makeEconomyWorker(room: Room): Creep {
       getFreeCapacity: jest.fn().mockReturnValue(50)
     }
   } as unknown as Creep;
+}
+
+function setSafeHomeThreat(roomName: string, updatedAt: number): void {
+  Memory.defense = {
+    ...(Memory.defense ?? {}),
+    colonyThreats: {
+      updatedAt,
+      rooms: {
+        ...(Memory.defense?.colonyThreats?.rooms ?? {}),
+        [roomName]: {
+          roomName,
+          level: 'none',
+          updatedAt,
+          hostileCreepCount: 0,
+          hostileStructureCount: 0,
+          damagedCriticalStructureCount: 0
+        }
+      }
+    }
+  };
 }
