@@ -24,7 +24,7 @@ describe('expansion executor', () => {
     delete (globalThis as { TERRAIN_MASK_SWAMP?: number }).TERRAIN_MASK_SWAMP;
   });
 
-  it('persists the highest-scored scouted expansion as a claim target and reuses the cache', () => {
+  it('persists the highest-scored scouted expansion as a reserve target and reuses the active pipeline', () => {
     const colony = makeColony();
     const getRoomTerrain = jest.fn(() => makeTerrain(0));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
@@ -40,6 +40,7 @@ describe('expansion executor', () => {
         getRoomTerrain
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 100);
 
     expect(refreshExpansionExecutorIntent(colony, 100)).toMatchObject({
       status: 'planned',
@@ -51,18 +52,26 @@ describe('expansion executor', () => {
       {
         colony: 'W1N1',
         roomName: 'W3N1',
-        action: 'claim',
+        action: 'reserve',
         createdBy: 'nextExpansionScoring',
         controllerId: 'controller3'
       }
     ]);
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      colony: 'W1N1',
+      targetRoom: 'W3N1',
+      status: 'active',
+      stage: 'reserving',
+      score: expect.any(Number),
+      threshold: expect.any(Number)
+    });
     expect(colony.room.memory.cachedExpansionSelection).toMatchObject({
       status: 'planned',
       targetRoom: 'W3N1'
     });
 
     getRoomTerrain.mockImplementation(() => {
-      throw new Error('cached expansion executor selection should avoid rescoring');
+      throw new Error('active expansion pipeline should avoid rescoring');
     });
     colony.energyAvailable = 1_299;
     (colony.room as Room & { energyAvailable: number }).energyAvailable = 1_299;
@@ -100,6 +109,7 @@ describe('expansion executor', () => {
         getRoomTerrain: jest.fn(() => makeTerrain(0))
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 150);
 
     expect(refreshExpansionExecutorIntent(colony, 150)).toMatchObject({
       status: 'planned',
@@ -109,12 +119,16 @@ describe('expansion executor', () => {
     hostileCreepCount = 1;
     ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 151;
 
-    expect(refreshExpansionExecutorIntent(colony, 151)).toEqual({
+    expect(refreshExpansionExecutorIntent(colony, 151)).toMatchObject({
       status: 'skipped',
       colony: 'W1N1',
       reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.targets ?? []).toEqual([]);
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      status: 'aborted',
+      abortReason: 'homeUnstable'
+    });
 
     hostileCreepCount = 0;
     ((globalThis as unknown as { Game: Partial<Game> }).Game as { time: number }).time = 152;
@@ -160,10 +174,10 @@ describe('expansion executor', () => {
       colony: 'W1N1',
       reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.targets).toEqual([]);
+    expect(Memory.territory?.targets ?? []).toEqual([]);
   });
 
-  it('allows claiming when recent threat memory omits the colony room', () => {
+  it('blocks claiming when recent threat memory omits the colony room', () => {
     const colony = makeColony();
     Memory.defense = {
       colonyThreats: {
@@ -193,10 +207,12 @@ describe('expansion executor', () => {
       } as unknown as GameMap
     };
 
-    expect(refreshExpansionExecutorIntent(colony, 200)).toMatchObject({
-      status: 'planned',
-      targetRoom: 'W2N1'
+    expect(refreshExpansionExecutorIntent(colony, 200)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
     });
+    expect(Memory.territory?.targets ?? []).toEqual([]);
   });
 
   it('requests scouting for the highest-ranked unseen expansion candidate', () => {
@@ -212,6 +228,7 @@ describe('expansion executor', () => {
         getRoomTerrain: jest.fn(() => makeTerrain(0))
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 200);
 
     expect(refreshExpansionExecutorIntent(colony, 200)).toEqual({
       status: 'skipped',
@@ -280,8 +297,8 @@ describe('expansion executor', () => {
       colony: 'W1N1',
       reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.targets).toEqual([]);
-    expect(Memory.territory?.intents).toEqual([]);
+    expect(Memory.territory?.targets ?? []).toEqual([]);
+    expect(Memory.territory?.intents ?? []).toEqual([]);
   });
 });
 
@@ -367,4 +384,24 @@ function makeTerrain(mask: number): RoomTerrain {
   return {
     get: jest.fn(() => mask)
   } as unknown as RoomTerrain;
+}
+
+function setSafeHomeThreat(roomName: string, updatedAt: number): void {
+  Memory.defense = {
+    ...(Memory.defense ?? {}),
+    colonyThreats: {
+      updatedAt,
+      rooms: {
+        ...(Memory.defense?.colonyThreats?.rooms ?? {}),
+        [roomName]: {
+          roomName,
+          level: 'none',
+          updatedAt,
+          hostileCreepCount: 0,
+          hostileStructureCount: 0,
+          damagedCriticalStructureCount: 0
+        }
+      }
+    }
+  };
 }
