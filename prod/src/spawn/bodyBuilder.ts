@@ -356,16 +356,8 @@ function getUpgraderMaxCost(controllerLevel: number | undefined): number {
     return 800;
   }
 
-  if (controllerLevel <= 1) {
+  if (controllerLevel <= 3) {
     return 200;
-  }
-
-  if (controllerLevel === 2) {
-    return 300;
-  }
-
-  if (controllerLevel === 3) {
-    return 600;
   }
 
   if (controllerLevel <= 5) {

@@ -242,8 +242,13 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
       const shouldContinueAfterWorkerSpawn =
         spawnRequest.memory.role === 'worker' && !isControllerUpgradeSpawnRequest(spawnRequest);
       const spawnedLocalWorker = shouldContinueAfterWorkerSpawn && spawnRequest.memory.colony === colony.room.name;
+      const spawnedLocalUpgrader =
+        spawnRequest.memory.role === UPGRADER_ROLE && spawnRequest.memory.colony === colony.room.name;
       if (spawnedLocalWorker) {
         roleCounts = addPlannedWorker(roleCounts);
+        plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
+      } else if (spawnedLocalUpgrader) {
+        roleCounts = addPlannedUpgrader(roleCounts);
         plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
       }
 
@@ -1113,6 +1118,23 @@ function addPlannedWorker(roleCounts: RoleCounts): RoleCounts {
     delete nextRoleCounts.workerCapacity;
   } else {
     nextRoleCounts.workerCapacity = workerCapacity;
+  }
+
+  return nextRoleCounts;
+}
+
+function addPlannedUpgrader(roleCounts: RoleCounts): RoleCounts {
+  const upgrader = (roleCounts.upgrader ?? 0) + 1;
+  const upgraderCapacity = (roleCounts.upgraderCapacity ?? roleCounts.upgrader ?? 0) + 1;
+  const nextRoleCounts: RoleCounts = {
+    ...roleCounts,
+    upgrader
+  };
+
+  if (upgraderCapacity === upgrader) {
+    delete nextRoleCounts.upgraderCapacity;
+  } else {
+    nextRoleCounts.upgraderCapacity = upgraderCapacity;
   }
 
   return nextRoleCounts;

@@ -47,6 +47,7 @@ import {
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildTerritoryReserverBody,
+  buildUpgraderBody,
   getBodyCost,
   TERRITORY_SCOUT_BODY,
   TERRITORY_SCOUT_BODY_COST
@@ -1336,7 +1337,8 @@ function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): Spawn
 function planControllerUpgradeDemandSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.territoryIntentPending ||
-    context.survival.mode !== 'TERRITORY_READY' ||
+    context.survival.mode === 'BOOTSTRAP' ||
+    context.survival.hostilePresence ||
     hasControllerUpgradeBlockingTerritoryWork(context.colony) ||
     (context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony))
   ) {
@@ -1693,14 +1695,13 @@ function selectUpgraderBody(colony: ColonySnapshot): BodyPartConstant[] {
     energyAvailable: spawnEnergyBudget ?? colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
     spawnEnergyBudget,
-    spawnBufferPolicy: 'respect',
+    spawnBufferPolicy: getSpawnBufferBudgetPolicy(spawnEnergyBudget),
     candidates: [
       {
         role: UPGRADER_ROLE,
         demand: 'surplus',
         needed: true,
-        buildBody: (energyBudget) =>
-          buildScaledWorkerBody(colony.energyCapacityAvailable, { energyAvailable: energyBudget })
+        buildBody: (energyBudget) => buildUpgraderBody(energyBudget, colony.room.controller?.level)
       }
     ]
   });

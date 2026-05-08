@@ -2139,7 +2139,16 @@ function buildTerritoryClaimerBody(energyAvailable, _routeDistance = 1) {
 
 // src/spawn/bodyBuilder.ts
 var WORKER_PATTERN_COST = 200;
+var WORKER_LOGISTICS_PAIR = ["carry", "move"];
+var WORKER_LOGISTICS_PAIR_COST = 100;
+var WORKER_SURPLUS_MOVE = ["move"];
+var WORKER_SURPLUS_MOVE_COST = 50;
+var UPGRADER_MIN_BODY = ["work", "carry", "move"];
 var MIN_UPGRADER_BODY_COST = WORKER_PATTERN_COST;
+var UPGRADER_PATTERN = ["work", "work", "carry", "move"];
+var UPGRADER_PATTERN_COST = 300;
+var UPGRADER_WORK_MOVE_PAIR = ["work", "move"];
+var UPGRADER_WORK_MOVE_PAIR_COST = 150;
 var TERRITORY_SCOUT_BODY = ["move"];
 var TERRITORY_SCOUT_BODY_COST = 50;
 var TERRITORY_RESERVER_PAIR_COST = 650;
@@ -2157,6 +2166,20 @@ var BODY_PART_COSTS = {
   claim: 600,
   tough: 10
 };
+function buildUpgraderBody(energyAvailable, controllerLevel) {
+  const energyBudget = Math.min(normalizeEnergyBudget(energyAvailable), getUpgraderMaxCost(controllerLevel));
+  if (energyBudget < MIN_UPGRADER_BODY_COST) {
+    return [];
+  }
+  if (energyBudget < UPGRADER_PATTERN_COST) {
+    return [...UPGRADER_MIN_BODY];
+  }
+  const maxPatternCountByEnergy = Math.floor(energyBudget / UPGRADER_PATTERN_COST);
+  const maxPatternCountBySize = Math.floor(MAX_CREEP_PARTS3 / UPGRADER_PATTERN.length);
+  const patternCount = Math.min(maxPatternCountByEnergy, maxPatternCountBySize);
+  const body = Array.from({ length: patternCount }).flatMap(() => UPGRADER_PATTERN);
+  return addUpgraderRemainderParts(body, energyBudget, patternCount * UPGRADER_PATTERN_COST);
+}
 function buildTerritoryControllerBody(energyAvailable, routeDistance = 1) {
   return buildTerritoryClaimerBody(energyAvailable, routeDistance);
 }
@@ -2204,6 +2227,40 @@ function buildRemoteHaulerBody(energyAvailable, routeDistance = 1) {
 }
 function getBodyCost(body) {
   return body.reduce((cost, part) => cost + BODY_PART_COSTS[part], 0);
+}
+function addUpgraderRemainderParts(body, energyBudget, bodyCost) {
+  const additions = [
+    { parts: UPGRADER_WORK_MOVE_PAIR, cost: UPGRADER_WORK_MOVE_PAIR_COST },
+    { parts: WORKER_LOGISTICS_PAIR, cost: WORKER_LOGISTICS_PAIR_COST },
+    { parts: WORKER_SURPLUS_MOVE, cost: WORKER_SURPLUS_MOVE_COST }
+  ];
+  let nextBody = [...body];
+  let nextCost = bodyCost;
+  for (const addition of additions) {
+    if (nextCost + addition.cost <= energyBudget && nextBody.length + addition.parts.length <= MAX_CREEP_PARTS3) {
+      nextBody = [...nextBody, ...addition.parts];
+      nextCost += addition.cost;
+    }
+  }
+  return nextBody;
+}
+function getUpgraderMaxCost(controllerLevel) {
+  if (typeof controllerLevel !== "number" || !Number.isFinite(controllerLevel)) {
+    return 800;
+  }
+  if (controllerLevel <= 3) {
+    return 200;
+  }
+  if (controllerLevel <= 5) {
+    return 900;
+  }
+  if (controllerLevel === 6) {
+    return 1800;
+  }
+  return 2400;
+}
+function normalizeEnergyBudget(energyAvailable) {
+  return typeof energyAvailable === "number" && Number.isFinite(energyAvailable) ? Math.max(0, Math.floor(energyAvailable)) : 0;
 }
 function getRemoteHaulerCarryMovePairLimit(routeDistance) {
   if (!Number.isFinite(routeDistance) || routeDistance <= 0) {
@@ -13518,6 +13575,9 @@ function runUpgraderCreep(creep) {
   if (!controller) {
     return;
   }
+  if (canLevelUpController(controller) && renewExpiringUpgrader(creep)) {
+    return;
+  }
   const carriedEnergy = getStoredEnergy3(creep);
   const upgradeAllowed = shouldSpendUpgraderEnergy(creep, controller);
   if (carriedEnergy > 0) {
@@ -13553,7 +13613,7 @@ function getControllerUpgradePriority(controller, context = {}) {
   if (!canLevelUpController(controller)) {
     return "fallback";
   }
-  if (context.competingSpawnDemand === true || context.defenseDemand === true || context.constructionDemand === true || !hasHealthyUpgradeEnergy(context)) {
+  if (context.competingSpawnDemand === true || context.defenseDemand === true || !hasHealthyUpgradeEnergy(context)) {
     return "fallback";
   }
   if (controller.level === 1) {
@@ -13580,6 +13640,39 @@ function canLevelUpController(controller) {
 }
 function shouldGuardControllerDowngrade(controller) {
   return typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade <= CONTROLLER_UPGRADE_DOWNGRADE_GUARD_TICKS;
+}
+function renewExpiringUpgrader(creep) {
+  if (typeof creep.ticksToLive !== "number" || creep.ticksToLive > WORKER_REPLACEMENT_TICKS_TO_LIVE) {
+    return false;
+  }
+  const spawn = selectUpgraderRenewSpawn(creep);
+  if (!spawn || typeof spawn.renewCreep !== "function") {
+    return false;
+  }
+  const result = spawn.renewCreep(creep);
+  if (result === ERR_NOT_IN_RANGE_CODE3) {
+    creep.moveTo(spawn);
+    return true;
+  }
+  return result === 0;
+}
+function selectUpgraderRenewSpawn(creep) {
+  var _a, _b, _c, _d, _e, _f, _g;
+  const roomName = (_d = (_b = (_a = creep.memory.controllerUpgrade) == null ? void 0 : _a.roomName) != null ? _b : creep.memory.colony) != null ? _d : (_c = creep.room) == null ? void 0 : _c.name;
+  const roomSpawns = findRoomObjects13(creep.room, "FIND_MY_STRUCTURES").filter(
+    (structure) => matchesStructureType8(structure.structureType, "STRUCTURE_SPAWN", "spawn") && !structure.spawning
+  );
+  const gameSpawns = Object.values((_f = (_e = globalThis.Game) == null ? void 0 : _e.spawns) != null ? _f : {}).filter((spawn) => {
+    var _a2;
+    return ((_a2 = spawn.room) == null ? void 0 : _a2.name) === roomName && !spawn.spawning;
+  });
+  const candidates = [...roomSpawns, ...gameSpawns].filter(
+    (spawn, index, spawns) => spawns.findIndex((candidate) => getStableId(candidate) === getStableId(spawn)) === index
+  );
+  return (_g = candidates.sort(compareRenewSpawns(creep))[0]) != null ? _g : null;
+}
+function compareRenewSpawns(creep) {
+  return (left, right) => getRangeToRoomObject(creep, left) - getRangeToRoomObject(creep, right) || getStableId(left).localeCompare(getStableId(right));
 }
 function moveToAssignedControllerRoom(creep) {
   var _a, _b, _c;
@@ -13615,15 +13708,7 @@ function shouldSpendUpgraderEnergy(creep, controller) {
   if (shouldGuardControllerDowngrade(controller) || ((_a = creep.memory.controllerUpgrade) == null ? void 0 : _a.priority) === "downgradeGuard") {
     return true;
   }
-  return canLevelUpController(controller) && hasHealthyRuntimeUpgradeEnergy(creep.room) && !hasVisibleHostileCreeps(creep.room) && !hasVisibleConstructionDemand(creep.room);
-}
-function hasHealthyRuntimeUpgradeEnergy(room) {
-  const energyAvailable = room.energyAvailable;
-  const energyCapacityAvailable = room.energyCapacityAvailable;
-  if (typeof energyAvailable === "number" && Number.isFinite(energyAvailable) && typeof energyCapacityAvailable === "number" && Number.isFinite(energyCapacityAvailable) && energyCapacityAvailable > 0) {
-    return energyAvailable >= energyCapacityAvailable;
-  }
-  return checkEnergyBufferForSpending(room, 0);
+  return canLevelUpController(controller) && !hasVisibleHostileCreeps(creep.room);
 }
 function selectUpgraderEnergySource(creep) {
   var _a;
@@ -13696,13 +13781,7 @@ function isUpgraderStoredEnergySource(structure) {
   return (matchesStructureType8(structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType8(structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType8(structureType, "STRUCTURE_LINK", "link")) && getStoredEnergy3(structure) > 0;
 }
 function getStoredUpgraderEnergySourcePriority(structure) {
-  if (matchesStructureType8(structure.structureType, "STRUCTURE_STORAGE", "storage")) {
-    return 1;
-  }
-  if (matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container")) {
-    return 2;
-  }
-  return 3;
+  return matchesStructureType8(structure.structureType, "STRUCTURE_STORAGE", "storage") || matchesStructureType8(structure.structureType, "STRUCTURE_CONTAINER", "container") || matchesStructureType8(structure.structureType, "STRUCTURE_LINK", "link") ? 1 : 2;
 }
 function getUpgraderWithdrawableEnergy(room, structure) {
   if (matchesStructureType8(structure.structureType, "STRUCTURE_STORAGE", "storage")) {
@@ -13724,9 +13803,6 @@ function getEnergyReturnSinkPriority(structure) {
 }
 function hasVisibleHostileCreeps(room) {
   return findRoomObjects13(room, "FIND_HOSTILE_CREEPS").length > 0;
-}
-function hasVisibleConstructionDemand(room) {
-  return findRoomObjects13(room, "FIND_MY_CONSTRUCTION_SITES").length > 0 || findRoomObjects13(room, "FIND_CONSTRUCTION_SITES").filter((site) => site.my !== false).length > 0;
 }
 function findRoomObjects13(room, globalName) {
   const findConstant = globalThis[globalName];
@@ -13771,7 +13847,11 @@ function compareRoomObjectsByRangeAndId(creep, left, right) {
 }
 function getStableId(object) {
   const id = object.id;
-  return typeof id === "string" ? id : "";
+  if (typeof id === "string") {
+    return id;
+  }
+  const name = object.name;
+  return typeof name === "string" ? name : "";
 }
 function matchesStructureType8(actual, globalName, fallback) {
   var _a;
@@ -24477,9 +24557,7 @@ function isNonEmptyString17(value) {
 }
 
 // src/territory/controllerManager.ts
-var CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY = 550;
-var CONTROLLER_UPGRADE_MEDIUM_ENERGY_CAPACITY = 1300;
-var CONTROLLER_UPGRADE_HIGH_ENERGY_CAPACITY = 2300;
+var CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY = MIN_UPGRADER_BODY_COST;
 function refreshControllerManagement(colony, roleCounts, workerTarget, gameTime, options = {}) {
   const plan = buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTime, options);
   persistControllerManagementPlan(plan);
@@ -24518,7 +24596,7 @@ function buildControllerManagementPlan(colony, roleCounts, workerTarget, gameTim
   const controllerId = controller.id;
   const activeUpgraderCount = (_a = options.activeUpgraderCount) != null ? _a : Math.max(getUpgraderCapacity(roleCounts), countActiveControllerUpgraders(roomName, controllerId));
   const competingSpawnDemand = (_b = options.competingSpawnDemand) != null ? _b : getWorkerCapacity(roleCounts) < workerTarget;
-  const constructionDemand = (_c = options.constructionDemand) != null ? _c : hasVisibleConstructionDemand2(colony.room);
+  const constructionDemand = (_c = options.constructionDemand) != null ? _c : hasVisibleConstructionDemand(colony.room);
   const energyBufferHealthy = (_d = options.energyBufferHealthy) != null ? _d : hasControllerUpgradeSpawnEnergy(colony);
   const upgradePriority = getControllerUpgradePriority(controller, {
     energyAvailable: options.allowReservedSpawnEnergy === true ? colony.energyCapacityAvailable : colony.energyAvailable,
@@ -24567,35 +24645,29 @@ function hasControllerUpgradeSpawnEnergy(colony) {
   if (colony.energyCapacityAvailable < CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY) {
     return false;
   }
-  return getBufferedSpawnEnergyBudget(colony.room, colony.spawns, colony.energyAvailable) >= MIN_UPGRADER_BODY_COST;
+  return normalizeNonNegativeInteger8(colony.energyAvailable) >= MIN_UPGRADER_BODY_COST || getBufferedSpawnEnergyBudget(colony.room, colony.spawns, colony.energyAvailable) >= MIN_UPGRADER_BODY_COST;
 }
 function isControllerUpgradeSpawnPriority(priority) {
   return priority === "rcl1Rush" || priority === "rclProgress" || priority === "energySurplus" || priority === "steady";
 }
 function getDesiredControllerUpgraderCount(priority, colony) {
+  if (!canMaintainDedicatedControllerUpgrader(colony.room.controller)) {
+    return 0;
+  }
   switch (priority) {
     case "rcl1Rush":
-      return 1;
     case "rclProgress":
-      return Math.max(1, Math.min(2, getScaledControllerUpgraderCount(colony)));
     case "energySurplus":
     case "steady":
-      return getScaledControllerUpgraderCount(colony);
+      return 1;
     case "downgradeGuard":
     case "fallback":
     case "none":
       return 0;
   }
 }
-function getScaledControllerUpgraderCount(colony) {
-  const energyCapacity = normalizeNonNegativeInteger8(colony.energyCapacityAvailable);
-  if (energyCapacity >= CONTROLLER_UPGRADE_HIGH_ENERGY_CAPACITY) {
-    return 3;
-  }
-  if (energyCapacity >= CONTROLLER_UPGRADE_MEDIUM_ENERGY_CAPACITY) {
-    return 2;
-  }
-  return energyCapacity >= CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY ? 1 : 0;
+function canMaintainDedicatedControllerUpgrader(controller) {
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && Number.isFinite(controller.level) && controller.level < 8;
 }
 function countActiveControllerUpgraders(roomName, controllerId) {
   const game = globalThis.Game;
@@ -24608,7 +24680,7 @@ function countActiveControllerUpgraders(roomName, controllerId) {
 }
 function canSatisfyControllerUpgradeDemand(creep, roomName, controllerId) {
   var _a;
-  if (creep.ticksToLive !== void 0 && creep.ticksToLive <= WORKER_REPLACEMENT_TICKS_TO_LIVE) {
+  if (creep.ticksToLive !== void 0 && creep.ticksToLive <= 0) {
     return false;
   }
   const upgradeMemory = creep.memory.controllerUpgrade;
@@ -24618,7 +24690,7 @@ function canSatisfyControllerUpgradeDemand(creep, roomName, controllerId) {
   const task = creep.memory.task;
   return creep.memory.role === "worker" && creep.memory.colony === roomName && ((_a = creep.room) == null ? void 0 : _a.name) === roomName && (task == null ? void 0 : task.type) === "upgrade" && task.targetId === controllerId;
 }
-function hasVisibleConstructionDemand2(room) {
+function hasVisibleConstructionDemand(room) {
   return findRoomObjects16(room, "FIND_MY_CONSTRUCTION_SITES").length > 0 || findRoomObjects16(room, "FIND_CONSTRUCTION_SITES").filter((site) => site.my !== false).length > 0;
 }
 function findRoomObjects16(room, globalName) {
@@ -25502,7 +25574,7 @@ function planControllerUpgradeSurplusSpawn(context) {
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
 }
 function planControllerUpgradeDemandSpawn(context) {
-  if (context.territoryIntentPending || context.survival.mode !== "TERRITORY_READY" || hasControllerUpgradeBlockingTerritoryWork(context.colony) || context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony)) {
+  if (context.territoryIntentPending || context.survival.mode === "BOOTSTRAP" || context.survival.hostilePresence || hasControllerUpgradeBlockingTerritoryWork(context.colony) || context.workerCapacity > 0 && shouldSuppressWorkerSpawnForCrossRoomImport(context.colony)) {
     return null;
   }
   const demand = selectControllerUpgradeSpawnDemand(
@@ -25734,13 +25806,16 @@ function selectUpgraderBody(colony) {
     energyAvailable: spawnEnergyBudget != null ? spawnEnergyBudget : colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
     spawnEnergyBudget,
-    spawnBufferPolicy: "respect",
+    spawnBufferPolicy: getSpawnBufferBudgetPolicy(spawnEnergyBudget),
     candidates: [
       {
         role: UPGRADER_ROLE,
         demand: "surplus",
         needed: true,
-        buildBody: (energyBudget) => buildScaledWorkerBody(colony.energyCapacityAvailable, { energyAvailable: energyBudget })
+        buildBody: (energyBudget) => {
+          var _a2;
+          return buildUpgraderBody(energyBudget, (_a2 = colony.room.controller) == null ? void 0 : _a2.level);
+        }
       }
     ]
   });
@@ -34866,8 +34941,12 @@ function runEconomy(preludeTelemetryEvents = []) {
       recordPlannedMultiRoomUpgraderSpawn(spawnRequest.memory);
       const shouldContinueAfterWorkerSpawn = spawnRequest.memory.role === "worker" && !isControllerUpgradeSpawnRequest(spawnRequest);
       const spawnedLocalWorker = shouldContinueAfterWorkerSpawn && spawnRequest.memory.colony === colony.room.name;
+      const spawnedLocalUpgrader = spawnRequest.memory.role === UPGRADER_ROLE && spawnRequest.memory.colony === colony.room.name;
       if (spawnedLocalWorker) {
         roleCounts = addPlannedWorker(roleCounts);
+        plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
+      } else if (spawnedLocalUpgrader) {
+        roleCounts = addPlannedUpgrader(roleCounts);
         plannedRoleCountsByRoom.set(colony.room.name, roleCounts);
       }
       updateNextSpawnEnergyReservation(
@@ -35435,6 +35514,21 @@ function addPlannedWorker(roleCounts) {
     delete nextRoleCounts.workerCapacity;
   } else {
     nextRoleCounts.workerCapacity = workerCapacity;
+  }
+  return nextRoleCounts;
+}
+function addPlannedUpgrader(roleCounts) {
+  var _a, _b, _c;
+  const upgrader = ((_a = roleCounts.upgrader) != null ? _a : 0) + 1;
+  const upgraderCapacity = ((_c = (_b = roleCounts.upgraderCapacity) != null ? _b : roleCounts.upgrader) != null ? _c : 0) + 1;
+  const nextRoleCounts = {
+    ...roleCounts,
+    upgrader
+  };
+  if (upgraderCapacity === upgrader) {
+    delete nextRoleCounts.upgraderCapacity;
+  } else {
+    nextRoleCounts.upgraderCapacity = upgraderCapacity;
   }
   return nextRoleCounts;
 }
