@@ -990,6 +990,10 @@ def render_markdown_summary(report: JsonObject) -> str:
     ]
 
     findings = as_list(report.get("findings"))
+    if report.get("status") == "no-data":
+        lines.extend(["No input data was available; analysis coverage is incomplete.", ""])
+        return "\n".join(lines)
+
     if not findings:
         lines.extend(["No inefficiencies detected.", ""])
         return "\n".join(lines)
@@ -1089,7 +1093,7 @@ def run(args: argparse.Namespace, stdout: TextIO = sys.stdout, stderr: TextIO = 
     json_path, md_path = write_report_artifacts(report, Path(args.output_dir), generated_at)
 
     output = {
-        "ok": report["status"] != "critical",
+        "ok": report["status"] not in {"critical", "no-data"},
         "status": report["status"],
         "criticalCount": nested_value(report, "summary", "criticalCount"),
         "warningCount": nested_value(report, "summary", "warningCount"),
@@ -1098,7 +1102,7 @@ def run(args: argparse.Namespace, stdout: TextIO = sys.stdout, stderr: TextIO = 
     }
     stdout.write(json.dumps(output, sort_keys=True) + "\n")
 
-    if args.check and report["status"] == "critical":
+    if args.check and report["status"] in {"critical", "no-data"}:
         return 1
     return 0
 

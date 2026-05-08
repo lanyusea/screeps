@@ -188,7 +188,7 @@ class BehavioralAnalysisTest(unittest.TestCase):
         self.assertEqual(exit_code, 2)
         self.assertIn("unknown threshold", errors.getvalue())
 
-    def test_cli_writes_json_and_markdown_and_check_fails_on_critical(self) -> None:
+    def test_cli_writes_json_and_markdown_and_check_fails_on_critical_and_no_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             runtime_dir = root / "runtime-summary-console"
@@ -254,6 +254,37 @@ class BehavioralAnalysisTest(unittest.TestCase):
             report = json.loads(report_path.read_text(encoding="utf-8"))
             self.assertEqual(report["status"], "critical")
             self.assertIn("Screeps Behavioral Analysis", summary_path.read_text(encoding="utf-8"))
+
+            empty_runtime_dir = root / "empty-runtime-summary-console"
+            empty_monitor_dir = root / "empty-screeps-monitor"
+            empty_output_dir = root / "empty-behavioral-analysis"
+            empty_runtime_dir.mkdir()
+            empty_monitor_dir.mkdir()
+            stdout = io.StringIO()
+
+            exit_code = analysis.main(
+                [
+                    "--runtime-summary-dir",
+                    str(empty_runtime_dir),
+                    "--monitor-dir",
+                    str(empty_monitor_dir),
+                    "--output-dir",
+                    str(empty_output_dir),
+                    "--check",
+                ],
+                stdout=stdout,
+            )
+
+            self.assertEqual(exit_code, 1)
+            command_output = json.loads(stdout.getvalue())
+            self.assertFalse(command_output["ok"])
+            report_path = Path(command_output["report"])
+            summary_path = Path(command_output["summary"])
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            summary = summary_path.read_text(encoding="utf-8")
+            self.assertEqual(report["status"], "no-data")
+            self.assertIn("No input data was available; analysis coverage is incomplete.", summary)
+            self.assertNotIn("No inefficiencies detected.", summary)
 
 
 if __name__ == "__main__":
