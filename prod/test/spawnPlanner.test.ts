@@ -2,7 +2,8 @@ import {
   generateHarvesterBody,
   getRoomCreepBudget,
   orderColoniesForSpawnPlanning,
-  planSpawn
+  planSpawn,
+  sortSpawnQueueByRolePriority
 } from '../src/spawn/spawnPlanner';
 import { getEnergyReservationScore } from '../src/economy/energyReservation';
 import { ColonySnapshot } from '../src/colony/colonyRegistry';
@@ -412,6 +413,28 @@ describe('planSpawn', () => {
     return creeps ? Object.values(creeps).filter((creep) => creep.room?.name === roomName) : [];
   }
 
+  it('orders spawn queue candidates by role priority before lower tiers', () => {
+    expect(
+      sortSpawnQueueByRolePriority([
+        { id: 'low-scout', priority: 'low', enqueueOrder: 0 },
+        { id: 'normal-worker', priority: 'normal', enqueueOrder: 1 },
+        { id: 'critical-defender', priority: 'critical', enqueueOrder: 2 },
+        { id: 'high-hauler', priority: 'high', enqueueOrder: 3 }
+      ]).map((candidate) => candidate.id)
+    ).toEqual(['critical-defender', 'high-hauler', 'normal-worker', 'low-scout']);
+  });
+
+  it('keeps FIFO order within a spawn queue priority tier', () => {
+    expect(
+      sortSpawnQueueByRolePriority([
+        { id: 'first-hauler', priority: 'high', enqueueOrder: 4 },
+        { id: 'critical-defender', priority: 'critical', enqueueOrder: 5 },
+        { id: 'second-hauler', priority: 'high', enqueueOrder: 6 },
+        { id: 'third-hauler', priority: 'high', enqueueOrder: 7 }
+      ]).map((candidate) => candidate.id)
+    ).toEqual(['critical-defender', 'first-hauler', 'second-hauler', 'third-hauler']);
+  });
+
   it('plans a worker when the colony has no workers and an idle spawn', () => {
     const { colony, spawn } = makeColony();
 
@@ -641,6 +664,36 @@ describe('planSpawn', () => {
         colony: 'W1N28',
         sourceHarvester: {
           roomName: 'W1N28',
+          sourceId: 'source0',
+          containerId: 'container0'
+        }
+      }
+    });
+  });
+
+  it('promotes a missing source harvester ahead of normal worker recovery', () => {
+    const sourcePosition = makeRoomPosition(10, 10, 'W1N40');
+    const container = makeRemoteContainer('container0', 0, 10, 11, 'W1N40') as unknown as AnyStructure;
+    const { colony, spawn } = makeColony({
+      roomName: 'W1N40',
+      sourceCount: 1,
+      sourcePositions: [sourcePosition],
+      structures: [container],
+      energyAvailable: 600,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 600,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 166)).toEqual({
+      spawn,
+      body: ['work', 'work', 'work', 'work', 'work', 'carry', 'move'],
+      name: 'sourceHarvester-W1N40-source0-166',
+      memory: {
+        role: 'sourceHarvester',
+        colony: 'W1N40',
+        sourceHarvester: {
+          roomName: 'W1N40',
           sourceId: 'source0',
           containerId: 'container0'
         }
@@ -1800,6 +1853,56 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 3 }, 505)?.memory.role).not.toBe('hauler');
   });
 
+  it('preempts normal worker recovery when a high-priority hauler fits the energy budget', () => {
+    const container = makeEnergyHaulingStructure('container1', STRUCTURE_CONTAINER, 650, 1_350, 5, 5, 2_000);
+    const storage = makeEnergyHaulingStructure('storage1', STRUCTURE_STORAGE, 1_000, 9_000, 12, 12, 10_000);
+    const { colony, spawn } = makeColony({
+      sourceCount: 0,
+      energyAvailable: 800,
+      energyCapacityAvailable: 800,
+      spawnEnergyBudget: 800,
+      controller: makeSafeOwnedController(),
+      structures: [container as unknown as AnyStructure],
+      ownedStructures: [storage]
+    });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 506,
+      rooms: { W1N1: colony.room },
+      spawns: { Spawn1: spawn },
+      creeps: {}
+    };
+
+    expect(planSpawn(colony, { worker: 3, workerCapacity: 2 }, 506)).toEqual({
+      spawn,
+      body: [
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move',
+        'carry',
+        'move'
+      ],
+      name: 'hauler-W1N1-energy-506',
+      memory: {
+        role: 'hauler',
+        colony: 'W1N1',
+        energyHauler: {
+          roomName: 'W1N1'
+        }
+      }
+    });
+  });
+
   it('plans a remote harvester for a newly claimed adjacent room source before container completion', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,
@@ -2026,6 +2129,19 @@ describe('planSpawn', () => {
     expect(planSpawn(colony, { worker: 4 }, 146)).toBeNull();
   });
 
+  it('defers non-critical worker backlog while room energy is below half capacity', () => {
+    const { colony } = makeColony({
+      roomName: 'W1N41',
+      constructionSiteCount: 1,
+      energyAvailable: 200,
+      energyCapacityAvailable: 600,
+      spawnEnergyBudget: 200,
+      controller: makeSafeOwnedController()
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 147)).toBeNull();
+  });
+
   it('adds one worker target while spawn-extension refill pressure remains after baseline workers', () => {
     const { colony, spawn } = makeColony({
       roomName: 'W1N16',
@@ -2129,9 +2245,13 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, defender: 1 }, 152)).toEqual({
       spawn,
-      body: SCALED_WORKER_550,
-      name: 'worker-W1N9-152',
-      memory: { role: 'worker', colony: 'W1N9' }
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W1N9-152',
+      memory: {
+        role: 'defender',
+        colony: 'W1N9',
+        defense: { homeRoom: 'W1N9' }
+      }
     });
   });
 
@@ -2162,7 +2282,7 @@ describe('planSpawn', () => {
     });
   });
 
-  it('plans local worker refill before an emergency defender while hostiles are visible', () => {
+  it('promotes hostile-room defenders ahead of normal worker refill', () => {
     installHostileFindGlobals();
     const { colony: localRefillColony, spawn: localRefillSpawn } = makeColony({ sourceCount: 2 });
     expect(planSpawn(localRefillColony, { worker: 3 }, 163)).toEqual({
@@ -2177,9 +2297,13 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3 }, 164)).toEqual({
       spawn,
-      body: SCALED_WORKER_300,
-      name: 'worker-W1N1-164',
-      memory: { role: 'worker', colony: 'W1N1' }
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W1N1-164',
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
     });
   });
 

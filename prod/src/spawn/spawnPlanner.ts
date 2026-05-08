@@ -89,6 +89,22 @@ type SpawnPriorityTier =
   | 'multiRoomControllerUpgrade'
   | 'controllerUpgradeSurplus';
 
+export type SpawnQueueRolePriority = 'critical' | 'high' | 'normal' | 'low';
+
+export interface SpawnQueuePriorityCandidate {
+  enqueueOrder: number;
+  priority: SpawnQueueRolePriority;
+}
+
+interface SpawnQueueDefinition {
+  tier: SpawnPriorityTier;
+  getPriority: (context: SpawnPlanningContext) => SpawnQueueRolePriority;
+}
+
+interface SpawnQueueEntry extends SpawnQueuePriorityCandidate {
+  tier: SpawnPriorityTier;
+}
+
 interface SpawnPlanningContext {
   colony: ColonySnapshot;
   gameTime: number;
@@ -189,18 +205,19 @@ const POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
 const POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS = 100;
 const POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY = 200;
 const MINIMUM_EMERGENCY_WORKER_BODY_COST = getBodyCost(EMERGENCY_BOOTSTRAP_WORKER_BODY);
-const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
-  'emergencyBootstrap',
-  'localSourceMining',
-  'localRefillSurvival',
-  'controllerDowngradeGuard',
-  'defense',
-  'localEnergyHauling',
-  'controllerUpgradeDemand',
-  'postClaimControllerSustain',
-  'remoteEconomy',
-  'territoryRemote',
-  'multiRoomControllerUpgrade'
+const LOW_ENERGY_NON_CRITICAL_DEFER_RATIO = 0.5;
+const SPAWN_QUEUE: SpawnQueueDefinition[] = [
+  { tier: 'emergencyBootstrap', getPriority: () => 'critical' },
+  { tier: 'defense', getPriority: getDefenseSpawnQueuePriority },
+  { tier: 'localSourceMining', getPriority: getLocalSourceMiningSpawnQueuePriority },
+  { tier: 'controllerDowngradeGuard', getPriority: () => 'critical' },
+  { tier: 'localEnergyHauling', getPriority: getLocalEnergyHaulingSpawnQueuePriority },
+  { tier: 'remoteEconomy', getPriority: () => 'high' },
+  { tier: 'localRefillSurvival', getPriority: () => 'normal' },
+  { tier: 'postClaimControllerSustain', getPriority: () => 'normal' },
+  { tier: 'controllerUpgradeDemand', getPriority: () => 'normal' },
+  { tier: 'multiRoomControllerUpgrade', getPriority: () => 'normal' },
+  { tier: 'territoryRemote', getPriority: () => 'low' }
 ];
 
 export function planSpawn(
@@ -222,10 +239,15 @@ export function planSpawn(
     workerTarget
   };
 
-  for (const tier of SPAWN_PRIORITY_TIERS) {
-    const request = planSpawnForPriorityTier(tier, context);
+  for (const entry of buildSpawnQueue(context)) {
+    const deferredForLowEnergy = shouldDeferSpawnQueueEntryForLowEnergy(entry, context);
+    if (deferredForLowEnergy && entry.tier !== 'territoryRemote') {
+      continue;
+    }
+
+    const request = planSpawnForPriorityTier(entry.tier, context);
     if (request) {
-      return request;
+      return deferredForLowEnergy ? null : request;
     }
   }
 
@@ -239,6 +261,10 @@ export function orderColoniesForSpawnPlanning(
   return [...colonies].sort((left, right) =>
     compareColoniesForSpawnPlanning(left, right, roleCountsByRoom)
   );
+}
+
+export function sortSpawnQueueByRolePriority<T extends SpawnQueuePriorityCandidate>(queue: readonly T[]): T[] {
+  return [...queue].sort(compareSpawnQueuePriorityCandidates);
 }
 
 export function getSpawnEnergyForecast(colony: ColonySnapshot): SpawnEnergyForecast {
@@ -368,6 +394,111 @@ export function getRoomCreepBudget(
   };
 }
 
+function buildSpawnQueue(context: SpawnPlanningContext): SpawnQueueEntry[] {
+  return sortSpawnQueueByRolePriority(
+    SPAWN_QUEUE.map((definition, enqueueOrder) => ({
+      tier: definition.tier,
+      priority: definition.getPriority(context),
+      enqueueOrder
+    }))
+  );
+}
+
+function compareSpawnQueuePriorityCandidates(
+  left: SpawnQueuePriorityCandidate,
+  right: SpawnQueuePriorityCandidate
+): number {
+  return (
+    getSpawnQueueRolePriorityRank(left.priority) - getSpawnQueueRolePriorityRank(right.priority) ||
+    left.enqueueOrder - right.enqueueOrder
+  );
+}
+
+function getSpawnQueueRolePriorityRank(priority: SpawnQueueRolePriority): number {
+  switch (priority) {
+    case 'critical':
+      return 0;
+    case 'high':
+      return 1;
+    case 'normal':
+      return 2;
+    case 'low':
+      return 3;
+  }
+}
+
+function getDefenseSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
+  return context.survival.hostilePresence ||
+    hasOwnedRoomHostilePresence() ||
+    hasControllerAttackPressure(context.colony.room.controller) ||
+    selectPostClaimControllerDefensePlan(context.colony)
+    ? 'critical'
+    : 'normal';
+}
+
+function getLocalSourceMiningSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
+  return hasLocalSourceHarvesterShortfall(context) ? 'critical' : 'high';
+}
+
+function getLocalEnergyHaulingSpawnQueuePriority(context: SpawnPlanningContext): SpawnQueueRolePriority {
+  const demand = selectEnergyHaulerSpawnDemand(context.colony.room);
+  return demand && demand.activeHaulers <= 0 ? 'high' : 'normal';
+}
+
+function shouldDeferSpawnQueueEntryForLowEnergy(
+  entry: SpawnQueueEntry,
+  context: SpawnPlanningContext
+): boolean {
+  return (
+    isLowSpawnEnergy(context.colony) &&
+    entry.priority !== 'critical' &&
+    !isEmergencyLocalRefillSurvivalEntry(entry, context)
+  );
+}
+
+function isLowSpawnEnergy(colony: ColonySnapshot): boolean {
+  const energyAvailable = normalizeNonNegativeInteger(colony.energyAvailable);
+  const energyCapacityAvailable = normalizeNonNegativeInteger(colony.energyCapacityAvailable);
+  return (
+    energyCapacityAvailable > 0 &&
+    energyAvailable < energyCapacityAvailable * LOW_ENERGY_NON_CRITICAL_DEFER_RATIO
+  );
+}
+
+function isEmergencyLocalRefillSurvivalEntry(
+  entry: SpawnQueueEntry,
+  context: SpawnPlanningContext
+): boolean {
+  return (
+    entry.tier === 'localRefillSurvival' &&
+    (context.workerCapacity < context.survival.survivalWorkerFloor ||
+      context.survival.bootstrapRecovery)
+  );
+}
+
+function hasLocalSourceHarvesterShortfall(context: SpawnPlanningContext): boolean {
+  return (
+    context.options.workersOnly !== true &&
+    context.survival.hostilePresence !== true &&
+    context.survival.controllerDowngradeGuard !== true &&
+    context.colony.room.controller?.my === true &&
+    (context.colony.room.controller.level ?? 0) >= 2 &&
+    context.roleCounts.worker >= LOCAL_SUPPORT_WORKER_FLOOR &&
+    normalizeNonNegativeInteger(context.roleCounts.sourceHarvester ?? 0) < getSourceCount(context.colony.room)
+  );
+}
+
+function hasOwnedRoomHostilePresence(): boolean {
+  const rooms = (globalThis as unknown as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms;
+  if (!rooms) {
+    return false;
+  }
+
+  return Object.values(rooms).some(
+    (room) => room?.controller?.my === true && getRoomHostileCreepCount(room) > 0
+  );
+}
+
 function planSpawnForPriorityTier(
   tier: SpawnPriorityTier,
   context: SpawnPlanningContext
@@ -432,8 +563,7 @@ function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | n
 function planLocalEnergyHaulingSpawn(context: SpawnPlanningContext): SpawnRequest | null {
   if (
     context.options.workersOnly ||
-    context.workerCapacity <= 0 ||
-    context.workerCapacity < context.workerTarget
+    context.workerCapacity <= 0
   ) {
     return null;
   }

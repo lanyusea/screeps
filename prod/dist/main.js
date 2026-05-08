@@ -24780,18 +24780,19 @@ var POST_CLAIM_SUSTAIN_DEFAULT_WORKER_TARGET = 2;
 var POST_CLAIM_SUSTAIN_WORKER_REPLACEMENT_TICKS = 100;
 var POST_CLAIM_SUSTAIN_MIN_HAULER_ENERGY = 200;
 var MINIMUM_EMERGENCY_WORKER_BODY_COST = getBodyCost(EMERGENCY_BOOTSTRAP_WORKER_BODY);
-var SPAWN_PRIORITY_TIERS = [
-  "emergencyBootstrap",
-  "localSourceMining",
-  "localRefillSurvival",
-  "controllerDowngradeGuard",
-  "defense",
-  "localEnergyHauling",
-  "controllerUpgradeDemand",
-  "postClaimControllerSustain",
-  "remoteEconomy",
-  "territoryRemote",
-  "multiRoomControllerUpgrade"
+var LOW_ENERGY_NON_CRITICAL_DEFER_RATIO = 0.5;
+var SPAWN_QUEUE = [
+  { tier: "emergencyBootstrap", getPriority: () => "critical" },
+  { tier: "defense", getPriority: getDefenseSpawnQueuePriority },
+  { tier: "localSourceMining", getPriority: getLocalSourceMiningSpawnQueuePriority },
+  { tier: "controllerDowngradeGuard", getPriority: () => "critical" },
+  { tier: "localEnergyHauling", getPriority: getLocalEnergyHaulingSpawnQueuePriority },
+  { tier: "remoteEconomy", getPriority: () => "high" },
+  { tier: "localRefillSurvival", getPriority: () => "normal" },
+  { tier: "postClaimControllerSustain", getPriority: () => "normal" },
+  { tier: "controllerUpgradeDemand", getPriority: () => "normal" },
+  { tier: "multiRoomControllerUpgrade", getPriority: () => "normal" },
+  { tier: "territoryRemote", getPriority: () => "low" }
 ];
 function planSpawn(colony, roleCounts, gameTime, options = {}) {
   const workerTarget = getWorkerTarget(colony, roleCounts);
@@ -24806,10 +24807,14 @@ function planSpawn(colony, roleCounts, gameTime, options = {}) {
     workerCapacity,
     workerTarget
   };
-  for (const tier of SPAWN_PRIORITY_TIERS) {
-    const request = planSpawnForPriorityTier(tier, context);
+  for (const entry of buildSpawnQueue(context)) {
+    const deferredForLowEnergy = shouldDeferSpawnQueueEntryForLowEnergy(entry, context);
+    if (deferredForLowEnergy && entry.tier !== "territoryRemote") {
+      continue;
+    }
+    const request = planSpawnForPriorityTier(entry.tier, context);
     if (request) {
-      return request;
+      return deferredForLowEnergy ? null : request;
     }
   }
   return null;
@@ -24818,6 +24823,9 @@ function orderColoniesForSpawnPlanning(colonies, roleCountsByRoom) {
   return [...colonies].sort(
     (left, right) => compareColoniesForSpawnPlanning(left, right, roleCountsByRoom)
   );
+}
+function sortSpawnQueueByRolePriority(queue) {
+  return [...queue].sort(compareSpawnQueuePriorityCandidates);
 }
 function getSpawnEnergyForecast(colony) {
   const balance = getStorageBalanceMemory();
@@ -24911,6 +24919,68 @@ function getRoomCreepBudget(colony, roleCounts) {
     reservedSpawnEnergy: forecast.reservedEnergy
   };
 }
+function buildSpawnQueue(context) {
+  return sortSpawnQueueByRolePriority(
+    SPAWN_QUEUE.map((definition, enqueueOrder) => ({
+      tier: definition.tier,
+      priority: definition.getPriority(context),
+      enqueueOrder
+    }))
+  );
+}
+function compareSpawnQueuePriorityCandidates(left, right) {
+  return getSpawnQueueRolePriorityRank(left.priority) - getSpawnQueueRolePriorityRank(right.priority) || left.enqueueOrder - right.enqueueOrder;
+}
+function getSpawnQueueRolePriorityRank(priority) {
+  switch (priority) {
+    case "critical":
+      return 0;
+    case "high":
+      return 1;
+    case "normal":
+      return 2;
+    case "low":
+      return 3;
+  }
+}
+function getDefenseSpawnQueuePriority(context) {
+  return context.survival.hostilePresence || hasOwnedRoomHostilePresence() || hasControllerAttackPressure(context.colony.room.controller) || selectPostClaimControllerDefensePlan(context.colony) ? "critical" : "normal";
+}
+function getLocalSourceMiningSpawnQueuePriority(context) {
+  return hasLocalSourceHarvesterShortfall(context) ? "critical" : "high";
+}
+function getLocalEnergyHaulingSpawnQueuePriority(context) {
+  const demand = selectEnergyHaulerSpawnDemand(context.colony.room);
+  return demand && demand.activeHaulers <= 0 ? "high" : "normal";
+}
+function shouldDeferSpawnQueueEntryForLowEnergy(entry, context) {
+  return isLowSpawnEnergy(context.colony) && entry.priority !== "critical" && !isEmergencyLocalRefillSurvivalEntry(entry, context);
+}
+function isLowSpawnEnergy(colony) {
+  const energyAvailable = normalizeNonNegativeInteger9(colony.energyAvailable);
+  const energyCapacityAvailable = normalizeNonNegativeInteger9(colony.energyCapacityAvailable);
+  return energyCapacityAvailable > 0 && energyAvailable < energyCapacityAvailable * LOW_ENERGY_NON_CRITICAL_DEFER_RATIO;
+}
+function isEmergencyLocalRefillSurvivalEntry(entry, context) {
+  return entry.tier === "localRefillSurvival" && (context.workerCapacity < context.survival.survivalWorkerFloor || context.survival.bootstrapRecovery);
+}
+function hasLocalSourceHarvesterShortfall(context) {
+  var _a, _b, _c;
+  return context.options.workersOnly !== true && context.survival.hostilePresence !== true && context.survival.controllerDowngradeGuard !== true && ((_a = context.colony.room.controller) == null ? void 0 : _a.my) === true && ((_b = context.colony.room.controller.level) != null ? _b : 0) >= 2 && context.roleCounts.worker >= LOCAL_SUPPORT_WORKER_FLOOR && normalizeNonNegativeInteger9((_c = context.roleCounts.sourceHarvester) != null ? _c : 0) < getSourceCount(context.colony.room);
+}
+function hasOwnedRoomHostilePresence() {
+  var _a;
+  const rooms = (_a = globalThis.Game) == null ? void 0 : _a.rooms;
+  if (!rooms) {
+    return false;
+  }
+  return Object.values(rooms).some(
+    (room) => {
+      var _a2;
+      return ((_a2 = room == null ? void 0 : room.controller) == null ? void 0 : _a2.my) === true && getRoomHostileCreepCount(room) > 0;
+    }
+  );
+}
 function planSpawnForPriorityTier(tier, context) {
   switch (tier) {
     case "emergencyBootstrap":
@@ -24957,7 +25027,7 @@ function planLocalSurvivalSpawn(context) {
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
 }
 function planLocalEnergyHaulingSpawn(context) {
-  if (context.options.workersOnly || context.workerCapacity <= 0 || context.workerCapacity < context.workerTarget) {
+  if (context.options.workersOnly || context.workerCapacity <= 0) {
     return null;
   }
   const demand = selectEnergyHaulerSpawnDemand(context.colony.room);

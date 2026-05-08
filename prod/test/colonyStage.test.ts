@@ -160,9 +160,13 @@ describe('colony bootstrap stage', () => {
     });
     expect(planSpawn(defenseColony, { worker: 3 }, 101)).toEqual({
       spawn: defenseSpawn,
-      body: SCALED_WORKER_800,
-      name: 'worker-W1N1-101',
-      memory: { role: 'worker', colony: 'W1N1' }
+      body: ['tough', 'attack', 'move'],
+      name: 'defender-W1N1-101',
+      memory: {
+        role: 'defender',
+        colony: 'W1N1',
+        defense: { homeRoom: 'W1N1' }
+      }
     });
 
     expect(planSpawn(defenseColony, { worker: 4 }, 102)).toEqual({
