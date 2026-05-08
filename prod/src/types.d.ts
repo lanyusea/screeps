@@ -6,6 +6,7 @@ declare global {
       version: number;
     };
     defense?: DefenseMemory;
+    enableMarketTrading?: boolean;
     economy?: EconomyMemory;
     territory?: TerritoryMemory;
     strategyRollback?: Record<
@@ -191,6 +192,7 @@ declare global {
     sourceWorkloads?: Record<string, EconomyRoomSourceWorkloadMemory>;
     storageBalance?: EconomyStorageBalanceMemory;
     terminalLogistics?: EconomyTerminalLogisticsMemory;
+    marketTrading?: EconomyMarketTradingMemory;
     energySurplus?: EconomyEnergySurplusMemory;
     spawnEnergyBuffer?: EconomySpawnEnergyBufferMemory;
     spawnEnergyReservation?: EconomySpawnEnergyReservationMemory;
@@ -405,6 +407,51 @@ declare global {
     availableAt: number;
     result: ScreepsReturnCode;
     description: string;
+    updatedAt: number;
+  }
+
+  type EconomyMarketTradeAction = 'buy' | 'sell';
+  type EconomyMarketTradeReason = 'buyNeeded' | 'sellExcess';
+
+  interface EconomyMarketTradingMemory {
+    updatedAt: number;
+    nextRunAt: number;
+    rooms: Record<string, EconomyMarketTradingRoomMemory>;
+    lastDeal?: EconomyMarketDealMemory;
+    skippedReason?: string;
+  }
+
+  interface EconomyMarketTradingRoomMemory {
+    roomName: string;
+    terminalId?: string;
+    credits: number;
+    cooldown: number;
+    energyBudget: number;
+    terminalEnergy: number;
+    terminalFreeCapacity: number;
+    neededResources: Record<string, number>;
+    excessResources: Record<string, number>;
+    availableAt?: number;
+    updatedAt: number;
+  }
+
+  interface EconomyMarketDealMemory {
+    action: EconomyMarketTradeAction;
+    amount: number;
+    availableAt: number;
+    cooldown: number;
+    creditsDelta: number;
+    energyCost: number;
+    expectedProfit: number;
+    orderId: string;
+    price: number;
+    reason: EconomyMarketTradeReason;
+    referenceOrderId?: string;
+    referencePrice: number;
+    resourceType: MarketResourceConstant;
+    result: ScreepsReturnCode;
+    roomName: string;
+    spread: number;
     updatedAt: number;
   }
 
