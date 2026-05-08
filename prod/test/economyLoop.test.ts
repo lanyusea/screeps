@@ -3099,7 +3099,11 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
-    expect(remoteRoom.createConstructionSite).not.toHaveBeenCalledWith(18, 18, STRUCTURE_SPAWN);
+    expect(remoteRoom.createConstructionSite).not.toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.any(Number),
+      STRUCTURE_SPAWN
+    );
     expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toMatchObject({
       colony: 'W1N1',
       roomName: 'W2N1',
