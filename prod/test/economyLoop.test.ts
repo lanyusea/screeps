@@ -7,6 +7,16 @@ import { RUNTIME_SUMMARY_PREFIX } from '../src/telemetry/runtimeSummary';
 const OK_CODE = 0 as ScreepsReturnCode;
 const ERR_BUSY_CODE = -4 as ScreepsReturnCode;
 const ERR_INVALID_TARGET_CODE = -7 as ScreepsReturnCode;
+const SCALED_WORKER_800: BodyPartConstant[] = [
+  'work',
+  'work',
+  'work',
+  'carry',
+  'carry',
+  'move',
+  'move',
+  'move'
+];
 
 describe('runEconomy', () => {
   let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
@@ -1950,7 +1960,7 @@ describe('runEconomy', () => {
     expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
     expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
     expect(spawn1.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      SCALED_WORKER_800,
       'worker-W1N1-323',
       {
         memory: { role: 'worker', colony: 'W1N1' }
@@ -2085,7 +2095,7 @@ describe('runEconomy', () => {
 
     expect(spawn.spawnCreep).toHaveBeenCalledTimes(1);
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      SCALED_WORKER_800,
       'worker-W1N1-326',
       {
         memory: { role: 'worker', colony: 'W1N1' }
@@ -2099,7 +2109,7 @@ describe('runEconomy', () => {
       sourceRole: 'worker'
     });
     expect(Memory.economy?.spawnEnergyBuffer?.rooms.W1N1).toMatchObject({
-      currentEnergy: 3_400,
+      currentEnergy: 3_500,
       reservedEnergy: 3_250,
       unmetReservedEnergy: 250
     });
@@ -2275,7 +2285,7 @@ describe('runEconomy', () => {
     expect(spawn1.spawnCreep).toHaveBeenCalledTimes(1);
     expect(spawn2.spawnCreep).toHaveBeenCalledTimes(1);
     expect(spawn1.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      SCALED_WORKER_800,
       'worker-W1N1-324',
       {
         memory: { role: 'worker', colony: 'W1N1' }

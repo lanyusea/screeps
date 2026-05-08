@@ -8,6 +8,17 @@ import {
 } from '../src/colony/colonyStage';
 import { planSpawn } from '../src/spawn/spawnPlanner';
 
+const SCALED_WORKER_800: BodyPartConstant[] = [
+  'work',
+  'work',
+  'work',
+  'carry',
+  'carry',
+  'move',
+  'move',
+  'move'
+];
+
 describe('colony bootstrap stage', () => {
   beforeEach(() => {
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 1;
@@ -149,7 +160,7 @@ describe('colony bootstrap stage', () => {
     });
     expect(planSpawn(defenseColony, { worker: 3 }, 101)).toEqual({
       spawn: defenseSpawn,
-      body: ['work', 'work', 'work', 'work', 'carry', 'move', 'move', 'move', 'move', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N1-101',
       memory: { role: 'worker', colony: 'W1N1' }
     });
@@ -191,7 +202,7 @@ describe('colony bootstrap stage', () => {
     expect(getWorkerTarget(colony, roleCounts)).toBe(6);
     expect(planSpawn(colony, roleCounts, 201)).toEqual({
       spawn,
-      body: ['work', 'carry', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move', 'move'],
+      body: SCALED_WORKER_800,
       name: 'worker-W1N1-201',
       memory: { role: 'worker', colony: 'W1N1' }
     });

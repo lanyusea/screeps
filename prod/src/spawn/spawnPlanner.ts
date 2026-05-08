@@ -34,6 +34,7 @@ import {
   type DynamicCreepBodyDemand,
   type SpawnBufferBudgetPolicy
 } from '../economy/creepBodyScaling';
+import { buildScaledWorkerBody } from '../economy/worker-body-scaling';
 import {
   buildEnergyHaulerBody,
   selectEnergyHaulerSpawnDemand
@@ -41,14 +42,11 @@ import {
 import { getEnergyReservationScore } from '../economy/energyReservation';
 import { getReservedSpawnEnergy } from '../economy/spawnEnergyReservation';
 import {
-  buildEmergencyWorkerBody,
   buildRemoteHarvesterBody,
   buildRemoteHaulerBody,
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildTerritoryReserverBody,
-  buildUpgraderBody,
-  buildWorkerBody,
   getBodyCost,
   TERRITORY_SCOUT_BODY,
   TERRITORY_SCOUT_BODY_COST
@@ -1511,18 +1509,6 @@ function isWorkerOnlyFollowUpPass(options: SpawnPlanningOptions): boolean {
 }
 
 function selectWorkerBody(colony: ColonySnapshot, roleCounts: RoleCounts): BodyPartConstant[] {
-  if (shouldUseSourceHarvesterBody(colony, roleCounts)) {
-    const localSpawns = colony.spawns.filter((spawn) => spawn.room?.name === colony.room.name);
-    const sourceDistance =
-      localSpawns.length > 0 ? estimateLocalSourceDistance({ ...colony, spawns: localSpawns }) : 1;
-    return selectDynamicBodyForColony(
-      colony,
-      'sourceHarvester',
-      getWorkerDynamicBodyDemand(colony, roleCounts),
-      (energyBudget) => generateHarvesterBody(energyBudget, sourceDistance)
-    );
-  }
-
   return selectDynamicBodyForColony(
     colony,
     'worker',
@@ -1536,17 +1522,10 @@ function buildWorkerBodyForDemandBudget(
   roleCounts: RoleCounts,
   energyBudget: number
 ): BodyPartConstant[] {
-  const controllerLevel = colony.room.controller?.level;
-  const normalBody = buildWorkerBody(colony.energyCapacityAvailable, controllerLevel);
-  if (canAffordBody(normalBody, energyBudget)) {
-    return normalBody;
-  }
-
-  if (roleCounts.worker === 0) {
-    return buildEmergencyWorkerBody(energyBudget);
-  }
-
-  return buildWorkerBody(energyBudget, controllerLevel);
+  return buildScaledWorkerBody(colony.energyCapacityAvailable, {
+    energyAvailable: energyBudget,
+    emergency: roleCounts.worker === 0
+  });
 }
 
 function selectDynamicBodyForColony(
@@ -1577,7 +1556,6 @@ function selectDynamicBodyForColony(
 }
 
 function selectUpgraderBody(colony: ColonySnapshot): BodyPartConstant[] {
-  const controllerLevel = colony.room.controller?.level;
   const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony, 'surplus');
   const selection = selectDynamicCreepBody({
     room: colony.room,
@@ -1591,7 +1569,8 @@ function selectUpgraderBody(colony: ColonySnapshot): BodyPartConstant[] {
         role: UPGRADER_ROLE,
         demand: 'surplus',
         needed: true,
-        buildBody: (energyBudget) => buildUpgraderBody(energyBudget, controllerLevel)
+        buildBody: (energyBudget) =>
+          buildScaledWorkerBody(colony.energyCapacityAvailable, { energyAvailable: energyBudget })
       }
     ]
   });
@@ -1715,41 +1694,6 @@ function getHarvesterBodyPartCount(workParts: number, carryParts: number): numbe
   return workParts + carryParts + workParts + carryParts;
 }
 
-function shouldUseSourceHarvesterBody(colony: ColonySnapshot, roleCounts: RoleCounts): boolean {
-  const sourceAwareWorkerTarget = getSourceAwareWorkerTarget(colony.room);
-  const workerCapacity = getWorkerCapacity(roleCounts);
-  return (
-    sourceAwareWorkerTarget > LOCAL_SUPPORT_WORKER_FLOOR &&
-    roleCounts.worker >= LOCAL_SUPPORT_WORKER_FLOOR &&
-    workerCapacity < sourceAwareWorkerTarget
-  );
-}
-
-function getSourceAwareWorkerTarget(room: Room): number {
-  return getSourceCount(room) * 2;
-}
-
-function estimateLocalSourceDistance(colony: ColonySnapshot): number {
-  const spawnPositions = colony.spawns
-    .map((spawn) => spawn.pos)
-    .filter((pos): pos is RoomPosition => pos !== undefined);
-  const sourcePositions = getRoomSources(colony.room)
-    .map((source) => source.pos)
-    .filter((pos): pos is RoomPosition => pos !== undefined);
-  if (spawnPositions.length === 0 || sourcePositions.length === 0) {
-    return 1;
-  }
-
-  const distances = sourcePositions.flatMap((sourcePos) =>
-    spawnPositions.map((spawnPos) => getApproximateRange(sourcePos, spawnPos))
-  );
-  if (distances.length === 0) {
-    return 1;
-  }
-
-  return Math.ceil(distances.reduce((total, distance) => total + distance, 0) / distances.length);
-}
-
 function getApproximateRange(left: RoomPosition, right: RoomPosition): number {
   if (left.roomName !== right.roomName) {
     return 50;
@@ -1764,10 +1708,6 @@ function normalizeNonNegativeInteger(value: number): number {
 
 function normalizeOptionalNonNegativeInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined;
-}
-
-function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {
-  return body.length > 0 && getBodyCost(body) <= energyAvailable;
 }
 
 export function buildTerritorySpawnBody(energyAvailable: number, intent: TerritoryIntentPlan): BodyPartConstant[] {

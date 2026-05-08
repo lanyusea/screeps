@@ -3,6 +3,8 @@ import { WORKER_REPLACEMENT_TICKS_TO_LIVE } from '../src/creeps/roleCounts';
 import { MIN_SPAWN_ENERGY_BUFFER } from '../src/spawn/spawnConfig';
 import { URGENT_SPAWN_REFILL_ENERGY_THRESHOLD } from '../src/tasks/workerTasks';
 
+const SCALED_WORKER_300: BodyPartConstant[] = ['work', 'work', 'carry', 'move'];
+
 describe('MVP economy lifecycle', () => {
   let logSpy: jest.SpyInstance<void, [message?: unknown, ...optionalParams: unknown[]]>;
 
@@ -233,7 +235,7 @@ describe('MVP economy lifecycle', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['work', 'carry', 'move'],
+      SCALED_WORKER_300,
       'worker-W1N1-10',
       {
         memory: { role: 'worker', colony: 'W1N1' }
