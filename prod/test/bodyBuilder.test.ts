@@ -219,7 +219,7 @@ describe('buildTerritoryControllerBody', () => {
     expect(buildTerritoryControllerBody(650)).toEqual(['claim', 'move']);
   });
 
-  it('scales claim and move pairs by route distance and energy budget', () => {
+  it('caps claimers to one claim and move pair across route distances and energy budgets', () => {
     const expectedBodies: Record<number, Record<number, BodyPartConstant[]>> = {
       1: {
         300: [],
@@ -232,29 +232,29 @@ describe('buildTerritoryControllerBody', () => {
         300: [],
         500: [],
         800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
-        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 2),
-        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 2)
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 1)
       },
       10: {
         300: [],
         500: [],
         800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
-        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 2),
-        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 2)
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 1)
       },
       20: {
         300: [],
         500: [],
         800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
-        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 2),
-        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 3)
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 1)
       },
       50: {
         300: [],
         500: [],
         800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
-        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 2),
-        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 3)
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 1)
       }
     };
 
@@ -267,7 +267,7 @@ describe('buildTerritoryControllerBody', () => {
     }
   });
 
-  it('keeps one move part for each claim part across distance-aware bodies', () => {
+  it('keeps one move part for each claim part across capped claimer bodies', () => {
     for (const routeDistance of claimerDistanceCases) {
       for (const energyBudget of claimerBudgetCases) {
         const body = buildTerritoryClaimerBody(energyBudget, routeDistance);

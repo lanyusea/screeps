@@ -2114,21 +2114,20 @@ var TERRITORY_CONTROLLER_BODY_COST = 650;
 
 // src/spawn/bodyTemplates.ts
 var MAX_CREEP_PARTS2 = 50;
-var MAX_TERRITORY_CLAIMER_CLAIM_PARTS = 5;
 var TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS = 5;
 var TERRITORY_CONTROLLER_PRESSURE_BODY = Array.from(
   { length: TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS },
   () => TERRITORY_CONTROLLER_BODY
 ).flat();
 var TERRITORY_CONTROLLER_PRESSURE_BODY_COST = TERRITORY_CONTROLLER_BODY_COST * TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
-function buildTerritoryClaimerBody(energyAvailable, routeDistance = 1) {
+function buildTerritoryClaimerBody(energyAvailable, _routeDistance = 1) {
   if (energyAvailable < TERRITORY_CONTROLLER_BODY_COST) {
     return [];
   }
   const maxClaimPartsByEnergy = Math.floor(energyAvailable / TERRITORY_CONTROLLER_BODY_COST);
   const maxClaimPartsBySize = Math.floor(MAX_CREEP_PARTS2 / TERRITORY_CONTROLLER_BODY.length);
   const claimParts = Math.min(
-    getDesiredTerritoryClaimerClaimParts(routeDistance),
+    1,
     maxClaimPartsByEnergy,
     maxClaimPartsBySize
   );
@@ -2136,19 +2135,6 @@ function buildTerritoryClaimerBody(energyAvailable, routeDistance = 1) {
     return [];
   }
   return Array.from({ length: claimParts }).flatMap(() => TERRITORY_CONTROLLER_BODY);
-}
-function getDesiredTerritoryClaimerClaimParts(routeDistance) {
-  const normalizedDistance = normalizePositiveInteger(routeDistance, 1);
-  if (normalizedDistance <= 1) {
-    return 1;
-  }
-  return Math.min(
-    MAX_TERRITORY_CLAIMER_CLAIM_PARTS,
-    1 + Math.ceil(normalizedDistance / 10)
-  );
-}
-function normalizePositiveInteger(value, fallback) {
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
 // src/spawn/bodyBuilder.ts

@@ -2705,7 +2705,7 @@ describe('planSpawn', () => {
     ]);
   });
 
-  it('uses a distance-aware optimized claimer body for long claim intents', () => {
+  it('uses a single-claim optimized claimer body for long claim intents', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 2_000,
       energyCapacityAvailable: 2_000,
@@ -2737,7 +2737,7 @@ describe('planSpawn', () => {
 
     expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 153)).toEqual({
       spawn,
-      body: ['claim', 'move', 'claim', 'move', 'claim', 'move'],
+      body: ['claim', 'move'],
       name: 'claimer-W1N1-W4N1-153',
       memory: {
         role: 'claimer',

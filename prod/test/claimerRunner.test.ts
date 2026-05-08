@@ -648,12 +648,12 @@ describe('runClaimer', () => {
     });
   });
 
-  it('keeps a large generated claimer body mobile enough to travel to the target', () => {
+  it('keeps a single-claim generated claimer body mobile enough to travel to the target', () => {
     const generatedBody = buildTerritoryControllerBody(2000, 20);
     const movePartCount = generatedBody.filter((part) => part === 'move').length;
     const claimPartCount = generatedBody.filter((part) => part === 'claim').length;
 
-    expect(generatedBody).toEqual(['claim', 'move', 'claim', 'move', 'claim', 'move']);
+    expect(generatedBody).toEqual(['claim', 'move']);
     expect(movePartCount).toBe(claimPartCount);
 
     const controller = { id: 'controller1', my: false } as StructureController;
