@@ -45,6 +45,7 @@ declare global {
     sourceHarvester?: CreepSourceHarvesterMemory;
     remoteHarvester?: CreepRemoteHarvesterMemory;
     remoteHauler?: CreepRemoteHaulerMemory;
+    energyHauler?: CreepEnergyHaulerMemory;
     workerEfficiency?: WorkerEfficiencySampleMemory;
     refillTelemetry?: WorkerRefillTelemetryMemory;
     constructionPreBuffer?: WorkerConstructionPreBufferMemory;
@@ -171,6 +172,10 @@ declare global {
     targetRoom: string;
     sourceId: Id<Source>;
     containerId: Id<StructureContainer>;
+  }
+
+  interface CreepEnergyHaulerMemory {
+    roomName: string;
   }
 
   interface CreepInterRoomEnergyHaulMemory {
