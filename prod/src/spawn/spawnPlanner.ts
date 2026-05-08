@@ -34,6 +34,10 @@ import {
   type DynamicCreepBodyDemand,
   type SpawnBufferBudgetPolicy
 } from '../economy/creepBodyScaling';
+import {
+  buildEnergyHaulerBody,
+  selectEnergyHaulerSpawnDemand
+} from '../economy/energyHauling';
 import { getReservedSpawnEnergy } from '../economy/spawnEnergyReservation';
 import {
   buildEmergencyWorkerBody,
@@ -76,6 +80,7 @@ type SpawnPriorityTier =
   | 'localSourceMining'
   | 'defense'
   | 'localRefillSurvival'
+  | 'localEnergyHauling'
   | 'controllerDowngradeGuard'
   | 'postClaimControllerSustain'
   | 'remoteEconomy'
@@ -190,6 +195,7 @@ const SPAWN_PRIORITY_TIERS: SpawnPriorityTier[] = [
   'localRefillSurvival',
   'controllerDowngradeGuard',
   'defense',
+  'localEnergyHauling',
   'postClaimControllerSustain',
   'remoteEconomy',
   'territoryRemote',
@@ -373,6 +379,8 @@ function planSpawnForPriorityTier(
       return planLocalSourceMiningSpawn(context);
     case 'localRefillSurvival':
       return planLocalSurvivalSpawn(context);
+    case 'localEnergyHauling':
+      return planLocalEnergyHaulingSpawn(context);
     case 'controllerDowngradeGuard':
       return planControllerDowngradeGuardSpawn(context);
     case 'postClaimControllerSustain':
@@ -419,6 +427,52 @@ function planLocalSurvivalSpawn(context: SpawnPlanningContext): SpawnRequest | n
   }
 
   return planWorkerSpawn(context.colony, context.roleCounts, context.gameTime, context.options);
+}
+
+function planLocalEnergyHaulingSpawn(context: SpawnPlanningContext): SpawnRequest | null {
+  if (
+    context.options.workersOnly ||
+    context.workerCapacity <= 0 ||
+    context.workerCapacity < context.workerTarget
+  ) {
+    return null;
+  }
+
+  const demand = selectEnergyHaulerSpawnDemand(context.colony.room);
+  if (!demand) {
+    return null;
+  }
+
+  const spawn = context.colony.spawns.find((candidate) => !candidate.spawning);
+  if (!spawn) {
+    return null;
+  }
+
+  const body = selectDynamicBodyForColony(
+    context.colony,
+    HAULER_ROLE,
+    'standard',
+    (energyBudget) => buildEnergyHaulerBody(Math.min(energyBudget, context.colony.energyCapacityAvailable))
+  );
+  if (body.length === 0) {
+    return null;
+  }
+
+  return {
+    spawn,
+    body,
+    name: appendSpawnNameSuffix(
+      `${HAULER_ROLE}-${context.colony.room.name}-energy-${context.gameTime}`,
+      context.options
+    ),
+    memory: {
+      role: HAULER_ROLE,
+      colony: context.colony.room.name,
+      energyHauler: {
+        roomName: demand.roomName
+      }
+    }
+  };
 }
 
 function planLocalSourceMiningSpawn(context: SpawnPlanningContext): SpawnRequest | null {

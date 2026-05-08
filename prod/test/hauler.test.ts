@@ -12,6 +12,7 @@ describe('runHauler', () => {
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
+    (globalThis as unknown as { STRUCTURE_LINK: StructureConstant }).STRUCTURE_LINK = 'link';
     (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
@@ -188,6 +189,37 @@ describe('runHauler', () => {
     expect(creep.transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
     expect(creep.moveTo).not.toHaveBeenCalled();
   });
+
+  it('withdraws local energy from the nearest eligible hauling source', () => {
+    const lowContainer = makeStoreStructure('container-low', STRUCTURE_CONTAINER, 50, 1_950, 2_000, 3, 3);
+    const farContainer = makeStoreStructure('container-far', STRUCTURE_CONTAINER, 800, 1_200, 2_000, 20, 20);
+    const storage = makeStoreStructure('storage-near', STRUCTURE_STORAGE, 300, 9_700, 10_000, 6, 6);
+    const spawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 100, 200, 300, 10, 10);
+    const room = makeRoom('W1N1', true, [spawn], [], [
+      lowContainer as unknown as Structure,
+      farContainer as unknown as Structure,
+      storage as unknown as Structure
+    ]);
+    const creep = makeLocalHauler(room, 0);
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'withdraw', targetId: 'storage-near' });
+    expect(creep.withdraw).toHaveBeenCalledWith(storage, RESOURCE_ENERGY);
+  });
+
+  it('delivers local energy by priority before distance', () => {
+    const spawn = makeStoreStructure('spawn1', STRUCTURE_SPAWN, 100, 200, 300, 20, 20);
+    const extension = makeStoreStructure('extension1', STRUCTURE_EXTENSION, 0, 50, 50, 3, 3);
+    const tower = makeStoreStructure('tower1', STRUCTURE_TOWER, 200, 800, 1_000, 2, 2);
+    const room = makeRoom('W1N1', true, [tower, extension, spawn], []);
+    const creep = makeLocalHauler(room, 100);
+
+    runHauler(creep);
+
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'spawn1' });
+    expect(creep.transfer).toHaveBeenCalledWith(spawn, RESOURCE_ENERGY);
+  });
 });
 
 function makeHauler(room: Room, carriedEnergy: number): Creep {
@@ -202,6 +234,24 @@ function makeHauler(room: Room, carriedEnergy: number): Creep {
         containerId: 'container1' as Id<StructureContainer>
       }
     },
+    room,
+    store: {
+      getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? carriedEnergy : 0))
+    },
+    withdraw: jest.fn().mockReturnValue(OK_CODE),
+    transfer: jest.fn().mockReturnValue(OK_CODE),
+    moveTo: jest.fn()
+  } as unknown as Creep;
+}
+
+function makeLocalHauler(room: Room, carriedEnergy: number): Creep {
+  return {
+    memory: {
+      role: 'hauler',
+      colony: room.name,
+      energyHauler: { roomName: room.name }
+    },
+    pos: makeRoomPosition(1, 1, room.name),
     room,
     store: {
       getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? carriedEnergy : 0))
@@ -245,15 +295,30 @@ function makeStoreStructure(
   structureType: StructureConstant,
   usedEnergy: number,
   freeEnergy: number,
-  capacity = usedEnergy + freeEnergy
+  capacity = usedEnergy + freeEnergy,
+  x = 10,
+  y = 10
 ): AnyOwnedStructure {
   return {
     id,
     structureType,
+    pos: makeRoomPosition(x, y),
     store: {
       getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? usedEnergy : 0)),
       getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeEnergy : 0)),
       getCapacity: jest.fn((resource?: ResourceConstant) => (resource === undefined || resource === RESOURCE_ENERGY ? capacity : 0))
     }
   } as unknown as AnyOwnedStructure;
+}
+
+function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
+  return {
+    x,
+    y,
+    roomName,
+    getRangeTo: jest.fn((target: RoomObject | RoomPosition) => {
+      const position = 'pos' in target ? target.pos : target;
+      return Math.max(Math.abs(x - position.x), Math.abs(y - position.y));
+    })
+  } as unknown as RoomPosition;
 }
