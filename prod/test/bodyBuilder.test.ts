@@ -3,6 +3,7 @@ import {
   buildEmergencyWorkerBody,
   buildRemoteHarvesterBody,
   buildRemoteHaulerBody,
+  buildTerritoryClaimerBody,
   buildTerritoryControllerBody,
   buildTerritoryControllerPressureBody,
   buildTerritoryReserverBody,
@@ -204,32 +205,80 @@ describe('buildEmergencyDefenderBody', () => {
 });
 
 describe('buildTerritoryControllerBody', () => {
-  it('returns an empty body below one claim and move part', () => {
-    expect(buildTerritoryControllerBody(649)).toEqual([]);
+  const claimerBudgetCases = [300, 500, 800, 1_300, 2_000];
+  const claimerDistanceCases = [1, 5, 10, 20, 50];
+
+  it('returns an empty body below one claim and move part at each route distance', () => {
+    for (const routeDistance of claimerDistanceCases) {
+      expect(buildTerritoryClaimerBody(300, routeDistance)).toEqual([]);
+      expect(buildTerritoryClaimerBody(500, routeDistance)).toEqual([]);
+    }
   });
 
-  it('builds one claim and move part when affordable', () => {
+  it('keeps the legacy controller body wrapper on the minimum claimer body', () => {
     expect(buildTerritoryControllerBody(650)).toEqual(['claim', 'move']);
   });
 
-  it('adds full work/carry/move triplets when enough energy is available', () => {
-    expect(buildTerritoryControllerBody(800)).toEqual(['claim', 'move']);
-    expect(buildTerritoryControllerBody(900)).toEqual(['claim', 'move', 'work', 'carry', 'move']);
-    expect(buildTerritoryControllerBody(2000)).toEqual([
-      'claim',
-      'move',
-      ...Array.from({ length: 5 }).flatMap(() => ['work', 'carry', 'move'] as const)
-    ]);
+  it('scales claim and move pairs by route distance and energy budget', () => {
+    const expectedBodies: Record<number, Record<number, BodyPartConstant[]>> = {
+      1: {
+        300: [],
+        500: [],
+        800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 1)
+      },
+      5: {
+        300: [],
+        500: [],
+        800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 2),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 2)
+      },
+      10: {
+        300: [],
+        500: [],
+        800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 2),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 2)
+      },
+      20: {
+        300: [],
+        500: [],
+        800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 2),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 3)
+      },
+      50: {
+        300: [],
+        500: [],
+        800: repeatPattern(TERRITORY_CONTROLLER_BODY, 1),
+        1_300: repeatPattern(TERRITORY_CONTROLLER_BODY, 2),
+        2_000: repeatPattern(TERRITORY_CONTROLLER_BODY, 3)
+      }
+    };
+
+    for (const routeDistance of claimerDistanceCases) {
+      for (const energyBudget of claimerBudgetCases) {
+        expect(buildTerritoryClaimerBody(energyBudget, routeDistance)).toEqual(
+          expectedBodies[routeDistance][energyBudget]
+        );
+      }
+    }
   });
 
-  it('keeps move parts in proportion to non-move parts as energy scales', () => {
-    const body = buildTerritoryControllerBody(2000);
-    const moveParts = body.filter((part) => part === 'move').length;
-    const nonMoveParts = body.filter((part) => part !== 'move').length;
-    const upgradePairs = body.filter((part) => part === 'work').length;
+  it('keeps one move part for each claim part across distance-aware bodies', () => {
+    for (const routeDistance of claimerDistanceCases) {
+      for (const energyBudget of claimerBudgetCases) {
+        const body = buildTerritoryClaimerBody(energyBudget, routeDistance);
+        const moveParts = body.filter((part) => part === 'move').length;
+        const claimParts = body.filter((part) => part === 'claim').length;
 
-    expect(nonMoveParts).toBeLessThanOrEqual(moveParts * 3);
-    expect(moveParts).toBe(1 + upgradePairs);
+        expect(moveParts).toBe(claimParts);
+        expect(body.every((part) => part === 'claim' || part === 'move')).toBe(true);
+        expect(getBodyCost(body)).toBeLessThanOrEqual(energyBudget);
+      }
+    }
   });
 });
 

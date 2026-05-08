@@ -1508,16 +1508,7 @@ describe('expansion planner', () => {
   });
 
   it('keeps claimer and reserver body selection distinct for expansion intents', () => {
-    expect(buildTerritorySpawnBody(1_300, makeIntent('claim'))).toEqual([
-      'claim',
-      'move',
-      'work',
-      'carry',
-      'move',
-      'work',
-      'carry',
-      'move'
-    ]);
+    expect(buildTerritorySpawnBody(1_300, makeIntent('claim'))).toEqual(['claim', 'move']);
     expect(buildTerritorySpawnBody(1_300, makeIntent('reserve'))).toEqual(['claim', 'claim', 'move', 'move']);
   });
 });

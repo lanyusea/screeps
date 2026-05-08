@@ -1318,7 +1318,7 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['claim', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      ['claim', 'move'],
       'claimer-W1N1-W2N1-320',
       {
         memory: {
@@ -1407,7 +1407,7 @@ describe('runEconomy', () => {
     runEconomy();
 
     expect(spawn.spawnCreep).toHaveBeenCalledWith(
-      ['claim', 'move', 'work', 'carry', 'move', 'work', 'carry', 'move'],
+      ['claim', 'move'],
       'claimer-W1N1-W2N1-505',
       {
         memory: {

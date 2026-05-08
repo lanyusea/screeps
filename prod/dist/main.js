@@ -2113,32 +2113,42 @@ var TERRITORY_CONTROLLER_BODY = ["claim", "move"];
 var TERRITORY_CONTROLLER_BODY_COST = 650;
 
 // src/spawn/bodyTemplates.ts
-var TERRITORY_CLAIMER_UPGRADE_PARTS = ["work", "carry", "move"];
-var TERRITORY_CLAIMER_UPGRADE_PART_COST = 250;
 var MAX_CREEP_PARTS2 = 50;
+var MAX_TERRITORY_CLAIMER_CLAIM_PARTS = 5;
 var TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS = 5;
 var TERRITORY_CONTROLLER_PRESSURE_BODY = Array.from(
   { length: TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS },
   () => TERRITORY_CONTROLLER_BODY
 ).flat();
 var TERRITORY_CONTROLLER_PRESSURE_BODY_COST = TERRITORY_CONTROLLER_BODY_COST * TERRITORY_CONTROLLER_PRESSURE_CLAIM_PARTS;
-function buildTerritoryClaimerBody(energyAvailable) {
+function buildTerritoryClaimerBody(energyAvailable, routeDistance = 1) {
   if (energyAvailable < TERRITORY_CONTROLLER_BODY_COST) {
     return [];
   }
-  const upgradeEnergy = energyAvailable - TERRITORY_CONTROLLER_BODY_COST;
-  const maxUpgradePairsByEnergy = Math.floor(upgradeEnergy / TERRITORY_CLAIMER_UPGRADE_PART_COST);
-  const maxUpgradePairsByCapacity = Math.floor(
-    (MAX_CREEP_PARTS2 - TERRITORY_CONTROLLER_BODY.length) / TERRITORY_CLAIMER_UPGRADE_PARTS.length
+  const maxClaimPartsByEnergy = Math.floor(energyAvailable / TERRITORY_CONTROLLER_BODY_COST);
+  const maxClaimPartsBySize = Math.floor(MAX_CREEP_PARTS2 / TERRITORY_CONTROLLER_BODY.length);
+  const claimParts = Math.min(
+    getDesiredTerritoryClaimerClaimParts(routeDistance),
+    maxClaimPartsByEnergy,
+    maxClaimPartsBySize
   );
-  const upgradePairs = Math.min(maxUpgradePairsByEnergy, maxUpgradePairsByCapacity);
-  if (upgradePairs <= 0) {
-    return [...TERRITORY_CONTROLLER_BODY];
+  if (claimParts <= 0) {
+    return [];
   }
-  return [
-    ...TERRITORY_CONTROLLER_BODY,
-    ...Array.from({ length: upgradePairs }).flatMap(() => TERRITORY_CLAIMER_UPGRADE_PARTS)
-  ];
+  return Array.from({ length: claimParts }).flatMap(() => TERRITORY_CONTROLLER_BODY);
+}
+function getDesiredTerritoryClaimerClaimParts(routeDistance) {
+  const normalizedDistance = normalizePositiveInteger(routeDistance, 1);
+  if (normalizedDistance <= 1) {
+    return 1;
+  }
+  return Math.min(
+    MAX_TERRITORY_CLAIMER_CLAIM_PARTS,
+    1 + Math.ceil(normalizedDistance / 10)
+  );
+}
+function normalizePositiveInteger(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
 // src/spawn/bodyBuilder.ts
@@ -2302,8 +2312,8 @@ function buildUpgraderBody(energyAvailable, controllerLevel) {
   const body = Array.from({ length: patternCount }).flatMap(() => UPGRADER_PATTERN);
   return addUpgraderRemainderParts(body, energyBudget, patternCount * UPGRADER_PATTERN_COST);
 }
-function buildTerritoryControllerBody(energyAvailable) {
-  return buildTerritoryClaimerBody(energyAvailable);
+function buildTerritoryControllerBody(energyAvailable, routeDistance = 1) {
+  return buildTerritoryClaimerBody(energyAvailable, routeDistance);
 }
 function buildTerritoryReserverBody(energyAvailable) {
   const pairCount = Math.min(
@@ -10262,6 +10272,7 @@ var OCCUPATION_RECOMMENDATION_TARGET_CREATOR2 = "occupationRecommendation";
 var REMOTE_MINING_SOURCE_CONTAINER_MIN_RCL = 0;
 var MAX_CONTROLLER_LEVEL = 8;
 var recoveredTerritoryFollowUpRetryMetadata = /* @__PURE__ */ new WeakMap();
+var territoryIntentRouteDistances = /* @__PURE__ */ new WeakMap();
 function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options = {}) {
   if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
     return null;
@@ -10281,6 +10292,9 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options
     ...selection.followUp ? { followUp: selection.followUp } : {},
     ...selection.postClaimBootstrapReserveEnergy ? { postClaimBootstrapReserveEnergy: selection.postClaimBootstrapReserveEnergy } : {}
   };
+  if (selection.routeDistance !== void 0) {
+    territoryIntentRouteDistances.set(plan, selection.routeDistance);
+  }
   if (selection.recoveredFollowUp === true && typeof selection.recoveredFollowUpSuppressedAt === "number") {
     recoveredTerritoryFollowUpRetryMetadata.set(plan, { suppressedAt: selection.recoveredFollowUpSuppressedAt });
   }
@@ -10293,6 +10307,10 @@ function planTerritoryIntent(colony, roleCounts, workerTarget, gameTime, options
     selection.routeDistanceLookupContext
   );
   return plan;
+}
+function getTerritoryIntentRouteDistance(plan) {
+  var _a;
+  return (_a = plan.routeDistance) != null ? _a : territoryIntentRouteDistances.get(plan);
 }
 function recordRecoveredTerritoryFollowUpRetryCooldown(plan, gameTime = getGameTime13()) {
   if (!plan || !plan.followUp || !isTerritoryControlAction3(plan.action)) {
@@ -11121,6 +11139,7 @@ function toSelectedTerritoryTarget(candidate, routeDistanceLookupContext) {
     ...candidate.requiresControllerPressure ? { requiresControllerPressure: true } : {},
     ...candidate.followUp ? { followUp: candidate.followUp } : {},
     ...candidate.postClaimBootstrapReserveEnergy ? { postClaimBootstrapReserveEnergy: candidate.postClaimBootstrapReserveEnergy } : {},
+    ...candidate.routeDistance !== void 0 ? { routeDistance: candidate.routeDistance } : {},
     ...candidate.recoveredFollowUp ? { recoveredFollowUp: true } : {},
     ...typeof candidate.recoveredFollowUpSuppressedAt === "number" ? { recoveredFollowUpSuppressedAt: candidate.recoveredFollowUpSuppressedAt } : {},
     ...routeDistanceLookupContext ? { routeDistanceLookupContext } : {}
@@ -25432,12 +25451,14 @@ function buildTerritorySpawnBody(energyAvailable, intent) {
   if (intent.action === "reserve") {
     return buildTerritoryReserverBody(energyAvailable);
   }
+  const routeDistance = getTerritoryIntentRouteDistance(intent);
   if (hasPostClaimBootstrapReserve(intent)) {
     return buildTerritoryControllerBody(
-      Math.max(0, energyAvailable - Math.floor((_a = intent.postClaimBootstrapReserveEnergy) != null ? _a : 0))
+      Math.max(0, energyAvailable - Math.floor((_a = intent.postClaimBootstrapReserveEnergy) != null ? _a : 0)),
+      routeDistance
     );
   }
-  return buildTerritoryControllerBody(energyAvailable);
+  return buildTerritoryControllerBody(energyAvailable, routeDistance);
 }
 function hasPostClaimBootstrapReserve(intent) {
   return intent.action === "claim" && typeof intent.postClaimBootstrapReserveEnergy === "number" && intent.postClaimBootstrapReserveEnergy > 0;
