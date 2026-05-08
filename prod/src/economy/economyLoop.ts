@@ -36,6 +36,7 @@ import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
 import { balanceStorage } from './storageBalancer';
 import { manageTerminalEnergy } from './terminalManager';
+import { detectOwnedLabs, manageLabs, shouldYieldCreepToLabManager } from './labManager';
 import {
   getBufferedSpawnEnergyBudget,
   getSpawnEnergyBufferRequirement,
@@ -274,6 +275,10 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     transferLinkEnergy(colony.room);
     manageStorage(colony.room);
     refreshRoomEnergySurplusState(colony.room);
+    const labStructures = shouldRunLabManagement(colony.room);
+    if (labStructures.length > 0) {
+      manageLabs(colony.room, { creeps, labs: labStructures });
+    }
     recordStrategyRecommendationTelemetry(colony, creeps, telemetryEvents);
   }
 
@@ -284,6 +289,10 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   refreshSpawnEnergyBufferStates(colonies, reservedSpawnEnergyByRoom);
 
   for (const creep of creeps) {
+    if (shouldYieldCreepToLabManager(creep, Game.time)) {
+      continue;
+    }
+
     if (creep.memory.role === 'worker') {
       runWorker(creep);
     } else if (creep.memory.role === UPGRADER_ROLE) {
@@ -308,6 +317,14 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   }
 
   return emitRuntimeSummary(colonies, creeps, telemetryEvents, { persistOccupationRecommendations: false });
+}
+
+function shouldRunLabManagement(room: Room): StructureLab[] {
+  if (room.controller?.my !== true || (room.controller.level ?? 0) < 6) {
+    return [];
+  }
+
+  return detectOwnedLabs(room);
 }
 
 function recordStrategyRecommendationTelemetry(
