@@ -23040,7 +23040,13 @@ function isLocalEnergyHauler(creep, roomName) {
 function findEnergyHaulingSources(room, options) {
   const includeDurableSources = options.includeDurableSources !== false;
   return findRoomStructures4(room).filter((structure) => {
-    if (isContainerStructure4(structure) || isLinkStructure(structure)) {
+    if (isContainerStructure4(structure)) {
+      return true;
+    }
+    if (!isOwnedEnergyHaulingStructure(structure)) {
+      return false;
+    }
+    if (isLinkStructure(structure)) {
       return true;
     }
     return includeDurableSources && (isStorageStructure(structure) || isTerminalStructure(structure));
@@ -23048,7 +23054,7 @@ function findEnergyHaulingSources(room, options) {
 }
 function findEnergyHaulingBacklogSources(room) {
   return findRoomStructures4(room).filter(
-    (structure) => isContainerStructure4(structure) || isLinkStructure(structure)
+    (structure) => isContainerStructure4(structure) || isLinkStructure(structure) && isOwnedEnergyHaulingStructure(structure)
   );
 }
 function findEnergyHaulingDeliveryTargets(room) {
@@ -23218,6 +23224,9 @@ function isStorageStructure(structure) {
 }
 function isTerminalStructure(structure) {
   return matchesStructureType17(structure.structureType, "STRUCTURE_TERMINAL", "terminal");
+}
+function isOwnedEnergyHaulingStructure(structure) {
+  return structure.my === true;
 }
 function isSpawnStructure2(structure) {
   return matchesStructureType17(structure.structureType, "STRUCTURE_SPAWN", "spawn");
