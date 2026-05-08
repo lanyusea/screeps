@@ -1,13 +1,14 @@
 # Screeps Cron and Route Registry
 
-Last updated: 2026-05-05
+Last updated: 2026-05-09
 Tracking issue: https://github.com/lanyusea/screeps/issues/620
 
 This registry keeps the minimum cron/channel contract in one place. Cron prompts may embed short self-contained summaries, but their target/cadence/route expectations must match this file.
 
 ## Current target
 
-- Official target: `main / shardX / E26S49`
+- Official bot deployment and gameplay target: `main / shardX / E26S49`.
+- Runtime monitoring and alerting jobs (`befcbb7b2d60`, `1df5ef0c3835`) auto-discover all owned rooms via `/api/user/overview` and are not constrained to the single-room target.
 - Old room references (`E48S28`, `E48S29`) are historical/superseded unless explicitly retargeted by the owner.
 
 ## Discord routes
@@ -35,8 +36,8 @@ When using raw IDs and named channels together, this registry is the comparison 
 | --- | --- | --- | --- | --- |
 | Screeps autonomous continuation worker | `f66ed36d7be0` | `13,22,50 * * * *` | `discord:#task-queue` | Dispatcher/reconciler for safe work lanes. Stable workdir: `/root/screeps`. |
 | Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | P0 autonomous-system health monitor. |
-| Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | Runtime summary report/images for `E26S49`. |
-| Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | Runtime alert/tactical response and autonomous recovery for `E26S49`; no-alert runs return exactly `[SILENT]`. |
+| Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | Runtime summary report/images for all owned rooms (auto-discovered via `/api/user/overview`). Include economy KPIs: total resources, energy output/collection, construction progress. |
+| Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | Runtime alert/tactical response and autonomous recovery for all owned rooms (auto-discovered via `/api/user/overview`); no-alert runs return exactly `[SILENT]`. |
 | Screeps dev-log fanout reporter | `d3bf35c278d5` | `25,55 * * * *` | `discord:#dev-log` | Dev log fanout from live repo/cron state. |
 | Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | Research/RL progress fanout. |
 | Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | Roadmap/Pages image fanout. |
@@ -47,7 +48,7 @@ When using raw IDs and named channels together, this registry is the comparison 
 
 ## Cron prompt drift rules
 
-- Every cron prompt that reasons about room state must use `shardX/E26S49` as current target.
+- Every cron prompt that reasons about room state for gameplay/bot-deployment purposes must use `shardX/E26S49` as current target. Runtime monitoring/alerting jobs that auto-discover rooms via API are exempt from single-room targeting.
 - Gameplay Evolution cadence is 8h, not 12h.
 - The P0 monitor should audit this registry's expected jobs and should not treat intentional schedule/debug changes as abnormal unless the current registry says they are unhealthy.
 - Reporter state files and old cron outputs are caches/history, not rules authority.
