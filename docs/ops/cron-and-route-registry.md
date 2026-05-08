@@ -35,8 +35,8 @@ When using raw IDs and named channels together, this registry is the comparison 
 | --- | --- | --- | --- | --- |
 | Screeps autonomous continuation worker | `f66ed36d7be0` | `13,22,50 * * * *` | `discord:#task-queue` | Dispatcher/reconciler for safe work lanes. Stable workdir: `/root/screeps`. |
 | Screeps P0 agent operations monitor | `75cedbb77150` | `7,37 * * * *` | `discord:1497820688843800776` | P0 autonomous-system health monitor. |
-| Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | Runtime summary report/images for `E26S49`. |
-| Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | Runtime alert/tactical response and autonomous recovery for `E26S49`; no-alert runs return exactly `[SILENT]`. |
+| Screeps runtime room summary images | `befcbb7b2d60` | `58 * * * *` | `discord:1497588267057680385` | Runtime summary report/images for all owned rooms (auto-discovered via `/api/user/overview`). Include economy KPIs: total resources, energy output/collection, construction progress. |
+| Screeps runtime room alert text check | `1df5ef0c3835` | `1,16,31,46 * * * *` | `discord:1497588512436785284` | Runtime alert/tactical response and autonomous recovery for all owned rooms (auto-discovered via `/api/user/overview`); no-alert runs return exactly `[SILENT]`. |
 | Screeps dev-log fanout reporter | `d3bf35c278d5` | `25,55 * * * *` | `discord:#dev-log` | Dev log fanout from live repo/cron state. |
 | Screeps research-notes fanout reporter | `3c0d20aa2e45` | `10,40 * * * *` | `discord:#research-notes` | Research/RL progress fanout. |
 | Screeps roadmap fanout reporter | `92ca290f7996` | `34 * * * *` | `discord:#roadmap` | Roadmap/Pages image fanout. |
