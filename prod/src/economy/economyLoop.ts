@@ -35,6 +35,7 @@ import {
 import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
 import { balanceStorage } from './storageBalancer';
+import { manageTerminalEnergy } from './terminalManager';
 import {
   getBufferedSpawnEnergyBudget,
   getSpawnEnergyBufferRequirement,
@@ -137,6 +138,7 @@ interface CoordinatedSpawnPlan {
 export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = []): RuntimeSummary | undefined {
   const creeps = Object.values(Game.creeps);
   balanceStorage();
+  manageTerminalEnergy();
   const ownedColonies = getOwnedColonies();
   refreshSpawnEnergyReservationStates(ownedColonies);
   const initialRoleCountsByRoom = new Map(
