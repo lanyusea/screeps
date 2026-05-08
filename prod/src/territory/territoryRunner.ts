@@ -52,7 +52,12 @@ export function runTerritoryControllerCreep(
     return;
   }
 
-  if (suppressesTerritoryWork(getRecordedColonyStageAssessment(creep.memory.colony))) {
+  const colonyStageAssessment = getRecordedColonyStageAssessment(creep.memory.colony);
+  if (assignment.action === 'scout') {
+    if (colonyStageAssessment?.mode === 'BOOTSTRAP' || colonyStageAssessment?.mode === 'DEFENSE') {
+      return;
+    }
+  } else if (suppressesTerritoryWork(colonyStageAssessment)) {
     return;
   }
 

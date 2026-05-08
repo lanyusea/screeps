@@ -123,6 +123,7 @@ export interface TerritoryIntentProgressSummary {
 export interface TerritoryIntentPlanningOptions {
   controllerPressureOnly?: boolean;
   followUpOnly?: boolean;
+  scoutOnly?: boolean;
 }
 
 export interface RemoteMiningSetupOptions {
@@ -132,6 +133,7 @@ export interface RemoteMiningSetupOptions {
 interface TerritoryTargetSelectionOptions {
   controllerPressureOnly?: boolean;
   followUpOnly?: boolean;
+  scoutOnly?: boolean;
 }
 
 interface MemoryRecord {
@@ -209,7 +211,7 @@ export function planTerritoryIntent(
   gameTime: number,
   options: TerritoryIntentPlanningOptions = {}
 ): TerritoryIntentPlan | null {
-  if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget)) {
+  if (!isTerritoryHomeSafe(colony, roleCounts, workerTarget, options)) {
     return null;
   }
 
@@ -1079,12 +1081,19 @@ function shouldRefreshRemoteMiningBootstrapRecord(
   return record.status === 'ready' || !isNonEmptyString(focusRoomName) || record.roomName === focusRoomName;
 }
 
-export function isTerritoryHomeSafe(colony: ColonySnapshot, roleCounts: RoleCounts, workerTarget: number): boolean {
+export function isTerritoryHomeSafe(
+  colony: ColonySnapshot,
+  roleCounts: RoleCounts,
+  workerTarget: number,
+  options: TerritoryIntentPlanningOptions = {}
+): boolean {
   if (getWorkerCapacity(roleCounts) < workerTarget) {
     return false;
   }
 
-  if (colony.energyCapacityAvailable < TERRITORY_CONTROLLER_BODY_COST) {
+  const minimumEnergyCapacity =
+    options.scoutOnly === true ? TERRITORY_SCOUT_BODY_COST : TERRITORY_CONTROLLER_BODY_COST;
+  if (colony.energyCapacityAvailable < minimumEnergyCapacity) {
     return false;
   }
 
@@ -1108,7 +1117,11 @@ function selectTerritoryTarget(
 ): SelectedTerritoryTarget | null {
   const colonyName = colony.room.name;
   const colonyOwnerUsername = getControllerOwnerUsername(colony.room.controller);
-  if (options.controllerPressureOnly !== true && options.followUpOnly !== true) {
+  if (
+    options.controllerPressureOnly !== true &&
+    options.followUpOnly !== true &&
+    options.scoutOnly !== true
+  ) {
     refreshExpansionPlannerIntent(colony, gameTime);
   }
 
@@ -1212,6 +1225,15 @@ function selectTerritoryTarget(
     ),
     colony
   );
+  if (options.scoutOnly === true) {
+    return toSelectedTerritoryTarget(
+      selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony)) ??
+        selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(primaryCandidates, roleCounts, colony)) ??
+        selectBestScoredTerritoryCandidate(primaryCandidates),
+      routeDistanceLookupContext
+    );
+  }
+
   const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
     getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony)
   );
@@ -1325,6 +1347,10 @@ function filterTerritoryCandidatesForPlanningOptions(
   candidates: ScoredTerritoryTarget[],
   options: TerritoryTargetSelectionOptions
 ): ScoredTerritoryTarget[] {
+  if (options.scoutOnly === true) {
+    return candidates.filter((candidate) => candidate.intentAction === 'scout');
+  }
+
   if (options.controllerPressureOnly === true) {
     const pressureCandidates = candidates.filter(isControllerPressureCandidate);
     if (pressureCandidates.length > 0 || options.followUpOnly !== true) {
