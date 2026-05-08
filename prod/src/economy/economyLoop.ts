@@ -36,6 +36,7 @@ import { transferEnergy as transferLinkEnergy } from './linkManager';
 import { manageStorage } from './storageManager';
 import { balanceStorage } from './storageBalancer';
 import { manageTerminalEnergy } from './terminalManager';
+import { runMarketTrading, shouldRunMarketTrading } from './marketTrading';
 import {
   getBufferedSpawnEnergyBudget,
   getSpawnEnergyBufferRequirement,
@@ -139,6 +140,9 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
   const creeps = Object.values(Game.creeps);
   balanceStorage();
   manageTerminalEnergy();
+  if (shouldRunMarketTrading(Game.time)) {
+    runMarketTrading();
+  }
   const ownedColonies = getOwnedColonies();
   refreshSpawnEnergyReservationStates(ownedColonies);
   const initialRoleCountsByRoom = new Map(
