@@ -37,6 +37,7 @@ import { manageStorage } from './storageManager';
 import { balanceStorage } from './storageBalancer';
 import { manageTerminalEnergy } from './terminalManager';
 import { detectOwnedLabs, manageLabs, shouldYieldCreepToLabManager } from './labManager';
+import { runMarketTrading, shouldRunMarketTrading } from './marketTrading';
 import {
   getBufferedSpawnEnergyBudget,
   getSpawnEnergyBufferRequirement,
