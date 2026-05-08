@@ -51,7 +51,7 @@ describe('upgrader runner', () => {
     ).toBe('fallback');
   });
 
-  it('uses steady upgrade priority only after construction pressure clears', () => {
+  it('keeps steady upgrade priority when construction pressure exists', () => {
     const controller = makeController({ progress: 100, progressTotal: 1_000 });
 
     expect(
@@ -66,7 +66,7 @@ describe('upgrader runner', () => {
         energyCapacityAvailable: 650,
         constructionDemand: true
       })
-    ).toBe('fallback');
+    ).toBe('steady');
   });
 
   it('keeps downgrade guard above normal progression scoring', () => {
@@ -115,7 +115,19 @@ describe('upgrader runner', () => {
     expect(creep.upgradeController).toHaveBeenCalledWith(controller);
   });
 
-  it('returns carried energy instead of upgrading when room energy is no longer healthy', () => {
+  it('renews at an idle spawn before expiring', () => {
+    const controller = makeController();
+    const spawn = makeRenewSpawn('Spawn1');
+    const room = makeRoom({ controller, ownedStructures: [spawn] });
+    const creep = makeUpgraderCreep(room, { usedEnergy: 50, freeEnergy: 0, ticksToLive: 100 });
+
+    runUpgraderCreep(creep);
+
+    expect(spawn.renewCreep).toHaveBeenCalledWith(creep);
+    expect(creep.upgradeController).not.toHaveBeenCalled();
+  });
+
+  it('keeps upgrading with carried energy even when spawn energy is not full', () => {
     const controller = makeController();
     const spawn = makeEnergyStructure('spawn1', 'spawn', 0, 300);
     const room = makeRoom({
@@ -128,8 +140,8 @@ describe('upgrader runner', () => {
 
     runUpgraderCreep(creep);
 
-    expect(creep.transfer).toHaveBeenCalledWith(spawn, 'energy');
-    expect(creep.upgradeController).not.toHaveBeenCalled();
+    expect(creep.upgradeController).toHaveBeenCalledWith(controller);
+    expect(creep.transfer).not.toHaveBeenCalled();
   });
 
   function makeController(overrides: Partial<StructureController> = {}): StructureController {
@@ -180,13 +192,16 @@ describe('upgrader runner', () => {
     room: Room,
     {
       usedEnergy,
-      freeEnergy
+      freeEnergy,
+      ticksToLive
     }: {
       usedEnergy: number;
       freeEnergy: number;
+      ticksToLive?: number;
     }
   ): Creep {
     return {
+      ...(ticksToLive === undefined ? {} : { ticksToLive }),
       memory: {
         role: 'upgrader',
         colony: 'W1N1',
@@ -210,6 +225,16 @@ describe('upgrader runner', () => {
       upgradeController: jest.fn().mockReturnValue(0),
       withdraw: jest.fn().mockReturnValue(0)
     } as unknown as Creep;
+  }
+
+  function makeRenewSpawn(name: string): StructureSpawn {
+    return {
+      id: `${name}-id`,
+      name,
+      structureType: 'spawn',
+      spawning: null,
+      renewCreep: jest.fn().mockReturnValue(0)
+    } as unknown as StructureSpawn;
   }
 
   function makeEnergyStructure(

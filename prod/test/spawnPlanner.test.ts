@@ -179,6 +179,18 @@ describe('planSpawn', () => {
     return { my: true, level: 3, ticksToDowngrade: 10_000, owner: { username: 'player' } } as StructureController;
   }
 
+  function makeController(id: string, level: number): StructureController {
+    return {
+      id: id as Id<StructureController>,
+      my: true,
+      level,
+      progress: level >= 8 ? 0 : 100,
+      progressTotal: level >= 8 ? 0 : 1_000,
+      ticksToDowngrade: 10_000,
+      owner: { username: 'player' }
+    } as StructureController;
+  }
+
   function makeStorage(energy: number, capacity: number): StructureStorage {
     return {
       store: {
@@ -415,6 +427,43 @@ describe('planSpawn', () => {
     const { colony } = makeColony({ sourceCount: 1 });
 
     expect(planSpawn(colony, { worker: 3 }, 123)).toBeNull();
+  });
+
+  it('plans one dedicated upgrader for an owned controller below RCL 8', () => {
+    const controller = makeController('controller1', 1);
+    const { colony, spawn } = makeColony({
+      controller,
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      spawnEnergyBudget: 300
+    });
+
+    expect(planSpawn(colony, { worker: 3 }, 123)).toEqual({
+      spawn,
+      body: ['work', 'carry', 'move'],
+      name: 'upgrader-W1N1-controller-123',
+      memory: {
+        role: 'upgrader',
+        colony: 'W1N1',
+        controllerUpgrade: {
+          roomName: 'W1N1',
+          controllerId: 'controller1',
+          priority: 'rcl1Rush',
+          assignedAt: 123
+        }
+      }
+    });
+  });
+
+  it('does not plan a dedicated upgrader for an RCL 8 controller', () => {
+    const { colony } = makeColony({
+      controller: makeController('controller8', 8),
+      energyAvailable: 5_600,
+      energyCapacityAvailable: 5_600,
+      spawnEnergyBudget: 5_600
+    });
+
+    expect(planSpawn(colony, { worker: 3, upgrader: 0 }, 124)).toBeNull();
   });
 
   it('plans one replacement when steady-state worker capacity is below target', () => {
@@ -1179,6 +1228,7 @@ describe('planSpawn', () => {
       roomName: 'W1N18',
       energyAvailable: 599,
       energyCapacityAvailable: 650,
+      omitSpawnEnergyBudget: true,
       controller: {
         ...makeSafeOwnedController(),
         id: 'controller1' as Id<StructureController>,

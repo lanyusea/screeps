@@ -70,7 +70,7 @@ describe('controller manager', () => {
     expect(plan.spawnDemand).toBeUndefined();
   });
 
-  it('suppresses upgrade demand while construction work is visible', () => {
+  it('keeps the dedicated upgrade demand while construction work is visible', () => {
     const plan = buildControllerManagementPlan(
       makeColony({ constructionSiteCount: 1 }),
       { worker: 3 },
@@ -78,12 +78,15 @@ describe('controller manager', () => {
       205
     );
 
-    expect(plan.upgradePriority).toBe('fallback');
-    expect(plan.desiredUpgraderCount).toBe(0);
-    expect(plan.spawnDemand).toBeUndefined();
+    expect(plan.upgradePriority).toBe('rclProgress');
+    expect(plan.desiredUpgraderCount).toBe(1);
+    expect(plan.spawnDemand).toMatchObject({
+      priority: 'rclProgress',
+      desiredUpgraderCount: 1
+    });
   });
 
-  it('scales steady upgrader demand with room energy capacity', () => {
+  it('keeps steady upgrader demand to one creep regardless of room energy capacity', () => {
     const plan = buildControllerManagementPlan(
       makeColony({
         energyAvailable: 1_300,
@@ -97,12 +100,28 @@ describe('controller manager', () => {
 
     expect(plan).toMatchObject({
       upgradePriority: 'steady',
-      desiredUpgraderCount: 2,
+      desiredUpgraderCount: 1,
       spawnDemand: {
         priority: 'steady',
-        desiredUpgraderCount: 2
+        desiredUpgraderCount: 1
       }
     });
+  });
+
+  it('does not request a dedicated upgrader for an RCL 8 controller', () => {
+    const plan = buildControllerManagementPlan(
+      makeColony({
+        energyAvailable: 5_600,
+        energyCapacityAvailable: 5_600,
+        controller: makeController({ level: 8, progress: 0, progressTotal: 0 })
+      }),
+      { worker: 3 },
+      3,
+      207
+    );
+
+    expect(plan.desiredUpgraderCount).toBe(0);
+    expect(plan.spawnDemand).toBeUndefined();
   });
 
   it('treats missing Game state as no active controller upgraders', () => {

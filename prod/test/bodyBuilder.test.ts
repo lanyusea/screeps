@@ -168,25 +168,45 @@ describe('buildEmergencyWorkerBody', () => {
 });
 
 describe('buildUpgraderBody', () => {
-  it('starts with the minimal upgrade body and scales work throughput by RCL budget', () => {
+  it('keeps RCL 1-3 on the minimal upgrade body', () => {
+    expect(buildUpgraderBody(199, 1)).toEqual([]);
+    expect(buildUpgraderBody(200, 1)).toEqual(['work', 'carry', 'move']);
+    expect(buildUpgraderBody(300, 1)).toEqual(['work', 'carry', 'move']);
     expect(buildUpgraderBody(199, 3)).toEqual([]);
     expect(buildUpgraderBody(200, 3)).toEqual(['work', 'carry', 'move']);
-    expect(buildUpgraderBody(250, 3)).toEqual(['work', 'carry', 'move']);
-    expect(buildUpgraderBody(300, 2)).toEqual(['work', 'work', 'carry', 'move']);
-    expect(buildUpgraderBody(550, 3)).toEqual([
+    expect(buildUpgraderBody(800, 3)).toEqual(['work', 'carry', 'move']);
+  });
+
+  it('scales work throughput for RCL 4-6 rooms', () => {
+    expect(buildUpgraderBody(300, 4)).toEqual(['work', 'work', 'carry', 'move']);
+    expect(buildUpgraderBody(650, 4)).toEqual([
       'work',
       'work',
       'carry',
       'move',
       'work',
+      'work',
+      'carry',
       'move',
+      'move'
+    ]);
+    expect(buildUpgraderBody(1_300, 4)).toEqual([
+      'work',
+      'work',
+      'carry',
+      'move',
+      'work',
+      'work',
+      'carry',
+      'move',
+      'work',
+      'work',
       'carry',
       'move'
     ]);
   });
 
-  it('caps dedicated upgrader bodies by controller level and creep size', () => {
-    expect(getBodyCost(buildUpgraderBody(650, 3))).toBe(600);
+  it('uses larger RCL 7-8 bodies while keeping the creep size cap', () => {
     expect(getBodyCost(buildUpgraderBody(1_300, 4))).toBe(900);
     expect(getBodyCost(buildUpgraderBody(2_300, 6))).toBe(1_800);
     expect(getBodyCost(buildUpgraderBody(5_600, 8))).toBe(2_400);

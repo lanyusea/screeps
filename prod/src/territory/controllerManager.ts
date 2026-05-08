@@ -2,7 +2,6 @@ import type { ColonySnapshot } from '../colony/colonyRegistry';
 import {
   getUpgraderCapacity,
   getWorkerCapacity,
-  WORKER_REPLACEMENT_TICKS_TO_LIVE,
   type RoleCounts
 } from '../creeps/roleCounts';
 import {
@@ -46,9 +45,7 @@ export interface ControllerManagementPlan {
   spawnDemand?: ControllerUpgradeSpawnDemand;
 }
 
-const CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY = 550;
-const CONTROLLER_UPGRADE_MEDIUM_ENERGY_CAPACITY = 1_300;
-const CONTROLLER_UPGRADE_HIGH_ENERGY_CAPACITY = 2_300;
+const CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY = MIN_UPGRADER_BODY_COST;
 
 export function refreshControllerManagement(
   colony: ColonySnapshot,
@@ -184,7 +181,8 @@ function hasControllerUpgradeSpawnEnergy(colony: ColonySnapshot): boolean {
     return false;
   }
 
-  return getBufferedSpawnEnergyBudget(colony.room, colony.spawns, colony.energyAvailable) >= MIN_UPGRADER_BODY_COST;
+  return normalizeNonNegativeInteger(colony.energyAvailable) >= MIN_UPGRADER_BODY_COST ||
+    getBufferedSpawnEnergyBudget(colony.room, colony.spawns, colony.energyAvailable) >= MIN_UPGRADER_BODY_COST;
 }
 
 function isControllerUpgradeSpawnPriority(priority: ControllerUpgradePriority): boolean {
@@ -200,14 +198,16 @@ function getDesiredControllerUpgraderCount(
   priority: ControllerUpgradePriority,
   colony: ColonySnapshot
 ): number {
+  if (!canMaintainDedicatedControllerUpgrader(colony.room.controller)) {
+    return 0;
+  }
+
   switch (priority) {
     case 'rcl1Rush':
-      return 1;
     case 'rclProgress':
-      return Math.max(1, Math.min(2, getScaledControllerUpgraderCount(colony)));
     case 'energySurplus':
     case 'steady':
-      return getScaledControllerUpgraderCount(colony);
+      return 1;
     case 'downgradeGuard':
     case 'fallback':
     case 'none':
@@ -215,17 +215,11 @@ function getDesiredControllerUpgraderCount(
   }
 }
 
-function getScaledControllerUpgraderCount(colony: ColonySnapshot): number {
-  const energyCapacity = normalizeNonNegativeInteger(colony.energyCapacityAvailable);
-  if (energyCapacity >= CONTROLLER_UPGRADE_HIGH_ENERGY_CAPACITY) {
-    return 3;
-  }
-
-  if (energyCapacity >= CONTROLLER_UPGRADE_MEDIUM_ENERGY_CAPACITY) {
-    return 2;
-  }
-
-  return energyCapacity >= CONTROLLER_UPGRADE_MIN_ENERGY_CAPACITY ? 1 : 0;
+function canMaintainDedicatedControllerUpgrader(controller: StructureController | undefined): boolean {
+  return controller?.my === true &&
+    typeof controller.level === 'number' &&
+    Number.isFinite(controller.level) &&
+    controller.level < 8;
 }
 
 function countActiveControllerUpgraders(
@@ -247,7 +241,7 @@ function canSatisfyControllerUpgradeDemand(
   roomName: string,
   controllerId: Id<StructureController>
 ): boolean {
-  if (creep.ticksToLive !== undefined && creep.ticksToLive <= WORKER_REPLACEMENT_TICKS_TO_LIVE) {
+  if (creep.ticksToLive !== undefined && creep.ticksToLive <= 0) {
     return false;
   }
 
