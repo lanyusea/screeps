@@ -38,6 +38,7 @@ import {
   buildEnergyHaulerBody,
   selectEnergyHaulerSpawnDemand
 } from '../economy/energyHauling';
+import { getEnergyReservationScore } from '../economy/energyReservation';
 import { getReservedSpawnEnergy } from '../economy/spawnEnergyReservation';
 import {
   buildEmergencyWorkerBody,
@@ -1554,13 +1555,14 @@ function selectDynamicBodyForColony(
   demand: DynamicCreepBodyDemand,
   buildBody: (energyBudget: number) => BodyPartConstant[]
 ): BodyPartConstant[] {
+  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony, demand);
   const selection = selectDynamicCreepBody({
     room: colony.room,
     spawns: colony.spawns,
-    energyAvailable: colony.energyAvailable,
+    energyAvailable: spawnEnergyBudget ?? colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
-    spawnEnergyBudget: colony.spawnEnergyBudget,
-    spawnBufferPolicy: getSpawnBufferBudgetPolicy(colony),
+    spawnEnergyBudget,
+    spawnBufferPolicy: getSpawnBufferBudgetPolicy(spawnEnergyBudget),
     candidates: [
       {
         role,
@@ -1576,12 +1578,13 @@ function selectDynamicBodyForColony(
 
 function selectUpgraderBody(colony: ColonySnapshot): BodyPartConstant[] {
   const controllerLevel = colony.room.controller?.level;
+  const spawnEnergyBudget = getSpawnPlanningBodyEnergyBudget(colony, 'surplus');
   const selection = selectDynamicCreepBody({
     room: colony.room,
     spawns: colony.spawns,
-    energyAvailable: colony.energyAvailable,
+    energyAvailable: spawnEnergyBudget ?? colony.energyAvailable,
     energyCapacityAvailable: colony.energyCapacityAvailable,
-    spawnEnergyBudget: colony.spawnEnergyBudget,
+    spawnEnergyBudget,
     spawnBufferPolicy: 'respect',
     candidates: [
       {
@@ -1596,8 +1599,34 @@ function selectUpgraderBody(colony: ColonySnapshot): BodyPartConstant[] {
   return selection?.body ?? [];
 }
 
-function getSpawnBufferBudgetPolicy(colony: ColonySnapshot): SpawnBufferBudgetPolicy {
-  return colony.spawnEnergyBudget === undefined ? 'respect' : 'alreadyReserved';
+function getSpawnPlanningBodyEnergyBudget(
+  colony: ColonySnapshot,
+  demand: DynamicCreepBodyDemand
+): number | undefined {
+  const explicitBudget = normalizeOptionalNonNegativeInteger(colony.spawnEnergyBudget);
+  const currentEnergy = normalizeNonNegativeInteger(colony.energyAvailable);
+  if (explicitBudget !== undefined) {
+    return Math.min(explicitBudget, currentEnergy);
+  }
+
+  if (isCriticalRecoveryDemand(demand)) {
+    return undefined;
+  }
+
+  const reservationScore = getEnergyReservationScore(colony.room, {
+    energyAvailable: currentEnergy,
+    energyCapacityAvailable: colony.energyCapacityAvailable
+  }).reservationScore;
+
+  return reservationScore > currentEnergy ? reservationScore : undefined;
+}
+
+function isCriticalRecoveryDemand(demand: DynamicCreepBodyDemand): boolean {
+  return demand === 'critical' || demand === 'recovery';
+}
+
+function getSpawnBufferBudgetPolicy(spawnEnergyBudget: number | undefined): SpawnBufferBudgetPolicy {
+  return spawnEnergyBudget === undefined ? 'respect' : 'alreadyReserved';
 }
 
 function getWorkerDynamicBodyDemand(
@@ -1616,7 +1645,9 @@ function getWorkerDynamicBodyDemand(
 }
 
 function getSpawnEnergyBudget(colony: ColonySnapshot): number {
-  return normalizeNonNegativeInteger(colony.spawnEnergyBudget ?? colony.energyAvailable);
+  const currentEnergy = normalizeNonNegativeInteger(colony.energyAvailable);
+  const explicitBudget = normalizeOptionalNonNegativeInteger(colony.spawnEnergyBudget);
+  return explicitBudget !== undefined ? Math.min(explicitBudget, currentEnergy) : currentEnergy;
 }
 
 export function generateHarvesterBody(
@@ -1729,6 +1760,10 @@ function getApproximateRange(left: RoomPosition, right: RoomPosition): number {
 
 function normalizeNonNegativeInteger(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function normalizeOptionalNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined;
 }
 
 function canAffordBody(body: BodyPartConstant[], energyAvailable: number): boolean {
