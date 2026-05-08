@@ -6,7 +6,7 @@ import {
   persistColonyStageAssessment,
   recordColonySurvivalAssessment
 } from '../colony/colonyStage';
-import { planConstructionForColony } from '../construction/planner';
+import { planClaimedRoomConstruction } from '../construction/claimed-room-planner';
 import { countCreepsByRole, getWorkerCapacity, type RoleCounts } from '../creeps/roleCounts';
 import { runWorker } from '../creeps/workerRunner';
 import { runUpgraderCreep, UPGRADER_ROLE } from '../creeps/upgraderRunner';
@@ -183,7 +183,7 @@ export function runEconomy(preludeTelemetryEvents: RuntimeTelemetryEvent[] = [])
     runTowerConstructionExecutorForColony(colony, { requireExpansionMemory: true });
     runRampartWallConstructionExecutorForColony(colony, { requireExpansionMemory: true });
     if (postClaimBootstrapRefresh.deferred !== true) {
-      planConstructionForColony(colony, { respectRoomEnergyBuffer: true });
+      planClaimedRoomConstruction(colony, { respectRoomEnergyBuffer: true });
     }
     if (survivalAssessment.mode === 'TERRITORY_READY') {
       refreshRemoteMiningSetup(colony, Game.time, { focusRoomName: postClaimBootstrapFocusRoomName });

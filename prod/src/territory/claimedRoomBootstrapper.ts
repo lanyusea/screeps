@@ -46,6 +46,7 @@ interface CandidatePosition {
 interface SpawnPlacementLookups {
   blockingPositions: Set<string>;
   mineralPositions: Set<string>;
+  rangeReservedPositions: CandidatePosition[];
   terrain: RoomTerrain | null;
 }
 
@@ -327,9 +328,16 @@ function buildSpawnPlacementLookups(
   maximumScanRadius: number
 ): SpawnPlacementLookups {
   const blockingPositions = new Set<string>();
+  const rangeReservedPositions: CandidatePosition[] = [];
+  for (const object of [room.controller, ...getSortedSources(room)]) {
+    const position = getAnyObjectPosition(object);
+    if (position) {
+      blockingPositions.add(getPositionKey(position));
+      rangeReservedPositions.push(position);
+    }
+  }
+
   for (const object of [
-    room.controller,
-    ...getSortedSources(room),
     ...lookForArea(room, 'LOOK_STRUCTURES', anchor, maximumScanRadius),
     ...lookForArea(room, 'LOOK_CONSTRUCTION_SITES', anchor, maximumScanRadius)
   ]) {
@@ -350,6 +358,7 @@ function buildSpawnPlacementLookups(
   return {
     blockingPositions,
     mineralPositions,
+    rangeReservedPositions,
     terrain: getRoomTerrain(room)
   };
 }
@@ -395,7 +404,14 @@ function canPlaceSpawn(lookups: SpawnPlacementLookups, position: CandidatePositi
     position.y <= SPAWN_EDGE_MAX &&
     !lookups.blockingPositions.has(getPositionKey(position)) &&
     !lookups.mineralPositions.has(getPositionKey(position)) &&
+    hasMinimumSpawnRange(lookups, position) &&
     !isTerrainWall(lookups.terrain, position)
+  );
+}
+
+function hasMinimumSpawnRange(lookups: SpawnPlacementLookups, position: CandidatePosition): boolean {
+  return lookups.rangeReservedPositions.every(
+    (reservedPosition) => getRangeBetweenPositions(position, reservedPosition) >= 2
   );
 }
 

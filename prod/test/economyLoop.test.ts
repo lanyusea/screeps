@@ -2869,12 +2869,13 @@ describe('runEconomy', () => {
 
     expect(room.lookForAtArea).toHaveBeenCalledWith(LOOK_MINERALS, 15, 15, 31, 31, true);
     expect(room.createConstructionSite).not.toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 22, 22, STRUCTURE_SPAWN);
-    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 23, 22, STRUCTURE_SPAWN);
+    expect(room.createConstructionSite).not.toHaveBeenCalledWith(22, 22, STRUCTURE_SPAWN);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 23, 22, STRUCTURE_SPAWN);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 24, 22, STRUCTURE_SPAWN);
     expect(Memory.territory?.postClaimBootstraps?.W2N1).toMatchObject({
       status: 'spawnSitePending',
       updatedAt: 405,
-      spawnSite: { roomName: 'W2N1', x: 23, y: 22 },
+      spawnSite: { roomName: 'W2N1', x: 24, y: 22 },
       lastResult: OK_CODE
     });
   });
@@ -3097,7 +3098,8 @@ describe('runEconomy', () => {
 
     runEconomy();
 
-    expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(18, 18, STRUCTURE_SPAWN);
+    expect(remoteRoom.createConstructionSite).toHaveBeenCalledWith(11, 11, STRUCTURE_CONTAINER);
+    expect(remoteRoom.createConstructionSite).not.toHaveBeenCalledWith(18, 18, STRUCTURE_SPAWN);
     expect(Memory.territory?.remoteMining?.['W1N1:W2N1']).toMatchObject({
       colony: 'W1N1',
       roomName: 'W2N1',
