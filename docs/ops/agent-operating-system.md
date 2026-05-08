@@ -175,6 +175,9 @@ For every meaningful task:
 5. Give each subagent a single clear task and requested output format.
 6. Collect subagent final result and logs/artifacts.
 7. Run a QA/acceptance-check pass for meaningful deliverables before accepting completion.
+
+   **Research deliverables require special scrutiny.** A scaffold, outline, "paper task," or "to verify" placeholder is not equivalent to a completed research deliverable. The QA gate must compare the final artifact directly against the original issue's research acceptance criteria — a full cited paper, enumerated findings with sources, downstream task creation, and channel-visible evidence are each separate gates. A research issue must not be moved to Done unless every research acceptance criterion from the issue body is explicitly satisfied and evidenced by the final artifact. Research completion that is significant for roadmap decisions must also have channel-visible evidence in `#research-notes` or an explicit Project `Evidence` note explaining why fanout is not applicable.
+
 8. Review QA evidence and either request changes or accept the result.
 9. Update durable docs if the result changes state.
 10. Fan out summaries to the corresponding Discord channels.
@@ -368,3 +371,4 @@ These reporters are not authoritative decision-makers. They are narrow visibilit
 - Do not let subagents own cross-channel summary/decision routing.
 - Do not resume normal implementation work while P0 routing/monitoring is known broken.
 - Do not mark meaningful deliverables complete without a QA/acceptance-check verdict that cites evidence against both common and task-specific criteria.
+- Do not close a research issue as Done based on a scaffold, outline, or "paper task" placeholder; the final artifact must satisfy every research acceptance criterion from the issue body, including full citations, enumerated findings with sources, downstream task creation, and channel-visible evidence or an explicit Project note that fanout is not applicable.
