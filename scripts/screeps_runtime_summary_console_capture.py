@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import html
 import json
 import os
 import re
@@ -105,6 +106,7 @@ def iter_runtime_summary_lines(lines: Iterable[str]) -> Iterable[str]:
 
 
 def normalize_runtime_summary_line(line: str) -> str | None:
+    line = html.unescape(line)
     if not line.startswith(reducer.RUNTIME_SUMMARY_PREFIX):
         return None
     return line.rstrip("\r\n") + "\n"
