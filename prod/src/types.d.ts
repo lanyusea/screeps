@@ -184,6 +184,7 @@ declare global {
   interface EconomyMemory {
     sourceWorkloads?: Record<string, EconomyRoomSourceWorkloadMemory>;
     storageBalance?: EconomyStorageBalanceMemory;
+    terminalLogistics?: EconomyTerminalLogisticsMemory;
     energySurplus?: EconomyEnergySurplusMemory;
     spawnEnergyBuffer?: EconomySpawnEnergyBufferMemory;
     spawnEnergyReservation?: EconomySpawnEnergyReservationMemory;
@@ -273,6 +274,36 @@ declare global {
     sourceRoom: string;
     targetRoom: string;
     amount: number;
+    updatedAt: number;
+  }
+
+  interface EconomyTerminalLogisticsMemory {
+    updatedAt: number;
+    rooms: Record<string, EconomyTerminalLogisticsRoomMemory>;
+    transfers: EconomyTerminalTransferMemory[];
+  }
+
+  interface EconomyTerminalLogisticsRoomMemory {
+    roomName: string;
+    terminalId?: string;
+    energy: number;
+    freeCapacity: number;
+    cooldown: number;
+    projectedCooldown?: number;
+    availableAt?: number;
+    updatedAt: number;
+  }
+
+  interface EconomyTerminalTransferMemory {
+    sourceRoom: string;
+    targetRoom: string;
+    amount: number;
+    energyCost: number;
+    distance: number;
+    cooldown: number;
+    availableAt: number;
+    result: ScreepsReturnCode;
+    description: string;
     updatedAt: number;
   }
 
