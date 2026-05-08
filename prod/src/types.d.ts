@@ -59,6 +59,7 @@ declare global {
     crossRoomHauler?: CreepCrossRoomHaulerMemory;
     spawnSupport?: CreepSpawnSupportMemory;
     mineralHarvester?: CreepMineralHarvesterMemory;
+    lab?: CreepLabMemory;
   }
 
   type DefenseActionType =
@@ -193,6 +194,101 @@ declare global {
     energySurplus?: EconomyEnergySurplusMemory;
     spawnEnergyBuffer?: EconomySpawnEnergyBufferMemory;
     spawnEnergyReservation?: EconomySpawnEnergyReservationMemory;
+    labManagement?: EconomyLabManagementMemory;
+  }
+
+  type CreepLabBoostState = 'moving' | 'complete' | 'blocked';
+  type EconomyLabBoostPriority = 'controllerUpgrade' | 'creepBoost';
+  type EconomyLabBlockReason =
+    | 'resourceUnavailable'
+    | 'insufficientEnergy'
+    | 'cooldown'
+    | 'inputLabsNeedReagents'
+    | 'outputLabUnavailable';
+
+  interface CreepLabMemory {
+    boosts?: CreepLabBoostRequestMemory[];
+    boostState?: CreepLabBoostState;
+    updatedAt?: number;
+    activeBoost?: CreepLabActiveBoostMemory;
+  }
+
+  interface CreepLabBoostRequestMemory {
+    part: BodyPartConstant;
+    resource: MineralBoostConstant;
+    priority?: EconomyLabBoostPriority;
+  }
+
+  interface CreepLabActiveBoostMemory {
+    labId?: string;
+    part: BodyPartConstant;
+    resource: MineralBoostConstant;
+  }
+
+  interface EconomyLabManagementMemory {
+    updatedAt: number;
+    rooms: Record<string, EconomyLabRoomMemory>;
+  }
+
+  interface EconomyLabRoomMemory {
+    roomName: string;
+    rcl: number;
+    updatedAt: number;
+    labs: EconomyLabStructureMemory[];
+    inventory: Record<string, number>;
+    boostDemand: EconomyLabBoostDemandMemory[];
+    activeBoost?: EconomyLabActiveBoostMemory;
+    reaction?: EconomyLabReactionMemory;
+    reactionTarget?: ResourceConstant;
+    reactionDesiredAmount?: number;
+  }
+
+  interface EconomyLabStructureMemory {
+    id: string;
+    cooldown: number;
+    energy: number;
+    mineralAmount: number;
+    mineralType?: ResourceConstant;
+  }
+
+  interface EconomyLabBoostDemandMemory {
+    creepName: string;
+    labId?: string;
+    part: BodyPartConstant;
+    priority: EconomyLabBoostPriority;
+    requestedParts: number;
+    requiredEnergy: number;
+    requiredMineral: number;
+    resource: MineralBoostConstant;
+    reason?: EconomyLabBlockReason;
+    status: 'ready' | 'blocked';
+  }
+
+  interface EconomyLabActiveBoostMemory {
+    boostParts: number;
+    creepName: string;
+    labId?: string;
+    part: BodyPartConstant;
+    priority: EconomyLabBoostPriority;
+    reason?: EconomyLabBlockReason | 'notInRange';
+    resource: MineralBoostConstant;
+    result?: ScreepsReturnCode;
+    status: 'boosted' | 'blocked' | 'moving';
+    updatedAt: number;
+  }
+
+  interface EconomyLabReactionMemory {
+    activeProduct?: ResourceConstant;
+    availableAmount: number;
+    outputLabId?: string;
+    producedAmount: number;
+    reagents?: [ResourceConstant, ResourceConstant];
+    reason?: EconomyLabBlockReason | 'complete';
+    result?: ScreepsReturnCode;
+    sourceLabIds?: [string, string];
+    status: 'running' | 'blocked' | 'complete';
+    targetResource: ResourceConstant;
+    updatedAt: number;
   }
 
   interface EconomySpawnEnergyReservationMemory {
