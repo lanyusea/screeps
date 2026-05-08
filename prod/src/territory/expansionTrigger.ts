@@ -22,15 +22,10 @@ const DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
 const DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY = 0;
 const DEFAULT_EXPANSION_TRIGGER_MIN_RCL = 3;
 const EXPANSION_TRIGGER_THREAT_MEMORY_STALE_TICKS = 5;
+const EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS = 5_000;
 const EXPANSION_PIPELINE_REEVALUATION_SEPARATOR = '>';
 const GCL_LIMIT_PRECONDITION = 'wait for GCL capacity to claim another room';
 const ROOM_LIMIT_PRECONDITION_PREFIX = 'limit expansion to ';
-
-const BLOCKING_EXPANSION_SOURCES = new Set<TerritoryAutomationSource>([
-  'autonomousExpansionClaim',
-  'colonyExpansion',
-  'expansionPlanner'
-]);
 
 interface ExpansionTriggerConfig {
   scoreThreshold: number;
@@ -602,19 +597,19 @@ function upsertTerritoryTarget(territoryMemory: TerritoryMemory, target: Territo
     territoryMemory.targets = [];
   }
 
-  const existingTarget = territoryMemory.targets.find(
+  const existingIndex = territoryMemory.targets.findIndex(
     (rawTarget) =>
       isRecord(rawTarget) &&
       rawTarget.colony === target.colony &&
       rawTarget.roomName === target.roomName &&
       rawTarget.action === target.action
   );
-  if (!existingTarget) {
+  if (existingIndex < 0) {
     territoryMemory.targets.push(target);
     return;
   }
 
-  Object.assign(existingTarget, target);
+  territoryMemory.targets[existingIndex] = target;
 }
 
 function upsertTerritoryIntent(intents: TerritoryIntentMemory[], nextIntent: TerritoryIntentMemory): void {
@@ -737,6 +732,7 @@ function isExpansionHomeStable(
     controller?.my === true &&
     typeof controller.level === 'number' &&
     controller.level >= config.minRcl &&
+    !isControllerDowngradeGuardBreached(controller) &&
     colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY &&
     getRoomStorageEnergy(colony.room) >= config.minStorageEnergy &&
     !hasVisibleHostiles(colony.room) &&
@@ -759,24 +755,29 @@ function hasBlockingExpansionInProgress(territoryMemory: TerritoryMemory, colony
   }
 
   const targets = Array.isArray(territoryMemory.targets) ? territoryMemory.targets : [];
-  if (
-    targets.some(
-      (target) =>
-        isRecord(target) &&
-        target.colony === colony &&
-        target.enabled !== false &&
-        BLOCKING_EXPANSION_SOURCES.has(target.createdBy as TerritoryAutomationSource)
-    )
-  ) {
+  if (targets.some((target) => isBlockingExpansionTarget(target, colony))) {
     return true;
   }
 
-  return normalizeTerritoryIntents(territoryMemory.intents).some(
-    (intent) =>
-      intent.colony === colony &&
-      (intent.status === 'planned' || intent.status === 'active') &&
-      intent.createdBy !== undefined &&
-      BLOCKING_EXPANSION_SOURCES.has(intent.createdBy)
+  return normalizeTerritoryIntents(territoryMemory.intents).some((intent) =>
+    isBlockingExpansionIntent(intent, colony)
+  );
+}
+
+function isBlockingExpansionTarget(target: unknown, colony: string): boolean {
+  return (
+    isRecord(target) &&
+    target.colony === colony &&
+    target.enabled !== false &&
+    target.action === 'claim'
+  );
+}
+
+function isBlockingExpansionIntent(intent: TerritoryIntentMemory, colony: string): boolean {
+  return (
+    intent.colony === colony &&
+    intent.action === 'claim' &&
+    (intent.status === 'planned' || intent.status === 'active')
   );
 }
 
@@ -885,19 +886,26 @@ function getRoomStorageEnergy(room: Room): number {
 function getHomeThreatLevel(roomName: string, gameTime: number): DefenseThreatLevel | 'unknown' {
   const threatMemory = (globalThis as { Memory?: Partial<Memory> }).Memory?.defense?.colonyThreats;
   if (!threatMemory) {
-    return 'none';
+    return 'unknown';
   }
 
   if (!isRecentThreatMemory(threatMemory.updatedAt, gameTime)) {
-    return 'none';
+    return 'unknown';
   }
 
   const roomThreat = threatMemory.rooms?.[roomName];
   if (!roomThreat) {
-    return 'none';
+    return 'unknown';
   }
 
-  return isRecentThreatMemory(roomThreat.updatedAt, gameTime) ? roomThreat.level : 'none';
+  return isRecentThreatMemory(roomThreat.updatedAt, gameTime) ? roomThreat.level : 'unknown';
+}
+
+function isControllerDowngradeGuardBreached(controller: StructureController): boolean {
+  return (
+    typeof controller.ticksToDowngrade === 'number' &&
+    controller.ticksToDowngrade <= EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS
+  );
 }
 
 function isRecentThreatMemory(updatedAt: unknown, gameTime: number): boolean {
@@ -997,8 +1005,10 @@ function getWritableTerritoryMemoryRecord(): TerritoryMemory | null {
     return null;
   }
 
-  if (!isRecord(memory.territory)) {
+  if (memory.territory === undefined) {
     memory.territory = {};
+  } else if (!isRecord(memory.territory)) {
+    return null;
   }
 
   return memory.territory as TerritoryMemory;

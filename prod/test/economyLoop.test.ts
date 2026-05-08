@@ -1314,6 +1314,7 @@ describe('runEconomy', () => {
         describeExits: jest.fn(() => ({ '3': 'W2N1' }))
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 320);
 
     runEconomy();
 
@@ -1403,6 +1404,7 @@ describe('runEconomy', () => {
         getRoomTerrain: jest.fn(() => ({ get: jest.fn().mockReturnValue(0) } as unknown as RoomTerrain))
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 505);
 
     runEconomy();
 
@@ -1481,6 +1483,7 @@ describe('runEconomy', () => {
         getRoomTerrain
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 501);
 
     runEconomy();
 
@@ -1560,6 +1563,7 @@ describe('runEconomy', () => {
         getRoomTerrain
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 501);
 
     runEconomy();
 
@@ -1620,6 +1624,7 @@ describe('runEconomy', () => {
         getRoomTerrain
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 501);
 
     runEconomy();
 
@@ -3466,4 +3471,24 @@ function makeEconomyWorker(room: Room): Creep {
       getFreeCapacity: jest.fn().mockReturnValue(50)
     }
   } as unknown as Creep;
+}
+
+function setSafeHomeThreat(roomName: string, updatedAt: number): void {
+  Memory.defense = {
+    ...(Memory.defense ?? {}),
+    colonyThreats: {
+      updatedAt,
+      rooms: {
+        ...(Memory.defense?.colonyThreats?.rooms ?? {}),
+        [roomName]: {
+          roomName,
+          level: 'none',
+          updatedAt,
+          hostileCreepCount: 0,
+          hostileStructureCount: 0,
+          damagedCriticalStructureCount: 0
+        }
+      }
+    }
+  };
 }

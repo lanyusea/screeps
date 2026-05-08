@@ -30550,14 +30550,10 @@ var DEFAULT_EXPANSION_TRIGGER_SCORE_THRESHOLD = 700;
 var DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY = 0;
 var DEFAULT_EXPANSION_TRIGGER_MIN_RCL = 3;
 var EXPANSION_TRIGGER_THREAT_MEMORY_STALE_TICKS = 5;
+var EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS = 5e3;
 var EXPANSION_PIPELINE_REEVALUATION_SEPARATOR = ">";
 var GCL_LIMIT_PRECONDITION2 = "wait for GCL capacity to claim another room";
 var ROOM_LIMIT_PRECONDITION_PREFIX = "limit expansion to ";
-var BLOCKING_EXPANSION_SOURCES = /* @__PURE__ */ new Set([
-  "autonomousExpansionClaim",
-  "colonyExpansion",
-  "expansionPlanner"
-]);
 function refreshAutonomousExpansionPipeline(colony, report, gameTime = getGameTime26(), telemetryEvents = []) {
   const colonyName = colony.room.name;
   const territoryMemory = getWritableTerritoryMemoryRecord7();
@@ -30958,14 +30954,14 @@ function upsertTerritoryTarget4(territoryMemory, target) {
   if (!Array.isArray(territoryMemory.targets)) {
     territoryMemory.targets = [];
   }
-  const existingTarget = territoryMemory.targets.find(
+  const existingIndex = territoryMemory.targets.findIndex(
     (rawTarget) => isRecord25(rawTarget) && rawTarget.colony === target.colony && rawTarget.roomName === target.roomName && rawTarget.action === target.action
   );
-  if (!existingTarget) {
+  if (existingIndex < 0) {
     territoryMemory.targets.push(target);
     return;
   }
-  Object.assign(existingTarget, target);
+  territoryMemory.targets[existingIndex] = target;
 }
 function upsertTerritoryIntent5(intents, nextIntent) {
   const existingIndex = intents.findIndex(
@@ -31023,7 +31019,7 @@ function getPipelineConfig(pipeline) {
       "TERRITORY_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY",
       DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY
     ),
-    minRcl: getConfiguredPositiveInteger("TERRITORY_EXPANSION_TRIGGER_MIN_RCL", DEFAULT_EXPANSION_TRIGGER_MIN_RCL)
+    minRcl: getConfiguredPositiveInteger2("TERRITORY_EXPANSION_TRIGGER_MIN_RCL", DEFAULT_EXPANSION_TRIGGER_MIN_RCL)
   };
 }
 function getExpansionTriggerConfig() {
@@ -31036,12 +31032,12 @@ function getExpansionTriggerConfig() {
       "TERRITORY_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY",
       DEFAULT_EXPANSION_TRIGGER_MIN_STORAGE_ENERGY
     ),
-    minRcl: getConfiguredPositiveInteger("TERRITORY_EXPANSION_TRIGGER_MIN_RCL", DEFAULT_EXPANSION_TRIGGER_MIN_RCL)
+    minRcl: getConfiguredPositiveInteger2("TERRITORY_EXPANSION_TRIGGER_MIN_RCL", DEFAULT_EXPANSION_TRIGGER_MIN_RCL)
   };
 }
 function isExpansionHomeStable(colony, gameTime, config) {
   const controller = colony.room.controller;
-  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= config.minRcl && colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY && getRoomStorageEnergy(colony.room) >= config.minStorageEnergy && !hasVisibleHostiles2(colony.room) && getHomeThreatLevel(colony.room.name, gameTime) === "none";
+  return (controller == null ? void 0 : controller.my) === true && typeof controller.level === "number" && controller.level >= config.minRcl && !isControllerDowngradeGuardBreached(controller) && colony.energyCapacityAvailable >= TERRITORY_AUTO_CLAIM_REQUIRED_ENERGY && getRoomStorageEnergy(colony.room) >= config.minStorageEnergy && !hasVisibleHostiles2(colony.room) && getHomeThreatLevel(colony.room.name, gameTime) === "none";
 }
 function hasBlockingExpansionInProgress(territoryMemory, colony) {
   var _a;
@@ -31055,14 +31051,18 @@ function hasBlockingExpansionInProgress(territoryMemory, colony) {
     return true;
   }
   const targets = Array.isArray(territoryMemory.targets) ? territoryMemory.targets : [];
-  if (targets.some(
-    (target) => isRecord25(target) && target.colony === colony && target.enabled !== false && BLOCKING_EXPANSION_SOURCES.has(target.createdBy)
-  )) {
+  if (targets.some((target) => isBlockingExpansionTarget2(target, colony))) {
     return true;
   }
   return normalizeTerritoryIntents(territoryMemory.intents).some(
-    (intent) => intent.colony === colony && (intent.status === "planned" || intent.status === "active") && intent.createdBy !== void 0 && BLOCKING_EXPANSION_SOURCES.has(intent.createdBy)
+    (intent) => isBlockingExpansionIntent(intent, colony)
   );
+}
+function isBlockingExpansionTarget2(target, colony) {
+  return isRecord25(target) && target.colony === colony && target.enabled !== false && target.action === "claim";
+}
+function isBlockingExpansionIntent(intent, colony) {
+  return intent.colony === colony && intent.action === "claim" && (intent.status === "planned" || intent.status === "active");
 }
 function getExpansionCapacitySkipReason(colony) {
   var _a;
@@ -31137,23 +31137,26 @@ function getRoomStorageEnergy(room) {
   if (!(storage == null ? void 0 : storage.store)) {
     return 0;
   }
-  const storedEnergy = (_b = (_a = storage.store).getUsedCapacity) == null ? void 0 : _b.call(_a, getEnergyResource18());
+  const storedEnergy = (_b = (_a = storage.store).getUsedCapacity) == null ? void 0 : _b.call(_a, getEnergyResource19());
   return typeof storedEnergy === "number" && Number.isFinite(storedEnergy) ? Math.max(0, storedEnergy) : 0;
 }
 function getHomeThreatLevel(roomName, gameTime) {
   var _a, _b, _c;
   const threatMemory = (_b = (_a = globalThis.Memory) == null ? void 0 : _a.defense) == null ? void 0 : _b.colonyThreats;
   if (!threatMemory) {
-    return "none";
+    return "unknown";
   }
   if (!isRecentThreatMemory(threatMemory.updatedAt, gameTime)) {
-    return "none";
+    return "unknown";
   }
   const roomThreat = (_c = threatMemory.rooms) == null ? void 0 : _c[roomName];
   if (!roomThreat) {
-    return "none";
+    return "unknown";
   }
-  return isRecentThreatMemory(roomThreat.updatedAt, gameTime) ? roomThreat.level : "none";
+  return isRecentThreatMemory(roomThreat.updatedAt, gameTime) ? roomThreat.level : "unknown";
+}
+function isControllerDowngradeGuardBreached(controller) {
+  return typeof controller.ticksToDowngrade === "number" && controller.ticksToDowngrade <= EXPANSION_TRIGGER_DOWNGRADE_GUARD_TICKS;
 }
 function isRecentThreatMemory(updatedAt, gameTime) {
   return isFiniteNumber9(updatedAt) && updatedAt <= gameTime && gameTime - updatedAt <= EXPANSION_TRIGGER_THREAT_MEMORY_STALE_TICKS;
@@ -31176,7 +31179,7 @@ function getFindConstant8(name) {
   const value = globalThis[name];
   return typeof value === "number" ? value : void 0;
 }
-function getEnergyResource18() {
+function getEnergyResource19() {
   var _a;
   return (_a = globalThis.RESOURCE_ENERGY) != null ? _a : "energy";
 }
@@ -31191,7 +31194,7 @@ function getConfiguredNonNegativeInteger(name, fallback) {
   const value = globalThis[name];
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
 }
-function getConfiguredPositiveInteger(name, fallback) {
+function getConfiguredPositiveInteger2(name, fallback) {
   const value = globalThis[name];
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
@@ -31223,8 +31226,10 @@ function getWritableTerritoryMemoryRecord7() {
   if (!memory) {
     return null;
   }
-  if (!isRecord25(memory.territory)) {
+  if (memory.territory === void 0) {
     memory.territory = {};
+  } else if (!isRecord25(memory.territory)) {
+    return null;
   }
   return memory.territory;
 }
@@ -31461,7 +31466,7 @@ function getRoomTerrain12(roomName) {
   }
   return gameMap.getRoomTerrain(roomName);
 }
-function findRoomObjects21(room, constantName) {
+function findRoomObjects22(room, constantName) {
   const findConstant = getGlobalNumber13(constantName);
   if (!room || typeof room.find !== "function" || typeof findConstant !== "number") {
     return [];
@@ -34013,7 +34018,7 @@ function getTowerLimitForRcl2(rcl) {
 function countExistingAndPendingTowers(room) {
   return findRoomObjects24(room, "FIND_MY_STRUCTURES").filter(isTowerLike).length + findRoomObjects24(room, "FIND_MY_CONSTRUCTION_SITES").filter(isTowerLike).length;
 }
-function findRoomObjects23(room, globalName) {
+function findRoomObjects24(room, globalName) {
   const findConstant = getGlobalNumber14(globalName);
   if (findConstant === null || typeof room.find !== "function") {
     return [];
@@ -34159,9 +34164,9 @@ function hasSourceContainerCoverage3(room) {
   );
 }
 function countExistingAndPendingStructures2(room, globalName, fallback) {
-  return findRoomObjects24(room, "FIND_MY_STRUCTURES").filter(
+  return findRoomObjects25(room, "FIND_MY_STRUCTURES").filter(
     (structure) => matchesStructureType25(structure.structureType, globalName, fallback)
-  ).length + findRoomObjects24(room, "FIND_MY_CONSTRUCTION_SITES").filter(
+  ).length + findRoomObjects25(room, "FIND_MY_CONSTRUCTION_SITES").filter(
     (site) => matchesStructureType25(String(site.structureType), globalName, fallback)
   ).length;
 }
@@ -34212,7 +34217,7 @@ function getStructureLimitForRcl(globalName, fallback, rcl, fallbackLimits) {
   }
   return (_b = fallbackLimits[normalizedRcl]) != null ? _b : 0;
 }
-function findRoomObjects24(room, globalName) {
+function findRoomObjects25(room, globalName) {
   const findConstant = getGlobalNumber15(globalName);
   if (findConstant === null || typeof room.find !== "function") {
     return [];
@@ -34557,7 +34562,7 @@ function countVisibleOwnedRooms7() {
 }
 function countStructuresByType3(structures, globalName, fallback) {
   return structures.filter(
-    (structure) => isRecord33(structure) && matchesStructureType26(structure.structureType, globalName, fallback)
+    (structure) => isRecord34(structure) && matchesStructureType26(structure.structureType, globalName, fallback)
   ).length;
 }
 function estimateRepairBacklogHits(structures) {
@@ -34589,7 +34594,7 @@ function getEnergyInStore2(object) {
   }
   return finiteNumberOrZero(object.store[resourceEnergy]);
 }
-function findRoomObjects25(room, constantName) {
+function findRoomObjects26(room, constantName) {
   const findConstant = getGlobalNumber16(constantName);
   const find = room.find;
   if (typeof findConstant !== "number" || typeof find !== "function") {

@@ -40,6 +40,7 @@ describe('expansion executor', () => {
         getRoomTerrain
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 100);
 
     expect(refreshExpansionExecutorIntent(colony, 100)).toMatchObject({
       status: 'planned',
@@ -108,6 +109,7 @@ describe('expansion executor', () => {
         getRoomTerrain: jest.fn(() => makeTerrain(0))
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 150);
 
     expect(refreshExpansionExecutorIntent(colony, 150)).toMatchObject({
       status: 'planned',
@@ -175,7 +177,7 @@ describe('expansion executor', () => {
     expect(Memory.territory?.targets ?? []).toEqual([]);
   });
 
-  it('allows claiming when recent threat memory omits the colony room', () => {
+  it('blocks claiming when recent threat memory omits the colony room', () => {
     const colony = makeColony();
     Memory.defense = {
       colonyThreats: {
@@ -205,19 +207,12 @@ describe('expansion executor', () => {
       } as unknown as GameMap
     };
 
-    expect(refreshExpansionExecutorIntent(colony, 200)).toMatchObject({
-      status: 'planned',
-      targetRoom: 'W2N1'
+    expect(refreshExpansionExecutorIntent(colony, 200)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
     });
-    expect(Memory.territory?.targets).toEqual([
-      {
-        colony: 'W1N1',
-        roomName: 'W2N1',
-        action: 'reserve',
-        createdBy: 'nextExpansionScoring',
-        controllerId: 'controller2'
-      }
-    ]);
+    expect(Memory.territory?.targets ?? []).toEqual([]);
   });
 
   it('requests scouting for the highest-ranked unseen expansion candidate', () => {
@@ -233,6 +228,7 @@ describe('expansion executor', () => {
         getRoomTerrain: jest.fn(() => makeTerrain(0))
       } as unknown as GameMap
     };
+    setSafeHomeThreat('W1N1', 200);
 
     expect(refreshExpansionExecutorIntent(colony, 200)).toEqual({
       status: 'skipped',
@@ -388,4 +384,24 @@ function makeTerrain(mask: number): RoomTerrain {
   return {
     get: jest.fn(() => mask)
   } as unknown as RoomTerrain;
+}
+
+function setSafeHomeThreat(roomName: string, updatedAt: number): void {
+  Memory.defense = {
+    ...(Memory.defense ?? {}),
+    colonyThreats: {
+      updatedAt,
+      rooms: {
+        ...(Memory.defense?.colonyThreats?.rooms ?? {}),
+        [roomName]: {
+          roomName,
+          level: 'none',
+          updatedAt,
+          hostileCreepCount: 0,
+          hostileStructureCount: 0,
+          damagedCriticalStructureCount: 0
+        }
+      }
+    }
+  };
 }

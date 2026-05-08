@@ -50,6 +50,7 @@ describe('autonomous expansion trigger pipeline', () => {
         W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
       }
     };
+    setSafeHomeThreat('W1N1', 10);
 
     expect(refreshAutonomousExpansionPipeline(colony, report, 10)).toEqual({
       status: 'skipped',
@@ -82,6 +83,69 @@ describe('autonomous expansion trigger pipeline', () => {
     ]);
   });
 
+  it('requires recent defense threat intelligence before starting a pipeline', () => {
+    const colony = makeColony({ storageEnergy: 2_000 });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 10,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 10)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+
+    setSafeHomeThreat('W1N1', 4);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 10)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+
+    setSafeHomeThreat('W1N1', 10);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 10)).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      controllerId: 'controller2'
+    });
+  });
+
+  it('does not overwrite invalid territory memory records', () => {
+    const invalidTerritory = [] as unknown as TerritoryMemory;
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: invalidTerritory
+    };
+    setSafeHomeThreat('W1N1', 10);
+    const colony = makeColony({ storageEnergy: 2_000 });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 10,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 10)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unavailable'
+    });
+    expect(Memory.territory).toBe(invalidTerritory);
+  });
+
   it('resumes scout, reserve, claim, and bootstrap stages from memory', () => {
     (globalThis as { TERRITORY_EXPANSION_TRIGGER_SCORE_THRESHOLD?: number })
       .TERRITORY_EXPANSION_TRIGGER_SCORE_THRESHOLD = 100;
@@ -101,6 +165,7 @@ describe('autonomous expansion trigger pipeline', () => {
         W1N1: colony.room
       }
     };
+    setSafeHomeThreat('W1N1', 20);
 
     expect(refreshAutonomousExpansionPipeline(colony, report, 20)).toMatchObject({
       status: 'planned',
@@ -186,6 +251,156 @@ describe('autonomous expansion trigger pipeline', () => {
     });
   });
 
+  it('aborts an active pipeline when the home downgrade guard is breached', () => {
+    const colony = makeColony({ storageEnergy: 2_000, ticksToDowngrade: 5_000 });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionPipelines: {
+          W1N1: {
+            colony: 'W1N1',
+            targetRoom: 'W2N1',
+            status: 'active',
+            stage: 'reserving',
+            score: 900,
+            threshold: 700,
+            startedAt: 40,
+            updatedAt: 40,
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        },
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'reserve',
+            createdBy: 'nextExpansionScoring',
+            controllerId: 'controller2' as Id<StructureController>
+          }
+        ]
+      }
+    };
+    setSafeHomeThreat('W1N1', 40);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 40,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+
+    expect(refreshAutonomousExpansionPipeline(colony, makeReport([]), 40)).toMatchObject({
+      status: 'skipped',
+      colony: 'W1N1',
+      targetRoom: 'W2N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toMatchObject({
+      status: 'aborted',
+      abortReason: 'homeUnstable',
+      abortedAt: 40
+    });
+    expect(Memory.territory?.targets ?? []).toEqual([]);
+  });
+
+  it('blocks new pipelines while claim work is already in flight', () => {
+    const colony = makeColony({ storageEnergy: 2_000 });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 50,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W3N1',
+            action: 'claim'
+          }
+        ]
+      }
+    };
+    setSafeHomeThreat('W1N1', 50);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 50)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toBeUndefined();
+
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'W1N1',
+            targetRoom: 'W3N1',
+            action: 'claim',
+            status: 'active',
+            updatedAt: 50
+          }
+        ]
+      }
+    };
+    setSafeHomeThreat('W1N1', 50);
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 50)).toEqual({
+      status: 'skipped',
+      colony: 'W1N1',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.expansionPipelines?.W1N1).toBeUndefined();
+  });
+
+  it('replaces refreshed territory targets instead of inheriting stale fields', () => {
+    const colony = makeColony({ storageEnergy: 2_000 });
+    const report = makeReport([
+      makeCandidate({ roomName: 'W2N1', controllerId: 'controller2' as Id<StructureController> })
+    ]);
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        targets: [
+          {
+            colony: 'W1N1',
+            roomName: 'W2N1',
+            action: 'reserve',
+            enabled: false,
+            createdBy: 'expansionPlanner',
+            postClaimBootstrapReserveEnergy: 999
+          }
+        ]
+      }
+    };
+    setSafeHomeThreat('W1N1', 60);
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 60,
+      rooms: {
+        W1N1: colony.room,
+        W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>)
+      }
+    };
+
+    expect(refreshAutonomousExpansionPipeline(colony, report, 60)).toMatchObject({
+      status: 'planned',
+      colony: 'W1N1',
+      targetRoom: 'W2N1'
+    });
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'W1N1',
+        roomName: 'W2N1',
+        action: 'reserve',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller2'
+      }
+    ]);
+  });
+
   it('aborts active pipeline stages and flags the room for re-evaluation when hostiles appear', () => {
     const colony = makeColony({ storageEnergy: 2_000 });
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
@@ -221,6 +436,7 @@ describe('autonomous expansion trigger pipeline', () => {
         W2N1: makeTargetRoom('W2N1', 'controller2' as Id<StructureController>, { hostileCreepCount: 1 })
       }
     };
+    setSafeHomeThreat('W1N1', 31);
 
     expect(refreshAutonomousExpansionPipeline(colony, makeReport([]), 31)).toMatchObject({
       status: 'skipped',
@@ -281,10 +497,12 @@ function makeCandidate({
 
 function makeColony({
   storageEnergy = 0,
-  rcl = 3
+  rcl = 3,
+  ticksToDowngrade = 10_000
 }: {
   storageEnergy?: number;
   rcl?: number;
+  ticksToDowngrade?: number;
 } = {}): ColonySnapshot {
   const room = {
     name: 'W1N1',
@@ -296,7 +514,7 @@ function makeColony({
       my: true,
       owner: { username: 'me' },
       level: rcl,
-      ticksToDowngrade: 10_000
+      ticksToDowngrade
     } as StructureController,
     memory: {},
     find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources('W1N1', 2) : []))
@@ -361,4 +579,25 @@ function makeSources(roomName: string, count: number): Source[] {
 
 function makePosition(x: number, y: number, roomName: string): RoomPosition {
   return { x, y, roomName } as RoomPosition;
+}
+
+function setSafeHomeThreat(roomName: string, updatedAt: number): void {
+  const memory = (globalThis as unknown as { Memory: Partial<Memory> }).Memory;
+  memory.defense = {
+    ...(memory.defense ?? {}),
+    colonyThreats: {
+      updatedAt,
+      rooms: {
+        ...(memory.defense?.colonyThreats?.rooms ?? {}),
+        [roomName]: {
+          roomName,
+          level: 'none',
+          updatedAt,
+          hostileCreepCount: 0,
+          hostileStructureCount: 0,
+          damagedCriticalStructureCount: 0
+        }
+      }
+    }
+  };
 }
