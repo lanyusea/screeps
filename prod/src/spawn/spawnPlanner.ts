@@ -2047,7 +2047,7 @@ function compareColoniesForSpawnPlanning(
     rightBudget.deficitEnergy - leftBudget.deficitEnergy ||
     getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) ||
     rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable ||
-    rightBudget.netLocalEnergyPerTick - leftBudget.netLocalEnergyPerTick ||
+    leftBudget.netLocalEnergyPerTick - rightBudget.netLocalEnergyPerTick ||
     right.energyAvailable - left.energyAvailable ||
     left.room.name.localeCompare(right.room.name)
   );
