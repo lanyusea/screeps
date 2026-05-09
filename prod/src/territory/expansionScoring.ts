@@ -21,6 +21,7 @@ import {
   type TerritoryExpansionScoutTargetConfig
 } from './expansionConfig';
 import { normalizeTerritoryIntents } from './territoryMemoryUtils';
+import { pruneLowerPriorityDuplicateClaimPlans } from './multiRoomTerritory';
 
 export const NEXT_EXPANSION_TARGET_CREATOR: TerritoryAutomationSource = 'nextExpansionScoring';
 
@@ -1175,6 +1176,7 @@ function persistNextExpansionTarget(
     ...(candidate.controllerId ? { controllerId: candidate.controllerId } : {})
   };
   pruneNextExpansionTargets(colony, target, territoryMemory);
+  pruneLowerPriorityDuplicateClaimPlans(territoryMemory, colony, target.roomName);
   upsertNextExpansionTarget(territoryMemory, target);
 
   const intents = normalizeTerritoryIntents(territoryMemory.intents);

@@ -37,6 +37,10 @@ import { getTerritoryScoutIntel } from './scoutIntel';
 import { refreshExpansionPlannerIntent } from './expansionPlanner';
 import { recordExpansionPipelineClaimState } from './expansionTrigger';
 import { getConfiguredExpansionRoomScoutingTargets } from './roomScouting';
+import {
+  isClaimPlanBlockedByHigherPriorityColony,
+  pruneLowerPriorityDuplicateClaimPlans
+} from './multiRoomTerritory';
 
 export const TERRITORY_CLAIMER_ROLE = 'claimer';
 export const TERRITORY_SCOUT_ROLE = 'scout';
@@ -1222,6 +1226,7 @@ function selectTerritoryTarget(
     roleCounts,
     workerTarget,
     getPersistedTerritoryIntentCandidates(
+      colony,
       colonyName,
       colonyOwnerUsername,
       territoryMemory,
@@ -1656,6 +1661,12 @@ function getConfiguredTerritoryCandidates(
     );
     if (
       isTerritoryTargetSuppressed(actionableTarget, intents, gameTime) ||
+      (actionableTarget.action === 'claim' &&
+        isClaimPlanBlockedByHigherPriorityColony({
+          colony,
+          targetRoom: actionableTarget.roomName,
+          territoryMemory
+        })) ||
       isTerritoryIntentSuspendedForAction(
         intents,
         actionableTarget.colony,
@@ -1995,6 +2006,7 @@ function getGclLevel(): number | null {
 }
 
 function getPersistedTerritoryIntentCandidates(
+  colony: ColonySnapshot,
   colonyName: string,
   colonyOwnerUsername: string | null,
   territoryMemory: Record<string, unknown> | null,
@@ -2016,6 +2028,12 @@ function getPersistedTerritoryIntentCandidates(
       !isTerritoryIntentAction(intent.action) ||
       isTerritoryIntentSuspensionActive(intent, gameTime) ||
       isSuppressedTerritoryIntentForAction(intents, colonyName, intent.targetRoom, intent.action, gameTime) ||
+      (intent.action === 'claim' &&
+        isClaimPlanBlockedByHigherPriorityColony({
+          colony,
+          targetRoom: intent.targetRoom,
+          territoryMemory
+        })) ||
       !isVisibleTerritoryIntentActionable(intent.targetRoom, intent.action, intent.controllerId, colonyOwnerUsername)
     ) {
       return [];
@@ -3929,7 +3947,12 @@ function recordTerritoryIntent(
   }
 
   if (seededTarget) {
+    if (seededTarget.action === 'claim') {
+      pruneLowerPriorityDuplicateClaimPlans(territoryMemory, seededTarget.colony, seededTarget.roomName);
+    }
     appendTerritoryTarget(territoryMemory, seededTarget);
+  } else if (plan.action === 'claim') {
+    pruneLowerPriorityDuplicateClaimPlans(territoryMemory, plan.colony, plan.targetRoom);
   }
 
   const intents = normalizeTerritoryIntents(territoryMemory.intents);

@@ -10,6 +10,10 @@ import {
   type NextExpansionTargetSelection
 } from './expansionScoring';
 import {
+  filterExpansionCandidateReportForColonyNetwork,
+  isClaimPlanBlockedByHigherPriorityColony
+} from './multiRoomTerritory';
+import {
   getAutonomousExpansionPipelineStateKey,
   hasActiveAutonomousExpansionPipeline,
   refreshAutonomousExpansionPipeline
@@ -53,7 +57,10 @@ export function refreshExpansionExecutorIntent(
   const hasActivePipeline = hasActiveAutonomousExpansionPipeline(colonyName);
   const report = hasActivePipeline
     ? { candidates: [], next: null }
-    : buildRuntimeExpansionCandidateReport(colony);
+    : filterExpansionCandidateReportForColonyNetwork(
+        colony,
+        buildRuntimeExpansionCandidateReport(colony)
+      );
   if (!hasActivePipeline) {
     persistExpansionCandidateScores(colonyName, report, gameTime);
   }
@@ -211,8 +218,17 @@ function isExpansionExecutorCacheReusable(
     return true;
   }
 
+  const targetRoom = cachedSelection.selection.targetRoom;
+  if (!targetRoom) {
+    return false;
+  }
+
   return (
-    hasExpansionExecutorTarget(colony.room.name, cachedSelection.selection.targetRoom) &&
+    hasExpansionExecutorTarget(colony.room.name, targetRoom) &&
+    !isClaimPlanBlockedByHigherPriorityColony({
+      colony,
+      targetRoom
+    }) &&
     isExpansionExecutorClaimReady(colony, gameTime)
   );
 }
