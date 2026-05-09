@@ -4048,6 +4048,122 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('spawns a scout for the E26S48 claim intent before claim capacity is available', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E26S49',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'E26S49',
+            targetRoom: 'E26S48',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 806,
+            controllerId: 'controller-e26s48' as Id<StructureController>
+          }
+        ]
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 807)).toEqual({
+      spawn,
+      body: ['move'],
+      name: 'scout-E26S49-E26S48-807',
+      memory: {
+        role: 'scout',
+        colony: 'E26S49',
+        territory: {
+          targetRoom: 'E26S48',
+          action: 'scout',
+          controllerId: 'controller-e26s48' as Id<StructureController>
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S48',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 806,
+        controllerId: 'controller-e26s48'
+      },
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S48',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 807,
+        controllerId: 'controller-e26s48'
+      }
+    ]);
+  });
+
+  it('spawns a minimal claimer for E26S48 after scout intel and claim capacity are ready', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E26S49',
+      energyAvailable: 650,
+      energyCapacityAvailable: 650,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'E26S49',
+            targetRoom: 'E26S48',
+            action: 'claim',
+            status: 'planned',
+            updatedAt: 806
+          }
+        ],
+        scoutIntel: {
+          'E26S49>E26S48': {
+            colony: 'E26S49',
+            roomName: 'E26S48',
+            updatedAt: 807,
+            controller: { id: 'controller-e26s48' as Id<StructureController>, my: false },
+            sourceIds: ['source1', 'source2'],
+            sourceCount: 2,
+            hostileCreepCount: 0,
+            hostileStructureCount: 0,
+            hostileSpawnCount: 0
+          }
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 808)).toEqual({
+      spawn,
+      body: ['claim', 'move'],
+      name: 'claimer-E26S49-E26S48-808',
+      memory: {
+        role: 'claimer',
+        colony: 'E26S49',
+        territory: {
+          targetRoom: 'E26S48',
+          action: 'claim',
+          controllerId: 'controller-e26s48' as Id<StructureController>
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S48',
+        action: 'claim',
+        status: 'planned',
+        updatedAt: 808,
+        controllerId: 'controller-e26s48'
+      }
+    ]);
+  });
+
   it('plans a scout when only reserve capacity exists for an unseen recovered claim target', () => {
     const { colony, spawn } = makeColony({
       energyAvailable: 650,

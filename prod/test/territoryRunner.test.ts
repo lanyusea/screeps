@@ -6,6 +6,10 @@ import {
 import { OCCUPIED_CONTROLLER_SIGN_TEXT } from '../src/territory/controllerSigning';
 import { runTerritoryControllerCreep } from '../src/territory/territoryRunner';
 import type { RuntimeTelemetryEvent } from '../src/telemetry/runtimeSummary';
+import {
+  clearColonyStageAssessmentCache,
+  recordColonyStageAssessment
+} from '../src/colony/colonyStage';
 
 describe('runTerritoryControllerCreep', () => {
   beforeEach(() => {
@@ -25,6 +29,7 @@ describe('runTerritoryControllerCreep', () => {
       getObjectById: jest.fn().mockReturnValue(null)
     };
     (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {};
+    clearColonyStageAssessmentCache();
   });
 
   afterEach(() => {
@@ -42,6 +47,7 @@ describe('runTerritoryControllerCreep', () => {
     delete (globalThis as { RoomPosition?: typeof RoomPosition }).RoomPosition;
     delete (globalThis as { Game?: Partial<Game> }).Game;
     delete (globalThis as { Memory?: Partial<Memory> }).Memory;
+    clearColonyStageAssessmentCache();
   });
 
   it('moves toward the target room before touching the controller', () => {
@@ -188,6 +194,38 @@ describe('runTerritoryControllerCreep', () => {
         hostileSpawnCount: 0
       }
     ]);
+  });
+
+  it('lets scouts move while the home room is locally stable but below claim capacity', () => {
+    recordColonyStageAssessment(
+      'W1N1',
+      {
+        mode: 'LOCAL_STABLE',
+        stage: 'LOCAL_STABLE',
+        roomName: 'W1N1',
+        totalCreeps: 3,
+        spawnEnergyAvailable: 300,
+        workerCapacity: 3,
+        workerTarget: 3,
+        survivalWorkerFloor: 3,
+        bootstrapRecovery: false,
+        controllerDowngradeGuard: false,
+        hostilePresence: false,
+        territoryReady: false,
+        suppressionReasons: ['territoryEnergyCapacity']
+      },
+      500
+    );
+    const creep = {
+      memory: { role: 'scout', colony: 'W1N1', territory: { targetRoom: 'W1N2', action: 'scout' } },
+      room: { name: 'W1N1' },
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    runTerritoryControllerCreep(creep);
+
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'W1N2' });
+    expect(creep.memory.territory).toEqual({ targetRoom: 'W1N2', action: 'scout' });
   });
 
   it('reserves the target room controller and moves into range when needed', () => {
@@ -379,6 +417,12 @@ describe('runTerritoryControllerCreep', () => {
       updatedAt: 503,
       workerTarget: 2,
       controllerId: 'controller1'
+    });
+    expect(Memory.territory?.claimedRoomBootstrapper?.rooms.W1N2).toEqual({
+      roomName: 'W1N2',
+      owned: true,
+      claimedAt: 503,
+      updatedAt: 503
     });
     expect(telemetryEvents).toContainEqual({
       type: 'postClaimBootstrap',

@@ -61,7 +61,8 @@ import {
   requiresTerritoryControllerPressure,
   shouldSpawnTerritoryControllerCreep,
   TERRITORY_FOLLOW_UP_PREPARATION_WORKER_DEMAND,
-  type TerritoryIntentPlan
+  type TerritoryIntentPlan,
+  type TerritoryIntentPlanningOptions
 } from '../territory/territoryPlanner';
 import {
   buildMultiRoomUpgraderBody,
@@ -1257,25 +1258,17 @@ function planRemoteEconomySpawn(context: SpawnPlanningContext): SpawnRequest | n
 }
 
 function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest | null {
-  if (
-    context.survival.mode !== 'TERRITORY_READY' ||
-    (context.options.workersOnly &&
-      context.options.allowTerritoryControllerPressure !== true &&
-      context.options.allowTerritoryFollowUp !== true)
-  ) {
+  const planningOptions = getTerritoryIntentPlanningOptions(context);
+  if (!planningOptions) {
     return null;
   }
 
-  const controllerPressureOnly =
-    context.options.workersOnly === true && context.options.allowTerritoryControllerPressure === true;
-  const followUpOnlyFallback =
-    context.options.workersOnly === true && context.options.allowTerritoryFollowUp === true;
   const territoryIntent = planTerritoryIntent(
     context.colony,
     context.roleCounts,
     context.workerTarget,
     context.gameTime,
-    { controllerPressureOnly, followUpOnly: followUpOnlyFallback }
+    planningOptions
   );
   if (!territoryIntent) {
     return null;
@@ -1324,6 +1317,41 @@ function planTerritoryRemoteSpawn(context: SpawnPlanningContext): SpawnRequest |
   );
 
   return null;
+}
+
+function getTerritoryIntentPlanningOptions(
+  context: SpawnPlanningContext
+): TerritoryIntentPlanningOptions | null {
+  if (context.survival.mode === 'TERRITORY_READY') {
+    if (
+      context.options.workersOnly &&
+      context.options.allowTerritoryControllerPressure !== true &&
+      context.options.allowTerritoryFollowUp !== true
+    ) {
+      return null;
+    }
+
+    return {
+      controllerPressureOnly:
+        context.options.workersOnly === true &&
+        context.options.allowTerritoryControllerPressure === true,
+      followUpOnly:
+        context.options.workersOnly === true &&
+        context.options.allowTerritoryFollowUp === true
+    };
+  }
+
+  return shouldPlanLocalStableTerritoryScout(context) ? { scoutOnly: true } : null;
+}
+
+function shouldPlanLocalStableTerritoryScout(context: SpawnPlanningContext): boolean {
+  return (
+    context.survival.mode === 'LOCAL_STABLE' &&
+    context.options.workersOnly !== true &&
+    context.workerCapacity >= context.workerTarget &&
+    context.colony.energyCapacityAvailable >= TERRITORY_SCOUT_BODY_COST &&
+    context.colony.energyAvailable >= TERRITORY_SCOUT_BODY_COST
+  );
 }
 
 function planControllerUpgradeSurplusSpawn(context: SpawnPlanningContext): SpawnRequest | null {
