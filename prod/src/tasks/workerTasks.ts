@@ -2298,7 +2298,10 @@ function selectConstructionSite(
   constructionReservationContext: ConstructionReservationContext = createEmptyConstructionReservationContext(),
   options: ConstructionSiteSelectionOptions = {}
 ): ConstructionSite | null {
-  const priorityContext = options.priorityContext ?? buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const priorityContext = {
+    ...buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites),
+    ...options.priorityContext
+  };
   const candidates = constructionSites.filter(
     (site) =>
       predicate(site) &&
@@ -2900,7 +2903,10 @@ function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(
     return null;
   }
 
-  const logisticsPriorityContext = priorityContext ?? buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const logisticsPriorityContext = {
+    ...buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites),
+    ...priorityContext
+  };
   if (shouldPrioritizeSourceLogisticsConstruction(creep.room)) {
     return (
       selectUnreservedConstructionSite(

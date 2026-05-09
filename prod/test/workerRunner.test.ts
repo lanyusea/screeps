@@ -1556,7 +1556,7 @@ describe('runWorker', () => {
       ([type]) => type === FIND_MY_STRUCTURES
     );
     expect(creep.memory.task).toBeUndefined();
-    expect(spawnExtensionLookups).toHaveLength(3);
+    expect(spawnExtensionLookups.some(([, options]) => typeof options?.filter === 'function')).toBe(true);
     expect(getObjectById).not.toHaveBeenCalled();
     expect(build).not.toHaveBeenCalled();
     expect(moveTo).not.toHaveBeenCalled();

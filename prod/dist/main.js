@@ -18388,8 +18388,11 @@ function compareEnergySinkId(left, right) {
   return String(left.id).localeCompare(String(right.id));
 }
 function selectConstructionSite(creep, constructionSites, predicate = () => true, constructionReservationContext = createEmptyConstructionReservationContext(), options = {}) {
-  var _a, _b;
-  const priorityContext = (_a = options.priorityContext) != null ? _a : buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  var _a;
+  const priorityContext = {
+    ...buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites),
+    ...options.priorityContext
+  };
   const candidates = constructionSites.filter(
     (site) => predicate(site) && canSpendCreepEnergyOnConstructionSite(creep, site, priorityContext) && (!options.requireReasonableRange || isConstructionSiteWithinReasonableRange(creep, site, DEFAULT_REASONABLE_CONSTRUCTION_SITE_RANGE))
   );
@@ -18413,7 +18416,7 @@ function selectConstructionSite(creep, constructionSites, predicate = () => true
   }
   if (typeof (position == null ? void 0 : position.findClosestByRange) === "function") {
     const candidatesByStableId = [...topImpactCandidates].sort(compareConstructionSiteId);
-    return (_b = position.findClosestByRange(candidatesByStableId)) != null ? _b : candidatesByStableId[0];
+    return (_a = position.findClosestByRange(candidatesByStableId)) != null ? _a : candidatesByStableId[0];
   }
   return topImpactCandidates.sort(compareConstructionSiteId)[0];
 }
@@ -18761,7 +18764,10 @@ function selectBaselineLogisticsConstructionSiteBeforeAdditionalExtension(creep,
   if (!capacityConstructionSite || !isExtensionConstructionSite(capacityConstructionSite) || shouldPrioritizeExtensionCapacity(creep.room)) {
     return null;
   }
-  const logisticsPriorityContext = priorityContext != null ? priorityContext : buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites);
+  const logisticsPriorityContext = {
+    ...buildWorkerConstructionSiteImpactPriorityContext(creep, constructionSites),
+    ...priorityContext
+  };
   if (shouldPrioritizeSourceLogisticsConstruction(creep.room)) {
     return (_a = selectUnreservedConstructionSite(
       creep,
