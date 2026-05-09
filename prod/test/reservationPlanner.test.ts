@@ -199,6 +199,7 @@ describe('adjacent room reservation planner', () => {
       gclLevel: 5,
       rooms: {
         W3N1: makeOwnedRoom('W3N1'),
+        W4N1: makeOwnedRoom('W4N1'),
         W1N2: makeReservationRoom('W1N2', { sourceCount: 2 })
       },
       exits: { W1N1: { '1': 'W1N2' } }

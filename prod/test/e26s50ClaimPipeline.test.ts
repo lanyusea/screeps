@@ -2,6 +2,7 @@ import type { ColonySnapshot } from '../src/colony/colonyRegistry';
 import { runClaimer } from '../src/creeps/claimerRunner';
 import { planSpawn } from '../src/spawn/spawnPlanner';
 import { refreshExpansionExecutorIntent } from '../src/territory/expansionExecutor';
+import { getExpansionTriggerRequiredEnergy } from '../src/territory/expansionTrigger';
 import { planTerritoryIntent } from '../src/territory/territoryPlanner';
 
 describe('E26S50 claim pipeline', () => {
@@ -88,6 +89,64 @@ describe('E26S50 claim pipeline', () => {
         postClaimBootstrapReserveEnergy: 400
       }
     ]);
+  });
+
+  it('triggers an E26S50 claim at RCL 3 when GCL capacity and claim energy are ready', () => {
+    const colony = makeColony({ controllerLevel: 3 });
+    setGame(colony, 827, { includeE26S48: true, gclLevel: 3 });
+    setSafeHomeThreat('E26S49', 827);
+    Memory.scout = {
+      E26S50: makeLegacyScoutIntel()
+    };
+
+    expect(refreshExpansionExecutorIntent(colony, 827)).toMatchObject({
+      status: 'planned',
+      colony: 'E26S49',
+      targetRoom: 'E26S50',
+      controllerId: 'controller-e26s50'
+    });
+    expect(Memory.territory?.expansionCandidates?.[0]).toMatchObject({
+      colony: 'E26S49',
+      roomName: 'E26S50',
+      evidenceStatus: 'sufficient',
+      recommendedAction: 'claim',
+      nearestOwnedRoom: 'E26S49',
+      nearestOwnedRoomDistance: 1,
+      routeDistance: 1
+    });
+    expect(Memory.territory?.expansionCandidates?.[0]).not.toHaveProperty('preconditions');
+    expect(Memory.territory?.targets).toEqual([
+      {
+        colony: 'E26S49',
+        roomName: 'E26S50',
+        action: 'claim',
+        createdBy: 'nextExpansionScoring',
+        controllerId: 'controller-e26s50',
+        postClaimBootstrapReserveEnergy: 400
+      }
+    ]);
+  });
+
+  it('skips the E26S50 trigger when current energy is below RCL 3 expansion readiness', () => {
+    const threshold = getExpansionTriggerRequiredEnergy(3);
+    const colony = makeColony({
+      controllerLevel: 3,
+      energyAvailable: threshold - 1,
+      energyCapacityAvailable: 800
+    });
+    setGame(colony, 828, { includeE26S48: true, gclLevel: 3 });
+    setSafeHomeThreat('E26S49', 828);
+    Memory.scout = {
+      E26S50: makeLegacyScoutIntel()
+    };
+
+    expect(refreshExpansionExecutorIntent(colony, 828)).toEqual({
+      status: 'skipped',
+      colony: 'E26S49',
+      reason: 'unmetPreconditions'
+    });
+    expect(Memory.territory?.expansionPipelines?.E26S49).toBeUndefined();
+    expect(Memory.territory?.targets).toBeUndefined();
   });
 
   it.each([
@@ -228,16 +287,24 @@ describe('E26S50 claim pipeline', () => {
   });
 });
 
-function makeColony(): ColonySnapshot {
+function makeColony({
+  controllerLevel = 4,
+  energyAvailable = 1_300,
+  energyCapacityAvailable = 1_300
+}: {
+  controllerLevel?: number;
+  energyAvailable?: number;
+  energyCapacityAvailable?: number;
+} = {}): ColonySnapshot {
   const room = {
     name: 'E26S49',
-    energyAvailable: 1_300,
-    energyCapacityAvailable: 1_300,
+    energyAvailable,
+    energyCapacityAvailable,
     controller: {
       id: 'controller-e26s49' as Id<StructureController>,
       my: true,
       owner: { username: 'me' },
-      level: 4,
+      level: controllerLevel,
       ticksToDowngrade: 10_000
     } as StructureController,
     storage: {
@@ -253,23 +320,55 @@ function makeColony(): ColonySnapshot {
   return {
     room,
     spawns: [spawn],
-    energyAvailable: 1_300,
-    energyCapacityAvailable: 1_300,
-    spawnEnergyBudget: 1_300,
+    energyAvailable,
+    energyCapacityAvailable,
+    spawnEnergyBudget: energyCapacityAvailable,
     memory: room.memory
   };
 }
 
-function setGame(colony: ColonySnapshot, gameTime: number): void {
+function setGame(
+  colony: ColonySnapshot,
+  gameTime: number,
+  {
+    includeE26S48 = false,
+    gclLevel
+  }: {
+    includeE26S48?: boolean;
+    gclLevel?: number;
+  } = {}
+): void {
+  const rooms: Record<string, Room> = {
+    E26S49: colony.room
+  };
+  if (includeE26S48) {
+    rooms.E26S48 = makeOwnedRoom('E26S48');
+  }
+
   (globalThis as unknown as { Game: Partial<Game> }).Game = {
     time: gameTime,
-    rooms: {
-      E26S49: colony.room
-    },
+    rooms,
+    ...(gclLevel !== undefined ? { gcl: { level: gclLevel, progress: 0, progressTotal: 1 } } : {}),
     map: {
       describeExits: jest.fn((roomName: string) => (roomName === 'E26S49' ? { '5': 'E26S50' } : {}))
     } as unknown as GameMap
   };
+}
+
+function makeOwnedRoom(roomName: string): Room {
+  return {
+    name: roomName,
+    controller: {
+      id: `controller-${roomName.toLowerCase()}` as Id<StructureController>,
+      my: true,
+      owner: { username: 'me' },
+      level: 3,
+      ticksToDowngrade: 10_000
+    } as StructureController,
+    energyAvailable: 1_300,
+    energyCapacityAvailable: 1_300,
+    find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources(roomName) : []))
+  } as unknown as Room;
 }
 
 function makeLegacyScoutIntel(overrides: Partial<TerritoryScoutIntelMemory> = {}): Record<string, unknown> {
