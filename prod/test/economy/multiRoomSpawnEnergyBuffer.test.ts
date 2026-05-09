@@ -136,6 +136,50 @@ describe('multi-room spawn energy buffer coordination', () => {
     });
   });
 
+  it('keeps reservation-driven spawn buffer deficits from being subtracted twice from exports', () => {
+    const sourceRoom = makeOwnedRoom({
+      roomName: 'E26S49',
+      storageEnergy: 1_000,
+      storageCapacity: 1_000,
+      energyAvailable: 700
+    });
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S47',
+      storageEnergy: 200,
+      storageCapacity: 1_000
+    });
+    installGame([sourceRoom, targetRoom], []);
+    Memory.economy = {
+      spawnEnergyReservation: {
+        updatedAt: 99,
+        rooms: {
+          E26S49: {
+            bodyCost: 800,
+            creepName: 'claimer-E26S49-E26S47-100',
+            reservedAt: 99,
+            reservedEnergy: 800,
+            role: 'claimer',
+            roomName: 'E26S49',
+            updatedAt: 99
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.E26S49).toMatchObject({
+      mode: 'export',
+      exportableEnergy: 100,
+      reservedSpawnEnergy: 800,
+      spawnEnergyBufferDeficit: 100,
+      unmetSpawnEnergyReservation: 100
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S47', amount: 100, updatedAt: 100 }
+    ]);
+  });
+
   it('routes cross-room energy to replenish a critically low spawn buffer', () => {
     const sourceStructures: AnyOwnedStructure[] = [];
     const targetStructures: AnyOwnedStructure[] = [];

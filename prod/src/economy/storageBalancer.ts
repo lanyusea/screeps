@@ -118,9 +118,7 @@ export function getRoomStoredEnergyState(room: Room): RoomStoredEnergyState {
       : 0;
   const exportableEnergy = Math.max(
     0,
-    rawExportableEnergy -
-      spawnEnergyReservation.unmetReservedEnergy -
-      spawnEnergyBufferNeed.deficit
+    rawExportableEnergy - spawnEnergyBufferNeed.deficit
   );
   const storageImportDemand =
     capacity > 0 && ratio < STORAGE_BALANCE_IMPORT_RATIO

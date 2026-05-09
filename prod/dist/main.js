@@ -18749,7 +18749,7 @@ function getRoomStoredEnergyState(room) {
   const rawExportableEnergy = capacity > 0 && ratio > STORAGE_BALANCE_EXPORT_RATIO ? Math.floor(energy - capacity * STORAGE_BALANCE_EXPORT_RATIO) : 0;
   const exportableEnergy = Math.max(
     0,
-    rawExportableEnergy - spawnEnergyReservation.unmetReservedEnergy - spawnEnergyBufferNeed.deficit
+    rawExportableEnergy - spawnEnergyBufferNeed.deficit
   );
   const storageImportDemand = capacity > 0 && ratio < STORAGE_BALANCE_IMPORT_RATIO ? Math.ceil(capacity * STORAGE_BALANCE_IMPORT_RATIO - energy) : 0;
   const importDemand = storageImportDemand + spawnEnergyBufferNeed.deficit;
