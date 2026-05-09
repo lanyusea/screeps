@@ -4,6 +4,7 @@ import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPla
 import { planSourceContainerConstruction, planStorageConstruction, planTowerConstruction } from './constructionPriority';
 import { planExtensionConstruction } from './extensionPlanner';
 import { planEarlyRoadConstruction, type EarlyRoadPlannerOptions } from './roadPlanner';
+import { planStagingContainerConstruction } from './stagingContainerPlanner';
 
 export type ConstructionPlannerPriority =
   | 'spawn'
@@ -236,7 +237,7 @@ export function planConstructionForColony(
   }
 
   if (sourceLogisticsStarved) {
-    planContainers(colony, result, budgetState, options);
+    planContainers(colony, result, budgetState, options, { includeStagingContainers: false });
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
@@ -401,27 +402,55 @@ function planContainers(
   colony: ColonySnapshot,
   result: RoomConstructionPlannerResult,
   budgetState: ConstructionBudgetState,
-  options: ConstructionPlannerOptions
+  options: ConstructionPlannerOptions,
+  containerOptions: { includeStagingContainers?: boolean } = {}
 ): void {
   const remainingStructureCapacity = getRemainingStructureCapacity(colony.room, 'container');
   const remainingEnergySlots = getRemainingEnergySlots(colony.room, budgetState, 'container', options);
-  const maxContainerSitesPerTick = Math.min(
+  let remainingContainerSitesThisTick = Math.min(
     resolvePositiveInteger(options.maxContainerSitesPerTick, DEFAULT_MAX_CONTAINER_SITES_PER_TICK),
     remainingStructureCapacity,
     remainingEnergySlots
   );
-  if (maxContainerSitesPerTick <= 0) {
+  if (remainingContainerSitesThisTick <= 0) {
     return;
   }
 
   const containerResults = planSourceContainerConstruction(colony, {
-    maxContainerSitesPerTick,
+    maxContainerSitesPerTick: remainingContainerSitesThisTick,
     maxPendingContainerSites: options.maxPendingContainerSites
   });
   for (const containerResult of containerResults) {
     recordPlacement(result, budgetState, 'container', containerResult, options);
     if (containerResult !== getOkCode()) {
       return;
+    }
+
+    remainingContainerSitesThisTick -= 1;
+    if (remainingContainerSitesThisTick <= 0) {
+      return;
+    }
+  }
+
+  if (
+    containerOptions.includeStagingContainers !== false &&
+    !hasRemainingStructureCapacity(colony.room, 'extension') &&
+    (remainingContainerSitesThisTick > 1 || hasCompleteSourceContainerCoverage(colony.room))
+  ) {
+    const stagingContainerResults = planStagingContainerConstruction(colony, {
+      maxContainerSitesPerTick: remainingContainerSitesThisTick,
+      maxPendingContainerSites: options.maxPendingContainerSites
+    });
+    for (const stagingContainerResult of stagingContainerResults) {
+      recordPlacement(result, budgetState, 'container', stagingContainerResult, options);
+      if (stagingContainerResult !== getOkCode()) {
+        return;
+      }
+
+      remainingContainerSitesThisTick -= 1;
+      if (remainingContainerSitesThisTick <= 0) {
+        return;
+      }
     }
   }
 }
@@ -541,6 +570,30 @@ function hasSpawnCoverage(colony: ColonySnapshot): boolean {
     countExistingStructures(colony.room, 'spawn') > 0 ||
     countPendingConstructionSites(colony.room, 'spawn') > 0
   );
+}
+
+function hasCompleteSourceContainerCoverage(room: Room): boolean {
+  const sources = getSortedSources(room);
+  if (sources.length === 0) {
+    return true;
+  }
+
+  const containerPositions = [
+    ...findRoomObjects<Structure>(room, 'FIND_STRUCTURES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES')
+  ]
+    .filter((object) => object.structureType === getStructureConstant('STRUCTURE_CONTAINER'))
+    .map((object) => getAnyObjectPosition(object))
+    .filter((position): position is CandidatePosition => isSameRoomPosition(position, room.name));
+
+  return sources.every((source) => {
+    const sourcePosition = getAnyObjectPosition(source);
+    if (sourcePosition === null || !isSameRoomPosition(sourcePosition, room.name)) {
+      return false;
+    }
+
+    return containerPositions.some((position) => getRangeBetweenPositions(sourcePosition, position) <= 1);
+  });
 }
 
 function hasRemainingStructureCapacity(room: Room, priority: ConstructionPlannerPriority): boolean {

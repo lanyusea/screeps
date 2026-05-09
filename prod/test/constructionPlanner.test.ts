@@ -86,6 +86,37 @@ describe('owned room construction planner', () => {
     expect(result.energyReserved).toBe(200);
   });
 
+  it('places spawn and controller staging containers after extension and road work', () => {
+    installOpenTerrain();
+    const { room, colony } = makeColony({
+      controllerLevel: 3,
+      energyAvailable: 1_000,
+      structures: [
+        ...Array.from({ length: 9 }, (_, index) =>
+          makeStructure(`extension-${index}`, TEST_GLOBALS.STRUCTURE_EXTENSION, 30 + index, 30)
+        )
+      ],
+      sources: [],
+      pathsByTarget: {
+        '25,25': [{ x: 10, y: 11 }]
+      }
+    });
+
+    const result = planConstructionForColony(colony, { maxContainerSitesPerTick: 2 });
+
+    expect(result.placements.map((placement) => placement.priority)).toEqual([
+      'extension',
+      'road',
+      'container',
+      'container',
+      'tower'
+    ]);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(1, 9, 9, STRUCTURE_EXTENSION);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(2, 10, 11, STRUCTURE_ROAD);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(3, 11, 11, STRUCTURE_CONTAINER);
+    expect(room.createConstructionSite).toHaveBeenNthCalledWith(4, 24, 24, STRUCTURE_CONTAINER);
+  });
+
   it('keeps non-spawn construction site placement within half of available room energy', () => {
     installOpenTerrain();
     const { room, colony } = makeColony({
@@ -264,6 +295,13 @@ describe('owned room construction planner', () => {
 
     expect(result.placements).toEqual([
       {
+        priority: 'container',
+        roomName: 'W1N1',
+        structureType: STRUCTURE_CONTAINER,
+        result: OK_CODE,
+        energyReserved: 50
+      },
+      {
         priority: 'rampart',
         roomName: 'W1N1',
         structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
@@ -273,7 +311,7 @@ describe('owned room construction planner', () => {
         y: 24
       }
     ]);
-    expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
+    expect(room.createConstructionSite).toHaveBeenCalledTimes(2);
     expect(room.createConstructionSite).toHaveBeenCalledWith(26, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 });

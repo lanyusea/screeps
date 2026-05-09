@@ -1,5 +1,5 @@
 import { runWorker } from '../../src/creeps/workerRunner';
-import { selectWorkerEnergyCriticalAcquisitionTask } from '../../src/tasks/workerTasks';
+import { selectWorkerEnergyCriticalAcquisitionTask, selectWorkerTask } from '../../src/tasks/workerTasks';
 
 function installScreepsGlobals(): void {
   (globalThis as unknown as { ERR_INVALID_TARGET: number }).ERR_INVALID_TARGET = -7;
@@ -42,8 +42,32 @@ function makeDroppedEnergy(id: string, amount: number): Resource<ResourceConstan
   return { id, resourceType: RESOURCE_ENERGY, amount } as Resource<ResourceConstant>;
 }
 
-function makeSource(id: string): Source {
-  return { id, energy: 300 } as Source;
+function makeSource(id: string, x = 20, y = 20): Source {
+  return { id, energy: 300, pos: makeRoomPosition(x, y) } as Source;
+}
+
+function makeSpawn(id: string, energy: number, freeCapacity: number, x: number, y: number): StructureSpawn {
+  return {
+    id,
+    structureType: 'spawn',
+    pos: makeRoomPosition(x, y),
+    store: {
+      getUsedCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
+      getFreeCapacity: jest.fn((resource?: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeCapacity : 0))
+    }
+  } as unknown as StructureSpawn;
+}
+
+function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
+  return {
+    x,
+    y,
+    roomName,
+    getRangeTo: jest.fn((target: RoomObject | RoomPosition) => {
+      const position = 'pos' in target ? target.pos : target;
+      return Math.max(Math.abs(x - position.x), Math.abs(y - position.y));
+    })
+  } as unknown as RoomPosition;
 }
 
 function makeRoom({
@@ -165,6 +189,55 @@ describe('worker energy acquisition proximity', () => {
     expect(selectWorkerEnergyCriticalAcquisitionTask(creep)).toEqual({
       type: 'withdraw',
       targetId: 'storage-close'
+    });
+  });
+
+  it('prefers spawn staging energy over a closer controller container while spawn energy is critical', () => {
+    const spawn = makeSpawn('spawn1', 100, 200, 10, 10);
+    const spawnContainer = makeStoredEnergyStructure('spawn-stage', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(11, 10)
+    });
+    const controllerContainer = makeStoredEnergyStructure('controller-stage', 'container' as StructureConstant, 1_000, {
+      pos: makeRoomPosition(24, 25)
+    });
+    const room = makeRoom({
+      sources: [makeSource('source-ready', 20, 20)],
+      structures: [spawn as AnyStructure, spawnContainer as AnyStructure, controllerContainer as AnyStructure]
+    });
+    (room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 100;
+    (room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyCapacityAvailable = 300;
+    (room.controller as StructureController & { pos: RoomPosition }).pos = makeRoomPosition(25, 25);
+    const creep = makeWorker(room, {
+      'controller-stage': 1,
+      'spawn-stage': 20,
+      'source-ready': 1
+    });
+
+    expect(selectWorkerEnergyCriticalAcquisitionTask(creep)).toEqual({
+      type: 'withdraw',
+      targetId: 'spawn-stage'
+    });
+  });
+
+  it('uses a spawn staging container before fresh harvesting for urgent refill', () => {
+    const spawn = makeSpawn('spawn1', 100, 200, 10, 10);
+    const spawnContainer = makeStoredEnergyStructure('spawn-stage', 'container' as StructureConstant, 100, {
+      pos: makeRoomPosition(11, 10)
+    });
+    const room = makeRoom({
+      sources: [makeSource('source-ready', 12, 10)],
+      structures: [spawn as AnyStructure, spawnContainer as AnyStructure]
+    });
+    (room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyAvailable = 100;
+    (room as Room & { energyAvailable: number; energyCapacityAvailable: number }).energyCapacityAvailable = 300;
+    const creep = makeWorker(room, {
+      'spawn-stage': 40,
+      'source-ready': 1
+    });
+
+    expect(selectWorkerTask(creep)).toEqual({
+      type: 'withdraw',
+      targetId: 'spawn-stage'
     });
   });
 
