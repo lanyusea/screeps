@@ -30,6 +30,8 @@ interface PendingHaulerDeliveryEnergyCache {
   energyByRoomName: Map<string, number>;
 }
 
+const CROSS_ROOM_HAULER_ROLE = 'crossRoomHauler';
+
 let pendingHaulerDeliveryEnergyCache: PendingHaulerDeliveryEnergyCache | undefined;
 
 export function getEnergyReservationScore(
@@ -156,6 +158,10 @@ function getPendingHaulerDeliveryEnergyByRoomName(creeps: Partial<Game['creeps']
 }
 
 function getHaulerDeliveryRoomName(creep: Creep): string | undefined {
+  if (creep.memory?.role === CROSS_ROOM_HAULER_ROLE) {
+    return getCrossRoomHaulerDeliveryRoomName(creep);
+  }
+
   if (creep.memory?.role !== 'hauler' || isCollectingEnergyTask(creep.memory.task)) {
     return undefined;
   }
@@ -170,6 +176,23 @@ function getHaulerDeliveryRoomName(creep: Creep): string | undefined {
 
   const remoteHomeRoom = creep.memory.remoteHauler?.homeRoom;
   return isNonEmptyString(remoteHomeRoom) ? remoteHomeRoom : undefined;
+}
+
+function getCrossRoomHaulerDeliveryRoomName(creep: Creep): string | undefined {
+  if (isCollectingEnergyTask(creep.memory.task)) {
+    return undefined;
+  }
+
+  const assignment = creep.memory.crossRoomHauler;
+  if (!isNonEmptyString(assignment?.targetRoom)) {
+    return undefined;
+  }
+
+  if (assignment.state !== undefined && assignment.state !== 'delivering') {
+    return undefined;
+  }
+
+  return assignment.targetRoom;
 }
 
 function isCollectingEnergyTask(task: CreepTaskMemory | undefined): boolean {

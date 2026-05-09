@@ -208,14 +208,11 @@ function buildStorageTransfers(
   roomStates: RoomStoredEnergyState[],
   gameTime: number
 ): StorageTransferPlan {
-  const exporters = roomStates
-    .filter((state) => state.mode === 'export' && state.exportableEnergy > 0)
-    .sort(compareExportRooms);
   const importers = roomStates
     .filter((state) => state.mode === 'import' && state.importDemand > 0)
     .sort(compareImportRooms);
 
-  const remainingExport = new Map(exporters.map((state) => [state.roomName, state.exportableEnergy]));
+  const allocatedExport = new Map<string, number>();
   const transfers: EconomyStorageTransferMemory[] = [];
   const audits: MultiRoomEnergyTransferAudit[] = [];
   const routeContext: StorageTransferRouteContext = {
@@ -225,6 +222,7 @@ function buildStorageTransfers(
 
   for (const importer of importers) {
     const localEnergyAudit = getStorageTransferLocalEnergyAudit(importer);
+    const exporters = getPotentialExportersForImporter(roomStates, importer);
     let remainingDemand = importer.importDemand;
     let suppressedByLocalFirstPolicy = false;
     let blockedByNoPath = false;
@@ -233,7 +231,11 @@ function buildStorageTransfers(
         break;
       }
 
-      const exportableEnergy = remainingExport.get(exporter.roomName) ?? 0;
+      const exportableEnergy = getRemainingExportEnergyForImporter(
+        exporter,
+        importer,
+        allocatedExport
+      );
       if (exportableEnergy <= 0) {
         continue;
       }
@@ -283,7 +285,10 @@ function buildStorageTransfers(
         reason: selectPlannedTransferReason(importer),
         updatedAt: gameTime
       });
-      remainingExport.set(exporter.roomName, exportableEnergy - amount);
+      allocatedExport.set(
+        exporter.roomName,
+        (allocatedExport.get(exporter.roomName) ?? 0) + amount
+      );
       remainingDemand -= amount;
     }
 
@@ -299,6 +304,65 @@ function buildStorageTransfers(
   }
 
   return { transfers, audits };
+}
+
+function getPotentialExportersForImporter(
+  roomStates: RoomStoredEnergyState[],
+  importer: RoomStoredEnergyState
+): RoomStoredEnergyState[] {
+  return roomStates.filter(
+    (state) =>
+      state.roomName !== importer.roomName &&
+      getRoomEnergyTransferExportLimit(state, importer) > 0
+  );
+}
+
+function getRemainingExportEnergyForImporter(
+  exporter: RoomStoredEnergyState,
+  importer: RoomStoredEnergyState,
+  allocatedExport: Map<string, number>
+): number {
+  return Math.max(
+    0,
+    getRoomEnergyTransferExportLimit(exporter, importer) -
+      (allocatedExport.get(exporter.roomName) ?? 0)
+  );
+}
+
+export function getRoomEnergyTransferExportLimit(
+  exporter: RoomStoredEnergyState,
+  importer: RoomStoredEnergyState
+): number {
+  if (exporter.roomName === importer.roomName) {
+    return 0;
+  }
+
+  if (hasSpawnEnergyImportPressure(importer)) {
+    return Math.max(exporter.exportableEnergy, getSpawnSupportExportableEnergy(exporter));
+  }
+
+  return exporter.exportableEnergy;
+}
+
+function hasSpawnEnergyImportPressure(state: RoomStoredEnergyState): boolean {
+  return (
+    state.spawnEnergyBufferDeficit > 0 ||
+    state.criticalSpawnEnergyDeficit > 0 ||
+    state.unmetSpawnEnergyReservation > 0
+  );
+}
+
+function getSpawnSupportExportableEnergy(state: RoomStoredEnergyState): number {
+  if (state.capacity <= 0 || state.importDemand > 0) {
+    return 0;
+  }
+
+  const storageImportFloor = Math.ceil(state.capacity * STORAGE_BALANCE_IMPORT_RATIO);
+  const localSpawnReserve = Math.max(
+    state.spawnEnergyBufferDeficit,
+    state.unmetSpawnEnergyReservation
+  );
+  return Math.max(0, state.energy - storageImportFloor - localSpawnReserve);
 }
 
 function getStorageTransferLocalEnergyAudit(
@@ -366,6 +430,8 @@ function compareExportRoomsForImporter(
     getCorridorExporterPriority(left.roomName, importer.roomName) -
       getCorridorExporterPriority(right.roomName, importer.roomName) ||
     leftRouteDistance - rightRouteDistance ||
+    getRoomEnergyTransferExportLimit(right, importer) -
+      getRoomEnergyTransferExportLimit(left, importer) ||
     compareExportRooms(left, right)
   );
 }
