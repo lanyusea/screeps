@@ -232,7 +232,7 @@ function isMineralAvailable(mineral: Mineral): boolean {
 
 function isExtractorOnMineral(extractor: StructureExtractor, mineral: Mineral): boolean {
   if (!extractor.pos || !mineral.pos) {
-    return true;
+    return false;
   }
 
   return (
