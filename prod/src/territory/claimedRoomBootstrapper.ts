@@ -952,7 +952,7 @@ function resolveClaimOriginColony(
     return plannedClaimOrigin;
   }
 
-  return previous?.owned === false ? selectNearestOwnedSpawnRoom(room.name) : null;
+  return selectNearestOwnedSpawnRoom(room.name);
 }
 
 function getPlannedClaimOriginColony(roomName: string): string | null {
@@ -975,6 +975,7 @@ function getPlannedClaimOriginColony(roomName: string): string | null {
   const targetOrigin = Array.isArray(territory.targets)
     ? territory.targets.find(
         (target) =>
+          isRecord(target) &&
           target.roomName === roomName &&
           target.action === 'claim' &&
           isNonEmptyString(target.colony)
@@ -987,6 +988,7 @@ function getPlannedClaimOriginColony(roomName: string): string | null {
   const intentOrigin = Array.isArray(territory.intents)
     ? territory.intents.find(
         (intent) =>
+          isRecord(intent) &&
           intent.targetRoom === roomName &&
           intent.action === 'claim' &&
           intent.status !== 'completed' &&
@@ -1004,6 +1006,14 @@ function selectNearestOwnedSpawnRoom(targetRoomName: string): string | null {
     return null;
   }
 
+  if (!isFreshClaimFallbackEligibleRoom(game.rooms?.[targetRoomName])) {
+    return null;
+  }
+
+  if (Object.values(spawns).some((spawn) => spawn?.room?.name === targetRoomName)) {
+    return null;
+  }
+
   const candidateRoomNames = [
     ...new Set(
       Object.values(spawns)
@@ -1017,16 +1027,20 @@ function selectNearestOwnedSpawnRoom(targetRoomName: string): string | null {
         .map((room) => room.name)
     )
   ];
+  const routeDistances = new Map(
+    candidateRoomNames.map((roomName) => [roomName, getRoomRouteDistance(roomName, targetRoomName)])
+  );
   return candidateRoomNames.sort((left, right) =>
-    compareClaimOriginRooms(left, right, targetRoomName)
+    compareRouteDistance(
+      routeDistances.get(left) ?? Number.POSITIVE_INFINITY,
+      routeDistances.get(right) ?? Number.POSITIVE_INFINITY
+    ) || left.localeCompare(right)
   )[0] ?? null;
 }
 
-function compareClaimOriginRooms(left: string, right: string, targetRoomName: string): number {
-  return (
-    compareRouteDistance(getRoomRouteDistance(left, targetRoomName), getRoomRouteDistance(right, targetRoomName)) ||
-    left.localeCompare(right)
-  );
+function isFreshClaimFallbackEligibleRoom(room: Room | undefined): boolean {
+  const controllerLevel = room?.controller?.level;
+  return typeof controllerLevel !== 'number' || controllerLevel <= 2;
 }
 
 function compareRouteDistance(left: number, right: number): number {
