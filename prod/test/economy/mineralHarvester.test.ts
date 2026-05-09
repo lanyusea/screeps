@@ -1,4 +1,4 @@
-import type { ColonySnapshot } from '../src/colony/colonyRegistry';
+import type { ColonySnapshot } from '../../src/colony/colonyRegistry';
 import {
   buildMineralHarvesterBody,
   MINERAL_HARVESTER_ROLE,
@@ -6,7 +6,7 @@ import {
   runMineralHarvester,
   selectMineralHarvestAssignment,
   shouldAllowMineralHarvesting
-} from '../src/economy/mineral-harvesting';
+} from '../../src/economy/mineralHarvester';
 
 const OK_CODE = 0 as ScreepsReturnCode;
 
@@ -27,16 +27,18 @@ describe('mineral harvesting', () => {
     expect(selectMineralHarvestAssignment(room, [])).toEqual({
       homeRoom: 'W1N1',
       mineralId: 'mineral1',
+      mineralAmount: 5_000,
       mineralType: 'H',
-      targetId: 'terminal1'
+      targetId: 'storage1'
     });
   });
 
-  it('skips rooms without extractor, available mineral, storage, or terminal capacity', () => {
+  it('skips rooms without extractor, available mineral, owned controller, storage capacity, or extractor placement', () => {
     expect(selectMineralHarvestAssignment(makeMineralRoom({ hasExtractor: false }).room, [])).toBeNull();
     expect(selectMineralHarvestAssignment(makeMineralRoom({ mineralAmount: 0 }).room, [])).toBeNull();
-    expect(selectMineralHarvestAssignment(makeMineralRoom({ terminalFreeCapacity: 0, storageFreeCapacity: 0 }).room, [])).toBeNull();
+    expect(selectMineralHarvestAssignment(makeMineralRoom({ storageFreeCapacity: 0 }).room, [])).toBeNull();
     expect(selectMineralHarvestAssignment(makeMineralRoom({ controllerOwned: false }).room, [])).toBeNull();
+    expect(selectMineralHarvestAssignment(makeMineralRoom({ extractorOnMineral: false }).room, [])).toBeNull();
   });
 
   it('does not assign another harvester to a mineral with an active harvester', () => {
@@ -47,7 +49,7 @@ describe('mineral harvesting', () => {
         mineralHarvester: {
           homeRoom: 'W1N1',
           mineralId: 'mineral1' as Id<Mineral>,
-          targetId: 'terminal1' as Id<AnyStoreStructure>
+          targetId: 'storage1' as Id<AnyStoreStructure>
         }
       },
       ticksToLive: 500
@@ -56,34 +58,72 @@ describe('mineral harvesting', () => {
     expect(selectMineralHarvestAssignment(room, [activeHarvester])).toBeNull();
   });
 
-  it('builds mineral harvester bodies from the extractor template and caps work parts at RCL 6+', () => {
-    expect(buildMineralHarvesterBody(199, 6)).toEqual([]);
-    expect(buildMineralHarvesterBody(200, 6)).toEqual(['work', 'carry', 'move']);
-    expect(buildMineralHarvesterBody(300, 6)).toEqual(['work', 'carry', 'move', 'move']);
-    expect(buildMineralHarvesterBody(400, 6)).toEqual(['work', 'work', 'carry', 'move', 'move', 'move']);
-    expect(buildMineralHarvesterBody(500, 6)).toEqual(['work', 'work', 'work', 'carry', 'move', 'move', 'move']);
-    expect(buildMineralHarvesterBody(1_000, 6).filter((part) => part === 'work')).toHaveLength(3);
-    expect(buildMineralHarvesterBody(1_000, 5).filter((part) => part === 'work')).toHaveLength(2);
+  it('scales mineral harvester WORK parts to available mineral amount with a 10 WORK cap', () => {
+    expect(buildMineralHarvesterBody(199, { mineralAmount: 5_000 })).toEqual([]);
+    expect(buildMineralHarvesterBody(200, { mineralAmount: 5_000 })).toEqual(['work', 'carry', 'move']);
+    expect(buildMineralHarvesterBody(450, { mineralAmount: 15_000 })).toEqual([
+      'work',
+      'work',
+      'work',
+      'carry',
+      'move',
+      'move'
+    ]);
+    expect(buildMineralHarvesterBody(900, { mineralAmount: 30_000 })).toEqual([
+      'work',
+      'work',
+      'work',
+      'work',
+      'work',
+      'work',
+      'carry',
+      'carry',
+      'move',
+      'move',
+      'move',
+      'move'
+    ]);
+    expect(buildMineralHarvesterBody(1_400, { mineralAmount: 80_000 }).filter((part) => part === 'work')).toHaveLength(10);
+    expect(
+      buildMineralHarvesterBody(1_400, { mineralAmount: 80_000, maxWorkParts: 5 }).filter((part) => part === 'work')
+    ).toHaveLength(5);
   });
 
-  it('enforces the mineral harvesting room-energy gate at 30 percent capacity', () => {
-    expect(shouldAllowMineralHarvesting(299, 1_000)).toBe(false);
-    expect(shouldAllowMineralHarvesting(300, 1_000)).toBe(true);
+  it('enforces the mineral harvesting room-energy gate at 50 percent capacity', () => {
+    expect(shouldAllowMineralHarvesting(499, 1_000)).toBe(false);
+    expect(shouldAllowMineralHarvesting(500, 1_000)).toBe(true);
     expect(shouldAllowMineralHarvesting(0, 0)).toBe(false);
   });
 
   it('plans a mineral harvester only when the energy gate and body budget allow it', () => {
-    const { room, spawn } = makeMineralRoom({ energyAvailable: 300, energyCapacityAvailable: 1_000 });
+    const { room, spawn } = makeMineralRoom({
+      energyAvailable: 500,
+      energyCapacityAvailable: 1_000,
+      mineralAmount: 30_000
+    });
     const colony: ColonySnapshot = {
       room,
       spawns: [spawn],
-      energyAvailable: 300,
+      energyAvailable: 500,
       energyCapacityAvailable: 1_000
     };
 
-    expect(planMineralHarvesterSpawn(colony, [], 99, { energyAvailable: 299, bodyEnergyBudget: 1_000 })).toBeNull();
-    expect(planMineralHarvesterSpawn(colony, [], 99, { energyAvailable: 300, bodyEnergyBudget: 300 })).toMatchObject({
-      body: ['work', 'carry', 'move', 'move'],
+    expect(planMineralHarvesterSpawn(colony, [], 99, { energyAvailable: 499, bodyEnergyBudget: 1_400 })).toBeNull();
+    expect(planMineralHarvesterSpawn(colony, [], 99, { energyAvailable: 500, bodyEnergyBudget: 900 })).toMatchObject({
+      body: [
+        'work',
+        'work',
+        'work',
+        'work',
+        'work',
+        'work',
+        'carry',
+        'carry',
+        'move',
+        'move',
+        'move',
+        'move'
+      ],
       name: 'mineralHarvester-W1N1-99',
       memory: {
         role: MINERAL_HARVESTER_ROLE,
@@ -91,18 +131,20 @@ describe('mineral harvesting', () => {
         mineralHarvester: {
           homeRoom: 'W1N1',
           mineralId: 'mineral1',
+          mineralAmount: 30_000,
           mineralType: 'H',
-          targetId: 'terminal1'
+          targetId: 'storage1'
         }
       }
     });
   });
 
-  it('delivers carried minerals to terminal or storage', () => {
-    const { room, terminal } = makeMineralRoom();
+  it('delivers carried minerals to storage', () => {
+    const { room, storage, terminal } = makeMineralRoom();
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
       rooms: { W1N1: room },
-      creeps: {}
+      creeps: {},
+      getObjectById: jest.fn((id: string) => (id === 'terminal1' ? terminal : null))
     };
     const creep = {
       memory: {
@@ -121,8 +163,8 @@ describe('mineral harvesting', () => {
 
     runMineralHarvester(creep);
 
-    expect(creep.transfer).toHaveBeenCalledWith(terminal, 'H');
-    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'terminal1' });
+    expect(creep.transfer).toHaveBeenCalledWith(storage, 'H');
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'storage1' });
   });
 });
 
@@ -132,6 +174,7 @@ function makeMineralRoom({
   mineralAmount = 5_000,
   terminalFreeCapacity = 5_000,
   storageFreeCapacity = 5_000,
+  extractorOnMineral = true,
   energyAvailable = 1_000,
   energyCapacityAvailable = 1_000
 }: {
@@ -140,6 +183,7 @@ function makeMineralRoom({
   mineralAmount?: number;
   terminalFreeCapacity?: number;
   storageFreeCapacity?: number;
+  extractorOnMineral?: boolean;
   energyAvailable?: number;
   energyCapacityAvailable?: number;
 } = {}): {
@@ -150,12 +194,14 @@ function makeMineralRoom({
 } {
   const extractor = {
     id: 'extractor1',
-    structureType: 'extractor'
+    structureType: 'extractor',
+    pos: makeRoomPosition(extractorOnMineral ? 10 : 11, 20, 'W1N1')
   } as StructureExtractor;
   const mineral = {
     id: 'mineral1',
     mineralAmount,
-    mineralType: 'H'
+    mineralType: 'H',
+    pos: makeRoomPosition(10, 20, 'W1N1')
   } as Mineral;
   const terminal = {
     id: 'terminal1',
@@ -196,6 +242,10 @@ function makeMineralRoom({
   } as unknown as StructureSpawn;
 
   return { room, spawn, terminal, storage };
+}
+
+function makeRoomPosition(x: number, y: number, roomName: string): RoomPosition {
+  return { x, y, roomName } as RoomPosition;
 }
 
 function makeStore(resources: Partial<Record<ResourceConstant, number>>, freeCapacity: number): StoreDefinition {

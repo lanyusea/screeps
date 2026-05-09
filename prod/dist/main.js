@@ -33297,14 +33297,16 @@ function normalizeRatio3(value) {
   return Math.max(0, Math.min(1, normalized));
 }
 
-// src/economy/mineral-harvesting.ts
+// src/economy/mineralHarvester.ts
 var MINERAL_HARVESTER_ROLE = "mineralHarvester";
 var MINERAL_HARVESTER_REPLACEMENT_TICKS = 100;
-var MINERAL_HARVESTING_MIN_ENERGY_RATIO = 0.3;
+var MINERAL_HARVESTING_MIN_ENERGY_RATIO = 0.5;
+var MINERAL_AMOUNT_PER_WORK_PART = 5e3;
+var MAX_MINERAL_HARVESTER_WORK_PARTS = 10;
 var MINERAL_MOVE_OPTS = { reusePath: 20, ignoreRoads: false };
 var ERR_NOT_IN_RANGE_CODE9 = -9;
 function planMineralHarvesterSpawn(colony, creeps, gameTime, options = {}) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d;
   const energyAvailable = normalizeNonNegativeInteger15(
     (_b = (_a = options.energyAvailable) != null ? _a : colony.energyAvailable) != null ? _b : colony.room.energyAvailable
   );
@@ -33324,7 +33326,7 @@ function planMineralHarvesterSpawn(colony, creeps, gameTime, options = {}) {
   }
   const body = buildMineralHarvesterBody(
     normalizeNonNegativeInteger15((_d = options.bodyEnergyBudget) != null ? _d : energyAvailable),
-    (_e = colony.room.controller) == null ? void 0 : _e.level
+    { mineralAmount: assignment.mineralAmount }
   );
   if (body.length === 0) {
     return null;
@@ -33349,10 +33351,11 @@ function selectMineralHarvestAssignment(room, creeps = Object.values(((_b) => (_
   if (!extractor) {
     return null;
   }
-  const mineral = selectAvailableMineral(room);
+  const mineral = selectAvailableMineral(room, extractor);
   if (!mineral || hasActiveMineralHarvester(creeps, room.name, mineral.id)) {
     return null;
   }
+  const mineralAmount = getMineralAmount(mineral);
   const mineralType = getMineralResourceType(mineral);
   const target = selectMineralDeliveryTarget(room, mineralType);
   if (!target) {
@@ -33361,6 +33364,7 @@ function selectMineralHarvestAssignment(room, creeps = Object.values(((_b) => (_
   return {
     homeRoom: room.name,
     mineralId: mineral.id,
+    mineralAmount,
     ...mineralType ? { mineralType } : {},
     targetId: target.id
   };
@@ -33372,10 +33376,12 @@ function shouldAllowMineralHarvesting(energyAvailable, energyCapacity) {
   }
   return normalizeNonNegativeInteger15(energyAvailable) >= capacity * MINERAL_HARVESTING_MIN_ENERGY_RATIO;
 }
-function buildMineralHarvesterBody(energyAvailable, controllerLevel) {
+function buildMineralHarvesterBody(energyAvailable, options = {}) {
+  var _a;
   const energyBudget = normalizeNonNegativeInteger15(energyAvailable);
-  const maxWorkParts = typeof controllerLevel === "number" && controllerLevel >= 6 ? 3 : 2;
-  for (let workParts = maxWorkParts; workParts >= 1; workParts -= 1) {
+  const maxWorkParts = (_a = normalizePositiveInteger2(options.maxWorkParts)) != null ? _a : MAX_MINERAL_HARVESTER_WORK_PARTS;
+  const targetWorkParts = getMineralHarvesterTargetWorkParts(options.mineralAmount, maxWorkParts);
+  for (let workParts = targetWorkParts; workParts >= 1; workParts -= 1) {
     const body = buildMineralHarvesterBodyWithWorkParts(workParts);
     if (getBodyCost3(body) <= energyBudget) {
       return body;
@@ -33415,16 +33421,23 @@ function runMineralHarvester(creep) {
   }
 }
 function buildMineralHarvesterBodyWithWorkParts(workParts) {
-  if (workParts <= 1) {
-    return ["work", "carry", "move", "move"];
-  }
+  const carryParts = Math.max(1, Math.ceil(workParts / 5));
+  const moveParts = Math.max(1, Math.ceil((workParts + carryParts) / 2));
   return [
     ...Array.from({ length: workParts }, () => "work"),
-    "carry",
-    "move",
-    "move",
-    "move"
+    ...Array.from({ length: carryParts }, () => "carry"),
+    ...Array.from({ length: moveParts }, () => "move")
   ];
+}
+function getMineralHarvesterTargetWorkParts(mineralAmount, maxWorkParts) {
+  const amount = normalizeNonNegativeInteger15(mineralAmount);
+  if (amount <= 0) {
+    return 1;
+  }
+  return Math.max(
+    1,
+    Math.min(maxWorkParts, Math.ceil(amount / MINERAL_AMOUNT_PER_WORK_PART))
+  );
 }
 function selectAvailableSpawn(spawns, usedSpawns) {
   var _a;
@@ -33439,15 +33452,24 @@ function selectExtractor(room) {
   }
   return (_a = findRoomObjects25(room, "FIND_STRUCTURES").find(isExtractorStructure)) != null ? _a : null;
 }
-function selectAvailableMineral(room) {
+function selectAvailableMineral(room, extractor) {
   var _a;
-  return (_a = findRoomObjects25(room, "FIND_MINERALS").find(isMineralAvailable)) != null ? _a : null;
+  return (_a = findRoomObjects25(room, "FIND_MINERALS").find((mineral) => isMineralAvailable(mineral) && isExtractorOnMineral(extractor, mineral))) != null ? _a : null;
 }
 function isExtractorStructure(structure) {
   return matchesStructureType27(structure.structureType, "STRUCTURE_EXTRACTOR", "extractor");
 }
 function isMineralAvailable(mineral) {
-  return normalizeNonNegativeInteger15(mineral.mineralAmount) > 0;
+  return getMineralAmount(mineral) > 0;
+}
+function isExtractorOnMineral(extractor, mineral) {
+  if (!extractor.pos || !mineral.pos) {
+    return true;
+  }
+  return extractor.pos.x === mineral.pos.x && extractor.pos.y === mineral.pos.y && extractor.pos.roomName === mineral.pos.roomName;
+}
+function getMineralAmount(mineral) {
+  return normalizeNonNegativeInteger15(mineral.mineralAmount);
 }
 function getMineralResourceType(mineral) {
   const mineralType = mineral.mineralType;
@@ -33461,16 +33483,8 @@ function hasActiveMineralHarvester(creeps, homeRoom, mineralId) {
   });
 }
 function selectMineralDeliveryTarget(room, resourceType) {
-  var _a;
-  return (_a = [room.terminal, room.storage].filter(
-    (structure) => structure !== void 0 && getStoreFreeCapacity2(structure.store, resourceType) > 0
-  ).sort(compareMineralDeliveryTargets)[0]) != null ? _a : null;
-}
-function compareMineralDeliveryTargets(left, right) {
-  return getDeliveryPriority3(right) - getDeliveryPriority3(left) || getObjectId16(left).localeCompare(getObjectId16(right));
-}
-function getDeliveryPriority3(target) {
-  return matchesStructureType27(target.structureType, "STRUCTURE_TERMINAL", "terminal") ? 2 : 1;
+  const storage = room.storage;
+  return storage !== void 0 && getStoreFreeCapacity2(storage.store, resourceType) > 0 ? storage : null;
 }
 function getMutableMineralHarvesterMemory(creep) {
   var _a;
@@ -33493,6 +33507,7 @@ function normalizeMineralHarvesterMemory(value) {
     homeRoom: value.homeRoom,
     mineralId: value.mineralId,
     targetId,
+    ...typeof value.mineralAmount === "number" && Number.isFinite(value.mineralAmount) ? { mineralAmount: normalizeNonNegativeInteger15(value.mineralAmount) } : {},
     ...isNonEmptyString22(value.mineralType) ? { mineralType: value.mineralType } : {}
   };
 }
@@ -33516,10 +33531,13 @@ function deliverMineral(creep, assignment, resourceType) {
 }
 function selectDeliveryTargetForAssignment(room, assignment, resourceType) {
   const assignedTarget = getObjectById5(assignment.targetId);
-  if (assignedTarget && getStoreFreeCapacity2(assignedTarget.store, resourceType) > 0) {
+  if (assignedTarget && isStorageStructure2(assignedTarget) && getStoreFreeCapacity2(assignedTarget.store, resourceType) > 0) {
     return assignedTarget;
   }
   return selectMineralDeliveryTarget(room, resourceType);
+}
+function isStorageStructure2(structure) {
+  return matchesStructureType27(structure.structureType, "STRUCTURE_STORAGE", "storage");
 }
 function selectCarriedResourceType(creep, preferredResourceType) {
   if (preferredResourceType && getStoreUsedCapacity2(creep.store, preferredResourceType) > 0) {
@@ -33607,11 +33625,15 @@ function getBodyCost3(body) {
   };
   return body.reduce((total, part) => total + costs[part], 0);
 }
-function getObjectId16(object) {
-  return typeof object.id === "string" ? object.id : "";
-}
 function normalizeNonNegativeInteger15(value) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+function normalizePositiveInteger2(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : null;
 }
 function isRecord25(value) {
   return typeof value === "object" && value !== null;
