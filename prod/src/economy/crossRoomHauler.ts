@@ -22,6 +22,7 @@ const ERR_NOT_IN_RANGE_CODE = -9 as ScreepsReturnCode;
 type DeliveryTarget =
   | StructureSpawn
   | StructureExtension
+  | StructureTower
   | StructureContainer
   | StructureStorage
   | StructureTerminal;
@@ -30,6 +31,7 @@ type LogisticsStructureGlobal =
   | 'STRUCTURE_CONTAINER'
   | 'STRUCTURE_EXTENSION'
   | 'STRUCTURE_SPAWN'
+  | 'STRUCTURE_TOWER'
   | 'STRUCTURE_STORAGE'
   | 'STRUCTURE_TERMINAL';
 
@@ -318,6 +320,7 @@ function returnHome(creep: Creep, assignment: CreepCrossRoomHaulerMemory): void 
 function selectDeliveryTarget(room: Room): DeliveryTarget | null {
   const targets = [
     ...findOwnedStructures(room).filter(isSpawnOrExtensionWithDemand),
+    ...findOwnedStructures(room).filter(isTowerWithDemand),
     ...findRoomStructures(room).filter(isContainerWithDemand),
     ...[room.storage, room.terminal].filter(isStorageOrTerminalWithDemand)
   ].sort(compareDeliveryTargets);
@@ -342,6 +345,10 @@ function isSpawnOrExtensionWithDemand(structure: AnyOwnedStructure): structure i
   );
 }
 
+function isTowerWithDemand(structure: AnyOwnedStructure): structure is StructureTower {
+  return matchesStructureType(structure.structureType, 'STRUCTURE_TOWER', 'tower') && getFreeEnergyCapacity(structure) > 0;
+}
+
 function isContainerWithDemand(structure: Structure): structure is StructureContainer {
   return (
     matchesStructureType(structure.structureType, 'STRUCTURE_CONTAINER', 'container') &&
@@ -364,6 +371,10 @@ function getDeliveryPriority(target: DeliveryTarget): number {
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_EXTENSION', 'extension')) {
     return 2;
+  }
+
+  if (matchesStructureType(target.structureType, 'STRUCTURE_TOWER', 'tower')) {
+    return 1;
   }
 
   if (matchesStructureType(target.structureType, 'STRUCTURE_STORAGE', 'storage')) {

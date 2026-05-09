@@ -32,6 +32,7 @@ describe('cross-room energy logistics', () => {
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
+    (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
     (globalThis as unknown as { ERR_NOT_IN_RANGE: ScreepsReturnCode }).ERR_NOT_IN_RANGE = ERR_NOT_IN_RANGE_CODE;
     (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = ERR_NO_PATH_CODE;
     (globalThis as unknown as { RoomPosition: new (x: number, y: number, roomName: string) => RoomPosition })
@@ -381,6 +382,35 @@ describe('cross-room energy logistics', () => {
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'W2N1-container' });
   });
 
+  it('delivers imported energy to a claimed-room tower before durable storage', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950 });
+    const tower = makeTower('E26S48-tower', 100, 900);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      myStructures: [tower as unknown as AnyOwnedStructure]
+    });
+    installGame([sourceRoom, targetRoom], []);
+    const creep = makeCrossRoomHauler({
+      room: targetRoom,
+      carriedEnergy: () => 100,
+      transfer: jest.fn(() => OK_CODE)
+    });
+    creep.memory.colony = 'E26S49';
+    creep.memory.crossRoomHauler = {
+      homeRoom: 'E26S49',
+      targetRoom: 'E26S48',
+      sourceId: 'E26S49-storage' as Id<AnyStoreStructure>,
+      state: 'delivering',
+      route: ['E26S48']
+    };
+
+    runCrossRoomHauler(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(tower, RESOURCE_ENERGY);
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E26S48-tower' });
+  });
+
   it('delivers to deficit-room storage when transient sinks are unavailable', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950 });
     const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
@@ -604,6 +634,16 @@ describe('cross-room energy logistics', () => {
     } as unknown as StructureContainer;
     registerObject(container);
     return container;
+  }
+
+  function makeTower(id: string, energy: number, capacity: number): StructureTower {
+    const tower = {
+      id,
+      structureType: 'tower',
+      store: makeStore(energy, capacity)
+    } as unknown as StructureTower;
+    registerObject(tower);
+    return tower;
   }
 
   function makeStorage(id: string, energy: number, capacity: number): StructureStorage {

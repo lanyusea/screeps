@@ -54,6 +54,7 @@ export interface RampartWallConstructionExecutorOptions {
   requireExpansionMemory?: boolean;
   minEnergyAvailable?: number;
   maxPlacementCandidates?: number;
+  stageOrder?: readonly ExpansionDefenseBarrierPlacementStage[];
 }
 
 export interface RampartWallConstructionExecutorResult {
@@ -102,7 +103,8 @@ export function runRampartWallConstructionExecutorForColony(
   }
 
   const placements = planExpansionDefenseBarrierPlacements(room, {
-    maxPlacements: options.maxPlacementCandidates
+    maxPlacements: options.maxPlacementCandidates,
+    stageOrder: options.stageOrder
   });
   const stage = placements[0]?.stage;
   if (!stage) {
