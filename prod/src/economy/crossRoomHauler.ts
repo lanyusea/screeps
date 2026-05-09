@@ -4,6 +4,7 @@ import {
   getRoomStoredEnergyState,
   getStorageBalanceState
 } from './storageBalancer';
+import { shouldAllowLocalFirstEnergyImport } from './localEnergyStrategy';
 
 export const CROSS_ROOM_HAULER_ROLE = 'crossRoomHauler';
 export type SpawnPlan = SpawnRequest;
@@ -60,13 +61,13 @@ export function planCrossRoomHauler(
     return null;
   }
 
-  const source = selectSourceEnergyStructure(sourceRoom);
-  if (!source) {
+  const spawn = selectSourceRoomSpawn(sourceRoom.name);
+  if (!spawn) {
     return null;
   }
 
-  const spawn = selectSourceRoomSpawn(sourceRoom.name);
-  if (!spawn) {
+  const source = selectSourceEnergyStructure(sourceRoom, spawn);
+  if (!source) {
     return null;
   }
 
@@ -187,6 +188,15 @@ export function isLiveTransferCandidate(transfer: EconomyStorageTransferMemory):
     return false;
   }
 
+  if (
+    !shouldAllowLocalFirstEnergyImport(targetRoom, {
+      sourceRoom: sourceRoom.name,
+      storedEnergy: targetState.energy
+    })
+  ) {
+    return false;
+  }
+
   return findOwnedLogisticsRoute(sourceRoom.name, targetRoom.name) !== null;
 }
 
@@ -240,7 +250,7 @@ function collectEnergy(creep: Creep, assignment: CreepCrossRoomHaulerMemory): vo
 
   let source = getAssignedSource(assignment);
   if (!source || getStoredEnergy(source) <= 0) {
-    source = selectReplacementSource(assignment, creep.room);
+    source = selectReplacementSource(assignment, creep.room, creep);
   }
 
   if (!source) {
@@ -276,7 +286,7 @@ function deliverEnergy(creep: Creep, assignment: CreepCrossRoomHaulerMemory): vo
     return;
   }
 
-  const target = selectDeliveryTarget(creep.room);
+  const target = selectDeliveryTarget(creep.room, creep);
   if (!target) {
     delete creep.memory.task;
     assignment.state = 'returning';
@@ -323,13 +333,13 @@ function returnHome(creep: Creep, assignment: CreepCrossRoomHaulerMemory): void 
   assignment.state = isSourceUnassigned(assignment) ? 'unassigned' : 'returning';
 }
 
-function selectDeliveryTarget(room: Room): DeliveryTarget | null {
+function selectDeliveryTarget(room: Room, origin?: RoomObject): DeliveryTarget | null {
   const targets = [
     ...findOwnedStructures(room).filter(isSpawnOrExtensionWithDemand),
     ...findOwnedStructures(room).filter(isTowerWithDemand),
     ...findRoomStructures(room).filter(isContainerWithDemand),
     ...[room.storage, room.terminal].filter(isStorageOrTerminalWithDemand)
-  ].sort(compareDeliveryTargets);
+  ].sort((left, right) => compareDeliveryTargets(left, right, origin));
 
   return targets[0] ?? null;
 }
@@ -366,8 +376,12 @@ function isStorageOrTerminalWithDemand(structure: StructureStorage | StructureTe
   return structure !== undefined && getFreeEnergyCapacity(structure) > 0;
 }
 
-function compareDeliveryTargets(left: DeliveryTarget, right: DeliveryTarget): number {
-  return getDeliveryPriority(right) - getDeliveryPriority(left) || getObjectId(left).localeCompare(getObjectId(right));
+function compareDeliveryTargets(left: DeliveryTarget, right: DeliveryTarget, origin?: RoomObject): number {
+  return (
+    getDeliveryPriority(right) - getDeliveryPriority(left) ||
+    getRangeToRoomObject(origin, left) - getRangeToRoomObject(origin, right) ||
+    getObjectId(left).localeCompare(getObjectId(right))
+  );
 }
 
 function getDeliveryPriority(target: DeliveryTarget): number {
@@ -394,13 +408,18 @@ function getDeliveryPriority(target: DeliveryTarget): number {
   return DELIVERY_PRIORITY_CONTAINER;
 }
 
-function selectSourceEnergyStructure(room: Room): EnergySourceStructure | null {
+function selectSourceEnergyStructure(room: Room, origin?: RoomObject): EnergySourceStructure | null {
   return [room.storage, room.terminal]
     .filter(
       (structure): structure is EnergySourceStructure =>
         structure !== undefined && getStoredEnergy(structure) > 0
     )
-    .sort((left, right) => getStoredEnergy(right) - getStoredEnergy(left) || getObjectId(left).localeCompare(getObjectId(right)))[0] ?? null;
+    .sort(
+      (left, right) =>
+        getRangeToRoomObject(origin, left) - getRangeToRoomObject(origin, right) ||
+        getStoredEnergy(right) - getStoredEnergy(left) ||
+        getObjectId(left).localeCompare(getObjectId(right))
+    )[0] ?? null;
 }
 
 function hasSourceSurplusEnergy(assignment: CreepCrossRoomHaulerMemory): boolean {
@@ -419,7 +438,7 @@ function hasSourceSurplusEnergy(assignment: CreepCrossRoomHaulerMemory): boolean
 
 function recoverSourceAssignment(creep: Creep, assignment: CreepCrossRoomHaulerMemory): boolean {
   const homeRoom = getVisibleRoom(assignment.homeRoom);
-  const source = homeRoom ? selectReplacementSource(assignment, homeRoom) : null;
+  const source = homeRoom ? selectReplacementSource(assignment, homeRoom, creep) : null;
   if (source) {
     assignment.state = 'collecting';
     return true;
@@ -435,9 +454,10 @@ function recoverSourceAssignment(creep: Creep, assignment: CreepCrossRoomHaulerM
 
 function selectReplacementSource(
   assignment: CreepCrossRoomHaulerMemory,
-  room: Room
+  room: Room,
+  origin?: RoomObject
 ): EnergySourceStructure | null {
-  const source = selectSourceEnergyStructure(room);
+  const source = selectSourceEnergyStructure(room, origin);
   if (!source) {
     markSourceUnassigned(assignment);
     return null;
@@ -700,6 +720,27 @@ function getFreeEnergyCapacity(target: unknown): number {
     ?.store;
   const freeCapacity = store?.getFreeCapacity?.(getEnergyResource());
   return typeof freeCapacity === 'number' && Number.isFinite(freeCapacity) ? Math.max(0, freeCapacity) : 0;
+}
+
+function getRangeToRoomObject(origin: RoomObject | undefined, target: RoomObject): number {
+  const originPosition = origin?.pos;
+  const rangeTo = originPosition?.getRangeTo;
+  if (typeof rangeTo === 'function') {
+    const range = rangeTo.call(originPosition, target);
+    if (typeof range === 'number' && Number.isFinite(range)) {
+      return Math.max(0, range);
+    }
+  }
+
+  const targetPosition = target.pos;
+  if (!originPosition || !targetPosition || originPosition.roomName !== targetPosition.roomName) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  return Math.max(
+    Math.abs(originPosition.x - targetPosition.x),
+    Math.abs(originPosition.y - targetPosition.y)
+  );
 }
 
 function getObjectById<T>(id: string): T | null {

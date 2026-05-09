@@ -1,4 +1,5 @@
 import { getTerminalEnergyTarget } from './energySurplus';
+import { shouldAllowLocalFirstEnergyImport } from './localEnergyStrategy';
 import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
 
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
@@ -167,6 +168,12 @@ function buildStorageTransfers(
       }
 
       const exportableEnergy = remainingExport.get(exporter.roomName) ?? 0;
+      if (
+        !shouldAllowStorageTransferForLocalEnergyStrategy(importer, exporter.roomName)
+      ) {
+        continue;
+      }
+
       const amount = Math.min(exportableEnergy, remainingDemand);
       if (amount <= 0) {
         continue;
@@ -184,6 +191,21 @@ function buildStorageTransfers(
   }
 
   return transfers;
+}
+
+function shouldAllowStorageTransferForLocalEnergyStrategy(
+  importer: RoomStoredEnergyState,
+  sourceRoom: string
+): boolean {
+  const targetRoom = getVisibleRoom(importer.roomName);
+  if (!targetRoom) {
+    return true;
+  }
+
+  return shouldAllowLocalFirstEnergyImport(targetRoom, {
+    sourceRoom,
+    storedEnergy: importer.energy
+  });
 }
 
 function compareExportRooms(left: RoomStoredEnergyState, right: RoomStoredEnergyState): number {
@@ -295,6 +317,10 @@ function getOwnedRooms(): Room[] {
   }
 
   return Object.values(rooms).filter((room): room is Room => room?.controller?.my === true);
+}
+
+function getVisibleRoom(roomName: string): Room | undefined {
+  return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
 }
 
 function getEconomyMemory(): EconomyMemory {
