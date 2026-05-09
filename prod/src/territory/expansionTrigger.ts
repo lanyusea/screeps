@@ -473,7 +473,7 @@ function isConfiguredAdjacentClaimTarget(colony: string, targetRoom: string): bo
       target.colony === colony &&
       target.roomName === targetRoom &&
       target.adjacentToOwnedRoom === true &&
-      target.routeDistance <= 1
+      target.nearestOwnedRoomDistance <= 1
   );
 }
 
