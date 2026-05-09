@@ -33,6 +33,44 @@ python3 scripts/screeps_official_deploy.py --dry-run --activate-world
 
 The dry run does not read `SCREEPS_AUTH_TOKEN` and does not call the Screeps API. It checks that the artifact exists and prints planned request shapes plus artifact size/SHA-256.
 
+## Elevated Deploy Gate for Economy / Spawn Changes
+
+Refs: #605, #592 (postmortem section 7), #63.
+
+When a PR merges changes to any of these paths or modules, the deploy **must** pass an elevated gate before the official MMO upload proceeds:
+
+- `prod/src/economy/**`
+- `prod/src/spawn/**`
+- Energy distribution, storage, link, refill, or worker body scaling logic
+- Any module whose main effect is economy throughput or spawn lifecycle
+
+### Gate requirements
+
+1. **Private-server smoke evidence**: Run `scripts/screeps-private-smoke.py run` (or the equivalent harness) for a bounded tick window (default ≥ 100 ticks). The smoke must show `owned_spawns >= 1` and `owned_creeps >= 1` at the end of the window. Archive the smoke evidence JSON under `runtime-artifacts/private-smoke/`.
+
+2. **Emergency hold / owner decision**: When private-server smoke is unavailable (for example missing `STEAM_KEY`, Steam client offline, or screeps-launcher host unreachable), the deploy must be explicitly HELD. Update #63 Project `Blocked by` to `smoke unavailable; owner decision required`, post a decision request in Discord #decisions (1497586175580311654) @ the owner, and do not proceed until the owner provides an explicit override.
+
+3. **Staged rollout for large economy rewrites** (≥200 lines changed across economy/spawn files): Deploy the change first, observe post-deploy health for at least one scheduler cycle (~20 minutes), and do not merge or deploy the next gameplay-affecting PR until the post-deploy health gate passes (`ok=true`, `owned_spawns >= 1`, `owned_creeps >= 1`, `alert=false`). If health degrades, follow the P0 room_dead / spawn-collapse escalation contract.
+
+### Detection
+
+The scheduler must check the diff of the merged PR before triggering deploy. Enforce the elevated gate when either:
+1. Any changed file matches `prod/src/economy/**` or `prod/src/spawn/**`, or
+2. The PR is labeled/declared as touching economy-throughput or spawn-lifecycle logic (energy distribution/storage/link/refill/worker scaling), even outside those paths.
+
+A baseline path detector using the merge commit's first parent (the pre-merge base tip, which avoids the empty-diff problem when the merge commit is already on the target branch):
+
+```bash
+# Use merge-commit^ (first parent) to diff what the PR actually changed
+git diff --name-only <merge-commit>^..<merge-commit> | grep -E '^prod/src/(economy|spawn)/'
+```
+
+If the baseline detector is empty, require explicit reviewer confirmation that condition (2) is false before proceeding. Non-zero output from the baseline detector means the elevated gate applies automatically.
+
+### Example classification
+
+PR #588 (`e87059d`) added 847 lines to `linkManager.ts` and modified `economyLoop.ts` — touchpoints that would trigger this elevated gate. Under this policy, that PR would have required private-smoke evidence or an explicit owner hold before official MMO deploy.
+
 ## Live Deploy
 
 Load `SCREEPS_AUTH_TOKEN` into the environment through local secret storage or CI secrets. Do not print it.
