@@ -26025,7 +26025,7 @@ function selectControllerSustainStoredEnergyTask(creep) {
   return source ? { type: "withdraw", targetId: source.id } : null;
 }
 function compareControllerSustainStoredEnergySources(creep, left, right) {
-  return getStoredEnergy16(right) - getStoredEnergy16(left) || compareRoomObjectsByRangeAndId2(creep, left, right);
+  return compareRoomObjectsByRangeAndId2(creep, left, right) || getStoredEnergy16(right) - getStoredEnergy16(left);
 }
 function selectControllerSustainDroppedEnergyTask(creep) {
   var _a;
