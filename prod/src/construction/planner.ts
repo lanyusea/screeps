@@ -18,8 +18,8 @@ export type ConstructionPlannerPriority =
 export const POST_CLAIM_CONSTRUCTION_PRIORITY_ORDER: readonly ConstructionPlannerPriority[] = [
   'spawn',
   'extension',
-  'container',
   'road',
+  'container',
   'tower',
   'rampart',
   'storage'
@@ -209,12 +209,12 @@ export function planConstructionForColony(
       return result;
     }
 
-    planContainers(colony, result, budgetState, options);
+    planRoads(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
 
-    planRoads(colony, result, budgetState, options);
+    planContainers(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }

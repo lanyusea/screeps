@@ -285,6 +285,52 @@ describe('E26S50 claim pipeline', () => {
     expect(creep.moveTo).toHaveBeenCalledWith(controller);
     expect(creep.claimController).not.toHaveBeenCalled();
   });
+
+  it('dispatches a dedicated E26S50 post-claim upgrader from E26S49 once the spawn site is pending', () => {
+    const colony = makeColony({ energyAvailable: 650, energyCapacityAvailable: 650 });
+    setGame(colony, 839);
+    const claimedRoom = {
+      name: 'E26S50',
+      energyAvailable: 0,
+      energyCapacityAvailable: 0,
+      controller: {
+        id: 'controller-e26s50',
+        my: true,
+        level: 1,
+        ticksToDowngrade: 20_000
+      } as StructureController,
+      find: jest.fn((findType: number) => (findType === FIND_SOURCES ? makeSources('E26S50') : []))
+    } as unknown as Room;
+    (Game.rooms as Record<string, Room>).E26S50 = claimedRoom;
+    (globalThis as unknown as { Game: Partial<Game> }).Game.spawns = { Spawn1: colony.spawns[0] };
+    (globalThis as unknown as { Game: Partial<Game> }).Game.creeps = {};
+    Memory.territory = {
+      postClaimBootstraps: {
+        E26S50: {
+          colony: 'E26S49',
+          roomName: 'E26S50',
+          status: 'spawnSitePending',
+          claimedAt: 837,
+          updatedAt: 838,
+          workerTarget: 2,
+          controllerId: 'controller-e26s50' as Id<StructureController>,
+          spawnSite: { roomName: 'E26S50', x: 23, y: 23 },
+          lastResult: 0 as ScreepsReturnCode
+        }
+      }
+    };
+
+    expect(planSpawn(colony, { worker: 4 }, 839)).toMatchObject({
+      spawn: colony.spawns[0],
+      name: 'worker-E26S49-E26S50-upgrader-839',
+      memory: {
+        role: 'worker',
+        colony: 'E26S50',
+        territory: { targetRoom: 'E26S50', action: 'claim', controllerId: 'controller-e26s50' },
+        controllerSustain: { homeRoom: 'E26S49', targetRoom: 'E26S50', role: 'upgrader' }
+      }
+    });
+  });
 });
 
 function makeColony({

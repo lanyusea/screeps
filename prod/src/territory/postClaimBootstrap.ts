@@ -1,4 +1,5 @@
 import type { ColonySnapshot } from '../colony/colonyRegistry';
+import { recordClaimedRoomBootstrapStage } from '../colony/colonyStage';
 import {
   planConstructionForColony,
   POST_CLAIM_CONSTRUCTION_PRIORITY_ORDER,
@@ -201,6 +202,7 @@ export function recordPostClaimBootstrapClaimSuccess(
   };
   bootstraps[input.roomName] = record;
   recordClaimedRoomOccupation(input.roomName, claimedAt, gameTime);
+  recordClaimedRoomBootstrapStage(input.roomName, gameTime);
 
   telemetryEvents.push({
     type: 'postClaimBootstrap',
@@ -627,11 +629,11 @@ function selectPostClaimBootstrapNextConstructionPriority(
   if (!progress.extensions.complete) {
     return 'extension';
   }
-  if (!progress.sourceContainers.complete) {
-    return 'container';
-  }
   if (!progress.roads.complete && progress.roads.existing + progress.roads.pending <= 0) {
     return 'road';
+  }
+  if (!progress.sourceContainers.complete) {
+    return 'container';
   }
   if (!progress.towers.complete) {
     return 'tower';

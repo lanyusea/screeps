@@ -9,6 +9,8 @@ import {
   getRoomObjectPosition,
   isSameRoomPosition
 } from '../economy/sourceContainers';
+import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
+import { recordPostClaimBootstrapClaimSuccess } from './postClaimBootstrap';
 
 const ROOM_EDGE_MIN = 1;
 const ROOM_EDGE_MAX = 48;
@@ -18,6 +20,7 @@ const MAX_SPAWN_SITE_SCAN_RADIUS = 8;
 const MAX_TOWER_SITE_SCAN_RADIUS = 8;
 const DEFAULT_TERRAIN_WALL_MASK = 1;
 const OK_CODE = 0 as ScreepsReturnCode;
+const ERR_NO_PATH_CODE = -2 as ScreepsReturnCode;
 const ERR_FULL_CODE = -8 as ScreepsReturnCode;
 const ERR_RCL_NOT_ENOUGH_CODE = -14 as ScreepsReturnCode;
 
@@ -90,7 +93,9 @@ export interface ClaimedRoomBootstrapRunResult extends ClaimedRoomOwnershipRefre
   planned: ClaimedRoomBootstrapPlanResult[];
 }
 
-export function refreshClaimedRoomBootstrapperOwnership(): ClaimedRoomOwnershipRefreshResult {
+export function refreshClaimedRoomBootstrapperOwnership(
+  telemetryEvents: RuntimeTelemetryEvent[] = []
+): ClaimedRoomOwnershipRefreshResult {
   const game = (globalThis as { Game?: Partial<Game> }).Game;
   const rooms = game?.rooms;
   const memory = getWritableBootstrapperMemory();
@@ -107,7 +112,11 @@ export function refreshClaimedRoomBootstrapperOwnership(): ClaimedRoomOwnershipR
     const owned = room.controller.my === true;
     const previous = memory.rooms[room.name];
     const activePostClaimRecord = getActivePostClaimBootstrapRecord(room.name);
-    const newlyClaimed = owned && previous?.owned === false;
+    const claimOriginColony = owned ? resolveClaimOriginColony(room, previous, activePostClaimRecord) : null;
+    const newlyClaimed =
+      owned &&
+      !activePostClaimRecord &&
+      (previous?.owned === false || (previous?.owned !== true && claimOriginColony !== null));
     if (newlyClaimed) {
       detectedRoomNames.push(room.name);
     }
@@ -122,6 +131,17 @@ export function refreshClaimedRoomBootstrapperOwnership(): ClaimedRoomOwnershipR
       ...(claimedAt !== undefined ? { claimedAt } : {}),
       ...(newlyClaimed ? {} : previous?.completedAt !== undefined ? { completedAt: previous.completedAt } : {})
     };
+
+    if (newlyClaimed && claimOriginColony !== null) {
+      recordPostClaimBootstrapClaimSuccess(
+        {
+          colony: claimOriginColony,
+          roomName: room.name,
+          ...(room.controller.id ? { controllerId: room.controller.id } : {})
+        },
+        telemetryEvents
+      );
+    }
   }
 
   return { detectedRoomNames };
@@ -914,6 +934,144 @@ function getActivePostClaimBootstrapRecord(roomName: string): TerritoryPostClaim
     : null;
 }
 
+function resolveClaimOriginColony(
+  room: Room,
+  previous: TerritoryClaimedRoomBootstrapMemory | undefined,
+  activePostClaimRecord: TerritoryPostClaimBootstrapMemory | null
+): string | null {
+  if (previous?.owned === true) {
+    return null;
+  }
+
+  if (isNonEmptyString(activePostClaimRecord?.colony)) {
+    return activePostClaimRecord.colony;
+  }
+
+  const plannedClaimOrigin = getPlannedClaimOriginColony(room.name);
+  if (plannedClaimOrigin) {
+    return plannedClaimOrigin;
+  }
+
+  return previous?.owned === false ? selectNearestOwnedSpawnRoom(room.name) : null;
+}
+
+function getPlannedClaimOriginColony(roomName: string): string | null {
+  const territory = (globalThis as { Memory?: Partial<Memory> }).Memory?.territory;
+  if (!territory) {
+    return null;
+  }
+
+  const pipelineOrigin = Object.values(territory.expansionPipelines ?? {}).find(
+    (pipeline) =>
+      isRecord(pipeline) &&
+      pipeline.targetRoom === roomName &&
+      pipeline.status === 'active' &&
+      isNonEmptyString(pipeline.colony)
+  )?.colony;
+  if (isNonEmptyString(pipelineOrigin)) {
+    return pipelineOrigin;
+  }
+
+  const targetOrigin = Array.isArray(territory.targets)
+    ? territory.targets.find(
+        (target) =>
+          target.roomName === roomName &&
+          target.action === 'claim' &&
+          isNonEmptyString(target.colony)
+      )?.colony
+    : null;
+  if (isNonEmptyString(targetOrigin)) {
+    return targetOrigin;
+  }
+
+  const intentOrigin = Array.isArray(territory.intents)
+    ? territory.intents.find(
+        (intent) =>
+          intent.targetRoom === roomName &&
+          intent.action === 'claim' &&
+          intent.status !== 'completed' &&
+          intent.status !== 'inactive' &&
+          isNonEmptyString(intent.colony)
+      )?.colony
+    : null;
+  return isNonEmptyString(intentOrigin) ? intentOrigin : null;
+}
+
+function selectNearestOwnedSpawnRoom(targetRoomName: string): string | null {
+  const game = (globalThis as { Game?: Partial<Game> }).Game;
+  const spawns = game?.spawns;
+  if (!spawns) {
+    return null;
+  }
+
+  const candidateRoomNames = [
+    ...new Set(
+      Object.values(spawns)
+        .map((spawn) => spawn?.room)
+        .filter(
+          (room): room is Room =>
+            room?.name !== targetRoomName &&
+            isNonEmptyString(room?.name) &&
+            room.controller?.my === true
+        )
+        .map((room) => room.name)
+    )
+  ];
+  return candidateRoomNames.sort((left, right) =>
+    compareClaimOriginRooms(left, right, targetRoomName)
+  )[0] ?? null;
+}
+
+function compareClaimOriginRooms(left: string, right: string, targetRoomName: string): number {
+  return (
+    compareRouteDistance(getRoomRouteDistance(left, targetRoomName), getRoomRouteDistance(right, targetRoomName)) ||
+    left.localeCompare(right)
+  );
+}
+
+function compareRouteDistance(left: number, right: number): number {
+  const leftFinite = Number.isFinite(left);
+  const rightFinite = Number.isFinite(right);
+  if (leftFinite && rightFinite && left !== right) {
+    return left - right;
+  }
+  if (leftFinite !== rightFinite) {
+    return leftFinite ? -1 : 1;
+  }
+  return 0;
+}
+
+function getRoomRouteDistance(fromRoom: string, toRoom: string): number {
+  if (fromRoom === toRoom) {
+    return 0;
+  }
+
+  const gameMap = (globalThis as { Game?: Partial<Pick<Game, 'map'>> }).Game?.map as
+    | (Partial<GameMap> & {
+        findRoute?: (fromRoom: string, toRoom: string) => unknown;
+        getRoomLinearDistance?: (roomName1: string, roomName2: string) => number;
+      })
+    | undefined;
+  if (typeof gameMap?.findRoute === 'function') {
+    const route = gameMap.findRoute.call(gameMap, fromRoom, toRoom);
+    if (Array.isArray(route)) {
+      return route.length;
+    }
+    if (route === ERR_NO_PATH_CODE) {
+      return Number.POSITIVE_INFINITY;
+    }
+  }
+
+  if (typeof gameMap?.getRoomLinearDistance === 'function') {
+    const distance = gameMap.getRoomLinearDistance.call(gameMap, fromRoom, toRoom);
+    if (typeof distance === 'number' && Number.isFinite(distance)) {
+      return Math.max(0, Math.floor(distance));
+    }
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
 function isBootstrapperRoomRecord(
   value: unknown,
   expectedRoomName: string
@@ -976,6 +1134,10 @@ function getGameTime(): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function isFiniteNumber(value: unknown): value is number {
