@@ -4302,6 +4302,65 @@ describe('planSpawn', () => {
     ]);
   });
 
+  it('spawns a MOVE-only scout for the configured E26S50 expansion candidate at 300 energy', () => {
+    const { colony, spawn } = makeColony({
+      roomName: 'E26S49',
+      energyAvailable: 300,
+      energyCapacityAvailable: 300,
+      controller: { my: true, level: 4, ticksToDowngrade: 10_000 } as StructureController
+    });
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        expansionCandidates: [
+          {
+            colony: 'E26S49',
+            roomName: 'E26S50',
+            rank: 1,
+            score: 369,
+            evidenceStatus: 'insufficient-evidence',
+            visible: false,
+            updatedAt: 820,
+            adjacentToOwnedRoom: true,
+            recommendedAction: 'scout',
+            routeDistance: 1,
+            nearestOwnedRoom: 'E26S49',
+            nearestOwnedRoomDistance: 1
+          }
+        ]
+      }
+    };
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: { E26S49: colony.room },
+      map: {
+        describeExits: jest.fn((roomName: string) => (roomName === 'E26S49' ? { '5': 'E26S50' } : {})),
+        findRoute: jest.fn(() => [{ exit: 5, room: 'E26S50' }])
+      } as unknown as GameMap
+    };
+
+    expect(planSpawn(colony, { worker: 3, claimer: 0, claimersByTargetRoom: {} }, 821)).toEqual({
+      spawn,
+      body: ['move'],
+      name: 'scout-E26S49-E26S50-821',
+      memory: {
+        role: 'scout',
+        colony: 'E26S49',
+        territory: {
+          targetRoom: 'E26S50',
+          action: 'scout'
+        }
+      }
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S50',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 821
+      }
+    ]);
+  });
+
   it('spawns a minimal claimer for E26S48 after scout intel and claim capacity are ready', () => {
     const { colony, spawn } = makeColony({
       roomName: 'E26S49',
