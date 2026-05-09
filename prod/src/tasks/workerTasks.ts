@@ -50,6 +50,11 @@ import { selectEnergySurplusDeliverySink } from '../economy/energySurplus';
 import { getStorageBalanceState } from '../economy/storageBalancer';
 import { findSourceContainer } from '../economy/sourceContainers';
 import {
+  isControllerStagingContainer,
+  isSpawnStagingContainer,
+  type EnergyStagingContainerRole
+} from '../economy/stagingContainers';
+import {
   classifyLinks,
   getSourceLinkWorkerEnergyAvailable,
   isSourceLink,
@@ -450,6 +455,14 @@ function selectHeuristicWorkerTask(creep: Creep): CreepTaskMemory | null {
     return applyMinimumUsefulSpawnExtensionDeliveryPolicy(creep, spawnOrExtensionRefillTask);
   }
 
+  const spawnStagingContainerSink = selectSpawnStagingContainerEnergySink(creep);
+  if (spawnStagingContainerSink) {
+    return {
+      type: 'transfer',
+      targetId: spawnStagingContainerSink.id as Id<AnyStoreStructure>
+    };
+  }
+
   if (remoteProductiveSpendingSuppressed) {
     const suppressedRemoteEnergyHandlingTask = selectSuppressedRemoteEnergyHandlingTask(creep);
     if (suppressedRemoteEnergyHandlingTask) {
@@ -711,6 +724,29 @@ function selectColonyRecallEnergySink(room: Room): FillableEnergySink | null {
   return (
     selectFirstEnergySinkByStableId(energySinks.filter(isSpawnOrExtensionEnergySink)) ??
     selectFirstEnergySinkByStableId(energySinks.filter(isTowerEnergySink))
+  );
+}
+
+function selectSpawnStagingContainerEnergySink(creep: Creep): StructureContainer | null {
+  if (!isReturningFreshHarvestEnergy(creep)) {
+    return null;
+  }
+
+  return findVisibleRoomStructures(creep.room)
+    .filter((structure): structure is StructureContainer => isSpawnStagingContainer(creep.room, structure))
+    .filter((container) => getFreeStoredEnergyCapacity(container) > 0)
+    .sort((left, right) =>
+      compareOptionalRanges(getRangeBetweenRoomObjects(creep, left), getRangeBetweenRoomObjects(creep, right)) ||
+      String(left.id).localeCompare(String(right.id))
+    )[0] ?? null;
+}
+
+function isReturningFreshHarvestEnergy(creep: Creep): boolean {
+  const task = creep.memory?.task;
+  return (
+    task?.type === 'harvest' &&
+    task.sourceContainerAssigned !== true &&
+    getUsedEnergy(creep) > 0
   );
 }
 
@@ -3343,18 +3379,22 @@ function isRoomSafeForUnownedContainerWithdrawal(context: StoredEnergySourceCont
 interface WorkerEnergyAcquisitionCandidate {
   energy: number;
   priority: WorkerEnergyAcquisitionPriority;
+  priorityBeforeRange?: boolean;
   range: number | null;
   score: number;
   source: WorkerEnergyAcquisitionSource;
+  stagingRole?: EnergyStagingContainerRole;
   task: WorkerEnergyAcquisitionTask;
 }
 
 interface LowLoadWorkerEnergyAcquisitionCandidate {
   energy: number;
   priority: WorkerEnergyAcquisitionPriority;
+  priorityBeforeRange?: boolean;
   range: number | null;
   score: number;
   source: LowLoadWorkerEnergyAcquisitionSource;
+  stagingRole?: EnergyStagingContainerRole;
   task: LowLoadWorkerEnergyAcquisitionTask;
 }
 
@@ -4252,13 +4292,18 @@ function createLowLoadWorkerEnergyAcquisitionCandidate(
   task: LowLoadWorkerEnergyAcquisitionTask
 ): LowLoadWorkerEnergyAcquisitionCandidate {
   const range = getRangeToLowLoadWorkerEnergyAcquisitionSource(creep, source);
+  const stagingRole = getWorkerEnergyAcquisitionStagingRole(creep, source);
 
   return {
     energy,
     priority: getWorkerEnergyAcquisitionPriority(creep, source, energy, range),
+    ...(shouldPrioritizeWorkerEnergyAcquisitionPriorityBeforeRange(creep, stagingRole)
+      ? { priorityBeforeRange: true }
+      : {}),
     range,
     score: range === null ? energy : energy - range * ENERGY_ACQUISITION_RANGE_COST,
     source,
+    ...(stagingRole ? { stagingRole } : {}),
     task
   };
 }
@@ -4292,7 +4337,7 @@ function selectSpawnRecoveryEnergyAcquisitionTask(
   const candidates = recoverableEnergyCandidates
     .map((candidate) => createSpawnRecoveryEnergyAcquisitionCandidate(candidate, energySink))
     .filter((candidate): candidate is SpawnRecoveryEnergyAcquisitionCandidate => candidate !== null)
-    .filter((candidate) => harvestEta === null || candidate.deliveryEta <= harvestEta);
+    .filter((candidate) => candidate.stagingRole === 'spawn' || harvestEta === null || candidate.deliveryEta <= harvestEta);
 
   if (candidates.length === 0) {
     return null;
@@ -4664,19 +4709,24 @@ function createWorkerEnergyAcquisitionCandidate(
 ): WorkerEnergyAcquisitionCandidate {
   const range = getRangeToWorkerEnergyAcquisitionSource(creep, source);
   const energyScore = scoreWorkerEnergyAcquisitionAmount(energy, getFreeEnergyCapacity(creep));
+  const stagingRole = getWorkerEnergyAcquisitionStagingRole(creep, source);
 
   return {
     energy,
     priority: getWorkerEnergyAcquisitionPriority(creep, source, energy, range),
+    ...(shouldPrioritizeWorkerEnergyAcquisitionPriorityBeforeRange(creep, stagingRole)
+      ? { priorityBeforeRange: true }
+      : {}),
     range,
     score: range === null ? energyScore : energyScore - range * ENERGY_ACQUISITION_RANGE_COST,
     source,
+    ...(stagingRole ? { stagingRole } : {}),
     task
   };
 }
 
 function getWorkerEnergyAcquisitionPriority(
-  _creep: Creep,
+  creep: Creep,
   source: LowLoadWorkerEnergyAcquisitionSource,
   _energy: number,
   _range: number | null
@@ -4685,7 +4735,15 @@ function getWorkerEnergyAcquisitionPriority(
     return 0;
   }
 
-  if (isContainerEnergySource(source) || isLinkEnergySource(source)) {
+  if (isContainerEnergySource(source)) {
+    if (isRoomSpawnEnergyCriticalNow(creep.room) && isControllerStagingContainer(creep.room, source)) {
+      return 2;
+    }
+
+    return 1;
+  }
+
+  if (isLinkEnergySource(source)) {
     return 1;
   }
 
@@ -4698,6 +4756,28 @@ function getWorkerEnergyAcquisitionPriority(
   }
 
   return isHarvestSourceObject(source) ? 3 : 0;
+}
+
+function getWorkerEnergyAcquisitionStagingRole(
+  creep: Creep,
+  source: LowLoadWorkerEnergyAcquisitionSource
+): EnergyStagingContainerRole | null {
+  if (!isContainerEnergySource(source)) {
+    return null;
+  }
+
+  if (isSpawnStagingContainer(creep.room, source)) {
+    return 'spawn';
+  }
+
+  return isControllerStagingContainer(creep.room, source) ? 'controller' : null;
+}
+
+function shouldPrioritizeWorkerEnergyAcquisitionPriorityBeforeRange(
+  creep: Creep,
+  stagingRole: EnergyStagingContainerRole | null
+): boolean {
+  return stagingRole !== null && isRoomSpawnEnergyCriticalNow(creep.room);
 }
 
 function isContainerEnergySource(source: LowLoadWorkerEnergyAcquisitionSource): source is StructureContainer {
@@ -5017,6 +5097,11 @@ function compareWorkerEnergyAcquisitionCandidates(
   left: WorkerEnergyAcquisitionCandidate,
   right: WorkerEnergyAcquisitionCandidate
 ): number {
+  const priorityBeforeRangeComparison = comparePriorityBeforeRangeEnergyCandidates(left, right);
+  if (priorityBeforeRangeComparison !== 0) {
+    return priorityBeforeRangeComparison;
+  }
+
   const rangeComparison = compareOptionalRanges(left.range, right.range);
   if (rangeComparison !== 0) {
     return rangeComparison;
@@ -5050,6 +5135,17 @@ function compareWorkerEnergyAcquisitionCandidates(
     String(left.source.id).localeCompare(String(right.source.id)) ||
     left.task.type.localeCompare(right.task.type)
   );
+}
+
+function comparePriorityBeforeRangeEnergyCandidates(
+  left: Pick<WorkerEnergyAcquisitionCandidate, 'priority' | 'priorityBeforeRange'>,
+  right: Pick<WorkerEnergyAcquisitionCandidate, 'priority' | 'priorityBeforeRange'>
+): number {
+  if (left.priorityBeforeRange !== true && right.priorityBeforeRange !== true) {
+    return 0;
+  }
+
+  return left.priority - right.priority;
 }
 
 function compareNearbyWorkerEnergyAcquisitionCandidates(
@@ -5094,6 +5190,7 @@ function compareSpawnRecoveryEnergyAcquisitionCandidates(
   right: SpawnRecoveryEnergyAcquisitionCandidate
 ): number {
   return (
+    comparePriorityBeforeRangeEnergyCandidates(left, right) ||
     left.deliveryEta - right.deliveryEta ||
     compareOptionalRanges(left.range, right.range) ||
     right.energy - left.energy ||

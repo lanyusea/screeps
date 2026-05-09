@@ -105,6 +105,31 @@ describe('upgrader runner', () => {
     expect(creep.upgradeController).not.toHaveBeenCalled();
   });
 
+  it('prefers the controller staging container for dedicated upgraders', () => {
+    const controller = makeController({ pos: makeRoomPosition(25, 25) });
+    const sourceContainer = makeEnergyStructure('source-container', 'container', 1_000, 0, makeRoomPosition(10, 10));
+    const controllerContainer = makeEnergyStructure(
+      'controller-container',
+      'container',
+      100,
+      1_900,
+      makeRoomPosition(24, 25)
+    );
+    const room = makeRoom({ controller, structures: [sourceContainer, controllerContainer] });
+    const creep = makeUpgraderCreep(room, {
+      usedEnergy: 0,
+      freeEnergy: 50,
+      ranges: {
+        'controller-container': 10,
+        'source-container': 1
+      }
+    });
+
+    runUpgraderCreep(creep);
+
+    expect(creep.withdraw).toHaveBeenCalledWith(controllerContainer, 'energy');
+  });
+
   it('upgrades the assigned controller when loaded and energy buffers are healthy', () => {
     const controller = makeController();
     const room = makeRoom({ controller });
@@ -203,11 +228,13 @@ describe('upgrader runner', () => {
     {
       usedEnergy,
       freeEnergy,
-      ticksToLive
+      ticksToLive,
+      ranges = {}
     }: {
       usedEnergy: number;
       freeEnergy: number;
       ticksToLive?: number;
+      ranges?: Record<string, number>;
     }
   ): Creep {
     return {
@@ -222,7 +249,9 @@ describe('upgrader runner', () => {
         }
       },
       room,
-      pos: { getRangeTo: jest.fn().mockReturnValue(1) },
+      pos: {
+        getRangeTo: jest.fn((target: { id?: string }) => ranges[String(target.id)] ?? 1)
+      },
       store: {
         getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? usedEnergy : 0)),
         getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeEnergy : 0))
@@ -251,15 +280,29 @@ describe('upgrader runner', () => {
     id: string,
     structureType: StructureConstant,
     energy: number,
-    freeCapacity: number
+    freeCapacity: number,
+    pos?: RoomPosition
   ): AnyStoreStructure {
     return {
       id,
       structureType,
+      ...(pos ? { pos } : {}),
       store: {
         getUsedCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? energy : 0)),
         getFreeCapacity: jest.fn((resource: ResourceConstant) => (resource === RESOURCE_ENERGY ? freeCapacity : 0))
       }
     } as unknown as AnyStoreStructure;
+  }
+
+  function makeRoomPosition(x: number, y: number, roomName = 'W1N1'): RoomPosition {
+    return {
+      x,
+      y,
+      roomName,
+      getRangeTo: jest.fn((target: RoomObject | RoomPosition) => {
+        const position = 'pos' in target ? target.pos : target;
+        return Math.max(Math.abs(x - position.x), Math.abs(y - position.y));
+      })
+    } as unknown as RoomPosition;
   }
 });

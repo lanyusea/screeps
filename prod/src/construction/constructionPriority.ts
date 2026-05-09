@@ -805,6 +805,16 @@ function createFixedStructurePlannerLookups(
     }
   }
 
+  for (const object of [
+    ...((findRoomObjects(room, 'FIND_STRUCTURES') as Structure[] | null) ?? []),
+    ...((findRoomObjects(room, 'FIND_CONSTRUCTION_SITES') as ConstructionSite[] | null) ?? [])
+  ]) {
+    const position = getRoomObjectPosition(object as RoomObject);
+    if (position) {
+      blockingPositions.add(getPositionKey(position));
+    }
+  }
+
   return { blockingPositions, terrain };
 }
 

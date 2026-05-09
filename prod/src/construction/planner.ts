@@ -4,6 +4,7 @@ import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPla
 import { planSourceContainerConstruction, planStorageConstruction, planTowerConstruction } from './constructionPriority';
 import { planExtensionConstruction } from './extensionPlanner';
 import { planEarlyRoadConstruction, type EarlyRoadPlannerOptions } from './roadPlanner';
+import { planStagingContainerConstruction } from './stagingContainerPlanner';
 
 export type ConstructionPlannerPriority =
   | 'spawn'
@@ -18,8 +19,8 @@ export type ConstructionPlannerPriority =
 export const POST_CLAIM_CONSTRUCTION_PRIORITY_ORDER: readonly ConstructionPlannerPriority[] = [
   'spawn',
   'extension',
-  'container',
   'road',
+  'container',
   'tower',
   'rampart',
   'storage'
@@ -209,12 +210,12 @@ export function planConstructionForColony(
       return result;
     }
 
-    planContainers(colony, result, budgetState, options);
+    planRoads(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
 
-    planRoads(colony, result, budgetState, options);
+    planContainers(colony, result, budgetState, options);
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
@@ -236,7 +237,7 @@ export function planConstructionForColony(
   }
 
   if (sourceLogisticsStarved) {
-    planContainers(colony, result, budgetState, options);
+    planContainers(colony, result, budgetState, options, { includeStagingContainers: false });
     if (hasBlockingPlacementFailure(result)) {
       return result;
     }
@@ -401,21 +402,40 @@ function planContainers(
   colony: ColonySnapshot,
   result: RoomConstructionPlannerResult,
   budgetState: ConstructionBudgetState,
-  options: ConstructionPlannerOptions
+  options: ConstructionPlannerOptions,
+  containerOptions: { includeStagingContainers?: boolean } = {}
 ): void {
   const remainingStructureCapacity = getRemainingStructureCapacity(colony.room, 'container');
   const remainingEnergySlots = getRemainingEnergySlots(colony.room, budgetState, 'container', options);
-  const maxContainerSitesPerTick = Math.min(
+  let remainingContainerSitesThisTick = Math.min(
     resolvePositiveInteger(options.maxContainerSitesPerTick, DEFAULT_MAX_CONTAINER_SITES_PER_TICK),
     remainingStructureCapacity,
     remainingEnergySlots
   );
-  if (maxContainerSitesPerTick <= 0) {
+  if (remainingContainerSitesThisTick <= 0) {
     return;
   }
 
+  if (containerOptions.includeStagingContainers !== false && !hasRemainingStructureCapacity(colony.room, 'extension')) {
+    const stagingContainerResults = planStagingContainerConstruction(colony, {
+      maxContainerSitesPerTick: remainingContainerSitesThisTick,
+      maxPendingContainerSites: options.maxPendingContainerSites
+    });
+    for (const stagingContainerResult of stagingContainerResults) {
+      recordPlacement(result, budgetState, 'container', stagingContainerResult, options);
+      if (stagingContainerResult !== getOkCode()) {
+        return;
+      }
+
+      remainingContainerSitesThisTick -= 1;
+      if (remainingContainerSitesThisTick <= 0) {
+        return;
+      }
+    }
+  }
+
   const containerResults = planSourceContainerConstruction(colony, {
-    maxContainerSitesPerTick,
+    maxContainerSitesPerTick: remainingContainerSitesThisTick,
     maxPendingContainerSites: options.maxPendingContainerSites
   });
   for (const containerResult of containerResults) {
