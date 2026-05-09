@@ -198,6 +198,69 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('plans configured expansion scouting per target when another target has a runnable lane', () => {
+    const colony = makeSafeColony({ roomName: 'E26S49' });
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      rooms: {
+        E26S49: colony.room,
+        E26S50: {
+          name: 'E26S50',
+          controller: { id: 'controller50' as Id<StructureController>, my: false } as StructureController
+        } as Room
+      },
+      map: {
+        describeExits: jest.fn(() => ({}))
+      } as unknown as GameMap
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [
+          {
+            colony: 'E26S49',
+            targetRoom: 'E26S50',
+            action: 'reserve',
+            status: 'active',
+            updatedAt: 840
+          }
+        ],
+        routeDistances: {
+          'E26S49>E26S50': 1,
+          'E26S49>E26S47': 2
+        }
+      }
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        3,
+        841,
+        { scoutOnly: true }
+      )
+    ).toEqual({
+      colony: 'E26S49',
+      targetRoom: 'E26S47',
+      action: 'scout'
+    });
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S50',
+        action: 'reserve',
+        status: 'active',
+        updatedAt: 840
+      },
+      {
+        colony: 'E26S49',
+        targetRoom: 'E26S47',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 841
+      }
+    ]);
+  });
+
   it('includes unseen adjacent reserve candidates in scout-only planning', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));

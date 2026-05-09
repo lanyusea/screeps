@@ -236,6 +236,44 @@ describe('runTerritoryControllerCreep', () => {
     expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E26S47' });
   });
 
+  it('ignores malformed scout memory entries when retasking an idle scout', () => {
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      time: 842,
+      rooms: {
+        E26S49: { name: 'E26S49' } as Room
+      },
+      getObjectById: jest.fn().mockReturnValue(null)
+    };
+    (globalThis as unknown as { Memory: Partial<Memory> }).Memory = {
+      territory: {
+        intents: [null, 42, { colony: 'E26S49', action: 'scout', status: 'planned' }],
+        scoutAttempts: {
+          badNull: null,
+          badPrimitive: 42,
+          missingRoom: { colony: 'E26S49', status: 'requested' },
+          valid: {
+            colony: 'E26S49',
+            roomName: 'E26S47',
+            status: 'requested',
+            requestedAt: 841,
+            updatedAt: 841,
+            attemptCount: 1
+          }
+        }
+      } as unknown as TerritoryMemory
+    };
+    const creep = {
+      name: 'ScoutE26S50',
+      memory: { role: 'scout', colony: 'E26S49', territory: { targetRoom: 'E26S50', action: 'scout' } },
+      room: makeScoutRoom('E26S50'),
+      moveTo: jest.fn()
+    } as unknown as Creep;
+
+    expect(() => runTerritoryControllerCreep(creep)).not.toThrow();
+    expect(creep.memory.territory).toEqual({ targetRoom: 'E26S47', action: 'scout' });
+    expect(creep.moveTo).toHaveBeenCalledWith({ x: 25, y: 25, roomName: 'E26S47' });
+  });
+
   it('lets scouts move while the home room is locally stable but below claim capacity', () => {
     recordColonyStageAssessment(
       'W1N1',

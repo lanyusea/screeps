@@ -246,6 +246,10 @@ function selectNextScoutIntentAssignment(
   }
 
   for (const intent of intents) {
+    if (!isRecord(intent)) {
+      continue;
+    }
+
     if (
       intent.colony === colony &&
       intent.action === 'scout' &&
@@ -274,6 +278,10 @@ function selectNextScoutAttemptAssignment(
   }
 
   for (const attempt of Object.values(attempts)) {
+    if (!isRecord(attempt)) {
+      continue;
+    }
+
     if (
       attempt.colony === colony &&
       attempt.status === 'requested' &&
@@ -375,6 +383,10 @@ function isVisibleRoomKnown(roomName: string): boolean {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function isJestRuntime(): boolean {
