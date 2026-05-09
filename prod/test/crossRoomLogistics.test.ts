@@ -454,7 +454,7 @@ describe('cross-room energy logistics', () => {
       reason: 'spawn-collapse-risk'
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([
-      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 400, updatedAt: 100 }
     ]);
   });
 
@@ -534,6 +534,55 @@ describe('cross-room energy logistics', () => {
       }
     });
     expect(buildCrossRoomHaulerBody(800, 150)).toEqual(plan?.body);
+  });
+
+  it('ignores undefined Game.creeps entries when computing cross-room reservations', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 900, energyAvailable: 800 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 200 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    installGame(
+      [sourceRoom, targetRoom],
+      [sourceSpawn],
+      { MissingCreep: undefined as unknown as Creep }
+    );
+    balanceStorage();
+
+    expect(() => planCrossRoomHauler()).not.toThrow();
+
+    const plan = planCrossRoomHauler();
+    expect(plan?.memory.crossRoomHauler).toMatchObject({
+      homeRoom: 'W1N1',
+      targetRoom: 'W2N1'
+    });
+  });
+
+  it('only reserves full worker inter-room haul capacity while withdrawing', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 900, energyAvailable: 800 });
+    const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 200 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    const worker = makeWorker(
+      'Worker1',
+      targetRoom,
+      { type: 'transfer', targetId: 'W2N1-storage' as Id<AnyStoreStructure> },
+      1
+    );
+    worker.memory.interRoomEnergyHaul = {
+      sourceRoom: 'W1N1',
+      targetRoom: 'W2N1',
+      sourceId: 'W1N1-storage' as Id<AnyStoreStructure>,
+      targetId: 'W2N1-storage' as Id<AnyStoreStructure>
+    };
+    installGame([sourceRoom, targetRoom], [sourceSpawn], { Worker1: worker });
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 100, updatedAt: 100 }
+    ]);
+    expect(planCrossRoomHauler()?.body).toEqual(['carry', 'move']);
+
+    worker.memory.task = { type: 'withdraw', targetId: 'W1N1-storage' as Id<AnyStoreStructure> };
+
+    expect(planCrossRoomHauler()).toBeNull();
   });
 
   it('selects the nearest eligible source store for an E26S49 to E26S48 hauler', () => {
@@ -623,6 +672,45 @@ describe('cross-room energy logistics', () => {
     expect(plan?.memory.crossRoomHauler).toMatchObject({
       targetRoom: 'W2N1',
       route: ['W2N1']
+    });
+  });
+
+  it('plans another cross-room hauler when active haul capacity only covers part of spawn demand', () => {
+    const sourceRoom = makeOwnedRoom({
+      roomName: 'W1N1',
+      storageEnergy: 1_300,
+      storageCapacity: 2_000,
+      energyAvailable: 800
+    });
+    const targetOwnedStructures: AnyOwnedStructure[] = [];
+    const targetRoom = makeOwnedRoom({
+      roomName: 'W2N1',
+      storageEnergy: 500,
+      energyAvailable: 100,
+      myStructures: targetOwnedStructures
+    });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom);
+    const targetSpawn = makeSpawn('Spawn2', targetRoom, 200);
+    targetOwnedStructures.push(targetSpawn as unknown as AnyOwnedStructure);
+    const activeHauler = makeCrossRoomHauler({
+      room: sourceRoom,
+      carriedEnergy: () => 0
+    });
+    installGame([sourceRoom, targetRoom], [sourceSpawn, targetSpawn], { ActiveHauler: activeHauler });
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'W1N1', targetRoom: 'W2N1', amount: 400, updatedAt: 100 }
+    ]);
+    expect(planCrossRoomHauler()).toMatchObject({
+      body: ['carry', 'move', 'carry', 'move', 'carry', 'move', 'carry', 'move'],
+      memory: {
+        crossRoomHauler: {
+          homeRoom: 'W1N1',
+          targetRoom: 'W2N1'
+        }
+      }
     });
   });
 
