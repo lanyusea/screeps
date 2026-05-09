@@ -12217,7 +12217,7 @@ function shouldDirectClaimScoutedPipeline(pipeline) {
 }
 function isConfiguredAdjacentClaimTarget(colony, targetRoom) {
   return TERRITORY_EXPANSION_SCOUT_TARGETS.some(
-    (target) => target.colony === colony && target.roomName === targetRoom && target.adjacentToOwnedRoom === true && target.routeDistance <= 1
+    (target) => target.colony === colony && target.roomName === targetRoom && target.adjacentToOwnedRoom === true && target.nearestOwnedRoomDistance <= 1
   );
 }
 function markPipelineClaimed(pipeline, controllerId, gameTime) {
