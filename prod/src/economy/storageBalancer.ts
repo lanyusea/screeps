@@ -1,4 +1,9 @@
 import { getTerminalEnergyTarget } from './energySurplus';
+import {
+  auditLocalEnergyImport,
+  shouldApplyLocalFirstEnergyImportPolicy,
+  type LocalEnergyImportAudit
+} from './localEnergyStrategy';
 import { getRoomSpawnEnergyReservationState } from './spawnEnergyReservation';
 
 export const STORAGE_BALANCE_EXPORT_RATIO = 0.8;
@@ -33,6 +38,10 @@ interface RoomEnergyStore {
     getFreeCapacity?: (resource?: ResourceConstant) => number | null;
     [resource: string]: unknown;
   };
+}
+
+interface StorageTransferLocalEnergyAudit {
+  audit: LocalEnergyImportAudit;
 }
 
 export function balanceStorage(): void {
@@ -160,6 +169,7 @@ function buildStorageTransfers(
   const transfers: EconomyStorageTransferMemory[] = [];
 
   for (const importer of importers) {
+    const localEnergyAudit = getStorageTransferLocalEnergyAudit(importer);
     let remainingDemand = importer.importDemand;
     for (const exporter of exporters) {
       if (remainingDemand <= 0) {
@@ -167,6 +177,12 @@ function buildStorageTransfers(
       }
 
       const exportableEnergy = remainingExport.get(exporter.roomName) ?? 0;
+      if (
+        !shouldAllowStorageTransferForLocalEnergyStrategy(importer, exporter.roomName, localEnergyAudit)
+      ) {
+        continue;
+      }
+
       const amount = Math.min(exportableEnergy, remainingDemand);
       if (amount <= 0) {
         continue;
@@ -184,6 +200,39 @@ function buildStorageTransfers(
   }
 
   return transfers;
+}
+
+function getStorageTransferLocalEnergyAudit(
+  importer: RoomStoredEnergyState
+): StorageTransferLocalEnergyAudit | undefined {
+  const targetRoom = getVisibleRoom(importer.roomName);
+  if (!targetRoom) {
+    return undefined;
+  }
+
+  const audit = auditLocalEnergyImport(targetRoom, {
+    storedEnergy: importer.energy
+  });
+
+  return {
+    audit
+  };
+}
+
+function shouldAllowStorageTransferForLocalEnergyStrategy(
+  importer: RoomStoredEnergyState,
+  sourceRoom: string,
+  localEnergyAudit: StorageTransferLocalEnergyAudit | undefined
+): boolean {
+  if (!localEnergyAudit) {
+    return true;
+  }
+
+  if (!shouldApplyLocalFirstEnergyImportPolicy(importer.roomName, sourceRoom)) {
+    return true;
+  }
+
+  return localEnergyAudit.audit.shouldImport;
 }
 
 function compareExportRooms(left: RoomStoredEnergyState, right: RoomStoredEnergyState): number {
@@ -295,6 +344,10 @@ function getOwnedRooms(): Room[] {
   }
 
   return Object.values(rooms).filter((room): room is Room => room?.controller?.my === true);
+}
+
+function getVisibleRoom(roomName: string): Room | undefined {
+  return (globalThis as { Game?: Partial<Pick<Game, 'rooms'>> }).Game?.rooms?.[roomName];
 }
 
 function getEconomyMemory(): EconomyMemory {

@@ -6,6 +6,7 @@ import {
   runCrossRoomHauler
 } from '../src/economy/crossRoomHauler';
 import { balanceStorage } from '../src/economy/storageBalancer';
+import { auditLocalEnergyImport } from '../src/economy/localEnergyStrategy';
 import {
   getSpawnEnergyForecast,
   orderColoniesForSpawnPlanning,
@@ -128,6 +129,178 @@ describe('cross-room energy logistics', () => {
     });
   });
 
+  it('audits E26S48 local energy as sufficient before importing from E26S49', () => {
+    const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      structures: [sourceContainer]
+    });
+    installGame([targetRoom], []);
+    Memory.economy = {
+      sourceWorkloads: {
+        E26S48: {
+          updatedAt: 100,
+          sources: {
+            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+          }
+        }
+      }
+    };
+
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+      enabled: true,
+      sourceRoomAllowed: true,
+      localEnergy: 550,
+      importThreshold: 500,
+      localEnergyDeficit: 0,
+      localHarvestSufficient: true,
+      shouldImport: false,
+      reason: 'local-harvest-sufficient'
+    });
+  });
+
+  it('suppresses routine E26S49 to E26S48 transfers when local harvesting is sufficient', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      structures: [sourceContainer]
+    });
+    installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom)]);
+    Memory.economy = {
+      sourceWorkloads: {
+        E26S48: {
+          updatedAt: 100,
+          sources: {
+            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.E26S48).toMatchObject({
+      mode: 'import',
+      importDemand: 200
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([]);
+    expect(planCrossRoomHauler()).toBeNull();
+  });
+
+  it('imports to E26S48 when local energy falls below the configured threshold', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const sourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      structures: [sourceContainer]
+    });
+    installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom)]);
+    Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E26S48: {
+            importThreshold: 700
+          }
+        }
+      },
+      sourceWorkloads: {
+        E26S48: {
+          updatedAt: 100,
+          sources: {
+            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+    ]);
+    expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
+      homeRoom: 'E26S49',
+      targetRoom: 'E26S48'
+    });
+  });
+
+  it('reuses the E26S48 local energy structure scan across multiple storage exporters', () => {
+    const primarySourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const secondarySourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
+    const sourceContainer = makeContainer('E26S48-source-container', 100, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      structures: [sourceContainer]
+    });
+    installGame([primarySourceRoom, secondarySourceRoom, targetRoom], []);
+    Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E26S48: {
+            importThreshold: 700,
+            sourceRooms: ['E26S49', 'W1N1']
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    const targetFind = targetRoom.find as jest.Mock;
+    const structureScanCount = targetFind.mock.calls.filter(([type]) => type === FIND_STRUCTURES).length;
+    expect(structureScanCount).toBe(1);
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 },
+      { sourceRoom: 'W1N1', targetRoom: 'E26S48', amount: 50, updatedAt: 100 }
+    ]);
+  });
+
+  it('preserves E26S48 emergency imports for spawn collapse prevention', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const targetOwnedStructures: AnyOwnedStructure[] = [];
+    const sourceContainer = makeContainer('E26S48-source-container', 600, 2_000);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      energyAvailable: 100,
+      energyCapacityAvailable: 800,
+      myStructures: targetOwnedStructures,
+      structures: [sourceContainer]
+    });
+    const targetSpawn = makeSpawn('Spawn2', targetRoom, 200);
+    targetOwnedStructures.push(targetSpawn as unknown as AnyOwnedStructure);
+    installGame([sourceRoom, targetRoom], [makeSpawn('Spawn1', sourceRoom), targetSpawn]);
+    Memory.economy = {
+      sourceWorkloads: {
+        E26S48: {
+          updatedAt: 100,
+          sources: {
+            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(auditLocalEnergyImport(targetRoom, { sourceRoom: 'E26S49', storedEnergy: 100 })).toMatchObject({
+      localEnergy: 700,
+      localEnergyDeficit: 0,
+      localHarvestSufficient: true,
+      spawnCollapseRisk: true,
+      shouldImport: true,
+      reason: 'spawn-collapse-risk'
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S48', amount: 150, updatedAt: 100 }
+    ]);
+  });
+
   it('plans a proportional CARRY/MOVE hauler from a surplus room to a deficit room', () => {
     const sourceRoom = makeOwnedRoom({ roomName: 'W1N1', storageEnergy: 950, energyAvailable: 800 });
     const targetRoom = makeOwnedRoom({ roomName: 'W2N1', storageEnergy: 100 });
@@ -154,6 +327,32 @@ describe('cross-room energy logistics', () => {
       }
     });
     expect(buildCrossRoomHaulerBody(800, 150)).toEqual(plan?.body);
+  });
+
+  it('selects the nearest eligible source store for an E26S49 to E26S48 hauler', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    (sourceRoom as { terminal?: StructureTerminal }).terminal = makeTerminal('E26S49-terminal', 850, 1_000, 2, 2);
+    const targetRoom = makeOwnedRoom({ roomName: 'E26S48', storageEnergy: 100 });
+    const sourceSpawn = makeSpawn('Spawn1', sourceRoom, 0, 1, 1);
+    installGame([sourceRoom, targetRoom], [sourceSpawn]);
+    Memory.economy = {
+      energyIndependence: {
+        rooms: {
+          E26S48: {
+            importThreshold: 2_000
+          }
+        }
+      }
+    };
+    balanceStorage();
+
+    const plan = planCrossRoomHauler();
+
+    expect(plan?.memory.crossRoomHauler).toMatchObject({
+      homeRoom: 'E26S49',
+      targetRoom: 'E26S48',
+      sourceId: 'E26S49-terminal'
+    });
   });
 
   it('plans cross-room hauling through neutral transit rooms', () => {
@@ -380,6 +579,37 @@ describe('cross-room energy logistics', () => {
 
     expect(creep.transfer).toHaveBeenCalledWith(container, RESOURCE_ENERGY);
     expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'W2N1-container' });
+  });
+
+  it('delivers imported energy to the nearest same-priority target in E26S48', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950 });
+    const farContainer = makeContainer('E26S48-a-container', 0, 2_000, 20, 20);
+    const nearContainer = makeContainer('E26S48-z-container', 0, 2_000, 2, 2);
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 1_000,
+      structures: [farContainer, nearContainer]
+    });
+    installGame([sourceRoom, targetRoom], []);
+    const creep = makeCrossRoomHauler({
+      room: targetRoom,
+      carriedEnergy: () => 100,
+      transfer: jest.fn(() => OK_CODE),
+      pos: makeRoomPosition(1, 1, 'E26S48')
+    });
+    creep.memory.colony = 'E26S49';
+    creep.memory.crossRoomHauler = {
+      homeRoom: 'E26S49',
+      targetRoom: 'E26S48',
+      sourceId: 'E26S49-storage' as Id<AnyStoreStructure>,
+      state: 'delivering',
+      route: ['E26S48']
+    };
+
+    runCrossRoomHauler(creep);
+
+    expect(creep.transfer).toHaveBeenCalledWith(nearContainer, RESOURCE_ENERGY);
+    expect(creep.memory.task).toEqual({ type: 'transfer', targetId: 'E26S48-z-container' });
   });
 
   it('delivers imported energy to a claimed-room tower before durable storage', () => {
@@ -644,11 +874,12 @@ describe('cross-room energy logistics', () => {
     };
   }
 
-  function makeSpawn(name: string, room: Room, freeCapacity = 0): StructureSpawn {
+  function makeSpawn(name: string, room: Room, freeCapacity = 0, x = 10, y = 10): StructureSpawn {
     const spawn = {
       id: name,
       name,
       room,
+      pos: makeRoomPosition(x, y, room.name),
       structureType: 'spawn',
       spawning: null,
       store: makeStore(300 - freeCapacity, 300)
@@ -657,9 +888,10 @@ describe('cross-room energy logistics', () => {
     return spawn;
   }
 
-  function makeContainer(id: string, energy: number, capacity: number): StructureContainer {
+  function makeContainer(id: string, energy: number, capacity: number, x = 10, y = 10): StructureContainer {
     const container = {
       id,
+      pos: makeRoomPosition(x, y, getRoomNameFromObjectId(id)),
       structureType: 'container',
       store: makeStore(energy, capacity)
     } as unknown as StructureContainer;
@@ -667,9 +899,10 @@ describe('cross-room energy logistics', () => {
     return container;
   }
 
-  function makeTower(id: string, energy: number, capacity: number): StructureTower {
+  function makeTower(id: string, energy: number, capacity: number, x = 10, y = 10): StructureTower {
     const tower = {
       id,
+      pos: makeRoomPosition(x, y, getRoomNameFromObjectId(id)),
       structureType: 'tower',
       store: makeStore(energy, capacity)
     } as unknown as StructureTower;
@@ -677,9 +910,10 @@ describe('cross-room energy logistics', () => {
     return tower;
   }
 
-  function makeStorage(id: string, energy: number, capacity: number): StructureStorage {
+  function makeStorage(id: string, energy: number, capacity: number, x = 10, y = 10): StructureStorage {
     const storage = {
       id,
+      pos: makeRoomPosition(x, y, getRoomNameFromObjectId(id)),
       structureType: 'storage',
       store: makeStore(energy, capacity)
     } as unknown as StructureStorage;
@@ -687,9 +921,10 @@ describe('cross-room energy logistics', () => {
     return storage;
   }
 
-  function makeTerminal(id: string, energy: number, capacity: number): StructureTerminal {
+  function makeTerminal(id: string, energy: number, capacity: number, x = 10, y = 10): StructureTerminal {
     const terminal = {
       id,
+      pos: makeRoomPosition(x, y, getRoomNameFromObjectId(id)),
       structureType: 'terminal',
       store: makeStore(energy, capacity)
     } as unknown as StructureTerminal;
@@ -712,15 +947,18 @@ describe('cross-room energy logistics', () => {
     carriedEnergy,
     withdraw = jest.fn(() => OK_CODE),
     transfer = jest.fn(() => OK_CODE),
-    moveTo = jest.fn()
+    moveTo = jest.fn(),
+    pos = makeRoomPosition(1, 1, room.name)
   }: {
     room: Room;
     carriedEnergy: () => number;
     withdraw?: jest.Mock;
     transfer?: jest.Mock;
     moveTo?: jest.Mock;
+    pos?: RoomPosition;
   }): Creep {
     return {
+      pos,
       room,
       memory: {
         role: CROSS_ROOM_HAULER_ROLE,
@@ -774,5 +1012,37 @@ describe('cross-room energy logistics', () => {
     if (typeof object.id === 'string') {
       objectRegistry.set(object.id, object);
     }
+  }
+
+  function makeSourceWorkload(sourceId: string, harvestEnergyPerTick: number, regenEnergyPerTick: number): EconomySourceWorkloadMemory {
+    return {
+      sourceId,
+      assignedHarvesters: 1,
+      assignedWorkParts: 5,
+      openPositions: 3,
+      harvestWorkCapacity: 5,
+      harvestEnergyPerTick,
+      regenEnergyPerTick,
+      sourceEnergyCapacity: 3_000,
+      sourceEnergyRegenTicks: 300,
+      hasContainer: true,
+      containerId: `${sourceId}-container`
+    };
+  }
+
+  function makeRoomPosition(x: number, y: number, roomName: string): RoomPosition {
+    return {
+      x,
+      y,
+      roomName,
+      getRangeTo: jest.fn((target: RoomObject | RoomPosition) => {
+        const position = 'pos' in target ? target.pos : target;
+        return Math.max(Math.abs(x - position.x), Math.abs(y - position.y));
+      })
+    } as unknown as RoomPosition;
+  }
+
+  function getRoomNameFromObjectId(id: string): string {
+    return id.split('-')[0] || 'W1N1';
   }
 });

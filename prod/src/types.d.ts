@@ -192,6 +192,7 @@ declare global {
   interface EconomyMemory {
     sourceWorkloads?: Record<string, EconomyRoomSourceWorkloadMemory>;
     storageBalance?: EconomyStorageBalanceMemory;
+    energyIndependence?: EconomyEnergyIndependenceMemory;
     terminalLogistics?: EconomyTerminalLogisticsMemory;
     marketTrading?: EconomyMarketTradingMemory;
     energySurplus?: EconomyEnergySurplusMemory;
@@ -379,6 +380,19 @@ declare global {
     targetRoom: string;
     amount: number;
     updatedAt: number;
+  }
+
+  interface EconomyEnergyIndependenceMemory {
+    rooms?: Record<string, EconomyEnergyIndependenceRoomMemory>;
+  }
+
+  interface EconomyEnergyIndependenceRoomMemory {
+    enabled?: boolean;
+    importThreshold?: number;
+    sourceRooms?: string[];
+    harvestCoverageRatio?: number;
+    sourceWorkloadFreshTicks?: number;
+    spawnCollapseEnergyThreshold?: number;
   }
 
   interface EconomyTerminalLogisticsMemory {
