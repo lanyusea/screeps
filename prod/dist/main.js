@@ -10813,67 +10813,63 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     ),
     colony
   );
-  if (options.scoutOnly === true) {
-    return toSelectedTerritoryTarget(
-      (_b = (_a = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony))) != null ? _a : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(primaryCandidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(primaryCandidates),
-      routeDistanceLookupContext
+  if (options.scoutOnly !== true) {
+    const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
+      getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony)
     );
-  }
-  const bestReadyPrimaryCandidate = selectBestScoredTerritoryCandidate(
-    getReadyTerritoryCandidates(primaryCandidates, roleCounts, colony)
-  );
-  if (bestReadyPrimaryCandidate && bestReadyPrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
-    const shouldEvaluateAdjacentControllerProgress = shouldEvaluateVisibleAdjacentControllerProgressPreference(
-      bestReadyPrimaryCandidate,
-      colony,
-      roleCounts,
-      workerTarget
-    );
-    const shouldEvaluateAdjacentFollowUp = shouldEvaluateVisibleAdjacentFollowUpPreference(bestReadyPrimaryCandidate);
-    if (!shouldEvaluateAdjacentControllerProgress && !shouldEvaluateAdjacentFollowUp) {
-      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
-    }
-    const visibleAdjacentControllerProgressCandidates = filterTerritoryCandidatesForPlanningOptions(
-      applyOccupationRecommendationScores(
+    if (bestReadyPrimaryCandidate && bestReadyPrimaryCandidate.priority <= MAX_VISIBLE_TERRITORY_CANDIDATE_PRIORITY) {
+      const shouldEvaluateAdjacentControllerProgress = shouldEvaluateVisibleAdjacentControllerProgressPreference(
+        bestReadyPrimaryCandidate,
         colony,
         roleCounts,
-        workerTarget,
-        [
-          ...shouldEvaluateAdjacentControllerProgress ? getVisibleAdjacentReserveCandidates(
-            colonyName,
-            colonyOwnerUsername,
-            territoryMemory,
-            intents,
-            gameTime,
-            routeDistanceLookupContext
-          ) : [],
-          ...shouldEvaluateAdjacentFollowUp ? getVisibleAdjacentFollowUpReserveCandidates(
-            colonyName,
-            colonyOwnerUsername,
-            territoryMemory,
-            intents,
-            gameTime,
-            roleCounts,
-            routeDistanceLookupContext
-          ) : []
-        ],
-        gameTime
-      ),
-      options
-    );
-    if (visibleAdjacentControllerProgressCandidates.length === 0) {
-      return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
-    }
-    return toSelectedTerritoryTarget(
-      (_c = selectBestScoredTerritoryCandidate(
-        getReadyTerritoryCandidates(
-          [...primaryCandidates, ...visibleAdjacentControllerProgressCandidates],
+        workerTarget
+      );
+      const shouldEvaluateAdjacentFollowUp = shouldEvaluateVisibleAdjacentFollowUpPreference(bestReadyPrimaryCandidate);
+      if (!shouldEvaluateAdjacentControllerProgress && !shouldEvaluateAdjacentFollowUp) {
+        return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
+      }
+      const visibleAdjacentControllerProgressCandidates = filterTerritoryCandidatesForPlanningOptions(
+        applyOccupationRecommendationScores(
+          colony,
           roleCounts,
-          colony
-        )
-      )) != null ? _c : bestReadyPrimaryCandidate,
-      routeDistanceLookupContext
-    );
+          workerTarget,
+          [
+            ...shouldEvaluateAdjacentControllerProgress ? getVisibleAdjacentReserveCandidates(
+              colonyName,
+              colonyOwnerUsername,
+              territoryMemory,
+              intents,
+              gameTime,
+              routeDistanceLookupContext
+            ) : [],
+            ...shouldEvaluateAdjacentFollowUp ? getVisibleAdjacentFollowUpReserveCandidates(
+              colonyName,
+              colonyOwnerUsername,
+              territoryMemory,
+              intents,
+              gameTime,
+              roleCounts,
+              routeDistanceLookupContext
+            ) : []
+          ],
+          gameTime
+        ),
+        options
+      );
+      if (visibleAdjacentControllerProgressCandidates.length === 0) {
+        return toSelectedTerritoryTarget(bestReadyPrimaryCandidate, routeDistanceLookupContext);
+      }
+      return toSelectedTerritoryTarget(
+        (_a = selectBestScoredTerritoryCandidate(
+          getReadyTerritoryCandidates(
+            [...primaryCandidates, ...visibleAdjacentControllerProgressCandidates],
+            roleCounts,
+            colony
+          )
+        )) != null ? _a : bestReadyPrimaryCandidate,
+        routeDistanceLookupContext
+      );
+    }
   }
   const adjacentCandidates = filterTerritoryCandidatesForPlanningOptions(
     applyOccupationRecommendationScores(
@@ -10909,6 +10905,12 @@ function selectTerritoryTarget(colony, roleCounts, workerTarget, gameTime, optio
     options
   );
   const candidates = getSpawnCapableTerritoryCandidates([...primaryCandidates, ...adjacentCandidates], colony);
+  if (options.scoutOnly === true) {
+    return toSelectedTerritoryTarget(
+      (_c = (_b = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony))) != null ? _b : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _c : selectBestScoredTerritoryCandidate(candidates),
+      routeDistanceLookupContext
+    );
+  }
   return toSelectedTerritoryTarget(
     (_e = (_d = selectBestScoredTerritoryCandidate(getReadyTerritoryCandidates(candidates, roleCounts, colony))) != null ? _d : selectBestScoredTerritoryCandidate(getActionableTerritoryCandidates(candidates, roleCounts, colony))) != null ? _e : selectBestScoredTerritoryCandidate(candidates),
     routeDistanceLookupContext

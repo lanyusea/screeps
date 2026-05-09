@@ -198,6 +198,39 @@ describe('planTerritoryIntent', () => {
     ]);
   });
 
+  it('includes unseen adjacent reserve candidates in scout-only planning', () => {
+    const colony = makeSafeColony();
+    const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
+    (globalThis as unknown as { Game: Partial<Game> }).Game = {
+      map: { describeExits } as unknown as GameMap
+    };
+
+    expect(
+      planTerritoryIntent(
+        colony,
+        { worker: 3, claimer: 0, claimersByTargetRoom: {} },
+        3,
+        526,
+        { scoutOnly: true }
+      )
+    ).toEqual({
+      colony: 'W1N1',
+      targetRoom: 'W1N2',
+      action: 'scout'
+    });
+    expect(describeExits).toHaveBeenCalledWith('W1N1');
+    expect(Memory.territory?.targets).toBeUndefined();
+    expect(Memory.territory?.intents).toEqual([
+      {
+        colony: 'W1N1',
+        targetRoom: 'W1N2',
+        action: 'scout',
+        status: 'planned',
+        updatedAt: 526
+      }
+    ]);
+  });
+
   it('uses persisted scout intel to promote a high-value unseen adjacent room into a reserve target', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
