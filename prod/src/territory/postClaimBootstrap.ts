@@ -183,27 +183,45 @@ export function recordPostClaimBootstrapClaimSuccess(
   const gameTime = getGameTime();
   const existing = getPostClaimBootstrapRecord(input.roomName);
   const claimedAt = existing?.status === 'ready' ? gameTime : existing?.claimedAt ?? gameTime;
-  bootstraps[input.roomName] = {
+  const status = getRefreshedPostClaimBootstrapStatus(existing);
+  const workerTarget = existing
+    ? getPostClaimBootstrapWorkerTarget(existing)
+    : POST_CLAIM_BOOTSTRAP_WORKER_TARGET;
+  const controllerId = input.controllerId ?? existing?.controllerId;
+  const record: TerritoryPostClaimBootstrapMemory = {
     colony: input.colony,
     roomName: input.roomName,
-    status: 'detected',
+    status,
     claimedAt,
     updatedAt: gameTime,
-    workerTarget: existing?.workerTarget ?? POST_CLAIM_BOOTSTRAP_WORKER_TARGET,
-    ...(input.controllerId ? { controllerId: input.controllerId } : {})
+    workerTarget,
+    ...(controllerId ? { controllerId } : {}),
+    ...(existing?.spawnSite ? { spawnSite: existing.spawnSite } : {}),
+    ...(existing?.lastResult !== undefined ? { lastResult: existing.lastResult } : {})
   };
+  bootstraps[input.roomName] = record;
   recordClaimedRoomOccupation(input.roomName, claimedAt, gameTime);
 
   telemetryEvents.push({
     type: 'postClaimBootstrap',
     roomName: input.roomName,
     colony: input.colony,
-    phase: 'detected',
-    ...(input.controllerId ? { controllerId: input.controllerId } : {}),
-    workerTarget: POST_CLAIM_BOOTSTRAP_WORKER_TARGET
+    phase: record.status,
+    ...(record.controllerId ? { controllerId: record.controllerId } : {}),
+    workerTarget: record.workerTarget
   });
 
   placePostClaimSpawnConstructionSite(input.roomName, telemetryEvents);
+}
+
+function getRefreshedPostClaimBootstrapStatus(
+  existing: TerritoryPostClaimBootstrapMemory | null
+): TerritoryPostClaimBootstrapStatus {
+  if (!existing || existing.status === 'ready') {
+    return 'detected';
+  }
+
+  return existing.status;
 }
 
 function recordClaimedRoomOccupation(roomName: string, claimedAt: number, gameTime: number): void {

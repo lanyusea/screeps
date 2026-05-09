@@ -11344,25 +11344,37 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   const gameTime = getGameTime14();
   const existing = getPostClaimBootstrapRecord(input.roomName);
   const claimedAt = (existing == null ? void 0 : existing.status) === "ready" ? gameTime : (_a = existing == null ? void 0 : existing.claimedAt) != null ? _a : gameTime;
-  bootstraps[input.roomName] = {
+  const status = getRefreshedPostClaimBootstrapStatus(existing);
+  const workerTarget = existing ? getPostClaimBootstrapWorkerTarget(existing) : POST_CLAIM_BOOTSTRAP_WORKER_TARGET;
+  const controllerId = (_b = input.controllerId) != null ? _b : existing == null ? void 0 : existing.controllerId;
+  const record = {
     colony: input.colony,
     roomName: input.roomName,
-    status: "detected",
+    status,
     claimedAt,
     updatedAt: gameTime,
-    workerTarget: (_b = existing == null ? void 0 : existing.workerTarget) != null ? _b : POST_CLAIM_BOOTSTRAP_WORKER_TARGET,
-    ...input.controllerId ? { controllerId: input.controllerId } : {}
+    workerTarget,
+    ...controllerId ? { controllerId } : {},
+    ...(existing == null ? void 0 : existing.spawnSite) ? { spawnSite: existing.spawnSite } : {},
+    ...(existing == null ? void 0 : existing.lastResult) !== void 0 ? { lastResult: existing.lastResult } : {}
   };
+  bootstraps[input.roomName] = record;
   recordClaimedRoomOccupation(input.roomName, claimedAt, gameTime);
   telemetryEvents.push({
     type: "postClaimBootstrap",
     roomName: input.roomName,
     colony: input.colony,
-    phase: "detected",
-    ...input.controllerId ? { controllerId: input.controllerId } : {},
-    workerTarget: POST_CLAIM_BOOTSTRAP_WORKER_TARGET
+    phase: record.status,
+    ...record.controllerId ? { controllerId: record.controllerId } : {},
+    workerTarget: record.workerTarget
   });
   placePostClaimSpawnConstructionSite(input.roomName, telemetryEvents);
+}
+function getRefreshedPostClaimBootstrapStatus(existing) {
+  if (!existing || existing.status === "ready") {
+    return "detected";
+  }
+  return existing.status;
 }
 function recordClaimedRoomOccupation(roomName, claimedAt, gameTime) {
   var _a;
