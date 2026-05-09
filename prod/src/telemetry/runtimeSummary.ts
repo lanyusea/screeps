@@ -30,6 +30,7 @@ import {
 import { getPostClaimBootstrapSummary, type PostClaimBootstrapSummary } from '../territory/postClaimBootstrap';
 import { getTerritoryScoutSummary } from '../territory/scoutIntel';
 import { getRoomEnergyBufferHealth, type EnergyBufferHealth } from '../economy/energyBuffer';
+import { getMultiRoomEnergyRoomState } from '../economy/multiRoomEnergy';
 import { getRoomEnergySurplusState, type RoomEnergySurplusState } from '../economy/energySurplus';
 import {
   summarizeSourceContainerCoverage,
@@ -283,7 +284,23 @@ interface RuntimeResourceSummary {
   sourceContainers: SourceContainerCoverageSummary;
   productiveEnergy: RuntimeProductiveEnergySummary;
   energySurplus: RuntimeEnergySurplusSummary;
+  multiRoomEnergy?: RuntimeMultiRoomEnergySummary;
   events?: RuntimeResourceEventSummary;
+}
+
+interface RuntimeMultiRoomEnergySummary {
+  imports: number;
+  exports: number;
+  localProductionEnergyPerTick: number;
+  localConsumptionEnergyPerTick: number;
+  netLocalEnergyPerTick: number;
+  deficitEnergy: number;
+  surplusEnergy: number;
+  importDemand: number;
+  exportableEnergy: number;
+  suppressedImportEnergy: number;
+  blockedImportEnergy: number;
+  bottleneck?: EconomyMultiRoomEnergyBottleneck;
 }
 
 interface RuntimeEnergySurplusSummary {
@@ -1558,7 +1575,32 @@ function summarizeResources(
     sourceContainers: sourceContainerCoverage,
     productiveEnergy: summarizeProductiveEnergy(colony.room, colonyWorkers, constructionSites, roomStructures),
     energySurplus: summarizeEnergySurplus(colony.room, colonyWorkers),
+    ...summarizeMultiRoomEnergy(colony.room.name),
     ...(events ? { events } : {})
+  };
+}
+
+function summarizeMultiRoomEnergy(roomName: string): { multiRoomEnergy?: RuntimeMultiRoomEnergySummary } {
+  const state = getMultiRoomEnergyRoomState(roomName);
+  if (!state) {
+    return {};
+  }
+
+  return {
+    multiRoomEnergy: {
+      imports: state.plannedImportEnergy,
+      exports: state.plannedExportEnergy,
+      localProductionEnergyPerTick: state.localProductionEnergyPerTick,
+      localConsumptionEnergyPerTick: state.localConsumptionEnergyPerTick,
+      netLocalEnergyPerTick: state.netLocalEnergyPerTick,
+      deficitEnergy: state.deficitEnergy,
+      surplusEnergy: state.surplusEnergy,
+      importDemand: state.importDemand,
+      exportableEnergy: state.exportableEnergy,
+      suppressedImportEnergy: state.suppressedImportEnergy,
+      blockedImportEnergy: state.blockedImportEnergy,
+      ...(state.bottleneck ? { bottleneck: state.bottleneck } : {})
+    }
   };
 }
 

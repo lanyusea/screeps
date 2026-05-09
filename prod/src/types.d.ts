@@ -196,6 +196,7 @@ declare global {
     terminalLogistics?: EconomyTerminalLogisticsMemory;
     marketTrading?: EconomyMarketTradingMemory;
     energySurplus?: EconomyEnergySurplusMemory;
+    multiRoomEnergy?: EconomyMultiRoomEnergyMemory;
     spawnEnergyBuffer?: EconomySpawnEnergyBufferMemory;
     spawnEnergyReservation?: EconomySpawnEnergyReservationMemory;
     labManagement?: EconomyLabManagementMemory;
@@ -379,6 +380,63 @@ declare global {
     sourceRoom: string;
     targetRoom: string;
     amount: number;
+    updatedAt: number;
+  }
+
+  type EconomyMultiRoomEnergyBottleneck =
+    | 'local-first-sufficient'
+    | 'insufficient-exportable-energy'
+    | 'no-exporter';
+
+  type EconomyMultiRoomEnergyTransferStatus = 'planned' | 'suppressed' | 'blocked';
+
+  type EconomyMultiRoomEnergyTransferReason =
+    | 'storage-balance'
+    | 'local-first-sufficient'
+    | 'local-first-policy'
+    | 'insufficient-exportable-energy'
+    | 'no-exporter';
+
+  interface EconomyMultiRoomEnergyMemory {
+    updatedAt: number;
+    corridor: string[];
+    rooms: Record<string, EconomyMultiRoomEnergyRoomMemory>;
+    transfers: EconomyMultiRoomEnergyTransferMemory[];
+  }
+
+  interface EconomyMultiRoomEnergyRoomMemory {
+    roomName: string;
+    mode: EconomyStorageBalanceMode;
+    storedEnergy: number;
+    storageCapacity: number;
+    storageRatio: number;
+    importDemand: number;
+    exportableEnergy: number;
+    plannedImportEnergy: number;
+    plannedExportEnergy: number;
+    localProductionEnergyPerTick: number;
+    localHarvestCapacityEnergyPerTick: number;
+    localHarvestCoverageRatio: number;
+    localConsumptionEnergyPerTick: number;
+    netLocalEnergyPerTick: number;
+    spawnEnergyAvailable: number;
+    spawnEnergyCapacity: number;
+    spawnEnergyDeficit: number;
+    storageDeficit: number;
+    deficitEnergy: number;
+    surplusEnergy: number;
+    suppressedImportEnergy: number;
+    blockedImportEnergy: number;
+    bottleneck?: EconomyMultiRoomEnergyBottleneck;
+    updatedAt: number;
+  }
+
+  interface EconomyMultiRoomEnergyTransferMemory {
+    sourceRoom?: string;
+    targetRoom: string;
+    amount: number;
+    status: EconomyMultiRoomEnergyTransferStatus;
+    reason: EconomyMultiRoomEnergyTransferReason;
     updatedAt: number;
   }
 

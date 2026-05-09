@@ -28,12 +28,16 @@ describe('cross-room energy logistics', () => {
     (globalThis as unknown as { FIND_HOSTILE_CREEPS: number }).FIND_HOSTILE_CREEPS = 3;
     (globalThis as unknown as { FIND_HOSTILE_STRUCTURES: number }).FIND_HOSTILE_STRUCTURES = 4;
     (globalThis as unknown as { FIND_SOURCES: number }).FIND_SOURCES = 5;
+    (globalThis as unknown as { FIND_MY_CREEPS: number }).FIND_MY_CREEPS = 6;
     (globalThis as unknown as { STRUCTURE_SPAWN: StructureConstant }).STRUCTURE_SPAWN = 'spawn';
     (globalThis as unknown as { STRUCTURE_EXTENSION: StructureConstant }).STRUCTURE_EXTENSION = 'extension';
     (globalThis as unknown as { STRUCTURE_CONTAINER: StructureConstant }).STRUCTURE_CONTAINER = 'container';
     (globalThis as unknown as { STRUCTURE_STORAGE: StructureConstant }).STRUCTURE_STORAGE = 'storage';
     (globalThis as unknown as { STRUCTURE_TERMINAL: StructureConstant }).STRUCTURE_TERMINAL = 'terminal';
     (globalThis as unknown as { STRUCTURE_TOWER: StructureConstant }).STRUCTURE_TOWER = 'tower';
+    (globalThis as unknown as { WORK: BodyPartConstant }).WORK = 'work';
+    (globalThis as unknown as { BUILD_POWER: number }).BUILD_POWER = 5;
+    (globalThis as unknown as { UPGRADE_CONTROLLER_POWER: number }).UPGRADE_CONTROLLER_POWER = 1;
     (globalThis as unknown as { ERR_NOT_IN_RANGE: ScreepsReturnCode }).ERR_NOT_IN_RANGE = ERR_NOT_IN_RANGE_CODE;
     (globalThis as unknown as { ERR_NO_PATH: ScreepsReturnCode }).ERR_NO_PATH = ERR_NO_PATH_CODE;
     (globalThis as unknown as { RoomPosition: new (x: number, y: number, roomName: string) => RoomPosition })
@@ -219,6 +223,127 @@ describe('cross-room energy logistics', () => {
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([]);
     expect(planCrossRoomHauler()).toBeNull();
+  });
+
+  it('routes E26S49 surplus to E26S50 when E26S48 local-first energy is sufficient', () => {
+    const sourceRoom = makeOwnedRoom({ roomName: 'E26S49', storageEnergy: 950, energyAvailable: 800 });
+    const e26s48SourceContainer = makeContainer('E26S48-source-container', 450, 2_000);
+    const localFirstRoom = makeOwnedRoom({
+      roomName: 'E26S48',
+      storageEnergy: 100,
+      structures: [e26s48SourceContainer]
+    });
+    const e26s50Room = makeOwnedRoom({
+      roomName: 'E26S50',
+      storageEnergy: 100
+    });
+    installGame([sourceRoom, localFirstRoom, e26s50Room], [makeSpawn('Spawn1', sourceRoom)]);
+    Memory.economy = {
+      sourceWorkloads: {
+        E26S48: {
+          updatedAt: 100,
+          sources: {
+            'E26S48-source': makeSourceWorkload('E26S48-source', 10, 10)
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S50', amount: 150, updatedAt: 100 }
+    ]);
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S48).toMatchObject({
+      localProductionEnergyPerTick: 10,
+      localHarvestCapacityEnergyPerTick: 10,
+      localHarvestCoverageRatio: 1,
+      suppressedImportEnergy: 150,
+      bottleneck: 'local-first-sufficient'
+    });
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S49).toMatchObject({
+      plannedExportEnergy: 150,
+      surplusEnergy: 0
+    });
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S50).toMatchObject({
+      importDemand: 200,
+      plannedImportEnergy: 150,
+      storageDeficit: 50,
+      deficitEnergy: 50
+    });
+    expect(Memory.economy?.multiRoomEnergy?.transfers).toEqual([
+      {
+        sourceRoom: 'E26S49',
+        targetRoom: 'E26S48',
+        amount: 150,
+        status: 'suppressed',
+        reason: 'local-first-sufficient',
+        updatedAt: 100
+      },
+      {
+        sourceRoom: 'E26S49',
+        targetRoom: 'E26S50',
+        amount: 150,
+        status: 'planned',
+        reason: 'storage-balance',
+        updatedAt: 100
+      },
+      {
+        targetRoom: 'E26S50',
+        amount: 50,
+        status: 'blocked',
+        reason: 'insufficient-exportable-energy',
+        updatedAt: 100
+      }
+    ]);
+    expect(planCrossRoomHauler()?.memory.crossRoomHauler).toMatchObject({
+      homeRoom: 'E26S49',
+      targetRoom: 'E26S50'
+    });
+  });
+
+  it('tracks local production, local consumption, and deficits in spawn forecasts', () => {
+    const roomCreeps: Creep[] = [];
+    const room = makeOwnedRoom({
+      roomName: 'E26S50',
+      storageEnergy: 100,
+      myCreeps: roomCreeps
+    });
+    const builder = makeWorker('builder-E26S50', room, { type: 'build', targetId: 'site1' as Id<ConstructionSite> }, 2);
+    roomCreeps.push(builder);
+    installGame([room], [], { [builder.name]: builder });
+    Memory.economy = {
+      sourceWorkloads: {
+        E26S50: {
+          updatedAt: 100,
+          sources: {
+            'E26S50-source': makeSourceWorkload('E26S50-source', 8, 10)
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S50).toMatchObject({
+      localProductionEnergyPerTick: 8,
+      localHarvestCapacityEnergyPerTick: 10,
+      localHarvestCoverageRatio: 0.8,
+      localConsumptionEnergyPerTick: 10,
+      netLocalEnergyPerTick: -2,
+      importDemand: 200,
+      storageDeficit: 200,
+      deficitEnergy: 200,
+      blockedImportEnergy: 200,
+      bottleneck: 'no-exporter'
+    });
+    expect(getSpawnEnergyForecast(makeColony(room))).toMatchObject({
+      roomName: 'E26S50',
+      localProductionEnergyPerTick: 8,
+      localConsumptionEnergyPerTick: 10,
+      netLocalEnergyPerTick: -2,
+      deficitEnergy: 200
+    });
   });
 
   it('imports to E26S48 when local energy falls below the configured threshold', () => {
@@ -828,7 +953,8 @@ describe('cross-room energy logistics', () => {
     myStructures = [],
     structures = [],
     hostileCreeps = [],
-    hostileStructures = []
+    hostileStructures = [],
+    myCreeps = []
   }: {
     roomName: string;
     storageEnergy: number;
@@ -841,6 +967,7 @@ describe('cross-room energy logistics', () => {
     structures?: Structure[];
     hostileCreeps?: Creep[];
     hostileStructures?: Structure[];
+    myCreeps?: Creep[];
   }): Room {
     const controller = { id: `${roomName}-controller`, my: true, level: 4 } as StructureController;
     registerObject(controller);
@@ -871,6 +998,10 @@ describe('cross-room energy logistics', () => {
 
         if (type === FIND_SOURCES) {
           return [{ id: `${roomName}-source` } as Source];
+        }
+
+        if (type === FIND_MY_CREEPS) {
+          return myCreeps;
         }
 
         return [];
@@ -1009,6 +1140,26 @@ describe('cross-room energy logistics', () => {
       withdraw,
       transfer,
       moveTo
+    } as unknown as Creep;
+  }
+
+  function makeWorker(
+    name: string,
+    room: Room,
+    task: CreepTaskMemory,
+    activeWorkParts: number
+  ): Creep {
+    return {
+      name,
+      room,
+      memory: {
+        role: 'worker',
+        colony: room.name,
+        task
+      },
+      body: Array.from({ length: activeWorkParts }, () => ({ type: 'work', hits: 100 })),
+      getActiveBodyparts: jest.fn((part: BodyPartConstant) => (part === WORK ? activeWorkParts : 0)),
+      store: makeStore(50, 100)
     } as unknown as Creep;
   }
 
