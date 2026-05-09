@@ -202,7 +202,10 @@ describe('planTerritoryIntent', () => {
     const colony = makeSafeColony();
     const describeExits = jest.fn(() => ({ '1': 'W1N2', '3': 'W2N1' }));
     (globalThis as unknown as { Game: Partial<Game> }).Game = {
-      map: { describeExits } as unknown as GameMap
+      map: { describeExits } as unknown as GameMap,
+      rooms: {
+        W2N1: { name: 'W2N1', controller: { my: false } as StructureController } as Room
+      }
     };
 
     expect(
