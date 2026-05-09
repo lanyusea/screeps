@@ -7,6 +7,10 @@ import {
   type ExpansionCandidateScore,
   type NextExpansionTargetSelection
 } from './expansionScoring';
+import {
+  isClaimPlanBlockedByHigherPriorityColony,
+  pruneLowerPriorityDuplicateClaimPlans
+} from './multiRoomTerritory';
 import type { RuntimeTelemetryEvent } from '../telemetry/runtimeSummary';
 import {
   ensureTerritoryScoutAttempt,
@@ -388,7 +392,17 @@ function selectExpansionTriggerCandidate(
     (scoredCandidate) =>
       scoredCandidate.evidenceStatus !== 'unavailable' &&
       scoredCandidate.score >= config.scoreThreshold &&
-      scoredCandidate.preconditions.length === 0
+      scoredCandidate.preconditions.length === 0 &&
+      !isClaimPlanBlockedByHigherPriorityColony({
+        colony,
+        targetRoom: scoredCandidate.roomName,
+        ...(scoredCandidate.routeDistance !== undefined ? { routeDistance: scoredCandidate.routeDistance } : {}),
+        ...(scoredCandidate.nearestOwnedRoom ? { nearestOwnedRoom: scoredCandidate.nearestOwnedRoom } : {}),
+        ...(scoredCandidate.nearestOwnedRoomDistance !== undefined
+          ? { nearestOwnedRoomDistance: scoredCandidate.nearestOwnedRoomDistance }
+          : {}),
+        territoryMemory
+      })
   );
   return candidate ? { candidate, config } : null;
 }
@@ -601,6 +615,9 @@ function persistPipelineControlPlan(
   gameTime: number
 ): void {
   prunePipelinePlans(territoryMemory, pipeline.colony, pipeline.targetRoom);
+  if (action === 'claim') {
+    pruneLowerPriorityDuplicateClaimPlans(territoryMemory, pipeline.colony, pipeline.targetRoom);
+  }
   const target: TerritoryTargetMemory = {
     colony: pipeline.colony,
     roomName: pipeline.targetRoom,
