@@ -68,7 +68,7 @@ export function checkEnergyBufferForCapacityEnablingConstruction(room: Room, amo
   return (
     hasMinimumWorkerSpawnEnergyForConstruction(room) &&
     energyCapacityAvailable < CAPACITY_ENABLING_CONSTRUCTION_HEALTHY_ENERGY_CAPACITY &&
-    getEffectiveRoomEnergyBufferThreshold(room) > energyCapacityAvailable
+    getEffectiveRoomEnergyBufferThreshold(room) >= energyCapacityAvailable
   );
 }
 

@@ -58,10 +58,10 @@ describe('energyBuffer', () => {
     expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(true);
   });
 
-  it('keeps the normal buffer threshold once RCL4 room capacity reaches the buffer threshold', () => {
+  it('allows capacity-enabling construction when RCL4 room capacity equals the buffer threshold', () => {
     const room = makeRoom({ level: 4, energyAvailable: 500, energyCapacityAvailable: 500 });
 
-    expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(false);
+    expect(checkEnergyBufferForCapacityEnablingConstruction(room, 50)).toBe(true);
   });
 
   it('blocks the capacity-enabling construction carveout below worker spawn energy', () => {
