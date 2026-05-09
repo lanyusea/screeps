@@ -25100,6 +25100,7 @@ function getRoomCreepBudget(colony, roleCounts) {
   const workerDeficit = Math.max(0, workerTarget - workerCapacity);
   return {
     roomName: colony.room.name,
+    constructionSiteCount: getVisibleConstructionSiteCount(colony.room),
     controllerLevel: getControllerLevel2(colony.room.controller),
     energyAvailable: normalizeNonNegativeInteger9(colony.energyAvailable),
     energyCapacityAvailable: normalizeNonNegativeInteger9(colony.energyCapacityAvailable),
@@ -25111,7 +25112,8 @@ function getRoomCreepBudget(colony, roleCounts) {
     workerTarget,
     workerDeficit,
     priority: selectRoomSpawnPriority(survival, workerDeficit),
-    reservedSpawnEnergy: forecast.reservedEnergy
+    reservedSpawnEnergy: forecast.reservedEnergy,
+    sourceCount: getSourceCount(colony.room)
   };
 }
 function buildSpawnQueue(context) {
@@ -26113,7 +26115,10 @@ function getVisibleRoom7(roomName) {
 function compareColoniesForSpawnPlanning(left, right, roleCountsByRoom) {
   const leftBudget = getRoomCreepBudget(left, getRoleCountsForSpawnPlanning(left, roleCountsByRoom));
   const rightBudget = getRoomCreepBudget(right, getRoleCountsForSpawnPlanning(right, roleCountsByRoom));
-  return getRoomSpawnPriorityRank(leftBudget.priority) - getRoomSpawnPriorityRank(rightBudget.priority) || rightBudget.workerDeficit - leftBudget.workerDeficit || getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget) || getNoSpawnRoomOrdering(leftBudget, rightBudget) || leftBudget.controllerLevel - rightBudget.controllerLevel || getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) || rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable || right.energyAvailable - left.energyAvailable || left.room.name.localeCompare(right.room.name);
+  return getRoomSpawnPriorityRank(leftBudget.priority) - getRoomSpawnPriorityRank(rightBudget.priority) || rightBudget.workerDeficit - leftBudget.workerDeficit || getSpawnlessWorkerRecoveryRank(rightBudget) - getSpawnlessWorkerRecoveryRank(leftBudget) || rightBudget.constructionSiteCount - leftBudget.constructionSiteCount || rightBudget.sourceCount - leftBudget.sourceCount || getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget) || getNoSpawnRoomOrdering(leftBudget, rightBudget) || leftBudget.controllerLevel - rightBudget.controllerLevel || getEnergyGateRank(rightBudget.energyGate) - getEnergyGateRank(leftBudget.energyGate) || rightBudget.effectiveEnergyAvailable - leftBudget.effectiveEnergyAvailable || right.energyAvailable - left.energyAvailable || left.room.name.localeCompare(right.room.name);
+}
+function getSpawnlessWorkerRecoveryRank(budget) {
+  return budget.ownedSpawnCount === 0 && budget.workerDeficit > 0 ? 1 : 0;
 }
 function getOperationalSpawnRank(budget) {
   return budget.ownedSpawnCount > 0 ? 1 : 0;
@@ -26147,11 +26152,11 @@ function isRoleCountsMap(value) {
   return typeof value.get === "function";
 }
 function selectRoomSpawnPriority(survival, workerDeficit) {
-  if (survival.mode === "BOOTSTRAP" && hasEmergencyBootstrapCreepShortfall(survival)) {
-    return "emergencyBootstrap";
-  }
   if (survival.hostilePresence) {
     return "defense";
+  }
+  if (survival.mode === "BOOTSTRAP" && hasEmergencyBootstrapCreepShortfall(survival)) {
+    return "emergencyBootstrap";
   }
   if (survival.controllerDowngradeGuard) {
     return "controllerDowngradeGuard";
@@ -26163,9 +26168,9 @@ function selectRoomSpawnPriority(survival, workerDeficit) {
 }
 function getRoomSpawnPriorityRank(priority) {
   switch (priority) {
-    case "emergencyBootstrap":
-      return 0;
     case "defense":
+      return 0;
+    case "emergencyBootstrap":
       return 1;
     case "controllerDowngradeGuard":
       return 2;
@@ -26227,6 +26232,22 @@ function findRoomObjects17(room, globalName) {
   } catch {
     return [];
   }
+}
+function getVisibleConstructionSiteCount(room) {
+  const constructionSites = [
+    ...findRoomObjects17(room, "FIND_MY_CONSTRUCTION_SITES"),
+    ...findRoomObjects17(room, "FIND_CONSTRUCTION_SITES").filter((site) => site.my !== false)
+  ];
+  const seenIds = /* @__PURE__ */ new Set();
+  let anonymousSiteCount = 0;
+  for (const site of constructionSites) {
+    if (typeof site.id !== "string" || site.id.length === 0) {
+      anonymousSiteCount += 1;
+      continue;
+    }
+    seenIds.add(site.id);
+  }
+  return seenIds.size + anonymousSiteCount;
 }
 function getGlobalNumber10(name) {
   const value = globalThis[name];
@@ -36155,6 +36176,7 @@ function isRecord32(value) {
 
 // src/economy/economyLoop.ts
 var ERR_BUSY_CODE = -4;
+var ERR_NO_PATH_CODE8 = -2;
 var OK_CODE17 = 0;
 var BOOTSTRAP_WORKER_BUFFER_BYPASS_MIN_ENERGY = 300;
 function runEconomy(preludeTelemetryEvents = []) {
@@ -36557,7 +36579,7 @@ function getCoordinatedSpawnSourceColonies(targetColony, colonies, creeps, usedS
       plannedRoleCountsByRoom
     )
   ).sort(
-    (left, right) => compareCoordinatedSpawnSources(left, right, reservedSpawnEnergyByRoom)
+    (left, right) => compareCoordinatedSpawnSources(left, right, targetColony, reservedSpawnEnergyByRoom)
   );
   return localSource ? [localSource, ...remoteSources] : remoteSources;
 }
@@ -36587,8 +36609,31 @@ function canUseCrossRoomSpawnSource(sourceColony, creeps, usedSpawnsByRoom, rese
   const survival = assessColonySnapshotSurvival(sourceColony, roleCounts);
   return survival.mode === "TERRITORY_READY" && !survival.controllerDowngradeGuard && !survival.hostilePresence;
 }
-function compareCoordinatedSpawnSources(left, right, reservedSpawnEnergyByRoom) {
-  return getAvailableSpawnEnergy(right, reservedSpawnEnergyByRoom) - getAvailableSpawnEnergy(left, reservedSpawnEnergyByRoom) || normalizeNonNegativeInteger15(right.energyCapacityAvailable) - normalizeNonNegativeInteger15(left.energyCapacityAvailable) || left.room.name.localeCompare(right.room.name);
+function compareCoordinatedSpawnSources(left, right, targetColony, reservedSpawnEnergyByRoom) {
+  return getCrossRoomSpawnRouteDistance(left.room.name, targetColony.room.name) - getCrossRoomSpawnRouteDistance(right.room.name, targetColony.room.name) || getAvailableSpawnEnergy(right, reservedSpawnEnergyByRoom) - getAvailableSpawnEnergy(left, reservedSpawnEnergyByRoom) || normalizeNonNegativeInteger15(right.energyCapacityAvailable) - normalizeNonNegativeInteger15(left.energyCapacityAvailable) || left.room.name.localeCompare(right.room.name);
+}
+function getCrossRoomSpawnRouteDistance(sourceRoomName, targetRoomName) {
+  var _a;
+  if (sourceRoomName === targetRoomName) {
+    return 0;
+  }
+  const gameMap = (_a = globalThis.Game) == null ? void 0 : _a.map;
+  if (typeof (gameMap == null ? void 0 : gameMap.findRoute) === "function") {
+    const route = gameMap.findRoute.call(gameMap, sourceRoomName, targetRoomName);
+    if (Array.isArray(route)) {
+      return route.length;
+    }
+    if (route === ERR_NO_PATH_CODE8) {
+      return Number.POSITIVE_INFINITY;
+    }
+  }
+  if (typeof (gameMap == null ? void 0 : gameMap.getRoomLinearDistance) === "function") {
+    const distance = gameMap.getRoomLinearDistance.call(gameMap, sourceRoomName, targetRoomName);
+    if (typeof distance === "number" && Number.isFinite(distance)) {
+      return Math.max(0, Math.floor(distance));
+    }
+  }
+  return Number.POSITIVE_INFINITY;
 }
 function getUnusedSpawnCount(colony, usedSpawnsByRoom) {
   var _a;

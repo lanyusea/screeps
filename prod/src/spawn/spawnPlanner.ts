@@ -160,6 +160,7 @@ export type SpawnPlanningRoomPriority =
 
 export interface RoomCreepBudget {
   roomName: string;
+  constructionSiteCount: number;
   controllerLevel: number;
   energyAvailable: number;
   energyCapacityAvailable: number;
@@ -172,6 +173,7 @@ export interface RoomCreepBudget {
   workerDeficit: number;
   priority: SpawnPlanningRoomPriority;
   reservedSpawnEnergy: number;
+  sourceCount: number;
 }
 
 export interface SpawnEnergyReservationCandidate {
@@ -380,6 +382,7 @@ export function getRoomCreepBudget(
 
   return {
     roomName: colony.room.name,
+    constructionSiteCount: getVisibleConstructionSiteCount(colony.room),
     controllerLevel: getControllerLevel(colony.room.controller),
     energyAvailable: normalizeNonNegativeInteger(colony.energyAvailable),
     energyCapacityAvailable: normalizeNonNegativeInteger(colony.energyCapacityAvailable),
@@ -391,7 +394,8 @@ export function getRoomCreepBudget(
     workerTarget,
     workerDeficit,
     priority: selectRoomSpawnPriority(survival, workerDeficit),
-    reservedSpawnEnergy: forecast.reservedEnergy
+    reservedSpawnEnergy: forecast.reservedEnergy,
+    sourceCount: getSourceCount(colony.room)
   };
 }
 
@@ -1934,6 +1938,9 @@ function compareColoniesForSpawnPlanning(
   return (
     getRoomSpawnPriorityRank(leftBudget.priority) - getRoomSpawnPriorityRank(rightBudget.priority) ||
     rightBudget.workerDeficit - leftBudget.workerDeficit ||
+    getSpawnlessWorkerRecoveryRank(rightBudget) - getSpawnlessWorkerRecoveryRank(leftBudget) ||
+    rightBudget.constructionSiteCount - leftBudget.constructionSiteCount ||
+    rightBudget.sourceCount - leftBudget.sourceCount ||
     getOperationalSpawnRank(rightBudget) - getOperationalSpawnRank(leftBudget) ||
     getNoSpawnRoomOrdering(leftBudget, rightBudget) ||
     leftBudget.controllerLevel - rightBudget.controllerLevel ||
@@ -1942,6 +1949,10 @@ function compareColoniesForSpawnPlanning(
     right.energyAvailable - left.energyAvailable ||
     left.room.name.localeCompare(right.room.name)
   );
+}
+
+function getSpawnlessWorkerRecoveryRank(budget: RoomCreepBudget): number {
+  return budget.ownedSpawnCount === 0 && budget.workerDeficit > 0 ? 1 : 0;
 }
 
 function getOperationalSpawnRank(budget: RoomCreepBudget): number {
@@ -1996,12 +2007,12 @@ function selectRoomSpawnPriority(
   survival: ColonySurvivalAssessment,
   workerDeficit: number
 ): SpawnPlanningRoomPriority {
-  if (survival.mode === 'BOOTSTRAP' && hasEmergencyBootstrapCreepShortfall(survival)) {
-    return 'emergencyBootstrap';
-  }
-
   if (survival.hostilePresence) {
     return 'defense';
+  }
+
+  if (survival.mode === 'BOOTSTRAP' && hasEmergencyBootstrapCreepShortfall(survival)) {
+    return 'emergencyBootstrap';
   }
 
   if (survival.controllerDowngradeGuard) {
@@ -2017,9 +2028,9 @@ function selectRoomSpawnPriority(
 
 function getRoomSpawnPriorityRank(priority: SpawnPlanningRoomPriority): number {
   switch (priority) {
-    case 'emergencyBootstrap':
-      return 0;
     case 'defense':
+      return 0;
+    case 'emergencyBootstrap':
       return 1;
     case 'controllerDowngradeGuard':
       return 2;
@@ -2094,6 +2105,26 @@ function findRoomObjects<T>(room: Room, globalName: string): T[] {
   } catch {
     return [];
   }
+}
+
+function getVisibleConstructionSiteCount(room: Room): number {
+  const constructionSites = [
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_MY_CONSTRUCTION_SITES'),
+    ...findRoomObjects<ConstructionSite>(room, 'FIND_CONSTRUCTION_SITES').filter((site) => site.my !== false)
+  ];
+  const seenIds = new Set<string>();
+  let anonymousSiteCount = 0;
+
+  for (const site of constructionSites) {
+    if (typeof site.id !== 'string' || site.id.length === 0) {
+      anonymousSiteCount += 1;
+      continue;
+    }
+
+    seenIds.add(site.id);
+  }
+
+  return seenIds.size + anonymousSiteCount;
 }
 
 function getGlobalNumber(name: string): number | undefined {
