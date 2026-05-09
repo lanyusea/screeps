@@ -381,6 +381,7 @@ function planPostClaimBarrierConstruction(
   const rampartStructureType = getStructureConstant('STRUCTURE_RAMPART');
   const wallStructureType = getStructureConstant('STRUCTURE_WALL');
   const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 })
+    .filter((placement) => placement.stage !== 'entranceWall')
     .filter((placement) => placement.roomName === room.name)
     .filter(
       (placement) => placement.structureType === rampartStructureType || placement.structureType === wallStructureType

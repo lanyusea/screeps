@@ -6,6 +6,7 @@ import {
 } from './criticalRoads';
 import { getExtensionLimitForRcl, planExtensionConstruction } from './extensionPlanner';
 import { planEarlyRoadConstruction, type EarlyRoadPlannerOptions } from './roadPlanner';
+import { planExpansionDefenseBarrierPlacements } from '../territory/expansionPlanner';
 
 export type ConstructionVisionLayer = 'survival' | 'territory' | 'resources' | 'enemyKills';
 
@@ -1238,7 +1239,40 @@ export function isPostClaimConstructionRoom(roomName: string | undefined): boole
   const claimedRoomRecord = territory?.claimedRoomBootstrapper?.rooms?.[roomName];
   return claimedRoomRecord?.owned === true &&
     claimedRoomRecord.claimedAt !== undefined &&
-    claimedRoomRecord.completedAt === undefined;
+    (claimedRoomRecord.completedAt === undefined || hasIncompletePostClaimConstructionMilestones(roomName));
+}
+
+function hasIncompletePostClaimConstructionMilestones(roomName: string): boolean {
+  const room = getVisibleOwnedRoom(roomName);
+  if (!room) {
+    return false;
+  }
+
+  return needsPostClaimRampartCoverage(room) || needsPostClaimStorageConstruction(room);
+}
+
+function needsPostClaimRampartCoverage(room: Room): boolean {
+  if (getOwnedRoomRcl(room) < MIN_RCL_FOR_AUTOMATED_CONSTRUCTION) {
+    return false;
+  }
+
+  return planExpansionDefenseBarrierPlacements(room, { maxPlacements: 1 })
+    .some((placement) => placement.stage !== 'entranceWall');
+}
+
+function needsPostClaimStorageConstruction(room: Room): boolean {
+  if (getOwnedRoomRcl(room) < MIN_RCL_FOR_STORAGE) {
+    return false;
+  }
+
+  const storageCount = countExistingAndPendingFixedStructures(room, 'STRUCTURE_STORAGE', 'storage');
+  return storageCount !== null && storageCount < STORAGE_STRUCTURE_LIMIT;
+}
+
+function getVisibleOwnedRoom(roomName: string): Room | null {
+  const room = (globalThis as { Game?: Partial<Game> & { rooms?: Record<string, Room | undefined> } }).Game
+    ?.rooms?.[roomName];
+  return room?.controller?.my === true ? room : null;
 }
 
 function isProtectedRampartConstructionSite(

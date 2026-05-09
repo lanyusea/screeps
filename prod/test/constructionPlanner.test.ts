@@ -215,7 +215,7 @@ describe('owned room construction planner', () => {
     expect(room.createConstructionSite).toHaveBeenCalledWith(23, 23, STRUCTURE_SPAWN);
   });
 
-  it('creates same-room entrance wall sites for post-claim barrier progression', () => {
+  it('skips same-room entrance wall sites for post-claim barrier progression', () => {
     installOpenTerrain();
     mockPlanExpansionDefenseBarrierPlacements.mockReturnValue([
       {
@@ -233,6 +233,14 @@ describe('owned room construction planner', () => {
         structureType: TEST_GLOBALS.STRUCTURE_WALL,
         stage: 'entranceWall',
         priority: 3
+      },
+      {
+        roomName: 'W1N1',
+        x: 26,
+        y: 24,
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
+        stage: 'coreRampart',
+        priority: 2
       }
     ]);
     const { room, colony } = makeColony({
@@ -255,17 +263,17 @@ describe('owned room construction planner', () => {
 
     expect(result.placements).toEqual([
       {
-        priority: 'wall',
+        priority: 'rampart',
         roomName: 'W1N1',
-        structureType: TEST_GLOBALS.STRUCTURE_WALL,
+        structureType: TEST_GLOBALS.STRUCTURE_RAMPART,
         result: OK_CODE,
         energyReserved: 50,
         x: 26,
-        y: 1
+        y: 24
       }
     ]);
     expect(room.createConstructionSite).toHaveBeenCalledTimes(1);
-    expect(room.createConstructionSite).toHaveBeenCalledWith(26, 1, TEST_GLOBALS.STRUCTURE_WALL);
+    expect(room.createConstructionSite).toHaveBeenCalledWith(26, 24, TEST_GLOBALS.STRUCTURE_RAMPART);
   });
 });
 

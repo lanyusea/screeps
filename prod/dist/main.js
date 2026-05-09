@@ -7604,7 +7604,32 @@ function isPostClaimConstructionRoom(roomName) {
     return true;
   }
   const claimedRoomRecord = (_d = (_c = territory == null ? void 0 : territory.claimedRoomBootstrapper) == null ? void 0 : _c.rooms) == null ? void 0 : _d[roomName];
-  return (claimedRoomRecord == null ? void 0 : claimedRoomRecord.owned) === true && claimedRoomRecord.claimedAt !== void 0 && claimedRoomRecord.completedAt === void 0;
+  return (claimedRoomRecord == null ? void 0 : claimedRoomRecord.owned) === true && claimedRoomRecord.claimedAt !== void 0 && (claimedRoomRecord.completedAt === void 0 || hasIncompletePostClaimConstructionMilestones(roomName));
+}
+function hasIncompletePostClaimConstructionMilestones(roomName) {
+  const room = getVisibleOwnedRoom2(roomName);
+  if (!room) {
+    return false;
+  }
+  return needsPostClaimRampartCoverage(room) || needsPostClaimStorageConstruction(room);
+}
+function needsPostClaimRampartCoverage(room) {
+  if (getOwnedRoomRcl(room) < MIN_RCL_FOR_AUTOMATED_CONSTRUCTION) {
+    return false;
+  }
+  return planExpansionDefenseBarrierPlacements(room, { maxPlacements: 1 }).some((placement) => placement.stage !== "entranceWall");
+}
+function needsPostClaimStorageConstruction(room) {
+  if (getOwnedRoomRcl(room) < MIN_RCL_FOR_STORAGE) {
+    return false;
+  }
+  const storageCount = countExistingAndPendingFixedStructures(room, "STRUCTURE_STORAGE", "storage");
+  return storageCount !== null && storageCount < STORAGE_STRUCTURE_LIMIT;
+}
+function getVisibleOwnedRoom2(roomName) {
+  var _a, _b, _c;
+  const room = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
+  return ((_c = room == null ? void 0 : room.controller) == null ? void 0 : _c.my) === true ? room : null;
 }
 function isProtectedRampartConstructionSite(site, context) {
   const sitePosition = getRoomObjectPosition(site);
@@ -8608,7 +8633,7 @@ function planPostClaimBarrierConstruction(colony, budgetState, options) {
   }
   const rampartStructureType = getStructureConstant("STRUCTURE_RAMPART");
   const wallStructureType = getStructureConstant("STRUCTURE_WALL");
-  const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 }).filter((placement) => placement.roomName === room.name).filter(
+  const placements = planExpansionDefenseBarrierPlacements(room, { maxPlacements: 4 }).filter((placement) => placement.stage !== "entranceWall").filter((placement) => placement.roomName === room.name).filter(
     (placement) => placement.structureType === rampartStructureType || placement.structureType === wallStructureType
   );
   for (const placement of placements) {
@@ -18089,7 +18114,7 @@ function getInterRoomTransferKey(sourceRoom, targetRoom) {
 }
 function selectInterRoomEnergySource(roomName, preferredSourceId) {
   var _a;
-  const room = getVisibleOwnedRoom2(roomName);
+  const room = getVisibleOwnedRoom3(roomName);
   if (!room) {
     return null;
   }
@@ -18102,7 +18127,7 @@ function selectInterRoomEnergySource(roomName, preferredSourceId) {
 }
 function selectInterRoomEnergyTarget(roomName, preferredTargetId) {
   var _a;
-  const room = getVisibleOwnedRoom2(roomName);
+  const room = getVisibleOwnedRoom3(roomName);
   if (!room) {
     return null;
   }
@@ -18227,7 +18252,7 @@ function clearInterRoomEnergyHaulAssignment(creep) {
 function isNonEmptyString13(value) {
   return typeof value === "string" && value.length > 0;
 }
-function getVisibleOwnedRoom2(roomName) {
+function getVisibleOwnedRoom3(roomName) {
   var _a, _b, _c;
   const room = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
   return ((_c = room == null ? void 0 : room.controller) == null ? void 0 : _c.my) === true ? room : null;
@@ -26431,7 +26456,7 @@ function comparePostClaimBootstrapRecordsForFocus(left, right) {
 }
 function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
   const record = getPostClaimBootstrapRecord(roomName);
-  const room = getVisibleOwnedRoom3(roomName);
+  const room = getVisibleOwnedRoom4(roomName);
   if (!record || !room || !canAttemptImmediateSpawnSitePlacement(room) || hasOwnedSpawnInRoom(roomName)) {
     return;
   }
@@ -26487,7 +26512,7 @@ function placePostClaimSpawnConstructionSite(roomName, telemetryEvents) {
     recordSpawnSitePlacedTelemetry(record, sitePlan.position, sitePlan.result, telemetryEvents);
   }
 }
-function getVisibleOwnedRoom3(roomName) {
+function getVisibleOwnedRoom4(roomName) {
   var _a, _b, _c;
   const room = (_b = (_a = globalThis.Game) == null ? void 0 : _a.rooms) == null ? void 0 : _b[roomName];
   return ((_c = room == null ? void 0 : room.controller) == null ? void 0 : _c.my) === true ? room : null;
