@@ -11333,7 +11333,7 @@ var POST_CLAIM_DEFENSE_BARRIER_STAGE_ORDER = [
   "entranceWall"
 ];
 function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
-  var _a, _b;
+  var _a, _b, _c, _d;
   if (!isNonEmptyString11(input.colony) || !isNonEmptyString11(input.roomName)) {
     return;
   }
@@ -11347,11 +11347,13 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
   bootstraps[input.roomName] = {
     colony: input.colony,
     roomName: input.roomName,
-    status: "detected",
+    status: getRefreshedPostClaimBootstrapStatus(existing),
     claimedAt,
     updatedAt: gameTime,
     workerTarget: (_b = existing == null ? void 0 : existing.workerTarget) != null ? _b : POST_CLAIM_BOOTSTRAP_WORKER_TARGET,
-    ...input.controllerId ? { controllerId: input.controllerId } : {}
+    ...((_c = input.controllerId) != null ? _c : existing == null ? void 0 : existing.controllerId) ? { controllerId: (_d = input.controllerId) != null ? _d : existing == null ? void 0 : existing.controllerId } : {},
+    ...(existing == null ? void 0 : existing.spawnSite) ? { spawnSite: existing.spawnSite } : {},
+    ...(existing == null ? void 0 : existing.lastResult) !== void 0 ? { lastResult: existing.lastResult } : {}
   };
   recordClaimedRoomOccupation(input.roomName, claimedAt, gameTime);
   telemetryEvents.push({
@@ -11363,6 +11365,12 @@ function recordPostClaimBootstrapClaimSuccess(input, telemetryEvents = []) {
     workerTarget: POST_CLAIM_BOOTSTRAP_WORKER_TARGET
   });
   placePostClaimSpawnConstructionSite(input.roomName, telemetryEvents);
+}
+function getRefreshedPostClaimBootstrapStatus(existing) {
+  if (!existing || existing.status === "ready") {
+    return "detected";
+  }
+  return existing.status;
 }
 function recordClaimedRoomOccupation(roomName, claimedAt, gameTime) {
   var _a;
