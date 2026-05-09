@@ -62,11 +62,77 @@ describe('multi-room spawn energy buffer coordination', () => {
       criticalSpawnEnergyDeficit: 200
     });
     expect(Memory.economy?.multiRoomEnergy?.rooms.E26S47).toMatchObject({
+      plannedImportEnergy: 400,
       spawnEnergyAvailable: 100,
       spawnEnergyBufferThreshold: 500,
       spawnEnergyBufferDeficit: 400,
       criticalSpawnEnergyDeficit: 200,
-      deficitEnergy: 400
+      storageDeficit: 0,
+      deficitEnergy: 0
+    });
+  });
+
+  it('imports for active spawn reservations in rooms without local spawns', () => {
+    const sourceStructures: AnyOwnedStructure[] = [];
+    const sourceRoom = makeOwnedRoom({
+      roomName: 'E26S49',
+      storageEnergy: 2_000,
+      storageCapacity: 2_000,
+      energyAvailable: 800,
+      myStructures: sourceStructures
+    });
+    const targetRoom = makeOwnedRoom({
+      roomName: 'E26S47',
+      storageEnergy: 500,
+      storageCapacity: 1_000,
+      energyAvailable: 200
+    });
+    const sourceSpawn = makeSpawn('SpawnE26S49', sourceRoom, 0);
+    sourceStructures.push(sourceSpawn as unknown as AnyOwnedStructure);
+    installGame([sourceRoom, targetRoom], [sourceSpawn]);
+    Memory.economy = {
+      spawnEnergyReservation: {
+        updatedAt: 99,
+        rooms: {
+          E26S47: {
+            bodyCost: 650,
+            creepName: 'worker-E26S47-100',
+            reservedAt: 99,
+            reservedEnergy: 650,
+            role: 'worker',
+            roomName: 'E26S47',
+            updatedAt: 99
+          }
+        }
+      }
+    };
+
+    balanceStorage();
+
+    expect(Memory.economy?.storageBalance?.rooms.E26S47).toMatchObject({
+      importDemand: 450,
+      reservedSpawnEnergy: 650,
+      spawnEnergyBufferThreshold: 650,
+      spawnEnergyBufferDeficit: 450,
+      unmetSpawnEnergyReservation: 450
+    });
+    expect(Memory.economy?.storageBalance?.transfers).toEqual([
+      { sourceRoom: 'E26S49', targetRoom: 'E26S47', amount: 400, updatedAt: 100 }
+    ]);
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S47).toMatchObject({
+      plannedImportEnergy: 400,
+      spawnEnergyBufferThreshold: 650,
+      spawnEnergyBufferDeficit: 450,
+      storageDeficit: 50,
+      deficitEnergy: 50
+    });
+    expect(Memory.economy?.multiRoomEnergy?.transfers).toContainEqual({
+      sourceRoom: 'E26S49',
+      targetRoom: 'E26S47',
+      amount: 400,
+      status: 'planned',
+      reason: 'spawn-energy-buffer',
+      updatedAt: 100
     });
   });
 
@@ -168,6 +234,11 @@ describe('multi-room spawn energy buffer coordination', () => {
 
     expect(Memory.economy?.storageBalance?.rooms.E26S47).toMatchObject({
       spawnEnergyBufferDeficit: 500
+    });
+    expect(Memory.economy?.multiRoomEnergy?.rooms.E26S47).toMatchObject({
+      spawnEnergyBufferDeficit: 500,
+      storageDeficit: 500,
+      deficitEnergy: 500
     });
     expect(Memory.economy?.storageBalance?.transfers).toEqual([]);
     expect(planCrossRoomHauler()).toBeNull();

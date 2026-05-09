@@ -4,6 +4,7 @@ import {
   SPAWN_ENERGY_BUFFER_THRESHOLDS_BY_RCL,
   canWithdrawFromSpawnEnergyBuffer,
   getBufferedSpawnEnergyBudget,
+  getRoomSpawnEnergyBufferNeed,
   getSpawnEnergyAvailableForWithdrawal,
   getSpawnEnergyBufferRequirement,
   getSpawnEnergyBufferSnapshot,
@@ -148,6 +149,34 @@ describe('spawnEnergyBuffer', () => {
       unmetReservedEnergy: 150
     });
     expect(getSpawnEnergyAvailableForWithdrawal(room, spawn)).toBe(0);
+  });
+
+  it('keeps active spawn energy reservations visible in rooms without spawns', () => {
+    Memory.economy = {
+      spawnEnergyReservation: {
+        updatedAt: 99,
+        rooms: {
+          W1N1: {
+            bodyCost: 650,
+            creepName: 'worker-W1N1-100',
+            reservedAt: 99,
+            reservedEnergy: 650,
+            role: 'worker',
+            roomName: 'W1N1',
+            updatedAt: 99
+          }
+        }
+      }
+    };
+    const room = makeRoom({ energyAvailable: 200, level: 1 });
+
+    expect(getRoomSpawnEnergyBufferNeed(room, [])).toMatchObject({
+      currentEnergy: 200,
+      deficit: 450,
+      healthy: false,
+      spawnCount: 0,
+      threshold: 650
+    });
   });
 
   it('applies miner throughput credit once before splitting a multi-spawn buffer', () => {

@@ -128,7 +128,7 @@ function buildMultiRoomEnergyRoom(input: MultiRoomEnergyRoomInput): EconomyMulti
     spawnEnergyBufferDeficit: roomState.spawnEnergyBufferDeficit,
     criticalSpawnEnergyDeficit: roomState.criticalSpawnEnergyDeficit,
     storageDeficit,
-    deficitEnergy: storageDeficit + roomState.spawnEnergyBufferDeficit,
+    deficitEnergy: storageDeficit,
     surplusEnergy,
     suppressedImportEnergy,
     blockedImportEnergy,

@@ -125,7 +125,7 @@ export function getRoomSpawnEnergyBufferNeed(
   currentEnergy = getRoomEnergyAvailable(room)
 ): RoomSpawnEnergyBufferNeed {
   const snapshot = getSpawnEnergyBufferSnapshot(room, spawns, currentEnergy);
-  const threshold = snapshot.spawnCount > 0 ? snapshot.threshold : 0;
+  const threshold = snapshot.threshold;
   const criticalThreshold = getCriticalSpawnEnergyBufferThreshold(threshold, snapshot.spawnCount);
   return {
     criticalDeficit: Math.max(0, criticalThreshold - snapshot.currentEnergy),
